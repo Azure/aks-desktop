@@ -1,0 +1,87 @@
+{
+  "name": "aks-desktop-monorepo",
+  "version": "0.1.0-alpha",
+  "description": "AKS desktop - Headlamp Plugin Monorepo",
+  "private": true,
+  "scripts": {
+    "build": "npm run plugin:setup && cd headlamp && make app",
+    "build:linux": "npm run plugin:setup && cd headlamp && make app-linux",
+    "build:mac": "npm run plugin:setup && cd headlamp && make app-mac",
+    "build:win": "npm run plugin:setup && cd headlamp && make app-win",
+    "build:win-ci": "npm run plugin:setup && cd headlamp && make app-win",
+    "build:unpacked": "npm run plugin:setup && cd headlamp && make app-build",
+    "build:unpacked:linux": "npm run plugin:setup && cd headlamp && make app-build",
+    "build:unpacked:mac": "npm run plugin:setup && cd headlamp && make app-build",
+    "build:unpacked:win": "npm run plugin:setup && cd headlamp && make app-build",
+    "test:post-build": "npx --yes tsx ./build/verify-bundled-tools.ts",
+    "plugin:setup": "npx --yes tsx ./build/setup-plugins.ts",
+    "plugin:install": "cd plugins/aks-desktop && npm install",
+    "plugin:build": "cd plugins/aks-desktop && npm run build",
+    "plugin:start": "cd plugins/aks-desktop && npm start",
+    "plugin:test": "cd plugins/aks-desktop && npm test",
+    "plugin:lint": "cd plugins/aks-desktop && npm run lint",
+    "plugin:test:all": "cd plugins/aks-desktop && npm run test:all",
+    "plugin:format": "cd plugins/aks-desktop && npm run format",
+    "plugin:package": "cd plugins/aks-desktop && npm run package",
+    "headlamp:install": "cd headlamp/frontend && npm install && cd ../app && npm install",
+    "headlamp:build": "cd headlamp && make backend && make frontend",
+    "install:all": "npm run headlamp:install && npm run plugin:install",
+    "build:all": "npm run headlamp:build && npm run plugin:build",
+    "dev": "concurrently --kill-others --names \"PLUGIN,BACKEND,FRONTEND,APP\" -c \"cyan,green,yellow,magenta\" \"npm run plugin:start\" \"cd headlamp && make run-backend\" \"cd headlamp && make run-frontend\" \"cd headlamp && make run-only-app\"",
+    "prepare": "husky"
+  },
+  "config": {
+    "externalTools": {
+      "python": {
+        "linux": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250723/cpython-3.10.18+20250723-x86_64_v3-unknown-linux-gnu-install_only_stripped.tar.gz",
+          "checksum": "b712e37fd4f50243afae019f0c325568129550b66598addb6dd9685d36b4625f"
+        },
+        "darwin": {
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.10.19+20251028-x86_64-apple-darwin-install_only_stripped.tar.gz",
+          "checksum": "ff636e82637a7768c499921188222322369584d1b6a2e85a898aba1e263d69f2"
+        }
+      },
+      "azureCli": {
+        "version": "2.78.0",
+        "extensions": [
+          "aks-preview",
+          "resource-graph",
+          "alertsmanagement"
+        ],
+        "win32": {
+          "checksum": "37918233a753986e698ab3b2993b97a17b4458d24c2af94c05be5fa9042874ed"
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "concurrently": "^9.1.2",
+    "husky": "^9.0.0",
+    "lint-staged": "^16.2.6",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  },
+  "lint-staged": {
+    "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
+      "node .husky/lint-plugin.js"
+    ],
+    "plugins/aks-desktop/**/*.{js,jsx,ts,tsx,json,css,scss,md}": [
+      "node .husky/format-plugin.js"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Azure/aks-desktop.git"
+  },
+  "keywords": [
+    "kubernetes",
+    "aks",
+    "azure",
+    "headlamp",
+    "plugin"
+  ],
+  "author": "Microsoft",
+  "license": "MIT"
+}

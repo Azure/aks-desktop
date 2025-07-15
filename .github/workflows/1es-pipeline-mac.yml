@@ -1,0 +1,1022 @@
+trigger: none
+
+resources:
+  repositories:
+    - repository: 1esPipelines
+      type: git
+      name: 1ESPipelineTemplates/1ESPipelineTemplates
+      ref: refs/tags/release
+
+parameters:
+  - name: nodeVersion
+    type: string
+    default: 20.x
+  - name: goVersion
+    type: string
+    default: 1.24.9
+
+extends:
+  template: v1/1ES.Unofficial.PipelineTemplate.yml@1esPipelines
+  parameters:
+    pool:
+      name: Azure Pipelines
+      image: macOS-latest
+      os: macOS
+    sdl:
+      sourceAnalysisPool:
+        name: staging-pool-amd64-mariner-2
+        image: azcu-agent-amd64-windows-22-img
+        os: windows
+        hostArchitecture: amd64
+      git:
+        submodules: false
+        longpaths: true
+
+    stages:
+      # ===================================================================
+      # ARM64 PIPELINE - Build, Sign, and Notarize for Apple Silicon
+      # ===================================================================
+      - stage: Build_arm64
+        displayName: 'Build (arm64)'
+        dependsOn: []  # Explicitly no dependencies - run in parallel with x64
+        jobs:
+          - job: BuildJob_arm64
+            displayName: 'Build macOS Application (Apple Silicon)'
+            timeoutInMinutes: 120
+            variables:
+              - group: AKS Desktop
+              - name: ARCH
+                value: arm64
+              - name: ARCH_DISPLAY
+                value: 'Apple Silicon (arm64)'
+            templateContext:
+              outputs:
+                - output: pipelineArtifact
+                  targetPath: $(Build.ArtifactStagingDirectory)/build-output
+                  artifactName: unsigned-dmg-arm64
+                  displayName: 'Publish Unsigned DMG (arm64)'
+            steps:
+              # Install tools
+              - task: GoTool@0
+                displayName: Install Go
+                retryCountOnTaskFailure: 3
+                inputs:
+                  version: ${{ parameters.goVersion }}
+
+              - task: NodeTool@0
+                displayName: Install Node.js
+                retryCountOnTaskFailure: 3
+                inputs:
+                  versionSpec: ${{ parameters.nodeVersion }}
+
+              - checkout: self
+                submodules: recursive
+
+              # Cache dependencies
+              - task: Cache@2
+                displayName: 'Cache npm dependencies (plugin)'
+                inputs:
+                  key: 'npm | "$(Agent.OS)" | plugins/aks-desktop/package-lock.json'
+                  restoreKeys: |
+                    npm | "$(Agent.OS)" |
+                    npm |
+                  path: 'plugins/aks-desktop/node_modules'
+
+              - task: Cache@2
+                displayName: 'Cache npm dependencies (headlamp frontend)'
+                inputs:
+                  key: 'npm | "$(Agent.OS)" | headlamp/frontend/package-lock.json'
+                  restoreKeys: |
+                    npm | "$(Agent.OS)" |
+                    npm |
+                  path: 'headlamp/frontend/node_modules'
+
+              - task: Cache@2
+                displayName: 'Cache npm dependencies (headlamp app)'
+                inputs:
+                  key: 'npm | "$(Agent.OS)" | headlamp/app/package-lock.json'
+                  restoreKeys: |
+                    npm | "$(Agent.OS)" |
+                    npm |
+                  path: 'headlamp/app/node_modules'
+
+              - task: Cache@2
+                displayName: 'Cache Go modules'
+                inputs:
+                  key: 'go | "$(Agent.OS)" | "${{ parameters.goVersion }}" | **/go.sum'
+                  restoreKeys: |
+                    go | "$(Agent.OS)" | "${{ parameters.goVersion }}" |
+                    go | "$(Agent.OS)" |
+                    go |
+                  path: '$(HOME)/go/pkg/mod'
+
+              # Download certificates (needed for local signing during build)
+              - task: DownloadSecureFile@1
+                name: CertJoaquim
+                displayName: 'Download CertJoaquim.p12'
+                inputs:
+                  secureFile: CertJoaquim.p12
+
+              - task: DownloadSecureFile@1
+                name: AKSDesktopProvisionProfile
+                displayName: 'Download Provisioning Profile'
+                inputs:
+                  secureFile: AKS_Desktop_Distribution.provisionprofile
+
+              # Setup keychain
+              - script: |
+                  set -e
+                  echo "Setting up keychain and importing certificates..."
+
+                  KEYCHAIN_PATH="$(agent.tempdirectory)/buildagent.keychain"
+                  KEYCHAIN_PASSWORD="pwd"
+
+                  security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security default-keychain -s "$KEYCHAIN_PATH"
+                  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security set-keychain-settings "$KEYCHAIN_PATH"
+
+                  CERT_FILE="$(CertJoaquim.secureFilePath)"
+                  CERT_PASSWORD="$(CertPassword)"
+
+                  if [ -z "$CERT_PASSWORD" ]; then
+                    CERT_PASSWORD="$(aks-desktop-mac-developer-certificate-key)"
+                  fi
+
+                  if [ -z "$CERT_PASSWORD" ]; then
+                    security import "$CERT_FILE" -k "$KEYCHAIN_PATH" -T /usr/bin/codesign -T /usr/bin/productbuild || {
+                      echo "❌ Failed to import certificate."
+                      exit 1
+                    }
+                  else
+                    security import "$CERT_FILE" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+                  fi
+
+                  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+                  PROVISION_PROFILE="$(AKSDesktopProvisionProfile.secureFilePath)"
+                  if [ -f "$PROVISION_PROFILE" ]; then
+                    mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+                    cp "$PROVISION_PROFILE" ~/Library/MobileDevice/Provisioning\ Profiles/
+                  fi
+
+                  security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+                  echo "✅ Keychain setup complete"
+                displayName: "Setup keychain and import certificates"
+
+              # Update package.json to set correct architecture
+              - bash: |
+                  set -e
+                  echo "Updating package.json to build for $(ARCH)..."
+
+                  # Navigate to headlamp/app directory
+                  cd headlamp/app
+
+                  # Use Node.js to safely modify the JSON
+                  node -e "
+                  const fs = require('fs');
+                  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+
+                  // Update the architecture in mac.target
+                  if (pkg.build && pkg.build.mac && pkg.build.mac.target && pkg.build.mac.target[0]) {
+                    pkg.build.mac.target[0].arch = ['$(ARCH)'];
+                  }
+
+                  fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+                  console.log('✅ Updated package.json to build for $(ARCH)');
+                  "
+
+                  # Verify the change
+                  echo "Verifying package.json mac.target configuration:"
+                  grep -A 5 '"mac"' package.json | grep -A 3 '"arch"' || echo "Configuration updated"
+
+                  cd ../..
+                displayName: "Configure Architecture in package.json ($(ARCH))"
+
+              # Build application
+              - bash: |
+                  set -e
+                  echo "Building AKS desktop application for $(ARCH_DISPLAY)..."
+
+                  cp $(AKSDesktopProvisionProfile.secureFilePath) ./headlamp/app/mac/aks-desktop.provisionprofile
+
+                  export NODE_OPTIONS="--max-old-space-size=4096"
+                  export GOPROXY="https://proxy.golang.org,direct"
+                  export GOSUMDB="sum.golang.org"
+                  export GONOPROXY=""
+                  export GOPRIVATE=""
+                  unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
+
+                  export CI=true
+                  export CSC_KEYCHAIN="$(agent.tempdirectory)/buildagent.keychain"
+
+                  # Set architecture for electron-builder via environment variables
+                  export npm_config_arch="$(ARCH)"
+                  export npm_config_target_arch="$(ARCH)"
+
+                  MAX_RETRIES=3
+                  RETRY_COUNT=0
+                  SUCCESS=false
+
+                  while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
+                    echo "Build attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES for $(ARCH)..."
+
+                    if npm run build:mac; then
+                      SUCCESS=true
+                      echo "✅ Build complete for $(ARCH_DISPLAY)"
+                    else
+                      RETRY_COUNT=$((RETRY_COUNT + 1))
+                      if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                        echo "⚠️ Build failed, retrying in 30 seconds..."
+                        sleep 30
+                      else
+                        echo "❌ Build failed after $MAX_RETRIES attempts"
+                        exit 1
+                      fi
+                    fi
+                  done
+                displayName: "Build AKS desktop ($(ARCH_DISPLAY))"
+
+              # Copy DMGs to staging directory
+              - bash: |
+                  set -e
+                  echo "Copying built DMGs to staging directory..."
+
+                  DMG_FILES=$(find headlamp/app/dist -type f -name "aks-desktop*.dmg")
+
+                  if [ -z "$DMG_FILES" ]; then
+                    echo "❌ No DMG found in headlamp/app/dist!"
+                    ls -la headlamp/app/dist/ || echo "headlamp/app/dist not found"
+                    exit 1
+                  fi
+
+                  echo "✅ Found DMG files:"
+                  echo "$DMG_FILES"
+
+                  mkdir -p "$(Build.ArtifactStagingDirectory)/build-output"
+
+                  echo "$DMG_FILES" | while read -r DMG_PATH; do
+                    echo "Copying: $DMG_PATH"
+                    cp "$DMG_PATH" "$(Build.ArtifactStagingDirectory)/build-output/"
+                  done
+
+                  echo "Copied DMGs:"
+                  ls -la "$(Build.ArtifactStagingDirectory)/build-output/"
+                displayName: "Copy DMGs to Staging"
+
+      - stage: Sign_arm64
+        displayName: 'Sign (arm64)'
+        dependsOn: Build_arm64
+        condition: succeeded('Build_arm64')
+        jobs:
+          - job: SignJob_arm64
+            displayName: 'ESRP Developer Sign (arm64)'
+            timeoutInMinutes: 60
+            variables:
+              - group: AKS Desktop
+            templateContext:
+              outputs:
+                - output: pipelineArtifact
+                  targetPath: $(Pipeline.Workspace)/signed-dmg
+                  artifactName: signed-dmg-arm64
+                  displayName: 'Publish Signed DMG (arm64)'
+            steps:
+              - checkout: none
+              
+              # Download unsigned DMG from previous stage
+              - task: DownloadPipelineArtifact@2
+                displayName: 'Download Unsigned DMG (arm64)'
+                inputs:
+                  artifactName: unsigned-dmg-arm64
+                  targetPath: $(Pipeline.Workspace)/unsigned-dmg
+
+              # Verify downloaded artifacts
+              - bash: |
+                  echo "Verifying downloaded artifacts (arm64)..."
+                  ls -la "$(Pipeline.Workspace)/unsigned-dmg/"
+                  DMG_COUNT=$(find "$(Pipeline.Workspace)/unsigned-dmg" -name "*.dmg" | wc -l)
+                  echo "Found $DMG_COUNT DMG file(s)"
+                  if [ "$DMG_COUNT" -eq 0 ]; then
+                    echo "❌ No DMG files found!"
+                    exit 1
+                  fi
+                displayName: "Verify Downloaded Artifacts"
+
+              # Create directory for signed output
+              - bash: |
+                  mkdir -p "$(Pipeline.Workspace)/signed-dmg"
+                  cp "$(Pipeline.Workspace)/unsigned-dmg"/*.dmg "$(Pipeline.Workspace)/signed-dmg/"
+                  echo "Prepared files for signing:"
+                  ls -la "$(Pipeline.Workspace)/signed-dmg/"
+                displayName: "Prepare for Signing"
+
+              # ESRP Developer Sign
+              - task: EsrpCodeSigning@5
+                displayName: "ESRP Developer Sign DMG"
+                condition: succeeded()
+                inputs:
+                  ConnectedServiceName: "ESRP-AME-AZCU"
+                  UseMSIAuthentication: true
+                  AppRegistrationClientId: "70ebf75b-d46f-46da-90e6-1fa654251514"
+                  AppRegistrationTenantId: "33e01921-4d64-4f8c-a055-5bdaffd5e33d"
+                  EsrpClientId: "150f8d2b-ad88-4a27-b782-c9bc3b028430"
+                  ServiceEndpointUrl: 'https://api.esrp.microsoft.com/api/v2'
+                  AuthAKVName: "upstreamci-ado"
+                  AuthCertName: 'azcu-ersp-corp'
+                  AuthSignCertName: 'azcu-ersp-corp'
+                  FolderPath: "$(Pipeline.Workspace)/signed-dmg"
+                  Pattern: "*.dmg"
+                  UseMinimatch: true
+                  signConfigType: inlineSignParams
+                  inlineOperation: |
+                    [
+                      {
+                        "KeyCode": "CP-401337-Apple",
+                        "OperationCode": "MacAppDeveloperSign",
+                        "Parameters": {
+                          "Hardening": "--options=runtime"
+                        },
+                        "ToolName": "sign",
+                        "ToolVersion": "1.0"
+                      }
+                    ]
+                  SessionTimeout: 60
+
+              # Verify signatures and extract Bundle ID
+              - bash: |
+                  set -e
+                  echo "=== VERIFYING DEVELOPER SIGNATURES ==="
+
+                  DMG_FILES=$(find "$(Pipeline.Workspace)/signed-dmg" -type f -name "*.dmg")
+
+                  if [ -z "$DMG_FILES" ]; then
+                    echo "❌ No DMG files found"
+                    exit 1
+                  fi
+
+                  FIRST_DMG=$(echo "$DMG_FILES" | head -1)
+                  echo "Extracting Bundle ID from: $FIRST_DMG"
+
+                  MOUNT_DIR=$(mktemp -d)
+                  hdiutil attach "$FIRST_DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+
+                  APP_PATH=$(find "$MOUNT_DIR" -type d -name "*.app" -maxdepth 1 | head -1)
+
+                  if [ -n "$APP_PATH" ]; then
+                    INFO_PLIST="$APP_PATH/Contents/Info.plist"
+                    if [ -f "$INFO_PLIST" ]; then
+                      BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST" 2>/dev/null || echo "")
+
+                      if [ -n "$BUNDLE_ID" ]; then
+                        echo "✅ Bundle ID: $BUNDLE_ID"
+                        echo "##vso[task.setvariable variable=BundleIdentifier;isOutput=true]$BUNDLE_ID"
+                      else
+                        echo "❌ Failed to extract Bundle ID"
+                        exit 1
+                      fi
+                    fi
+                  fi
+
+                  hdiutil detach "$MOUNT_DIR" -quiet || true
+
+                  # Verify all DMGs are signed
+                  echo ""
+                  echo "Verifying signatures on all DMGs..."
+                  echo "$DMG_FILES" | while read -r DMG_PATH; do
+                    echo ""
+                    echo "=== Verifying: $(basename "$DMG_PATH") ==="
+
+                    if codesign -dvvv "$DMG_PATH" 2>&1 | grep -q "Developer ID Application"; then
+                      echo "✅ DMG is signed with Developer ID"
+                      codesign -dvvv "$DMG_PATH" 2>&1 | grep -E "Authority|TeamIdentifier|Identifier"
+                    else
+                      echo "❌ DMG signature verification failed"
+                      codesign -dvvv "$DMG_PATH" 2>&1 || true
+                      exit 1
+                    fi
+                  done
+
+                  echo ""
+                  echo "=== DEVELOPER SIGNATURE VERIFICATION COMPLETE ==="
+                displayName: "Verify Developer Signatures"
+                name: VerifySign
+
+      - stage: Notarize_arm64
+        displayName: 'Notarize (arm64)'
+        dependsOn: Sign_arm64
+        condition: succeeded('Sign_arm64')
+        variables:
+          # Reference the Bundle ID from previous stage
+          BundleId: $[ stageDependencies.Sign_arm64.SignJob_arm64.outputs['VerifySign.BundleIdentifier'] ]
+        jobs:
+          - job: NotarizeJob_arm64
+            displayName: 'ESRP Notarization (arm64)'
+            timeoutInMinutes: 60
+            variables:
+              - group: AKS Desktop
+            templateContext:
+              outputs:
+                - output: pipelineArtifact
+                  targetPath: $(Pipeline.Workspace)/notarized-dmg
+                  artifactName: aks-desktop-signed-arm64
+                  displayName: 'Publish Notarized DMG (arm64)'
+            steps:
+              - checkout: none
+              
+              # Download signed DMG from previous stage
+              - task: DownloadPipelineArtifact@2
+                displayName: 'Download Signed DMG (arm64)'
+                inputs:
+                  artifactName: signed-dmg-arm64
+                  targetPath: $(Pipeline.Workspace)/notarized-dmg
+
+              # Verify downloaded artifacts
+              - bash: |
+                  echo "Verifying downloaded signed DMG (arm64)..."
+                  echo "Bundle ID from previous stage: $(BundleId)"
+                  ls -la "$(Pipeline.Workspace)/notarized-dmg/"
+                  DMG_COUNT=$(find "$(Pipeline.Workspace)/notarized-dmg" -name "*.dmg" | wc -l)
+                  echo "Found $DMG_COUNT DMG file(s)"
+                  if [ "$DMG_COUNT" -eq 0 ]; then
+                    echo "❌ No DMG files found!"
+                    exit 1
+                  fi
+
+                  # Verify Bundle ID is set
+                  if [ -z "$(BundleId)" ]; then
+                    echo "❌ Bundle ID not found! Cannot proceed with notarization."
+                    exit 1
+                  fi
+                displayName: "Verify Pre-Notarization Requirements"
+
+              # ESRP Notarization
+              - task: EsrpCodeSigning@5
+                displayName: "ESRP Notarization"
+                condition: succeeded()
+                inputs:
+                  ConnectedServiceName: "ESRP-AME-AZCU"
+                  UseMSIAuthentication: true
+                  AppRegistrationClientId: "70ebf75b-d46f-46da-90e6-1fa654251514"
+                  AppRegistrationTenantId: "33e01921-4d64-4f8c-a055-5bdaffd5e33d"
+                  EsrpClientId: "150f8d2b-ad88-4a27-b782-c9bc3b028430"
+                  ServiceEndpointUrl: 'https://api.esrp.microsoft.com/api/v2'
+                  AuthAKVName: "upstreamci-ado"
+                  AuthCertName: 'azcu-ersp-corp'
+                  AuthSignCertName: 'azcu-ersp-corp'
+                  FolderPath: "$(Pipeline.Workspace)/notarized-dmg"
+                  Pattern: "*.dmg"
+                  UseMinimatch: true
+                  signConfigType: inlineSignParams
+                  inlineOperation: |
+                    [
+                      {
+                        "KeyCode": "CP-401337-Apple",
+                        "OperationCode": "MacAppNotarize",
+                        "Parameters": {
+                          "BundleId": "$(BundleId)"
+                        },
+                        "ToolName": "sign",
+                        "ToolVersion": "1.0"
+                      }
+                    ]
+                  SessionTimeout: 240
+
+              # Verify notarization
+              - bash: |
+                  set -e
+                  echo "=== VERIFYING NOTARIZED DMGs ==="
+
+                  DMG_FILES=$(find "$(Pipeline.Workspace)/notarized-dmg" -type f -name "*.dmg")
+
+                  if [ -z "$DMG_FILES" ]; then
+                    echo "❌ No DMG files found"
+                    exit 1
+                  fi
+
+                  echo "$DMG_FILES" | while read -r DMG_PATH; do
+                    echo ""
+                    echo "=== Verifying: $(basename "$DMG_PATH") ==="
+                    echo "File size: $(ls -lh "$DMG_PATH" | awk '{print $5}')"
+
+                    VERIFY_DIR=$(mktemp -d)
+                    hdiutil attach "$DMG_PATH" -mountpoint "$VERIFY_DIR" -nobrowse -quiet
+
+                    APP_FOR_VERIFY=$(find "$VERIFY_DIR" -type d -name "*.app" -maxdepth 1 | head -1)
+
+                    if [ -n "$APP_FOR_VERIFY" ]; then
+                      echo "Checking notarization status..."
+                      if spctl -a -vv -t install "$APP_FOR_VERIFY" 2>&1 | grep -q "accepted"; then
+                        echo "✅ App is notarized and accepted by Gatekeeper"
+                      else
+                        echo "⚠️ Notarization status check:"
+                        spctl -a -vv -t install "$APP_FOR_VERIFY" 2>&1 || true
+                      fi
+
+                      echo ""
+                      echo "Verifying code signature..."
+                      codesign -vvv --deep --strict "$APP_FOR_VERIFY" 2>&1 || echo "Code signature check complete"
+                    else
+                      echo "⚠️ No .app bundle found in DMG"
+                    fi
+
+                    hdiutil detach "$VERIFY_DIR" -quiet || true
+                  done
+
+                  echo ""
+                  echo "=== NOTARIZATION VERIFICATION COMPLETE ==="
+                displayName: "Verify Notarized DMGs"
+
+      # ===================================================================
+      # X64 PIPELINE - Build, Sign, and Notarize for Intel
+      # ===================================================================
+      - stage: Build_x64
+        displayName: 'Build (x64)'
+        dependsOn: []  # Explicitly no dependencies - run in parallel with arm64
+        jobs:
+          - job: BuildJob_x64
+            displayName: 'Build macOS Application (Intel)'
+            timeoutInMinutes: 120
+            variables:
+              - group: AKS Desktop
+              - name: ARCH
+                value: x64
+              - name: ARCH_DISPLAY
+                value: 'Intel (x64)'
+            templateContext:
+              outputs:
+                - output: pipelineArtifact
+                  targetPath: $(Build.ArtifactStagingDirectory)/build-output
+                  artifactName: unsigned-dmg-x64
+                  displayName: 'Publish Unsigned DMG (x64)'
+            steps:
+              # Install tools
+              - task: GoTool@0
+                displayName: Install Go
+                retryCountOnTaskFailure: 3
+                inputs:
+                  version: ${{ parameters.goVersion }}
+
+              - task: NodeTool@0
+                displayName: Install Node.js
+                retryCountOnTaskFailure: 3
+                inputs:
+                  versionSpec: ${{ parameters.nodeVersion }}
+
+              - checkout: self
+                submodules: recursive
+
+              # Cache dependencies
+              - task: Cache@2
+                displayName: 'Cache npm dependencies (plugin)'
+                inputs:
+                  key: 'npm | "$(Agent.OS)" | plugins/aks-desktop/package-lock.json'
+                  restoreKeys: |
+                    npm | "$(Agent.OS)" |
+                    npm |
+                  path: 'plugins/aks-desktop/node_modules'
+
+              - task: Cache@2
+                displayName: 'Cache npm dependencies (headlamp frontend)'
+                inputs:
+                  key: 'npm | "$(Agent.OS)" | headlamp/frontend/package-lock.json'
+                  restoreKeys: |
+                    npm | "$(Agent.OS)" |
+                    npm |
+                  path: 'headlamp/frontend/node_modules'
+
+              - task: Cache@2
+                displayName: 'Cache npm dependencies (headlamp app)'
+                inputs:
+                  key: 'npm | "$(Agent.OS)" | headlamp/app/package-lock.json'
+                  restoreKeys: |
+                    npm | "$(Agent.OS)" |
+                    npm |
+                  path: 'headlamp/app/node_modules'
+
+              - task: Cache@2
+                displayName: 'Cache Go modules'
+                inputs:
+                  key: 'go | "$(Agent.OS)" | "${{ parameters.goVersion }}" | **/go.sum'
+                  restoreKeys: |
+                    go | "$(Agent.OS)" | "${{ parameters.goVersion }}" |
+                    go | "$(Agent.OS)" |
+                    go |
+                  path: '$(HOME)/go/pkg/mod'
+
+              # Download certificates (needed for local signing during build)
+              - task: DownloadSecureFile@1
+                name: CertJoaquim
+                displayName: 'Download CertJoaquim.p12'
+                inputs:
+                  secureFile: CertJoaquim.p12
+
+              - task: DownloadSecureFile@1
+                name: AKSDesktopProvisionProfile
+                displayName: 'Download Provisioning Profile'
+                inputs:
+                  secureFile: AKS_Desktop_Distribution.provisionprofile
+
+              # Setup keychain
+              - script: |
+                  set -e
+                  echo "Setting up keychain and importing certificates..."
+
+                  KEYCHAIN_PATH="$(agent.tempdirectory)/buildagent.keychain"
+                  KEYCHAIN_PASSWORD="pwd"
+
+                  security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security default-keychain -s "$KEYCHAIN_PATH"
+                  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security set-keychain-settings "$KEYCHAIN_PATH"
+
+                  CERT_FILE="$(CertJoaquim.secureFilePath)"
+                  CERT_PASSWORD="$(CertPassword)"
+
+                  if [ -z "$CERT_PASSWORD" ]; then
+                    CERT_PASSWORD="$(aks-desktop-mac-developer-certificate-key)"
+                  fi
+
+                  if [ -z "$CERT_PASSWORD" ]; then
+                    security import "$CERT_FILE" -k "$KEYCHAIN_PATH" -T /usr/bin/codesign -T /usr/bin/productbuild || {
+                      echo "❌ Failed to import certificate."
+                      exit 1
+                    }
+                  else
+                    security import "$CERT_FILE" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+                  fi
+
+                  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+                  PROVISION_PROFILE="$(AKSDesktopProvisionProfile.secureFilePath)"
+                  if [ -f "$PROVISION_PROFILE" ]; then
+                    mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+                    cp "$PROVISION_PROFILE" ~/Library/MobileDevice/Provisioning\ Profiles/
+                  fi
+
+                  security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+                  echo "✅ Keychain setup complete"
+                displayName: "Setup keychain and import certificates"
+
+              # Update package.json to set correct architecture
+              - bash: |
+                  set -e
+                  echo "Updating package.json to build for $(ARCH)..."
+
+                  # Navigate to headlamp/app directory
+                  cd headlamp/app
+
+                  # Use Node.js to safely modify the JSON
+                  node -e "
+                  const fs = require('fs');
+                  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+
+                  // Update the architecture in mac.target
+                  if (pkg.build && pkg.build.mac && pkg.build.mac.target && pkg.build.mac.target[0]) {
+                    pkg.build.mac.target[0].arch = ['$(ARCH)'];
+                  }
+
+                  fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+                  console.log('✅ Updated package.json to build for $(ARCH)');
+                  "
+
+                  # Verify the change
+                  echo "Verifying package.json mac.target configuration:"
+                  grep -A 5 '"mac"' package.json | grep -A 3 '"arch"' || echo "Configuration updated"
+
+                  cd ../..
+                displayName: "Configure Architecture in package.json ($(ARCH))"
+
+              # Build application
+              - bash: |
+                  set -e
+                  echo "Building AKS desktop application for $(ARCH_DISPLAY)..."
+
+                  cp $(AKSDesktopProvisionProfile.secureFilePath) ./headlamp/app/mac/aks-desktop.provisionprofile
+
+                  export NODE_OPTIONS="--max-old-space-size=4096"
+                  export GOPROXY="https://proxy.golang.org,direct"
+                  export GOSUMDB="sum.golang.org"
+                  export GONOPROXY=""
+                  export GOPRIVATE=""
+                  unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
+
+                  export CI=true
+                  export CSC_KEYCHAIN="$(agent.tempdirectory)/buildagent.keychain"
+
+                  # Set architecture for electron-builder via environment variables
+                  export npm_config_arch="$(ARCH)"
+                  export npm_config_target_arch="$(ARCH)"
+
+                  MAX_RETRIES=3
+                  RETRY_COUNT=0
+                  SUCCESS=false
+
+                  while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
+                    echo "Build attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES for $(ARCH)..."
+
+                    if npm run build:mac; then
+                      SUCCESS=true
+                      echo "✅ Build complete for $(ARCH_DISPLAY)"
+                    else
+                      RETRY_COUNT=$((RETRY_COUNT + 1))
+                      if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                        echo "⚠️ Build failed, retrying in 30 seconds..."
+                        sleep 30
+                      else
+                        echo "❌ Build failed after $MAX_RETRIES attempts"
+                        exit 1
+                      fi
+                    fi
+                  done
+                displayName: "Build AKS desktop ($(ARCH_DISPLAY))"
+
+              # Copy DMGs to staging directory
+              - bash: |
+                  set -e
+                  echo "Copying built DMGs to staging directory..."
+
+                  DMG_FILES=$(find headlamp/app/dist -type f -name "aks-desktop*.dmg")
+
+                  if [ -z "$DMG_FILES" ]; then
+                    echo "❌ No DMG found in headlamp/app/dist!"
+                    ls -la headlamp/app/dist/ || echo "headlamp/app/dist not found"
+                    exit 1
+                  fi
+
+                  echo "✅ Found DMG files:"
+                  echo "$DMG_FILES"
+
+                  mkdir -p "$(Build.ArtifactStagingDirectory)/build-output"
+
+                  echo "$DMG_FILES" | while read -r DMG_PATH; do
+                    echo "Copying: $DMG_PATH"
+                    cp "$DMG_PATH" "$(Build.ArtifactStagingDirectory)/build-output/"
+                  done
+
+                  echo "Copied DMGs:"
+                  ls -la "$(Build.ArtifactStagingDirectory)/build-output/"
+                displayName: "Copy DMGs to Staging"
+
+      - stage: Sign_x64
+        displayName: 'Sign (x64)'
+        dependsOn: Build_x64
+        condition: succeeded('Build_x64')
+        jobs:
+          - job: SignJob_x64
+            displayName: 'ESRP Developer Sign (x64)'
+            timeoutInMinutes: 60
+            variables:
+              - group: AKS Desktop
+            templateContext:
+              outputs:
+                - output: pipelineArtifact
+                  targetPath: $(Pipeline.Workspace)/signed-dmg
+                  artifactName: signed-dmg-x64
+                  displayName: 'Publish Signed DMG (x64)'
+            steps:
+              - checkout: none
+              
+              # Download unsigned DMG from previous stage
+              - task: DownloadPipelineArtifact@2
+                displayName: 'Download Unsigned DMG (x64)'
+                inputs:
+                  artifactName: unsigned-dmg-x64
+                  targetPath: $(Pipeline.Workspace)/unsigned-dmg
+
+              # Verify downloaded artifacts
+              - bash: |
+                  echo "Verifying downloaded artifacts (x64)..."
+                  ls -la "$(Pipeline.Workspace)/unsigned-dmg/"
+                  DMG_COUNT=$(find "$(Pipeline.Workspace)/unsigned-dmg" -name "*.dmg" | wc -l)
+                  echo "Found $DMG_COUNT DMG file(s)"
+                  if [ "$DMG_COUNT" -eq 0 ]; then
+                    echo "❌ No DMG files found!"
+                    exit 1
+                  fi
+                displayName: "Verify Downloaded Artifacts"
+
+              # Create directory for signed output
+              - bash: |
+                  mkdir -p "$(Pipeline.Workspace)/signed-dmg"
+                  cp "$(Pipeline.Workspace)/unsigned-dmg"/*.dmg "$(Pipeline.Workspace)/signed-dmg/"
+                  echo "Prepared files for signing:"
+                  ls -la "$(Pipeline.Workspace)/signed-dmg/"
+                displayName: "Prepare for Signing"
+
+              # ESRP Developer Sign
+              - task: EsrpCodeSigning@5
+                displayName: "ESRP Developer Sign DMG"
+                condition: succeeded()
+                inputs:
+                  ConnectedServiceName: "ESRP-AME-AZCU"
+                  UseMSIAuthentication: true
+                  AppRegistrationClientId: "70ebf75b-d46f-46da-90e6-1fa654251514"
+                  AppRegistrationTenantId: "33e01921-4d64-4f8c-a055-5bdaffd5e33d"
+                  EsrpClientId: "150f8d2b-ad88-4a27-b782-c9bc3b028430"
+                  ServiceEndpointUrl: 'https://api.esrp.microsoft.com/api/v2'
+                  AuthAKVName: "upstreamci-ado"
+                  AuthCertName: 'azcu-ersp-corp'
+                  AuthSignCertName: 'azcu-ersp-corp'
+                  FolderPath: "$(Pipeline.Workspace)/signed-dmg"
+                  Pattern: "*.dmg"
+                  UseMinimatch: true
+                  signConfigType: inlineSignParams
+                  inlineOperation: |
+                    [
+                      {
+                        "KeyCode": "CP-401337-Apple",
+                        "OperationCode": "MacAppDeveloperSign",
+                        "Parameters": {
+                          "Hardening": "--options=runtime"
+                        },
+                        "ToolName": "sign",
+                        "ToolVersion": "1.0"
+                      }
+                    ]
+                  SessionTimeout: 60
+
+              # Verify signatures and extract Bundle ID
+              - bash: |
+                  set -e
+                  echo "=== VERIFYING DEVELOPER SIGNATURES ==="
+
+                  DMG_FILES=$(find "$(Pipeline.Workspace)/signed-dmg" -type f -name "*.dmg")
+
+                  if [ -z "$DMG_FILES" ]; then
+                    echo "❌ No DMG files found"
+                    exit 1
+                  fi
+
+                  FIRST_DMG=$(echo "$DMG_FILES" | head -1)
+                  echo "Extracting Bundle ID from: $FIRST_DMG"
+
+                  MOUNT_DIR=$(mktemp -d)
+                  hdiutil attach "$FIRST_DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+
+                  APP_PATH=$(find "$MOUNT_DIR" -type d -name "*.app" -maxdepth 1 | head -1)
+
+                  if [ -n "$APP_PATH" ]; then
+                    INFO_PLIST="$APP_PATH/Contents/Info.plist"
+                    if [ -f "$INFO_PLIST" ]; then
+                      BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST" 2>/dev/null || echo "")
+
+                      if [ -n "$BUNDLE_ID" ]; then
+                        echo "✅ Bundle ID: $BUNDLE_ID"
+                        echo "##vso[task.setvariable variable=BundleIdentifier;isOutput=true]$BUNDLE_ID"
+                      else
+                        echo "❌ Failed to extract Bundle ID"
+                        exit 1
+                      fi
+                    fi
+                  fi
+
+                  hdiutil detach "$MOUNT_DIR" -quiet || true
+
+                  # Verify all DMGs are signed
+                  echo ""
+                  echo "Verifying signatures on all DMGs..."
+                  echo "$DMG_FILES" | while read -r DMG_PATH; do
+                    echo ""
+                    echo "=== Verifying: $(basename "$DMG_PATH") ==="
+
+                    if codesign -dvvv "$DMG_PATH" 2>&1 | grep -q "Developer ID Application"; then
+                      echo "✅ DMG is signed with Developer ID"
+                      codesign -dvvv "$DMG_PATH" 2>&1 | grep -E "Authority|TeamIdentifier|Identifier"
+                    else
+                      echo "❌ DMG signature verification failed"
+                      codesign -dvvv "$DMG_PATH" 2>&1 || true
+                      exit 1
+                    fi
+                  done
+
+                  echo ""
+                  echo "=== DEVELOPER SIGNATURE VERIFICATION COMPLETE ==="
+                displayName: "Verify Developer Signatures"
+                name: VerifySign
+
+      - stage: Notarize_x64
+        displayName: 'Notarize (x64)'
+        dependsOn: Sign_x64
+        condition: succeeded('Sign_x64')
+        variables:
+          # Reference the Bundle ID from previous stage
+          BundleId: $[ stageDependencies.Sign_x64.SignJob_x64.outputs['VerifySign.BundleIdentifier'] ]
+        jobs:
+          - job: NotarizeJob_x64
+            displayName: 'ESRP Notarization (x64)'
+            timeoutInMinutes: 60
+            variables:
+              - group: AKS Desktop
+            templateContext:
+              outputs:
+                - output: pipelineArtifact
+                  targetPath: $(Pipeline.Workspace)/notarized-dmg
+                  artifactName: aks-desktop-signed-x64
+                  displayName: 'Publish Notarized DMG (x64)'
+            steps:
+              - checkout: none
+              
+              # Download signed DMG from previous stage
+              - task: DownloadPipelineArtifact@2
+                displayName: 'Download Signed DMG (x64)'
+                inputs:
+                  artifactName: signed-dmg-x64
+                  targetPath: $(Pipeline.Workspace)/notarized-dmg
+
+              # Verify downloaded artifacts
+              - bash: |
+                  echo "Verifying downloaded signed DMG (x64)..."
+                  echo "Bundle ID from previous stage: $(BundleId)"
+                  ls -la "$(Pipeline.Workspace)/notarized-dmg/"
+                  DMG_COUNT=$(find "$(Pipeline.Workspace)/notarized-dmg" -name "*.dmg" | wc -l)
+                  echo "Found $DMG_COUNT DMG file(s)"
+                  if [ "$DMG_COUNT" -eq 0 ]; then
+                    echo "❌ No DMG files found!"
+                    exit 1
+                  fi
+
+                  # Verify Bundle ID is set
+                  if [ -z "$(BundleId)" ]; then
+                    echo "❌ Bundle ID not found! Cannot proceed with notarization."
+                    exit 1
+                  fi
+                displayName: "Verify Pre-Notarization Requirements"
+
+              # ESRP Notarization
+              - task: EsrpCodeSigning@5
+                displayName: "ESRP Notarization"
+                condition: succeeded()
+                inputs:
+                  ConnectedServiceName: "ESRP-AME-AZCU"
+                  UseMSIAuthentication: true
+                  AppRegistrationClientId: "70ebf75b-d46f-46da-90e6-1fa654251514"
+                  AppRegistrationTenantId: "33e01921-4d64-4f8c-a055-5bdaffd5e33d"
+                  EsrpClientId: "150f8d2b-ad88-4a27-b782-c9bc3b028430"
+                  ServiceEndpointUrl: 'https://api.esrp.microsoft.com/api/v2'
+                  AuthAKVName: "upstreamci-ado"
+                  AuthCertName: 'azcu-ersp-corp'
+                  AuthSignCertName: 'azcu-ersp-corp'
+                  FolderPath: "$(Pipeline.Workspace)/notarized-dmg"
+                  Pattern: "*.dmg"
+                  UseMinimatch: true
+                  signConfigType: inlineSignParams
+                  inlineOperation: |
+                    [
+                      {
+                        "KeyCode": "CP-401337-Apple",
+                        "OperationCode": "MacAppNotarize",
+                        "Parameters": {
+                          "BundleId": "$(BundleId)"
+                        },
+                        "ToolName": "sign",
+                        "ToolVersion": "1.0"
+                      }
+                    ]
+                  SessionTimeout: 240
+
+              # Verify notarization
+              - bash: |
+                  set -e
+                  echo "=== VERIFYING NOTARIZED DMGs ==="
+
+                  DMG_FILES=$(find "$(Pipeline.Workspace)/notarized-dmg" -type f -name "*.dmg")
+
+                  if [ -z "$DMG_FILES" ]; then
+                    echo "❌ No DMG files found"
+                    exit 1
+                  fi
+
+                  echo "$DMG_FILES" | while read -r DMG_PATH; do
+                    echo ""
+                    echo "=== Verifying: $(basename "$DMG_PATH") ==="
+                    echo "File size: $(ls -lh "$DMG_PATH" | awk '{print $5}')"
+
+                    VERIFY_DIR=$(mktemp -d)
+                    hdiutil attach "$DMG_PATH" -mountpoint "$VERIFY_DIR" -nobrowse -quiet
+
+                    APP_FOR_VERIFY=$(find "$VERIFY_DIR" -type d -name "*.app" -maxdepth 1 | head -1)
+
+                    if [ -n "$APP_FOR_VERIFY" ]; then
+                      echo "Checking notarization status..."
+                      if spctl -a -vv -t install "$APP_FOR_VERIFY" 2>&1 | grep -q "accepted"; then
+                        echo "✅ App is notarized and accepted by Gatekeeper"
+                      else
+                        echo "⚠️ Notarization status check:"
+                        spctl -a -vv -t install "$APP_FOR_VERIFY" 2>&1 || true
+                      fi
+
+                      echo ""
+                      echo "Verifying code signature..."
+                      codesign -vvv --deep --strict "$APP_FOR_VERIFY" 2>&1 || echo "Code signature check complete"
+                    else
+                      echo "⚠️ No .app bundle found in DMG"
+                    fi
+
+                    hdiutil detach "$VERIFY_DIR" -quiet || true
+                  done
+
+                  echo ""
+                  echo "=== NOTARIZATION VERIFICATION COMPLETE ==="
+                displayName: "Verify Notarized DMGs"

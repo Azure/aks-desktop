@@ -1,0 +1,285 @@
+trigger: none
+
+# The `resources` specify the location and version of the 1ES PT.
+resources:
+  repositories:
+    - repository: 1esPipelines
+      type: git
+      name: 1ESPipelineTemplates/1ESPipelineTemplates
+      ref: refs/tags/release
+
+parameters:
+  - name: nodeVersion
+    type: string
+    default: 20.x
+  - name: goVersion
+    type: string
+    default: 1.24.9
+
+extends:
+  # The pipeline extends the 1ES PT which will inject different SDL and compliance tasks.
+  # For non-production pipelines, use "Unofficial" as defined below.
+  # For productions pipelines, use "Official".
+  template: v1/1ES.Unofficial.PipelineTemplate.yml@1esPipelines
+  parameters:
+    # Update the pool with your team's 1ES hosted pool.
+    pool:
+      name: staging-pool-amd64-mariner-2
+      image: azcu-agent-amd64-windows-22-img
+      os: windows
+      hostArchitecture: amd64
+    sdl:
+      sourceAnalysisPool:
+        name: staging-pool-amd64-mariner-2
+        image: azcu-agent-amd64-windows-22-img
+        os: windows
+        hostArchitecture: amd64
+      git:
+        submodules: false
+        longpaths: true
+
+    stages:
+      - stage: Stage
+        jobs:
+          - job: HostJob
+            # If the pipeline publishes artifacts, use `templateContext` to define the artifacts.
+            # This will enable 1ES PT to run SDL analysis tools on the artifacts and then upload them.
+            templateContext:
+              outputs:
+              - output: pipelineArtifact
+                targetPath: $(Pipeline.Workspace)/aks-desktop-exe-unsigned
+                artifactName: aks-desktop-signed
+            # # Define the steps that the pipeline will run.
+            # # In most cases, copy and paste the steps from the original pipeline.
+            steps:
+              - task: GoTool@0
+                displayName: Install Go
+                retryCountOnTaskFailure: 3
+                inputs:
+                  version: ${{ parameters.goVersion }}
+              # TODO: Remove debug logging after pipeline is stable
+              - bash: |
+                  echo "=== GO INSTALLATION DEBUG ==="
+                  echo "Go version requested: ${{ parameters.goVersion }}"
+                  go version || echo "Go not found in PATH"
+                  echo "GOROOT: $GOROOT"
+                  echo "GOPATH: $GOPATH"
+                  echo "PATH: $PATH"
+                  echo "=== END GO DEBUG ==="
+                displayName: "Debug: Go Installation"
+              - task: NodeTool@0
+                displayName: Install Node.js
+                retryCountOnTaskFailure: 3
+                inputs:
+                  versionSpec: ${{ parameters.nodeVersion }}
+              # TODO: Remove debug logging after pipeline is stable
+              - bash: |
+                  echo "=== NODE.JS INSTALLATION DEBUG ==="
+                  echo "Node version requested: ${{ parameters.nodeVersion }}"
+                  node --version || echo "Node not found in PATH"
+                  npm --version || echo "NPM not found in PATH"
+                  echo "NODE_PATH: $NODE_PATH"
+                  echo "PATH: $PATH"
+                  echo "=== END NODE.JS DEBUG ==="
+                displayName: "Debug: Node.js Installation"
+              - checkout: self
+                submodules: recursive
+              # TODO: Remove debug logging after pipeline is stable
+              - bash: |
+                  echo "=== CHECKOUT DEBUG ==="
+                  echo "Current working directory: $(pwd)"
+                  echo "Repository contents:"
+                  ls -la
+                  echo "Submodules status:"
+                  git submodule status || echo "No submodules or git not available"
+                  echo "Git branch:"
+                  git branch -a || echo "Git not available"
+                  echo "Git commit:"
+                  git log --oneline -1 || echo "Git not available"
+                  echo "=== END CHECKOUT DEBUG ==="
+                displayName: "Debug: Checkout"
+              # Build the Windows application
+              - bash: |
+                  echo "=== BUILD DEBUG START ==="
+                  echo "Current working directory: $(pwd)"
+                  echo "Node version: $(node --version)"
+                  echo "NPM version: $(npm --version)"
+                  echo "Go version: $(go version)"
+                  echo "Package.json exists: $([ -f package.json ] && echo 'YES' || echo 'NO')"
+                  echo "NPM scripts available:"
+                  npm run 2>/dev/null | grep -E "build|win" || echo "No build scripts found"
+                  echo "=== BUILD DEBUG END ==="
+
+                  # Fix Go proxy configuration - override any problematic ADO settings
+                  export GOPROXY="https://proxy.golang.org,direct"
+                  export GOSUMDB="sum.golang.org"
+                  export GONOPROXY=""
+                  export GOPRIVATE=""
+                  # Clear any proxy environment variables that might interfere
+                  unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
+
+                  echo "=== GO ENVIRONMENT ==="
+                  echo "GOPROXY=$GOPROXY"
+                  echo "GOSUMDB=$GOSUMDB"
+                  go env | grep -E "GOPROXY|GOSUMDB|PROXY"
+                  echo "=== END GO ENVIRONMENT ==="
+
+                  echo "Building AKS desktop Windows application..."
+                  npm run build:win-ci
+                  echo "✅ Build complete"
+
+                  echo "=== POST-BUILD DEBUG ==="
+                  echo "Checking for build outputs..."
+                  find . -name "*.exe" -type f 2>/dev/null || echo "No .exe files found"
+                  echo "headlamp/app/dist contents:"
+                  ls -la headlamp/app/dist/ 2>/dev/null || echo "headlamp/app/dist not found"
+                  echo "=== END POST-BUILD DEBUG ==="
+                displayName: "Build AKS desktop (Windows)"
+
+              # Find and copy the built executable to workspace dir
+              - bash: |
+                  set -e  # fail on error
+                  echo "=== COPY EXECUTABLE DEBUG START ==="
+                  echo "Current working directory: $(pwd)"
+                  echo "Pipeline workspace: $(Pipeline.Workspace)"
+                  echo "Searching for aks-desktop*.exe files..."
+
+                  # TODO: Remove debug logging after pipeline is stable
+                  echo "All .exe files in current directory:"
+                  find . -name "*.exe" -type f 2>/dev/null || echo "No .exe files found"
+
+                  echo "headlamp/app/dist directory contents:"
+                  ls -la headlamp/app/dist/ 2>/dev/null || echo "headlamp/app/dist directory not found"
+
+                  echo "=== COPY EXECUTABLE DEBUG END ==="
+
+                  echo "Finding built .exe file..."
+                  EXE_PATH=$(find headlamp/app/dist -type f -name "aks-desktop*.exe" -print -quit)
+
+                  if [ -z "$EXE_PATH" ]; then
+                    echo "❌ No aks-desktop .exe file found in headlamp/app/dist!" >&2
+                    echo "Listing headlamp/app/dist contents:"
+                    ls -la headlamp/app/dist/ || echo "headlamp/app/dist directory not found"
+                    exit 1
+                  fi
+
+                  echo "✅ Found: $EXE_PATH"
+                  echo "File size: $(ls -lh "$EXE_PATH" | awk '{print $5}')"
+                  echo "File permissions: $(ls -la "$EXE_PATH")"
+
+                  mkdir -p "$(Pipeline.Workspace)/aks-desktop-exe-unsigned"
+                  cp "$EXE_PATH" "$(Pipeline.Workspace)/aks-desktop-exe-unsigned/"
+                  echo "Copied to $(Pipeline.Workspace)/aks-desktop-exe-unsigned/"
+
+                  # TODO: Remove debug logging after pipeline is stable
+                  echo "Verifying copy:"
+                  ls -la "$(Pipeline.Workspace)/aks-desktop-exe-unsigned/"
+                displayName: "Copy built EXE to workspace directory"
+
+              # Verify contents in workspace directory
+              - bash: |
+                  echo "=== VERIFICATION DEBUG START ==="
+                  echo "Pipeline workspace: $(Pipeline.Workspace)"
+                  echo "Target directory: $(Pipeline.Workspace)/aks-desktop-exe-unsigned"
+
+                  # TODO: Remove debug logging after pipeline is stable
+                  echo "Directory exists: $([ -d "$(Pipeline.Workspace)/aks-desktop-exe-unsigned" ] && echo 'YES' || echo 'NO')"
+                  echo "Directory permissions:"
+                  ls -ld "$(Pipeline.Workspace)/aks-desktop-exe-unsigned" 2>/dev/null || echo "Directory not found"
+
+                  echo "Listing workspace directory contents..."
+                  ls -la "$(Pipeline.Workspace)/aks-desktop-exe-unsigned"
+
+                  echo "File count: $(find "$(Pipeline.Workspace)/aks-desktop-exe-unsigned" -type f | wc -l)"
+                  echo "Total size: $(du -sh "$(Pipeline.Workspace)/aks-desktop-exe-unsigned" 2>/dev/null || echo 'Unable to calculate size')"
+
+                  echo "=== VERIFICATION DEBUG END ==="
+                displayName: "List the unsigned dir"
+
+              # TODO: Remove debug logging after pipeline is stable
+              - bash: |
+                  echo "=== SIGNING DEBUG START ==="
+                  echo "About to start ESRP code signing..."
+                  echo "Target folder: $(Pipeline.Workspace)/aks-desktop-exe-unsigned"
+                  echo "Pattern: *.exe"
+                  echo "Files to be signed:"
+                  find "$(Pipeline.Workspace)/aks-desktop-exe-unsigned" -name "*.exe" -type f || echo "No .exe files found"
+                  echo "ESRP Service: ESRP-AME-AZCU"
+                  echo "Key Vault: upstreamci-ado"
+                  echo "Certificate: azcu-ersp-corp"
+                  echo "=== SIGNING DEBUG END ==="
+                displayName: "Debug: Pre-Signing"
+              - task: EsrpCodeSigning@5
+                displayName: "ESRP CodeSigning"
+                condition: succeeded()
+                inputs:
+                  ConnectedServiceName: "ESRP-AME-AZCU"
+                  UseMSIAuthentication: true
+                  AppRegistrationClientId: "70ebf75b-d46f-46da-90e6-1fa654251514"
+                  AppRegistrationTenantId: "33e01921-4d64-4f8c-a055-5bdaffd5e33d"
+                  EsrpClientId: "150f8d2b-ad88-4a27-b782-c9bc3b028430"
+                  ServiceEndpointUrl: 'https://api.esrp.microsoft.com/api/v2'
+                  AuthAKVName: "upstreamci-ado"
+                  AuthSignCertName: 'azcu-ersp-corp'
+                  FolderPath: "$(Pipeline.Workspace)/aks-desktop-exe-unsigned"
+                  Pattern: "*.exe"
+                  signConfigType: inlineSignParams
+                  inlineOperation: |
+                    [
+                      {
+                          "KeyCode" : "CP-231522",
+                          "OperationCode" : "SigntoolSign",
+                          "Parameters" : {
+                              "OpusName" : "Microsoft",
+                              "OpusInfo" : "http://www.microsoft.com",
+                              "FileDigest" : "/fd \"SHA256\"",
+                              "PageHash" : "/NPH",
+                              "TimeStamp" : "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
+                          },
+                          "ToolName" : "sign",
+                          "ToolVersion" : "1.0"
+                      },
+                      {
+                          "KeyCode" : "CP-231522",
+                          "OperationCode" : "SigntoolVerify",
+                          "Parameters" : {},
+                          "ToolName" : "sign",
+                          "ToolVersion" : "1.0"
+                      }
+                    ]
+              # TODO: Remove debug logging after pipeline is stable
+              - bash: |
+                  echo "=== POST-SIGNING DEBUG START ==="
+                  echo "Signing completed, verifying results..."
+                  echo "Signed files in workspace:"
+                  find "$(Pipeline.Workspace)/aks-desktop-exe-unsigned" -name "*.exe" -type f || echo "No .exe files found"
+
+                  # Check if files are actually signed (this is a basic check)
+                  for exe_file in "$(Pipeline.Workspace)/aks-desktop-exe-unsigned"/*.exe; do
+                    if [ -f "$exe_file" ]; then
+                      echo "File: $exe_file"
+                      echo "Size: $(ls -lh "$exe_file" | awk '{print $5}')"
+                      echo "Permissions: $(ls -la "$exe_file")"
+                    fi
+                  done
+
+                  echo "Pipeline workspace contents:"
+                  ls -la "$(Pipeline.Workspace)/"
+                  echo "=== POST-SIGNING DEBUG END ==="
+                displayName: "Debug: Post-Signing"
+                condition: succeeded()
+
+              # TODO: Remove debug logging after pipeline is stable
+              - bash: |
+                  echo "=== ARTIFACT PUBLISHING DEBUG ==="
+                  echo "Artifact will be published via 1ES templateContext:"
+                  echo "Artifact name: aks-desktop-signed"
+                  echo "Source path: $(Pipeline.Workspace)/aks-desktop-exe-unsigned"
+                  echo "Artifact contents:"
+                  ls -la "$(Pipeline.Workspace)/aks-desktop-exe-unsigned/"
+                  echo "Artifact size: $(du -sh "$(Pipeline.Workspace)/aks-desktop-exe-unsigned" 2>/dev/null || echo 'Unable to calculate')"
+                  echo "Note: 1ES template will handle the actual artifact publishing"
+                  echo "=== END ARTIFACT DEBUG ==="
+                displayName: "Debug: Artifact Publishing"
+                condition: succeeded()
+

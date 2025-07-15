@@ -1,0 +1,25 @@
+trigger:
+  branches:
+    include:
+    - main
+  paths:
+    include:
+    - package.json
+    - package-lock.json
+    - ./plugins/aks-desktop/package.json
+    - ./plugins/aks-desktop/package-lock.json
+
+pool:
+  vmImage: "ubuntu-latest"
+
+steps:
+  - checkout: self
+
+  - task: ComponentGovernanceComponentDetection@0
+    displayName: Component Detection
+
+  - task: notice@0
+    displayName: Generate NOTICE file
+    inputs:
+      outputfile: $(System.DefaultWorkingDirectory)/obj/NOTICE
+      outputformat: text

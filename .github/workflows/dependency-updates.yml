@@ -1,0 +1,133 @@
+name: Dependency Updates
+
+on:
+  schedule:
+    - cron: '0 0 * * MON' # Weekly on Monday
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/aks-desktop
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: plugins/aks-desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update dependencies
+        run: |
+          npm update
+          npm audit fix --force || true
+
+      - name: Run tests
+        run: npm test
+        continue-on-error: true
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v5.0.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: update plugin dependencies'
+          title: 'chore: Weekly dependency updates for AKS desktop plugin'
+          body: |
+            ## Dependency Updates
+
+            This PR contains automated dependency updates for the AKS desktop plugin.
+
+            ### Changes
+            - Updated npm dependencies in `plugins/aks-desktop/` to latest versions
+            - Applied security fixes from npm audit
+
+            ### Testing
+            - [ ] All tests pass
+            - [ ] No breaking changes detected
+
+            Please review the changes and run additional tests if needed.
+
+            ---
+            *This PR was automatically created by the dependency update workflow.*
+          branch: chore/dependency-updates
+          delete-branch: true
+
+  security-updates:
+    name: Security Updates
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/aks-desktop
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: plugins/aks-desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for security issues
+        run: |
+          npm audit --audit-level=moderate --json > audit.json || true
+
+      - name: Fix security issues
+        run: |
+          npm audit fix --force || true
+
+      - name: Create security update PR
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v5.0.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'fix: security vulnerability updates for AKS desktop plugin'
+          title: 'fix: Security vulnerability updates for AKS desktop plugin'
+          body: |
+            ## Security Updates
+
+            This PR contains automated security vulnerability fixes for the AKS desktop plugin.
+
+            ### Security Issues Fixed
+            - Applied `npm audit fix` to resolve security vulnerabilities in `plugins/aks-desktop/`
+
+            ### Testing Required
+            - [ ] All tests pass
+            - [ ] No functionality is broken
+            - [ ] Security scan passes
+
+            **Priority**: High - Security fixes should be reviewed and merged promptly.
+
+            ---
+            *This PR was automatically created by the security update workflow.*
+          branch: fix/security-updates
+          delete-branch: true
+          labels: |
+            security
+            high-priority

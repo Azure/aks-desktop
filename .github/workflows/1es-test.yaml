@@ -1,0 +1,40 @@
+name: 1ES Test Pipeline
+# This pipeline is a sample pipeline that demonstrates how to use the 1ES Pipeline Template (1ES PT).
+trigger: none
+
+# The `resources` specify the location and version of the 1ES PT.
+resources:
+  repositories:
+  - repository: 1esPipelines
+    type: git
+    name: 1ESPipelineTemplates/1ESPipelineTemplates
+    ref: refs/tags/release
+
+extends:
+  # The pipeline extends the 1ES PT which will inject different SDL and compliance tasks.
+  # For non-production pipelines, use "Unofficial" as defined below.
+  # For productions pipelines, use "Official".
+  template: v1/1ES.Unofficial.PipelineTemplate.yml@1esPipelines
+  parameters:
+    # Update the pool with your team's 1ES hosted pool.
+    pool:
+      name: staging-pool-amd64-mariner-2
+      image: azcu-1es-agent-amd64-mariner-2-img
+      os: linux
+      hostArchitecture: amd64
+
+    stages:
+    - stage: Stage
+      jobs:
+      - job: HostJob
+        # If the pipeline publishes artifacts, use `templateContext` to define the artifacts.
+        # This will enable 1ES PT to run SDL analysis tools on the artifacts and then upload them.
+        # templateContext:
+        #   outputs:
+        #   - output: pipelineArtifact
+        #     targetPath: $(System.DefaultWorkingDirectory)/Samples
+        #     artifactName: artifactName
+        # Define the steps that the pipeline will run.
+        # In most cases, copy and paste the steps from the original pipeline.
+        steps:
+        - powershell: echo "Hello World from host"
