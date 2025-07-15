@@ -1,0 +1,30 @@
+{
+  "properties": {
+    "helpUri": "https://eng.ms/docs/microsoft-security/security/azure-security/cloudai-security-fundamentals-engineering/security-integration/guardian-wiki/microsoft-guardian/general/baselines"
+  },
+  "version": "1.0.0",
+  "baselines": {
+    "default": {
+      "name": "default",
+      "createdDate": "2025-11-07 19:25:15Z",
+      "lastUpdatedDate": "2025-11-07 19:25:15Z"
+    }
+  },
+  "results": {
+    "843b66aa96c0874ad7f53b856e126270fa4fbed3d204592bf12c8d77d13e0e45": {
+      "signature": "843b66aa96c0874ad7f53b856e126270fa4fbed3d204592bf12c8d77d13e0e45",
+      "alternativeSignatures": [
+        "09484848b5db84a7bad081ef7803ed2a91c61ff1270728a8dce1f1a81a086d6b"
+      ],
+      "target": "file:///C:/a/_work/1/aks-desktop-exe-unsigned/aks-desktop-0.1.0-alpha-win-x64.exe",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2009",
+      "createdDate": "2025-11-07 19:25:15Z",
+      "expirationDate": "2026-04-26 19:26:49Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2025-11-07 19:26:49Z"
+    }
+  }
+}

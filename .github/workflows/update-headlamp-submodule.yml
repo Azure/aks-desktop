@@ -1,0 +1,92 @@
+name: Update Headlamp Submodule
+
+on:
+  # Trigger when changes are pushed to main branch that might affect the submodule
+  push:
+    branches:
+      - main
+    paths:
+      - 'headlamp/**'
+      - '.gitmodules'
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  update-submodule:
+    name: Update submodule reference in main branch
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main repository with submodules
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update submodule to latest headlamp-downstream
+        id: update
+        run: |
+          cd headlamp
+
+          # Fetch latest changes from headlamp-downstream branch
+          git fetch origin headlamp-downstream
+
+          # Get current commit hash
+          CURRENT_HASH=$(git rev-parse HEAD)
+          echo "Current submodule hash: $CURRENT_HASH"
+
+          # Get latest commit hash from headlamp-downstream
+          LATEST_HASH=$(git rev-parse origin/headlamp-downstream)
+          echo "Latest headlamp-downstream hash: $LATEST_HASH"
+
+          # Check if update is needed
+          if [ "$CURRENT_HASH" = "$LATEST_HASH" ]; then
+            echo "Submodule is already up to date"
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+          else
+            echo "Submodule needs update"
+            git checkout origin/headlamp-downstream
+            cd ..
+
+            # Check if there are changes to commit
+            if git diff --quiet headlamp; then
+              echo "No changes detected in submodule reference"
+              echo "needs_update=false" >> $GITHUB_OUTPUT
+            else
+              echo "needs_update=true" >> $GITHUB_OUTPUT
+              echo "old_hash=$CURRENT_HASH" >> $GITHUB_OUTPUT
+              echo "new_hash=$LATEST_HASH" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Commit and push submodule update
+        if: steps.update.outputs.needs_update == 'true'
+        run: |
+          OLD_HASH="${{ steps.update.outputs.old_hash }}"
+          NEW_HASH="${{ steps.update.outputs.new_hash }}"
+          SHORT_OLD="${OLD_HASH:0:7}"
+          SHORT_NEW="${NEW_HASH:0:7}"
+
+          git add headlamp
+          git commit -m "chore: update headlamp submodule ($SHORT_OLD -> $SHORT_NEW)"
+
+          git push origin main
+
+      - name: Summary
+        if: steps.update.outputs.needs_update == 'true'
+        run: |
+          echo "✅ Submodule updated successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "- Old hash: ${{ steps.update.outputs.old_hash }}" >> $GITHUB_STEP_SUMMARY
+          echo "- New hash: ${{ steps.update.outputs.new_hash }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: No update needed
+        if: steps.update.outputs.needs_update == 'false'
+        run: |
+          echo "ℹ️ No submodule update needed - already up to date" >> $GITHUB_STEP_SUMMARY

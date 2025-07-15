@@ -1,0 +1,81 @@
+name: Issue Management
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  label-issue:
+    name: Label New Issues
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Auto-label issues
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const labels = [];
+
+            // Auto-label based on issue content
+            if (issue.body.includes('bug') || issue.body.includes('error')) {
+              labels.push('bug');
+            }
+
+            if (issue.body.includes('feature') || issue.body.includes('enhancement')) {
+              labels.push('enhancement');
+            }
+
+            if (issue.body.includes('documentation') || issue.body.includes('docs')) {
+              labels.push('documentation');
+            }
+
+            if (issue.body.includes('performance') || issue.body.includes('slow')) {
+              labels.push('performance');
+            }
+
+            if (issue.body.includes('security') || issue.body.includes('vulnerability')) {
+              labels.push('security');
+            }
+
+            // Add triage label for new issues
+            labels.push('triage');
+
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: labels
+              });
+            }
+
+      - name: Welcome first-time contributors
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            // Check if this is the user's first issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              creator: issue.user.login,
+              state: 'all'
+            });
+
+            if (issues.data.length === 1) {
+              const welcomeMessage = '👋 Welcome to the AKS desktop project!\n\nThank you for opening your first issue. We appreciate your contribution to the project!\n\nA maintainer will review your issue soon. In the meantime, please make sure you\'ve:\n- ✅ Searched for existing issues\n- ✅ Provided all necessary information\n- ✅ Used the appropriate issue template\n\nIf you\'re interested in contributing code, check out our [Contributing Guide](../CONTRIBUTING.md).';
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: welcomeMessage
+              });
+            }
