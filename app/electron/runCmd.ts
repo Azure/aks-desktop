@@ -428,7 +428,8 @@ export function validateCommandData(eventData: CommandDataPartial): [boolean, st
     }
   }
 
-  const validCommands = ['minikube', 'az', 'scriptjs', 'gh'];
+  // Added 'kubectl' for AKS desktop downstream integration (aks-desktop patch)
+  const validCommands = ['minikube', 'az', 'kubectl', 'scriptjs', 'gh', 'kubelogin'];
 
   if (!validCommands.includes(eventData.command)) {
     return [
