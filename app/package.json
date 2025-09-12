@@ -1,5 +1,5 @@
 {
-  "name": "headlamp",
+  "name": "aks-desktop",
   "version": "0.38.0",
   "description": "Easy-to-use and extensible Kubernetes web UI",
   "main": "electron/main.js",
