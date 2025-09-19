@@ -599,7 +599,7 @@ async function getShell(): Promise<string> {
  * Retrieves the environment variables from the user's shell.
  * @returns A promise that resolves to the shell environment.
  */
-async function getShellEnv(): Promise<NodeJS.ProcessEnv> {
+export async function getShellEnv(): Promise<NodeJS.ProcessEnv> {
   const execPromisify = promisify(exec);
   const shell = await getShell();
   const isWindows = process.platform === 'win32';
@@ -1324,8 +1324,32 @@ function adjustZoom(delta: number) {
   setZoom(newZoom);
 }
 
-function startElecron() {
+// Global variable to store the shell environment
+let shellEnvironment: NodeJS.ProcessEnv | null = null;
+
+/**
+ * Gets the shell environment that was initialized at startup.
+ * Falls back to process.env if not initialized.
+ */
+export function getShellEnvironment(): NodeJS.ProcessEnv {
+  return shellEnvironment || process.env;
+}
+
+async function initializeShellEnvironment() {
+  try {
+    shellEnvironment = await getShellEnv();
+    console.log('Shell environment initialized with PATH:', shellEnvironment.PATH);
+  } catch (error) {
+    console.warn('Failed to get shell environment, using process.env:', error);
+    shellEnvironment = process.env;
+  }
+}
+
+async function startElecron() {
   console.info('App starting...');
+
+  // Initialize shell environment once at startup
+  await initializeShellEnvironment();
 
   let appVersion: string;
   if (isDev && process.env.HEADLAMP_APP_VERSION) {
