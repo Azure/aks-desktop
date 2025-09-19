@@ -117,6 +117,14 @@ const COMMANDS_WITH_CONSENT = {
     'scriptjs headlamp_minikube/manage-minikube.js',
     'scriptjs minikube/manage-minikube.js',
   ],
+  aks_desktop: [
+    'az aks',
+    'az aks get-credentials',
+    'az aks list',
+    'az aks show',
+    'az aks create',
+    'kubectl config current-context',
+  ],
   headlamp_ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
 };
 
@@ -250,12 +258,12 @@ function getPluginsScriptPath(scriptName: string) {
  * @param permissionSecrets - The permission secrets required for the command to run.
  *                            Checks against eventData.permissionSecrets.
  */
-export function handleRunCommand(
+export async function handleRunCommand(
   event: IpcMainEvent,
   eventData: CommandDataPartial,
   mainWindow: BrowserWindow | null,
   permissionSecrets: Record<string, number>
-): void {
+): Promise<void> {
   if (mainWindow === null) {
     console.error('Main window is null, cannot run command');
     return;
@@ -287,11 +295,17 @@ export function handleRunCommand(
 
   // If the command is 'scriptjs', we pass the HEADLAMP_RUN_SCRIPT=true
   // env var so that the Headlamp or Electron process runs the script.
+
+  // Get the cached shell environment including PATH
+  // This was initialized once at app startup for efficiency
+  const { getShellEnvironment } = await import('./main');
+  const shellEnv = getShellEnvironment();
+
   const child: ChildProcessWithoutNullStreams = spawn(command, args, {
     ...commandData.options,
     shell: false,
     env: {
-      ...process.env,
+      ...shellEnv,
       ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
     },
   });
@@ -372,8 +386,6 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
     'runCmd-scriptjs-minikube/manage-minikube.js': cryptoRandom(),
     'runCmd-scriptjs-headlamp_minikube/manage-minikube.js': cryptoRandom(),
     'runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js': cryptoRandom(),
-    'runCmd-gh': cryptoRandom(),
-    'runCmd-az': cryptoRandom(),
   };
 
   ipcMain.on('request-plugin-permission-secrets', function giveSecrets() {
@@ -390,8 +402,10 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
     }
   });
 
-  ipcMain.on('run-command', (event, eventData) =>
-    handleRunCommand(event, eventData, mainWindow, permissionSecrets)
+  ipcMain.on(
+    'run-command',
+    async (event, eventData) =>
+      await handleRunCommand(event, eventData, mainWindow, permissionSecrets)
   );
 }
 
