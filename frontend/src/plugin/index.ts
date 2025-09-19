@@ -612,6 +612,11 @@ export async function fetchAndExecutePlugins(
               secrets['runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js'];
           }
 
+          if (isPackage['aks-desktop']) {
+            secretsToReturn['runCmd-az'] = secrets['runCmd-az'];
+            secretsToReturn['runCmd-kubectl'] = secrets['runCmd-kubectl'];
+          }
+
           return secretsToReturn;
         },
         getArgValues: (pluginName, pluginPath, allowedPermissions) => {
@@ -623,6 +628,27 @@ export async function fetchAndExecutePlugins(
             //  - stored desktopApiSend and desktopApiReceive functions that can't be modified
             function pluginRunCommand(
               command: 'minikube' | 'az' | 'scriptjs',
+              args: string[],
+              options: {}
+            ): ReturnType<typeof internalRunCommand> {
+              return internalRunCommand(
+                command,
+                args,
+                options,
+                allowedPermissions,
+                pluginDesktopApiSend,
+                pluginDesktopApiReceive
+              );
+            }
+            return [
+              ['pluginRunCommand', 'pluginPath'],
+              [pluginRunCommand, pluginPath],
+            ];
+          }
+
+          if (isPackage['aks-desktop']) {
+            function pluginRunCommand(
+              command: 'az' | 'kubectl',
               args: string[],
               options: {}
             ): ReturnType<typeof internalRunCommand> {
