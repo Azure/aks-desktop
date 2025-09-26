@@ -567,6 +567,37 @@ class PluginManagerEventListeners {
 }
 
 /**
+ * Parses environment variables from shell output.
+ * @param output - The raw output from shell command
+ * @param separator - The separator used to split lines (e.g., '\n', '\r\n', '\0')
+ * @returns An object containing parsed environment variables
+ */
+function parseEnvironmentVariables(output: string, separator: string): NodeJS.ProcessEnv {
+  const envVars: NodeJS.ProcessEnv = {};
+
+  if (!output.trim()) {
+    return envVars;
+  }
+
+  const lines = output.trim().split(separator);
+  const isWindows = process.platform === 'win32';
+
+  lines.forEach(line => {
+    // On Windows, clean up any remaining carriage returns or newlines that might cause issues
+    // On Unix-like systems, just trim whitespace as the original logic was working fine
+    const cleanLine = isWindows ? line.replace(/[\r\n]+$/, '').trim() : line.trim();
+    const firstEqualIndex = cleanLine.indexOf('=');
+    if (firstEqualIndex > 0) {
+      const key = cleanLine.slice(0, firstEqualIndex).trim();
+      const value = cleanLine.slice(firstEqualIndex + 1).trim();
+      envVars[key] = value;
+    }
+  });
+
+  return envVars;
+}
+
+/**
  * Returns the user's preferred shell or a fallback shell.
  * @returns A promise that resolves to the shell path.
  */
@@ -599,6 +630,61 @@ async function getShell(): Promise<string> {
  * Retrieves the environment variables from the user's shell.
  * @returns A promise that resolves to the shell environment.
  */
+/**
+ * Gets the Windows shell environment with all environment variables.
+ * This is specifically for command execution where we need the full shell environment.
+ * @returns A promise that resolves to the Windows shell environment.
+ */
+async function getShellEnvWin(): Promise<NodeJS.ProcessEnv> {
+  const execPromisify = promisify(exec);
+
+  try {
+    // Set up non-interactive environment
+    const env = { ...process.env, DISABLE_AUTO_UPDATE: 'true' };
+
+    // Try PowerShell first - get all environment variables (load profile but non-interactive)
+    // Note: We don't use -NoProfile because it would skip user profile scripts that add tools like Azure CLI to PATH
+    const { stdout } = await execPromisify(
+      'powershell -NonInteractive -Command "Get-ChildItem Env: | ForEach-Object { \\"$($_.Name)=$($_.Value)\\" }"',
+      {
+        encoding: 'utf8',
+        timeout: 10000,
+        env,
+      }
+    );
+    const shellEnv: NodeJS.ProcessEnv = { ...process.env };
+
+    // Parse PowerShell output to get all environment variables
+    const shellEnvVars = parseEnvironmentVariables(stdout, '\n');
+    Object.assign(shellEnv, shellEnvVars);
+
+    // If we got valid environment variables, use them
+    if (Object.keys(shellEnvVars).length > 0) {
+      return shellEnv;
+    } else {
+      // Fallback to cmd - get all environment variables (cmd is naturally non-interactive)
+      const { stdout: cmdStdout } = await execPromisify('cmd /c "set"', {
+        encoding: 'utf8',
+        timeout: 10000,
+        env,
+      });
+      const cmdEnv: NodeJS.ProcessEnv = { ...process.env };
+
+      const cmdEnvVars = parseEnvironmentVariables(cmdStdout, '\r\n');
+      Object.assign(cmdEnv, cmdEnvVars);
+
+      if (Object.keys(cmdEnvVars).length > 0) {
+        return cmdEnv;
+      }
+    }
+
+    return { ...process.env };
+  } catch (error) {
+    console.error('Failed to get Windows shell environment, using process.env:', error);
+    return { ...process.env };
+  }
+}
+
 export async function getShellEnv(): Promise<NodeJS.ProcessEnv> {
   const execPromisify = promisify(exec);
   const shell = await getShell();
@@ -639,19 +725,9 @@ export async function getShellEnv(): Promise<NodeJS.ProcessEnv> {
       }));
     }
 
-    const processLines = (separator: string) => {
-      return stdout.split(separator).reduce((acc, line) => {
-        const firstEqualIndex = line.indexOf('=');
-        if (firstEqualIndex > 0) {
-          const key = line.slice(0, firstEqualIndex);
-          const value = line.slice(firstEqualIndex + 1);
-          acc[key] = value;
-        }
-        return acc;
-      }, {} as NodeJS.ProcessEnv);
-    };
-
-    const envVars = isEnvNull ? processLines('\0') : processLines('\n');
+    const envVars = isEnvNull
+      ? parseEnvironmentVariables(stdout, '\0')
+      : parseEnvironmentVariables(stdout, '\n');
     const mergedEnv = { ...process.env, ...envVars };
     return mergedEnv;
   } catch (error) {
@@ -1331,22 +1407,43 @@ function adjustZoom(delta: number) {
 
 // Global variable to store the shell environment
 let shellEnvironment: NodeJS.ProcessEnv | null = null;
+let shellEnvironmentInitialized = false;
+let shellEnvironmentPromise: Promise<NodeJS.ProcessEnv> | null = null;
 
 /**
- * Gets the shell environment that was initialized at startup.
- * Falls back to process.env if not initialized.
+ * Gets the shell environment, initializing it on first call if needed.
+ * Uses a singleton pattern to ensure it's only initialized once.
+ * Falls back to process.env if initialization fails.
  */
-export function getShellEnvironment(): NodeJS.ProcessEnv {
-  return shellEnvironment || process.env;
+export async function getShellEnvironment(): Promise<NodeJS.ProcessEnv> {
+  if (shellEnvironmentInitialized) {
+    return shellEnvironment || process.env;
+  }
+
+  if (shellEnvironmentPromise) {
+    return await shellEnvironmentPromise;
+  }
+
+  shellEnvironmentPromise = initializeShellEnvironment();
+  return await shellEnvironmentPromise;
 }
 
-async function initializeShellEnvironment() {
+async function initializeShellEnvironment(): Promise<NodeJS.ProcessEnv> {
   try {
-    shellEnvironment = await getShellEnv();
-    console.log('Shell environment initialized with PATH:', shellEnvironment.PATH);
+    // Use the Windows-specific function for command execution
+    if (process.platform === 'win32') {
+      shellEnvironment = await getShellEnvWin();
+    } else {
+      shellEnvironment = await getShellEnv();
+    }
+
+    shellEnvironmentInitialized = true;
+    return shellEnvironment;
   } catch (error) {
     console.warn('Failed to get shell environment, using process.env:', error);
     shellEnvironment = process.env;
+    shellEnvironmentInitialized = true;
+    return shellEnvironment;
   }
 }
 
@@ -1357,9 +1454,6 @@ async function startElectron() {
   // The app legitimately needs multiple IPC listeners (currently 11)
   // Default is 10, setting to 20 provides headroom for future additions
   ipcMain.setMaxListeners(20);
-
-  // Initialize shell environment once at startup
-  await initializeShellEnvironment();
 
   let appVersion: string;
   if (isDev && process.env.HEADLAMP_APP_VERSION) {

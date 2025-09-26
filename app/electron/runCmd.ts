@@ -303,14 +303,21 @@ export async function handleRunCommand(
   // If the command is 'scriptjs', we pass the HEADLAMP_RUN_SCRIPT=true
   // env var so that the Headlamp or Electron process runs the script.
 
-  // Get the cached shell environment including PATH
-  // This was initialized once at app startup for efficiency
+  // Get the shell environment including PATH
+  // This will initialize the shell environment on first call if needed
   const { getShellEnvironment } = await import('./main');
-  const shellEnv = getShellEnvironment();
+  const shellEnv = await getShellEnvironment();
+
+  // On Windows, use shell
+  // https://stackoverflow.com/questions/37459717/error-spawn-enoent-on-windows
+  const useShell = process.platform === 'win32';
+  if (useShell) {
+    console.log('Using shell on Windows');
+  }
 
   const child: ChildProcessWithoutNullStreams = spawn(command, args, {
     ...commandData.options,
-    shell: false,
+    shell: useShell,
     env: {
       ...shellEnv,
       ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
