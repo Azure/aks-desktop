@@ -226,6 +226,7 @@ export function identifyPackages(
       '@headlamp-k8s/ai-assistant',
       '@headlamp-k8s/ai-assistantprerelease',
     ],
+    'aks-desktop': ['aks-desktop'],
   };
   const isPackage: Record<string, boolean> = {};
   for (const key in pluginPaths) {
