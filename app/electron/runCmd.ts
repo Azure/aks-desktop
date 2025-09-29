@@ -141,11 +141,21 @@ const COMMANDS_WITH_CONSENT = {
     'scriptjs minikube/manage-minikube.js',
   ],
   aks_desktop: [
+    'az',
     'az aks',
     'az aks get-credentials',
     'az aks list',
     'az aks show',
     'az aks create',
+    'az extension show',
+    'az extension add',
+    'az feature show',
+    'az feature register',
+    'az provider register',
+    'az account show',
+    'az account get-access-token',
+    'az account list',
+    'az account tenant list',
     'kubectl config current-context',
   ],
 };
@@ -172,6 +182,12 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
   if (pluginIsMinikube) {
     commands = COMMANDS_WITH_CONSENT.headlamp_minikube;
   }
+
+  const pluginIsAksDesktop = pluginInfo.name === 'aks-desktop';
+  if (pluginIsAksDesktop) {
+    commands = COMMANDS_WITH_CONSENT.aks_desktop;
+  }
+
   for (const command of commands) {
     if (!settings.confirmedCommands[command]) {
       settings.confirmedCommands[command] = true;
@@ -287,7 +303,6 @@ export async function handleRunCommand(
     console.error(permissionError);
     return;
   }
-
   if (!checkCommandConsent(commandData.command, commandData.args, mainWindow)) {
     return;
   }
