@@ -615,6 +615,7 @@ export async function fetchAndExecutePlugins(
           if (isPackage['aks-desktop']) {
             secretsToReturn['runCmd-az'] = secrets['runCmd-az'];
             secretsToReturn['runCmd-kubectl'] = secrets['runCmd-kubectl'];
+            secretsToReturn['runCmd-kubelogin'] = secrets['runCmd-kubelogin'];
           }
 
           return secretsToReturn;
@@ -648,7 +649,7 @@ export async function fetchAndExecutePlugins(
 
           if (isPackage['aks-desktop']) {
             function pluginRunCommand(
-              command: 'az' | 'kubectl',
+              command: 'az' | 'kubectl' | 'kubelogin',
               args: string[],
               options: {}
             ): ReturnType<typeof internalRunCommand> {
