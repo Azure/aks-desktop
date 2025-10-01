@@ -617,6 +617,7 @@ export async function fetchAndExecutePlugins(
           if (isPackage['aks-desktop']) {
             secretsToReturn['runCmd-az'] = secrets['runCmd-az'];
             secretsToReturn['runCmd-kubectl'] = secrets['runCmd-kubectl'];
+            secretsToReturn['runCmd-kubelogin'] = secrets['runCmd-kubelogin'];
           }
 
           if (isPackage['@headlamp-k8s/ai-assistant']) {
@@ -656,6 +657,27 @@ export async function fetchAndExecutePlugins(
           if (isPackage['@headlamp-k8s/ai-assistant']) {
             function pluginRunCommand(
               command: 'gh' | 'az',
+              args: string[],
+              options: {}
+            ): ReturnType<typeof internalRunCommand> {
+              return internalRunCommand(
+                command,
+                args,
+                options,
+                allowedPermissions,
+                pluginDesktopApiSend,
+                pluginDesktopApiReceive
+              );
+            }
+            return [
+              ['pluginRunCommand', 'pluginPath'],
+              [pluginRunCommand, pluginPath],
+            ];
+          }
+
+          if (isPackage['aks-desktop']) {
+            function pluginRunCommand(
+              command: 'az' | 'kubectl' | 'kubelogin',
               args: string[],
               options: {}
             ): ReturnType<typeof internalRunCommand> {
