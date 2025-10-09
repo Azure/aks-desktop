@@ -25,6 +25,8 @@ export interface AppTheme {
   primary?: string;
   /** Secondary theme color */
   secondary?: string;
+  /** Secondary contrast text color */
+  secondaryContrastText?: string;
   text?: {
     /** Primary text color */
     primary?: string;
