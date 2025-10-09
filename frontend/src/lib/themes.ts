@@ -189,7 +189,10 @@ export function createMuiTheme(currentTheme: AppTheme) {
         main: currentTheme.primary ?? '#0078d4',
       },
       secondary: currentTheme.secondary
-        ? { main: currentTheme.secondary, contrastText: '#000' }
+        ? {
+            main: currentTheme.secondary,
+            contrastText: currentTheme.secondaryContrastText ?? '#000',
+          }
         : {
             light: pink.A200,
             main: pink.A400,
