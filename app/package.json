@@ -141,6 +141,10 @@
       {
         "from": "./app-build-manifest.json",
         "to": "app-build-manifest.json"
+      },
+      {
+        "from": "./resources/az-cli",
+        "to": "az-cli"
       }
     ],
     "publish": {

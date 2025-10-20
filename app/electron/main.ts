@@ -1837,6 +1837,18 @@ async function startElectron() {
     if (userPluginBinDirs.length > 0) {
       addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
     }
+
+    // Add bundled Azure CLI to PATH
+    // The Azure CLI is organized by platform: az-cli/linux/bin, az-cli/darwin/bin, az-cli/windows/bin
+    const platformDir = process.platform === 'win32' ? 'windows' : process.platform;
+    const azCliBinPath = path.join(process.resourcesPath, 'az-cli', platformDir, 'bin');
+    if (fs.existsSync(azCliBinPath)) {
+      console.log(`[AKS-Desktop] Adding bundled Azure CLI to PATH: ${azCliBinPath}`);
+      addToPath([azCliBinPath], 'Azure CLI');
+    } else {
+      console.warn(`[AKS-Desktop] Bundled Azure CLI not found at: ${azCliBinPath}`);
+      console.warn(`[AKS-Desktop] Platform: ${process.platform}, Looking for: ${platformDir}`);
+    }
   }
 
   if (disableGPU) {
