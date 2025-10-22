@@ -407,6 +407,7 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
     'runCmd-az': cryptoRandom(),
     'runCmd-kubectl': cryptoRandom(),
     'runCmd-kubelogin': cryptoRandom(),
+    'runCmd-register-aks-cluster.js': cryptoRandom(),
   };
 
   ipcMain.on('request-plugin-permission-secrets', function giveSecrets() {
@@ -464,7 +465,14 @@ export function validateCommandData(eventData: CommandDataPartial): [boolean, st
   }
 
   // Added 'kubectl' for AKS desktop downstream integration (aks-desktop patch)
-  const validCommands = ['minikube', 'az', 'kubectl', 'scriptjs', 'kubelogin'];
+  const validCommands = [
+    'minikube',
+    'az',
+    'kubectl',
+    'scriptjs',
+    'kubelogin',
+    'register-aks-cluster.js',
+  ];
 
   if (!validCommands.includes(eventData.command)) {
     return [
