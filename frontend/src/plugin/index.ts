@@ -618,6 +618,8 @@ export async function fetchAndExecutePlugins(
             secretsToReturn['runCmd-az'] = secrets['runCmd-az'];
             secretsToReturn['runCmd-kubectl'] = secrets['runCmd-kubectl'];
             secretsToReturn['runCmd-kubelogin'] = secrets['runCmd-kubelogin'];
+            secretsToReturn['runCmd-register-aks-cluster.js'] =
+              secrets['runCmd-register-aks-cluster.js'];
           }
 
           if (isPackage['@headlamp-k8s/ai-assistant']) {
