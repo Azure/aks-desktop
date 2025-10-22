@@ -613,7 +613,6 @@ export async function fetchAndExecutePlugins(
           if (isPackage['aks-desktop']) {
             secretsToReturn['runCmd-az'] = secrets['runCmd-az'];
             secretsToReturn['runCmd-kubectl'] = secrets['runCmd-kubectl'];
-            secretsToReturn['runCmd-kubelogin'] = secrets['runCmd-kubelogin'];
             secretsToReturn['runCmd-register-aks-cluster.js'] =
               secrets['runCmd-register-aks-cluster.js'];
           }

@@ -396,7 +396,6 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
     'runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js': cryptoRandom(),
     'runCmd-az': cryptoRandom(),
     'runCmd-kubectl': cryptoRandom(),
-    'runCmd-kubelogin': cryptoRandom(),
     'runCmd-register-aks-cluster.js': cryptoRandom(),
   };
 
