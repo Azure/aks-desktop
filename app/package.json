@@ -143,8 +143,8 @@
         "to": "app-build-manifest.json"
       },
       {
-        "from": "./resources/az-cli",
-        "to": "az-cli"
+        "from": "./resources/external-tools",
+        "to": "external-tools"
       }
     ],
     "publish": {

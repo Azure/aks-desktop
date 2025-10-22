@@ -1838,16 +1838,41 @@ async function startElectron() {
       addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
     }
 
-    // Add bundled Azure CLI to PATH
-    // The Azure CLI is organized by platform: az-cli/linux/bin, az-cli/darwin/bin, az-cli/windows/bin
-    const platformDir = process.platform === 'win32' ? 'windows' : process.platform;
-    const azCliBinPath = path.join(process.resourcesPath, 'az-cli', platformDir, 'bin');
+    // Add bundled Azure CLI and external tools to PATH
+    // In dev mode: look in headlamp/app/resources/external-tools (relative to main.ts location)
+    // In production: look in process.resourcesPath/external-tools
+    const platformDir = process.platform;
+    const resourcesDir = isDev
+      ? path.join(__dirname, '..', 'resources') // From electron/ dir, go up to app/, then to resources/
+      : process.resourcesPath;
+    const azCliBinPath = path.join(resourcesDir, 'external-tools', 'az-cli', platformDir, 'bin');
+    const externalToolsBinPath = path.join(resourcesDir, 'external-tools', 'bin');
+
+    console.log(`[AKS-Desktop] __dirname: ${__dirname}`);
+    console.log(`[AKS-Desktop] resourcesDir: ${resourcesDir}`);
+    console.log(`[AKS-Desktop] Looking for Azure CLI at: ${azCliBinPath}`);
+    console.log(`[AKS-Desktop] Looking for external tools at: ${externalToolsBinPath}`);
+
+    // Add external tools bin directory (contains register-aks-cluster.js and az-kubelogin.py)
+    if (fs.existsSync(externalToolsBinPath)) {
+      console.log(`[AKS-Desktop] Found external tools, adding to PATH: ${externalToolsBinPath}`);
+      addToPath([externalToolsBinPath], 'External Tools');
+    } else {
+      console.warn(`[AKS-Desktop] External tools not found at: ${externalToolsBinPath}`);
+    }
+
+    // Add Azure CLI bin directory
     if (fs.existsSync(azCliBinPath)) {
-      console.log(`[AKS-Desktop] Adding bundled Azure CLI to PATH: ${azCliBinPath}`);
+      console.log(`[AKS-Desktop] Found bundled Azure CLI, adding to PATH: ${azCliBinPath}`);
       addToPath([azCliBinPath], 'Azure CLI');
     } else {
       console.warn(`[AKS-Desktop] Bundled Azure CLI not found at: ${azCliBinPath}`);
-      console.warn(`[AKS-Desktop] Platform: ${process.platform}, Looking for: ${platformDir}`);
+      console.warn(`[AKS-Desktop] Platform: ${process.platform}, isDev: ${isDev}`);
+      if (isDev) {
+        console.warn(
+          `[AKS-Desktop] Tip: Run build process to download Azure CLI to headlamp/app/resources/external-tools/`
+        );
+      }
     }
   }
 
