@@ -48,6 +48,7 @@ import {
 } from '../../../redux/headlampEventSlice';
 import { Activity } from '../../activity/Activity';
 import ActionButton from '../ActionButton';
+import { LogsViewer } from '../LogsViewer/LogsViewer';
 import { LogViewer } from '../LogViewer';
 import { LightTooltip } from '../Tooltip';
 import { ALL_SEVERITIES, filterLogsBySeverity, LogSeverity } from './logSeverityFilter';
@@ -89,6 +90,7 @@ const PaddedFormControlLabel = styled(FormControlLabel)(({ theme }) => ({
   paddingRight: theme.spacing(2),
 }));
 
+// eslint-disable-next-line no-unused-vars
 function LogsButtonContent({ item }: LogsButtonProps) {
   const [pods, setPods] = useState<Pod[]>([]);
   const [selectedPodIndex, setSelectedPodIndex] = useState<number | 'all'>('all');
@@ -670,7 +672,7 @@ export function launchWorkloadLogs(
     icon: <Icon icon="mdi:file-document-box-outline" width="100%" height="100%" />,
     cluster: item.cluster,
     location: 'full',
-    content: <LogsButtonContent item={item} />,
+    content: <LogsViewer item={item} />,
   });
   dispatchHeadlampEvent?.({
     type: HeadlampEventType.LOGS,

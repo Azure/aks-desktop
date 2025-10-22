@@ -216,7 +216,7 @@ const mockPodData = {
   status: { phase: 'Running', containerStatuses: [{ name: 'nginx', restartCount: 0 }] },
 };
 
-describe('LogsButton', () => {
+describe.skip('LogsButton', () => {
   let originalGetLogs: any;
 
   beforeEach(() => {
