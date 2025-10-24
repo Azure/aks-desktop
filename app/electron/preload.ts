@@ -61,4 +61,17 @@ contextBridge.exposeInMainWorld('desktopApi', {
   removeListener: (channel: string, func: (...args: unknown[]) => void) => {
     ipcRenderer.removeListener(channel, func);
   },
+
+  // Register AKS cluster
+  registerAKSCluster: (
+    subscriptionId: string,
+    resourceGroup: string,
+    clusterName: string
+  ): Promise<{ success: boolean; message: string }> => {
+    return ipcRenderer.invoke('register-aks-cluster', {
+      subscriptionId,
+      resourceGroup,
+      clusterName,
+    });
+  },
 });
