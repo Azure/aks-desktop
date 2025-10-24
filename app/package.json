@@ -122,7 +122,8 @@
       "electron/windowSize.js",
       "electron/env-paths.js",
       "electron/plugin-management.js",
-      "electron/runCmd.js"
+      "electron/runCmd.js",
+      "electron/aks-cluster.js"
     ],
     "extraResources": [
       {
@@ -186,6 +187,7 @@
     "nock": "^14.0.5",
     "shx": "^0.4.0",
     "tar": "^7.4.3",
+    "yaml": "^2.6.1",
     "yargs": "^17.7.2"
   }
 }

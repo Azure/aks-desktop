@@ -262,6 +262,62 @@ function getPluginsScriptPath(scriptName: string) {
 }
 
 /**
+ * Execute a command with shell environment support.
+ * This is a reusable utility that can be used by other modules.
+ *
+ * @param command - The command to execute
+ * @param args - Command arguments
+ * @param options - Additional spawn options (optional)
+ * @returns Promise with stdout, stderr, and exit code
+ */
+export async function executeCommandWithShellEnv(
+  command: string,
+  args: string[],
+  options: Record<string, any> = {}
+): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      // Get the shell environment including PATH
+      const { getShellEnvironment } = await import('./main');
+      const shellEnv = await getShellEnvironment();
+
+      // On Windows, use shell
+      const useShell = process.platform === 'win32';
+
+      const child = spawn(command, args, {
+        ...options,
+        shell: useShell,
+        env: {
+          ...shellEnv,
+          ...options.env,
+        },
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      child.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      child.on('exit', (code: number | null) => {
+        resolve({ stdout, stderr, code });
+      });
+
+      child.on('error', (error: Error) => {
+        reject(error);
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+/**
  * Handles 'run-command' events from the renderer process.
  *
  * Spawns the requested command and sends 'command-stdout',
@@ -302,11 +358,14 @@ export async function handleRunCommand(
 
   // Get the command and args to run. With the correct paths for "scriptjs" commands.
   // scriptjs commands are scripts run with the compiled app, or with "Electron" in dev mode.
-  const command = commandData.command === 'scriptjs' ? process.execPath : commandData.command;
-  const args =
-    commandData.command === 'scriptjs'
-      ? [getPluginsScriptPath(commandData.args[0]), ...commandData.args.slice(1)]
-      : commandData.args;
+  // On Windows, .js files need to be explicitly run with node
+  let command = commandData.command;
+  let args = commandData.args;
+
+  if (commandData.command === 'scriptjs') {
+    command = process.execPath;
+    args = [getPluginsScriptPath(commandData.args[0]), ...commandData.args.slice(1)];
+  }
 
   // If the command is 'scriptjs', we pass the HEADLAMP_RUN_SCRIPT=true
   // env var so that the Headlamp or Electron process runs the script.
@@ -323,7 +382,10 @@ export async function handleRunCommand(
     console.log('Using shell on Windows');
   }
 
-  const child: ChildProcessWithoutNullStreams = spawn(command, args, {
+  // On Windows with shell, quote the command to handle spaces in paths
+  const finalCommand = useShell ? `"${command}"` : command;
+
+  const child: ChildProcessWithoutNullStreams = spawn(finalCommand, args, {
     ...commandData.options,
     shell: useShell,
     env: {
@@ -396,7 +458,6 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
     'runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js': cryptoRandom(),
     'runCmd-az': cryptoRandom(),
     'runCmd-kubectl': cryptoRandom(),
-    'runCmd-register-aks-cluster.js': cryptoRandom(),
   };
 
   ipcMain.on('request-plugin-permission-secrets', function giveSecrets() {
@@ -454,14 +515,7 @@ export function validateCommandData(eventData: CommandDataPartial): [boolean, st
   }
 
   // Added 'kubectl' for AKS desktop downstream integration (aks-desktop patch)
-  const validCommands = [
-    'minikube',
-    'az',
-    'kubectl',
-    'scriptjs',
-    'kubelogin',
-    'register-aks-cluster.js',
-  ];
+  const validCommands = ['minikube', 'az', 'kubectl', 'scriptjs', 'kubelogin'];
 
   if (!validCommands.includes(eventData.command)) {
     return [

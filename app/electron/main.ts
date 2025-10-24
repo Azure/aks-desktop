@@ -1786,6 +1786,27 @@ async function startElecron() {
       mainWindow?.webContents.send('backend-port', actualPort);
     });
 
+    // Handle AKS cluster registration
+    ipcMain.handle(
+      'register-aks-cluster',
+      async (
+        event,
+        data: { subscriptionId: string; resourceGroup: string; clusterName: string }
+      ) => {
+        const { registerAKSCluster } = await import('./aks-cluster');
+        const resourcesDir = isDev
+          ? path.join(__dirname, '..', 'resources')
+          : process.resourcesPath;
+        return await registerAKSCluster(
+          data.subscriptionId,
+          data.resourceGroup,
+          data.clusterName,
+          isDev,
+          resourcesDir
+        );
+      }
+    );
+
     setupRunCmdHandlers(mainWindow, ipcMain);
 
     new PluginManagerEventListeners().setupEventHandlers();
@@ -1843,7 +1864,7 @@ async function startElecron() {
     console.log(`[AKS-Desktop] Looking for Azure CLI at: ${azCliBinPath}`);
     console.log(`[AKS-Desktop] Looking for external tools at: ${externalToolsBinPath}`);
 
-    // Add external tools bin directory (contains register-aks-cluster.js and az-kubelogin.py)
+    // Add external tools bin directory (contains az-kubelogin.py)
     if (fs.existsSync(externalToolsBinPath)) {
       console.log(`[AKS-Desktop] Found external tools, adding to PATH: ${externalToolsBinPath}`);
       addToPath([externalToolsBinPath], 'External Tools');
