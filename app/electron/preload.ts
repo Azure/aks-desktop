@@ -76,7 +76,11 @@ contextBridge.exposeInMainWorld('desktopApi', {
     getToolsConfig: () => ipcRenderer.invoke('mcp-get-tools-config'),
     updateToolsConfig: (config: any) => ipcRenderer.invoke('mcp-update-tools-config', config),
     setToolEnabled: (serverName: string, toolName: string, enabled: boolean) =>
-      ipcRenderer.invoke('mcp-set-tool-enabled', { serverName, toolName, enabled }),
+      ipcRenderer.invoke('mcp-set-tool-enabled', {
+        serverName,
+        toolName,
+        enabled,
+      }),
     getToolStats: (serverName: string, toolName: string) =>
       ipcRenderer.invoke('mcp-get-tool-stats', { serverName, toolName }),
     clusterChange: (cluster: string | null) =>
@@ -86,5 +90,18 @@ contextBridge.exposeInMainWorld('desktopApi', {
   // Notify cluster change (for MCP server restart)
   notifyClusterChange: (cluster: string | null) => {
     ipcRenderer.send('cluster-changed', cluster);
+  },
+
+  // Register AKS cluster
+  registerAKSCluster: (
+    subscriptionId: string,
+    resourceGroup: string,
+    clusterName: string
+  ): Promise<{ success: boolean; message: string }> => {
+    return ipcRenderer.invoke('register-aks-cluster', {
+      subscriptionId,
+      resourceGroup,
+      clusterName,
+    });
   },
 });
