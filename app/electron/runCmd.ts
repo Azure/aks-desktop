@@ -375,10 +375,7 @@ export async function handleRunCommand(
     console.log('Using shell on Windows');
   }
 
-  // On Windows with shell, quote the command to handle spaces in paths
-  const finalCommand = useShell ? `"${command}"` : command;
-
-  const child: ChildProcessWithoutNullStreams = spawn(finalCommand, args, {
+  const child: ChildProcessWithoutNullStreams = spawn(command, args, {
     ...commandData.options,
     shell: useShell,
     env: {
