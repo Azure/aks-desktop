@@ -43,28 +43,33 @@ function getExecutablePaths(
   pythonCmd: string;
   azKubeloginPath: string;
   azCliBinPath: string;
+  azCliCmd: string;
 } {
   const platform = process.platform;
   const externalToolsBinPath = path.join(resourcesPath, 'external-tools', 'bin');
 
   let pythonCmd: string;
   let azCliBinPath: string;
+  let azCliCmd: string;
 
   if (platform === 'win32') {
     // On Windows, Python is directly in the az-cli\win32 directory
     const azCliWindowsPath = path.join(resourcesPath, 'external-tools', 'az-cli', 'win32');
     pythonCmd = path.join(azCliWindowsPath, 'python.exe');
     azCliBinPath = path.join(azCliWindowsPath, 'bin');
+    azCliCmd = path.join(azCliBinPath, 'az.cmd');
   } else {
     // On Unix systems (Linux/macOS), Python is in the bin directory
     azCliBinPath = path.join(resourcesPath, 'external-tools', 'az-cli', platform, 'bin');
     pythonCmd = path.join(azCliBinPath, 'python3');
+    azCliCmd = path.join(azCliBinPath, 'az');
   }
 
   return {
     pythonCmd,
     azKubeloginPath: path.join(externalToolsBinPath, 'az-kubelogin.py'),
     azCliBinPath,
+    azCliCmd,
   };
 }
 
@@ -88,7 +93,10 @@ function addAzKubeloginToKubeconfig(
     return kubeconfigYaml;
   }
 
-  const { pythonCmd, azKubeloginPath, azCliBinPath } = getExecutablePaths(isDev, resourcesPath);
+  const { pythonCmd, azKubeloginPath, azCliBinPath, azCliCmd } = getExecutablePaths(
+    isDev,
+    resourcesPath
+  );
   const serverId = '6dae42f8-4368-4678-94ff-3960e28e3630'; // Azure Kubernetes Service AAD Server
 
   // Add exec configuration to each user
@@ -111,7 +119,7 @@ function addAzKubeloginToKubeconfig(
       delete user.user['client-key-data'];
 
       // Set up exec authentication with our bundled Python script
-      // Include PATH in env so the script can find 'az' command
+      // Include PATH and AZ_CLI_PATH in env
       const pathSeparator = process.platform === 'win32' ? ';' : ':';
       const currentPath = process.env.PATH || '';
       const newPath = `${azCliBinPath}${pathSeparator}${currentPath}`;
@@ -125,11 +133,16 @@ function addAzKubeloginToKubeconfig(
             name: 'PATH',
             value: newPath,
           },
+          {
+            name: 'AZ_CLI_PATH',
+            value: azCliCmd,
+          },
         ],
         provideClusterInfo: false,
       };
 
       console.log('[AKS] ✅ Added exec configuration using Python script:', azKubeloginPath);
+      console.log('[AKS] ✅ Azure CLI path set to:', azCliCmd);
     }
   }
 
@@ -303,7 +316,7 @@ export async function registerAKSCluster(
 
     // Merge configs
     const mergedConfig = mergeKubeconfig(existingKubeconfig, modifiedKubeconfig);
-    
+
     // Stringify with options to prevent line wrapping and properly quote strings
     const finalKubeconfig = yaml.stringify(mergedConfig, {
       lineWidth: 0, // Disable line wrapping
