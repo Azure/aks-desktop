@@ -723,7 +723,6 @@ async function getShellEnvWin(): Promise<NodeJS.ProcessEnv> {
 
 export async function getShellEnv(): Promise<NodeJS.ProcessEnv> {
   const execPromisify = promisify(exec);
-  const shell = await getShell();
   const isWindows = process.platform === 'win32';
 
   // For Windows, just return the current environment
@@ -731,7 +730,8 @@ export async function getShellEnv(): Promise<NodeJS.ProcessEnv> {
     return { ...process.env };
   }
 
-  // For Unix-like systems
+  // For Unix-like systems, get the shell
+  const shell = await getShell();
   const isZsh = shell.includes('zsh');
   // interactive is supported only on zsh
   const shellArgs = isZsh ? ['--login', '--interactive', '-c'] : ['--login', '-c'];
