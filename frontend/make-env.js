@@ -20,12 +20,25 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 const appInfo = JSON.parse(fs.readFileSync('../app/package.json', 'utf8'));
 
+// Headlamp base version that AKS desktop is built upon (read from app/package.json)
+const HEADLAMP_BASE_VERSION = appInfo.version;
+
+// Read AKS desktop version from the root package.json
+let aksDesktopVersion = '';
+try {
+  const aksDesktopInfo = JSON.parse(fs.readFileSync('../../package.json', 'utf8'));
+  aksDesktopVersion = aksDesktopInfo.version;
+} catch (e) {
+  console.warn('Could not read AKS desktop version from package.json:', e.message);
+}
+
 const gitVersion = execSync('git rev-parse HEAD').toString().trim();
 
 const envContents = {
-  REACT_APP_HEADLAMP_VERSION: appInfo.version,
+  REACT_APP_HEADLAMP_VERSION: HEADLAMP_BASE_VERSION,
   REACT_APP_HEADLAMP_GIT_VERSION: gitVersion,
   REACT_APP_HEADLAMP_PRODUCT_NAME: appInfo.productName,
+  REACT_APP_AKS_DESKTOP_VERSION: aksDesktopVersion,
   REACT_APP_ENABLE_REACT_QUERY_DEVTOOLS: 'false',
   REACT_APP_HEADLAMP_SIDEBAR_DEFAULT_OPEN: 'true'
 };

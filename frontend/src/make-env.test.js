@@ -48,4 +48,5 @@ test('Create & verify', () => {
   expect(keys).toContain('REACT_APP_HEADLAMP_VERSION');
   expect(keys).toContain('REACT_APP_HEADLAMP_GIT_VERSION');
   expect(keys).toContain('REACT_APP_HEADLAMP_PRODUCT_NAME');
+  expect(keys).toContain('REACT_APP_AKS_DESKTOP_VERSION');
 });
