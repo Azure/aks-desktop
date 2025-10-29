@@ -3,6 +3,8 @@
   "Cluster": "Cluster",
   "Cluster selector": "Cluster selector",
   "Namespace": "Namespace",
+  "AKS desktop Version": "AKS desktop Version",
+  "Headlamp Version": "Headlamp Version",
   "Git Commit": "Git Commit",
   "Memory": "Memory",
   "CPU": "CPU",

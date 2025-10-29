@@ -3,6 +3,8 @@
   "Cluster": "Cluster",
   "Cluster selector": "Cluster নির্বাচক",
   "Namespace": "নেমস্পেস",
+  "AKS desktop Version": "",
+  "Headlamp Version": "",
   "Git Commit": "Git কমিট",
   "Memory": "মেমরি",
   "CPU": "CPU",
