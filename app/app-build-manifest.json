@@ -1,5 +1,4 @@
 {
-  "proxy-urls": ["https://artifacthub.io/*"],
   "plugins": [
     {
       "name": "prometheus",
