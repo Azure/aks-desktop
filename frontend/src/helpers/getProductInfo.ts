@@ -29,3 +29,9 @@ export function getVersion() {
 export function getProductName(): string | undefined {
   return import.meta.env.REACT_APP_HEADLAMP_PRODUCT_NAME;
 }
+/**
+ * @returns the AKS desktop version, or undefined if it's not set.
+ */
+export function getAksDesktopVersion(): string | undefined {
+  return import.meta.env.REACT_APP_AKS_DESKTOP_VERSION;
+}

@@ -17,7 +17,7 @@
 import DialogContent from '@mui/material/DialogContent';
 import { useTranslation } from 'react-i18next';
 import { useDispatch } from 'react-redux';
-import { getProductName, getVersion } from '../../helpers/getProductInfo';
+import { getAksDesktopVersion, getProductName, getVersion } from '../../helpers/getProductInfo';
 import { useTypedSelector } from '../../redux/hooks';
 import { uiSlice } from '../../redux/uiSlice';
 import { Dialog } from '../common/Dialog';
@@ -28,11 +28,30 @@ export default function VersionDialog(props: {
     VERSION: any;
     GIT_VERSION: any;
   };
+  getAksDesktopVersion?: () => string | undefined;
 }) {
   const open = useTypedSelector(state => state.ui.isVersionDialogOpen);
   const dispatch = useDispatch();
   const { t } = useTranslation(['glossary', 'translation']);
   const { VERSION, GIT_VERSION } = props.getVersion ? props.getVersion() : getVersion();
+  const aksDesktopVersion = props.getAksDesktopVersion
+    ? props.getAksDesktopVersion()
+    : getAksDesktopVersion();
+
+  const rows = [
+    {
+      name: t('AKS desktop Version'),
+      value: aksDesktopVersion || 'N/A',
+    },
+    {
+      name: t('Headlamp Version'),
+      value: VERSION,
+    },
+    {
+      name: t('Git Commit'),
+      value: GIT_VERSION,
+    },
+  ];
 
   return (
     <Dialog
@@ -44,18 +63,7 @@ export default function VersionDialog(props: {
       style={{ zIndex: 1900 }}
     >
       <DialogContent>
-        <NameValueTable
-          rows={[
-            {
-              name: t('translation|Version'),
-              value: VERSION,
-            },
-            {
-              name: t('Git Commit'),
-              value: GIT_VERSION,
-            },
-          ]}
-        />
+        <NameValueTable rows={rows} />
       </DialogContent>
     </Dialog>
   );

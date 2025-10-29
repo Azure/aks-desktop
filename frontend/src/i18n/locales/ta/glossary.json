@@ -2,6 +2,8 @@
   "Kubernetes Version": "குபர்நெட்ஸ் வெர்ஷன்",
   "Cluster": "க்ளஸ்டர்",
   "Cluster selector": "க்ளஸ்டர் செலக்டர்",
+  "AKS desktop Version": "",
+  "Headlamp Version": "",
   "Git Commit": "கிட் கமிட்",
   "Memory": "நினைவகம்",
   "CPU": "சிபியு",
