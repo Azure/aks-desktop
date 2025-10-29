@@ -50,7 +50,7 @@ const getVersion = () => ({
 });
 
 const Template: StoryFn = () => {
-  return <VersionDialogComponent getVersion={getVersion} />;
+  return <VersionDialogComponent getVersion={getVersion} getAksDesktopVersion={() => '1.0.0'} />;
 };
 
 export const VersionDialog = Template.bind({});
