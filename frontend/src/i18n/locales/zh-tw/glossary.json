@@ -2,6 +2,8 @@
   "Kubernetes Version": "Kubernetes 版本",
   "Cluster": "叢集",
   "Cluster selector": "叢集選擇器",
+  "AKS desktop Version": "",
+  "Headlamp Version": "",
   "Git Commit": "Git 提交",
   "Memory": "記憶體",
   "CPU": "CPU",

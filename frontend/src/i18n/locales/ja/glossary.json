@@ -2,6 +2,8 @@
   "Kubernetes Version": "Kubernetes バージョン",
   "Cluster": "クラスター",
   "Cluster selector": "クラスターセレクター",
+  "AKS desktop Version": "",
+  "Headlamp Version": "",
   "Git Commit": "Git コミット",
   "Memory": "メモリ",
   "CPU": "CPU",
