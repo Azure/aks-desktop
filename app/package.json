@@ -153,10 +153,6 @@
       {
         "from": "./app-build-manifest.json",
         "to": "app-build-manifest.json"
-      },
-      {
-        "from": "./resources/external-tools",
-        "to": "external-tools"
       }
     ],
     "publish": {
