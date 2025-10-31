@@ -44,7 +44,7 @@
                 id=":mock-test-id:"
                 style="font-size: 1.25rem; font-weight: 500; line-height: 1.6;"
               >
-                AKS Desktop
+                AKS desktop
               </h1>
             </div>
             <div
@@ -77,10 +77,10 @@
             <dt
               class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-3 MuiGrid-grid-md-2 css-9i4s51-MuiGrid-root"
             >
-              AKS Desktop Version
+              AKS desktop Version
             </dt>
             <dd
-              class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-8 css-deb4a-MuiGrid-root"
+              class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-9 MuiGrid-grid-md-10 css-1dbzfsd-MuiGrid-root"
             >
               <span
                 class="MuiTypography-root MuiTypography-body1 css-e06lsu-MuiTypography-root"
@@ -89,7 +89,7 @@
               </span>
             </dd>
             <dt
-              class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-4 css-1iczkge-MuiGrid-root"
+              class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-3 MuiGrid-grid-md-2 css-9i4s51-MuiGrid-root"
             >
               Headlamp Version
             </dt>

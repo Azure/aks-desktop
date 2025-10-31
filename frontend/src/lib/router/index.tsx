@@ -116,7 +116,7 @@ import ValidatingWebhookConfigurationList from '../../components/webhookconfigur
 import WorkloadDetails from '../../components/workload/Details';
 import WorkloadOverview from '../../components/workload/Overview';
 import { isElectron } from '../../helpers/isElectron';
-import LocaleSelect from '../../i18n/LocaleSelect/LocaleSelect';
+// import LocaleSelect from '../../i18n/LocaleSelect/LocaleSelect';
 import { useCluster } from '..//k8s';
 import DaemonSet from '../k8s/daemonSet';
 import Deployment from '../k8s/deployment';
@@ -786,11 +786,7 @@ const defaultRoutes: { [routeName: string]: Route } = {
     name: 'Login',
     sidebar: null,
     noAuthRequired: true,
-    component: () => (
-      <AuthChooser>
-        <LocaleSelect />
-      </AuthChooser>
-    ),
+    component: () => <AuthChooser>{/* LocaleSelect removed - English only */}</AuthChooser>,
   },
   crds: {
     path: '/crds',

@@ -21,7 +21,7 @@ import { capitalize } from 'lodash';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDispatch } from 'react-redux';
-import LocaleSelect from '../../../i18n/LocaleSelect/LocaleSelect';
+// import LocaleSelect from '../../../i18n/LocaleSelect/LocaleSelect';
 import { setAppSettings } from '../../../redux/configSlice';
 import { defaultTableRowsPerPageOptions } from '../../../redux/configSlice';
 import { useTypedSelector } from '../../../redux/hooks';
@@ -102,10 +102,11 @@ export default function Settings() {
     >
       <NameValueTable
         rows={[
-          {
-            name: t('translation|Language'),
-            value: <LocaleSelect showFullNames formControlProps={{ className: '' }} />,
-          },
+          // Language selection removed - English only
+          // {
+          //   name: t('translation|Language'),
+          //   value: <LocaleSelect showFullNames formControlProps={{ className: '' }} />,
+          // },
           {
             name: t('translation|Resource details view'),
             value: <DrawerModeSettings />,
