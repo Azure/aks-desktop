@@ -46,6 +46,8 @@ export interface CustomCreateProject {
 export interface ProjectOverviewSection {
   id: string;
   component: (props: { project: ProjectDefinition; projectResources: KubeObject[] }) => ReactNode;
+  /** Function to check if this section should be displayed */
+  isEnabled?: ({ project }: { project: ProjectDefinition }) => Promise<boolean>;
 }
 
 export interface ProjectDetailsTab {
