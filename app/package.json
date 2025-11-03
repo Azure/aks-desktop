@@ -217,5 +217,8 @@
     "tar": "^7.5.11",
     "yaml": "^2.6.1",
     "yargs": "^17.7.2"
+  },
+  "optionalDependencies": {
+    "dmg-license": "^1.0.11"
   }
 }
