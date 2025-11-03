@@ -25,7 +25,11 @@ import Role from '../../lib/k8s/role';
 import RoleBinding from '../../lib/k8s/roleBinding';
 import { SelectedClustersContext } from '../../lib/k8s/SelectedClustersContext';
 import { useTypedSelector } from '../../redux/hooks';
-import { ProjectDefinition, ProjectDetailsTab } from '../../redux/projectsSlice';
+import {
+  ProjectDefinition,
+  ProjectDetailsTab,
+  ProjectOverviewSection,
+} from '../../redux/projectsSlice';
 import { Activity } from '../activity/Activity';
 import { ButtonStyle, EditButton, EditorDialog, Loader, StatusLabel } from '../common';
 import Link from '../common/Link';
@@ -109,6 +113,42 @@ function ProjectOverview({
   const additionalOverviewSections = Object.values(
     useTypedSelector(state => state.projects.overviewSections)
   );
+  const [projectSections, setProjectSections] = useState<ProjectOverviewSection[]>([]);
+
+  // Load custom sections
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadSections() {
+      // Get a list of enabled sections
+      const enabledSections = (
+        await Promise.all(
+          additionalOverviewSections.map(section =>
+            section.isEnabled
+              ? section
+                  .isEnabled({ project })
+                  .then(isEnabled => (isEnabled ? section : undefined))
+                  .catch(e => {
+                    console.error('Failed to check if section is enabled', section, e);
+                    return undefined;
+                  })
+              : Promise.resolve(section)
+          )
+        )
+      ).filter(Boolean) as ProjectOverviewSection[];
+
+      if (isCurrent) {
+        setProjectSections(enabledSections);
+      }
+    }
+
+    loadSections();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [additionalOverviewSections, project]);
+
   const resourceQuotas = useMemo(
     () => (projectResources?.filter(it => it.kind === 'ResourceQuota') as ResourceQuota[]) ?? [],
     [projectResources]
@@ -288,7 +328,7 @@ function ProjectOverview({
         </Card>
       </Grid>
 
-      {additionalOverviewSections.map(section => (
+      {projectSections.map(section => (
         <Grid item xs={12} md={4}>
           <Card sx={{ height: '100%' }}>
             <CardContent>
