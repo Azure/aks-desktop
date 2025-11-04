@@ -136,7 +136,8 @@ let actualPort = defaultPort; // Will be updated when backend starts
 const MAX_PORT_ATTEMPTS = Math.abs(Number(process.env.HEADLAMP_MAX_PORT_ATTEMPTS) || 100); // Maximum number of ports to try
 
 const useExternalServer = process.env.EXTERNAL_SERVER || false;
-const shouldCheckForUpdates = process.env.HEADLAMP_CHECK_FOR_UPDATES !== 'false';
+// const shouldCheckForUpdates = process.env.HEADLAMP_CHECK_FOR_UPDATES !== 'false';
+const shouldCheckForUpdates = false;
 
 // make it global so that it doesn't get garbage collected
 let mainWindow: BrowserWindow | null;
