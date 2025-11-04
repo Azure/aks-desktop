@@ -18,7 +18,13 @@
 // Creates the .env file
 import { execSync } from 'child_process';
 import fs from 'fs';
-const appInfo = JSON.parse(fs.readFileSync('../app/package.json', 'utf8'));
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const appInfo = JSON.parse(fs.readFileSync(path.join(__dirname, '../app/package.json'), 'utf8'));
 
 // Headlamp base version that AKS desktop is built upon (read from app/package.json)
 const HEADLAMP_BASE_VERSION = appInfo.version;
@@ -26,8 +32,21 @@ const HEADLAMP_BASE_VERSION = appInfo.version;
 // Read AKS desktop version from the root package.json
 let aksDesktopVersion = '';
 try {
-  const aksDesktopInfo = JSON.parse(fs.readFileSync('../../package.json', 'utf8'));
-  aksDesktopVersion = aksDesktopInfo.version;
+  // Try monorepo root first (when headlamp is a submodule)
+  let aksDesktopInfo;
+  const monorepoPath = path.join(__dirname, '../../package.json');
+  const standalonePath = path.join(__dirname, '../package.json');
+
+  if (fs.existsSync(monorepoPath)) {
+    aksDesktopInfo = JSON.parse(fs.readFileSync(monorepoPath, 'utf8'));
+  } else if (fs.existsSync(standalonePath)) {
+    // Fallback to headlamp's own package.json if running standalone
+    aksDesktopInfo = JSON.parse(fs.readFileSync(standalonePath, 'utf8'));
+  }
+
+  if (aksDesktopInfo) {
+    aksDesktopVersion = aksDesktopInfo.version;
+  }
 } catch (e) {
   console.warn('Could not read AKS desktop version from package.json:', e.message);
 }
