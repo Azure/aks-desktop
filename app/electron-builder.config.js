@@ -1,15 +1,37 @@
 const fs = require('fs');
 const path = require('path');
 
-// Read AKS Desktop version from the root package.json
+// Read AKS desktop version from the root package.json
+// Try multiple possible locations to handle different working directory contexts
 let aksDesktopVersion;
-try {
-  const aksDesktopPackageJson = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')
-  );
-  aksDesktopVersion = aksDesktopPackageJson.version;
-} catch (e) {
-  console.error('Could not read AKS Desktop version from package.json:', e.message);
+const possiblePaths = [
+  path.join(__dirname, '../../package.json'), // Normal case: from headlamp/app in monorepo
+  path.join(__dirname, '../package.json'), // Standalone headlamp: use headlamp's package.json
+  path.join(process.cwd(), '../../package.json'), // Relative to current working directory
+  path.join(__dirname, '../../../package.json'), // In case we're in a nested context
+];
+
+let foundPath = null;
+for (const pkgPath of possiblePaths) {
+  try {
+    if (fs.existsSync(pkgPath)) {
+      const aksDesktopPackageJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      aksDesktopVersion = aksDesktopPackageJson.version;
+      foundPath = pkgPath;
+      console.log(`Successfully read AKS desktop version ${aksDesktopVersion} from ${pkgPath}`);
+      break;
+    }
+  } catch (e) {
+    // Continue to next path
+  }
+}
+
+if (!aksDesktopVersion) {
+  console.error('Could not read AKS desktop version from package.json');
+  console.error('Tried the following paths:');
+  possiblePaths.forEach(p => console.error(`  - ${p}`));
+  console.error(`__dirname: ${__dirname}`);
+  console.error(`process.cwd(): ${process.cwd()}`);
   process.exit(1);
 }
 
