@@ -79,7 +79,7 @@ export default function ClusterContextMenu({ cluster }: ClusterContextMenuProps)
         );
       })
       .finally(() => {
-        history.push('/');
+        window.location.reload();
       });
   }
 
