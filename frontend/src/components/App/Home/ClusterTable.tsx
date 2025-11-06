@@ -297,7 +297,7 @@ export default function ClusterTable({
                     variant="contained"
                     color="primary"
                     size="large"
-                    startIcon={<Icon icon="mdi:microsoft-azure" />}
+                    startIcon={<Icon icon="logos:microsoft-azure" />}
                     onClick={() => {
                       history.push('/add-cluster-aks');
                     }}
