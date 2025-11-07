@@ -104,6 +104,17 @@ export type PluginInfo = {
    */
   isCompatible?: boolean;
 
+  /**
+   * headlamp is an object containing Headlamp-specific plugin configuration
+   */
+  headlamp?: {
+    /**
+     * enabledByDefault indicates if this plugin should be enabled by default when first discovered
+     * If not specified, defaults to true
+     */
+    enabledByDefault?: boolean;
+  };
+
   version?: string; // unused by PluginSettings
   author?: string; // unused by PluginSettings
   /**

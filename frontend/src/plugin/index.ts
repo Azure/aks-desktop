@@ -313,10 +313,14 @@ export function updateSettingsPackages(
     const index = settingsPlugins.findIndex(x => x.name === plugin.name && x.type === plugin.type);
 
     if (index === -1) {
-      // It's a new one settings doesn't know about, enable it by default
+      // It's a new plugin settings doesn't know about.
+      // Use enabledByDefault from plugin's package.json headlamp config, defaulting to true if not specified
+      const enabledByDefault =
+        plugin.headlamp?.enabledByDefault !== undefined ? plugin.headlamp.enabledByDefault : true;
+
       return {
         ...plugin,
-        isEnabled: true,
+        isEnabled: enabledByDefault,
       };
     }
 

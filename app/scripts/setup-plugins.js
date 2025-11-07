@@ -139,7 +139,7 @@ async function main() {
   // Fetch the plugins from the manifest
   if (!!plugins) {
     for (const plugin of plugins) {
-      const { name, archive, file } = plugin;
+      const { name, archive, file, enabled } = plugin;
 
       console.log('Setting up plugin', name, 'from', archive || file, '...');
 
@@ -150,6 +150,21 @@ async function main() {
       if (!!file) {
         const absPath = path.join(path.dirname(MANIFEST_FILE), file);
         await extractArchive(name, absPath);
+      }
+
+      // Update package.json with enabledByDefault field if specified in manifest
+      const pluginFolder = path.join(PLUGIN_FOLDER, name);
+      const packageJsonPath = path.join(pluginFolder, 'package.json');
+
+      if (fs.existsSync(packageJsonPath)) {
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+
+        // Set enabledByDefault based on manifest (defaults to true if not specified)
+        packageJson.headlamp = packageJson.headlamp || {};
+        packageJson.headlamp.enabledByDefault = enabled !== undefined ? enabled : true;
+
+        fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
+        console.log(`Plugin ${name} enabledByDefault: ${packageJson.headlamp.enabledByDefault}`);
       }
     }
   }
