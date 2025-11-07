@@ -3,6 +3,11 @@
     {
       "name": "prometheus",
       "archive": "https://github.com/headlamp-k8s/plugins/releases/download/prometheus-0.8.0/prometheus-0.8.0.tar.gz"
+    },
+    {
+      "name": "kaito",
+      "archive": "https://github.com/kaito-project/headlamp-kaito/releases/download/0.0.7/headlamp-kaito-0.0.7.tar.gz",
+      "enabled": false
     }
   ]
 }
