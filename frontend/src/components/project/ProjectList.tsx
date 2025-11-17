@@ -17,8 +17,9 @@
 import { Icon } from '@iconify/react';
 import { Box, Button, Typography } from '@mui/material';
 import { groupBy, uniq } from 'lodash';
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useLocation } from 'react-router-dom';
 import { useClustersConf } from '../../lib/k8s';
 import Namespace from '../../lib/k8s/namespace';
 import { ProjectDefinition } from '../../redux/projectsSlice';
@@ -26,7 +27,13 @@ import { StatusLabel } from '../common';
 import Link from '../common/Link';
 import Table, { TableColumn } from '../common/Table/Table';
 import { NewProjectPopup } from './NewProjectPopup';
-import { getHealthIcon, getResourcesHealth, PROJECT_ID_LABEL } from './projectUtils';
+import {
+  getHealthIcon,
+  getResourcesHealth,
+  PROJECT_ID_LABEL,
+  PROJECT_MANAGED_BY_AKS_DESKTOP,
+  PROJECT_MANAGED_BY_LABEL,
+} from './projectUtils';
 import { useProjectItems } from './useProjectResources';
 
 const useProjects = (): ProjectDefinition[] => {
@@ -38,27 +45,93 @@ const useProjects = (): ProjectDefinition[] => {
     labelSelector: PROJECT_ID_LABEL,
   });
 
-  const projects = useMemo(
-    () =>
-      Object.entries(groupBy(namespaces, n => n.metadata.labels![PROJECT_ID_LABEL])).map(
-        ([name, namespaces]) => ({
-          id: name,
-          namespaces: uniq(namespaces.map(it => it.metadata.name)),
-          clusters: uniq(namespaces.map(it => it.cluster)),
-        })
-      ),
-    [namespaces]
-  );
+  const projects = useMemo(() => {
+    if (!namespaces) {
+      return [];
+    }
+
+    // Separate namespaces by whether they're managed by aks-desktop
+    const managedByAksDesktop = namespaces.filter(
+      (n: InstanceType<typeof Namespace>) =>
+        n.metadata.labels?.[PROJECT_MANAGED_BY_LABEL] === PROJECT_MANAGED_BY_AKS_DESKTOP
+    );
+    const notManagedByAksDesktop = namespaces.filter(
+      (n: InstanceType<typeof Namespace>) =>
+        n.metadata.labels?.[PROJECT_MANAGED_BY_LABEL] !== PROJECT_MANAGED_BY_AKS_DESKTOP
+    );
+
+    // Group managed namespaces by project ID + cluster (separate entries per cluster)
+    // This ensures that if the same namespace name exists in multiple clusters,
+    // we show separate entries: (project-name, cluster1) and (project-name, cluster2)
+    const managedProjects = Object.entries(
+      groupBy(
+        managedByAksDesktop,
+        (n: InstanceType<typeof Namespace>) =>
+          `${n.metadata.labels![PROJECT_ID_LABEL]}:${n.cluster}`
+      )
+    ).map(([key, nsList]) => {
+      // Handle project IDs that may contain colons by taking all parts except the last one
+      // The last part is always the cluster name
+      const name = key.split(':').slice(0, -1).join(':');
+      const nsArray = nsList as InstanceType<typeof Namespace>[];
+      return {
+        id: name,
+        namespaces: uniq(nsArray.map((it: InstanceType<typeof Namespace>) => it.metadata.name)),
+        clusters: uniq(nsArray.map((it: InstanceType<typeof Namespace>) => it.cluster)),
+        isManaged: true,
+      };
+    });
+
+    // Group non-managed namespaces by project ID only (ignore cluster)
+    // All namespaces with the same project ID across all clusters are grouped together
+    const nonManagedProjects = Object.entries(
+      groupBy(
+        notManagedByAksDesktop,
+        (n: InstanceType<typeof Namespace>) => n.metadata.labels![PROJECT_ID_LABEL]
+      )
+    ).map(([name, nsList]) => {
+      const nsArray = nsList as InstanceType<typeof Namespace>[];
+      return {
+        id: name,
+        namespaces: uniq(nsArray.map((it: InstanceType<typeof Namespace>) => it.metadata.name)),
+        clusters: uniq(nsArray.map((it: InstanceType<typeof Namespace>) => it.cluster)),
+        isManaged: false,
+      };
+    });
+
+    // Ensure project IDs are unique: managed projects take precedence
+    const managedIds = new Set(managedProjects.map(p => p.id));
+    const filteredNonManagedProjects = nonManagedProjects.filter(p => !managedIds.has(p.id));
+
+    return [...managedProjects, ...filteredNonManagedProjects];
+  }, [namespaces]);
 
   return projects;
 };
 
 export const useProject = (name: string) => {
   const clusterConf = useClustersConf();
-  const clusters = Object.values(clusterConf ?? {});
+  const location = useLocation();
+
+  // Memoize clusters to avoid creating a new array on every render
+  const clusters = useMemo(() => Object.values(clusterConf ?? {}), [clusterConf]);
+
+  // Check if cluster query parameter exists
+  const clusterFromQuery = useMemo(() => {
+    const searchParams = new URLSearchParams(location.search);
+    return searchParams.get('cluster');
+  }, [location.search]);
+
+  // If cluster query param exists, use only that cluster; otherwise use all clusters
+  const clustersToUse = useMemo(() => {
+    if (clusterFromQuery) {
+      return clusters.filter(c => c.name === clusterFromQuery).map(c => c.name);
+    }
+    return clusters.map(c => c.name);
+  }, [clusters, clusterFromQuery]);
 
   const { items: namespaces, isLoading } = Namespace.useList({
-    clusters: clusters.map(c => c.name),
+    clusters: clustersToUse,
     labelSelector: PROJECT_ID_LABEL + '=' + name,
   });
 
@@ -93,13 +166,29 @@ export default function ProjectList() {
         id: 'name',
         header: t('Name'),
         accessorFn: it => it.id,
-        Cell: ({ row: { original } }) => (
-          <>
-            <Link routeName="projectDetails" params={{ name: original.id }}>
-              {original.id}
-            </Link>
-          </>
-        ),
+        Cell: ({ row: { original } }) => {
+          const params = { name: original.id };
+          // For aks-desktop managed projects, add cluster as query parameter.
+          // Managed projects are grouped by project-id:cluster, so each entry should have exactly one cluster.
+          // If this assumption is violated, this may lead to incorrect behavior.
+          let search: string | undefined;
+          if ((original as any).isManaged) {
+            if (original.clusters.length !== 1) {
+              // This is a programming error: managed projects should have exactly one cluster.
+              throw new Error(
+                `Managed project "${original.id}" has ${original.clusters.length} clusters (expected exactly 1).`
+              );
+            }
+            search = `cluster=${encodeURIComponent(original.clusters[0])}`;
+          }
+          return (
+            <>
+              <Link routeName="projectDetails" params={params} search={search}>
+                {original.id}
+              </Link>
+            </>
+          );
+        },
       },
       {
         id: 'resources',

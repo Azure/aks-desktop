@@ -21,6 +21,8 @@ import Namespace from '../../lib/k8s/namespace';
 import { getStatus, KubeObjectStatus } from '../resourceMap/nodes/KubeObjectStatus';
 
 export const PROJECT_ID_LABEL = 'headlamp.dev/project-id';
+export const PROJECT_MANAGED_BY_LABEL = 'headlamp.dev/project-managed-by';
+export const PROJECT_MANAGED_BY_AKS_DESKTOP = 'aks-desktop';
 
 export const getHealthIcon = (healthy: number, unhealthy: number, warning: number) => {
   if (healthy + unhealthy + warning === 0) return 'mdi:help-circle';
