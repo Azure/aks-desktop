@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import { labelSelectorToQuery } from '../..';
 import { ApiError } from '../../apiProxy';

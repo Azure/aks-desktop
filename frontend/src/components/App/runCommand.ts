@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 /**
  * Runs a shell command and returns an object that mimics the interface of a ChildProcess object returned by Node's spawn function.
  *

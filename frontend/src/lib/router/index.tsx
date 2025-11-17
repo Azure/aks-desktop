@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import React from 'react';
 import { useHistory } from 'react-router';
 import NotFoundComponent from '../../components/404';

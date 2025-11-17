@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 export * from './LogsViewer';
 import { LogsViewer } from './LogsViewer';
 export default LogsViewer;

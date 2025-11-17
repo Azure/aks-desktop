@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 /**
  * This is as a list of parameters to be passed to the `runPlugin` function.
  * To reduce the ability of overridden prototypes from snooping on data,

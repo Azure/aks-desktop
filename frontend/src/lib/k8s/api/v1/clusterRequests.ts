@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 // @todo: Params is a confusing name for options, because params are also query params.
 
 import { addBackstageAuthHeaders } from '../../../../helpers/addBackstageAuthHeaders';

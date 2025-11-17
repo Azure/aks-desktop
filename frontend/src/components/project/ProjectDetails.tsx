@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { Icon } from '@iconify/react';
 import { Box, Button, Card, CardContent, Grid, Tab, Tabs, Typography } from '@mui/material';
 import React, { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
@@ -110,8 +112,8 @@ function ProjectOverview({
     throw new Error('Missing ProjectDetailsContext');
   }
   const { setSelectedCategoryName, setSelectedTab } = detailsContext;
-  const additionalOverviewSections = useTypedSelector(state => state.projects.overviewSections)
-  
+  const additionalOverviewSections = useTypedSelector(state => state.projects.overviewSections);
+
   const [projectSections, setProjectSections] = useState<ProjectOverviewSection[]>([]);
 
   // Load custom sections

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { Box, Checkbox, FormControlLabel, MenuItem, TextField } from '@mui/material';
 import { useMemo, useState } from 'react';
 import { Trans } from 'react-i18next';

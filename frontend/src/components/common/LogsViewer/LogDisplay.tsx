@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import './LogDisplay.css';
 import { Icon } from '@iconify/react';
 import { alpha, Box, Button, InputAdornment, TextField, useTheme } from '@mui/material';

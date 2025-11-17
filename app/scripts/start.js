@@ -1,3 +1,5 @@
+// Portions (c) Microsoft Corp.
+
 /**
  * This script is used to start the backend, frontend and app in parallel.
  * So ctrl+c will terminate all of them.

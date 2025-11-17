@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import './AnsiText.css';
 
 export const AnsiText = ({ text, searchQuery }: { text: string; searchQuery?: string }) => {
