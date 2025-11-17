@@ -42,8 +42,13 @@ describe('groupNamespacesIntoProjects', () => {
     ]);
 
     expect(projects).toEqual([
-      { id: 'app', namespaces: ['app-prod', 'app-staging'], clusters: ['cluster-a'] },
-      { id: 'billing', namespaces: ['billing'], clusters: ['cluster-a'] },
+      {
+        id: 'app',
+        namespaces: ['app-prod', 'app-staging'],
+        clusters: ['cluster-a'],
+        isManaged: false,
+      },
+      { id: 'billing', namespaces: ['billing'], clusters: ['cluster-a'], isManaged: false },
     ]);
   });
 
@@ -71,7 +76,9 @@ describe('groupNamespacesIntoProjects', () => {
       ns('labelled', { project: 'app' }),
       ns('unlabelled'),
     ]);
-    expect(projects).toEqual([{ id: 'app', namespaces: ['labelled'], clusters: ['cluster-a'] }]);
+    expect(projects).toEqual([
+      { id: 'app', namespaces: ['labelled'], clusters: ['cluster-a'], isManaged: false },
+    ]);
   });
 
   it('skips namespaces whose labels object is present but has no project id', () => {
@@ -82,6 +89,8 @@ describe('groupNamespacesIntoProjects', () => {
       },
       ns('mine', { project: 'app' }),
     ]);
-    expect(projects).toEqual([{ id: 'app', namespaces: ['mine'], clusters: ['cluster-a'] }]);
+    expect(projects).toEqual([
+      { id: 'app', namespaces: ['mine'], clusters: ['cluster-a'], isManaged: false },
+    ]);
   });
 });
