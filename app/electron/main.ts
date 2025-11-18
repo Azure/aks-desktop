@@ -1799,6 +1799,33 @@ async function startElectron() {
       mainWindow?.webContents.send('backend-port', actualPort);
     });
 
+    // Handle reading license files
+    ipcMain.handle('get-license-file', async (event, filename: 'LICENSE' | 'NOTICE.md') => {
+      try {
+        // Security: Only allow reading LICENSE and NOTICE.md files
+        if (filename !== 'LICENSE' && filename !== 'NOTICE.md') {
+          console.error(`Attempt to read unauthorized file: ${filename}`);
+          return { success: false, error: 'Unauthorized file access' };
+        }
+
+        const filePath = path.join(process.resourcesPath, filename);
+
+        // Security: Ensure the resolved path is still within the resources directory
+        const resolvedPath = path.resolve(filePath);
+        const resourcesPath = path.resolve(process.resourcesPath);
+        if (!resolvedPath.startsWith(resourcesPath)) {
+          console.error(`Path traversal attempt detected: ${filename}`);
+          return { success: false, error: 'Invalid file path' };
+        }
+
+        const content = fs.readFileSync(filePath, 'utf8');
+        return { success: true, content };
+      } catch (error) {
+        console.error(`Failed to read ${filename}:`, error);
+        return { success: false, error: String(error) };
+      }
+    });
+
     // Handle AKS cluster registration
     ipcMain.handle(
       'register-aks-cluster',

@@ -76,4 +76,11 @@ contextBridge.exposeInMainWorld('desktopApi', {
       clusterName,
     });
   },
+
+  // Get license file content
+  getLicenseFile: (
+    filename: 'LICENSE' | 'NOTICE.md'
+  ): Promise<{ success: boolean; content?: string; error?: string }> => {
+    return ipcRenderer.invoke('get-license-file', filename);
+  },
 });
