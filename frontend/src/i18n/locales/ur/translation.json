@@ -1,5 +1,5 @@
 {
-  "Whoops! This page doesn't exist": "اوہ! یہ صفحہ موجود نہیں ہے",
+  "Your AKS desktop ran into a page that doesn't exist!": "",
   "Authentication: {{ clusterName }}": "تصدیق: {{ clusterName }}",
   "Authentication": "تصدیق",
   "Please paste your authentication token.": "براہ کرم اپنا تصدیقی ٹوکن پیسٹ کریں",

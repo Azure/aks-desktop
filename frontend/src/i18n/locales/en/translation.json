@@ -1,5 +1,5 @@
 {
-  "Whoops! This page doesn't exist": "Whoops! This page doesn't exist",
+  "Your AKS desktop ran into a page that doesn't exist!": "Your AKS desktop ran into a page that doesn't exist!",
   "Authentication: {{ clusterName }}": "Authentication: {{ clusterName }}",
   "Authentication": "Authentication",
   "Please paste your authentication token.": "Please paste your authentication token.",

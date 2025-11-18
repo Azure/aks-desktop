@@ -1,5 +1,5 @@
 {
-  "Whoops! This page doesn't exist": "عذرًا! هذه الصفحة غير موجودة",
+  "Your AKS desktop ran into a page that doesn't exist!": "",
   "Authentication: {{ clusterName }}": "المصادقة: {{ clusterName }}",
   "Authentication": "المصادقة",
   "Please paste your authentication token.": "يرجى لصق رمز المصادقة الخاص بك.",

@@ -23,7 +23,7 @@ export default function NotFoundComponent() {
   return (
     <ErrorComponent
       graphic={headlampBrokenImage as any}
-      title={t(`Whoops! This page doesn't exist`)}
+      title={t(`Your AKS desktop ran into a page that doesn't exist!`)}
     />
   );
 }
