@@ -68,12 +68,14 @@ contextBridge.exposeInMainWorld('desktopApi', {
   registerAKSCluster: (
     subscriptionId: string,
     resourceGroup: string,
-    clusterName: string
+    clusterName: string,
+    isAzureRBACEnabled: boolean
   ): Promise<{ success: boolean; message: string }> => {
     return ipcRenderer.invoke('register-aks-cluster', {
       subscriptionId,
       resourceGroup,
       clusterName,
+      isAzureRBACEnabled,
     });
   },
 
