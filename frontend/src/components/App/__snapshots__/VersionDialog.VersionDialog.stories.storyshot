@@ -71,52 +71,169 @@
         <div
           class="MuiDialogContent-root css-ypiqx9-MuiDialogContent-root"
         >
-          <dl
-            class="MuiGrid-root MuiGrid-container css-kxuems-MuiGrid-root"
+          <div
+            class="MuiTabs-root css-1ujnqem-MuiTabs-root"
           >
-            <dt
-              class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-3 MuiGrid-grid-md-2 css-9i4s51-MuiGrid-root"
+            <div
+              class="MuiTabs-scrollableX MuiTabs-hideScrollbar css-oqr85h"
+              style="width: 99px; height: 99px; position: absolute; top: -9999px; overflow: scroll;"
+            />
+            <div
+              class="MuiTabs-scroller MuiTabs-hideScrollbar MuiTabs-scrollableX css-69z67c-MuiTabs-scroller"
+              style="margin-bottom: 0px;"
             >
-              AKS desktop Version
-            </dt>
-            <dd
-              class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-9 MuiGrid-grid-md-10 css-1dbzfsd-MuiGrid-root"
-            >
-              <span
-                class="MuiTypography-root MuiTypography-body1 css-e06lsu-MuiTypography-root"
+              <div
+                aria-label="About dialog tabs"
+                class="MuiTabs-flexContainer css-heg063-MuiTabs-flexContainer"
+                role="tablist"
               >
-                1.0.0
-              </span>
-            </dd>
-            <dt
-              class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-3 MuiGrid-grid-md-2 css-9i4s51-MuiGrid-root"
-            >
-              Headlamp Version
-            </dt>
-            <dd
-              class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-9 MuiGrid-grid-md-10 css-1dbzfsd-MuiGrid-root"
-            >
+                <button
+                  aria-controls="full-width-tabpanel-0-Aboutdialog tabs-tabs-id"
+                  aria-selected="true"
+                  class="MuiButtonBase-root MuiTab-root MuiTab-textColorPrimary Mui-selected css-f00lt7-MuiButtonBase-root-MuiTab-root"
+                  id="full-width-tab-0-Aboutdialog tabs-tabs-id"
+                  role="tab"
+                  tabindex="0"
+                  type="button"
+                >
+                  About
+                  <span
+                    class="MuiTouchRipple-root css-8je8zh-MuiTouchRipple-root"
+                  />
+                </button>
+                <button
+                  aria-controls="full-width-tabpanel-1-Aboutdialog tabs-tabs-id"
+                  aria-selected="false"
+                  class="MuiButtonBase-root MuiTab-root MuiTab-textColorPrimary css-f00lt7-MuiButtonBase-root-MuiTab-root"
+                  id="full-width-tab-1-Aboutdialog tabs-tabs-id"
+                  role="tab"
+                  tabindex="-1"
+                  type="button"
+                >
+                  Legal
+                  <span
+                    class="MuiTouchRipple-root css-8je8zh-MuiTouchRipple-root"
+                  />
+                </button>
+              </div>
               <span
-                class="MuiTypography-root MuiTypography-body1 css-e06lsu-MuiTypography-root"
-              >
-                0.0.1
-              </span>
-            </dd>
-            <dt
-              class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-3 MuiGrid-grid-md-2 css-1hrqr1q-MuiGrid-root"
+                class="MuiTabs-indicator css-1s2zz1g-MuiTabs-indicator"
+                style="left: 0px; width: 0px;"
+              />
+            </div>
+          </div>
+          <div
+            aria-labelledby="full-width-tab-0-Aboutdialog tabs-tabs-id"
+            class="MuiTypography-root MuiTypography-body1 css-fth53a-MuiTypography-root"
+            id="full-width-tabpanel-0-Aboutdialog tabs-tabs-id"
+            role="tabpanel"
+          >
+            <dl
+              class="MuiGrid-root MuiGrid-container css-kxuems-MuiGrid-root"
             >
-              Git Commit
-            </dt>
-            <dd
-              class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-9 MuiGrid-grid-md-10 css-ui3itl-MuiGrid-root"
-            >
-              <span
-                class="MuiTypography-root MuiTypography-body1 css-e06lsu-MuiTypography-root"
+              <dt
+                class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-3 MuiGrid-grid-md-2 css-9i4s51-MuiGrid-root"
               >
-                abc123abc123abc123abc123abc123abc123abc123abc123abc123
-              </span>
-            </dd>
-          </dl>
+                AKS desktop Version
+              </dt>
+              <dd
+                class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-9 MuiGrid-grid-md-10 css-1dbzfsd-MuiGrid-root"
+              >
+                <span
+                  class="MuiTypography-root MuiTypography-body1 css-e06lsu-MuiTypography-root"
+                >
+                  1.0.0
+                </span>
+              </dd>
+              <dt
+                class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-3 MuiGrid-grid-md-2 css-9i4s51-MuiGrid-root"
+              >
+                Headlamp Version
+              </dt>
+              <dd
+                class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-9 MuiGrid-grid-md-10 css-1dbzfsd-MuiGrid-root"
+              >
+                <span
+                  class="MuiTypography-root MuiTypography-body1 css-e06lsu-MuiTypography-root"
+                >
+                  0.0.1
+                </span>
+              </dd>
+              <dt
+                class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-3 MuiGrid-grid-md-2 css-1hrqr1q-MuiGrid-root"
+              >
+                Git Commit
+              </dt>
+              <dd
+                class="MuiGrid-root MuiGrid-item MuiGrid-grid-xs-12 MuiGrid-grid-sm-9 MuiGrid-grid-md-10 css-ui3itl-MuiGrid-root"
+              >
+                <span
+                  class="MuiTypography-root MuiTypography-body1 css-e06lsu-MuiTypography-root"
+                >
+                  abc123abc123abc123abc123abc123abc123abc123abc123abc123
+                </span>
+              </dd>
+            </dl>
+          </div>
+          <div
+            aria-labelledby="full-width-tab-1-Aboutdialog tabs-tabs-id"
+            class="MuiTypography-root MuiTypography-body1 css-fth53a-MuiTypography-root"
+            hidden=""
+            id="full-width-tabpanel-1-Aboutdialog tabs-tabs-id"
+            role="tabpanel"
+          >
+            <div
+              class="MuiBox-root css-19midj6"
+            >
+              <p
+                class="MuiTypography-root MuiTypography-body1 MuiTypography-paragraph css-v2oxxh-MuiTypography-root"
+              >
+                As installed, this program contains software and functionality that is either open source or provided under the terms governing your use of Microsoft Azure.
+              </p>
+              <p
+                class="MuiTypography-root MuiTypography-body1 MuiTypography-paragraph css-v2oxxh-MuiTypography-root"
+              >
+                For all software found at
+                 
+                <a
+                  class="MuiTypography-root MuiTypography-inherit MuiLink-root MuiLink-underlineHover css-2ugbm1-MuiTypography-root-MuiLink-root"
+                  href="https://github.com/Azure/aks-desktop"
+                  rel="noopener"
+                  target="_blank"
+                >
+                  https://github.com/Azure/aks-desktop
+                </a>
+                , such software is provided under the terms of the Apache License, version 2.0.
+              </p>
+              <p
+                class="MuiTypography-root MuiTypography-body1 MuiTypography-paragraph css-v2oxxh-MuiTypography-root"
+              >
+                For any other software or functionality included in this install, it is governed by your agreement governing use of Azure that incorporates the Microsoft Product Terms (see in particular the section titled "Use of Software with the Online Service"). Additionally, the software is a preview version and subject to terms applicable to "Previews" as detailed in the "Universal License Terms for Online Services" section of the Product Terms and the Microsoft Products and Services Data Protection Addendum.
+              </p>
+              <div
+                class="MuiBox-root css-178yklu"
+              >
+                <p
+                  class="MuiTypography-root MuiTypography-body1 MuiTypography-paragraph css-v2oxxh-MuiTypography-root"
+                >
+                  <button
+                    class="MuiTypography-root MuiTypography-inherit MuiLink-root MuiLink-underlineHover MuiLink-button css-1gok68f-MuiTypography-root-MuiLink-root"
+                  >
+                    Apache License 2.0 (LICENSE)
+                  </button>
+                </p>
+                <p
+                  class="MuiTypography-root MuiTypography-body1 MuiTypography-paragraph css-v2oxxh-MuiTypography-root"
+                >
+                  <button
+                    class="MuiTypography-root MuiTypography-inherit MuiLink-root MuiLink-underlineHover MuiLink-button css-1gok68f-MuiTypography-root-MuiLink-root"
+                  >
+                    Third Party Notices (NOTICE.md)
+                  </button>
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

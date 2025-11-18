@@ -153,6 +153,14 @@
       {
         "from": "./app-build-manifest.json",
         "to": "app-build-manifest.json"
+      },
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "../../NOTICE.md",
+        "to": "NOTICE.md"
       }
     ],
     "publish": {
