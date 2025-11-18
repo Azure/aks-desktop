@@ -46,6 +46,14 @@ const config = {
   buildVersion: aksDesktopVersion,
   // Use buildVersion in artifact names
   artifactName: '${name}-' + aksDesktopVersion + '-${os}-${arch}.${ext}',
+  // Override Mac-specific version settings
+  mac: {
+    ...packageJson.build.mac,
+    // Set CFBundleShortVersionString and CFBundleVersion to use AKS desktop version
+    // This ensures the Mac app shows the correct version in Finder, About dialog, etc.
+    bundleShortVersion: aksDesktopVersion,
+    bundleVersion: aksDesktopVersion,
+  },
 };
 
 // Override the deb artifactName as well
