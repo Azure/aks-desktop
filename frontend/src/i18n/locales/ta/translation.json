@@ -1,5 +1,5 @@
 {
-  "Whoops! This page doesn't exist": "அய்யோ! இந்தப் பக்கம் இல்லை",
+  "Your AKS desktop ran into a page that doesn't exist!": "",
   "Authentication: {{ clusterName }}": "அங்கீகாரம்: {{ clusterName }}",
   "Authentication": "அங்கீகாரம்",
   "Please paste your authentication token.": "தயவுசெய்து உங்கள் அங்கீகார டோக்கனை ஒட்டவும்.",

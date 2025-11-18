@@ -1,5 +1,5 @@
 {
-  "Whoops! This page doesn't exist": "哎呀！当前页面不存在",
+  "Your AKS desktop ran into a page that doesn't exist!": "",
   "Authentication: {{ clusterName }}": "身份验证：{{ clusterName }}",
   "Authentication": "身份验证",
   "Please paste your authentication token.": "请输入您的身份验证令牌。",
