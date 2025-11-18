@@ -241,6 +241,7 @@ export async function registerAKSCluster(
   subscriptionId: string,
   resourceGroup: string,
   clusterName: string,
+  isAzureRBACEnabled: boolean,
   isDev: boolean,
   resourcesPath: string
 ): Promise<RegisterAKSClusterResult> {
@@ -296,8 +297,16 @@ export async function registerAKSCluster(
 
     // Step 2: Read and modify the temporary kubeconfig
     const tempKubeconfig = fs.readFileSync(tempKubeconfigPath, 'utf8');
-    const modifiedKubeconfig = addAzKubeloginToKubeconfig(tempKubeconfig, isDev, resourcesPath);
-
+    let modifiedKubeconfig: string;
+    console.log('[AKS] isAzureRBACEnabled:', isAzureRBACEnabled);
+    if (isAzureRBACEnabled) {
+      console.log('[AKS] Adding az-kubelogin to kubeconfig since Azure RBAC is enabled');
+      modifiedKubeconfig = addAzKubeloginToKubeconfig(tempKubeconfig, isDev, resourcesPath);
+    } else {
+      console.log('[AKS] Skipping az-kubelogin since Azure RBAC is disabled');
+      modifiedKubeconfig = tempKubeconfig;
+    }
+    
     // Step 3: Merge into main kubeconfig
     const kubeconfigPath = path.join(os.homedir(), '.kube', 'config');
     const kubeconfigDir = path.dirname(kubeconfigPath);
