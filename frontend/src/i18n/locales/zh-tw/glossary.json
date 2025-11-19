@@ -157,6 +157,7 @@
   "Shell: {{ itemName }}": "",
   "Logs: {{ itemName }}": "日誌: {{ itemName }}",
   "Seconds": "秒",
+  "Logs": "",
   "State": "狀態",
   "Node": "節點",
   "Service Account": "服務帳戶",

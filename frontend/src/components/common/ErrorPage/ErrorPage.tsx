@@ -103,7 +103,7 @@ export default function ErrorComponent(props: ErrorComponentProps) {
   const { t } = useTranslation();
   const { enqueueSnackbar } = useSnackbar();
   const {
-    title = t('Uh-oh! Something went wrong.'),
+    title = t('Your AKS desktop ran into a problem!'),
     message = '',
     withTypography = true,
     // In vite headlampBrokenImage is a string, but in webpack it is an object

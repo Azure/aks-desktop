@@ -157,6 +157,7 @@
   "Shell: {{ itemName }}": "",
   "Logs: {{ itemName }}": "Registos: {{ itemName }}",
   "Seconds": "Segundos",
+  "Logs": "",
   "State": "Estado",
   "Node": "Node",
   "Service Account": "Service Account",

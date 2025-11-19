@@ -157,6 +157,7 @@
   "Shell: {{ itemName }}": "ஷெல்: {{ itemName }}",
   "Logs: {{ itemName }}": "லாக்ஸ்: {{ itemName }}",
   "Seconds": "வினாடிகள்",
+  "Logs": "",
   "State": "நிலை",
   "Node": "நோட்",
   "Service Account": "சர்வீஸ் அக்கவுண்ட்",
