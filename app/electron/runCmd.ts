@@ -144,6 +144,11 @@ const COMMANDS_WITH_CONSENT = {
   ],
   aks_desktop: [
     'az',
+    'az --version',
+    'az version',
+    'az login',
+    'az logout',
+    'az config',
     'az aks',
     'az extension',
     'az feature',
