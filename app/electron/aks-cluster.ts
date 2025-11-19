@@ -235,6 +235,7 @@ function mergeKubeconfig(existingConfig: string, newConfig: string): KubeConfig 
  * @param clusterName - AKS cluster name
  * @param isDev - Whether running in development mode
  * @param resourcesPath - Path to resources directory
+ * @param managedNamespace - Optional managed namespace name to use for scoped credentials
  * @returns Promise with success status and message
  */
 export async function registerAKSCluster(
@@ -243,27 +244,51 @@ export async function registerAKSCluster(
   clusterName: string,
   isAzureRBACEnabled: boolean,
   isDev: boolean,
-  resourcesPath: string
+  resourcesPath: string,
+  managedNamespace?: string
 ): Promise<RegisterAKSClusterResult> {
   const tempKubeconfigPath = path.join(os.tmpdir(), `kubeconfig-${Date.now()}.yaml`);
 
   try {
     // Step 1: Get the kubeconfig to a temporary file with --format azure
-    console.log('[AKS] Getting credentials for cluster:', clusterName);
-    const args = [
-      'aks',
-      'get-credentials',
-      '--subscription',
-      subscriptionId,
-      '--resource-group',
-      resourceGroup,
-      '--name',
-      clusterName,
-      '--format',
-      'azure',
-      '--file',
-      tempKubeconfigPath,
-    ];
+    // Use namespace get-credentials if a managed namespace is provided
+    const args: string[] = ['aks'];
+
+    if (managedNamespace) {
+      console.log(
+        '[AKS] Getting namespace credentials for cluster:',
+        clusterName,
+        'namespace:',
+        managedNamespace
+      );
+      args.push(
+        'namespace',
+        'get-credentials',
+        '--cluster-name',
+        clusterName,
+        '--resource-group',
+        resourceGroup,
+        '--name',
+        managedNamespace,
+        '--subscription',
+        subscriptionId
+      );
+    } else {
+      console.log('[AKS] Getting credentials for cluster:', clusterName);
+      args.push(
+        'get-credentials',
+        '--subscription',
+        subscriptionId,
+        '--resource-group',
+        resourceGroup,
+        '--name',
+        clusterName,
+        '--format',
+        'azure'
+      );
+    }
+
+    args.push('--file', tempKubeconfigPath);
 
     try {
       // Use the shared command execution logic from runCmd.ts
@@ -306,7 +331,7 @@ export async function registerAKSCluster(
       console.log('[AKS] Skipping az-kubelogin since Azure RBAC is disabled');
       modifiedKubeconfig = tempKubeconfig;
     }
-    
+
     // Step 3: Merge into main kubeconfig
     const kubeconfigPath = path.join(os.homedir(), '.kube', 'config');
     const kubeconfigDir = path.dirname(kubeconfigPath);
