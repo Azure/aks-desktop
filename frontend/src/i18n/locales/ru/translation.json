@@ -278,6 +278,7 @@
   "Create {{ name }}": "Создать {{ name }}",
   "Toggle fullscreen": "Переключить полноэкранный режим",
   "Unable to open GitHub. Please check your popup blocker settings or copy the error details manually.": "Невозможно открыть GitHub. Проверьте настройки блокировщика всплывающих окон или скопируйте сведения об ошибке вручную.",
+  "Your AKS desktop ran into a problem!": "",
   "Head back <1>home</1>.": "Возвращайтесь <1>домой</1>.",
   "Error Details": "Подробности ошибки",
   "Copied to clipboard": "Скопировано в буфер обмена",

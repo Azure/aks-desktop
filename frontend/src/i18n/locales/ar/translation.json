@@ -280,6 +280,7 @@
   "Create {{ name }}": "إنشاء {{ name }}",
   "Toggle fullscreen": "تبديل وضع ملء الشاشة",
   "Unable to open GitHub. Please check your popup blocker settings or copy the error details manually.": "تعذر فتح GitHub. يرجى التحقق من إعدادات حظر النوافذ المنبثقة أو نسخ تفاصيل الخطأ يدويًا.",
+  "Your AKS desktop ran into a problem!": "",
   "Head back <1>home</1>.": "العودة إلى <1>الصفحة الرئيسية</1>.",
   "Error Details": "تفاصيل الخطأ",
   "Copied to clipboard": "تم النسخ إلى الحافظة",

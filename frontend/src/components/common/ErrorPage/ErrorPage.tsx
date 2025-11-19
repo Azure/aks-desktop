@@ -103,7 +103,7 @@ export default function ErrorComponent(props: ErrorComponentProps) {
   const { t } = useTranslation();
   const { enqueueSnackbar } = useSnackbar();
   const {
-    title = t('Uh-oh! Something went wrong.'),
+    title = t('Your AKS desktop ran into a problem!'),
     message = '',
     withTypography = true,
     graphic = headlampBrokenImage,

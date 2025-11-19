@@ -276,6 +276,7 @@
   "Create {{ name }}": "{{ name }} بنائیں",
   "Toggle fullscreen": "فل اسکرین تبدیل کریں",
   "Unable to open GitHub. Please check your popup blocker settings or copy the error details manually.": "GitHub نہیں کھولا جا سکا، براہ کرم popup blocker کی ترتیبات چیک کریں یا خرابی کی تفصیلات دستی طور پر کاپی کریں",
+  "Your AKS desktop ran into a problem!": "",
   "Head back <1>home</1>.": "<1>ہوم</1> پر واپس جائیں",
   "Error Details": "خرابی کی تفصیلات",
   "Copied to clipboard": "کلپ بورڈ میں کاپی ہو گیا",

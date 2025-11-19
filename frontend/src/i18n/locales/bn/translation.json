@@ -276,6 +276,7 @@
   "Create {{ name }}": "Create করুন {{ name }}",
   "Toggle fullscreen": "Toggle fullscreen",
   "Unable to open GitHub. Please check your popup blocker settings or copy the error details manually.": "GitHub খুলতে অক্ষম। অনুগ্রহ করে আপনার পপআপ ব্লকার সেটিংস পরীক্ষা করুন বা Error বিবরণ ম্যানুয়ালি কপি করুন।",
+  "Your AKS desktop ran into a problem!": "",
   "Head back <1>home</1>.": "পিছনে যান <1>home</1>।",
   "Error Details": "Errorর বিশদ",
   "Copied to clipboard": "ক্লিপবোর্ডে কপি হয়েছে",
