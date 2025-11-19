@@ -1877,7 +1877,13 @@ async function startElectron() {
       'register-aks-cluster',
       async (
         event,
-        data: { subscriptionId: string; resourceGroup: string; clusterName: string, isAzureRBACEnabled: boolean }
+        data: {
+          subscriptionId: string;
+          resourceGroup: string;
+          clusterName: string;
+          isAzureRBACEnabled: boolean;
+          managedNamespace?: string;
+        }
       ) => {
         const { registerAKSCluster } = await import('./aks-cluster');
         const resourcesDir = isDev
@@ -1889,7 +1895,8 @@ async function startElectron() {
           data.clusterName,
           data.isAzureRBACEnabled,
           isDev,
-          resourcesDir
+          resourcesDir,
+          data.managedNamespace
         );
       }
     );
