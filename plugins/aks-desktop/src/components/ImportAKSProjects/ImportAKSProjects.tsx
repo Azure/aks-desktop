@@ -260,6 +260,14 @@ export default function ImportAKSProjects() {
           continue;
         }
 
+        // add allowed namespaces
+        const settings = JSON.parse(
+          localStorage.getItem(`cluster_settings.${clusterName}`) || '{}'
+        );
+        settings.allowedNamespaces ??= [];
+        settings.allowedNamespaces.push(...namespacesInCluster.map(it => it.namespace.name));
+        localStorage.setItem(`cluster_settings.${clusterName}`, JSON.stringify(settings));
+
         // Step 2: Mark all namespaces in this cluster as successfully imported
         // No need to patch labels - they already exist from AKS managed namespace
         for (const { namespace, projectName } of namespacesInCluster) {
