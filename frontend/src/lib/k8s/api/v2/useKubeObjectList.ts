@@ -17,6 +17,7 @@
 import type { QueryObserverOptions } from '@tanstack/react-query';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getAllowedNamespaces } from '../../cluster';
 import type { KubeObject, KubeObjectClass } from '../../KubeObject';
 import type { QueryParameters } from '../v1/queryParameters';
 import { ApiError } from './ApiError';
@@ -51,6 +52,46 @@ export interface ListResponse<K extends KubeObject> {
 }
 
 /**
+ * Fetch individual namespace items and return them as a list.
+ *
+ * When user has allowed namespaces configured it usually means that they don't
+ * have 'list' permission for namespaces. But we can fetch them individually.
+ **/
+function allowedNamespaceListQuery(
+  cluster: string
+): QueryObserverOptions<ListResponse<any> | undefined | null, ApiError> {
+  return {
+    placeholderData: null,
+    queryKey: ['kubeObject', 'list', 'v1', 'namespaces', cluster, '', {}],
+    queryFn: async () => {
+      const names = getAllowedNamespaces(cluster);
+
+      const promises = names.map(name =>
+        clusterFetch(makeUrl(['api', 'v1', 'namespaces', name]), {
+          cluster,
+        }).then(it => it.json())
+      );
+
+      const items = await Promise.all(promises);
+
+      items.forEach(item => {
+        item.cluster = cluster;
+      });
+
+      return {
+        list: {
+          items,
+          kind: 'NamespaceList',
+          apiVersion: 'v1',
+          metadata: { resourceVersion: '0' },
+        },
+        cluster,
+      };
+    },
+  };
+}
+
+/**
  * Query to list Kube objects from a cluster and namespace(optional)
  *
  * @param kubeObjectClass - Class to instantiate the object with
@@ -68,6 +109,11 @@ export function kubeObjectListQuery<K extends KubeObject>(
   queryParams: QueryParameters,
   refetchInterval?: number
 ): QueryObserverOptions<ListResponse<K> | undefined | null, ApiError> {
+  // When allowed namespaces are configured we shouldn't try to load namespace list
+  // but instead only load allowed namespaces
+  if (kubeObjectClass.kind === 'Namespace' && getAllowedNamespaces(cluster).length > 0) {
+    return allowedNamespaceListQuery(cluster);
+  }
   return {
     placeholderData: null,
     refetchInterval,
@@ -507,7 +553,14 @@ export function useKubeObjectList<K extends KubeObject>({
       cluster: data!.cluster,
       namespace: data!.namespace,
       resourceVersion: data!.list.metadata.resourceVersion,
-    }));
+    }))
+    .filter(data => {
+      // If we're requesting allowed namespaces for given cluster then we don't want to watch them
+      if (kubeObjectClass.kind === 'Namespace' && getAllowedNamespaces(data.cluster).length > 0) {
+        return false;
+      }
+      return true;
+    });
 
   if (listsNotYetWatched.length > 0) {
     setListsToWatch([...listsToWatch, ...listsNotYetWatched]);
