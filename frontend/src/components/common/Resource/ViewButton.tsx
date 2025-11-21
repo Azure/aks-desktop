@@ -40,7 +40,7 @@ function ViewButton({ item, buttonStyle, initialToggle }: ViewButtonProps) {
       title: item.metadata.name,
       cluster: item.cluster,
       icon: <Icon icon="mdi:eye" />,
-      location: 'window',
+      location: 'split-right',
       content: (
         <EditorDialog
           noDialog
