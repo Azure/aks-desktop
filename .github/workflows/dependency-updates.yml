@@ -47,7 +47,7 @@ jobs:
         continue-on-error: true
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v5.0.2
+        uses: peter-evans/create-pull-request@84ae59a2cdc2258d6fa0732dd66352dddae2a412 # v5.0.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: 'chore: update plugin dependencies'
@@ -104,7 +104,7 @@ jobs:
           npm audit fix --force || true
 
       - name: Create security update PR
-        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v5.0.2
+        uses: peter-evans/create-pull-request@84ae59a2cdc2258d6fa0732dd66352dddae2a412 # v5.0.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: 'fix: security vulnerability updates for AKS desktop plugin'
