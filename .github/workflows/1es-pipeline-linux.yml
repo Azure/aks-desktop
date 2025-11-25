@@ -143,11 +143,14 @@ extends:
                   echo "=== COPY EXECUTABLE DEBUG START ==="
                   echo "Current working directory: $(pwd)"
                   echo "Pipeline workspace: $(Pipeline.Workspace)"
-                  echo "Searching for aks-desktop*.deb files..."
+                  echo "Searching for aks-desktop*.deb and *.tar.gz files..."
 
                   # TODO: Remove debug logging after pipeline is stable
                   echo "All .deb files in current directory:"
                   find . -name "*.deb" -type f 2>/dev/null || echo "No .deb files found"
+
+                  echo "All .tar.gz files in current directory:"
+                  find . -name "*.tar.gz" -type f 2>/dev/null || echo "No .tar.gz files found"
 
                   echo "headlamp/app/dist directory contents:"
                   ls -la headlamp/app/dist/ 2>/dev/null || echo "headlamp/app/dist directory not found"
@@ -168,14 +171,34 @@ extends:
                   echo "File size: $(ls -lh "$DEB_PATH" | awk '{print $5}')"
                   echo "File permissions: $(ls -la "$DEB_PATH")"
 
+                  echo "Finding built .tar.gz files..."
+                  TARGZ_FILES=$(find headlamp/app/dist -type f -name "aks-desktop*.tar.gz" 2>/dev/null || true)
+
+                  if [ -z "$TARGZ_FILES" ]; then
+                    echo "No aks-desktop .tar.gz files found in headlamp/app/dist"
+                  else
+                    echo "Found tar.gz files:"
+                    echo "$TARGZ_FILES" | while read -r file; do
+                      echo "  - $file ($(ls -lh "$file" | awk '{print $5}'))"
+                    done
+                  fi
+
                   mkdir -p "$(Pipeline.Workspace)/aks-desktop-deb-unsigned"
                   cp "$DEB_PATH" "$(Pipeline.Workspace)/aks-desktop-deb-unsigned/"
-                  echo "Copied to $(Pipeline.Workspace)/aks-desktop-deb-unsigned/"
+                  echo "Copied .deb to $(Pipeline.Workspace)/aks-desktop-deb-unsigned/"
+
+                  # Copy tar.gz files to unsigned folder (they don't need signing, pattern is *.deb)
+                  if [ -n "$TARGZ_FILES" ]; then
+                    for file in $TARGZ_FILES; do
+                      cp "$file" "$(Pipeline.Workspace)/aks-desktop-deb-unsigned/"
+                      echo "Copied $(basename "$file") to $(Pipeline.Workspace)/aks-desktop-deb-unsigned/"
+                    done
+                  fi
 
                   # TODO: Remove debug logging after pipeline is stable
                   echo "Verifying copy:"
                   ls -la "$(Pipeline.Workspace)/aks-desktop-deb-unsigned/"
-                displayName: "Copy built DEB to workspace directory"
+                displayName: "Copy built DEB and tar.gz files to workspace directory"
 
               # Verify contents in workspace directory
               - bash: |
