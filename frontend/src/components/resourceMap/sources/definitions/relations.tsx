@@ -167,17 +167,17 @@ const endpointSlicesToServices = makeRelation(
 );
 
 const ingressToService = makeRelation(Ingress, Service, (ingress, service) =>
-  ingress.spec.rules?.find((rule: any) =>
+  ingress.spec?.rules?.find((rule: any) =>
     rule.http?.paths?.find((path: any) => service.metadata.name === path?.backend?.service?.name)
   )
 );
 
 const ingressToSecret = makeRelation(Ingress, Secret, (ingress, secret) =>
-  ingress.spec.tls?.find(tls => tls.secretName === secret.metadata.name)
+  ingress.spec?.tls?.find(tls => tls.secretName === secret.metadata.name)
 );
 
 const networkPolicyToPod = makeRelation(NetworkPolicy, Pod, (np, pod) =>
-  matchesLabels(np.jsonData.spec.podSelector.matchLabels, pod)
+  matchesLabels(np.jsonData.spec?.podSelector.matchLabels, pod)
 );
 
 const roleBindingsToRole = makeRelation(
@@ -236,15 +236,15 @@ const jobToCronJob = makeRelation(Job, CronJob, (job, cronJob) =>
 const gatewayToGatewayClass = makeRelation(
   Gateway,
   GatewayClass,
-  (gateway, gatewayClass) => gateway.spec.gatewayClassName === gatewayClass.metadata.name
+  (gateway, gatewayClass) => gateway.spec?.gatewayClassName === gatewayClass.metadata.name
 );
 
 const httpRouteToGateway = makeRelation(HTTPRoute, Gateway, (httpRoute, gateway) =>
-  httpRoute.spec.parentRefs?.find(ref => ref.name === gateway.metadata.name)
+  httpRoute.spec?.parentRefs?.find(ref => ref.name === gateway.metadata.name)
 );
 
 const httpRouteToService = makeRelation(HTTPRoute, Service, (httpRoute, service) =>
-  httpRoute.spec.rules?.find(rule =>
+  httpRoute.spec?.rules?.find(rule =>
     rule.backendRefs?.find(backend => backend.name === service.metadata.name)
   )
 );
@@ -253,16 +253,16 @@ const backendTLSPolicyToService = makeRelation(
   BackendTLSPolicy,
   Service,
   (tlsPolicy, service) =>
-    tlsPolicy.spec.targetRef?.name === service.metadata.name &&
-    tlsPolicy.spec.targetRef?.kind === 'Service'
+    tlsPolicy.spec?.targetRef?.name === service.metadata.name &&
+    tlsPolicy.spec?.targetRef?.kind === 'Service'
 );
 
 const backendTrafficPolicyToService = makeRelation(
   BackendTrafficPolicy,
   Service,
   (trafficPolicy, service) =>
-    trafficPolicy.spec.targetRef?.name === service.metadata.name &&
-    trafficPolicy.spec.targetRef?.kind === 'Service'
+    trafficPolicy?.spec.targetRef?.name === service.metadata.name &&
+    trafficPolicy?.spec.targetRef?.kind === 'Service'
 );
 
 export function useGetAllRelations(): Relation[] {
