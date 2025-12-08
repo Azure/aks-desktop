@@ -10,10 +10,11 @@ export const isAksProject = ({
   project: { namespaces: string[]; clusters: string[] };
 }) =>
   new Promise(res => {
-    K8s.ResourceClasses.Namespace.apiEndpoint.get(
+    const cancelFn = K8s.ResourceClasses.Namespace.apiEndpoint.get(
       project.namespaces[0],
       r => {
         res(r.metadata.labels['headlamp.dev/project-managed-by'] === 'aks-desktop');
+        cancelFn.then(it => it());
       },
       () => {
         res(false);
