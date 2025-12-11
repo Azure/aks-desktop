@@ -9,12 +9,12 @@
         <img
           alt=""
           class="css-8atqhb"
-          src="/src/assets/headlamp-broken.svg"
+          src="data:image/svg+xml,%3c?xml%20version='1.0'%20encoding='UTF-8'?%3e%3csvg%20width='500'%20height='250'%20viewBox='0%200%20500%20250'%20fill='none'%20version='1.1'%20xmlns='http://www.w3.org/2000/svg'%3e%3cdefs%3e%3cclipPath%20id='clip0_142:2'%3e%3crect%20width='318.41'%20height='328.58701'%20fill='%23ffffff'%20transform='translate(178)'%20x='0'%20y='0'%20/%3e%3c/clipPath%3e%3c/defs%3e%3cg%20transform='matrix(0.60643765,0,0,0.60643765,277.09697,25.816265)'%20style='fill:%230079d9;fill-opacity:1'%3e%3cg%20aria-label=':('%20transform='matrix(20.57155,0,0,20.57155,2847.3993,-2033.2268)'%20style='white-space:pre;shape-inside:url(%23rect746);fill:%230079d9;fill-opacity:1'%3e%3cpath%20d='m%20-152.13867,106.98093%20q%200,-1.69336%200.52734,-3.04102%200.53321,-1.34765%201.63477,-2.53711%20h%201.01953%20q%20-1.0957,1.21875%20-1.61133,2.58985%20-0.50976,1.37109%20-0.50976,3%200,1.62304%200.5039,2.98828%200.50977,1.36523%201.61719,2.60156%20h%20-1.01953%20q%20-1.10742,-1.19531%20-1.63477,-2.54297%20-0.52734,-1.35351%20-0.52734,-3.03515%20z'%20style='font-family:Arial;fill:%230079d9;fill-opacity:1'%20/%3e%3c/g%3e%3ccircle%20style='fill:%230079d9;fill-opacity:1'%20cx='-332.11414'%20cy='119.08469'%20r='12.871583'%20/%3e%3ccircle%20style='fill:%230079d9;fill-opacity:1'%20cx='-332.11414'%20cy='213.81749'%20r='12.871583'%20/%3e%3c/g%3e%3c/svg%3e"
         />
         <h1
           class="MuiTypography-root MuiTypography-h1 css-5ewpze-MuiTypography-root"
         >
-          Uh-oh! Something went wrong.
+          Your AKS desktop ran into a problem!
         </h1>
         <h2
           class="MuiTypography-root MuiTypography-h2 css-15otqr2-MuiTypography-root"
