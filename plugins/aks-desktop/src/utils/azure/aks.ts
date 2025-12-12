@@ -115,20 +115,11 @@ export async function registerAKSCluster(
       };
     }
 
-    // Get cluster info
-    const clusterInfo = await getAKSClusterDetails(subscriptionId, resourceGroup, clusterName);
-    if (!clusterInfo.success) {
-      return {
-        success: false,
-        message: clusterInfo.message,
-      };
-    }
-
     const result = await desktopApi.registerAKSCluster(
       subscriptionId,
       resourceGroup,
       clusterName,
-      clusterInfo.cluster?.isAzureRBACEnabled,
+      false, // isAzureRBACEnabled
       managedNamespace
     );
 
