@@ -323,8 +323,7 @@ export async function registerAKSCluster(
     // Step 2: Read and modify the temporary kubeconfig
     const tempKubeconfig = fs.readFileSync(tempKubeconfigPath, 'utf8');
     let modifiedKubeconfig: string;
-    console.log('[AKS] isAzureRBACEnabled:', isAzureRBACEnabled);
-    if (isAzureRBACEnabled) {
+    if (tempKubeconfig.includes('command: kubelogin')) {
       console.log('[AKS] Adding az-kubelogin to kubeconfig since Azure RBAC is enabled');
       modifiedKubeconfig = addAzKubeloginToKubeconfig(tempKubeconfig, isDev, resourcesPath);
     } else {
