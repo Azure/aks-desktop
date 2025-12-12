@@ -434,7 +434,7 @@ export default function Table<RowItem extends Record<string, any>>({
 
   // Handle shift+click range selection
   const handleRowClick = (e: React.MouseEvent, clickedIndex: number) => {
-    if (!table || !table.getRowModel) {
+    if (!table || !table.getRowModel || !tableProps.enableRowSelection) {
       return;
     }
 
@@ -492,7 +492,7 @@ export default function Table<RowItem extends Record<string, any>>({
 
   return (
     <>
-      <MRT_TopToolbar table={table} />
+      {(tableProps.enableTopToolbar ?? true) && <MRT_TopToolbar table={table} />}
       <MuiTable
         sx={{
           display: 'grid',
