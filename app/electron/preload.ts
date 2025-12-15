@@ -117,4 +117,6 @@ contextBridge.exposeInMainWorld('desktopApi', {
   ): Promise<{ success: boolean; content?: string; error?: string }> => {
     return ipcRenderer.invoke('get-license-file', filename);
   },
+
+  platform: process.platform,
 });
