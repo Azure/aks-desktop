@@ -69,13 +69,15 @@ contextBridge.exposeInMainWorld('desktopApi', {
     subscriptionId: string,
     resourceGroup: string,
     clusterName: string,
-    isAzureRBACEnabled: boolean
+    isAzureRBACEnabled: boolean,
+    managedNamespace?: string
   ): Promise<{ success: boolean; message: string }> => {
     return ipcRenderer.invoke('register-aks-cluster', {
       subscriptionId,
       resourceGroup,
       clusterName,
       isAzureRBACEnabled,
+      managedNamespace,
     });
   },
 
@@ -85,4 +87,6 @@ contextBridge.exposeInMainWorld('desktopApi', {
   ): Promise<{ success: boolean; content?: string; error?: string }> => {
     return ipcRenderer.invoke('get-license-file', filename);
   },
+
+  platform: process.platform,
 });
