@@ -1,5 +1,6 @@
 import { Icon } from '@iconify/react';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import Namespace from '@kinvolk/headlamp-plugin/lib/lib/k8s/namespace';
 import {
   Button,
   Checkbox,
@@ -85,9 +86,9 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
     try {
       const namespacePromises = project.namespaces.map(
         nsName =>
-          new Promise<K8s.Namespace | null>(resolve => {
+          new Promise<Namespace | null>(resolve => {
             K8s.ResourceClasses.Namespace.apiGet(
-              (ns: K8s.Namespace) => resolve(ns),
+              (ns: Namespace) => resolve(ns),
               nsName,
               undefined,
               () => resolve(null),
@@ -97,7 +98,7 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
       );
 
       const namespaces = (await Promise.all(namespacePromises)).filter(
-        (ns): ns is K8s.Namespace => ns !== null
+        (ns): ns is Namespace => ns !== null
       );
 
       for (const ns of namespaces) {
@@ -122,14 +123,15 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
             // Delete the Kubernetes namespace
             await K8s.ResourceClasses.Namespace.apiEndpoint.delete(
               namespaceName,
+              // @ts-ignore todo: not sure about this error
               {},
               project.clusters[0]
             );
           } else {
             // Re-fetch namespace to get latest resourceVersion after ARM call modified it
-            const freshNs = await new Promise<K8s.Namespace>((resolve, reject) => {
+            const freshNs = await new Promise<Namespace>((resolve, reject) => {
               K8s.ResourceClasses.Namespace.apiGet(
-                (ns: K8s.Namespace) => resolve(ns),
+                (ns: Namespace) => resolve(ns),
                 namespaceName,
                 undefined,
                 (err: any) => reject(err),
