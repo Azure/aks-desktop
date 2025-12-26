@@ -52,7 +52,9 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
     if (namespace) {
       const checkPermissions = async () => {
         try {
+          // @ts-ignore: need to check types and if the third arg is necessary for getAuthorization
           const updateAuth = await namespace.getAuthorization('update', {}, project.clusters[0]);
+          // @ts-ignore: need to check types and if the third arg is necessary for getAuthorization
           const deleteAuth = await namespace.getAuthorization('delete', {}, project.clusters[0]);
 
           const editable = updateAuth?.status?.allowed ?? false;
