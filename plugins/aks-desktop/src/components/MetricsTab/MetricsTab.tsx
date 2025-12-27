@@ -3,6 +3,8 @@
 
 import { Icon } from '@iconify/react';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import Deployment from '@kinvolk/headlamp-plugin/lib/lib/k8s/deployment';
+import Pod from '@kinvolk/headlamp-plugin/lib/lib/k8s/pod';
 import {
   Box,
   Card,
@@ -43,12 +45,12 @@ interface MetricsTabProps {
   };
 }
 
-interface Deployment {
+interface DeploymentInfo {
   name: string;
   namespace: string;
 }
 
-interface Pod {
+interface PodInfo {
   name: string;
   status: string;
   cpuUsage: string;
@@ -109,7 +111,7 @@ function formatMemoryBrief(bytes: number): string {
 
 const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
   const [selectedDeployment, setSelectedDeployment] = useState<string>('');
-  const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [deployments, setDeployments] = useState<DeploymentInfo[]>([]);
   const [summary, setSummary] = useState<MetricSummary>({
     totalPods: 0,
     requestRate: 'N/A',
@@ -123,7 +125,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
   const [requestErrorData, setRequestErrorData] = useState<ChartDataPoint[]>([]);
   const [responseTimeData, setResponseTimeData] = useState<ResponseTimeDataPoint[]>([]);
   const [networkData, setNetworkData] = useState<ChartDataPoint[]>([]);
-  const [pods, setPods] = useState<Pod[]>([]);
+  const [pods, setPods] = useState<PodInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [metricsLoading, setMetricsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -149,7 +151,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
 
     try {
       const cancel = K8s.ResourceClasses.Deployment.apiList(
-        (deploymentList: K8s.Deployment[]) => {
+        (deploymentList: Deployment[]) => {
           const deploymentData = deploymentList.map((d: any) => ({
             name: d.metadata.name,
             namespace: d.metadata.namespace,
@@ -190,7 +192,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
     try {
       // First, fetch the Deployment to get its selector
       K8s.ResourceClasses.Deployment.apiGet(
-        async (deployment: K8s.Deployment) => {
+        async (deployment: Deployment) => {
           // Get the selector from the deployment spec
           const selector = deployment.spec?.selector?.matchLabels;
           if (!selector) {
@@ -208,8 +210,8 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
 
           // Now use the deployment's selector to find pods
           K8s.ResourceClasses.Pod.apiList(
-            (podList: K8s.Pod[]) => {
-              const podData: Pod[] = podList.map((p: any) => {
+            (podList: Pod[]) => {
+              const podData: PodInfo[] = podList.map((p: any) => {
                 const status = p.status?.phase || 'Unknown';
                 const restarts =
                   p.status?.containerStatuses?.reduce(
