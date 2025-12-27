@@ -9,6 +9,7 @@ import {
   registerCustomCreateProject,
   registerProjectDeleteButton,
   registerProjectDetailsTab,
+  // @ts-ignore todo: registerProjectHeaderAction is not exported properly
   registerProjectHeaderAction,
   registerProjectOverviewSection,
   registerRoute,
@@ -170,6 +171,7 @@ if (Headlamp.isRunningAsApp()) {
   // Register Azure authentication routes
   registerRoute({
     path: '/azure/login',
+    // @ts-ignore todo: fix component type
     component: AzureLoginPage,
     name: 'Azure Login',
     exact: true,
@@ -241,6 +243,7 @@ if (Headlamp.isRunningAsApp()) {
   // Register AKS as a cluster provider in the "Add Cluster" page
   registerAddClusterProvider({
     title: 'Azure Kubernetes Service',
+    // @ts-ignore todo fix registerAddClusterProvider icon to take string
     icon: 'logos:microsoft-azure',
     description:
       'Connect to an existing AKS (Azure Kubernetes Service) cluster from your Azure subscription. Requires Azure CLI authentication.',
@@ -252,6 +255,7 @@ if (Headlamp.isRunningAsApp()) {
     path: '/add-cluster-aks',
     component: RegisterAKSClusterPage,
     name: 'Register AKS Cluster',
+    sidebar: null,
     exact: true,
     useClusterURL: false,
     noAuthRequired: true,
@@ -260,12 +264,14 @@ if (Headlamp.isRunningAsApp()) {
 
 registerProjectOverviewSection({
   id: 'scaling-overview',
+  // @ts-ignore todo: there is an isEnabled prop in registerProjectOverviewSection it's just not present in the types yet. We need to push our changes to headlamp
   isEnabled: isAksProject,
   component: ({ project }) => <ScalingCard project={project} />,
 });
 
 registerProjectOverviewSection({
   id: 'metrics-overview',
+  // @ts-ignore todo: there is an isEnabled prop in registerProjectOverviewSection it's just not present in the types yet. We need to push our changes to headlamp
   isEnabled: isAksProject,
   component: ({ project }) => <MetricsCard project={project} />,
 });
@@ -290,6 +296,7 @@ registerProjectDetailsTab({
   id: 'metrics',
   label: 'Metrics',
   icon: 'mdi:chart-line',
+  // @ts-ignore todo: Type 'unknown' is not assignable to type 'boolean'. isAksProject is a promise
   isEnabled: isAksProject,
   component: ({ project }) => {
     return <MetricsTab project={project} />;
@@ -300,6 +307,7 @@ registerProjectDetailsTab({
   id: 'scaling',
   label: 'Scaling',
   icon: 'mdi:chart-timeline-variant',
+  // @ts-ignore todo: Type 'unknown' is not assignable to type 'boolean'. isAksProject is a promise
   isEnabled: isAksProject,
   component: ({ project }) => {
     return <ScalingTab project={project} />;
@@ -314,8 +322,10 @@ registerProjectHeaderAction({
 
 // Register custom delete button for AKS projects only
 registerProjectDeleteButton({
+  // @ts-ignore todo: Type 'unknown' is not assignable to type 'boolean'. isAksProject is a promise
   isEnabled: isAksProject,
   component: ({ project, buttonStyle }) => (
+    //@ts-ignore todo: buttonStyle issue, registerProjectDeleteButton types not like other register funcs
     <AKSProjectDeleteButton project={project} buttonStyle={buttonStyle} />
   ),
 });
