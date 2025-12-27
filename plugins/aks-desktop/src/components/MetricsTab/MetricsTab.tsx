@@ -3,6 +3,8 @@
 
 import { Icon } from '@iconify/react';
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import Deployment from '@kinvolk/headlamp-plugin/lib/lib/k8s/deployment';
+import Pod from '@kinvolk/headlamp-plugin/lib/lib/k8s/pod';
 import {
   Box,
   Card,
@@ -43,12 +45,12 @@ interface MetricsTabProps {
   };
 }
 
-interface Deployment {
+interface Deploy {
   name: string;
   namespace: string;
 }
 
-interface Pod {
+interface PodInfo {
   name: string;
   status: string;
   cpuUsage: string;
@@ -109,7 +111,7 @@ function formatMemoryBrief(bytes: number): string {
 
 const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
   const [selectedDeployment, setSelectedDeployment] = useState<string>('');
-  const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [deploys, setDeploys] = useState<Deploy[]>([]);
   const [summary, setSummary] = useState<MetricSummary>({
     totalPods: 0,
     requestRate: 'N/A',
@@ -123,7 +125,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
   const [requestErrorData, setRequestErrorData] = useState<ChartDataPoint[]>([]);
   const [responseTimeData, setResponseTimeData] = useState<ResponseTimeDataPoint[]>([]);
   const [networkData, setNetworkData] = useState<ChartDataPoint[]>([]);
-  const [pods, setPods] = useState<Pod[]>([]);
+  const [pods, setPods] = useState<PodInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [metricsLoading, setMetricsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -149,13 +151,13 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
 
     try {
       const cancel = K8s.ResourceClasses.Deployment.apiList(
-        (deploymentList: K8s.Deployment[]) => {
+        (deploymentList: Deployment[]) => {
           const deploymentData = deploymentList.map((d: any) => ({
             name: d.metadata.name,
             namespace: d.metadata.namespace,
           }));
 
-          setDeployments(deploymentData);
+          setDeploys(deploymentData);
 
           // Auto-select first deployment
           if (deploymentData.length > 0 && !selectedDeployment) {
@@ -190,7 +192,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
     try {
       // First, fetch the Deployment to get its selector
       K8s.ResourceClasses.Deployment.apiGet(
-        async (deployment: K8s.Deployment) => {
+        async (deployment: Deployment) => {
           // Get the selector from the deployment spec
           const selector = deployment.spec?.selector?.matchLabels;
           if (!selector) {
@@ -208,8 +210,8 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
 
           // Now use the deployment's selector to find pods
           K8s.ResourceClasses.Pod.apiList(
-            (podList: K8s.Pod[]) => {
-              const podData: Pod[] = podList.map((p: any) => {
+            (podList: Pod[]) => {
+              const podData: PodInfo[] = podList.map((p: any) => {
                 const status = p.status?.phase || 'Unknown';
                 const restarts =
                   p.status?.containerStatuses?.reduce(
@@ -594,7 +596,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
     );
   }
 
-  if (error && deployments.length === 0) {
+  if (error && deploys.length === 0) {
     return (
       <Box p={3}>
         <Typography color="error">{error}</Typography>
@@ -615,14 +617,14 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
             value={selectedDeployment}
             onChange={handleDeploymentChange}
             label="Select Deployment"
-            disabled={deployments.length === 0}
+            disabled={deploys.length === 0}
             displayEmpty
             notched
           >
             <MenuItem value="" disabled>
-              {deployments.length === 0 ? 'No deployments available' : 'Select a deployment'}
+              {deploys.length === 0 ? 'No deployments available' : 'Select a deployment'}
             </MenuItem>
-            {deployments.map(dep => (
+            {deploys.map(dep => (
               <MenuItem key={dep.name} value={dep.name}>
                 {dep.name}
               </MenuItem>
@@ -631,7 +633,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
         </FormControl>
       </Box>
 
-      {deployments.length === 0 ? (
+      {deploys.length === 0 ? (
         <Card sx={{ p: 4, textAlign: 'center' }}>
           <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center">
             <Icon
