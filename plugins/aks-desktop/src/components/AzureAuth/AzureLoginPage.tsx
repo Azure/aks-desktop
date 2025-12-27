@@ -9,83 +9,11 @@ import {
   CardContent,
   CircularProgress,
   Container,
-  styled,
   Typography,
 } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { getLoginStatus, initiateLogin } from '../../utils/azure/az-cli';
-
-const PREFIX = 'AzureLoginPage';
-
-const classes = {
-  root: `${PREFIX}-root`,
-  container: `${PREFIX}-container`,
-  card: `${PREFIX}-card`,
-  logo: `${PREFIX}-logo`,
-  title: `${PREFIX}-title`,
-  subtitle: `${PREFIX}-subtitle`,
-  loginButton: `${PREFIX}-loginButton`,
-  statusMessage: `${PREFIX}-statusMessage`,
-  errorMessage: `${PREFIX}-errorMessage`,
-};
-
-const StyledBox = styled(Box)(({ theme }) => ({
-  [`&.${classes.root}`]: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.palette.background.default,
-  },
-
-  [`& .${classes.container}`]: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: theme.spacing(3),
-  },
-
-  [`& .${classes.card}`]: {
-    maxWidth: 500,
-    width: '100%',
-    textAlign: 'center',
-    padding: theme.spacing(4),
-  },
-
-  [`& .${classes.logo}`]: {
-    fontSize: '64px',
-    color: theme.palette.primary.main,
-    marginBottom: theme.spacing(2),
-  },
-
-  [`& .${classes.title}`]: {
-    marginBottom: theme.spacing(2),
-    fontWeight: 600,
-  },
-
-  [`& .${classes.subtitle}`]: {
-    marginBottom: theme.spacing(4),
-    color: theme.palette.text.secondary,
-  },
-
-  [`& .${classes.loginButton}`]: {
-    minWidth: 200,
-    padding: theme.spacing(1.5, 4),
-    textTransform: 'none',
-    fontSize: '16px',
-  },
-
-  [`& .${classes.statusMessage}`]: {
-    marginTop: theme.spacing(2),
-    color: theme.palette.info.main,
-  },
-
-  [`& .${classes.errorMessage}`]: {
-    marginTop: theme.spacing(2),
-    color: theme.palette.error.main,
-  },
-}));
 
 interface AzureLoginPageProps {
   redirectTo?: string;
@@ -208,21 +136,36 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
     setErrorMessage('');
   };
 
+  const rootSx = {
+    minHeight: '100vh',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    bgcolor: 'background.default',
+  };
+
+  const containerSx = {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 3,
+  };
+
   if (checking) {
     return (
-      <StyledBox className={classes.root}>
-        <Container className={classes.container}>
+      <Box sx={rootSx}>
+        <Container sx={containerSx}>
           <CircularProgress />
           <Typography variant="body1">Checking authentication status...</Typography>
         </Container>
-      </StyledBox>
+      </Box>
     );
   }
 
   return (
-    <StyledBox className={classes.root}>
-      <Container className={classes.container} maxWidth="sm">
-        <Card className={classes.card}>
+    <Box sx={rootSx}>
+      <Container sx={containerSx} maxWidth="sm">
+        <Card sx={{ maxWidth: 500, width: '100%', textAlign: 'center', p: 4 }}>
           <CardContent>
             {loading && (
               <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
@@ -230,13 +173,23 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
               </Box>
             )}
 
-            <Icon icon="logos:microsoft-azure" className={classes.logo} />
+            <Box
+              component={Icon}
+              icon="logos:microsoft-azure"
+              sx={{
+                fontSize: 64,
+                color: 'primary.main',
+                mb: 2,
+                display: 'block',
+                mx: 'auto',
+              }}
+            />
 
-            <Typography variant="h4" className={classes.title}>
+            <Typography variant="h4" sx={{ mb: 2, fontWeight: 600 }}>
               Azure Authentication
             </Typography>
 
-            <Typography variant="body1" className={classes.subtitle}>
+            <Typography variant="body1" sx={{ mb: 4, color: 'text.secondary' }}>
               Sign in with your Azure account to manage AKS clusters and resources
             </Typography>
 
@@ -244,9 +197,15 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
               <Button
                 variant="contained"
                 color="primary"
-                className={classes.loginButton}
                 onClick={handleLogin}
                 startIcon={<Icon icon="mdi:login" />}
+                sx={{
+                  minWidth: 200,
+                  py: 1.5,
+                  px: 4,
+                  textTransform: 'none',
+                  fontSize: 16,
+                }}
               >
                 Sign in with Azure
               </Button>
@@ -254,21 +213,27 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
               <Button
                 variant="outlined"
                 color="secondary"
-                className={classes.loginButton}
                 onClick={handleCancel}
+                sx={{
+                  minWidth: 200,
+                  py: 1.5,
+                  px: 4,
+                  textTransform: 'none',
+                  fontSize: 16,
+                }}
               >
                 Cancel
               </Button>
             )}
 
             {statusMessage && (
-              <Typography variant="body2" className={classes.statusMessage}>
+              <Typography variant="body2" sx={{ mt: 2, color: 'info.main' }}>
                 {statusMessage}
               </Typography>
             )}
 
             {errorMessage && (
-              <Box className={classes.errorMessage}>
+              <Box sx={{ mt: 2, color: 'error.main' }}>
                 <Typography
                   variant="body2"
                   component="div"
@@ -285,6 +250,6 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
           </CardContent>
         </Card>
       </Container>
-    </StyledBox>
+    </Box>
   );
 }
