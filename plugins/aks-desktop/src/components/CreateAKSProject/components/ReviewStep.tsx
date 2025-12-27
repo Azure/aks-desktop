@@ -2,29 +2,10 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-import { styled } from '@mui/material';
 import { Box, Card, Grid, Typography } from '@mui/material';
 import React from 'react';
 import { ReviewStepProps } from '../types';
 import { formatCpuValue, formatMemoryValue } from '../validators';
-
-const PREFIX = 'ReviewStep';
-
-const classes = {
-  sectionTitle: `${PREFIX}-sectionTitle`,
-  sectionDescription: `${PREFIX}-sectionDescription`,
-};
-
-const StyledBox = styled(Box)(({ theme }) => ({
-  [`& .${classes.sectionTitle}`]: {
-    color: theme.palette.text.primary,
-  },
-
-  [`& .${classes.sectionDescription}`]: {
-    marginBottom: theme.spacing(2),
-    color: theme.palette.text.secondary,
-  },
-}));
 
 /**
  * Review step component for displaying configuration summary
@@ -33,19 +14,23 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
   const selectedSubscription = subscriptions.find(sub => sub.id === formData.subscription);
   const selectedCluster = clusters.find(c => c.name === formData.cluster);
 
+  const sectionTitleSx = { color: 'text.primary' as const };
+  const sectionDescriptionSx = { mb: 2, color: 'text.secondary' as const };
+
   return (
-    <StyledBox>
-      <Typography variant="h5" component="h2" gutterBottom className={classes.sectionTitle}>
+    <Box>
+      <Typography variant="h5" component="h2" gutterBottom sx={sectionTitleSx}>
         Review Project Configuration
       </Typography>
-      <Typography variant="body2" className={classes.sectionDescription}>
+      <Typography variant="body2" sx={sectionDescriptionSx}>
         Please review all the settings before creating your AKS project
       </Typography>
+
       <Grid container spacing={3}>
         {/* Basics Section */}
         <Grid item xs={12}>
           <Card variant="outlined" sx={{ p: 2, mb: 2 }}>
-            <Typography variant="h6" gutterBottom className={classes.sectionTitle}>
+            <Typography variant="h6" gutterBottom sx={sectionTitleSx}>
               <Icon icon="mdi:project" style={{ marginRight: 8, verticalAlign: 'middle' }} />
               Project Basics
             </Typography>
@@ -87,7 +72,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
         {/* Networking and Compute Quota Side by Side */}
         <Grid item xs={12} md={6}>
           <Card variant="outlined" sx={{ p: 2, mb: 2, height: '200px' }}>
-            <Typography variant="h6" gutterBottom className={classes.sectionTitle}>
+            <Typography variant="h6" gutterBottom sx={sectionTitleSx}>
               <Icon icon="mdi:network" style={{ marginRight: 8, verticalAlign: 'middle' }} />
               Networking Policies
             </Typography>
@@ -110,7 +95,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
 
         <Grid item xs={12} md={6}>
           <Card variant="outlined" sx={{ p: 2, mb: 2, height: '200px' }}>
-            <Typography variant="h6" gutterBottom className={classes.sectionTitle}>
+            <Typography variant="h6" gutterBottom sx={sectionTitleSx}>
               <Icon icon="mdi:cpu-64-bit" style={{ marginRight: 8, verticalAlign: 'middle' }} />
               Compute Quota
             </Typography>
@@ -143,6 +128,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
                   <Typography variant="body1">{formatCpuValue(formData.cpuLimit)}</Typography>
                 </Box>
               </Grid>
+
               {/* Memory Section */}
               <Grid item xs={12} md={6}>
                 <Box
@@ -180,7 +166,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
         {/* Access Section with Scroll */}
         <Grid item xs={12}>
           <Card variant="outlined" sx={{ p: 2, mb: 2 }}>
-            <Typography variant="h6" gutterBottom className={classes.sectionTitle}>
+            <Typography variant="h6" gutterBottom sx={sectionTitleSx}>
               <Icon icon="mdi:account-group" style={{ marginRight: 8, verticalAlign: 'middle' }} />
               Access Control ({formData.userAssignments.length} assignee
               {formData.userAssignments.length !== 1 ? 's' : ''})
@@ -221,7 +207,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
           </Card>
         </Grid>
       </Grid>
-    </StyledBox>
+    </Box>
   );
 };
 
