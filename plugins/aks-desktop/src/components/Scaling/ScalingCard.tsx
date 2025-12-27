@@ -48,7 +48,7 @@ interface HPAInfo {
   desiredReplicas: number;
 }
 
-interface Deployment {
+interface Deploy {
   name: string;
   namespace: string;
   replicas: number;
@@ -64,7 +64,7 @@ interface ChartDataPoint {
 
 function ScalingCard({ project }: ScalingCardProps) {
   const [selectedDeployment, setSelectedDeployment] = useState<string>('');
-  const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [deploys, setDeploys] = useState<Deploy[]>([]);
   const [hpaInfo, setHpaInfo] = useState<HPAInfo | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,12 +79,10 @@ function ScalingCard({ project }: ScalingCardProps) {
     try {
       // Use Headlamp's K8s API to fetch deployments
       const cancel = K8s.ResourceClasses.Deployment.apiList(
-        (deploymentList: K8s.Deployment[]) => {
+        deploymentList => {
           const deployments = deploymentList
-            .filter(
-              (deployment: K8s.Deployment) => deployment.getNamespace() === project.namespaces[0]
-            )
-            .map((deployment: K8s.Deployment) => ({
+            .filter(deployment => deployment.getNamespace() === project.namespaces[0])
+            .map(deployment => ({
               name: deployment.getName(),
               namespace: deployment.getNamespace(),
               replicas: deployment.spec?.replicas || 0,
@@ -92,7 +90,7 @@ function ScalingCard({ project }: ScalingCardProps) {
               readyReplicas: deployment.status?.readyReplicas || 0,
             }));
 
-          setDeployments(deployments);
+          setDeploys(deployments);
 
           // Auto-select first deployment if none selected
           if (deployments.length > 0 && !selectedDeployment) {
@@ -103,7 +101,7 @@ function ScalingCard({ project }: ScalingCardProps) {
         (error: any) => {
           console.error('Error fetching deployments:', error);
           setError('Failed to fetch deployments');
-          setDeployments([]);
+          setDeploys([]);
           setLoading(false);
         },
         {
@@ -127,7 +125,7 @@ function ScalingCard({ project }: ScalingCardProps) {
     const now = new Date();
 
     // Get current deployment info
-    const currentDeployment = deployments.find(d => d.name === selectedDeployment);
+    const currentDeployment = deploys.find(d => d.name === selectedDeployment);
 
     // Use actual data - no fake fallbacks
     const currentReplicas = hpaInfo?.currentReplicas || currentDeployment?.readyReplicas || 0;
@@ -202,9 +200,9 @@ function ScalingCard({ project }: ScalingCardProps) {
       try {
         // Find HPA that targets this deployment
         K8s.ResourceClasses.HorizontalPodAutoscaler.apiList(
-          (hpaList: K8s.HorizontalPodAutoscaler[]) => {
+          hpaList => {
             const hpa = hpaList.find(
-              (hpa: K8s.HorizontalPodAutoscaler) =>
+              hpa =>
                 hpa.getNamespace() === project.namespaces[0] &&
                 hpa.spec?.scaleTargetRef?.name === deploymentName
             );
@@ -291,17 +289,17 @@ function ScalingCard({ project }: ScalingCardProps) {
             value={selectedDeployment || ''}
             onChange={handleDeploymentChange}
             label="Select Deployment"
-            disabled={loading || deployments.length === 0}
+            disabled={loading || deploys.length === 0}
           >
             {loading ? (
               <MenuItem disabled>
                 <CircularProgress size={16} style={{ marginRight: 8 }} />
                 Loading deployments...
               </MenuItem>
-            ) : deployments.length === 0 ? (
+            ) : deploys.length === 0 ? (
               <MenuItem disabled>No deployments found</MenuItem>
             ) : (
-              deployments.map(deployment => (
+              deploys.map(deployment => (
                 <MenuItem key={deployment.name} value={deployment.name}>
                   {deployment.name}
                 </MenuItem>
@@ -338,7 +336,7 @@ function ScalingCard({ project }: ScalingCardProps) {
                 </Typography>
                 <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1rem' }}>
                   {hpaInfo?.currentReplicas ??
-                    deployments.find(d => d.name === selectedDeployment)?.readyReplicas ??
+                    deploys.find(d => d.name === selectedDeployment)?.readyReplicas ??
                     'N/A'}
                 </Typography>
               </Grid>
