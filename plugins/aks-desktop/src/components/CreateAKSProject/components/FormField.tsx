@@ -1,38 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { styled } from '@mui/material';
 import { InputAdornment, TextField } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import React from 'react';
 import { FormFieldProps } from '../types';
-
-const PREFIX = 'FormField';
-
-const classes = {
-  textField: `${PREFIX}-textField`,
-};
-
-const StyledInputAdornment = styled(InputAdornment)(({ theme }) => ({
-  [`& .${classes.textField}`]: {
-    '& .MuiOutlinedInput-root': {
-      '& fieldset': {
-        borderColor: theme.palette.divider,
-      },
-      '&:hover fieldset': {
-        borderColor: theme.palette.primary.main,
-      },
-      '&.Mui-focused fieldset': {
-        borderColor: theme.palette.primary.main,
-      },
-    },
-    '& .MuiInputLabel-root': {
-      color: theme.palette.text.secondary,
-      '&.Mui-focused': {
-        color: theme.palette.primary.main,
-      },
-    },
-  },
-}));
 
 /**
  * Reusable form field component with consistent styling
@@ -52,6 +24,8 @@ export const FormField: React.FC<FormFieldProps> = ({
   startAdornment,
   endAdornment,
 }) => {
+  const theme = useTheme();
+
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (type === 'number') {
       const numValue = parseFloat(event.target.value) || 0;
@@ -89,14 +63,32 @@ export const FormField: React.FC<FormFieldProps> = ({
       disabled={disabled}
       required={required}
       fullWidth
-      className={classes.textField}
+      sx={{
+        '& .MuiOutlinedInput-root': {
+          '& fieldset': {
+            borderColor: theme.palette.divider,
+          },
+          '&:hover fieldset': {
+            borderColor: theme.palette.primary.main,
+          },
+          '&.Mui-focused fieldset': {
+            borderColor: theme.palette.primary.main,
+          },
+        },
+        '& .MuiInputLabel-root': {
+          color: theme.palette.text.secondary,
+          '&.Mui-focused': {
+            color: theme.palette.primary.main,
+          },
+        },
+      }}
       inputProps={{
         min: type === 'number' ? 0 : undefined,
         step: type === 'number' ? 'any' : undefined,
       }}
       InputProps={{
         startAdornment: startAdornment ? (
-          <StyledInputAdornment position="start">{startAdornment}</StyledInputAdornment>
+          <InputAdornment position="start">{startAdornment}</InputAdornment>
         ) : undefined,
         endAdornment: endAdornment ? (
           <InputAdornment position="end">{endAdornment}</InputAdornment>
