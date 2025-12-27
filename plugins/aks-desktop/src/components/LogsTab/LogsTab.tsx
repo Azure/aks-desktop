@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-// @ts-ignore
+// @ts-ignore todo: LogsViewer is not importing
 import { LogsViewer } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { type KubeObject } from '@kinvolk/headlamp-plugin/lib/lib/k8s/cluster';
 import { Box, Card, MenuItem, TextField, Typography } from '@mui/material';
@@ -17,10 +17,10 @@ const LogsTab = ({ projectResources }: LogsTabProps) => {
     () => projectResources.filter(it => it.kind === 'Deployment'),
     [projectResources]
   );
-  const [deploymentId, setDeploymentId] = useState();
+  const [deploymentId, setDeploymentId] = useState<string>('');
 
   if (!deploymentId && deployments.length > 0) {
-    setDeploymentId(deployments[0].jsonData.metadata.uid);
+    setDeploymentId(deployments[0].jsonData.metadata.uid as string);
   }
 
   const selectedDeployment = useMemo(
