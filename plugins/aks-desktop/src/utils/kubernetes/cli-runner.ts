@@ -6,7 +6,7 @@ import { K8s, runCommand } from '@kinvolk/headlamp-plugin/lib';
 declare const pluginRunCommand: typeof runCommand;
 
 function runCommandAsync(
-  command: string,
+  command: 'az',
   args: string[]
 ): Promise<{ stdout: string; stderr: string }> {
   console.log('command called:', command, args);
@@ -23,8 +23,8 @@ function runCommandAsync(
         resolve({ stdout, stderr });
       });
 
-      cmd.on('error', (error: Error) => {
-        resolve({ stdout: '', stderr: `Command execution error: ${error.message}` });
+      cmd.on('error', (code: number) => {
+        resolve({ stdout: '', stderr: `Command execution error (code ${code})` });
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -42,7 +42,7 @@ export async function runAzCli(args: string[]): Promise<string> {
 }
 
 export async function runCommandWithOutput(
-  command: string,
+  command: 'az',
   args: string[]
 ): Promise<{ stdout: string; stderr: string }> {
   return await runCommandAsync(command, args);
@@ -52,7 +52,7 @@ export async function getNamespaces(clusterContext?: string): Promise<string[]> 
   return new Promise(resolve => {
     try {
       K8s.ResourceClasses.Namespace.apiList(
-        (namespaces: K8s.Namespace[]) => {
+        namespaces => {
           const namespaceNames = namespaces.map(ns => ns.metadata?.name || '').filter(Boolean);
           resolve(namespaceNames);
         },
@@ -75,7 +75,7 @@ export async function getDeployments(namespace: string, clusterContext?: string)
   return new Promise(resolve => {
     try {
       K8s.ResourceClasses.Deployment.apiList(
-        (deployments: K8s.Deployment[]) => {
+        deployments => {
           // Convert Headlamp deployment objects to plain objects for compatibility
           const deploymentObjects = deployments.map(
             deployment => deployment.jsonData || deployment
@@ -116,7 +116,7 @@ export async function getPods(
       }
 
       K8s.ResourceClasses.Pod.apiList(
-        (pods: K8s.Pod[]) => {
+        pods => {
           // Convert Headlamp pod objects to plain objects for compatibility
           const podObjects = pods.map(pod => pod.jsonData || pod);
           resolve(podObjects);
@@ -131,7 +131,7 @@ export async function getPods(
             };
 
             K8s.ResourceClasses.Pod.apiList(
-              (pods: K8s.Pod[]) => {
+              pods => {
                 const podObjects = pods.map(pod => pod.jsonData || pod);
                 resolve(podObjects);
               },
@@ -163,7 +163,7 @@ export async function getLogs(
   return new Promise(resolve => {
     try {
       K8s.ResourceClasses.Pod.apiGet(
-        (pod: K8s.Pod) => {
+        pod => {
           // Use pod.getLogs method for efficient log streaming
           const logOptions = {
             container: containerName,
@@ -208,7 +208,7 @@ export async function scaleDeployment(
   return new Promise(resolve => {
     try {
       K8s.ResourceClasses.Deployment.apiGet(
-        async (deployment: K8s.Deployment) => {
+        async deployment => {
           try {
             // Use the deployment's scale method
             await deployment.scale(replicas);
@@ -243,7 +243,7 @@ export async function getDeploymentStatus(
   return new Promise(resolve => {
     try {
       K8s.ResourceClasses.Deployment.apiGet(
-        (deployment: K8s.Deployment) => {
+        deployment => {
           // Return the plain object representation for compatibility
           resolve(deployment.jsonData || deployment);
         },
