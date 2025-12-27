@@ -9,125 +9,11 @@ import {
   CardContent,
   CircularProgress,
   Container,
-  styled,
   Typography,
 } from '@mui/material';
 import React, { useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useAzureAuth } from '../../hooks/useAzureAuth';
-
-const PREFIX = 'AzureProfilePage';
-
-const classes = {
-  root: `${PREFIX}-root`,
-  container: `${PREFIX}-container`,
-  card: `${PREFIX}-card`,
-  header: `${PREFIX}-header`,
-  backButton: `${PREFIX}-backButton`,
-  logo: `${PREFIX}-logo`,
-  title: `${PREFIX}-title`,
-  subtitle: `${PREFIX}-subtitle`,
-  infoSection: `${PREFIX}-infoSection`,
-  infoLabel: `${PREFIX}-infoLabel`,
-  infoValue: `${PREFIX}-infoValue`,
-  buttonContainer: `${PREFIX}-buttonContainer`,
-  actionButton: `${PREFIX}-actionButton`,
-  logoutButton: `${PREFIX}-logoutButton`,
-  errorMessage: `${PREFIX}-errorMessage`,
-};
-
-const StyledBox = styled(Box)(({ theme }) => ({
-  [`&.${classes.root}`]: {
-    minHeight: '100vh',
-    backgroundColor: theme.palette.background.default,
-    paddingTop: theme.spacing(2),
-  },
-
-  [`& .${classes.container}`]: {
-    maxWidth: 600,
-  },
-
-  [`& .${classes.card}`]: {
-    textAlign: 'center',
-    padding: theme.spacing(4),
-  },
-
-  [`& .${classes.header}`]: {
-    display: 'flex',
-    alignItems: 'center',
-    marginBottom: theme.spacing(3),
-  },
-
-  [`& .${classes.backButton}`]: {
-    display: 'flex',
-    alignItems: 'center',
-    cursor: 'pointer',
-    color: theme.palette.text.secondary,
-    '&:hover': {
-      color: theme.palette.primary.main,
-    },
-  },
-
-  [`& .${classes.logo}`]: {
-    fontSize: '64px',
-    color: theme.palette.primary.main,
-    marginBottom: theme.spacing(2),
-  },
-
-  [`& .${classes.title}`]: {
-    marginBottom: theme.spacing(1),
-    fontWeight: 600,
-  },
-
-  [`& .${classes.subtitle}`]: {
-    marginBottom: theme.spacing(3),
-    color: theme.palette.text.secondary,
-  },
-
-  [`& .${classes.infoSection}`]: {
-    marginBottom: theme.spacing(3),
-    padding: theme.spacing(2),
-    backgroundColor: theme.palette.action.hover,
-    borderRadius: theme.shape.borderRadius,
-    textAlign: 'left',
-  },
-
-  [`& .${classes.infoLabel}`]: {
-    fontWeight: 600,
-    marginBottom: theme.spacing(0.5),
-    color: theme.palette.text.secondary,
-  },
-
-  [`& .${classes.infoValue}`]: {
-    fontSize: '1rem',
-    wordBreak: 'break-all',
-  },
-
-  [`& .${classes.buttonContainer}`]: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: theme.spacing(2),
-    marginTop: theme.spacing(3),
-  },
-
-  [`& .${classes.actionButton}`]: {
-    padding: theme.spacing(1.5),
-    textTransform: 'none',
-    fontSize: '16px',
-  },
-
-  [`& .${classes.logoutButton}`]: {
-    padding: theme.spacing(1.5),
-    textTransform: 'none',
-    fontSize: '16px',
-  },
-
-  [`& .${classes.errorMessage}`]: {
-    marginTop: theme.spacing(2),
-    color: theme.palette.error.main,
-    textAlign: 'left',
-  },
-}));
 
 export default function AzureProfilePage() {
   const history = useHistory();
@@ -171,14 +57,22 @@ export default function AzureProfilePage() {
 
   if (authStatus.isChecking) {
     return (
-      <StyledBox className={classes.root}>
-        <Container className={classes.container}>
+      <Box
+        sx={theme => ({
+          minHeight: '100vh',
+          backgroundColor: theme.palette.background.default,
+          pt: 2,
+        })}
+      >
+        <Container maxWidth="sm">
           <Box
-            display="flex"
-            flexDirection="column"
-            alignItems="center"
-            justifyContent="center"
-            minHeight="50vh"
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: '50vh',
+            }}
           >
             <CircularProgress />
             <Typography variant="body1" sx={{ mt: 2 }}>
@@ -186,7 +80,7 @@ export default function AzureProfilePage() {
             </Typography>
           </Box>
         </Container>
-      </StyledBox>
+      </Box>
     );
   }
 
@@ -196,61 +90,122 @@ export default function AzureProfilePage() {
   }
 
   return (
-    <StyledBox className={classes.root}>
-      <Container className={classes.container}>
+    <Box
+      sx={theme => ({
+        minHeight: '100vh',
+        backgroundColor: theme.palette.background.default,
+        pt: 2,
+      })}
+    >
+      <Container maxWidth="sm">
         {/* Back Button */}
-        <Box className={classes.header}>
-          <Box className={classes.backButton} onClick={handleBack} role="button">
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+          <Box
+            onClick={handleBack}
+            role="button"
+            sx={theme => ({
+              display: 'flex',
+              alignItems: 'center',
+              cursor: 'pointer',
+              color: theme.palette.text.secondary,
+              '&:hover': {
+                color: theme.palette.primary.main,
+              },
+            })}
+          >
             <Box pt={0.5}>
               <InlineIcon icon="mdi:chevron-left" height={20} width={20} />
             </Box>
-            <Box fontSize={14} style={{ textTransform: 'uppercase' }}>
+            <Box fontSize={14} sx={{ textTransform: 'uppercase' }}>
               Back
             </Box>
           </Box>
         </Box>
 
-        <Card className={classes.card}>
+        <Card sx={{ textAlign: 'center', p: 4 }}>
           <CardContent>
-            <Icon icon="logos:microsoft-azure" className={classes.logo} />
+            <Box
+              sx={theme => ({
+                fontSize: '64px',
+                color: theme.palette.primary.main,
+                mb: 2,
+              })}
+            >
+              <Icon icon="logos:microsoft-azure" />
+            </Box>
 
-            <Typography variant="h4" className={classes.title}>
+            <Typography variant="h4" sx={{ mb: 1, fontWeight: 600 }}>
               Azure Account
             </Typography>
 
-            <Typography variant="body1" className={classes.subtitle}>
+            <Typography
+              variant="body1"
+              sx={theme => ({ mb: 3, color: theme.palette.text.secondary })}
+            >
               Logged in as <strong>{authStatus.username}</strong>
             </Typography>
 
             {authStatus.tenantId && (
-              <Box className={classes.infoSection}>
-                <Typography variant="caption" className={classes.infoLabel}>
+              <Box
+                sx={theme => ({
+                  mb: 3,
+                  p: 2,
+                  backgroundColor: theme.palette.action.hover,
+                  borderRadius: theme.shape.borderRadius,
+                  textAlign: 'left',
+                })}
+              >
+                <Typography
+                  variant="caption"
+                  sx={theme => ({
+                    fontWeight: 600,
+                    mb: 0.5,
+                    color: theme.palette.text.secondary,
+                    display: 'block',
+                  })}
+                >
                   Tenant ID
                 </Typography>
-                <Typography variant="body2" className={classes.infoValue}>
+                <Typography variant="body2" sx={{ fontSize: '1rem', wordBreak: 'break-all' }}>
                   {authStatus.tenantId}
                 </Typography>
               </Box>
             )}
 
             {authStatus.subscriptionId && (
-              <Box className={classes.infoSection}>
-                <Typography variant="caption" className={classes.infoLabel}>
+              <Box
+                sx={theme => ({
+                  mb: 3,
+                  p: 2,
+                  backgroundColor: theme.palette.action.hover,
+                  borderRadius: theme.shape.borderRadius,
+                  textAlign: 'left',
+                })}
+              >
+                <Typography
+                  variant="caption"
+                  sx={theme => ({
+                    fontWeight: 600,
+                    mb: 0.5,
+                    color: theme.palette.text.secondary,
+                    display: 'block',
+                  })}
+                >
                   Default Subscription ID
                 </Typography>
-                <Typography variant="body2" className={classes.infoValue}>
+                <Typography variant="body2" sx={{ fontSize: '1rem', wordBreak: 'break-all' }}>
                   {authStatus.subscriptionId}
                 </Typography>
               </Box>
             )}
 
-            <Box className={classes.buttonContainer}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 3 }}>
               <Button
                 variant="contained"
                 color="primary"
-                className={classes.actionButton}
                 onClick={handleAddCluster}
                 startIcon={<Icon icon="mdi:cloud-plus" />}
+                sx={{ p: 1.5, textTransform: 'none', fontSize: 16 }}
               >
                 Add Cluster from Azure
               </Button>
@@ -258,10 +213,10 @@ export default function AzureProfilePage() {
               <Button
                 variant="outlined"
                 color="primary"
-                className={classes.logoutButton}
                 onClick={handleLogout}
                 disabled={loggingOut}
                 startIcon={loggingOut ? <CircularProgress size={20} /> : <Icon icon="mdi:logout" />}
+                sx={{ p: 1.5, textTransform: 'none', fontSize: 16 }}
               >
                 {loggingOut ? 'Logging out...' : 'Log out'}
               </Button>
@@ -269,6 +224,6 @@ export default function AzureProfilePage() {
           </CardContent>
         </Card>
       </Container>
-    </StyledBox>
+    </Box>
   );
 }
