@@ -11,6 +11,9 @@ on:
         required: true
         default: 'main'
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: macos-latest
