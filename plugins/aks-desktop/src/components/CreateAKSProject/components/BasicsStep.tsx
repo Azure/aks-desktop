@@ -4,8 +4,16 @@
 import { Icon } from '@iconify/react';
 // @ts-ignore
 import { useClustersConf } from '@kinvolk/headlamp-plugin/lib/K8s';
-import { Alert, AlertTitle, styled } from '@mui/material';
-import { Box, Button, CircularProgress, FormControl, IconButton, Typography } from '@mui/material';
+import {
+  Alert,
+  AlertTitle,
+  Box,
+  Button,
+  CircularProgress,
+  FormControl,
+  IconButton,
+  Typography,
+} from '@mui/material';
 import React, { useEffect, useRef, useState } from 'react';
 import { useAzureAuth } from '../../../hooks/useAzureAuth';
 import { registerAKSCluster } from '../../../utils/azure/aks';
@@ -13,47 +21,6 @@ import { BasicsStepProps } from '../types';
 import FormField from './FormField';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
 import ValidationAlert from './ValidationAlert';
-
-const PREFIX = 'BasicsStep';
-
-const classes = {
-  sectionTitle: `${PREFIX}-sectionTitle`,
-  sectionDescription: `${PREFIX}-sectionDescription`,
-  inputLabel: `${PREFIX}-inputLabel`,
-  select: `${PREFIX}-select`,
-  iconButton: `${PREFIX}-iconButton`,
-};
-
-const StyledBox = styled(Box)(({ theme }) => ({
-  [`& .${classes.sectionTitle}`]: {
-    color: theme.palette.text.primary,
-  },
-
-  [`& .${classes.sectionDescription}`]: {
-    marginBottom: theme.spacing(2),
-    color: theme.palette.text.secondary,
-  },
-
-  [`& .${classes.inputLabel}`]: {
-    color: theme.palette.text.secondary,
-  },
-
-  [`& .${classes.select}`]: {
-    '& .MuiOutlinedInput-notchedOutline': {
-      borderColor: theme.palette.divider,
-    },
-    '&:hover .MuiOutlinedInput-notchedOutline': {
-      borderColor: theme.palette.primary.main,
-    },
-    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-      borderColor: theme.palette.primary.main,
-    },
-  },
-
-  [`& .${classes.iconButton}`]: {
-    color: theme.palette.primary.main,
-  },
-}));
 
 /**
  * Basics step component for project details and Azure resource selection
@@ -92,7 +59,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
       autoSelected.current = true;
       onFormDataChange({ subscription: authStatus.subscriptionId });
     }
-  }, [formData.subscription, authStatus?.subscriptionId, subscriptions]);
+  }, [formData.subscription, authStatus?.subscriptionId, subscriptions, onFormDataChange]);
 
   const handleInputChange = (field: string, value: any) => {
     onFormDataChange({ [field]: value });
@@ -171,7 +138,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
       undefined;
 
   return (
-    <StyledBox sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       {error && (
         <ValidationAlert
           type="error"
@@ -290,7 +257,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
                 : 'Project name must contain only lowercase letters, numbers, and hyphens (no spaces)'
             }
             endAdornment={
-              <IconButton size="small" className={classes.iconButton}>
+              <IconButton size="small" sx={{ color: 'primary.main' }}>
                 <Icon icon="mdi:edit" />
               </IconButton>
             }
@@ -433,7 +400,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
           </Box>
         )}
       </Box>
-    </StyledBox>
+    </Box>
   );
 };
 

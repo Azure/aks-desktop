@@ -2,78 +2,51 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-import { styled } from '@mui/material';
 import { Box, Typography } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import React from 'react';
 import { BreadcrumbProps } from '../types';
-
-const PREFIX = 'Breadcrumb';
-
-const classes = {
-  breadcrumbSection: `${PREFIX}-breadcrumbSection`,
-  breadcrumbItem: `${PREFIX}-breadcrumbItem`,
-  breadcrumbIcon: `${PREFIX}-breadcrumbIcon`,
-  breadcrumbText: `${PREFIX}-breadcrumbText`,
-  breadcrumbSeparator: `${PREFIX}-breadcrumbSeparator`,
-};
-
-const StyledBox = styled(Box)(({ theme }: any) => ({
-  [`&.${classes.breadcrumbSection}`]: {
-    width: '100%',
-    borderBottom: `1px solid ${theme.palette.divider}`,
-    display: 'flex',
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    backgroundColor: theme.palette.background.muted,
-    padding: theme.spacing(2, 3),
-  },
-
-  [`& .${classes.breadcrumbItem}`]: {
-    display: 'flex',
-    alignItems: 'center',
-    cursor: 'pointer',
-    '&:hover': {
-      opacity: 0.8,
-    },
-    transition: 'all 0.2s ease',
-  },
-
-  [`& .${classes.breadcrumbIcon}`]: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: theme.spacing(2),
-  },
-
-  [`& .${classes.breadcrumbText}`]: {
-    color: theme.palette.text.secondary,
-    fontWeight: 'normal',
-    textDecoration: 'none',
-    '&.active': {
-      color: theme.palette.primary.main,
-      fontWeight: 'bold',
-      textDecoration: 'underline',
-      textUnderlineOffset: '4px',
-    },
-  },
-
-  [`& .${classes.breadcrumbSeparator}`]: {
-    margin: theme.spacing(0, 2),
-    color: theme.palette.text.secondary,
-  },
-}));
 
 /**
  * Breadcrumb navigation component for multi-step forms
  */
 export const Breadcrumb: React.FC<BreadcrumbProps> = ({ steps, activeStep, onStepClick }) => {
+  const theme = useTheme();
+
   return (
-    <StyledBox className={classes.breadcrumbSection}>
+    <Box
+      sx={{
+        width: '100%',
+        borderBottom: `1px solid ${theme.palette.divider}`,
+        display: 'flex',
+        flexDirection: 'row',
+        justifyContent: 'flex-start',
+        alignItems: 'center',
+        backgroundColor: theme => theme.palette.background.muted,
+        px: 3,
+        py: 2,
+      }}
+    >
       {steps.map((label, index) => (
         <React.Fragment key={label}>
-          <Box onClick={() => onStepClick(index)} className={classes.breadcrumbItem}>
-            <Box className={classes.breadcrumbIcon}>
+          <Box
+            onClick={() => onStepClick(index)}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              '&:hover': { opacity: 0.8 },
+            }}
+          >
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mr: 2,
+              }}
+            >
               <Icon
                 icon={
                   index === activeStep
@@ -82,24 +55,33 @@ export const Breadcrumb: React.FC<BreadcrumbProps> = ({ steps, activeStep, onSte
                 }
                 width={24}
                 height={24}
-                color={index === activeStep ? 'primary.main' : 'text.secondary'}
+                color={
+                  index === activeStep ? theme.palette.primary.main : theme.palette.text.secondary
+                }
               />
             </Box>
+
             <Typography
               variant="body1"
-              className={`${classes.breadcrumbText} ${index === activeStep ? 'active' : ''}`}
+              sx={{
+                color: index === activeStep ? 'primary.main' : 'text.secondary',
+                fontWeight: index === activeStep ? 'bold' : 'normal',
+                textDecoration: index === activeStep ? 'underline' : 'none',
+                textUnderlineOffset: index === activeStep ? '4px' : undefined,
+              }}
             >
               {label}
             </Typography>
           </Box>
+
           {index < steps.length - 1 && (
-            <Typography variant="body1" className={classes.breadcrumbSeparator}>
+            <Typography variant="body1" sx={{ mx: 2, color: 'text.secondary' }}>
               &gt;
             </Typography>
           )}
         </React.Fragment>
       ))}
-    </StyledBox>
+    </Box>
   );
 };
 
