@@ -111,10 +111,10 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
 
     try {
       const cancel = K8s.ResourceClasses.Deployment.apiList(
-        (deploymentList: K8s.Deployment[]) => {
+        deploymentList => {
           const deployments = deploymentList
-            .filter((deployment: K8s.Deployment) => deployment.getNamespace() === namespace)
-            .map((deployment: K8s.Deployment) => ({
+            .filter(deployment => deployment.getNamespace() === namespace)
+            .map(deployment => ({
               name: deployment.getName(),
               namespace: deployment.getNamespace(),
               replicas: deployment.spec?.replicas || 0,
@@ -157,9 +157,9 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
 
       try {
         K8s.ResourceClasses.HorizontalPodAutoscaler.apiList(
-          (hpaList: K8s.HorizontalPodAutoscaler[]) => {
+          hpaList => {
             const hpa = hpaList.find(
-              (hpa: K8s.HorizontalPodAutoscaler) =>
+              hpa =>
                 hpa.getNamespace() === namespace &&
                 hpa.spec?.scaleTargetRef?.name === deploymentName
             );

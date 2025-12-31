@@ -6,7 +6,7 @@ import { Icon } from '@iconify/react';
 import { LogsViewer } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { type KubeObject } from '@kinvolk/headlamp-plugin/lib/lib/k8s/cluster';
 import { Box, Card, MenuItem, TextField, Typography } from '@mui/material';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 interface LogsTabProps {
   projectResources: KubeObject[];
@@ -17,11 +17,13 @@ const LogsTab = ({ projectResources }: LogsTabProps) => {
     () => projectResources.filter(it => it.kind === 'Deployment'),
     [projectResources]
   );
-  const [deploymentId, setDeploymentId] = useState();
+  const [deploymentId, setDeploymentId] = useState<string>('');
 
-  if (!deploymentId && deployments.length > 0) {
-    setDeploymentId(deployments[0].jsonData.metadata.uid);
-  }
+  useEffect(() => {
+    if (!deploymentId && deployments.length > 0) {
+      setDeploymentId(deployments[0].jsonData.metadata.uid as string);
+    }
+  }, [deploymentId, deployments]);
 
   const selectedDeployment = useMemo(
     () => deployments.find(it => it.jsonData.metadata.uid === deploymentId),
