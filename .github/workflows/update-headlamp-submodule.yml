@@ -11,13 +11,12 @@ on:
   # Allow manual trigger for testing
   workflow_dispatch:
 
-permissions:
-  contents: write  # Required to push commits
-
 jobs:
   update-submodule:
     name: Update submodule reference in main branch
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to push commits
 
     steps:
       - name: Checkout main repository with submodules
