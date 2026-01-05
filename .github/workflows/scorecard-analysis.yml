@@ -10,8 +10,6 @@ on:
     # Daily
     - cron: '30 1 * * *'
 
-permissions: read-all
-
 jobs:
   analysis:
     name: Scorecard analysis
