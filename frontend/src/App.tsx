@@ -28,6 +28,7 @@ import ErrorComponent from './components/common/ErrorPage';
 import i18n from './i18n/config';
 import { useElectronI18n } from './i18n/electronI18n';
 import ThemeProviderNexti18n from './i18n/ThemeProviderNexti18n';
+import { MyAppInsights } from './lib/appInsights';
 import { queryClient } from './lib/queryClient';
 import { setStore } from './lib/router/createRouteURL';
 import { createMuiTheme, getThemeName, usePrefersColorScheme } from './lib/themes';
@@ -62,17 +63,19 @@ const queryDevtoolsEnabled = import.meta.env.REACT_APP_ENABLE_REACT_QUERY_DEVTOO
 
 function App() {
   return (
-    <ErrorBoundary fallback={<ErrorComponent />}>
-      <Provider store={store}>
-        <QueryClientProvider client={queryClient}>
-          {queryDevtoolsEnabled && <ReactQueryDevtools initialIsOpen={false} />}
+    <MyAppInsights>
+      <ErrorBoundary fallback={<ErrorComponent />}>
+        <Provider store={store}>
+          <QueryClientProvider client={queryClient}>
+            {queryDevtoolsEnabled && <ReactQueryDevtools initialIsOpen={false} />}
 
-          <AppWithRedux>
-            <AppContainer />
-          </AppWithRedux>
-        </QueryClientProvider>
-      </Provider>
-    </ErrorBoundary>
+            <AppWithRedux>
+              <AppContainer />
+            </AppWithRedux>
+          </QueryClientProvider>
+        </Provider>
+      </ErrorBoundary>
+    </MyAppInsights>
   );
 }
 
