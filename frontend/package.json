@@ -10,6 +10,9 @@
   "type": "module",
   "dependencies": {
     "@apidevtools/swagger-parser": "^10.0.3",
+    "@microsoft/applicationinsights-clickanalytics-js": "^3.3.4",
+    "@microsoft/applicationinsights-react-js": "^17.3.4",
+    "@microsoft/applicationinsights-web": "^3.3.4",
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
     "@headlamp-k8s/eslint-config": "^0.6.0",
