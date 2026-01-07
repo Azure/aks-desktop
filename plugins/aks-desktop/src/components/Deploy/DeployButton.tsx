@@ -3,9 +3,10 @@
 
 import { Icon } from '@iconify/react';
 import { Button, Dialog } from '@mui/material';
-import React, { useEffect, useState } from 'react';
-import { useHistory, useLocation } from 'react-router-dom';
+import React, { useEffect } from 'react';
 import DeployWizard from '../DeployWizard/DeployWizard';
+import { useDeployUrlParams } from './hooks/useDeployUrlParams';
+import { useDialogState } from './hooks/useDialogState';
 
 export interface ProjectDefinition {
   id: string;
@@ -19,42 +20,27 @@ interface DeployButtonProps {
   project: Project;
 }
 
+/**
+ * DeployButton component - Triggers the deploy wizard dialog
+ */
 function DeployButton({ project }: DeployButtonProps) {
-  const [open, setOpen] = useState(false);
-  const location = useLocation();
-  const history = useHistory();
-  const [initialApplicationName, setInitialApplicationName] = useState<string | undefined>(
-    undefined
-  );
+  const urlParams = useDeployUrlParams();
+  const dialogState = useDialogState();
 
-  // Check for URL parameters on component mount
+  // Open dialog when URL parameters indicate we should
   useEffect(() => {
-    const searchParams = new URLSearchParams(location.search);
-    const openDeploy = searchParams.get('openDeploy');
-    const applicationName = searchParams.get('applicationName');
-
-    if (openDeploy === 'true') {
-      setOpen(true);
-      if (applicationName) {
-        setInitialApplicationName(applicationName);
-      }
-
-      // Clean up URL parameters using React Router
-      searchParams.delete('openDeploy');
-      searchParams.delete('applicationName');
-      const newSearch = searchParams.toString();
-      const newPath = newSearch ? `${location.pathname}?${newSearch}` : location.pathname;
-      history.replace(newPath);
+    if (urlParams.shouldOpenDialog) {
+      dialogState.openDialog(urlParams.initialApplicationName);
+      urlParams.clearUrlTrigger();
     }
-  }, [location, history]);
+  }, [urlParams.shouldOpenDialog, urlParams.clearUrlTrigger, dialogState.openDialog]);
 
   const handleClickOpen = () => {
-    setOpen(true);
+    dialogState.openDialog();
   };
 
   const handleClose = () => {
-    setOpen(false);
-    setInitialApplicationName(undefined);
+    dialogState.closeDialog();
   };
 
   return (
@@ -72,7 +58,7 @@ function DeployButton({ project }: DeployButtonProps) {
         Deploy Application
       </Button>
       <Dialog
-        open={open}
+        open={dialogState.open}
         onClose={handleClose}
         maxWidth="lg"
         fullWidth
@@ -86,7 +72,7 @@ function DeployButton({ project }: DeployButtonProps) {
         <DeployWizard
           cluster={project.clusters?.[0] || undefined}
           namespace={project.namespaces?.[0] || undefined}
-          initialApplicationName={initialApplicationName}
+          initialApplicationName={dialogState.initialApplicationName}
           onClose={handleClose}
         />
       </Dialog>
