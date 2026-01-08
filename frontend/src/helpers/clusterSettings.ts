@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import { getCluster } from '../lib/cluster';
+
 /**
  * ClusterSettings defines the structure of the cluster settings object.
  */
@@ -60,4 +62,31 @@ export function loadClusterSettings(clusterName: string): ClusterSettings {
   }
   const settings = JSON.parse(localStorage.getItem(`cluster_settings.${clusterName}`) || '{}');
   return settings;
+}
+
+/**
+ * Gives an optionally configured list of allowed namespaces.
+ *
+ * @param cluster Optional cluster to check for allowed namespaces.
+ *                If not given the current cluster allowed name spaces are used.
+ *
+ * @returns A list of configured name spaces for the given cluster or current cluster.
+ *          If a zero length list, then no allowed namespace has been configured for cluster.
+ *          If length > 0, allowed namespaces have been configured for this cluster.
+ *          If not in a cluster it returns [].
+ *
+ * There are cases where a user doesn't have the authority to list
+ * all the namespaces. In that case it becomes difficult to access things
+ * around Headlamp. To prevent this we can allow the user to pass a set
+ * of namespaces they know they have access to and we can use this set to
+ * make requests to the API server.
+ */
+
+export function getAllowedNamespaces(cluster: string | null = getCluster()): string[] {
+  if (!cluster) {
+    return [];
+  }
+
+  const clusterSettings = loadClusterSettings(cluster);
+  return clusterSettings.allowedNamespaces || [];
 }
