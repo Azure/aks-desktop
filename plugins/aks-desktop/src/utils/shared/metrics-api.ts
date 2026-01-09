@@ -85,9 +85,9 @@ async function runAz(command: string): Promise<string> {
         }
       });
 
-      cmd.on('error', err => {
-        console.error('Command execution error:', err);
-        reject(new Error(`Command execution error: ${err.message}`));
+      cmd.on('error', (code: number) => {
+        console.error('Command execution error:', code);
+        reject(new Error(`Command execution error (code ${code})`));
       });
     });
   } catch (error) {

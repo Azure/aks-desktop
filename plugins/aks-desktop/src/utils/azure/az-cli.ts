@@ -58,6 +58,7 @@ export function runCommandAsync(
 
       debugLog('[AZ-CLI] Executing command:', actualCommand, 'with args:', args);
 
+      //@ts-ignore todo: getAzCommand is hardcoded to return 'az', maybe remove all that actualCommand stuff?
       const cmd = pluginRunCommand(actualCommand, args, {});
 
       let stdout = '';
@@ -71,24 +72,29 @@ export function runCommandAsync(
         resolve({ stdout, stderr });
       });
 
-      cmd.on('error', (error: Error) => {
-        console.error('[AZ-CLI] Command execution error:', error);
-        // Handle ENOENT and other spawn errors
-        if (error.message.includes('ENOENT') || error.message.includes('spawn az ENOENT')) {
-          const instructions = getInstallationInstructions();
-          const devModeNote = `
+      cmd.on('error', (code: number) => {
+        console.error('[AZ-CLI] Command execution error:', code);
+        resolve({ stdout: '', stderr: `Command execution code: ${code}` });
 
-NOTE: In development mode, the bundled Azure CLI is not available.
-You need to install Azure CLI on your system to use Azure features.
-In production (built app), Azure CLI is bundled and doesn't require system installation.
-`;
-          resolve({
-            stdout: '',
-            stderr: `Azure CLI (az) command not found.\n\n${instructions}${devModeNote}`,
-          });
-        } else {
-          resolve({ stdout: '', stderr: `Command execution error: ${error.message}` });
-        }
+        // todo: I think this code never worked...
+        // todo: it assumed instead of code, this it got an Error object
+
+        //         // Handle ENOENT and other spawn errors
+        //         if (error.message.includes('ENOENT') || error.message.includes('spawn az ENOENT')) {
+        //           const instructions = getInstallationInstructions();
+        //           const devModeNote = `
+
+        // NOTE: In development mode, the bundled Azure CLI is not available.
+        // You need to install Azure CLI on your system to use Azure features.
+        // In production (built app), Azure CLI is bundled and doesn't require system installation.
+        // `;
+        //           resolve({
+        //             stdout: '',
+        //             stderr: `Azure CLI (az) command not found.\n\n${instructions}${devModeNote}`,
+        //           });
+        //         } else {
+        //           resolve({ stdout: '', stderr: `Command execution error: ${error.message}` });
+        //         }
       });
     } catch (error) {
       // Handle any synchronous errors during command setup

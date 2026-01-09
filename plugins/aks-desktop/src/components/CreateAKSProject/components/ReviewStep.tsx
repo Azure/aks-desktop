@@ -105,6 +105,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
                 <Box
                   sx={theme => ({
                     p: 1,
+                    // @ts-ignore todo: fix palette type so background.muted is recognized
                     backgroundColor: theme.palette.background.muted,
                     borderRadius: 1,
                     border: `1px solid ${theme.palette.divider}`,
@@ -134,6 +135,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
                 <Box
                   sx={theme => ({
                     p: 1,
+                    // @ts-ignore todo: fix palette type so background.muted is recognized
                     backgroundColor: theme.palette.background.muted,
                     borderRadius: 1,
                     border: `1px solid ${theme.palette.divider}`,
@@ -186,6 +188,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
                   sx={theme => ({
                     mb: 2,
                     p: 1,
+                    // @ts-ignore todo: fix palette type so background.muted is recognized
                     backgroundColor: theme.palette.background.muted,
                     borderRadius: 1,
                     border: `1px solid ${theme.palette.divider}`,
