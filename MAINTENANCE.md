@@ -169,3 +169,8 @@ When writing commit messages, follow these guidelines:
 - Use the imperative mood in the subject line (e.g., "Fix bug" instead of "Fixed bug" or "Fixes bug").
 - Limit the subject line and body to 72 characters or less.
 - Use the body to explain what and why vs. how.
+
+### Tests
+
+As new functionality is added, tests of that functionality should be added to an automated test suite.
+
