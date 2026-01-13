@@ -3,6 +3,12 @@
   "entry": [
     "plugins/aks-desktop/src/index.tsx"
   ],
+  "ignoreDependencies": [
+    "jest-environment-jsdom",
+    "babel-jest",
+    "ts-jest",
+    "identity-obj-proxy"
+  ],
   "ignoreIssues": {
     "build/setup-plugins.ts": [
       "files"

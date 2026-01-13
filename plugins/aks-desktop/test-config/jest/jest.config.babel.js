@@ -4,7 +4,8 @@
 /** @type {import('jest').Config} */
 module.exports = {
   testEnvironment: 'jsdom',
-  setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
+  rootDir: '../../', // Point to project root
+  setupFilesAfterEnv: ['<rootDir>/test-config/setup/setupTests-main.ts'],
   moduleNameMapper: {
     '^@kinvolk/headlamp-plugin/lib$': '<rootDir>/src/utils/test/__mocks__/headlamp-plugin.js',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
