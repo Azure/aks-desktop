@@ -82,5 +82,3 @@ export const Breadcrumb: React.FC<BreadcrumbProps> = ({ steps, activeStep, onSte
     </Box>
   );
 };
-
-export default Breadcrumb;

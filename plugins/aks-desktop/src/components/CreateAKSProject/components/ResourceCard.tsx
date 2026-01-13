@@ -22,5 +22,3 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ title, icon, iconCol
     </Box>
   );
 };
-
-export default ResourceCard;

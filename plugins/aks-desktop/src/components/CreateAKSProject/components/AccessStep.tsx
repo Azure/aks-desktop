@@ -8,7 +8,7 @@ import React from 'react';
 import type { AccessStepProps, UserAssignment } from '../types';
 import { AVAILABLE_ROLES, ROLE_DESCRIPTIONS } from '../types';
 import { isValidEmail } from '../validators';
-import FormField from './FormField';
+import { FormField } from './FormField';
 
 /**
  * Access step component for user assignment management
@@ -134,5 +134,3 @@ export const AccessStep: React.FC<AccessStepProps> = ({
     </Box>
   );
 };
-
-export default AccessStep;

@@ -37,5 +37,3 @@ export const ValidationAlert: React.FC<ValidationAlertProps> = ({
     </Box>
   );
 };
-
-export default ValidationAlert;

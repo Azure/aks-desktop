@@ -159,5 +159,3 @@ export const ComputeStep: React.FC<ComputeStepProps> = ({
     </Box>
   );
 };
-
-export default ComputeStep;

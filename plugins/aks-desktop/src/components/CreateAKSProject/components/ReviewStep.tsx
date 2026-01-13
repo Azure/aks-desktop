@@ -210,5 +210,3 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
     </Box>
   );
 };
-
-export default ReviewStep;

@@ -63,5 +63,3 @@ export const NetworkingStep: React.FC<NetworkingStepProps> = ({
     </Box>
   );
 };
-
-export default NetworkingStep;

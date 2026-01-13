@@ -18,9 +18,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAzureAuth } from '../../../hooks/useAzureAuth';
 import { registerAKSCluster } from '../../../utils/azure/aks';
 import type { BasicsStepProps } from '../types';
-import FormField from './FormField';
+import { FormField } from './FormField';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
-import ValidationAlert from './ValidationAlert';
+import { ValidationAlert } from './ValidationAlert';
 
 /**
  * Basics step component for project details and Azure resource selection
@@ -488,5 +488,3 @@ function RegisterCluster({
     </Box>
   );
 }
-
-export default BasicsStep;

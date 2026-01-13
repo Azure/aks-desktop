@@ -17,13 +17,13 @@ import {
 import { checkAzureCliAndAksPreview } from '../../utils/azure/checkAzureCli';
 import AzureAuthGuard from '../AzureAuth/AzureAuthGuard';
 import AzureCliWarning from '../AzureCliWarning';
-import AccessStep from './components/AccessStep';
-import BasicsStep from './components/BasicsStep';
+import { AccessStep } from './components/AccessStep';
+import { BasicsStep } from './components/BasicsStep';
 // Import our new components and hooks
-import Breadcrumb from './components/Breadcrumb';
-import ComputeStep from './components/ComputeStep';
-import NetworkingStep from './components/NetworkingStep';
-import ReviewStep from './components/ReviewStep';
+import { Breadcrumb } from './components/Breadcrumb';
+import { ComputeStep } from './components/ComputeStep';
+import { NetworkingStep } from './components/NetworkingStep';
+import { ReviewStep } from './components/ReviewStep';
 import { useAzureResources } from './hooks/useAzureResources';
 import { useExtensionCheck } from './hooks/useExtensionCheck';
 import { useFeatureCheck } from './hooks/useFeatureCheck';
