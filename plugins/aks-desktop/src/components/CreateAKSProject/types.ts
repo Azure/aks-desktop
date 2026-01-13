@@ -55,14 +55,6 @@ export interface ValidationState {
   fieldErrors?: Record<string, string[]>;
 }
 
-export interface StepValidation {
-  basics: ValidationState;
-  networking: ValidationState;
-  compute: ValidationState;
-  access: ValidationState;
-  review: ValidationState;
-}
-
 export interface ExtensionStatus {
   installed: boolean | null;
   installing: boolean;
@@ -91,14 +83,6 @@ export interface AzureResourceState {
   loadingClusters: boolean;
   error: string | null;
   clusterError: string | null;
-}
-
-export interface CreationState {
-  isCreating: boolean;
-  progress: string;
-  error: string | null;
-  showSuccessDialog: boolean;
-  applicationName: string;
 }
 
 export interface StepProps {
@@ -177,14 +161,6 @@ export interface ResourceCardProps {
   children: React.ReactNode;
 }
 
-export interface AssignmentRowProps {
-  assignment: UserAssignment;
-  index: number;
-  onUpdate: (index: number, updates: Partial<UserAssignment>) => void;
-  onRemove: (index: number) => void;
-  validation: ValidationState;
-}
-
 // Validation result types
 export interface ValidationResult {
   isValid: boolean;
@@ -201,29 +177,6 @@ export interface FormValidationResult extends ValidationResult {
   fieldErrors: Record<string, string[]>;
 }
 
-// Azure API response types
-export interface AzureApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
-
-export interface NamespaceCheckResult {
-  exists: boolean;
-  error?: string;
-}
-
-export interface ExtensionCheckResult {
-  installed: boolean;
-  error?: string;
-}
-
-export interface FeatureCheckResult {
-  registered: boolean;
-  state?: string;
-  error?: string;
-}
-
 // Step names as constants
 export const STEPS = [
   'Basics',
@@ -232,8 +185,6 @@ export const STEPS = [
   'Access',
   'Review',
 ] as const;
-
-export type StepName = (typeof STEPS)[number];
 
 // Default form data
 export const DEFAULT_FORM_DATA: FormData = {

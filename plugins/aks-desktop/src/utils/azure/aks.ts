@@ -18,12 +18,6 @@ export interface AKSCluster {
   isAzureRBACEnabled: boolean;
 }
 
-export interface AzureResult<T = any> {
-  success: boolean;
-  message: string;
-  data?: T;
-}
-
 /**
  * Get the resources path (works in both dev and production)
  */
