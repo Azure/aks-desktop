@@ -31,56 +31,47 @@ export const useChartData = (
     const currentReplicas = hpaInfo?.currentReplicas ?? currentDeployment?.readyReplicas ?? 0;
     const currentCPU = hpaInfo?.currentCPUUtilization || 0; // Keep 0 if no real data
 
-    // Generate data for the last 24 hours (every 2 hours to avoid crowding)
-    for (let i = 23; i >= 0; i -= 2) {
+    // Generate 12 data points for the last 23 hours (every 2 hours)
+    for (let i = 23; i >= 1; i -= 2) {
       const time = new Date(now.getTime() - i * 60 * 60 * 1000);
       const timeString = `${time.getHours().toString().padStart(2, '0')}:00`;
 
       let replicas = currentReplicas;
       let cpu = currentCPU;
 
-      if (i === 0) {
-        // Current time - use actual values only
-        replicas = currentReplicas;
-        cpu = currentCPU;
-      } else {
-        // Historical data - only simulate if we have real current data
-        if (currentCPU > 0) {
-          // We have real CPU data, simulate historical variation
-          const timeVariation = Math.sin((i / 24) * Math.PI * 2) * 0.3;
-          const randomVariation = (Math.random() - 0.5) * 0.2;
-          const totalVariation = timeVariation + randomVariation;
+      // Historical data - only simulate if we have real current data
+      if (currentCPU > 0) {
+        // We have real CPU data, simulate historical variation
+        const timeVariation = Math.sin((i / 24) * Math.PI * 2) * 0.3;
+        const randomVariation = (Math.random() - 0.5) * 0.2;
+        const totalVariation = timeVariation + randomVariation;
 
-          cpu = Math.max(5, Math.min(95, Math.round(currentCPU * (1 + totalVariation))));
+        cpu = Math.max(5, Math.min(95, Math.round(currentCPU * (1 + totalVariation))));
 
-          // Simulate scaling based on CPU if HPA exists
-          if (hpaInfo && hpaInfo.minReplicas !== undefined && hpaInfo.maxReplicas !== undefined) {
-            const targetCPU = hpaInfo.targetCPUUtilization || 50;
-            if (cpu > targetCPU * 1.2) {
-              replicas = Math.min(
-                hpaInfo.maxReplicas,
-                currentReplicas + Math.floor(Math.random() * 2)
-              );
-            } else if (cpu < targetCPU * 0.7) {
-              replicas = Math.max(
-                hpaInfo.minReplicas,
-                currentReplicas - Math.floor(Math.random() * 2)
-              );
-            } else {
-              replicas = Math.max(
-                hpaInfo.minReplicas,
-                Math.min(
-                  hpaInfo.maxReplicas,
-                  currentReplicas + Math.floor((Math.random() - 0.5) * 2)
-                )
-              );
-            }
+        // Simulate scaling based on CPU if HPA exists
+        if (hpaInfo && hpaInfo.minReplicas !== undefined && hpaInfo.maxReplicas !== undefined) {
+          const targetCPU = hpaInfo.targetCPUUtilization || 50;
+          if (cpu > targetCPU * 1.2) {
+            replicas = Math.min(
+              hpaInfo.maxReplicas,
+              currentReplicas + Math.floor(Math.random() * 2)
+            );
+          } else if (cpu < targetCPU * 0.7) {
+            replicas = Math.max(
+              hpaInfo.minReplicas,
+              currentReplicas - Math.floor(Math.random() * 2)
+            );
+          } else {
+            replicas = Math.max(
+              hpaInfo.minReplicas,
+              Math.min(hpaInfo.maxReplicas, currentReplicas + Math.floor((Math.random() - 0.5) * 2))
+            );
           }
-        } else {
-          // No real CPU data - keep CPU at 0 and replicas stable
-          cpu = 0;
-          replicas = currentReplicas;
         }
+      } else {
+        // No real CPU data - keep CPU at 0 and replicas stable
+        cpu = 0;
+        replicas = currentReplicas;
       }
 
       data.push({
@@ -90,6 +81,6 @@ export const useChartData = (
       });
     }
 
-    return data.reverse(); // Reverse to get chronological order
+    return data; // Already in chronological order (oldest to newest)
   }, [selectedDeployment, deployments, hpaInfo]);
 };

@@ -39,51 +39,41 @@ export const useDeployments = (
     setLoading(true);
     setError(null);
 
-    try {
-      // Use Headlamp's K8s API to fetch deployments
-      const cancel = K8s.ResourceClasses.Deployment.apiList(
-        deploymentList => {
-          const fetchedDeployments = deploymentList
-            .filter(deployment => deployment.getNamespace() === namespace)
-            .map(deployment => ({
-              name: deployment.getName(),
-              namespace: deployment.getNamespace(),
-              replicas: deployment.spec?.replicas || 0,
-              availableReplicas: deployment.status?.availableReplicas || 0,
-              readyReplicas: deployment.status?.readyReplicas || 0,
-            }));
+    // Use Headlamp's K8s API to fetch deployments
+    K8s.ResourceClasses.Deployment.apiList(
+      deploymentList => {
+        const fetchedDeployments = deploymentList
+          .filter(deployment => deployment.getNamespace() === namespace)
+          .map(deployment => ({
+            name: deployment.getName(),
+            namespace: deployment.getNamespace(),
+            replicas: deployment.spec?.replicas || 0,
+            availableReplicas: deployment.status?.availableReplicas || 0,
+            readyReplicas: deployment.status?.readyReplicas || 0,
+          }));
 
-          setDeployments(fetchedDeployments);
+        setDeployments(fetchedDeployments);
 
-          // Auto-select first deployment if none selected
-          setSelectedDeployment(current => {
-            if (!current && fetchedDeployments.length > 0) {
-              return fetchedDeployments[0].name;
-            }
-            return current;
-          });
-          setLoading(false);
-        },
-        (error: any) => {
-          console.error('Error fetching deployments:', error);
-          setError('Failed to fetch deployments');
-          setDeployments([]);
-          setLoading(false);
-        },
-        {
-          namespace,
-          cluster,
-        }
-      )();
-
-      // Return cleanup function
-      return cancel;
-    } catch (err) {
-      console.error('Error in fetchDeployments:', err);
-      setError('Failed to fetch deployments');
-      setLoading(false);
-      return undefined;
-    }
+        // Auto-select first deployment if none selected
+        setSelectedDeployment(current => {
+          if (!current && fetchedDeployments.length > 0) {
+            return fetchedDeployments[0].name;
+          }
+          return current;
+        });
+        setLoading(false);
+      },
+      (error: any) => {
+        console.error('Error fetching deployments:', error);
+        setError('Failed to fetch deployments');
+        setDeployments([]);
+        setLoading(false);
+      },
+      {
+        namespace,
+        cluster,
+      }
+    )();
   }, [namespace, cluster]);
 
   return {
