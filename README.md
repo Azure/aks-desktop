@@ -38,23 +38,26 @@ To run AKS desktop locally, follow these steps:
    ```
 
 4. Check for Resource folder:
+
    Ensure that the `resources` folder exists in the `Headlamp/app` directory.
-   **If it does not exist**, use the following command **at the root directory**:
+   If `Headlamp/app/resources` does not exist, run the following command from the root directory.
 
    ```bash
    npm run plugin:setup
    ```
 
 5. Start the Headlamp backend server:
-   Navigate to the `Headlamp` directory and run:
+
+   Navigate to the `Headlamp` directory and make the backend server
 
    ```bash
+   cd Headlamp
    make backend
    ```
 
-6. Start the application at root directory:
+6. Start the application at the root directory:
 
-   Navigate back to the root directory and run:
+   Navigate back to the root directory and start the application in development mode:
 
    ```bash
    npm run dev
