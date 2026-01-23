@@ -64,21 +64,6 @@ contextBridge.exposeInMainWorld('desktopApi', {
     ipcRenderer.removeListener(channel, func);
   },
 
-  // Register AKS cluster
-  registerAKSCluster: (
-    subscriptionId: string,
-    resourceGroup: string,
-    clusterName: string,
-    isAzureRBACEnabled: boolean
-  ): Promise<{ success: boolean; message: string }> => {
-    return ipcRenderer.invoke('register-aks-cluster', {
-      subscriptionId,
-      resourceGroup,
-      clusterName,
-      isAzureRBACEnabled,
-    });
-  },
-
   // Get license file content
   getLicenseFile: (
     filename: 'LICENSE' | 'NOTICE.md'
