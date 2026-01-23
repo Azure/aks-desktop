@@ -86,3 +86,21 @@ contextBridge.exposeInMainWorld('desktopApi', {
     return ipcRenderer.invoke('get-license-file', filename);
   },
 });
+
+contextBridge.exposeInMainWorld('azureApi', {
+  login() {
+    return ipcRenderer.invoke('azure-login');
+  },
+  checkLogin() {
+    return ipcRenderer.invoke('azure-check-login');
+  },
+  logout() {
+    return ipcRenderer.invoke('azure-logout');
+  },
+  getAksToken() {
+    return ipcRenderer.invoke('azure-get-aks-token');
+  },
+  getToken(params: { scopes: string[] | string }) {
+    return ipcRenderer.invoke('azure-get-token', params);
+  },
+});
