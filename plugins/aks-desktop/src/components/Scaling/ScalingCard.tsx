@@ -34,6 +34,7 @@ function ScalingCard({ project }: ScalingCardProps) {
   );
   // Find HPA that targets the selected deployment
   const { hpaInfo } = useHPAInfo(selectedDeployment, namespace, cluster);
+
   // Generate chart data based on the selected deployment and HPA info
   const chartData = useChartData(selectedDeployment, deployments, hpaInfo);
 

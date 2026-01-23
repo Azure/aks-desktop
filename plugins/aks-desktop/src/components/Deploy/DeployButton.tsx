@@ -87,12 +87,14 @@ function DeployButton({ project }: DeployButtonProps) {
           },
         }}
       >
-        <DeployWizard
-          cluster={project.clusters?.[0] || undefined}
-          namespace={project.namespaces?.[0] || undefined}
-          initialApplicationName={dialogState.initialApplicationName}
-          onClose={handleClose}
-        />
+        {open && (
+          <DeployWizard
+            cluster={project.clusters?.[0] || undefined}
+            namespace={project.namespaces?.[0] || undefined}
+            initialApplicationName={dialogState.initialApplicationName}
+            onClose={handleClose}
+          />
+        )}
       </Dialog>
     </>
   );

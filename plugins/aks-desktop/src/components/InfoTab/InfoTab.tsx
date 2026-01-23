@@ -12,12 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  getClusterResourceIdAndGroup,
-  getManagedNamespaceDetails,
-  getManagedNamespaces,
-  updateManagedNamespace,
-} from '../../utils/azure/az-cli';
+import { getManagedNamespace, updateManagedNamespace } from '../../utils/azure/aks';
 import { ComputeStep } from '../CreateAKSProject/components/ComputeStep';
 import { NetworkingStep } from '../CreateAKSProject/components/NetworkingStep';
 import { DEFAULT_FORM_DATA, type FormData, type ValidationState } from '../CreateAKSProject/types';
@@ -32,10 +27,6 @@ interface InfoTabProps {
 }
 
 const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
-  const [clusterInfo, setClusterInfo] = useState<{
-    resourceId: string;
-    resourceGroup: string;
-  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   type NamespaceDetails = {
@@ -62,6 +53,9 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
   );
   const subscription =
     namespaceInstance?.jsonData?.metadata?.labels?.['aks-desktop/project-subscription'];
+  const resourceGroup =
+    namespaceInstance?.jsonData?.metadata?.labels?.['aks-desktop/project-resource-group'];
+  const clusterName = namespaceInstance?.cluster;
 
   const [namespaceDetails, setNamespaceDetails] = useState<NamespaceDetails | null>(null);
   const [formData, setFormData] = useState<FormData>(DEFAULT_FORM_DATA);
@@ -76,45 +70,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
 
   useEffect(() => {
     let isMounted = true;
-    const clusterName = project?.clusters?.[0];
-    if (!clusterName) {
-      setClusterInfo(null);
-      setError('No cluster selected');
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    if (!subscription) return;
-
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const result = await getClusterResourceIdAndGroup(clusterName, subscription);
-        if (isMounted) setClusterInfo(result);
-      } catch (error) {
-        console.error(error);
-        if (isMounted) {
-          setClusterInfo(null);
-          setError('Failed to fetch cluster info');
-        }
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [project, subscription]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const clusterName = project?.clusters?.[0];
-    const resourceGroup = clusterInfo?.resourceGroup;
-    if (!clusterName || !resourceGroup) {
-      // reset namespace-related state when prerequisites are missing
+    if (!clusterName || !resourceGroup || !subscription || !project.id) {
       setNamespaceDetails(null);
       return () => {
         isMounted = false;
@@ -125,28 +81,25 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
       try {
         setLoading(true);
         setError(null);
-        const nsList = await getManagedNamespaces({
-          clusterName,
-          resourceGroup,
+        const result = await getManagedNamespace({
           subscriptionId: subscription,
+          resourceGroup,
+          clusterName,
+          namespaceName: project.id,
         });
 
-        if (isMounted && nsList.length > 0) {
-          const managedNamespace = project.id;
-          const details = await getManagedNamespaceDetails({
-            clusterName,
-            resourceGroup,
-            namespaceName: managedNamespace,
-            subscriptionId: subscription,
-          });
-          if (isMounted) setNamespaceDetails(details);
-        } else if (isMounted) {
+        if (!isMounted) return;
+
+        if (result.success) {
+          setNamespaceDetails(result.data);
+        } else {
+          setError(result.message);
           setNamespaceDetails(null);
         }
       } catch (e) {
         console.error(e);
         if (isMounted) {
-          setError('Failed to fetch managed namespaces');
+          setError('Failed to fetch managed namespace');
           setNamespaceDetails(null);
         }
       } finally {
@@ -157,7 +110,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
     return () => {
       isMounted = false;
     };
-  }, [clusterInfo, project]);
+  }, [clusterName, resourceGroup, subscription, project.id]);
 
   // Utils reused across renders
   const normalizePolicy = useCallback((value: string): FormData['ingress'] => {
@@ -260,27 +213,28 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
   }, [baselineFormData, formData]);
 
   const handleSave = useCallback(async () => {
-    if (!clusterInfo?.resourceGroup) return;
-    const clusterName = project?.clusters?.[0];
-    const resourceGroup = clusterInfo.resourceGroup;
-    const managedNamespace = project.id;
-    if (!clusterName || !resourceGroup || !managedNamespace) return;
+    if (!clusterName || !resourceGroup || !subscription || !project.id) return;
 
     try {
       setUpdating(true);
-      await updateManagedNamespace({
+      const result = await updateManagedNamespace({
+        subscriptionId: subscription,
         clusterName,
         resourceGroup,
-        namespaceName: managedNamespace,
-        ingressPolicy: formData.ingress as any,
-        egressPolicy: formData.egress as any,
+        namespaceName: project.id,
+        ingressPolicy: formData.ingress,
+        egressPolicy: formData.egress,
         cpuRequest: formData.cpuRequest,
         cpuLimit: formData.cpuLimit,
         memoryRequest: formData.memoryRequest,
         memoryLimit: formData.memoryLimit,
-        noWait: false,
       });
-      // After a successful update, reset the baseline so the button disables
+
+      if (!result.success) {
+        setError(result.message);
+        return;
+      }
+
       setBaselineFormData(formData);
     } catch (e) {
       console.error('Failed to update managed namespace', e);
@@ -288,7 +242,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
     } finally {
       setUpdating(false);
     }
-  }, [clusterInfo?.resourceGroup, formData, project?.clusters, project.id]);
+  }, [clusterName, resourceGroup, subscription, formData, project.id]);
 
   return (
     <Card>
@@ -308,7 +262,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
         )}
         {!loading && error && <Typography color="error">{error}</Typography>}
 
-        {!loading && !error && clusterInfo && namespaceDetails && (
+        {!loading && !error && namespaceDetails && (
           <Box>
             <Box sx={{ mb: 3 }}>
               <NetworkingStep

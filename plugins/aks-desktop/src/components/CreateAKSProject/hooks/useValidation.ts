@@ -3,7 +3,6 @@
 
 import { useMemo } from 'react';
 import type {
-  ExtensionStatus,
   FeatureStatus,
   FormData,
   FormValidationResult,
@@ -18,7 +17,6 @@ import { validateForm, validateStep } from '../validators';
 export const useValidation = (
   activeStep: number,
   formData: FormData,
-  extensionStatus?: ExtensionStatus,
   featureStatus?: FeatureStatus,
   namespaceStatus?: NamespaceStatus,
   isClusterMissing?: boolean
@@ -27,7 +25,6 @@ export const useValidation = (
     const result = validateStep(
       activeStep,
       formData,
-      extensionStatus?.installed,
       featureStatus?.registered,
       namespaceStatus?.exists,
       namespaceStatus?.checking,
@@ -41,7 +38,6 @@ export const useValidation = (
   }, [
     activeStep,
     formData,
-    extensionStatus?.installed,
     featureStatus?.registered,
     namespaceStatus?.exists,
     namespaceStatus?.checking,

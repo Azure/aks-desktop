@@ -6,7 +6,7 @@ import {
   isManagedNamespacePreviewRegistered,
   registerContainerServiceProvider,
   registerManagedNamespacePreview,
-} from '../../../utils/azure/az-cli';
+} from '../../../utils/azure/aks';
 import type { FeatureStatus } from '../types';
 
 /**
@@ -43,11 +43,12 @@ export const useFeatureCheck = ({ subscription }: { subscription?: string }) => 
   }, [subscription]);
 
   const registerFeature = useCallback(async () => {
+    if (!subscription) return;
     try {
       setStatus(prev => ({ ...prev, registering: true, error: null }));
 
       // Step 1: Register the feature
-      const featureResult = await registerManagedNamespacePreview();
+      const featureResult = await registerManagedNamespacePreview({ subscription });
 
       if (!featureResult.success) {
         setStatus(prev => ({
@@ -58,7 +59,7 @@ export const useFeatureCheck = ({ subscription }: { subscription?: string }) => 
       }
 
       // Step 2: Register the provider to propagate changes
-      const providerResult = await registerContainerServiceProvider();
+      const providerResult = await registerContainerServiceProvider({ subscription });
 
       if (!providerResult.success) {
         setStatus(prev => ({
@@ -90,7 +91,7 @@ export const useFeatureCheck = ({ subscription }: { subscription?: string }) => 
     } finally {
       setStatus(prev => ({ ...prev, registering: false }));
     }
-  }, []);
+  }, [subscription]);
 
   const clearError = useCallback(() => {
     setStatus(prev => ({ ...prev, error: null }));

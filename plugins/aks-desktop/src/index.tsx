@@ -15,6 +15,8 @@ import {
   registerRoute,
   registerSidebarEntry,
 } from '@kinvolk/headlamp-plugin/lib';
+import { getStatelessClusterKubeConfigs } from '@kinvolk/headlamp-plugin/lib/stateless';
+import { auth } from '@kinvolk/headlamp-plugin/lib/Utils';
 import React from 'react';
 import { Redirect } from 'react-router-dom';
 import RegisterAKSClusterPage from './components/AKS/RegisterAKSClusterPage';
@@ -31,7 +33,8 @@ import MetricsCard from './components/Metrics/MetricsCard';
 import MetricsTab from './components/MetricsTab/MetricsTab';
 import ScalingCard from './components/Scaling/ScalingCard';
 import ScalingTab from './components/ScalingTab/ScalingTab';
-import { getLoginStatus } from './utils/azure/az-cli';
+import { getAksToken } from './utils/azure/aks';
+import { getLoginStatus } from './utils/azure/aks';
 import { isAksProject } from './utils/shared/isAksProject';
 import { azureTheme } from './utils/shared/theme';
 
@@ -232,13 +235,13 @@ if (Headlamp.isRunningAsApp()) {
   });
 
   // register import existing AKS projects
-  // registerCustomCreateProject({
-  //   id: 'aks-import',
-  //   name: 'Import AKS projects',
-  //   description: 'Import existing AKS managed namespaces as projects',
-  //   component: () => <Redirect to="/projects/import-aks-projects" />,
-  //   icon: 'mdi:import',
-  // });
+  registerCustomCreateProject({
+    id: 'aks-import',
+    name: 'Import AKS projects',
+    description: 'Import existing AKS managed namespaces as projects',
+    component: () => <Redirect to="/projects/import-aks-projects" />,
+    icon: 'mdi:import',
+  });
 
   // Register AKS as a cluster provider in the "Add Cluster" page
   registerAddClusterProvider({
@@ -280,6 +283,7 @@ registerProjectDetailsTab({
   id: 'info',
   label: 'Info',
   icon: 'mdi:information',
+  isEnabled: isAksProject,
   component: ({ project }) => {
     return <InfoTab project={project} />;
   },
@@ -329,3 +333,51 @@ registerProjectDeleteButton({
     <AKSProjectDeleteButton project={project} buttonStyle={buttonStyle} />
   ),
 });
+
+// Update AKS cluster tokens on app launch
+async function refreshClusterTokens() {
+  try {
+    const login = await getLoginStatus();
+    if (!login.isLoggedIn) return;
+
+    const kubeconfigs = await getStatelessClusterKubeConfigs();
+    if (!kubeconfigs || kubeconfigs.length === 0) return;
+
+    const tokenResult = await getAksToken();
+    if (!tokenResult.token) return;
+
+    for (const kubeconfigBase64 of kubeconfigs) {
+      try {
+        const kubeconfigYaml = atob(kubeconfigBase64);
+        const kubeconfig = JSON.parse(
+          JSON.stringify(await import('js-yaml').then(yaml => yaml.load(kubeconfigYaml)))
+        );
+
+        const aksInfo = kubeconfig.extensions?.find(
+          (ext: any) => ext.name === 'aks_info'
+        )?.extension;
+
+        if (!aksInfo) continue;
+
+        // Update token in users
+        for (const user of kubeconfig.users || []) {
+          if (user.user) {
+            user.user.token = 'duupa';
+          }
+        }
+
+        // Get cluster name from context
+        const clusterName = kubeconfig.contexts?.[0]?.name;
+        if (!clusterName) continue;
+
+        auth.setToken(clusterName, tokenResult.token);
+      } catch (err) {
+        console.error('[AKS] Error updating cluster token:', err);
+      }
+    }
+  } catch (err) {
+    console.error('[AKS] Error refreshing AKS cluster tokens:', err);
+  }
+}
+refreshClusterTokens();
+setInterval(refreshClusterTokens, 30 * 60 * 1000);

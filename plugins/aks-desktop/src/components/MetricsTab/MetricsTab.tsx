@@ -33,9 +33,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { getClusterResourceIdAndGroup } from '../../utils/azure/az-cli';
-import { getPrometheusEndpoint } from './getPrometheusEndpoint';
-import { queryPrometheus } from './queryPrometheus';
+import { getPrometheusEndpoint, queryPrometheus } from '../../utils/azure/aks';
 
 interface MetricsTabProps {
   project: {
@@ -268,17 +266,8 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
     setMetricsLoading(true);
 
     try {
-      // Extract resource group from label if available, otherwise fetch
-      let resourceGroup = resourceGroupLabel;
-
-      if (!resourceGroup) {
-        const result = await getClusterResourceIdAndGroup(cluster, subscription);
-        resourceGroup = result.resourceGroup;
-
-        if (!resourceGroup) {
-          throw new Error('Could not find resource group for cluster');
-        }
-      }
+      // Extract resource group from label
+      const resourceGroup = resourceGroupLabel;
 
       const promEndpoint = await getPrometheusEndpoint(resourceGroup, cluster, subscription);
 
@@ -288,65 +277,29 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
 
       // Query CPU usage
       const cpuQuery = `sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace="${namespace}", container!=""}[5m]))`;
-      const cpuResultsPromise = queryPrometheus(
-        promEndpoint,
-        cpuQuery,
-        start,
-        end,
-        step,
-        subscription
-      );
+      const cpuResultsPromise = queryPrometheus(promEndpoint, cpuQuery, start, end, step);
       const cpuByPodQuery = `sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="${namespace}", container!=""}[5m]))`;
-      const cpuByPodResultsPromise = queryPrometheus(
-        promEndpoint,
-        cpuByPodQuery,
-        start,
-        end,
-        step,
-        subscription
-      );
+      const cpuByPodResultsPromise = queryPrometheus(promEndpoint, cpuByPodQuery, start, end, step);
 
       // Query Memory usage (container_memory_usage_bytes seems to be giving issues)
       const memoryQuery = `sum by (namespace) (container_memory_working_set_bytes{namespace="${namespace}", container!=""})`;
-      const memoryResultsPromise = queryPrometheus(
-        promEndpoint,
-        memoryQuery,
-        start,
-        end,
-        step,
-        subscription
-      );
+      const memoryResultsPromise = queryPrometheus(promEndpoint, memoryQuery, start, end, step);
       const memoryByPodQuery = `sum by (pod) (container_memory_working_set_bytes{namespace="${namespace}", container!=""})`;
       const memoryByPodResultsPromise = queryPrometheus(
         promEndpoint,
         memoryByPodQuery,
         start,
         end,
-        step,
-        subscription
+        step
       );
 
       // Query HTTP request rate
       const requestQuery = `sum by (namespace) (rate(http_requests_total{namespace="${namespace}"}[5m]))`;
-      const requestResultsPromise = queryPrometheus(
-        promEndpoint,
-        requestQuery,
-        start,
-        end,
-        step,
-        subscription
-      );
+      const requestResultsPromise = queryPrometheus(promEndpoint, requestQuery, start, end, step);
 
       // Query error rate
       const errorQuery = `100 * (sum by (namespace) (rate(http_requests_total{namespace="${namespace}", status=~"4..|5.."}[5m])) / sum by (namespace) (rate(http_requests_total{namespace="${namespace}"}[5m])))`;
-      const errorResultsPromise = queryPrometheus(
-        promEndpoint,
-        errorQuery,
-        start,
-        end,
-        step,
-        subscription
-      );
+      const errorResultsPromise = queryPrometheus(promEndpoint, errorQuery, start, end, step);
 
       // Query response time (average)
       const responseTimeQuery = `sum by (namespace) (rate(http_request_duration_seconds_sum{namespace="${namespace}"}[5m])) / sum by (namespace) (rate(http_request_duration_seconds_count{namespace="${namespace}"}[5m]))`;
@@ -355,8 +308,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
         responseTimeQuery,
         start,
         end,
-        step,
-        subscription
+        step
       );
 
       // Query network in/out
@@ -367,16 +319,14 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
         networkInQuery,
         start,
         end,
-        step,
-        subscription
+        step
       );
       const networkOutResultsPromise = queryPrometheus(
         promEndpoint,
         networkOutQuery,
         start,
         end,
-        step,
-        subscription
+        step
       );
 
       const [

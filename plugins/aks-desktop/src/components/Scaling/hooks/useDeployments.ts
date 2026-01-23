@@ -39,9 +39,11 @@ export const useDeployments = (
     setLoading(true);
     setError(null);
 
+    let cancelFnPromise;
+
     try {
       // Use Headlamp's K8s API to fetch deployments
-      const cancel = K8s.ResourceClasses.Deployment.apiList(
+      cancelFnPromise = K8s.ResourceClasses.Deployment.apiList(
         deploymentList => {
           const fetchedDeployments = deploymentList
             .filter(deployment => deployment.getNamespace() === namespace)
@@ -75,15 +77,16 @@ export const useDeployments = (
           cluster,
         }
       )();
-
-      // Return cleanup function
-      return cancel;
     } catch (err) {
       console.error('Error in fetchDeployments:', err);
       setError('Failed to fetch deployments');
       setLoading(false);
       return undefined;
     }
+
+    return () => {
+      cancelFnPromise?.then(cancelFn => cancelFn());
+    };
   }, [namespace, cluster]);
 
   return {

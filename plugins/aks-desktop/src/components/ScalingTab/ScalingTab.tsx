@@ -31,9 +31,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { getClusterResourceIdAndGroup } from '../../utils/azure/az-cli';
-import { getPrometheusEndpoint } from '../MetricsTab/getPrometheusEndpoint';
-import { queryPrometheus } from '../MetricsTab/queryPrometheus';
+import { getPrometheusEndpoint, queryPrometheus } from '../../utils/azure/aks';
 
 // Headers for Kubernetes PATCH requests (merge patch)
 const MERGE_PATCH_HEADERS = {
@@ -215,17 +213,8 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
 
     setChartDataLoading(true);
     try {
-      // Extract resource group from label if available, otherwise fetch
-      let resourceGroup = resourceGroupLabel;
-
-      if (!resourceGroup) {
-        const result = await getClusterResourceIdAndGroup(cluster, subscription);
-        resourceGroup = result.resourceGroup;
-
-        if (!resourceGroup) {
-          throw new Error('Could not find resource group for cluster');
-        }
-      }
+      // Extract resource group from label
+      const resourceGroup = resourceGroupLabel;
 
       const promEndpoint = await getPrometheusEndpoint(resourceGroup, cluster, subscription);
 
@@ -235,25 +224,11 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
 
       // Query replica count history
       const replicaQuery = `kube_deployment_spec_replicas{deployment="${selectedDeployment}",namespace="${namespace}"}`;
-      const replicaResults = await queryPrometheus(
-        promEndpoint,
-        replicaQuery,
-        start,
-        end,
-        step,
-        subscription
-      );
+      const replicaResults = await queryPrometheus(promEndpoint, replicaQuery, start, end, step);
 
       // Query CPU usage (as percentage of limits)
       const cpuQuery = `100 * (sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace="${namespace}", pod=~"${selectedDeployment}-.*", container!=""}[5m])) / sum by (namespace) (kube_pod_container_resource_limits{namespace="${namespace}", pod=~"${selectedDeployment}-.*", resource="cpu"}))`;
-      const cpuResults = await queryPrometheus(
-        promEndpoint,
-        cpuQuery,
-        start,
-        end,
-        step,
-        subscription
-      );
+      const cpuResults = await queryPrometheus(promEndpoint, cpuQuery, start, end, step);
 
       // Merge replica and CPU data by timestamp
       const mergedData: ChartDataPoint[] = [];

@@ -159,7 +159,6 @@ export const validateNetworkingPolicies = (
  */
 export const validateBasicsStep = (
   formData: Pick<FormData, 'projectName' | 'subscription' | 'cluster' | 'resourceGroup'>,
-  extensionInstalled: boolean | null,
   featureRegistered: boolean | null,
   namespaceExists: boolean | null,
   checkingNamespace: boolean,
@@ -170,11 +169,6 @@ export const validateBasicsStep = (
 
   if (isClusterMissing) {
     errors.push('Selected cluster is not registered');
-  }
-
-  // Check extension installation
-  if (extensionInstalled !== true) {
-    errors.push('AKS Preview Extension must be installed');
   }
 
   // Check feature registration
@@ -286,7 +280,6 @@ export const validateForm = (formData: FormData): FormValidationResult => {
 export const validateStep = (
   step: number,
   formData: FormData,
-  extensionInstalled?: boolean | null,
   featureRegistered?: boolean | null,
   namespaceExists?: boolean | null,
   checkingNamespace?: boolean,
@@ -297,7 +290,6 @@ export const validateStep = (
     case 0: // Basics
       return validateBasicsStep(
         formData,
-        extensionInstalled ?? null,
         featureRegistered ?? null,
         namespaceExists ?? null,
         checkingNamespace ?? false,

@@ -13,7 +13,8 @@ import {
 } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
-import { getLoginStatus, initiateLogin } from '../../utils/azure/az-cli';
+import { login } from '../../utils/azure/aks';
+import { getLoginStatus } from '../../utils/azure/aks';
 
 interface AzureLoginPageProps {
   redirectTo?: string;
@@ -26,7 +27,6 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   const [checking, setChecking] = useState(true);
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
 
   // Get redirect target from URL query parameter or prop, fallback to profile page
   const getRedirectTarget = () => {
@@ -38,11 +38,6 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   // Check if already logged in on mount
   useEffect(() => {
     checkLoginStatus();
-    return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-      }
-    };
   }, []);
 
   const checkLoginStatus = async () => {
@@ -68,56 +63,27 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
     setStatusMessage('Initiating Azure login...');
 
     try {
-      const result = await initiateLogin();
+      const result: {
+        success: boolean;
+        username?: string;
+        tenantId?: string;
+        error?: string;
+      } = await login();
 
       if (!result.success) {
-        setErrorMessage(result.message);
+        setErrorMessage(result.error);
         setLoading(false);
         return;
       }
 
-      setStatusMessage(
-        'Please complete the authentication in your browser. This window will automatically redirect once login is complete.'
-      );
+      window.dispatchEvent(new CustomEvent('azure-auth-update'));
 
-      // Start polling for login completion
-      let pollCount = 0;
-      const maxPolls = 60; // 5 minutes max (60 * 5 seconds)
-
-      const interval = setInterval(async () => {
-        pollCount++;
-
-        try {
-          const status = await getLoginStatus();
-
-          if (status.isLoggedIn) {
-            clearInterval(interval);
-            setStatusMessage('Login successful! Redirecting...');
-
-            // Trigger update event for sidebar label
-            window.dispatchEvent(new CustomEvent('azure-auth-update'));
-
-            // Wait a moment before redirecting
-            setTimeout(() => {
-              const target = getRedirectTarget();
-              history.push(target);
-            }, 1000);
-          } else if (pollCount >= maxPolls) {
-            clearInterval(interval);
-            setErrorMessage('Login timeout. Please try again.');
-            setLoading(false);
-          } else {
-            const remaining = ((maxPolls - pollCount) * 5) / 60;
-            setStatusMessage(
-              `Waiting for login completion... (${remaining.toFixed(1)} minutes remaining)`
-            );
-          }
-        } catch (error) {
-          console.error('Error polling login status:', error);
-        }
-      }, 5000); // Poll every 5 seconds
-
-      setPollingInterval(interval);
+      setLoading(false);
+      // Wait a moment before redirecting
+      setTimeout(() => {
+        const target = getRedirectTarget();
+        history.push(target);
+      }, 300);
     } catch (error) {
       console.error('Error initiating login:', error);
       setErrorMessage(
@@ -128,9 +94,6 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   };
 
   const handleCancel = () => {
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
-    }
     setLoading(false);
     setStatusMessage('');
     setErrorMessage('');

@@ -15,9 +15,7 @@ import {
   useTheme,
 } from '@mui/material';
 import React, { useCallback, useEffect, useState } from 'react';
-import { getClusterResourceIdAndGroup } from '../../utils/azure/az-cli';
-import { getPrometheusEndpoint } from '../MetricsTab/getPrometheusEndpoint';
-import { queryPrometheus } from '../MetricsTab/queryPrometheus';
+import { getPrometheusEndpoint, queryPrometheus } from '../../utils/azure/aks';
 
 export interface ProjectDefinition {
   id: string;
@@ -139,17 +137,8 @@ function MetricsCard({ project }: MetricsCardProps) {
     }
 
     try {
-      // Extract resource group from label if available, otherwise fetch
-      let resourceGroup = resourceGroupLabel;
-
-      if (!resourceGroup) {
-        const result = await getClusterResourceIdAndGroup(cluster, subscription);
-        resourceGroup = result.resourceGroup;
-
-        if (!resourceGroup) {
-          throw new Error('Could not find resource group for cluster');
-        }
-      }
+      // Extract resource group from label if available
+      const resourceGroup = resourceGroupLabel;
 
       const promEndpoint = await getPrometheusEndpoint(resourceGroup, cluster, subscription);
 
@@ -159,49 +148,21 @@ function MetricsCard({ project }: MetricsCardProps) {
 
       // Query CPU usage
       const cpuQuery = `sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace="${namespace}", container!=""}[5m]))`;
-      const cpuResultsPromise = queryPrometheus(
-        promEndpoint,
-        cpuQuery,
-        start,
-        end,
-        step,
-        subscription
-      );
+      const cpuResultsPromise = queryPrometheus(promEndpoint, cpuQuery, start, end, step);
 
       // Query Memory usage
       // NOTE: Use container_memory_working_set_bytes (not container_memory_usage_bytes)
       // working_set is the actual memory metric available in Azure Monitor Prometheus
       const memoryQuery = `sum by (namespace) (container_memory_working_set_bytes{namespace="${namespace}", container!=""})`;
-      const memoryResultsPromise = queryPrometheus(
-        promEndpoint,
-        memoryQuery,
-        start,
-        end,
-        step,
-        subscription
-      );
+      const memoryResultsPromise = queryPrometheus(promEndpoint, memoryQuery, start, end, step);
 
       // Query HTTP request rate
       const requestQuery = `sum by (namespace) (rate(http_requests_total{namespace="${namespace}"}[5m]))`;
-      const requestResultsPromise = queryPrometheus(
-        promEndpoint,
-        requestQuery,
-        start,
-        end,
-        step,
-        subscription
-      );
+      const requestResultsPromise = queryPrometheus(promEndpoint, requestQuery, start, end, step);
 
       // Query error rate
       const errorQuery = `100 * (sum by (namespace) (rate(http_requests_total{namespace="${namespace}", status=~"4..|5.."}[5m])) / sum by (namespace) (rate(http_requests_total{namespace="${namespace}"}[5m])))`;
-      const errorResultsPromise = queryPrometheus(
-        promEndpoint,
-        errorQuery,
-        start,
-        end,
-        step,
-        subscription
-      );
+      const errorResultsPromise = queryPrometheus(promEndpoint, errorQuery, start, end, step);
 
       const [cpuResults, memoryResults, requestResults, errorResults] = await Promise.all([
         cpuResultsPromise,

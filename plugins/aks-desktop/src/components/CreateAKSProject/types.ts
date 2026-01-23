@@ -98,10 +98,8 @@ export interface BasicsStepProps extends StepProps {
   clusters: AzureCluster[];
   loadingClusters: boolean;
   clusterError: string | null;
-  extensionStatus: ExtensionStatus;
   featureStatus: FeatureStatus;
   namespaceStatus: NamespaceStatus;
-  onInstallExtension: () => Promise<void>;
   onRegisterFeature: () => Promise<void>;
   onRetrySubscriptions: () => Promise<void>;
   onRetryClusters: () => Promise<void>;
