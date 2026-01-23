@@ -4,23 +4,43 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useState } from 'react';
 
+/**
+ * Represents Horizontal Pod Autoscaler configuration and status.
+ */
 export interface HPAInfo {
+  /** Name of the HPA resource. */
   name: string;
+  /** Kubernetes namespace where the HPA is defined. */
   namespace: string;
+  /** Minimum number of replicas the HPA can scale down to. */
   minReplicas: number | undefined;
+  /** Maximum number of replicas the HPA can scale up to. */
   maxReplicas: number | undefined;
+  /** Target average CPU utilization percentage across pods. */
   targetCPUUtilization: number | undefined;
+  /** Current average CPU utilization percentage across pods. */
   currentCPUUtilization: number | undefined;
+  /** Current number of running replicas. */
   currentReplicas: number | undefined;
+  /** Desired number of replicas as determined by the HPA. */
   desiredReplicas: number | undefined;
 }
 
+/**
+ * Return type for the {@link useHPAInfo} hook.
+ */
 interface UseHPAInfoResult {
+  /** The HPA info for the deployment, or null if no HPA targets it. */
   hpaInfo: HPAInfo | null;
 }
 
 /**
- * Custom hook to fetch Horizontal Pod Autoscaler (HPA) information for a deployment
+ * Fetches HPA information for a given deployment.
+ *
+ * @param deploymentName - The name of the deployment to find an HPA for.
+ * @param namespace - The Kubernetes namespace to search in.
+ * @param cluster - The cluster identifier.
+ * @returns An object containing the HPA info, or null if none found.
  */
 export const useHPAInfo = (
   deploymentName: string | undefined,

@@ -4,24 +4,44 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useState } from 'react';
 
+/**
+ * Represents a Kubernetes deployment and its replica status.
+ */
 export interface DeploymentInfo {
+  /** Name of the deployment. */
   name: string;
+  /** Kubernetes namespace where the deployment resides. */
   namespace: string;
+  /** Desired number of replicas. */
   replicas: number;
+  /** Number of replicas that have passed availability checks. */
   availableReplicas: number;
+  /** Number of replicas that are ready to serve traffic. */
   readyReplicas: number;
 }
 
+/**
+ * Return type for the {@link useDeployments} hook.
+ */
 interface UseDeploymentsResult {
+  /** List of deployments in the namespace. */
   deployments: DeploymentInfo[];
+  /** Currently selected deployment name. */
   selectedDeployment: string;
+  /** Whether deployments are being fetched. */
   loading: boolean;
+  /** Error message if fetch failed, otherwise null. */
   error: string | null;
+  /** Updates the selected deployment. */
   setSelectedDeployment: (deployment: string) => void;
 }
 
 /**
- * Custom hook to fetch and manage Kubernetes deployments for a project
+ * Fetches and manages Kubernetes deployments for a namespace.
+ *
+ * @param namespace - The Kubernetes namespace to fetch deployments from.
+ * @param cluster - The cluster identifier.
+ * @returns Deployment list, selection state, loading/error status, and a setter.
  */
 export const useDeployments = (
   namespace: string | undefined,

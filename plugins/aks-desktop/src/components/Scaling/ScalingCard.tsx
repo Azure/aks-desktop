@@ -11,18 +11,34 @@ import { useChartData } from './hooks/useChartData';
 import { useDeployments } from './hooks/useDeployments';
 import { useHPAInfo } from './hooks/useHPAInfo';
 
+/**
+ * Defines the structure of a project for scaling operations.
+ */
 export interface ProjectDefinition {
+  /** Unique identifier for the project. */
   id: string;
+  /** List of Kubernetes namespaces associated with the project. */
   namespaces: string[];
+  /** List of cluster names/identifiers where the project can be deployed. */
   clusters: string[];
 }
 
+/** Alias for ProjectDefinition. */
 type Project = ProjectDefinition;
 
+/**
+ * Props for the {@link ScalingCard} component.
+ */
 interface ScalingCardProps {
+  /** The project whose first cluster and namespace are used to fetch deployments. */
   project: Project;
 }
 
+/**
+ * Displays scaling metrics and charts for a selected Kubernetes deployment.
+ *
+ * @param props.project - The project whose first cluster and namespace are used to fetch deployments.
+ */
 function ScalingCard({ project }: ScalingCardProps) {
   const namespace = project.namespaces?.[0];
   const cluster = project.clusters?.[0];

@@ -5,15 +5,28 @@ import { useMemo } from 'react';
 import type { DeploymentInfo } from './useDeployments';
 import type { HPAInfo } from './useHPAInfo';
 
+/**
+ * A single data point for the scaling chart.
+ */
 export interface ChartDataPoint {
+  /** Formatted time string (e.g., "14:00"). */
   time: string;
+  /** Number of replicas at this time. */
   Replicas: number;
+  /** CPU utilization percentage at this time. */
   CPU: number;
 }
 
 /**
- * Custom hook to generate chart data for scaling metrics visualization
- * Generates historical data based on current deployment and HPA information
+ * Generates chart data for scaling metrics visualization.
+ *
+ * Creates 12 data points spanning the last 23 hours (sampled every 2 hours).
+ * If real CPU data is available, simulates historical variation; otherwise returns zeros.
+ *
+ * @param selectedDeployment - Name of the currently selected deployment.
+ * @param deployments - List of available deployments.
+ * @param hpaInfo - HPA configuration and status, or null if none exists.
+ * @returns Array of chart data points in chronological order.
  */
 export const useChartData = (
   selectedDeployment: string,
