@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Copyright (c) Microsoft Corporation. 
+// Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
 import * as fs from 'fs';
@@ -9,31 +9,6 @@ import { execSync } from 'child_process';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
-
-// Setup external tools (Azure CLI, etc.) if not already present
-console.log('==========================================');
-console.log('Checking external tools...');
-console.log('==========================================');
-
-const externalToolsDir = path.join(
-  ROOT_DIR,
-  'headlamp',
-  'app',
-  'resources',
-  'external-tools'
-);
-if (!fs.existsSync(externalToolsDir)) {
-  console.log('External tools not found. Setting up...');
-  execSync(
-    `npx --yes tsx "${path.join(SCRIPT_DIR, 'setup-external-tools.ts')}"`,
-    {
-      stdio: 'inherit',
-    }
-  );
-} else {
-  console.log('External tools already present. Skipping setup.');
-  console.log(`To re-setup, remove: ${externalToolsDir}`);
-}
 
 // Go to the plugin directory
 const pluginDir = path.join(ROOT_DIR, 'plugins', 'aks-desktop');
