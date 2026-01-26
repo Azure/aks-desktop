@@ -57,7 +57,7 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^25.0.9",
+    "@types/node": "^25.0.10",
     "concurrently": "^9.1.2",
     "husky": "^9.0.0",
     "knip": "^5.80.2",
