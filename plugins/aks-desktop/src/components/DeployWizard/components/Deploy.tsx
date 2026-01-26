@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import MonacoEditor from '@monaco-editor/react';
 import { Box, Chip, Paper, Stack, Typography } from '@mui/material';
 import React, { useMemo } from 'react';
@@ -31,6 +32,7 @@ export default function Deploy({
   deployResult,
   deployMessage,
 }: DeployProps) {
+  const { t } = useTranslation();
   // Parse YAML to extract object summaries
   const yamlObjects = useMemo<K8sObject[]>(() => {
     if (sourceType !== 'yaml') return [];
@@ -44,7 +46,7 @@ export default function Deploy({
           if (!obj || !obj.kind) return null;
           return {
             kind: obj.kind,
-            name: obj.metadata?.name || 'unnamed',
+            name: obj.metadata?.name || t('unnamed'),
             namespace: obj.metadata?.namespace,
           };
         })
@@ -57,7 +59,7 @@ export default function Deploy({
   return (
     <Box>
       <Typography variant="h6" gutterBottom>
-        Review & Deploy
+        {t('Review & Deploy')}
       </Typography>
       {deployResult && (
         <Box
@@ -84,7 +86,9 @@ export default function Deploy({
       {sourceType === 'container' ? (
         <>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Generated Kubernetes manifests (namespace: {namespace || 'default'})
+            {t('Generated Kubernetes manifests (namespace: {{namespace}})', {
+              namespace: namespace || t('default'),
+            })}
           </Typography>
           <Box
             sx={{
@@ -115,8 +119,10 @@ export default function Deploy({
       ) : (
         <>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Resources to be deployed ({yamlObjects.length} object
-            {yamlObjects.length !== 1 ? 's' : ''})
+            {t('Resources to be deployed ({{count}} object{{suffix}})', {
+              count: yamlObjects.length,
+              suffix: yamlObjects.length !== 1 ? 's' : '',
+            })}
           </Typography>
           <Stack spacing={1.5}>
             {yamlObjects.map((obj, index) => (
@@ -144,7 +150,7 @@ export default function Deploy({
                   </Typography>
                   {obj.namespace && (
                     <Chip
-                      label={`namespace: ${obj.namespace}`}
+                      label={t('namespace: {{namespace}}', { namespace: obj.namespace })}
                       size="small"
                       variant="outlined"
                       sx={{ fontSize: '0.75rem' }}

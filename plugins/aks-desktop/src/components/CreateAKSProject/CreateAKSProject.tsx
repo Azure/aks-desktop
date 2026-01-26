@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { PageGrid, SectionBox } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 // @ts-ignore
 import { useClustersConf } from '@kinvolk/headlamp-plugin/lib/K8s';
@@ -46,6 +47,7 @@ const useClusterCheck = ({ cluster }: { cluster?: string }) => {
  */
 function CreateAKSProject() {
   const history = useHistory();
+  const { t } = useTranslation();
 
   // State management
   const [activeStep, setActiveStep] = useState(0);
@@ -143,14 +145,16 @@ function CreateAKSProject() {
 
       setIsCreating(true);
       setCreationError(null);
-      setCreationProgress('Starting project creation...');
+      setCreationProgress(t('Starting project creation...'));
 
       // Add timeout protection (10 minutes)
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => {
           reject(
             new Error(
-              'Project creation timed out after 10 minutes. Please check if the namespace was created and try again.'
+              t(
+                'Project creation timed out after 10 minutes. Please check if the namespace was created and try again.'
+              )
             )
           );
         }, 10 * 60 * 1000); // 10 minutes
@@ -159,7 +163,7 @@ function CreateAKSProject() {
       // Create the main creation promise
       const creationPromise = (async () => {
         // Step 1: Create the managed namespace
-        setCreationProgress('Initiating managed namespace creation...');
+        setCreationProgress(t('Initiating managed namespace creation...'));
         const namespaceResult = await createManagedNamespace({
           clusterName: formData.cluster,
           resourceGroup: formData.resourceGroup,
@@ -180,10 +184,14 @@ function CreateAKSProject() {
         });
 
         if (!namespaceResult.success) {
-          throw new Error(`Namespace creation failed: ${namespaceResult.error || 'Unknown error'}`);
+          throw new Error(
+            t('Namespace creation failed: {{message}}', {
+              message: namespaceResult.error || t('Unknown error'),
+            })
+          );
         }
 
-        setCreationProgress('Namespace creation initiated! Monitoring creation status...');
+        setCreationProgress(t('Namespace creation initiated! Monitoring creation status...'));
         console.log('🚀 Namespace creation initiated for:', {
           cluster: formData.cluster,
           resourceGroup: formData.resourceGroup,
@@ -193,7 +201,7 @@ function CreateAKSProject() {
 
         // Give the namespace a moment to propagate before verification
         console.log('⏳ Waiting 5 seconds for namespace to propagate...');
-        setCreationProgress('Waiting for namespace to propagate...');
+        setCreationProgress(t('Waiting for namespace to propagate...'));
         await new Promise(resolve => setTimeout(resolve, 5000));
 
         // Step 1.5: Monitor namespace creation status with retries
@@ -223,7 +231,9 @@ function CreateAKSProject() {
 
             if (result.error) {
               console.log(`   ❌ Namespace check error: ${result.error}`);
-              throw new Error(`Namespace status check failed: ${result.error}`);
+              throw new Error(
+                t('Namespace status check failed: {{message}}', { message: result.error })
+              );
             }
 
             if (result.exists === true) {
@@ -233,7 +243,7 @@ function CreateAKSProject() {
               retryCount++;
               if (retryCount < maxRetries) {
                 console.log(`⏳ Namespace not found yet, retrying in ${retryDelay / 1000}s...`);
-                setCreationProgress('Waiting for namespace to be created...');
+                setCreationProgress(t('Waiting for namespace to be created...'));
                 await new Promise(resolve => setTimeout(resolve, retryDelay));
               } else {
                 console.log(`❌ Max retries reached, namespace still not found`);
@@ -241,7 +251,11 @@ function CreateAKSProject() {
             }
           } catch (statusError) {
             console.log(`❌ Verification attempt failed:`, statusError.message);
-            throw new Error(`Namespace status verification failed: ${statusError.message}`);
+            throw new Error(
+              t('Namespace status verification failed: {{message}}', {
+                message: statusError.message,
+              })
+            );
           }
         }
 
@@ -251,11 +265,11 @@ function CreateAKSProject() {
           console.log('   The namespace creation API call succeeded, so we will proceed.');
           // Don't throw error, just log warning and continue
           setCreationProgress(
-            'Namespace creation API succeeded, proceeding with user assignments...'
+            t('Namespace creation API succeeded, proceeding with user assignments...')
           );
         }
 
-        setCreationProgress('Namespace creation completed successfully! Adding user access...');
+        setCreationProgress(t('Namespace creation completed successfully! Adding user access...'));
 
         // Step 2: Add users to the namespace (only if there are valid assignees)
         const validAssignments = formData.userAssignments.filter(
@@ -263,14 +277,18 @@ function CreateAKSProject() {
         );
 
         if (validAssignments.length > 0) {
-          setCreationProgress(`Adding user access for ${validAssignments.length} assignee(s)...`);
+          setCreationProgress(
+            t('Adding user access for {{count}} assignee(s)...', {
+              count: validAssignments.length,
+            })
+          );
 
           const assignmentResults = [];
           const assignmentErrors = [];
 
           for (let index = 0; index < validAssignments.length; index++) {
             const assignment = validAssignments[index];
-            setCreationProgress(`Adding user ${assignment.email}...`);
+            setCreationProgress(t('Adding user {{email}}...', { email: assignment.email }));
 
             try {
               // Map UI role to Azure role name
@@ -288,7 +306,12 @@ function CreateAKSProject() {
               // Create role assignments for both roles
               const roleAssignmentResults = [];
               for (const role of rolesToAssign) {
-                setCreationProgress(`Assigning ${role} to ${assignment.email}...`);
+                setCreationProgress(
+                  t('Assigning {{role}} to {{email}}...', {
+                    role,
+                    email: assignment.email,
+                  })
+                );
 
                 const roleResult = await createNamespaceRoleAssignment({
                   clusterName: formData.cluster,
@@ -301,7 +324,7 @@ function CreateAKSProject() {
 
                 if (!roleResult.success) {
                   // Capture full error details including stderr which contains Azure CLI error messages
-                  const errorDetails = roleResult.stderr || roleResult.error || 'Unknown error';
+                  const errorDetails = roleResult.stderr || roleResult.error || t('Unknown error');
                   roleAssignmentResults.push({
                     role,
                     success: false,
@@ -322,18 +345,23 @@ function CreateAKSProject() {
                   .map(r => {
                     // Use stderr if available (contains Azure CLI error), otherwise use error field
                     // r.role is already the Azure role name (e.g., "Azure Kubernetes Service RBAC Writer")
-                    const errorMsg = r.stderr || r.error || 'Unknown error';
+                    const errorMsg = r.stderr || r.error || t('Unknown error');
                     return `${r.role}: ${errorMsg}`;
                   })
                   .join('; ');
                 assignmentErrors.push(
-                  `Failed to assign roles to user ${assignment.email}. ${failedRoleDetails}`
+                  t('Failed to assign roles to user {{email}}. {{details}}', {
+                    email: assignment.email,
+                    details: failedRoleDetails,
+                  })
                 );
                 continue;
               }
 
               // Verify the user has access
-              setCreationProgress(`Verifying access for user ${assignment.email}...`);
+              setCreationProgress(
+                t('Verifying access for user {{email}}...', { email: assignment.email })
+              );
               const verifyResult = await verifyNamespaceAccess({
                 clusterName: formData.cluster,
                 resourceGroup: formData.resourceGroup,
@@ -344,42 +372,50 @@ function CreateAKSProject() {
 
               if (!verifyResult.success) {
                 assignmentErrors.push(
-                  `Failed to verify access for user ${assignment.email}: ${
-                    verifyResult.error || 'Verification failed'
-                  }`
+                  t('Failed to verify access for user {{email}}: {{message}}', {
+                    email: assignment.email,
+                    message: verifyResult.error || t('Verification failed'),
+                  })
                 );
               } else if (!verifyResult.hasAccess) {
                 assignmentErrors.push(
-                  `User ${assignment.email} does not have the expected access to the namespace`
+                  t('User {{email}} does not have the expected access to the namespace', {
+                    email: assignment.email,
+                  })
                 );
               } else {
-                assignmentResults.push(`✓ User ${assignment.email} added successfully`);
+                assignmentResults.push(
+                  t('✓ User {{email}} added successfully', { email: assignment.email })
+                );
               }
             } catch (userError) {
               assignmentErrors.push(
-                `Error processing user ${assignment.email}: ${userError.message}`
+                t('Error processing user {{email}}: {{message}}', {
+                  email: assignment.email,
+                  message: userError.message,
+                })
               );
             }
           }
 
           // Report results
           if (assignmentErrors.length > 0) {
-            const errorMessage = `User assignment completed with errors:\n${assignmentErrors.join(
-              '\n'
-            )}`;
+            const errorMessage = t('User assignment completed with errors:\n{{details}}', {
+              details: assignmentErrors.join('\n'),
+            });
             if (assignmentResults.length > 0) {
               console.warn('Some user assignments succeeded:', assignmentResults);
             }
             throw new Error(errorMessage);
           }
         } else {
-          setCreationProgress('No user assignments to process...');
+          setCreationProgress(t('No user assignments to process...'));
         }
 
-        setCreationProgress('Project creation completed successfully!');
+        setCreationProgress(t('Project creation completed successfully!'));
 
         // Final status check - verify the namespace exists and is accessible
-        setCreationProgress('Performing final status verification...');
+        setCreationProgress(t('Performing final status verification...'));
 
         // Final verification with a single retry
         let finalVerified = false;
@@ -393,7 +429,9 @@ function CreateAKSProject() {
             );
 
             if (result.error) {
-              throw new Error(`Final status check failed: ${result.error}`);
+              throw new Error(
+                t('Final status check failed: {{message}}', { message: result.error })
+              );
             }
 
             if (result.exists) {
@@ -404,7 +442,11 @@ function CreateAKSProject() {
               await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
             }
           } catch (finalError) {
-            throw new Error(`Final status verification failed: ${finalError.message}`);
+            throw new Error(
+              t('Final status verification failed: {{message}}', {
+                message: finalError.message,
+              })
+            );
           }
         }
 
@@ -415,7 +457,7 @@ function CreateAKSProject() {
           // Don't throw error, just log warning and continue
         }
 
-        setCreationProgress('All verifications completed successfully!');
+        setCreationProgress(t('All verifications completed successfully!'));
       })();
 
       // Race between creation and timeout
@@ -433,7 +475,7 @@ function CreateAKSProject() {
         stack: error.stack,
         formData: formData,
       });
-      setCreationError(error.message || 'Failed to create project');
+      setCreationError(error.message || t('Failed to create project'));
       setIsCreating(false);
       setCreationProgress(''); // Clear progress message
     }
@@ -498,8 +540,8 @@ function CreateAKSProject() {
       {/** @ts-ignore */}
       <PageGrid maxWidth="lg" sx={{ margin: '0 auto' }}>
         <SectionBox
-          title="New Project"
-          subtitle="Set up and configure a new project in Azure Kubernetes Service (AKS)"
+          title={t('New Project')}
+          subtitle={t('Set up and configure a new project in Azure Kubernetes Service (AKS)')}
           backLink="/"
         >
           {cliSuggestions.length > 0 && (
@@ -532,7 +574,7 @@ function CreateAKSProject() {
                   <>
                     <CircularProgress size={60} />
                     <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>
-                      Creating Project...
+                      {t('Creating Project...')}
                     </Typography>
                     <Typography
                       variant="body2"
@@ -575,7 +617,7 @@ function CreateAKSProject() {
                         variant="h5"
                         sx={{ mb: 2, color: 'error.main', fontWeight: 'bold' }}
                       >
-                        Project Creation Failed
+                        {t('Project Creation Failed')}
                       </Typography>
                     </Box>
                     {/* Scrollable error content */}
@@ -659,18 +701,22 @@ function CreateAKSProject() {
                       variant="h4"
                       sx={{ mb: 2, color: 'success.main', fontWeight: 'bold' }}
                     >
-                      Project Created Successfully!
+                      {t('Project Created Successfully!')}
                     </Typography>
                     <Typography variant="h6" sx={{ mb: 3, color: 'text.secondary' }}>
-                      Your AKS project "{formData.projectName}" has been created and is ready to
-                      use.
+                      {t(
+                        'Your AKS project "{{projectName}}" has been created and is ready to use.',
+                        {
+                          projectName: formData.projectName,
+                        }
+                      )}
                     </Typography>
                     <Box sx={{ mb: 3 }}>
                       <input
                         type="text"
                         value={applicationName}
                         onChange={e => setApplicationName(e.target.value)}
-                        placeholder="Enter application name..."
+                        placeholder={t('Enter application name...')}
                         style={{
                           width: '100%',
                           padding: '12px',
@@ -680,7 +726,9 @@ function CreateAKSProject() {
                         }}
                       />
                       <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'left' }}>
-                        Enter a name for your first application to get started with deployment.
+                        {t(
+                          'Enter a name for your first application to get started with deployment.'
+                        )}
                       </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
@@ -692,7 +740,7 @@ function CreateAKSProject() {
                         }}
                         sx={{ minWidth: 120 }}
                       >
-                        Cancel
+                        {t('Cancel')}
                       </Button>
                       <Button
                         variant="contained"
@@ -709,7 +757,7 @@ function CreateAKSProject() {
                         disabled={!applicationName.trim()}
                         sx={{ minWidth: 180 }}
                       >
-                        Create Application
+                        {t('Create Application')}
                       </Button>
                     </Box>
                   </Box>
@@ -727,7 +775,7 @@ function CreateAKSProject() {
             >
               {/* Breadcrumbs */}
               <Breadcrumb
-                steps={[...STEPS]}
+                steps={STEPS.map(step => t(step))}
                 activeStep={activeStep}
                 onStepClick={handleStepClick}
               />
@@ -741,12 +789,12 @@ function CreateAKSProject() {
                 <Box>
                   {activeStep > 0 && (
                     <Button variant="contained" color="secondary" onClick={handleBack}>
-                      Back
+                      {t('Back')}
                     </Button>
                   )}
                   {activeStep === 0 && (
                     <Button variant="contained" color="secondary" onClick={onBack}>
-                      Cancel
+                      {t('Cancel')}
                     </Button>
                   )}
                 </Box>
@@ -760,7 +808,7 @@ function CreateAKSProject() {
                       onClick={handleSubmit}
                       disabled={!validation.isValid}
                     >
-                      Create Project
+                      {t('Create Project')}
                     </Button>
                   ) : (
                     <Button
@@ -772,10 +820,10 @@ function CreateAKSProject() {
                       {azureResources.loading ? (
                         <Box display="flex" alignItems="center" gap={1}>
                           <CircularProgress size={16} color="inherit" />
-                          Loading...
+                          {t('Loading...')}
                         </Box>
                       ) : (
-                        'Next'
+                        t('Next')
                       )}
                     </Button>
                   )}

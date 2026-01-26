@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import MonacoEditor from '@monaco-editor/react';
 import { Box, Button, Typography } from '@mui/material';
 import React from 'react';
@@ -18,14 +19,17 @@ export default function ConfigureYAML({
   onYamlChange,
   onYamlErrorChange,
 }: ConfigureYAMLProps) {
+  const { t } = useTranslation();
+
   return (
     <>
       <Typography variant="h6" gutterBottom>
-        Kubernetes YAML
+        {t('Kubernetes YAML')}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Add one or more Kubernetes manifests. Upload files to populate the editor or paste/edit
-        directly below.
+        {t(
+          'Add one or more Kubernetes manifests. Upload files to populate the editor or paste/edit directly below.'
+        )}
       </Typography>
       <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
         <label>
@@ -55,7 +59,7 @@ export default function ConfigureYAML({
             }}
           />
           <Button component="span" variant="outlined">
-            Upload files
+            {t('Upload files')}
           </Button>
         </label>
         <Button
@@ -66,7 +70,7 @@ export default function ConfigureYAML({
             onYamlErrorChange(null);
           }}
         >
-          Clear editor
+          {t('Clear editor')}
         </Button>
       </Box>
 

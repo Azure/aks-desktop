@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import Deployment from '@kinvolk/headlamp-plugin/lib/lib/k8s/deployment';
 import {
   Box,
@@ -59,6 +59,7 @@ function formatMemory(bytes: number): string {
 }
 
 function MetricsCard({ project }: MetricsCardProps) {
+  const { t } = useTranslation();
   const [selectedDeployment, setSelectedDeployment] = useState<string>('');
   const [deployments, setDeployments] = useState<DeploymentInfo[]>([]);
   const [metrics, setMetrics] = useState<MetricData>({
@@ -111,7 +112,7 @@ function MetricsCard({ project }: MetricsCardProps) {
         },
         (error: any) => {
           console.error('MetricsCard: Error fetching deployments:', error);
-          setError('Failed to fetch deployments');
+          setError(t('Failed to fetch deployments'));
           setDeployments([]);
           setLoading(false);
         },
@@ -124,7 +125,7 @@ function MetricsCard({ project }: MetricsCardProps) {
       return cancel;
     } catch (err) {
       console.error('MetricsCard: Error in fetchDeployments:', err);
-      setError('Failed to fetch deployments');
+      setError(t('Failed to fetch deployments'));
       setLoading(false);
     }
   }, [namespace, cluster, selectedDeployment]);
@@ -295,22 +296,22 @@ function MetricsCard({ project }: MetricsCardProps) {
           mb: 2,
         }}
       >
-        <Typography variant="h6">Metrics</Typography>
+        <Typography variant="h6">{t('Metrics')}</Typography>
         <FormControl sx={{ minWidth: 200 }} size="small" variant="outlined">
-          <InputLabel>Select Deployment</InputLabel>
+          <InputLabel>{t('Select Deployment')}</InputLabel>
           <Select
             value={selectedDeployment || ''}
             onChange={handleDeploymentChange}
-            label="Select Deployment"
+            label={t('Select Deployment')}
             disabled={loading || deployments.length === 0}
           >
             {loading ? (
               <MenuItem disabled>
                 <CircularProgress size={16} style={{ marginRight: 8 }} />
-                Loading deployments...
+                {t('Loading deployments...')}
               </MenuItem>
             ) : deployments.length === 0 ? (
-              <MenuItem disabled>No deployments found</MenuItem>
+              <MenuItem disabled>{t('No deployments found')}</MenuItem>
             ) : (
               deployments.map(deployment => (
                 <MenuItem key={deployment.name} value={deployment.name}>
@@ -357,11 +358,11 @@ function MetricsCard({ project }: MetricsCardProps) {
                   style={{ fontSize: 24, marginRight: 8, color: '#2196f3' }}
                 />
                 <Typography variant="caption" color="textSecondary">
-                  CPU Usage
+                  {t('CPU Usage')}
                 </Typography>
               </Box>
               <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                {metricsLoading ? 'Loading...' : metrics.cpuUsage}
+                {metricsLoading ? t('Loading...') : metrics.cpuUsage}
               </Typography>
             </Box>
 
@@ -385,11 +386,11 @@ function MetricsCard({ project }: MetricsCardProps) {
                   }}
                 />
                 <Typography variant="caption" color="textSecondary">
-                  Memory Usage
+                  {t('Memory Usage')}
                 </Typography>
               </Box>
               <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                {metricsLoading ? 'Loading...' : metrics.memoryUsage}
+                {metricsLoading ? t('Loading...') : metrics.memoryUsage}
               </Typography>
             </Box>
 
@@ -413,11 +414,11 @@ function MetricsCard({ project }: MetricsCardProps) {
                   }}
                 />
                 <Typography variant="caption" color="textSecondary">
-                  Request Rate
+                  {t('Request Rate')}
                 </Typography>
               </Box>
               <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                {metricsLoading ? 'Loading...' : metrics.requestRate}
+                {metricsLoading ? t('Loading...') : metrics.requestRate}
               </Typography>
             </Box>
 
@@ -441,17 +442,17 @@ function MetricsCard({ project }: MetricsCardProps) {
                   }}
                 />
                 <Typography variant="caption" color="textSecondary">
-                  Error Rate
+                  {t('Error Rate')}
                 </Typography>
               </Box>
               <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-                {metricsLoading ? 'Loading...' : metrics.errorRate}
+                {metricsLoading ? t('Loading...') : metrics.errorRate}
               </Typography>
             </Box>
           </Box>
 
           <Typography variant="caption" color="textSecondary" sx={{ textAlign: 'center', mt: 1 }}>
-            Metrics refreshed every 30 seconds
+            {t('Metrics refreshed every 30 seconds')}
           </Typography>
         </>
       ) : (
@@ -471,7 +472,7 @@ function MetricsCard({ project }: MetricsCardProps) {
             }}
           />
           <Typography color="textSecondary" variant="body1">
-            Select a deployment to view metrics
+            {t('Select a deployment to view metrics')}
           </Typography>
         </Box>
       )}

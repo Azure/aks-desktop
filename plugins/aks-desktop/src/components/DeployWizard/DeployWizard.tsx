@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { apply } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
 import {
   Box,
@@ -43,6 +44,7 @@ export default function DeployWizard({
   initialApplicationName,
   onClose,
 }: DeployWizardProps) {
+  const { t } = useTranslation();
   const [activeStep, setActiveStep] = useState(WizardStep.SOURCE);
   const [sourceType, setSourceType] = useState<null | 'yaml' | 'container'>(null);
   const [yamlEditorValue, setYamlEditorValue] = useState<string>('');
@@ -139,13 +141,13 @@ export default function DeployWizard({
         for (const doc of parsedDocs) {
           const json = doc.toJSON();
           if (!json || !json.kind || !json.metadata?.name) {
-            throw new Error('Invalid YAML: missing required fields (kind or metadata.name)');
+            throw new Error(t('Invalid YAML: missing required fields (kind or metadata.name)'));
           }
         }
       } catch (e: any) {
-        setYamlError(e?.message || 'Invalid YAML');
+        setYamlError(e?.message || t('Invalid YAML'));
         setDeployResult('error');
-        setDeployMessage(e?.message || 'Invalid YAML');
+        setDeployMessage(e?.message || t('Invalid YAML'));
         setDeploying(false);
         return;
       }
@@ -162,10 +164,15 @@ export default function DeployWizard({
         applied++;
       }
       setDeployResult('success');
-      setDeployMessage(`Applied ${applied} resource${applied === 1 ? '' : 's'} successfully.`);
+      setDeployMessage(
+        t('Applied {{count}} resource{{suffix}} successfully.', {
+          count: applied,
+          suffix: applied === 1 ? '' : 's',
+        })
+      );
     } catch (e: any) {
       setDeployResult('error');
-      setDeployMessage(e?.message || 'Failed to apply resources.');
+      setDeployMessage(e?.message || t('Failed to apply resources.'));
     } finally {
       setDeploying(false);
     }
@@ -211,12 +218,16 @@ export default function DeployWizard({
     // Todo: noScroll could be done like this? <Container maxWidth="lg" sx={{ py: 3, overflow: 'hidden' }}>
     <Container maxWidth="lg" sx={{ py: 3 }}>
       <Typography variant="h4" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
-        Deploy Application
+        {t('Deploy Application')}
       </Typography>
       <Card>
         <CardContent sx={{ p: 0 }}>
           <Box>
-            <Breadcrumb steps={STEP_NAMES} activeStep={activeStep} onStepClick={handleStepClick} />
+            <Breadcrumb
+              steps={STEP_NAMES.map(step => t(step))}
+              activeStep={activeStep}
+              onStepClick={handleStepClick}
+            />
           </Box>
           <Box
             sx={{
@@ -245,7 +256,7 @@ export default function DeployWizard({
               <Box sx={{ width: '100%', display: 'flex', justifyContent: 'flex-end' }}>
                 {deployResult ? (
                   <Button variant="contained" onClick={onClose}>
-                    Close
+                    {t('Close')}
                   </Button>
                 ) : (
                   <Button
@@ -254,7 +265,7 @@ export default function DeployWizard({
                     disabled={deploying}
                     startIcon={deploying ? <CircularProgress size={20} /> : null}
                   >
-                    {deploying ? 'Deploying...' : 'Deploy'}
+                    {deploying ? t('Deploying...') : t('Deploy')}
                   </Button>
                 )}
               </Box>
@@ -263,7 +274,7 @@ export default function DeployWizard({
                 <Box>
                   {activeStep > WizardStep.SOURCE && (
                     <Button variant="outlined" onClick={handleBack}>
-                      Back
+                      {t('Back')}
                     </Button>
                   )}
                 </Box>
@@ -272,7 +283,7 @@ export default function DeployWizard({
                   onClick={handleNext}
                   disabled={!isStepValid(activeStep)}
                 >
-                  Next
+                  {t('Next')}
                 </Button>
               </>
             )}

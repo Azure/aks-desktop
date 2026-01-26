@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Box,
   Button,
@@ -21,6 +22,7 @@ interface AzureLoginPageProps {
 
 export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   const history = useHistory();
+  const { t } = useTranslation();
   const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -65,7 +67,7 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   const handleLogin = async () => {
     setLoading(true);
     setErrorMessage('');
-    setStatusMessage('Initiating Azure login...');
+    setStatusMessage(t('Initiating Azure login...'));
 
     try {
       const result = await initiateLogin();
@@ -77,7 +79,9 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
       }
 
       setStatusMessage(
-        'Please complete the authentication in your browser. This window will automatically redirect once login is complete.'
+        t(
+          'Please complete the authentication in your browser. This window will automatically redirect once login is complete.'
+        )
       );
 
       // Start polling for login completion
@@ -92,7 +96,7 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
 
           if (status.isLoggedIn) {
             clearInterval(interval);
-            setStatusMessage('Login successful! Redirecting...');
+            setStatusMessage(t('Login successful! Redirecting...'));
 
             // Trigger update event for sidebar label
             window.dispatchEvent(new CustomEvent('azure-auth-update'));
@@ -104,12 +108,14 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
             }, 1000);
           } else if (pollCount >= maxPolls) {
             clearInterval(interval);
-            setErrorMessage('Login timeout. Please try again.');
+            setErrorMessage(t('Login timeout. Please try again.'));
             setLoading(false);
           } else {
             const remaining = ((maxPolls - pollCount) * 5) / 60;
             setStatusMessage(
-              `Waiting for login completion... (${remaining.toFixed(1)} minutes remaining)`
+              t('Waiting for login completion... ({{minutes}} minutes remaining)', {
+                minutes: remaining.toFixed(1),
+              })
             );
           }
         } catch (error) {
@@ -121,7 +127,9 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
     } catch (error) {
       console.error('Error initiating login:', error);
       setErrorMessage(
-        `Failed to initiate login: ${error instanceof Error ? error.message : 'Unknown error'}`
+        t('Failed to initiate login: {{message}}', {
+          message: error instanceof Error ? error.message : t('Unknown error'),
+        })
       );
       setLoading(false);
     }
@@ -156,7 +164,7 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
       <Box sx={rootSx}>
         <Container sx={containerSx}>
           <CircularProgress />
-          <Typography variant="body1">Checking authentication status...</Typography>
+          <Typography variant="body1">{t('Checking authentication status...')}</Typography>
         </Container>
       </Box>
     );
@@ -186,11 +194,11 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
             />
 
             <Typography variant="h4" sx={{ mb: 2, fontWeight: 600 }}>
-              Azure Authentication
+              {t('Azure Authentication')}
             </Typography>
 
             <Typography variant="body1" sx={{ mb: 4, color: 'text.secondary' }}>
-              Sign in with your Azure account to manage AKS clusters and resources
+              {t('Sign in with your Azure account to manage AKS clusters and resources')}
             </Typography>
 
             {!loading ? (
@@ -207,7 +215,7 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
                   fontSize: 16,
                 }}
               >
-                Sign in with Azure
+                {t('Sign in with Azure')}
               </Button>
             ) : (
               <Button
@@ -222,7 +230,7 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
                   fontSize: 16,
                 }}
               >
-                Cancel
+                {t('Cancel')}
               </Button>
             )}
 
