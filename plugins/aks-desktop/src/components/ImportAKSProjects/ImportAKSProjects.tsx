@@ -1,4 +1,5 @@
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { PageGrid, SectionBox } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 // @ts-ignore
 import { useClustersConf } from '@kinvolk/headlamp-plugin/lib/K8s';
@@ -53,6 +54,7 @@ interface ImportSelection {
 
 export default function ImportAKSProjects() {
   const history = useHistory();
+  const { t } = useTranslation();
   const authStatus = useAzureAuth();
   const clustersConf = useClustersConf(); // Get currently merged clusters
 
@@ -109,7 +111,7 @@ export default function ImportAKSProjects() {
       }
     } catch (err) {
       console.error('Error loading subscriptions:', err);
-      setError('Failed to load subscriptions');
+      setError(t('Failed to load subscriptions'));
     } finally {
       setLoadingSubscriptions(false);
     }
@@ -130,7 +132,7 @@ export default function ImportAKSProjects() {
       const namespacesData = await getManagedNamespacesForSubscription(selectedSubscription.id);
 
       if (namespacesData.length === 0) {
-        setError('No managed namespaces found in this subscription.');
+        setError(t('No managed namespaces found in this subscription.'));
         return;
       }
 
@@ -141,7 +143,11 @@ export default function ImportAKSProjects() {
       for (let i = 0; i < namespacesData.length; i++) {
         const ns = namespacesData[i];
         setDiscoveryProgress(
-          `Checking namespace ${i + 1} of ${namespacesData.length}: ${ns.name}...`
+          t('Checking namespace {{current}} of {{total}}: {{name}}...', {
+            current: i + 1,
+            total: namespacesData.length,
+            name: ns.name,
+          })
         );
 
         try {
@@ -191,12 +197,14 @@ export default function ImportAKSProjects() {
 
       if (allNamespaces.length === 0) {
         setError(
-          'No AKS desktop projects found in unmerged clusters. Managed namespaces must have the required project labels.'
+          t(
+            'No AKS desktop projects found in unmerged clusters. Managed namespaces must have the required project labels.'
+          )
         );
       }
     } catch (err) {
       console.error('Error discovering namespaces:', err);
-      setError('Failed to discover managed namespaces');
+      setError(t('Failed to discover managed namespaces'));
     } finally {
       setLoadingNamespaces(false);
     }
@@ -206,7 +214,7 @@ export default function ImportAKSProjects() {
     const selectedNamespaces = namespaces.filter(ns => ns.selected);
 
     if (selectedNamespaces.length === 0) {
-      setError('Please select at least one namespace to import');
+      setError(t('Please select at least one namespace to import'));
       return;
     }
 
@@ -239,9 +247,11 @@ export default function ImportAKSProjects() {
       const [clusterName, resourceGroup, subscriptionId] = clusterKey.split('|');
 
       setImportProgress(
-        `Merging cluster ${clusterName} (${namespacesInCluster.length} namespace${
-          namespacesInCluster.length > 1 ? 's' : ''
-        })...`
+        t('Merging cluster {{clusterName}} ({{count}} namespace{{suffix}})...', {
+          clusterName,
+          count: namespacesInCluster.length,
+          suffix: namespacesInCluster.length > 1 ? 's' : '',
+        })
       );
 
       // Step 1: Merge/register the cluster ONCE per unique cluster
@@ -254,7 +264,9 @@ export default function ImportAKSProjects() {
             results.push({
               namespace: `${namespace.name} (${clusterName})`,
               success: false,
-              message: `Failed to merge cluster: ${registerResult.message}`,
+              message: t('Failed to merge cluster: {{message}}', {
+                message: registerResult.message,
+              }),
             });
           }
           continue;
@@ -265,13 +277,21 @@ export default function ImportAKSProjects() {
         for (const { namespace, projectName } of namespacesInCluster) {
           processedCount++;
           setImportProgress(
-            `Importing ${processedCount} of ${selectedNamespaces.length}: ${namespace.name} from ${clusterName}...`
+            t('Importing {{current}} of {{total}}: {{name}} from {{clusterName}}...', {
+              current: processedCount,
+              total: selectedNamespaces.length,
+              name: namespace.name,
+              clusterName,
+            })
           );
 
           results.push({
             namespace: `${namespace.name} (${clusterName})`,
             success: true,
-            message: `Project '${projectName}' successfully imported from namespace '${namespace.name}'`,
+            message: t(
+              "Project '{{projectName}}' successfully imported from namespace '{{namespace}}'",
+              { projectName, namespace: namespace.name }
+            ),
           });
         }
       } catch (err) {
@@ -280,7 +300,7 @@ export default function ImportAKSProjects() {
           results.push({
             namespace: `${namespace.name} (${clusterName})`,
             success: false,
-            message: err instanceof Error ? err.message : 'Unknown error',
+            message: err instanceof Error ? err.message : t('Unknown error'),
           });
         }
       }
@@ -295,16 +315,27 @@ export default function ImportAKSProjects() {
     ).size;
 
     if (successCount > 0) {
+      const failureText =
+        failureCount > 0
+          ? t('{{count}} project{{suffix}} failed.', {
+              count: failureCount,
+              suffix: failureCount > 1 ? 's' : '',
+            })
+          : '';
       setSuccess(
-        `Successfully merged ${successfulClusters} cluster${
-          successfulClusters > 1 ? 's' : ''
-        } with ${successCount} project${successCount > 1 ? 's' : ''}` +
-          (failureCount > 0
-            ? `. ${failureCount} project${failureCount > 1 ? 's' : ''} failed.`
-            : '.')
+        t(
+          'Successfully merged {{clusters}} cluster{{clustersSuffix}} with {{projects}} project{{projectsSuffix}}{{failureText}}',
+          {
+            clusters: successfulClusters,
+            clustersSuffix: successfulClusters > 1 ? 's' : '',
+            projects: successCount,
+            projectsSuffix: successCount > 1 ? 's' : '',
+            failureText: failureText ? ` ${failureText}` : '.',
+          }
+        )
       );
     } else {
-      setError('Failed to import any projects. See details below.');
+      setError(t('Failed to import any projects. See details below.'));
     }
 
     setImporting(false);
@@ -335,11 +366,12 @@ export default function ImportAKSProjects() {
     <AzureAuthGuard>
       <AzureCliWarning suggestions={[]} />
       <PageGrid>
-        <SectionBox title="Import AKS Projects">
+        <SectionBox title={t('Import AKS Projects')}>
           <Box sx={{ p: 3 }}>
             <Typography variant="body1" sx={{ mb: 3 }}>
-              Import existing AKS managed namespaces as projects. This will discover managed
-              namespaces from your AKS clusters and set them up as projects in AKS desktop.
+              {t(
+                'Import existing AKS managed namespaces as projects. This will discover managed namespaces from your AKS clusters and set them up as projects in AKS desktop.'
+              )}
             </Typography>
 
             {error && (
@@ -359,7 +391,7 @@ export default function ImportAKSProjects() {
               <CardContent>
                 <Typography variant="h6" sx={{ mb: 2 }}>
                   <Icon icon="mdi:numeric-1-circle" style={{ marginRight: 8 }} />
-                  Select Subscription
+                  {t('Select Subscription')}
                 </Typography>
 
                 <Autocomplete
@@ -376,8 +408,8 @@ export default function ImportAKSProjects() {
                   renderInput={params => (
                     <TextField
                       {...params}
-                      label="Subscription"
-                      placeholder="Select an Azure subscription"
+                      label={t('Subscription')}
+                      placeholder={t('Select an Azure subscription')}
                       InputProps={{
                         ...params.InputProps,
                         endAdornment: (
@@ -403,13 +435,16 @@ export default function ImportAKSProjects() {
                     <Box display="flex" alignItems="center">
                       <CircularProgress size={20} style={{ marginRight: 8 }} />
                       <Typography>
-                        {discoveryProgress || 'Discovering managed namespaces from subscription...'}
+                        {discoveryProgress ||
+                          t('Discovering managed namespaces from subscription...')}
                       </Typography>
                     </Box>
                     {namespaces.length > 0 && (
                       <Typography variant="caption" color="text.secondary">
-                        Found {namespaces.length} project{namespaces.length !== 1 ? 's' : ''} so
-                        far...
+                        {t('Found {{count}} project{{suffix}} so far...', {
+                          count: namespaces.length,
+                          suffix: namespaces.length !== 1 ? 's' : '',
+                        })}
                       </Typography>
                     )}
                   </Box>
@@ -431,17 +466,16 @@ export default function ImportAKSProjects() {
                   >
                     <Typography variant="h6">
                       <Icon icon="mdi:numeric-2-circle" style={{ marginRight: 8 }} />
-                      Select Namespaces to Import ({
-                        namespaces.filter(ns => ns.selected).length
-                      }{' '}
-                      selected)
+                      {t('Select Namespaces to Import ({{count}} selected)', {
+                        count: namespaces.filter(ns => ns.selected).length,
+                      })}
                     </Typography>
                     <Box>
                       <Button size="small" onClick={selectAll} disabled={importing}>
-                        Select All
+                        {t('Select All')}
                       </Button>
                       <Button size="small" onClick={deselectAll} disabled={importing}>
-                        Deselect All
+                        {t('Deselect All')}
                       </Button>
                     </Box>
                   </Box>
@@ -474,8 +508,14 @@ export default function ImportAKSProjects() {
                             <strong>{item.projectName}</strong>
                           </Typography>
                           <Typography variant="caption" color="textSecondary">
-                            Namespace: {item.namespace.name} • Cluster: {item.namespace.clusterName}{' '}
-                            • Resource Group: {item.namespace.resourceGroup}
+                            {t(
+                              'Namespace: {{namespace}} • Cluster: {{cluster}} • Resource Group: {{resourceGroup}}',
+                              {
+                                namespace: item.namespace.name,
+                                cluster: item.namespace.clusterName,
+                                resourceGroup: item.namespace.resourceGroup,
+                              }
+                            )}
                           </Typography>
                         </Box>
                       </Box>
@@ -492,7 +532,9 @@ export default function ImportAKSProjects() {
                       importing ? <CircularProgress size={20} /> : <Icon icon="mdi:import" />
                     }
                   >
-                    {importing ? importProgress || 'Importing...' : 'Import Selected Projects'}
+                    {importing
+                      ? importProgress || t('Importing...')
+                      : t('Import Selected Projects')}
                   </Button>
                 </CardContent>
               </Card>
@@ -512,15 +554,15 @@ export default function ImportAKSProjects() {
                       }}
                       startIcon={<Icon icon="mdi:folder-open" />}
                     >
-                      Go To Projects
+                      {t('Go To Projects')}
                     </Button>
                     <Button variant="outlined" onClick={handleCancel}>
-                      Close
+                      {t('Close')}
                     </Button>
                   </>
                 ) : (
                   <Button variant="outlined" onClick={handleCancel}>
-                    Close
+                    {t('Close')}
                   </Button>
                 )}
               </Box>
@@ -531,7 +573,7 @@ export default function ImportAKSProjects() {
               <Card sx={{ mt: 3 }}>
                 <CardContent>
                   <Typography variant="h6" sx={{ mb: 2 }}>
-                    Import Results
+                    {t('Import Results')}
                   </Typography>
 
                   {importResults.map((result, index) => (
@@ -551,7 +593,7 @@ export default function ImportAKSProjects() {
             {importResults.length === 0 && (
               <Box sx={{ mt: 3, display: 'flex', gap: 2 }}>
                 <Button variant="outlined" onClick={handleCancel} disabled={importing}>
-                  Cancel
+                  {t('Cancel')}
                 </Button>
               </Box>
             )}

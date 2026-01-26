@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Box, Card, Grid, Typography } from '@mui/material';
 import React from 'react';
 import type { ReviewStepProps } from '../types';
@@ -11,6 +12,7 @@ import { formatCpuValue, formatMemoryValue } from '../validators';
  * Review step component for displaying configuration summary
  */
 export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions, clusters }) => {
+  const { t } = useTranslation();
   const selectedSubscription = subscriptions.find(sub => sub.id === formData.subscription);
   const selectedCluster = clusters.find(c => c.name === formData.cluster);
 
@@ -20,10 +22,10 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
   return (
     <Box>
       <Typography variant="h5" component="h2" gutterBottom sx={sectionTitleSx}>
-        Review Project Configuration
+        {t('Review Project Configuration')}
       </Typography>
       <Typography variant="body2" sx={sectionDescriptionSx}>
-        Please review all the settings before creating your AKS project
+        {t('Please review all the settings before creating your AKS project')}
       </Typography>
 
       <Grid container spacing={3}>
@@ -32,24 +34,24 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
           <Card variant="outlined" sx={{ p: 2, mb: 2 }}>
             <Typography variant="h6" gutterBottom sx={sectionTitleSx}>
               <Icon icon="mdi:project" style={{ marginRight: 8, verticalAlign: 'middle' }} />
-              Project Basics
+              {t('Project Basics')}
             </Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
                 <Typography variant="body2" color="text.secondary">
-                  Project Name:
+                  {t('Project Name:')}
                 </Typography>
                 <Typography variant="body1">{formData.projectName}</Typography>
               </Grid>
               <Grid item xs={12} md={6}>
                 <Typography variant="body2" color="text.secondary">
-                  Subscription:
+                  {t('Subscription:')}
                 </Typography>
                 <Typography variant="body1">{selectedSubscription?.name || 'N/A'}</Typography>
               </Grid>
               <Grid item xs={12} md={6}>
                 <Typography variant="body2" color="text.secondary">
-                  Cluster:
+                  {t('Cluster:')}
                 </Typography>
                 <Typography variant="body1">
                   {selectedCluster
@@ -59,10 +61,10 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
               </Grid>
               <Grid item xs={12} md={6}>
                 <Typography variant="body2" color="text.secondary">
-                  Description:
+                  {t('Description:')}
                 </Typography>
                 <Typography variant="body1">
-                  {formData.description || 'No description provided'}
+                  {formData.description || t('No description provided')}
                 </Typography>
               </Grid>
             </Grid>
@@ -74,18 +76,18 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
           <Card variant="outlined" sx={{ p: 2, mb: 2, height: '200px' }}>
             <Typography variant="h6" gutterBottom sx={sectionTitleSx}>
               <Icon icon="mdi:network" style={{ marginRight: 8, verticalAlign: 'middle' }} />
-              Networking Policies
+              {t('Networking Policies')}
             </Typography>
             <Grid container spacing={2}>
               <Grid item xs={12}>
                 <Typography variant="body2" color="text.secondary">
-                  Ingress Policy:
+                  {t('Ingress Policy:')}
                 </Typography>
                 <Typography variant="body1">{formData.ingress}</Typography>
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="body2" color="text.secondary">
-                  Egress Policy:
+                  {t('Egress Policy:')}
                 </Typography>
                 <Typography variant="body1">{formData.egress}</Typography>
               </Grid>
@@ -97,7 +99,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
           <Card variant="outlined" sx={{ p: 2, mb: 2, height: '200px' }}>
             <Typography variant="h6" gutterBottom sx={sectionTitleSx}>
               <Icon icon="mdi:cpu-64-bit" style={{ marginRight: 8, verticalAlign: 'middle' }} />
-              Compute Quota
+              {t('Compute Quota')}
             </Typography>
             <Grid container spacing={2}>
               {/* CPU Section */}
@@ -117,14 +119,14 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
                     sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}
                   >
                     <Icon icon="mdi:cpu-64-bit" style={{ marginRight: 4, fontSize: 16 }} />
-                    CPU
+                    {t('CPU')}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Requests:
+                    {t('Requests:')}
                   </Typography>
                   <Typography variant="body1">{formatCpuValue(formData.cpuRequest)}</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Limits:
+                    {t('Limits:')}
                   </Typography>
                   <Typography variant="body1">{formatCpuValue(formData.cpuLimit)}</Typography>
                 </Box>
@@ -147,16 +149,16 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
                     sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}
                   >
                     <Icon icon="mdi:memory" style={{ marginRight: 4, fontSize: 16 }} />
-                    Memory
+                    {t('Memory')}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Requests:
+                    {t('Requests:')}
                   </Typography>
                   <Typography variant="body1">
                     {formatMemoryValue(formData.memoryRequest)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Limits:
+                    {t('Limits:')}
                   </Typography>
                   <Typography variant="body1">{formatMemoryValue(formData.memoryLimit)}</Typography>
                 </Box>
@@ -170,8 +172,10 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
           <Card variant="outlined" sx={{ p: 2, mb: 2 }}>
             <Typography variant="h6" gutterBottom sx={sectionTitleSx}>
               <Icon icon="mdi:account-group" style={{ marginRight: 8, verticalAlign: 'middle' }} />
-              Access Control ({formData.userAssignments.length} assignee
-              {formData.userAssignments.length !== 1 ? 's' : ''})
+              {t('Access Control ({{count}} assignee{{suffix}})', {
+                count: formData.userAssignments.length,
+                suffix: formData.userAssignments.length !== 1 ? 's' : '',
+              })}
             </Typography>
             <Box
               sx={{
@@ -195,13 +199,13 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions,
                   })}
                 >
                   <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-                    Assignee {idx + 1}:
+                    {t('Assignee {{number}}:', { number: idx + 1 })}
                   </Typography>
                   <Typography variant="body1" sx={{ mb: 1 }}>
-                    {assignment.email || 'Not specified'}
+                    {assignment.email || t('Not specified')}
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-                    Role:
+                    {t('Role:')}
                   </Typography>
                   <Typography variant="body1">{assignment.role}</Typography>
                 </Box>

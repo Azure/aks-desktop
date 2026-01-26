@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Box,
   Button,
@@ -32,6 +32,7 @@ interface InfoTabProps {
 }
 
 const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
+  const { t } = useTranslation();
   const [clusterInfo, setClusterInfo] = useState<{
     resourceId: string;
     resourceGroup: string;
@@ -79,7 +80,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
     const clusterName = project?.clusters?.[0];
     if (!clusterName) {
       setClusterInfo(null);
-      setError('No cluster selected');
+      setError(t('No cluster selected'));
       return () => {
         isMounted = false;
       };
@@ -97,7 +98,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
         console.error(error);
         if (isMounted) {
           setClusterInfo(null);
-          setError('Failed to fetch cluster info');
+          setError(t('Failed to fetch cluster info'));
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -107,7 +108,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
     return () => {
       isMounted = false;
     };
-  }, [project, subscription]);
+  }, [project, subscription, t]);
 
   useEffect(() => {
     let isMounted = true;
@@ -146,7 +147,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
       } catch (e) {
         console.error(e);
         if (isMounted) {
-          setError('Failed to fetch managed namespaces');
+          setError(t('Failed to fetch managed namespaces'));
           setNamespaceDetails(null);
         }
       } finally {
@@ -157,7 +158,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
     return () => {
       isMounted = false;
     };
-  }, [clusterInfo, project]);
+  }, [clusterInfo, project, subscription, t]);
 
   // Utils reused across renders
   const normalizePolicy = useCallback((value: string): FormData['ingress'] => {
@@ -284,11 +285,11 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
       setBaselineFormData(formData);
     } catch (e) {
       console.error('Failed to update managed namespace', e);
-      setError('Failed to update managed namespace');
+      setError(t('Failed to update managed namespace'));
     } finally {
       setUpdating(false);
     }
-  }, [clusterInfo?.resourceGroup, formData, project?.clusters, project.id]);
+  }, [clusterInfo?.resourceGroup, formData, project?.clusters, project.id, t]);
 
   return (
     <Card>
@@ -334,7 +335,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
                 disabled={!project.id || !hasChanges || !validation.isValid || updating}
                 onClick={handleSave}
               >
-                {updating ? 'Updating…' : 'Update'}
+                {updating ? t('Updating…') : t('Update')}
               </Button>
             </Box>
           </Box>

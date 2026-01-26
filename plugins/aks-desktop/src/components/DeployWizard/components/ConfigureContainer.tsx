@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Box,
   Button,
@@ -30,10 +31,12 @@ interface ConfigureContainerProps {
 }
 
 function LabelWithInfo({ label, infoText }: { label: string; infoText: string }) {
+  const { t } = useTranslation();
+
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-      <span>{label}</span>
-      <Tooltip title={infoText} arrow>
+      <span>{t(label)}</span>
+      <Tooltip title={t(infoText)} arrow>
         <IconButton size="small" sx={{ p: 0, minWidth: 'auto', width: '20px', height: '20px' }}>
           <Icon icon="mdi:information-outline" width="16px" height="16px" />
         </IconButton>
@@ -43,25 +46,27 @@ function LabelWithInfo({ label, infoText }: { label: string; infoText: string })
 }
 
 export default function ConfigureContainer({ containerConfig }: ConfigureContainerProps) {
+  const { t } = useTranslation();
+
   return (
     <>
       <Typography variant="h6" gutterBottom>
-        Configure Container Deployment
+        {t('Configure Container Deployment')}
       </Typography>
       <Stepper activeStep={containerConfig.config.containerStep} orientation="vertical">
         {/* 1. Basics: App name, image, replicas */}
         <Step>
-          <StepLabel>Basics</StepLabel>
+          <StepLabel>{t('Basics')}</StepLabel>
           <StepContent>
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
               <TextField
-                label="Application name"
+                label={t('Application name')}
                 value={containerConfig.config.appName}
                 onChange={e => containerConfig.setConfig(c => ({ ...c, appName: e.target.value }))}
                 fullWidth
               />
               <TextField
-                label="Container image"
+                label={t('Container image')}
                 placeholder="registry/image:tag"
                 value={containerConfig.config.containerImage}
                 onChange={e =>
@@ -97,7 +102,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   containerConfig.config.replicas < 1
                 }
               >
-                Continue
+                {t('Continue')}
               </Button>
             </Box>
           </StepContent>
@@ -105,7 +110,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
 
         {/* 2. Networking: port and service */}
         <Step>
-          <StepLabel>Networking</StepLabel>
+          <StepLabel>{t('Networking')}</StepLabel>
           <StepContent>
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
               <TextField
@@ -170,8 +175,9 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 color="text.secondary"
                 sx={{ ml: 5, display: 'block', mt: -1 }}
               >
-                By default, the service port matches the target port. Enable this to use a different
-                port for the service.
+                {t(
+                  'By default, the service port matches the target port. Enable this to use a different port for the service.'
+                )}
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', gap: 2, width: '100%', mt: 1 }}>
@@ -189,10 +195,12 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 }}
               >
                 <Typography variant="subtitle1" sx={{ mb: 0.5 }}>
-                  Internal only
+                  {t('Internal only')}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Use ClusterIP. Best for services that are only reachable within the cluster.
+                  {t(
+                    'Use ClusterIP. Best for services that are only reachable within the cluster.'
+                  )}
                 </Typography>
               </Box>
               <Box
@@ -213,10 +221,10 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 }}
               >
                 <Typography variant="subtitle1" sx={{ mb: 0.5 }}>
-                  Enable public access
+                  {t('Enable public access')}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Creates a LoadBalancer to expose the application to the internet.
+                  {t('Creates a LoadBalancer to expose the application to the internet.')}
                 </Typography>
               </Box>
             </Box>
@@ -225,13 +233,13 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 variant="outlined"
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 0 }))}
               >
-                Back
+                {t('Back')}
               </Button>
               <Button
                 variant="contained"
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 2 }))}
               >
-                Continue
+                {t('Continue')}
               </Button>
             </Box>
           </StepContent>
@@ -239,10 +247,10 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
 
         {/* 3. Healthchecks */}
         <Step>
-          <StepLabel>Healthchecks</StepLabel>
+          <StepLabel>{t('Healthchecks')}</StepLabel>
           <StepContent>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Configure container health probes.
+              {t('Configure container health probes.')}
             </Typography>
             <Box sx={{ mb: 2 }}>
               <FormControlLabel
@@ -266,8 +274,9 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 color="text.secondary"
                 sx={{ ml: 5, display: 'block', mt: -1 }}
               >
-                By default, probes use HTTP GET on the root path with sensible defaults. Enable this
-                to customize probe settings.
+                {t(
+                  'By default, probes use HTTP GET on the root path with sensible defaults. Enable this to customize probe settings.'
+                )}
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', flexDirection: 'column' }}>
@@ -296,7 +305,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   color="text.secondary"
                   sx={{ ml: 5, display: 'block', mt: -1 }}
                 >
-                  Kubernetes restarts the container if this check fails repeatedly.
+                  {t('Kubernetes restarts the container if this check fails repeatedly.')}
                 </Typography>
                 {containerConfig.config.enableLivenessProbe &&
                   containerConfig.config.showProbeConfigs && (
@@ -433,7 +442,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   color="text.secondary"
                   sx={{ ml: 5, display: 'block', mt: -1 }}
                 >
-                  Kubernetes won't send traffic to the pod until this check passes.
+                  {t("Kubernetes won't send traffic to the pod until this check passes.")}
                 </Typography>
                 {containerConfig.config.enableReadinessProbe &&
                   containerConfig.config.showProbeConfigs && (
@@ -573,7 +582,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   color="text.secondary"
                   sx={{ ml: 5, display: 'block', mt: -1 }}
                 >
-                  Kubernetes temporarily disables liveness/readiness until startup succeeds.
+                  {t('Kubernetes temporarily disables liveness/readiness until startup succeeds.')}
                 </Typography>
                 {containerConfig.config.enableStartupProbe &&
                   containerConfig.config.showProbeConfigs && (
@@ -691,13 +700,13 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 variant="outlined"
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 1 }))}
               >
-                Back
+                {t('Back')}
               </Button>
               <Button
                 variant="contained"
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 3 }))}
               >
-                Continue
+                {t('Continue')}
               </Button>
             </Box>
           </StepContent>
@@ -705,7 +714,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
 
         {/* 4. Resources */}
         <Step>
-          <StepLabel>Resource Limits</StepLabel>
+          <StepLabel>{t('Resource Limits')}</StepLabel>
           <StepContent>
             <FormControlLabel
               control={
@@ -733,10 +742,12 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
                   <Typography variant="caption" color="text.secondary">
-                    CPU request
+                    {t('CPU request')}
                   </Typography>
                   <Tooltip
-                    title="The minimum amount of CPU guaranteed to the container. Kubernetes will schedule the pod on a node with at least this much CPU available."
+                    title={t(
+                      'The minimum amount of CPU guaranteed to the container. Kubernetes will schedule the pod on a node with at least this much CPU available.'
+                    )}
                     arrow
                   >
                     <IconButton
@@ -764,7 +775,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   />
                   <IconButton
                     size="small"
-                    aria-label="decrease"
+                    aria-label={t('decrease')}
                     onClick={() =>
                       containerConfig.setConfig(c => ({
                         ...c,
@@ -777,7 +788,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   </IconButton>
                   <IconButton
                     size="small"
-                    aria-label="increase"
+                    aria-label={t('increase')}
                     onClick={() =>
                       containerConfig.setConfig(c => ({
                         ...c,
@@ -794,10 +805,12 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
                   <Typography variant="caption" color="text.secondary">
-                    CPU limit
+                    {t('CPU limit')}
                   </Typography>
                   <Tooltip
-                    title="The maximum amount of CPU the container can use. If exceeded, the container will be throttled."
+                    title={t(
+                      'The maximum amount of CPU the container can use. If exceeded, the container will be throttled.'
+                    )}
                     arrow
                   >
                     <IconButton
@@ -825,7 +838,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   />
                   <IconButton
                     size="small"
-                    aria-label="decrease"
+                    aria-label={t('decrease')}
                     onClick={() =>
                       containerConfig.setConfig(c => ({
                         ...c,
@@ -838,7 +851,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   </IconButton>
                   <IconButton
                     size="small"
-                    aria-label="increase"
+                    aria-label={t('increase')}
                     onClick={() =>
                       containerConfig.setConfig(c => ({
                         ...c,
@@ -855,10 +868,12 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
                   <Typography variant="caption" color="text.secondary">
-                    Memory request
+                    {t('Memory request')}
                   </Typography>
                   <Tooltip
-                    title="The minimum amount of memory guaranteed to the container. Kubernetes will schedule the pod on a node with at least this much memory available."
+                    title={t(
+                      'The minimum amount of memory guaranteed to the container. Kubernetes will schedule the pod on a node with at least this much memory available.'
+                    )}
                     arrow
                   >
                     <IconButton
@@ -886,7 +901,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   />
                   <IconButton
                     size="small"
-                    aria-label="decrease"
+                    aria-label={t('decrease')}
                     onClick={() =>
                       containerConfig.setConfig(c => ({
                         ...c,
@@ -899,7 +914,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   </IconButton>
                   <IconButton
                     size="small"
-                    aria-label="increase"
+                    aria-label={t('increase')}
                     onClick={() =>
                       containerConfig.setConfig(c => ({
                         ...c,
@@ -916,10 +931,12 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
                   <Typography variant="caption" color="text.secondary">
-                    Memory limit
+                    {t('Memory limit')}
                   </Typography>
                   <Tooltip
-                    title="The maximum amount of memory the container can use. If exceeded, the container will be terminated (OOMKilled)."
+                    title={t(
+                      'The maximum amount of memory the container can use. If exceeded, the container will be terminated (OOMKilled).'
+                    )}
                     arrow
                   >
                     <IconButton
@@ -947,7 +964,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   />
                   <IconButton
                     size="small"
-                    aria-label="decrease"
+                    aria-label={t('decrease')}
                     onClick={() =>
                       containerConfig.setConfig(c => ({
                         ...c,
@@ -960,7 +977,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                   </IconButton>
                   <IconButton
                     size="small"
-                    aria-label="increase"
+                    aria-label={t('increase')}
                     onClick={() =>
                       containerConfig.setConfig(c => ({
                         ...c,
@@ -979,13 +996,13 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 variant="outlined"
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 2 }))}
               >
-                Back
+                {t('Back')}
               </Button>
               <Button
                 variant="contained"
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 4 }))}
               >
-                Continue
+                {t('Continue')}
               </Button>
             </Box>
           </StepContent>
@@ -993,13 +1010,13 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
 
         {/* 5. Env variables */}
         <Step>
-          <StepLabel>Environment Variables</StepLabel>
+          <StepLabel>{t('Environment Variables')}</StepLabel>
           <StepContent>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               {containerConfig.config.envVars.map((pair, idx) => (
                 <Box key={idx} sx={{ display: 'flex', gap: 1 }}>
                   <TextField
-                    label="Key"
+                    label={t('Key')}
                     value={pair.key}
                     onChange={e => {
                       const v = [...containerConfig.config.envVars];
@@ -1009,7 +1026,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                     sx={{ flex: 1 }}
                   />
                   <TextField
-                    label="Value"
+                    label={t('Value')}
                     value={pair.value}
                     onChange={e => {
                       const v = [...containerConfig.config.envVars];
@@ -1019,7 +1036,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                     sx={{ flex: 1 }}
                   />
                   <IconButton
-                    aria-label="remove"
+                    aria-label={t('remove')}
                     onClick={() =>
                       containerConfig.setConfig(c => ({
                         ...c,
@@ -1041,7 +1058,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                     }))
                   }
                 >
-                  Add variable
+                  {t('Add variable')}
                 </Button>
               </Box>
             </Box>
@@ -1050,13 +1067,13 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 variant="outlined"
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 3 }))}
               >
-                Back
+                {t('Back')}
               </Button>
               <Button
                 variant="contained"
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 5 }))}
               >
-                Continue
+                {t('Continue')}
               </Button>
             </Box>
           </StepContent>
@@ -1064,7 +1081,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
 
         {/* 6. HPA */}
         <Step>
-          <StepLabel>HPA</StepLabel>
+          <StepLabel>{t('HPA')}</StepLabel>
           <StepContent>
             <FormControlLabel
               control={
@@ -1089,7 +1106,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 }}
               >
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  HPA scales pods based on CPU utilization.
+                  {t('HPA scales pods based on CPU utilization.')}
                 </Typography>
                 <Box
                   sx={{
@@ -1140,9 +1157,11 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
 
                 <Box sx={{ mt: 3 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
-                    <Typography variant="subtitle2">Target CPU utilization</Typography>
+                    <Typography variant="subtitle2">{t('Target CPU utilization')}</Typography>
                     <Tooltip
-                      title="The target average CPU utilization percentage across all pods. HPA will scale up when CPU usage exceeds this value and scale down when it's below."
+                      title={t(
+                        "The target average CPU utilization percentage across all pods. HPA will scale up when CPU usage exceeds this value and scale down when it's below."
+                      )}
                       arrow
                     >
                       <IconButton
@@ -1197,7 +1216,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                     containerConfig.config.hpaTargetCpu < 10 ||
                     containerConfig.config.hpaTargetCpu > 95) && (
                     <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
-                      Ensure min ≤ max replicas and target CPU between 10% and 95%.
+                      {t('Ensure min ≤ max replicas and target CPU between 10% and 95%.')}
                     </Typography>
                   )}
                 </Box>
@@ -1208,13 +1227,13 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 variant="outlined"
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 4 }))}
               >
-                Back
+                {t('Back')}
               </Button>
               <Button
                 variant="contained"
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 6 }))}
               >
-                Continue
+                {t('Continue')}
               </Button>
             </Box>
           </StepContent>
@@ -1222,10 +1241,10 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
 
         {/* 7. Advanced */}
         <Step>
-          <StepLabel>Advanced</StepLabel>
+          <StepLabel>{t('Advanced')}</StepLabel>
           <StepContent>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Configure security context settings for the container.
+              {t('Configure security context settings for the container.')}
             </Typography>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <FormControlLabel
@@ -1249,7 +1268,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 color="text.secondary"
                 sx={{ ml: 5, display: 'block', mt: -1 }}
               >
-                Ensures the container runs as a non-root user for better security.
+                {t('Ensures the container runs as a non-root user for better security.')}
               </Typography>
 
               <FormControlLabel
@@ -1276,7 +1295,9 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 color="text.secondary"
                 sx={{ ml: 5, display: 'block', mt: -1 }}
               >
-                Mounts the container's root filesystem as read-only to prevent write operations.
+                {t(
+                  "Mounts the container's root filesystem as read-only to prevent write operations."
+                )}
               </Typography>
 
               <FormControlLabel
@@ -1303,7 +1324,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 color="text.secondary"
                 sx={{ ml: 5, display: 'block', mt: -1 }}
               >
-                Controls whether a process can gain more privileges than its parent process.
+                {t('Controls whether a process can gain more privileges than its parent process.')}
               </Typography>
 
               <FormControlLabel
@@ -1330,8 +1351,9 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 color="text.secondary"
                 sx={{ ml: 5, display: 'block', mt: -1 }}
               >
-                Prefer scheduling pods on different nodes to improve availability and fault
-                tolerance.
+                {t(
+                  'Prefer scheduling pods on different nodes to improve availability and fault tolerance.'
+                )}
               </Typography>
 
               <FormControlLabel
@@ -1358,7 +1380,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 color="text.secondary"
                 sx={{ ml: 5, display: 'block', mt: -1 }}
               >
-                Distributes pods evenly across nodes to improve workload distribution.
+                {t('Distributes pods evenly across nodes to improve workload distribution.')}
               </Typography>
             </Box>
             <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
@@ -1366,7 +1388,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 variant="outlined"
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 5 }))}
               >
-                Back
+                {t('Back')}
               </Button>
             </Box>
           </StepContent>

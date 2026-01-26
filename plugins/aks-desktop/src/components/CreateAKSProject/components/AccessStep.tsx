@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { TextField } from '@mui/material';
 import { Box, Button, FormControl, Grid, IconButton, MenuItem, Typography } from '@mui/material';
 import React from 'react';
@@ -18,6 +19,7 @@ export const AccessStep: React.FC<AccessStepProps> = ({
   onFormDataChange,
   loading = false,
 }) => {
+  const { t } = useTranslation();
   const handleAssignmentChange = (index: number, field: keyof UserAssignment, value: string) => {
     const updatedAssignments = [...formData.userAssignments];
     updatedAssignments[index] = { ...updatedAssignments[index], [field]: value };
@@ -47,10 +49,10 @@ export const AccessStep: React.FC<AccessStepProps> = ({
   return (
     <Box>
       <Typography variant="h5" component="h2" gutterBottom>
-        Access
+        {t('Access')}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Assign permissions to users who need access to your namespace
+        {t('Assign permissions to users who need access to your namespace')}
       </Typography>
       <Grid container spacing={3}>
         {formData.userAssignments.map((assignment, idx) => (
@@ -58,7 +60,7 @@ export const AccessStep: React.FC<AccessStepProps> = ({
             <Grid item xs={12} md={6}>
               <FormControl fullWidth>
                 <FormField
-                  label={`Assignee ${idx + 1} (email)`}
+                  label={t('Assignee {{number}} (email)', { number: idx + 1 })}
                   type="email"
                   value={assignment.email}
                   onChange={value => handleAssignmentChange(idx, 'email', value as string)}
@@ -67,9 +69,9 @@ export const AccessStep: React.FC<AccessStepProps> = ({
                   error={assignment.email.trim() === '' || !isValidEmail(assignment.email.trim())}
                   helperText={
                     assignment.email.trim() === ''
-                      ? 'Please enter a valid email address or remove this entry'
+                      ? t('Please enter a valid email address or remove this entry')
                       : !isValidEmail(assignment.email.trim())
-                      ? 'Please enter a valid email address'
+                      ? t('Please enter a valid email address')
                       : ''
                   }
                 />
@@ -80,7 +82,7 @@ export const AccessStep: React.FC<AccessStepProps> = ({
                 fullWidth
                 select
                 variant="outlined"
-                label="Role"
+                label={t('Role')}
                 value={assignment.role}
                 onChange={e => handleAssignmentChange(idx, 'role', e.target.value as string)}
                 disabled={loading}
@@ -100,7 +102,7 @@ export const AccessStep: React.FC<AccessStepProps> = ({
                         component="div"
                         sx={{ fontSize: '0.7rem', lineHeight: 1.3, mt: 0.5 }}
                       >
-                        {ROLE_DESCRIPTIONS[role]}
+                        {t(ROLE_DESCRIPTIONS[role])}
                       </Typography>
                     </Box>
                   </MenuItem>
@@ -109,7 +111,7 @@ export const AccessStep: React.FC<AccessStepProps> = ({
             </Grid>
             <Grid item xs={2} md={1} sx={{ display: 'flex', alignItems: 'flex-start' }}>
               <IconButton
-                aria-label="Remove assignee"
+                aria-label={t('Remove assignee')}
                 onClick={() => handleRemoveAssignment(idx)}
                 size="large"
                 disabled={loading}
@@ -127,7 +129,7 @@ export const AccessStep: React.FC<AccessStepProps> = ({
             onClick={handleAddAssignment}
             disabled={loading || hasInvalidAssignments}
           >
-            Add assignee
+            {t('Add assignee')}
           </Button>
         </Grid>
       </Grid>

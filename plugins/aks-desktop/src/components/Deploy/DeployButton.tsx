@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Button, Dialog } from '@mui/material';
 import React, { useEffect } from 'react';
 import DeployWizard from '../DeployWizard/DeployWizard';
@@ -37,6 +38,7 @@ interface DeployButtonProps {
  * @param props.project - The project whose first cluster and namespace are passed to the wizard.
  */
 function DeployButton({ project }: DeployButtonProps) {
+  const { t } = useTranslation();
   const urlParams = useDeployUrlParams();
   const dialogState = useDialogState();
 
@@ -73,7 +75,7 @@ function DeployButton({ project }: DeployButtonProps) {
           fontWeight: 'bold',
         }}
       >
-        Deploy Application
+        {t('Deploy Application')}
       </Button>
       <Dialog
         open={dialogState.open}

@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon, InlineIcon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Box,
   Button,
@@ -18,6 +19,7 @@ import { useAzureAuth } from '../../hooks/useAzureAuth';
 
 export default function AzureProfilePage() {
   const history = useHistory();
+  const { t } = useTranslation();
   const authStatus = useAzureAuth();
   const [loggingOut, setLoggingOut] = useState(false);
   const theme = useTheme();
@@ -78,7 +80,7 @@ export default function AzureProfilePage() {
           >
             <CircularProgress />
             <Typography variant="body1" sx={{ mt: 2 }}>
-              Loading Azure account information...
+              {t('Loading Azure account information...')}
             </Typography>
           </Box>
         </Container>
@@ -119,7 +121,7 @@ export default function AzureProfilePage() {
               <InlineIcon icon="mdi:chevron-left" height={20} width={20} />
             </Box>
             <Box fontSize={14} sx={{ textTransform: 'uppercase' }}>
-              Back
+              {t('Back')}
             </Box>
           </Box>
         </Box>
@@ -138,11 +140,11 @@ export default function AzureProfilePage() {
             />
 
             <Typography variant="h4" sx={{ mb: 1, fontWeight: 600 }}>
-              Azure Account
+              {t('Azure Account')}
             </Typography>
 
             <Typography variant="body1" sx={{ mb: 3, color: theme.palette.text.secondary }}>
-              Logged in as <strong>{authStatus.username}</strong>
+              {t('Logged in as')} <strong>{authStatus.username}</strong>
             </Typography>
 
             {authStatus.tenantId && (
@@ -163,7 +165,7 @@ export default function AzureProfilePage() {
                     color: theme.palette.text.secondary,
                   }}
                 >
-                  Tenant ID
+                  {t('Tenant ID')}
                 </Typography>
                 <Typography variant="body2" sx={{ fontSize: '1rem', wordBreak: 'break-all' }}>
                   {authStatus.tenantId}
@@ -189,7 +191,7 @@ export default function AzureProfilePage() {
                     color: theme.palette.text.secondary,
                   }}
                 >
-                  Default Subscription ID
+                  {t('Default Subscription ID')}
                 </Typography>
                 <Typography variant="body2" sx={{ fontSize: '1rem', wordBreak: 'break-all' }}>
                   {authStatus.subscriptionId}
@@ -205,7 +207,7 @@ export default function AzureProfilePage() {
                 startIcon={<Icon icon="mdi:cloud-plus" />}
                 sx={{ p: 1.5, textTransform: 'none', fontSize: 16 }}
               >
-                Add Cluster from Azure
+                {t('Add Cluster from Azure')}
               </Button>
 
               <Button
@@ -216,7 +218,7 @@ export default function AzureProfilePage() {
                 startIcon={loggingOut ? <CircularProgress size={20} /> : <Icon icon="mdi:logout" />}
                 sx={{ p: 1.5, textTransform: 'none', fontSize: 16 }}
               >
-                {loggingOut ? 'Logging out...' : 'Log out'}
+                {loggingOut ? t('Logging out...') : t('Log out')}
               </Button>
             </Box>
           </CardContent>
