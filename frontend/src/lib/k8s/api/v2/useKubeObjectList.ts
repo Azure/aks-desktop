@@ -17,7 +17,7 @@
 import type { QueryObserverOptions } from '@tanstack/react-query';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getAllowedNamespaces } from '../../cluster';
+import { getAllowedNamespaces } from '../../../../helpers/clusterSettings';
 import type { KubeObject, KubeObjectClass } from '../../KubeObject';
 import type { QueryParameters } from '../v1/queryParameters';
 import { ApiError } from './ApiError';
@@ -74,13 +74,13 @@ function allowedNamespaceListQuery(
 
       const items = await Promise.all(promises);
 
-      items.forEach(item => {
-        item.cluster = cluster;
-      });
+      const Namespace = await import('../../namespace').then(it => it.default);
+
+      const namespaces = items.map(item => new Namespace(item, cluster));
 
       return {
         list: {
-          items,
+          items: namespaces,
           kind: 'NamespaceList',
           apiVersion: 'v1',
           metadata: { resourceVersion: '0' },
