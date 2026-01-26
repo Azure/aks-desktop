@@ -11,6 +11,9 @@ on:
   # Allow manual trigger for testing
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   update-submodule:
     name: Update submodule reference in main branch
