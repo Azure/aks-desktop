@@ -230,13 +230,13 @@ if (Headlamp.isRunningAsApp()) {
   });
 
   // register import existing AKS projects
-  // registerCustomCreateProject({
-  //   id: 'aks-import',
-  //   name: 'Import AKS projects',
-  //   description: 'Import existing AKS managed namespaces as projects',
-  //   component: () => <Redirect to="/projects/import-aks-projects" />,
-  //   icon: 'mdi:import',
-  // });
+  registerCustomCreateProject({
+    id: 'aks-import',
+    name: 'Import AKS projects',
+    description: 'Import existing AKS managed namespaces as projects',
+    component: () => <Redirect to="/projects/import-aks-projects" />,
+    icon: 'mdi:import',
+  });
 
   // Register AKS as a cluster provider in the "Add Cluster" page
   registerAddClusterProvider({
