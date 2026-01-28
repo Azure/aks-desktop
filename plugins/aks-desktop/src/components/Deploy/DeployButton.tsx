@@ -3,58 +3,62 @@
 
 import { Icon } from '@iconify/react';
 import { Button, Dialog } from '@mui/material';
-import React, { useEffect, useState } from 'react';
-import { useHistory, useLocation } from 'react-router-dom';
+import React, { useEffect } from 'react';
 import DeployWizard from '../DeployWizard/DeployWizard';
+import { useDeployUrlParams } from './hooks/useDeployUrlParams';
+import { useDialogState } from './hooks/useDialogState';
 
+/**
+ * Defines the structure of a project for deployment.
+ */
 export interface ProjectDefinition {
+  /** Unique identifier for the project. */
   id: string;
+  /** List of Kubernetes namespaces associated with the project. */
   namespaces: string[];
+  /** List of cluster names/identifiers where the project can be deployed. */
   clusters: string[];
 }
 
+/** Alias for ProjectDefinition. */
 type Project = ProjectDefinition;
 
+/**
+ * Props for the {@link DeployButton} component.
+ */
 interface DeployButtonProps {
+  /** The project containing cluster and namespace information for deployment. */
   project: Project;
 }
 
+/**
+ * Renders a button that opens the deploy wizard dialog.
+ *
+ * @param props.project - The project whose first cluster and namespace are passed to the wizard.
+ */
 function DeployButton({ project }: DeployButtonProps) {
-  const [open, setOpen] = useState(false);
-  const location = useLocation();
-  const history = useHistory();
-  const [initialApplicationName, setInitialApplicationName] = useState<string | undefined>(
-    undefined
-  );
+  const urlParams = useDeployUrlParams();
+  const dialogState = useDialogState();
 
-  // Check for URL parameters on component mount
+  // Open dialog when URL parameters indicate we should
   useEffect(() => {
-    const searchParams = new URLSearchParams(location.search);
-    const openDeploy = searchParams.get('openDeploy');
-    const applicationName = searchParams.get('applicationName');
-
-    if (openDeploy === 'true') {
-      setOpen(true);
-      if (applicationName) {
-        setInitialApplicationName(applicationName);
-      }
-
-      // Clean up URL parameters using React Router
-      searchParams.delete('openDeploy');
-      searchParams.delete('applicationName');
-      const newSearch = searchParams.toString();
-      const newPath = newSearch ? `${location.pathname}?${newSearch}` : location.pathname;
-      history.replace(newPath);
+    if (urlParams.shouldOpenDialog) {
+      dialogState.openDialog(urlParams.initialApplicationName);
+      urlParams.clearUrlTrigger();
     }
-  }, [location, history]);
+  }, [
+    urlParams.shouldOpenDialog,
+    urlParams.initialApplicationName,
+    urlParams.clearUrlTrigger,
+    dialogState.openDialog,
+  ]);
 
   const handleClickOpen = () => {
-    setOpen(true);
+    dialogState.openDialog();
   };
 
   const handleClose = () => {
-    setOpen(false);
-    setInitialApplicationName(undefined);
+    dialogState.closeDialog();
   };
 
   return (
@@ -72,7 +76,7 @@ function DeployButton({ project }: DeployButtonProps) {
         Deploy Application
       </Button>
       <Dialog
-        open={open}
+        open={dialogState.open}
         onClose={handleClose}
         maxWidth="lg"
         fullWidth
@@ -86,7 +90,7 @@ function DeployButton({ project }: DeployButtonProps) {
         <DeployWizard
           cluster={project.clusters?.[0] || undefined}
           namespace={project.namespaces?.[0] || undefined}
-          initialApplicationName={initialApplicationName}
+          initialApplicationName={dialogState.initialApplicationName}
           onClose={handleClose}
         />
       </Dialog>
