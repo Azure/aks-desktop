@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, AlertTitle, Box, Button, Link, List, ListItem, ListItemText } from '@mui/material';
 import React, { useState } from 'react';
 
@@ -37,6 +38,7 @@ const parseTextWithLinks = (text: string) => {
 };
 
 const AzureCliWarning: React.FC<AzureCliWarningProps> = ({ suggestions }) => {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(true);
   if (!visible || suggestions.length === 0) return null;
 
@@ -51,7 +53,7 @@ const AzureCliWarning: React.FC<AzureCliWarningProps> = ({ suggestions }) => {
         }}
       >
         <AlertTitle>
-          <strong>Azure CLI/aks-preview requirements not met:</strong>
+          <strong>{t('Azure CLI/aks-preview requirements not met:')}</strong>
         </AlertTitle>
         <List dense sx={{ mt: 1, mb: 1 }}>
           {suggestions.map((msg, i) => (
@@ -67,7 +69,7 @@ const AzureCliWarning: React.FC<AzureCliWarningProps> = ({ suggestions }) => {
           sx={{ mt: 1 }}
           onClick={() => setVisible(false)}
         >
-          Dismiss
+          {t('Dismiss')}
         </Button>
       </Alert>
     </Box>

@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Autocomplete } from '@mui/material';
 import { Box, CircularProgress, TextField, Typography } from '@mui/material';
 import React, { ReactNode, useMemo } from 'react';
@@ -39,9 +40,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   loading = false,
   error = false,
   disabled = false,
-  placeholder = 'Select an option...',
+  placeholder,
   helperText,
 }) => {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder ?? t('Select an option...');
   // Sort options alphabetically by label
   const sortedOptions = useMemo(() => {
     return [...options].sort((a, b) =>
@@ -61,7 +64,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           label={label}
           variant="outlined"
           helperText={helperText}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           error={error}
           InputProps={{
             ...params.InputProps,

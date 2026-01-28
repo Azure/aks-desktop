@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { alpha, Box, Card, CardContent, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import React from 'react';
@@ -45,14 +46,15 @@ const deploymentSources: DeploymentSource[] = [
 ];
 
 export default function SourceStep({ sourceType, onSourceTypeChange }: SourceStepProps) {
+  const { t } = useTranslation();
   const theme = useTheme();
   return (
     <Box>
       <Typography variant="h5" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
-        Select Source
+        {t('Select Source')}
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-        Choose a source for your deployment (container image, repo, etc.).
+        {t('Choose a source for your deployment (container image, repo, etc.).')}
       </Typography>
       <Box sx={{ display: 'flex', gap: 3, mt: 2 }}>
         {deploymentSources.map(source => {
@@ -152,14 +154,14 @@ export default function SourceStep({ sourceType, onSourceTypeChange }: SourceSte
                       mb: 1.5,
                     }}
                   >
-                    {source.displayName}
+                    {t(source.displayName)}
                   </Typography>
                   <Typography
                     variant="body2"
                     color="text.secondary"
                     sx={{ mb: 2.5, textAlign: 'center', lineHeight: 1.6, maxWidth: '90%' }}
                   >
-                    {source.description}
+                    {t(source.description)}
                   </Typography>
                 </Box>
                 <Box
@@ -181,7 +183,7 @@ export default function SourceStep({ sourceType, onSourceTypeChange }: SourceSte
                       fontSize: '0.7rem',
                     }}
                   >
-                    Features
+                    {t('Features')}
                   </Typography>
                   <Box
                     component="ul"
@@ -217,7 +219,7 @@ export default function SourceStep({ sourceType, onSourceTypeChange }: SourceSte
                         }}
                       >
                         <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-                          {feature}
+                          {t(feature)}
                         </Typography>
                       </Box>
                     ))}

@@ -1,5 +1,5 @@
 import { Icon } from '@iconify/react';
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import Namespace from '@kinvolk/headlamp-plugin/lib/lib/k8s/namespace';
 import {
   Button,
@@ -35,6 +35,7 @@ interface AKSProjectDeleteButtonProps {
 }
 
 const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project }) => {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteNamespaces, setDeleteNamespaces] = useState(false);
@@ -176,7 +177,11 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
       history.push('/');
     } catch (error) {
       console.error('Error deleting project:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(
+        t('Error: {{message}}', {
+          message: error instanceof Error ? error.message : t('Unknown error'),
+        })
+      );
     } finally {
       setDeleting(false);
       setOpen(false);
@@ -192,9 +197,9 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
 
   return (
     <>
-      <Tooltip title="Delete project">
+      <Tooltip title={t('Delete project')}>
         <IconButton
-          aria-label="Delete project"
+          aria-label={t('Delete project')}
           onClick={() => setOpen(true)}
           disabled={deleting}
           size="medium"
@@ -211,16 +216,19 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle id="project-delete-dialog-title">Delete Project</DialogTitle>
+        <DialogTitle id="project-delete-dialog-title">{t('Delete Project')}</DialogTitle>
         <DialogContent>
           <DialogContentText id="project-delete-dialog-description" component="div">
             <Typography variant="body1" paragraph>
-              Are you sure you want to delete project "{project.id}"?
+              {t('Are you sure you want to delete project "{{projectId}}"?', {
+                projectId: project.id,
+              })}
             </Typography>
 
             <Typography variant="body2" paragraph>
-              By default, this will remove the Azure managed namespace and project labels from the
-              following namespaces:
+              {t(
+                'By default, this will remove the Azure managed namespace and project labels from the following namespaces:'
+              )}
             </Typography>
 
             <ul>
@@ -242,26 +250,29 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
               }
               label={
                 <Typography variant="body2">
-                  Also delete the namespaces (this will remove all resources within them)
+                  {t('Also delete the namespaces (this will remove all resources within them)')}
                 </Typography>
               }
             />
 
             {deleteNamespaces && (
               <Typography variant="body2" color="error" sx={{ mt: 1, fontWeight: 'bold' }}>
-                Warning: This action cannot be undone. All resources in these namespaces will be
-                permanently deleted.
+                {t(
+                  'Warning: This action cannot be undone. All resources in these namespaces will be permanently deleted.'
+                )}
               </Typography>
             )}
 
             <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              Note: For AKS managed namespaces, Azure ARM management will be removed automatically.
+              {t(
+                'Note: For AKS managed namespaces, Azure ARM management will be removed automatically.'
+              )}
             </Typography>
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)} color="secondary" variant="contained">
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button
             onClick={handleDelete}
@@ -271,10 +282,10 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
             sx={{ minWidth: '200px' }}
           >
             {deleting
-              ? 'Deleting...'
+              ? t('Deleting...')
               : deleteNamespaces
-              ? 'Delete Project & Namespaces'
-              : 'Delete Project'}
+              ? t('Delete Project & Namespaces')
+              : t('Delete Project')}
           </Button>
         </DialogActions>
       </Dialog>

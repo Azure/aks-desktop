@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 // @ts-ignore
 import { useClustersConf } from '@kinvolk/headlamp-plugin/lib/K8s';
 import {
@@ -43,6 +44,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
   onRetrySubscriptions,
   onRetryClusters,
 }) => {
+  const { t } = useTranslation();
   const headlampClusters = useClustersConf();
   const authStatus = useAzureAuth();
 
@@ -95,22 +97,22 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
     const powerState = cluster.powerState?.toLowerCase() || '';
 
     if (provisioningState === 'updating' || provisioningState === 'upgrading') {
-      return 'Cluster is currently updating. Deployment may fail.';
+      return t('Cluster is currently updating. Deployment may fail.');
     }
     if (provisioningState === 'deleting') {
-      return 'Cluster is being deleted. Cannot deploy to this cluster.';
+      return t('Cluster is being deleted. Cannot deploy to this cluster.');
     }
     if (provisioningState === 'creating') {
-      return 'Cluster is still being created. Please wait until creation completes.';
+      return t('Cluster is still being created. Please wait until creation completes.');
     }
     if (provisioningState === 'failed') {
-      return 'Cluster is in a failed state. Please check Azure portal.';
+      return t('Cluster is in a failed state. Please check Azure portal.');
     }
     if (powerState === 'stopped' || powerState === 'stopping') {
-      return 'Cluster is stopped. Please start the cluster before deploying.';
+      return t('Cluster is stopped. Please start the cluster before deploying.');
     }
     if (powerState === 'deallocated' || powerState === 'deallocating') {
-      return 'Cluster is deallocated. Please start the cluster before deploying.';
+      return t('Cluster is deallocated. Please start the cluster before deploying.');
     }
     return '';
   };
@@ -119,14 +121,23 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
   const subscriptionOptions: SearchableSelectOption[] = subscriptions.map(sub => ({
     value: sub.id,
     label: sub.name,
-    subtitle: `Tenant: ${sub.tenantName} - (${sub.tenant}) • Status: ${sub.status}`,
+    subtitle: t('Tenant: {{tenantName}} - ({{tenant}}) • Status: {{status}}', {
+      tenantName: sub.tenantName,
+      tenant: sub.tenant,
+      status: sub.status,
+    }),
   }));
 
   // Convert clusters to SearchableSelectOption format
   const clusterOptions: SearchableSelectOption[] = clusters.map(cluster => ({
     value: cluster.name,
     label: cluster.name,
-    subtitle: `${cluster.location} • ${cluster.version} • ${cluster.nodeCount} nodes • ${cluster.status}`,
+    subtitle: t('{{location}} • {{version}} • {{nodeCount}} nodes • {{status}}', {
+      location: cluster.location,
+      version: cluster.version,
+      nodeCount: cluster.nodeCount,
+      status: cluster.status,
+    }),
   }));
 
   const selectedCluster =
@@ -153,8 +164,10 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
           message={
             <Box>
               <Typography variant="body2">
-                <strong>AKS Preview Extension Required:</strong> The aks-preview extension is
-                required to create managed namespaces. Please install it to continue.
+                <strong>{t('AKS Preview Extension Required:')}</strong>{' '}
+                {t(
+                  'The aks-preview extension is required to create managed namespaces. Please install it to continue.'
+                )}
               </Typography>
               {extensionStatus.error && (
                 <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
@@ -173,17 +186,20 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
               {extensionStatus.installing ? (
                 <Box display="flex" alignItems="center" gap={1}>
                   <CircularProgress size={16} color="inherit" />
-                  Installing...
+                  {t('Installing...')}
                 </Box>
               ) : (
-                'Install Extension'
+                t('Install Extension')
               )}
             </Button>
           }
         />
       )}
       {extensionStatus.showSuccess && (
-        <ValidationAlert type="success" message="✓ AKS Preview Extension installed successfully!" />
+        <ValidationAlert
+          type="success"
+          message={t('✓ AKS Preview Extension installed successfully!')}
+        />
       )}
       {/* ManagedNamespacePreview Feature Check */}
       {featureStatus.registered === false && (
@@ -193,14 +209,16 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Typography variant="h6">Feature Flag Required</Typography>
               <Typography variant="body2">
-                The ManagedNamespacePreview feature must be registered to create managed namespaces.
+                {t(
+                  'The ManagedNamespacePreview feature must be registered to create managed namespaces.'
+                )}
               </Typography>
               {featureStatus.state && (
                 <Typography variant="body2">
-                  Current state: <strong>{featureStatus.state}</strong>
+                  {t('Current state:')} <strong>{featureStatus.state}</strong>
                 </Typography>
               )}
-              <Typography variant="body2">Please register it to continue.</Typography>
+              <Typography variant="body2">{t('Please register it to continue.')}</Typography>
               {featureStatus.error && (
                 <Typography variant="caption" color="error" sx={{ display: 'block' }}>
                   {featureStatus.error}
@@ -217,10 +235,10 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
                 {featureStatus.registering ? (
                   <Box display="flex" alignItems="center" gap={1}>
                     <CircularProgress size={16} color="inherit" />
-                    Registering...
+                    {t('Registering...')}
                   </Box>
                 ) : (
-                  'Register ManagedNamespacePreview Feature'
+                  t('Register ManagedNamespacePreview Feature')
                 )}
               </Button>
             </Box>
@@ -230,14 +248,14 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
       {featureStatus.showSuccess && (
         <ValidationAlert
           type="success"
-          message="✓ ManagedNamespacePreview feature registered successfully!"
+          message={t('✓ ManagedNamespacePreview feature registered successfully!')}
         />
       )}
       <Box sx={{ display: 'flex', gap: 3, flexDirection: 'column' }}>
         {/* Project Name */}
         <FormControl fullWidth variant="outlined">
           <FormField
-            label="Project Name"
+            label={t('Project Name')}
             value={formData.projectName}
             onChange={value => handleInputChange('projectName', value)}
             error={
@@ -246,15 +264,19 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
             }
             helperText={
               namespaceStatus.checking
-                ? 'Checking if another project exists with same name...'
+                ? t('Checking if another project exists with same name...')
                 : namespaceStatus.exists === true
-                ? 'Another project already exists with same name. Please choose a different name.'
+                ? t(
+                    'Another project already exists with same name. Please choose a different name.'
+                  )
                 : validation.fieldErrors?.projectName &&
                   validation.fieldErrors.projectName.length > 0
                 ? validation.fieldErrors.projectName[0]
                 : namespaceStatus.exists === false
-                ? 'Project name is available'
-                : 'Project name must contain only lowercase letters, numbers, and hyphens (no spaces)'
+                ? t('Project name is available')
+                : t(
+                    'Project name must contain only lowercase letters, numbers, and hyphens (no spaces)'
+                  )
             }
             endAdornment={
               <IconButton size="small" sx={{ color: 'primary.main' }}>
@@ -267,28 +289,28 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
         {/* Project Description */}
         <FormControl fullWidth variant="outlined">
           <FormField
-            label="Project Description"
+            label={t('Project Description')}
             value={formData.description}
             onChange={value => handleInputChange('description', value)}
             type="textarea"
             multiline
             rows={3}
-            placeholder="Enter project description..."
+            placeholder={t('Enter project description...')}
           />
         </FormControl>
 
         {/* Subscription */}
         <SearchableSelect
-          label="Subscription"
+          label={t('Subscription')}
           value={formData.subscription}
           onChange={value => handleInputChange('subscription', value)}
           options={subscriptionOptions}
           loading={loading}
           error={!!error}
           disabled={loading}
-          placeholder="Select a subscription..."
-          searchPlaceholder="Search subscriptions..."
-          noResultsText="No subscriptions found"
+          placeholder={t('Select a subscription...')}
+          searchPlaceholder={t('Search subscriptions...')}
+          noResultsText={t('No subscriptions found')}
           showSearch
         />
         {error && (
@@ -298,7 +320,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
               message={error}
               action={
                 <Button color="inherit" size="small" onClick={onRetrySubscriptions}>
-                  Retry
+                  {t('Retry')}
                 </Button>
               }
             />
@@ -307,7 +329,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
 
         {/* Cluster */}
         <SearchableSelect
-          label="Cluster"
+          label={t('Cluster')}
           value={formData.cluster}
           onChange={value => handleClusterChange(value)}
           options={clusterOptions}
@@ -316,23 +338,29 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
           disabled={loadingClusters || !formData.subscription}
           placeholder={
             !formData.subscription
-              ? 'Please select a subscription first'
+              ? t('Please select a subscription first')
               : loadingClusters
-              ? 'Loading clusters...'
-              : 'Select a cluster...'
+              ? t('Loading clusters...')
+              : t('Select a cluster...')
           }
-          searchPlaceholder="Search clusters..."
-          noResultsText="No clusters with Azure Entra ID authentication found for this subscription"
+          searchPlaceholder={t('Search clusters...')}
+          noResultsText={t(
+            'No clusters with Azure Entra ID authentication found for this subscription'
+          )}
           showSearch
-          helperText={`Only clusters with Azure Entra ID authentication are shown and eligible for projects. ${
-            loadingClusters
-              ? ''
-              : clusters.length === 0
-              ? 'No clusters with Azure Entra ID authentication found in this subscription'
-              : `${clusters.length} cluster${
-                  clusters.length !== 1 ? 's' : ''
-                } with Azure Entra ID authentication found`
-          }`}
+          helperText={t(
+            'Only clusters with Azure Entra ID authentication are shown and eligible for projects. {{details}}',
+            {
+              details: loadingClusters
+                ? ''
+                : clusters.length === 0
+                ? t('No clusters with Azure Entra ID authentication found in this subscription')
+                : t('{{count}} cluster{{suffix}} with Azure Entra ID authentication found', {
+                    count: clusters.length,
+                    suffix: clusters.length !== 1 ? 's' : '',
+                  }),
+            }
+          )}
         />
 
         {formData.subscription && selectedCluster && isClusterMissing && (
@@ -357,7 +385,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
                     message={
                       <Box>
                         <Typography variant="body2">
-                          <strong>Cluster Not Ready:</strong> {stateMessage}
+                          <strong>{t('Cluster Not Ready:')}</strong> {stateMessage}
                         </Typography>
                       </Box>
                     }
@@ -372,10 +400,10 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
                         {loadingClusters ? (
                           <Box display="flex" alignItems="center" gap={1}>
                             <CircularProgress size={16} color="inherit" />
-                            Refreshing...
+                            {t('Refreshing...')}
                           </Box>
                         ) : (
-                          'Refresh'
+                          t('Refresh')
                         )}
                       </Button>
                     }
@@ -393,7 +421,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
               message={clusterError}
               action={
                 <Button color="inherit" size="small" onClick={onRetryClusters}>
-                  Retry
+                  {t('Retry')}
                 </Button>
               }
             />
@@ -413,6 +441,7 @@ function RegisterCluster({
   resourceGroup: string;
   subscription: string;
 }) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [success, setSuccess] = useState<string>();
@@ -438,12 +467,14 @@ function RegisterCluster({
       }
 
       console.log('[AKS] Cluster registered successfully:', result.message);
-      setSuccess(`Cluster '${cluster}' successfully merged in kubeconfig`);
+      setSuccess(t("Cluster '{{cluster}}' successfully merged in kubeconfig", { cluster }));
       setLoading(false);
     } catch (err) {
       console.error('Error registering AKS cluster:', err);
       setError(
-        `Failed to register cluster: ${err instanceof Error ? err.message : 'Unknown error'}`
+        t('Failed to register cluster: {{message}}', {
+          message: err instanceof Error ? err.message : t('Unknown error'),
+        })
       );
       setLoading(false);
     }
@@ -455,7 +486,7 @@ function RegisterCluster({
       {!success && (
         <Alert severity="error">
           <AlertTitle>
-            Selected cluster is missing from the kubeconfig. Register it before proceeding.
+            {t('Selected cluster is missing from the kubeconfig. Register it before proceeding.')}
           </AlertTitle>
         </Alert>
       )}
@@ -482,7 +513,7 @@ function RegisterCluster({
           startIcon={loading ? <CircularProgress /> : <Icon icon="mdi:plus" />}
           disabled={loading}
         >
-          {loading ? 'Registering cluster...' : 'Register cluster'}
+          {loading ? t('Registering cluster...') : t('Register cluster')}
         </Button>
       )}
     </Box>

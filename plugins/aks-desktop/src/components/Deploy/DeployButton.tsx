@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Button, Dialog } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
@@ -20,6 +21,7 @@ interface DeployButtonProps {
 }
 
 function DeployButton({ project }: DeployButtonProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const history = useHistory();
@@ -69,7 +71,7 @@ function DeployButton({ project }: DeployButtonProps) {
           fontWeight: 'bold',
         }}
       >
-        Deploy Application
+        {t('Deploy Application')}
       </Button>
       <Dialog
         open={open}

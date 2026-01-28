@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import Deployment from '@kinvolk/headlamp-plugin/lib/lib/k8s/deployment';
 import Pod from '@kinvolk/headlamp-plugin/lib/lib/k8s/pod';
 import {
@@ -110,6 +110,7 @@ function formatMemoryBrief(bytes: number): string {
 }
 
 const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
+  const { t } = useTranslation();
   const [selectedDeployment, setSelectedDeployment] = useState<string>('');
   const [deployments, setDeployments] = useState<DeploymentInfo[]>([]);
   const [summary, setSummary] = useState<MetricSummary>({
@@ -168,7 +169,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
         },
         (error: any) => {
           console.error('MetricsTab: Error fetching deployments:', error);
-          setError('Failed to fetch deployments');
+          setError(t('Failed to fetch deployments'));
           setLoading(false);
         },
         {
@@ -180,7 +181,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
       return cancel;
     } catch (err) {
       console.error('MetricsTab: Error in fetchDeployments:', err);
-      setError('Failed to fetch deployments');
+      setError(t('Failed to fetch deployments'));
       setLoading(false);
     }
   }, [namespace, cluster, selectedDeployment]);
@@ -555,7 +556,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
       }
     } catch (error) {
       console.error('MetricsTab: Failed to fetch metrics:', error);
-      setError('Failed to fetch metrics from Prometheus');
+      setError(t('Failed to fetch metrics from Prometheus'));
     } finally {
       setMetricsLoading(false);
     }
@@ -609,20 +610,20 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
       {/* Header with Deployment Selector */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h5" sx={{ mb: 2 }}>
-          Application Metrics
+          {t('Application Metrics')}
         </Typography>
         <FormControl sx={{ minWidth: 300 }}>
-          <InputLabel shrink>Select Deployment</InputLabel>
+          <InputLabel shrink>{t('Select Deployment')}</InputLabel>
           <Select
             value={selectedDeployment}
             onChange={handleDeploymentChange}
-            label="Select Deployment"
+            label={t('Select Deployment')}
             disabled={deployments.length === 0}
             displayEmpty
             notched
           >
             <MenuItem value="" disabled>
-              {deployments.length === 0 ? 'No deployments available' : 'Select a deployment'}
+              {deployments.length === 0 ? t('No deployments available') : t('Select a deployment')}
             </MenuItem>
             {deployments.map(dep => (
               <MenuItem key={dep.name} value={dep.name}>
@@ -641,13 +642,13 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
               style={{ marginBottom: 16, color: '#ccc', fontSize: 64 }}
             />
             <Typography variant="h6" color="textSecondary" gutterBottom>
-              No Deployments Found
+              {t('No Deployments Found')}
             </Typography>
             <Typography color="textSecondary" variant="body2">
-              There are no deployments in this project namespace yet.
+              {t('There are no deployments in this project namespace yet.')}
             </Typography>
             <Typography color="textSecondary" variant="body2">
-              Deploy an application to start viewing metrics.
+              {t('Deploy an application to start viewing metrics.')}
             </Typography>
           </Box>
         </Card>
@@ -659,7 +660,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
               style={{ marginBottom: 16, color: '#ccc', fontSize: 64 }}
             />
             <Typography color="textSecondary" variant="body1">
-              Please select a deployment to view metrics
+              {t('Please select a deployment to view metrics')}
             </Typography>
           </Box>
         </Card>
@@ -668,12 +669,12 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
           {/* Summary Cards - Compact Single Row */}
           <Card sx={{ p: 2, mb: 3 }}>
             <Typography variant="h6" sx={{ mb: 1.5 }}>
-              Application Metrics
+              {t('Application Metrics')}
             </Typography>
             <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
               <Box sx={{ minWidth: '100px' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  Project Status
+                  {t('Project Status')}
                 </Typography>
                 <Typography
                   variant="body1"
@@ -687,7 +688,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
               </Box>
               <Box sx={{ minWidth: '80px' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  Total Pods
+                  {t('Total Pods')}
                 </Typography>
                 <Typography variant="body1" fontWeight="bold">
                   {summary.totalPods}
@@ -695,7 +696,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
               </Box>
               <Box sx={{ minWidth: '100px' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  Request Rate
+                  {t('Request Rate')}
                 </Typography>
                 <Typography variant="body1" fontWeight="bold" sx={{ color: 'success.main' }}>
                   {summary.requestRate}
@@ -703,7 +704,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
               </Box>
               <Box sx={{ minWidth: '80px' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  Error Rate
+                  {t('Error Rate')}
                 </Typography>
                 <Typography variant="body1" fontWeight="bold" sx={{ color: 'error.main' }}>
                   {summary.errorRate}
@@ -711,7 +712,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
               </Box>
               <Box sx={{ minWidth: '100px' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  CPU Usage
+                  {t('CPU Usage')}
                 </Typography>
                 <Typography variant="body1" fontWeight="bold">
                   {summary.cpuUsage}
@@ -719,7 +720,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
               </Box>
               <Box sx={{ minWidth: '100px' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  Memory Usage
+                  {t('Memory Usage')}
                 </Typography>
                 <Typography variant="body1" fontWeight="bold">
                   {summary.memoryUsage}
@@ -730,7 +731,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
 
           {/* Application Health Section */}
           <Typography variant="h6" sx={{ mb: 2 }}>
-            Application Health
+            {t('Application Health')}
           </Typography>
 
           {metricsLoading && cpuData.length === 0 ? (
@@ -739,7 +740,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                 <CircularProgress size={20} />
                 <Typography variant="body2" color="text.secondary">
-                  Loading metrics...
+                  {t('Loading metrics...')}
                 </Typography>
               </Box>
 
@@ -759,7 +760,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
                 </Grid>
               </Grid>
               <Typography variant="h6" sx={{ mb: 2, mt: 3 }}>
-                Resource Usage
+                {t('Resource Usage')}
               </Typography>
               <Grid container spacing={2} sx={{ mb: 2 }}>
                 <Grid item xs={12} md={6}>
@@ -783,7 +784,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
                 <Grid item xs={12} md={6}>
                   <Card sx={{ p: 2 }}>
                     <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                      Request & error rate
+                      {t('Request & error rate')}
                     </Typography>
                     {requestErrorData.length > 0 ? (
                       <ResponsiveContainer width="100%" height={200}>
@@ -804,20 +805,20 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
                             type="monotone"
                             dataKey="requestRate"
                             stroke="#4caf50"
-                            name="Request Rate"
+                            name={t('Request Rate')}
                             dot={false}
                           />
                           <Line
                             type="monotone"
                             dataKey="errorRate"
                             stroke="#f44336"
-                            name="Error Rate"
+                            name={t('Error Rate')}
                             dot={false}
                           />
                         </LineChart>
                       </ResponsiveContainer>
                     ) : (
-                      <Typography color="text.secondary">No data available</Typography>
+                      <Typography color="text.secondary">{t('No data available')}</Typography>
                     )}
                   </Card>
                 </Grid>
@@ -825,7 +826,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
                 <Grid item xs={12} md={6}>
                   <Card sx={{ p: 2 }}>
                     <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                      Response Time
+                      {t('Response Time')}
                     </Typography>
                     {responseTimeData.length > 0 ? (
                       <ResponsiveContainer width="100%" height={200}>
@@ -841,14 +842,14 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
                             type="monotone"
                             dataKey="responseTime"
                             stroke="#9c27b0"
-                            name="Avg Response Time"
+                            name={t('Avg Response Time')}
                             dot={false}
                           />
                         </LineChart>
                       </ResponsiveContainer>
                     ) : (
                       <Typography color="text.secondary">
-                        No response time data available
+                        {t('No response time data available')}
                       </Typography>
                     )}
                   </Card>
@@ -857,14 +858,14 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
 
               {/* Resource Usage Section */}
               <Typography variant="h6" sx={{ mb: 2, mt: 3 }}>
-                Resource Usage
+                {t('Resource Usage')}
               </Typography>
 
               <Grid container spacing={2} sx={{ mb: 2 }}>
                 <Grid item xs={12} md={6}>
                   <Card sx={{ p: 2 }}>
                     <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                      CPU Usage
+                      {t('CPU Usage')}
                     </Typography>
                     {cpuData.length > 0 ? (
                       <ResponsiveContainer width="100%" height={200}>
@@ -885,13 +886,13 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
                             type="monotone"
                             dataKey="value"
                             stroke="#2196f3"
-                            name="Absolute usage"
+                            name={t('Absolute usage')}
                             dot={false}
                           />
                         </LineChart>
                       </ResponsiveContainer>
                     ) : (
-                      <Typography color="text.secondary">No data available</Typography>
+                      <Typography color="text.secondary">{t('No data available')}</Typography>
                     )}
                   </Card>
                 </Grid>
@@ -899,7 +900,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
                 <Grid item xs={12} md={6}>
                   <Card sx={{ p: 2 }}>
                     <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                      Memory utilization
+                      {t('Memory utilization')}
                     </Typography>
                     {memoryData.length > 0 ? (
                       <ResponsiveContainer width="100%" height={200}>
@@ -920,13 +921,13 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
                             type="monotone"
                             dataKey="value"
                             stroke="#ff9800"
-                            name="Absolute usage"
+                            name={t('Absolute usage')}
                             dot={false}
                           />
                         </LineChart>
                       </ResponsiveContainer>
                     ) : (
-                      <Typography color="text.secondary">No data available</Typography>
+                      <Typography color="text.secondary">{t('No data available')}</Typography>
                     )}
                   </Card>
                 </Grid>
@@ -937,7 +938,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
                 <Grid item xs={12} md={6}>
                   <Card sx={{ p: 2 }}>
                     <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                      Network I/O
+                      {t('Network I/O')}
                     </Typography>
                     {networkData.length > 0 ? (
                       <ResponsiveContainer width="100%" height={200}>
@@ -958,20 +959,20 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
                             type="monotone"
                             dataKey="networkIn"
                             stroke="#9c27b0"
-                            name="Network In"
+                            name={t('Network In')}
                             dot={false}
                           />
                           <Line
                             type="monotone"
                             dataKey="networkOut"
                             stroke="#e91e63"
-                            name="Network Out"
+                            name={t('Network Out')}
                             dot={false}
                           />
                         </LineChart>
                       </ResponsiveContainer>
                     ) : (
-                      <Typography color="text.secondary">No data available</Typography>
+                      <Typography color="text.secondary">{t('No data available')}</Typography>
                     )}
                   </Card>
                 </Grid>
@@ -981,17 +982,17 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
 
           {/* Pod Details Table */}
           <Typography variant="h6" sx={{ mb: 2, mt: 3 }}>
-            Pod Details - {selectedDeployment}
+            {t('Pod Details')} - {selectedDeployment}
           </Typography>
           <Card>
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>Pod Name</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>CPU</TableCell>
-                  <TableCell>Memory</TableCell>
-                  <TableCell>Restarts</TableCell>
+                  <TableCell>{t('Pod Name')}</TableCell>
+                  <TableCell>{t('Status')}</TableCell>
+                  <TableCell>{t('CPU')}</TableCell>
+                  <TableCell>{t('Memory')}</TableCell>
+                  <TableCell>{t('Restarts')}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -1028,7 +1029,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
                 ) : (
                   <TableRow>
                     <TableCell colSpan={5} align="center">
-                      No pods found for deployment "{selectedDeployment}"
+                      {t('No pods found for deployment "{{name}}"', { name: selectedDeployment })}
                     </TableCell>
                   </TableRow>
                 )}

@@ -6,6 +6,7 @@
     "start": "headlamp-plugin start",
     "build": "headlamp-plugin build",
     "format": "headlamp-plugin format",
+    "i18n": "headlamp-plugin i18n",
     "lint": "headlamp-plugin lint",
     "lint-fix": "headlamp-plugin lint --fix",
     "package": "headlamp-plugin package",
@@ -67,5 +68,28 @@
     "@octokit/rest": "^22.0.0",
     "recharts": "^3.1.2",
     "yaml": "^2.8.1"
+  },
+  "headlamp": {
+    "i18n": [
+      "en",
+      "de",
+      "es",
+      "fr",
+      "it",
+      "ja",
+      "id",
+      "ko",
+      "pt-BR",
+      "ru",
+      "zh-Hans",
+      "zh-Hant",
+      "cs",
+      "nl",
+      "hu",
+      "pt-PT",
+      "pl",
+      "sv",
+      "tr"
+    ]
   }
 }
