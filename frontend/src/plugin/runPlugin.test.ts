@@ -16,7 +16,13 @@
 
 // Portions (c) Microsoft Corp.
 
-import { getInfoForRunningPlugins, identifyPackages, runPlugin, runPluginProps } from './runPlugin';
+import {
+  adjustSourceMapOffsetForFunction,
+  getInfoForRunningPlugins,
+  identifyPackages,
+  runPlugin,
+  runPluginProps,
+} from './runPlugin';
 
 function runPluginInner(info: runPluginProps) {
   const source = info[0];
@@ -422,5 +428,39 @@ describe('identifyPackages', () => {
   test('should handle windows static paths for aks-desktop correctly', () => {
     const result = identifyPackages('static-plugins\\aks-desktop', 'aks-desktop', false);
     expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': true });
+  });
+});
+
+describe('adjustSourceMapOffsetForFunction', () => {
+  test('should prepend semicolons to source map mappings when source map is present', () => {
+    const originalMappings = 'AAAA,CAAC';
+    const sourceMap = {
+      version: 3,
+      sources: ['test.ts'],
+      mappings: originalMappings,
+    };
+    const base64SourceMap = btoa(JSON.stringify(sourceMap));
+    const jsSource = [
+      `console.log('hello');`,
+      `//# sourceMappingURL=data:application/json;charset=utf-8;base64,${base64SourceMap}`,
+    ].join('\n');
+
+    const result = adjustSourceMapOffsetForFunction(jsSource);
+
+    const resultMatch = result.match(
+      /\/\/# sourceMappingURL=data:application\/json;charset=utf-8;base64,([A-Za-z0-9+/=]+)/
+    );
+    expect(resultMatch).not.toBeNull();
+
+    const resultSourceMap = JSON.parse(atob(resultMatch![1]));
+    expect(resultSourceMap.mappings).toBe(';;' + originalMappings);
+  });
+
+  test('should return source unchanged when no source map is present', () => {
+    const jsSource = `console.log('hello');`;
+
+    const result = adjustSourceMapOffsetForFunction(jsSource);
+
+    expect(result).toBe(jsSource);
   });
 });
