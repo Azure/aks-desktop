@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { Box, Typography } from '@mui/material';
+import { Box, CircularProgress, Typography } from '@mui/material';
 import React from 'react';
 import {
   CartesianGrid,
@@ -17,12 +17,41 @@ import type { ChartDataPoint } from '../hooks/useChartData';
 
 interface ScalingChartProps {
   chartData: ChartDataPoint[];
+  loading?: boolean;
+  error?: string | null;
 }
 
 /**
  * Displays the scaling metrics chart (replicas and CPU over time)
  */
-export const ScalingChart: React.FC<ScalingChartProps> = ({ chartData }) => {
+export const ScalingChart: React.FC<ScalingChartProps> = ({ chartData, loading, error }) => {
+  if (loading) {
+    return (
+      <Box
+        display="flex"
+        flexDirection="column"
+        alignItems="center"
+        justifyContent="center"
+        height="100%"
+      >
+        <CircularProgress size={32} sx={{ mb: 1 }} />
+        <Typography variant="body2" color="text.secondary">
+          Loading scaling metrics from Prometheus...
+        </Typography>
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box display="flex" alignItems="center" justifyContent="center" height="100%">
+        <Typography color="error" variant="body2">
+          {error}
+        </Typography>
+      </Box>
+    );
+  }
+
   if (chartData.length === 0) {
     return (
       <Box display="flex" alignItems="center" justifyContent="center" height="100%">
