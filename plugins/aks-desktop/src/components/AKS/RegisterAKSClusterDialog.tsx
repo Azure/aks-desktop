@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Alert,
   Autocomplete,
@@ -46,6 +47,7 @@ export default function RegisterAKSClusterDialog({
   onClusterRegistered,
 }: RegisterAKSClusterDialogProps) {
   const history = useHistory();
+  const { t } = useTranslation();
   const authStatus = useAzureAuth();
   const [loading, setLoading] = useState(false);
   const [loadingSubscriptions, setLoadingSubscriptions] = useState(false);
@@ -92,7 +94,7 @@ export default function RegisterAKSClusterDialog({
       }
     } catch (err) {
       console.error('Error loading subscriptions:', err);
-      setError('Failed to load subscriptions');
+      setError(t('Failed to load subscriptions'));
     } finally {
       setLoadingSubscriptions(false);
     }
@@ -115,7 +117,7 @@ export default function RegisterAKSClusterDialog({
       setClusters(result.clusters || []);
     } catch (err) {
       console.error('Error loading AKS clusters:', err);
-      setError('Failed to load AKS clusters');
+      setError(t('Failed to load AKS clusters'));
     } finally {
       setLoadingClusters(false);
     }
@@ -157,7 +159,11 @@ export default function RegisterAKSClusterDialog({
       setLoading(false);
 
       // Show success message with cluster name
-      setSuccess(`Cluster '${selectedCluster.name}' successfully merged in kubeconfig`);
+      setSuccess(
+        t("Cluster '{{cluster}}' successfully merged in kubeconfig", {
+          cluster: selectedCluster.name,
+        })
+      );
 
       onClusterRegistered?.();
 
@@ -168,7 +174,9 @@ export default function RegisterAKSClusterDialog({
     } catch (err) {
       console.error('Error registering AKS cluster:', err);
       setError(
-        `Failed to register cluster: ${err instanceof Error ? err.message : 'Unknown error'}`
+        t('Failed to register cluster: {{message}}', {
+          message: err instanceof Error ? err.message : t('Unknown error'),
+        })
       );
       setLoading(false);
     }
@@ -185,7 +193,7 @@ export default function RegisterAKSClusterDialog({
       <DialogTitle>
         <Box display="flex" alignItems="center" gap={1}>
           <Icon icon="logos:microsoft-azure" style={{ fontSize: '24px' }} />
-          <Typography variant="h6">Register AKS Cluster</Typography>
+          <Typography variant="h6">{t('Register AKS Cluster')}</Typography>
         </Box>
       </DialogTitle>
 
@@ -205,7 +213,7 @@ export default function RegisterAKSClusterDialog({
 
           {!authStatus.isLoggedIn && (
             <Alert severity="warning">
-              You need to be logged in to Azure to register AKS clusters.
+              {t('You need to be logged in to Azure to register AKS clusters.')}
             </Alert>
           )}
 
@@ -225,8 +233,8 @@ export default function RegisterAKSClusterDialog({
                 renderInput={params => (
                   <TextField
                     {...params}
-                    label="Subscription"
-                    placeholder="Select an Azure subscription"
+                    label={t('Subscription')}
+                    placeholder={t('Select an Azure subscription')}
                     InputProps={{
                       ...params.InputProps,
                       endAdornment: (
@@ -258,7 +266,7 @@ export default function RegisterAKSClusterDialog({
                 <Box display="flex" alignItems="center" gap={1}>
                   <CircularProgress size={20} />
                   <Typography variant="body2" color="textSecondary">
-                    Loading subscriptions...
+                    {t('Loading subscriptions...')}
                   </Typography>
                 </Box>
               )}
@@ -267,13 +275,13 @@ export default function RegisterAKSClusterDialog({
                 <Box display="flex" alignItems="center" gap={1}>
                   <CircularProgress size={20} />
                   <Typography variant="body2" color="textSecondary">
-                    Loading AKS clusters...
+                    {t('Loading AKS clusters...')}
                   </Typography>
                 </Box>
               )}
 
               {!loadingClusters && selectedSubscription && clusters.length === 0 && (
-                <Alert severity="info">No AKS clusters found in this subscription.</Alert>
+                <Alert severity="info">{t('No AKS clusters found in this subscription.')}</Alert>
               )}
 
               {!loadingClusters && selectedSubscription && clusters.length > 0 && (
@@ -287,8 +295,8 @@ export default function RegisterAKSClusterDialog({
                   renderInput={params => (
                     <TextField
                       {...params}
-                      label="AKS Cluster"
-                      placeholder="Select an AKS cluster"
+                      label={t('AKS Cluster')}
+                      placeholder={t('Select an AKS cluster')}
                     />
                   )}
                   renderOption={(props, option) => (
@@ -308,19 +316,19 @@ export default function RegisterAKSClusterDialog({
               {selectedCluster && !success && (
                 <Box p={2} bgcolor="action.hover" borderRadius={1}>
                   <Typography variant="subtitle2" gutterBottom>
-                    Selected Cluster Details
+                    {t('Selected Cluster Details')}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Name:</strong> {selectedCluster.name}
+                    <strong>{t('Name:')}</strong> {selectedCluster.name}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Resource Group:</strong> {selectedCluster.resourceGroup}
+                    <strong>{t('Resource Group:')}</strong> {selectedCluster.resourceGroup}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Location:</strong> {selectedCluster.location}
+                    <strong>{t('Location:')}</strong> {selectedCluster.location}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Kubernetes Version:</strong> {selectedCluster.kubernetesVersion}
+                    <strong>{t('Kubernetes Version:')}</strong> {selectedCluster.kubernetesVersion}
                   </Typography>
                 </Box>
               )}
@@ -331,7 +339,7 @@ export default function RegisterAKSClusterDialog({
 
       <DialogActions>
         <Button onClick={handleClose} disabled={loading}>
-          Cancel
+          {t('Cancel')}
         </Button>
         {!success && (
           <Button
@@ -341,7 +349,7 @@ export default function RegisterAKSClusterDialog({
             disabled={!selectedCluster || loading || !authStatus.isLoggedIn}
             startIcon={loading ? <CircularProgress size={20} /> : <Icon icon="mdi:cloud-check" />}
           >
-            {loading ? 'Registering...' : 'Register Cluster'}
+            {loading ? t('Registering...') : t('Register Cluster')}
           </Button>
         )}
       </DialogActions>

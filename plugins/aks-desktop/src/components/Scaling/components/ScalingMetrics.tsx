@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Box, Grid, Typography } from '@mui/material';
 import React from 'react';
 import type { DeploymentInfo } from '../hooks/useDeployments';
@@ -20,21 +21,23 @@ export const ScalingMetrics: React.FC<ScalingMetricsProps> = ({
   deployments,
   hpaInfo,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <Box sx={{ mb: 2 }}>
       <Grid container spacing={2}>
         <Grid item xs={3}>
           <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
-            Scaling Mode
+            {t('Scaling Mode')}
           </Typography>
           <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1rem' }}>
             {/* Show HPA if autoscaler is configured, otherwise Manual */}
-            {hpaInfo ? 'HPA' : 'Manual'}
+            {hpaInfo ? t('HPA') : t('Manual')}
           </Typography>
         </Grid>
         <Grid item xs={3}>
           <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
-            Replica Count
+            {t('Replica Count')}
           </Typography>
           <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1rem' }}>
             {/* Use HPA current replicas if available, otherwise fall back to deployment ready replicas */}
@@ -45,7 +48,7 @@ export const ScalingMetrics: React.FC<ScalingMetricsProps> = ({
         </Grid>
         <Grid item xs={3}>
           <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
-            Replica Bounds
+            {t('Replica Bounds')}
           </Typography>
           <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1rem' }}>
             {/* Only show bounds if HPA is configured */}
@@ -56,7 +59,7 @@ export const ScalingMetrics: React.FC<ScalingMetricsProps> = ({
         </Grid>
         <Grid item xs={3}>
           <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
-            CPU Usage
+            {t('CPU Usage')}
           </Typography>
           <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1rem' }}>
             {hpaInfo?.currentCPUUtilization !== null && hpaInfo?.currentCPUUtilization !== undefined

@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 // @ts-ignore todo: LogsViewer is not importing
 import { LogsViewer } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { type KubeObject } from '@kinvolk/headlamp-plugin/lib/lib/k8s/cluster';
@@ -13,6 +14,7 @@ interface LogsTabProps {
 }
 
 const LogsTab = ({ projectResources }: LogsTabProps) => {
+  const { t } = useTranslation();
   const deployments = useMemo(
     () => projectResources.filter(it => it.kind === 'Deployment'),
     [projectResources]
@@ -43,13 +45,13 @@ const LogsTab = ({ projectResources }: LogsTabProps) => {
             style={{ marginBottom: 16, fontSize: 64, color: 'currentColor' }}
           />
           <Typography variant="h6" color="textSecondary" gutterBottom>
-            No Deployments Found
+            {t('No Deployments Found')}
           </Typography>
           <Typography color="textSecondary" variant="body2">
-            There are no deployments in this project namespace yet.
+            {t('There are no deployments in this project namespace yet.')}
           </Typography>
           <Typography color="textSecondary" variant="body2">
-            Deploy an application to view logs.
+            {t('Deploy an application to view logs.')}
           </Typography>
         </Box>
       </Card>
@@ -65,7 +67,7 @@ const LogsTab = ({ projectResources }: LogsTabProps) => {
             variant="outlined"
             onChange={e => setDeploymentId(e.target.value)}
             value={deploymentId}
-            label={'Deployment'}
+            label={t('Deployment')}
           >
             {deployments.map(d => (
               <MenuItem key={d.jsonData.metadata.uid} value={d.jsonData.metadata.uid}>

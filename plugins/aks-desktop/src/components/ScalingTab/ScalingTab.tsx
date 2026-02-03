@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { clusterRequest } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
 import {
   Box,
@@ -75,6 +75,7 @@ interface ChartDataPoint {
 }
 
 const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
+  const { t } = useTranslation();
   const [selectedDeployment, setSelectedDeployment] = useState<string>('');
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [hpaInfo, setHpaInfo] = useState<HPAInfo | null>(null);
@@ -132,7 +133,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
         },
         (error: any) => {
           console.error('Error fetching deployments:', error);
-          setError('Failed to fetch deployments');
+          setError(t('Failed to fetch deployments'));
           setDeployments([]);
           setLoading(false);
         },
@@ -145,7 +146,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
       return cancel;
     } catch (err) {
       console.error('Error in fetchDeployments:', err);
-      setError('Failed to fetch deployments');
+      setError(t('Failed to fetch deployments'));
       setLoading(false);
     }
   }, [namespace, cluster, selectedDeployment]);
@@ -324,7 +325,9 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
     try {
       const currentDeployment = deployments.find(d => d.name === selectedDeployment);
       if (!currentDeployment) {
-        setError(`Deployment "${selectedDeployment}" not found in deployments list`);
+        setError(
+          t('Deployment "{{name}}" not found in deployments list', { name: selectedDeployment })
+        );
         setSaving(false);
         return;
       }
@@ -377,9 +380,9 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
     } catch (error) {
       console.error('Error saving scaling configuration:', error);
       setError(
-        `Failed to save scaling configuration: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
+        t('Failed to save scaling configuration: {{message}}', {
+          message: error instanceof Error ? error.message : t('Unknown error'),
+        })
       );
     } finally {
       setSaving(false);
@@ -417,22 +420,22 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
     <Box sx={{ p: 3 }}>
       {/* Header */}
       <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h5">Scaling</Typography>
+        <Typography variant="h5">{t('Scaling')}</Typography>
         <FormControl sx={{ minWidth: 300 }}>
-          <InputLabel>Select Deployment</InputLabel>
+          <InputLabel>{t('Select Deployment')}</InputLabel>
           <Select
             value={selectedDeployment || ''}
             onChange={handleDeploymentChange}
-            label="Select Deployment"
+            label={t('Select Deployment')}
             disabled={loading || deployments.length === 0}
           >
             {loading ? (
               <MenuItem disabled>
                 <CircularProgress size={16} style={{ marginRight: 8 }} />
-                Loading deployments...
+                {t('Loading deployments...')}
               </MenuItem>
             ) : deployments.length === 0 ? (
-              <MenuItem disabled>No deployments found</MenuItem>
+              <MenuItem disabled>{t('No deployments found')}</MenuItem>
             ) : (
               deployments.map(deployment => (
                 <MenuItem key={deployment.name} value={deployment.name}>
@@ -462,7 +465,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
         >
           <Icon icon="mdi:chart-line" style={{ marginBottom: 16, color: '#ccc', fontSize: 64 }} />
           <Typography color="textSecondary" variant="h6">
-            Select a deployment to view scaling metrics
+            {t('Select a deployment to view scaling metrics')}
           </Typography>
         </Box>
       ) : (
@@ -477,20 +480,20 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
                 mb: 1.5,
               }}
             >
-              <Typography variant="h6">Scaling Overview</Typography>
+              <Typography variant="h6">{t('Scaling Overview')}</Typography>
               <Button
                 variant="contained"
                 size="small"
                 startIcon={<Icon icon="mdi:pencil" />}
                 onClick={handleEditClick}
               >
-                Edit Configuration
+                {t('Edit Configuration')}
               </Button>
             </Box>
             <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
               <Box sx={{ minWidth: '100px' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  Scaling Mode
+                  {t('Scaling Mode')}
                 </Typography>
                 <Box display="flex" alignItems="center" gap={0.5}>
                   <Icon
@@ -498,14 +501,14 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
                     style={{ fontSize: 18, color: hpaInfo ? '#66BB6A' : '#42A5F5' }}
                   />
                   <Typography variant="body1" fontWeight="bold">
-                    {hpaInfo ? 'HPA' : 'Manual'}
+                    {hpaInfo ? t('HPA') : t('Manual')}
                   </Typography>
                 </Box>
               </Box>
 
               <Box sx={{ minWidth: '100px' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  Current Replicas
+                  {t('Current Replicas')}
                 </Typography>
                 <Typography variant="body1" fontWeight="bold">
                   {hpaInfo?.currentReplicas ?? currentDeployment?.readyReplicas ?? 'N/A'}
@@ -514,7 +517,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
 
               <Box sx={{ minWidth: '120px' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  {hpaInfo ? 'Desired Replicas' : 'Configured Replicas'}
+                  {hpaInfo ? t('Desired Replicas') : t('Configured Replicas')}
                 </Typography>
                 <Typography variant="body1" fontWeight="bold">
                   {hpaInfo?.desiredReplicas ?? currentDeployment?.replicas ?? 'N/A'}
@@ -523,7 +526,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
 
               <Box sx={{ minWidth: '120px' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  {hpaInfo ? 'Replica Bounds' : 'Available Replicas'}
+                  {hpaInfo ? t('Replica Bounds') : t('Available Replicas')}
                 </Typography>
                 <Typography variant="body1" fontWeight="bold">
                   {hpaInfo
@@ -536,7 +539,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
 
               <Box sx={{ minWidth: '120px' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  {hpaInfo ? 'CPU Usage / Target' : 'CPU Usage'}
+                  {hpaInfo ? t('CPU Usage / Target') : t('CPU Usage')}
                 </Typography>
                 <Typography variant="body1" fontWeight="bold">
                   {hpaInfo
@@ -555,7 +558,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
           {/* Scaling History Chart */}
           <Card sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
-              Scaling History (Last 2 Hours)
+              {t('Scaling History (Last 2 Hours)')}
             </Typography>
             <Box sx={{ height: 500, width: '100%', mt: 2 }}>
               {chartDataLoading ? (
@@ -568,7 +571,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
                 >
                   <CircularProgress size={48} sx={{ mb: 2 }} />
                   <Typography variant="body2" color="text.secondary">
-                    Loading scaling metrics from Prometheus...
+                    {t('Loading scaling metrics from Prometheus...')}
                   </Typography>
                 </Box>
               ) : chartData.length > 0 ? (
@@ -629,7 +632,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
               ) : (
                 <Box display="flex" alignItems="center" justifyContent="center" height="100%">
                   <Typography color="textSecondary" variant="body1">
-                    No scaling data available
+                    {t('No scaling data available')}
                   </Typography>
                 </Box>
               )}
@@ -646,14 +649,14 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
         fullWidth
       >
         <DialogTitle>
-          {hpaInfo ? 'Edit HPA Configuration' : 'Edit Manual Scaling Configuration'}
+          {hpaInfo ? t('Edit HPA Configuration') : t('Edit Manual Scaling Configuration')}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
             {hpaInfo ? (
               <>
                 <TextField
-                  label="Minimum Replicas"
+                  label={t('Minimum Replicas')}
                   type="number"
                   fullWidth
                   value={editValues.minReplicas}
@@ -664,7 +667,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
                   inputProps={{ min: 1 }}
                 />
                 <TextField
-                  label="Maximum Replicas"
+                  label={t('Maximum Replicas')}
                   type="number"
                   fullWidth
                   value={editValues.maxReplicas}
@@ -675,7 +678,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
                   inputProps={{ min: editValues.minReplicas }}
                 />
                 <TextField
-                  label="Target CPU Utilization (%)"
+                  label={t('Target CPU Utilization (%)')}
                   type="number"
                   fullWidth
                   value={editValues.targetCPU}
@@ -688,7 +691,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
             ) : (
               <>
                 <TextField
-                  label="Number of Replicas"
+                  label={t('Number of Replicas')}
                   type="number"
                   fullWidth
                   value={editValues.replicas}
@@ -696,7 +699,7 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
                     setEditValues({ ...editValues, replicas: parseInt(e.target.value) })
                   }
                   inputProps={{ min: 0 }}
-                  helperText="Set the desired number of pod replicas for this deployment"
+                  helperText={t('Set the desired number of pod replicas for this deployment')}
                 />
               </>
             )}
@@ -704,10 +707,10 @@ const ScalingTab: React.FC<ScalingTabProps> = ({ project }) => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEditDialogOpen(false)} disabled={saving}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button onClick={handleSave} variant="contained" disabled={saving}>
-            {saving ? <CircularProgress size={20} /> : 'Save'}
+            {saving ? <CircularProgress size={20} /> : t('Save')}
           </Button>
         </DialogActions>
       </Dialog>
