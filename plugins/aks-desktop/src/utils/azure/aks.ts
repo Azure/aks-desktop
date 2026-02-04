@@ -85,17 +85,24 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
 /**
  * Register an AKS cluster using the Electron IPC API.
  * This calls the native registration logic in the Electron backend.
+ *
+ * @param managedNamespace - Optional managed namespace name to use for scoped credentials
  */
 export async function registerAKSCluster(
   subscriptionId: string,
   resourceGroup: string,
-  clusterName: string
+  clusterName: string,
+  managedNamespace?: string
 ): Promise<{
   success: boolean;
   message: string;
 }> {
   try {
-    console.log('[AKS] Registering cluster:', clusterName);
+    console.log(
+      '[AKS] Registering cluster:',
+      clusterName,
+      managedNamespace ? `with managed namespace: ${managedNamespace}` : ''
+    );
 
     // Call the Electron IPC handler
     const desktopApi = (window as any).desktopApi;
@@ -108,20 +115,12 @@ export async function registerAKSCluster(
       };
     }
 
-    // Get cluster info
-    const clusterInfo = await getAKSClusterDetails(subscriptionId, resourceGroup, clusterName);
-    if (!clusterInfo.success) {
-      return {
-        success: false,
-        message: clusterInfo.message,
-      };
-    }
-
     const result = await desktopApi.registerAKSCluster(
       subscriptionId,
       resourceGroup,
       clusterName,
-      clusterInfo.cluster?.isAzureRBACEnabled
+      false, // isAzureRBACEnabled
+      managedNamespace
     );
 
     console.log('[AKS] Registration result:', result);
