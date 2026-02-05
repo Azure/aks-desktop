@@ -35,10 +35,8 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
   clusters,
   loadingClusters,
   clusterError,
-  extensionStatus,
   featureStatus,
   namespaceStatus,
-  onInstallExtension,
   onRegisterFeature,
   onRetrySubscriptions,
   onRetryClusters,
@@ -145,45 +143,6 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
           message={error}
           onClose={() => {}} // Will be handled by parent
         />
-      )}
-      {/* AKS Preview Extension Check */}
-      {extensionStatus.installed === false && (
-        <ValidationAlert
-          type="warning"
-          message={
-            <Box>
-              <Typography variant="body2">
-                <strong>AKS Preview Extension Required:</strong> The aks-preview extension is
-                required to create managed namespaces. Please install it to continue.
-              </Typography>
-              {extensionStatus.error && (
-                <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
-                  {extensionStatus.error}
-                </Typography>
-              )}
-            </Box>
-          }
-          action={
-            <Button
-              color="inherit"
-              size="small"
-              onClick={onInstallExtension}
-              disabled={extensionStatus.installing}
-            >
-              {extensionStatus.installing ? (
-                <Box display="flex" alignItems="center" gap={1}>
-                  <CircularProgress size={16} color="inherit" />
-                  Installing...
-                </Box>
-              ) : (
-                'Install Extension'
-              )}
-            </Button>
-          }
-        />
-      )}
-      {extensionStatus.showSuccess && (
-        <ValidationAlert type="success" message="✓ AKS Preview Extension installed successfully!" />
       )}
       {/* ManagedNamespacePreview Feature Check */}
       {featureStatus.registered === false && (

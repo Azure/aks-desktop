@@ -16,7 +16,7 @@ import {
 } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
-import { deleteManagedNamespace } from '../../utils/azure/az-cli';
+import { deleteManagedNamespace } from '../../utils/azure/aks';
 
 interface ProjectDefinition {
   id: string;
@@ -116,7 +116,7 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
           });
 
           if (!result.success) {
-            throw new Error(result.error || 'Failed to delete managed namespace');
+            throw new Error(result.message || 'Failed to delete managed namespace');
           }
 
           if (deleteNamespaces) {

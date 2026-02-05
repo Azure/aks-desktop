@@ -61,7 +61,11 @@
     "husky": "^9.0.0"
   },
   "dependencies": {
+    "@azure/arm-authorization": "^9.0.0",
+    "@azure/arm-containerservice": "^24.1.0",
+    "@azure/arm-features": "^3.1.0",
     "@azure/arm-resourcegraph": "^4.2.1",
+    "@azure/arm-resources": "^5.2.0",
     "@azure/arm-subscriptions": "^5.1.0",
     "@azure/identity": "^4.12.0",
     "@octokit/rest": "^22.0.0",

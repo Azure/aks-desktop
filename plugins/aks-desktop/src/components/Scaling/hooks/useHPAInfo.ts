@@ -33,9 +33,11 @@ export const useHPAInfo = (
   useEffect(() => {
     if (!deploymentName || !namespace) return;
 
+    let cancelFnPromise;
+
     try {
       // Find HPA that targets this deployment
-      const cancel = K8s.ResourceClasses.HorizontalPodAutoscaler.apiList(
+      cancelFnPromise = K8s.ResourceClasses.HorizontalPodAutoscaler.apiList(
         hpaList => {
           const hpa = hpaList.find(
             hpa =>
@@ -78,14 +80,15 @@ export const useHPAInfo = (
           cluster,
         }
       )();
-
-      // Return cleanup function
-      return cancel;
     } catch (error) {
       console.error('Error in fetchHPAInfo:', error);
       setHpaInfo(null);
       return undefined;
     }
+
+    return () => {
+      cancelFnPromise?.then(cancelFn => cancelFn());
+    };
   }, [deploymentName, namespace, cluster]);
 
   return {

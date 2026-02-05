@@ -15,6 +15,7 @@ import { useTheme } from '@mui/material/styles';
 import React, { useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useAzureAuth } from '../../hooks/useAzureAuth';
+import { logout } from '../../utils/azure/aks';
 
 export default function AzureProfilePage() {
   const history = useHistory();
@@ -33,9 +34,7 @@ export default function AzureProfilePage() {
   const handleLogout = async () => {
     setLoggingOut(true);
     try {
-      // Import dynamically to avoid circular dependencies
-      const { runCommandAsync } = await import('../../utils/azure/az-cli');
-      await runCommandAsync('az', ['logout']);
+      await logout();
 
       // Trigger update event for sidebar label
       window.dispatchEvent(new CustomEvent('azure-auth-update'));

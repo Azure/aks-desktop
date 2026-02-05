@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useCallback, useState } from 'react';
-import { checkNamespaceExists } from '../../../utils/azure/az-cli';
+import { checkNamespaceExists } from '../../../utils/azure/aks';
 import type { NamespaceStatus } from '../types';
 
 /**
