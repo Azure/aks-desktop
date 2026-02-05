@@ -42,6 +42,7 @@ import path from 'path';
 import url from 'url';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import { setupAzureApi } from './azure-api';
 import i18n from './i18next.config';
 import {
   addToPath,
@@ -54,6 +55,8 @@ import {
 } from './plugin-management';
 import { addRunCmdConsent, removeRunCmdConsent, runScript, setupRunCmdHandlers } from './runCmd';
 import windowSize from './windowSize';
+
+setupAzureApi();
 
 let isRunningScript = false;
 if (process.env.HEADLAMP_RUN_SCRIPT) {
@@ -1816,28 +1819,6 @@ async function startElecron() {
       }
     });
 
-    // Handle AKS cluster registration
-    ipcMain.handle(
-      'register-aks-cluster',
-      async (
-        event,
-        data: { subscriptionId: string; resourceGroup: string; clusterName: string, isAzureRBACEnabled: boolean }
-      ) => {
-        const { registerAKSCluster } = await import('./aks-cluster');
-        const resourcesDir = isDev
-          ? path.join(__dirname, '..', 'resources')
-          : process.resourcesPath;
-        return await registerAKSCluster(
-          data.subscriptionId,
-          data.resourceGroup,
-          data.clusterName,
-          data.isAzureRBACEnabled,
-          isDev,
-          resourcesDir
-        );
-      }
-    );
-
     setupRunCmdHandlers(mainWindow, ipcMain);
 
     new PluginManagerEventListeners().setupEventHandlers();
@@ -1878,43 +1859,6 @@ async function startElecron() {
     const userPluginBinDirs = getPluginBinDirectories(defaultUserPluginsDir());
     if (userPluginBinDirs.length > 0) {
       addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
-    }
-
-    // Add bundled Azure CLI and external tools to PATH
-    // In dev mode: look in headlamp/app/resources/external-tools (relative to main.ts location)
-    // In production: look in process.resourcesPath/external-tools
-    const platformDir = process.platform;
-    const resourcesDir = isDev
-      ? path.join(__dirname, '..', 'resources') // From electron/ dir, go up to app/, then to resources/
-      : process.resourcesPath;
-    const azCliBinPath = path.join(resourcesDir, 'external-tools', 'az-cli', platformDir, 'bin');
-    const externalToolsBinPath = path.join(resourcesDir, 'external-tools', 'bin');
-
-    console.log(`[AKS-Desktop] __dirname: ${__dirname}`);
-    console.log(`[AKS-Desktop] resourcesDir: ${resourcesDir}`);
-    console.log(`[AKS-Desktop] Looking for Azure CLI at: ${azCliBinPath}`);
-    console.log(`[AKS-Desktop] Looking for external tools at: ${externalToolsBinPath}`);
-
-    // Add external tools bin directory (contains az-kubelogin.py)
-    if (fs.existsSync(externalToolsBinPath)) {
-      console.log(`[AKS-Desktop] Found external tools, adding to PATH: ${externalToolsBinPath}`);
-      addToPath([externalToolsBinPath], 'External Tools');
-    } else {
-      console.warn(`[AKS-Desktop] External tools not found at: ${externalToolsBinPath}`);
-    }
-
-    // Add Azure CLI bin directory
-    if (fs.existsSync(azCliBinPath)) {
-      console.log(`[AKS-Desktop] Found bundled Azure CLI, adding to PATH: ${azCliBinPath}`);
-      addToPath([azCliBinPath], 'Azure CLI');
-    } else {
-      console.warn(`[AKS-Desktop] Bundled Azure CLI not found at: ${azCliBinPath}`);
-      console.warn(`[AKS-Desktop] Platform: ${process.platform}, isDev: ${isDev}`);
-      if (isDev) {
-        console.warn(
-          `[AKS-Desktop] Tip: Run build process to download Azure CLI to headlamp/app/resources/external-tools/`
-        );
-      }
     }
   }
 

@@ -52,6 +52,7 @@ import * as Router from '../lib/router';
 import * as Utils from '../lib/util';
 import { eventAction, HeadlampEventType } from '../redux/headlampEventSlice';
 import store from '../redux/stores/store';
+import * as stateless from '../stateless';
 import { Headlamp, Plugin } from './lib';
 import { changePluginLanguage, initializePluginI18n } from './pluginI18n';
 import { useTranslation } from './pluginI18n';
@@ -98,6 +99,7 @@ window.pluginLib = {
   Lodash,
   Notistack,
   Notification,
+  stateless,
   Headlamp,
   Plugin,
   useTranslation,

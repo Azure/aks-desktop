@@ -64,25 +64,28 @@ contextBridge.exposeInMainWorld('desktopApi', {
     ipcRenderer.removeListener(channel, func);
   },
 
-  // Register AKS cluster
-  registerAKSCluster: (
-    subscriptionId: string,
-    resourceGroup: string,
-    clusterName: string,
-    isAzureRBACEnabled: boolean
-  ): Promise<{ success: boolean; message: string }> => {
-    return ipcRenderer.invoke('register-aks-cluster', {
-      subscriptionId,
-      resourceGroup,
-      clusterName,
-      isAzureRBACEnabled,
-    });
-  },
-
   // Get license file content
   getLicenseFile: (
     filename: 'LICENSE' | 'NOTICE.md'
   ): Promise<{ success: boolean; content?: string; error?: string }> => {
     return ipcRenderer.invoke('get-license-file', filename);
+  },
+});
+
+contextBridge.exposeInMainWorld('azureApi', {
+  login() {
+    return ipcRenderer.invoke('azure-login');
+  },
+  checkLogin() {
+    return ipcRenderer.invoke('azure-check-login');
+  },
+  logout() {
+    return ipcRenderer.invoke('azure-logout');
+  },
+  getAksToken() {
+    return ipcRenderer.invoke('azure-get-aks-token');
+  },
+  getToken(params: { scopes: string[] | string }) {
+    return ipcRenderer.invoke('azure-get-token', params);
   },
 });
