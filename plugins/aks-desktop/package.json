@@ -13,7 +13,8 @@
     "storybook": "headlamp-plugin storybook",
     "storybook-build": "headlamp-plugin storybook-build",
     "test": "headlamp-plugin test",
-    "prettier": "prettier --write ."
+    "prettier": "prettier --write .",
+    "i18n": "headlamp-plugin i18n"
   },
   "keywords": [
     "headlamp",
@@ -43,7 +44,7 @@
     "react-redux": "^8.1.3"
   },
   "devDependencies": {
-    "@kinvolk/headlamp-plugin": "^0.13.0",
+    "@kinvolk/headlamp-plugin": "^0.13.1",
     "@types/react": "^19.2.0",
     "eslint-plugin-no-barrel-files": "^1.2.2",
     "react": "^18.3.1",
