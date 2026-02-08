@@ -10,11 +10,12 @@ export const isAksProject = ({
   project: { namespaces: string[]; clusters: string[] };
 }) =>
   new Promise(res => {
-    K8s.ResourceClasses.Namespace.apiEndpoint.get(
+    const cancelFn = K8s.ResourceClasses.Namespace.apiEndpoint.get(
       project.namespaces[0],
       // @ts-ignore todo: not sure what the issue is here.
       r => {
         res(r.metadata.labels['headlamp.dev/project-managed-by'] === 'aks-desktop');
+        cancelFn.then(it => it());
       },
       () => {
         res(false);
