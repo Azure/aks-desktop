@@ -64,6 +64,15 @@ if (config.deb) {
   };
 }
 
+// Override productName for Linux builds to avoid spaces in installation path
+if (
+  process.argv.includes('--linux') &&
+  !process.argv.includes('--win') &&
+  !process.argv.includes('--mac')
+) {
+  config.productName = 'AKS-Desktop';
+}
+
 // On non-Mac platforms, ensure dmg-license is truly optional by not including Mac targets during --dir builds
 // This prevents electron-builder from trying to validate Mac-specific dependencies on Linux/Windows
 if (process.env.npm_lifecycle_event === 'build' && process.platform !== 'darwin') {
