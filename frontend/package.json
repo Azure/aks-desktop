@@ -15,6 +15,8 @@
     "@headlamp-k8s/eslint-config": "^0.6.0",
     "@iconify/icons-mdi": "^1.2.9",
     "@iconify/react": "^3.2.1",
+    "@microsoft/applicationinsights-react-js": "^18.3.6",
+    "@microsoft/applicationinsights-web": "^3.3.11",
     "@monaco-editor/react": "^4.3.1",
     "@mui/icons-material": "^5.16.7",
     "@mui/lab": "^5.0.0-alpha.152",
