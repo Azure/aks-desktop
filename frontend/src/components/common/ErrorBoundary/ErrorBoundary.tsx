@@ -15,6 +15,7 @@
  */
 
 import { Component, ComponentType, isValidElement, ReactElement, ReactNode } from 'react';
+import { trackException } from '../../../lib/analytics';
 import { eventAction, HeadlampEventType } from '../../../redux/headlampEventSlice';
 import store from '../../../redux/stores/store';
 
@@ -56,6 +57,10 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, State> 
   state: State = { error: null };
   static getDerivedStateFromError(error: Error | null) {
     return { error };
+  }
+
+  componentDidCatch(error: Error) {
+    trackException(error);
   }
 
   componentDidUpdate(prevProps: ErrorBoundaryProps, prevState: State) {
