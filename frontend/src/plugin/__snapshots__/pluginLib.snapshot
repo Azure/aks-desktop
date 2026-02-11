@@ -493,6 +493,10 @@
     "useId": [Function],
     "useURLState": [Function],
   },
+  "analytics": {
+    "trackEvent": [Function],
+    "trackException": [Function],
+  },
   "clusterAction": [Function],
   "default": [Function],
   "getHeadlampAPIHeaders": [Function],

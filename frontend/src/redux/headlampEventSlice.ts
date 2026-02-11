@@ -17,6 +17,7 @@
 import type { PayloadAction } from '@reduxjs/toolkit';
 import { createAction, createListenerMiddleware, createSlice } from '@reduxjs/toolkit';
 import { useDispatch } from 'react-redux';
+import { trackEvent } from '../lib/analytics';
 import type Event from '../lib/k8s/event';
 import type { KubeObject } from '../lib/k8s/KubeObject';
 import type Pod from '../lib/k8s/pod';
@@ -350,6 +351,7 @@ listenerMiddleware.startListening({
   actionCreator: eventAction,
   effect: async (action, listernerApi) => {
     const trackerFuncs = listernerApi.getState()?.eventCallbackReducer?.trackerFuncs;
+    trackEvent(action.payload.type);
     for (const trackerFunc of trackerFuncs) {
       try {
         trackerFunc(action.payload);

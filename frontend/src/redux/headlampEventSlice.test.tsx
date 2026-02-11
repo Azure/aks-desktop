@@ -15,6 +15,7 @@
  */
 
 import { configureStore } from '@reduxjs/toolkit';
+import * as analytics from '../lib/analytics';
 import eventCallbackReducer, { addEventCallback, eventAction } from './headlampEventSlice';
 import { listenerMiddleware } from './headlampEventSlice';
 
@@ -80,6 +81,46 @@ describe('eventsSlice', () => {
       );
 
       expect(callbackResponses).toEqual([0, 1]);
+    });
+  });
+
+  describe('analytics tracking', () => {
+    it('should call trackEvent with event type when appInsights is defined', () => {
+      const mockTrackEvent = vi.fn();
+      window.appInsights = { trackEvent: mockTrackEvent } as unknown as typeof window.appInsights;
+      const trackEventSpy = vi.spyOn(analytics, 'trackEvent');
+
+      store.dispatch(
+        eventAction({
+          type: 'test-event-type',
+          data: {},
+        })
+      );
+
+      expect(trackEventSpy).toHaveBeenCalledWith('test-event-type');
+
+      delete window.appInsights;
+      trackEventSpy.mockRestore();
+    });
+
+    it('should be a no-op when appInsights is undefined', () => {
+      const originalAppInsights = window.appInsights;
+      delete window.appInsights;
+
+      const trackEventSpy = vi.spyOn(analytics, 'trackEvent');
+
+      store.dispatch(
+        eventAction({
+          type: 'test-event-type',
+          data: {},
+        })
+      );
+
+      expect(trackEventSpy).toHaveBeenCalledWith('test-event-type');
+      expect(window.appInsights).toBeUndefined();
+
+      window.appInsights = originalAppInsights;
+      trackEventSpy.mockRestore();
     });
   });
 });
