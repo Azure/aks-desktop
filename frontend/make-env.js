@@ -61,7 +61,10 @@ const envContents = {
   REACT_APP_HEADLAMP_PRODUCT_NAME: appInfo.productName,
   REACT_APP_AKS_DESKTOP_VERSION: aksDesktopVersion,
   REACT_APP_ENABLE_REACT_QUERY_DEVTOOLS: 'false',
-  REACT_APP_HEADLAMP_SIDEBAR_DEFAULT_OPEN: 'true'
+  REACT_APP_HEADLAMP_SIDEBAR_DEFAULT_OPEN: 'true',
+  // Development AppInsights instance
+  REACT_APP_APPINSIGHTS_CONNECTION_STRING:
+    'InstrumentationKey=231367d3-cfb2-481d-b550-52d6989525ff;IngestionEndpoint=https://eastus-8.in.applicationinsights.azure.com/;LiveEndpoint=https://eastus.livediagnostics.monitor.azure.com/;ApplicationId=eb7b9722-58e2-4932-86e5-3050ee391770',
 };
 
 function createEnvText() {
