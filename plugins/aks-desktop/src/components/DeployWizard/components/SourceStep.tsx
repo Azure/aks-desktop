@@ -7,16 +7,16 @@ import { useTheme } from '@mui/material/styles';
 import React from 'react';
 
 type DeploymentSource = {
-  type: 'container' | 'yaml';
+  type: 'container' | 'yaml' | 'github-pipeline';
   displayName: string;
   description: string;
-  icon: 'container' | 'yaml';
+  icon: 'container' | 'yaml' | 'github';
   features: string[];
 };
 
 export interface SourceStepProps {
-  sourceType: 'container' | 'yaml' | null;
-  onSourceTypeChange: (type: 'container' | 'yaml') => void;
+  sourceType: 'container' | 'yaml' | 'github-pipeline' | null;
+  onSourceTypeChange: (type: 'container' | 'yaml' | 'github-pipeline') => void;
 }
 
 const deploymentSources: DeploymentSource[] = [
@@ -42,6 +42,17 @@ const deploymentSources: DeploymentSource[] = [
       'Preview and basic validation before apply',
     ],
   },
+  {
+    type: 'github-pipeline',
+    displayName: 'GitHub Pipeline',
+    description: 'Create a CI/CD pipeline in your GitHub repository',
+    icon: 'github',
+    features: [
+      'GitOps-style deployment via GitHub Actions',
+      'PR-based workflow with approval gates',
+      'Continuous deployment on push to main',
+    ],
+  },
 ];
 
 export default function SourceStep({ sourceType, onSourceTypeChange }: SourceStepProps) {
@@ -58,7 +69,11 @@ export default function SourceStep({ sourceType, onSourceTypeChange }: SourceSte
         {deploymentSources.map(source => {
           const selected = sourceType === source.type;
           const iconName =
-            source.icon === 'container' ? 'mdi:cube-outline' : 'mdi:file-code-outline';
+            source.icon === 'container'
+              ? 'mdi:cube-outline'
+              : source.icon === 'github'
+              ? 'mdi:github'
+              : 'mdi:file-code-outline';
           return (
             <Card
               key={source.type}
@@ -71,7 +86,9 @@ export default function SourceStep({ sourceType, onSourceTypeChange }: SourceSte
                 border: selected ? '2px solid' : '1px solid',
                 borderColor: selected ? 'primary.main' : 'divider',
                 borderRadius: 3,
-                backgroundColor: selected ? alpha('#1976d2', 0.04) : 'background.paper',
+                backgroundColor: selected
+                  ? alpha(theme.palette.primary.main, 0.04)
+                  : 'background.paper',
                 transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                 overflow: 'visible',
                 display: 'flex',
@@ -109,7 +126,9 @@ export default function SourceStep({ sourceType, onSourceTypeChange }: SourceSte
                       height: 64,
                       borderRadius: 2,
                       display: 'flex',
-                      backgroundColor: selected ? 'primary.main' : alpha('#1976d2', 0.08),
+                      backgroundColor: selected
+                        ? 'primary.main'
+                        : alpha(theme.palette.primary.main, 0.08),
                       alignItems: 'center',
                       justifyContent: 'center',
                       mb: 2,

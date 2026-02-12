@@ -3,7 +3,9 @@
 
 import { Icon } from '@iconify/react';
 import { Button, Dialog } from '@mui/material';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useAzureAuth } from '../../hooks/useAzureAuth';
+import { getClusterInfo } from '../../utils/azure/az-cli';
 import DeployWizard from '../DeployWizard/DeployWizard';
 import { useDeployUrlParams } from './hooks/useDeployUrlParams';
 import { useDialogState } from './hooks/useDialogState';
@@ -39,6 +41,30 @@ interface DeployButtonProps {
 function DeployButton({ project }: DeployButtonProps) {
   const urlParams = useDeployUrlParams();
   const dialogState = useDialogState();
+  const azureAuth = useAzureAuth();
+  const [azureContext, setAzureContext] = useState<{
+    subscriptionId: string;
+    resourceGroup: string;
+    tenantId: string;
+  } | null>(null);
+
+  // Resolve Azure context from cluster info
+  useEffect(() => {
+    const cluster = project.clusters?.[0];
+    if (!cluster || !azureAuth.isLoggedIn) return;
+    (async () => {
+      try {
+        const clusterInfo = await getClusterInfo(cluster);
+        setAzureContext({
+          subscriptionId: clusterInfo.subscriptionId ?? '',
+          resourceGroup: clusterInfo.resourceGroup ?? '',
+          tenantId: azureAuth.tenantId ?? '',
+        });
+      } catch (error) {
+        console.error('Failed to resolve Azure context:', error);
+      }
+    })();
+  }, [project.clusters, azureAuth.isLoggedIn, azureAuth.tenantId]);
 
   // Open dialog when URL parameters indicate we should
   useEffect(() => {
@@ -91,6 +117,7 @@ function DeployButton({ project }: DeployButtonProps) {
           cluster={project.clusters?.[0] || undefined}
           namespace={project.namespaces?.[0] || undefined}
           initialApplicationName={dialogState.initialApplicationName}
+          azureContext={azureContext ?? undefined}
           onClose={handleClose}
         />
       </Dialog>

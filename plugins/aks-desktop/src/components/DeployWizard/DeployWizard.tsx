@@ -14,6 +14,7 @@ import {
 import React, { useEffect, useState } from 'react';
 import YAML from 'yaml';
 import { Breadcrumb } from '../CreateAKSProject/components/Breadcrumb';
+import GitHubPipelineWizard from '../GitHubPipeline/GitHubPipelineWizard';
 import ConfigureContainer from './components/ConfigureContainer';
 import ConfigureYAML from './components/ConfigureYAML';
 import Deploy from './components/Deploy';
@@ -26,6 +27,7 @@ type DeployWizardProps = {
   cluster?: string;
   namespace?: string;
   initialApplicationName?: string;
+  azureContext?: { subscriptionId: string; resourceGroup: string; tenantId: string };
   onClose?: () => void;
 };
 
@@ -41,10 +43,13 @@ export default function DeployWizard({
   cluster,
   namespace,
   initialApplicationName,
+  azureContext,
   onClose,
 }: DeployWizardProps) {
   const [activeStep, setActiveStep] = useState(WizardStep.SOURCE);
-  const [sourceType, setSourceType] = useState<null | 'yaml' | 'container'>(null);
+  const [sourceType, setSourceType] = useState<null | 'yaml' | 'container' | 'github-pipeline'>(
+    null
+  );
   const [yamlEditorValue, setYamlEditorValue] = useState<string>('');
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -193,7 +198,7 @@ export default function DeployWizard({
       case WizardStep.DEPLOY:
         return (
           <Deploy
-            sourceType={sourceType}
+            sourceType={sourceType as 'container' | 'yaml' | null}
             namespace={namespace}
             yamlEditorValue={yamlEditorValue}
             userPreviewYaml={userPreviewYaml}
@@ -206,6 +211,42 @@ export default function DeployWizard({
         return null;
     }
   };
+
+  // GitHub Pipeline flow — bypasses wizard chrome (breadcrumb stepper, YAML/container
+  // configuration, deploy button) because the pipeline wizard has its own multi-step
+  // UI with GitHub auth, repo selection, PR tracking, and deployment status screens.
+  if (sourceType === 'github-pipeline') {
+    return (
+      <Container maxWidth="lg" sx={{ py: 3 }}>
+        <Typography variant="h4" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
+          Deploy Application
+        </Typography>
+        <Card>
+          <CardContent sx={{ p: 0 }}>
+            {!azureContext ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <GitHubPipelineWizard
+                clusterName={cluster || ''}
+                namespace={namespace || ''}
+                appName={initialApplicationName || ''}
+                subscriptionId={azureContext.subscriptionId}
+                resourceGroup={azureContext.resourceGroup}
+                tenantId={azureContext.tenantId}
+                onClose={() => {
+                  setSourceType(null);
+                  setActiveStep(WizardStep.SOURCE);
+                  onClose?.();
+                }}
+              />
+            )}
+          </CardContent>
+        </Card>
+      </Container>
+    );
+  }
 
   return (
     // Todo: noScroll could be done like this? <Container maxWidth="lg" sx={{ py: 3, overflow: 'hidden' }}>
