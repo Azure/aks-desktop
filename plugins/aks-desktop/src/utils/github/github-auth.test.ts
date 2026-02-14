@@ -270,11 +270,10 @@ describe('github-auth', () => {
 
     it('should fall back to localStorage when secure storage is unavailable', async () => {
       await saveTokens(tokens);
-      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledWith(
-        'Secure storage unavailable — GitHub tokens will not be persisted'
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
+        'aks-desktop:github-auth',
+        JSON.stringify(tokens)
       );
-      warnSpy.mockRestore();
     });
 
     it('should load tokens from localStorage (fallback)', async () => {
