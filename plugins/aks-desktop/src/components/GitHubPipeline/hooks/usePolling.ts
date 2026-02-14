@@ -68,7 +68,6 @@ export const usePolling = <T>({
   const pollCountRef = useRef(0);
   const activeRef = useRef(false);
   const pollingInFlightRef = useRef(false);
-  const pollRequestedRef = useRef(false);
   const pollImplRef = useRef<(() => Promise<void>) | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -126,12 +125,9 @@ export const usePolling = <T>({
           setError(err instanceof Error ? err.message : 'Polling failed');
         }
 
-        // Schedule next poll only after current one completes.
-        // If pollNow was called while we were in-flight, poll immediately.
+        // Schedule next poll only after current one completes
         if (activeRef.current) {
-          const immediate = pollRequestedRef.current;
-          pollRequestedRef.current = false;
-          timeoutRef.current = setTimeout(poll, immediate ? 0 : intervalMs);
+          timeoutRef.current = setTimeout(poll, intervalMs);
         }
       } finally {
         pollingInFlightRef.current = false;
@@ -148,12 +144,7 @@ export const usePolling = <T>({
   }, [enabled, intervalMs, maxPolls, pollFn, shouldStop, onTimeout, stopPolling]);
 
   const pollNow = useCallback(() => {
-    if (!activeRef.current) return;
-    // If a poll is already running, flag it so the next cycle fires immediately.
-    if (pollingInFlightRef.current) {
-      pollRequestedRef.current = true;
-      return;
-    }
+    if (!activeRef.current || pollingInFlightRef.current) return;
     // Clear the scheduled timeout so we don't double-poll
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);

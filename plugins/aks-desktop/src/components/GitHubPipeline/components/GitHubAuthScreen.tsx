@@ -43,23 +43,20 @@ export const GitHubAuthScreen: React.FC<GitHubAuthScreenProps> = ({
   const { isAuthenticated, isAuthorizingDevice, userCode, verificationUri, username, error } =
     authState;
 
-  // Auto-advance after authentication — gives user time to see the success state.
-  // Use a ref for onContinue to avoid restarting the timer when the callback identity changes.
+  // Auto-advance after authentication — gives user time to see the success state
   const [autoAdvancing, setAutoAdvancing] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onContinueRef = useRef(onContinue);
-  onContinueRef.current = onContinue;
 
   useEffect(() => {
     if (!isAuthenticated) return;
     setAutoAdvancing(true);
     timerRef.current = setTimeout(() => {
-      onContinueRef.current();
+      onContinue();
     }, 1500);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, onContinue]);
 
   // Authenticated — show success
   if (isAuthenticated) {
