@@ -174,12 +174,13 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
       break;
 
     case 'SET_AUTH_NEEDED':
-      next = {
+      // Don't update lastSuccessfulState — auth-needed is not a "success" state.
+      // Preserves the pre-auth state so SET_AUTH_COMPLETED returns to the right place.
+      return {
         ...state,
         deploymentState: 'GitHubAuthorizationNeeded',
         updatedAt: now(),
       };
-      break;
 
     case 'SET_AUTH_COMPLETED': {
       const target = state.lastSuccessfulState ?? 'Configured';

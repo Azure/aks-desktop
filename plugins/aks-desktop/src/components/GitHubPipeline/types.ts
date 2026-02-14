@@ -7,6 +7,7 @@ import type {
   WorkflowRunConclusion,
   WorkflowRunStatus,
 } from '../../types/github';
+import type { ContainerConfig } from '../DeployWizard/hooks/useContainerConfiguration';
 
 /**
  * Deployment state machine states per PRD Section 6.4.
@@ -78,6 +79,9 @@ export interface PipelineConfig {
   ingressEnabled?: boolean;
   ingressHost?: string;
   port?: number;
+
+  // Container configuration from the deploy wizard (passed to agent for manifest generation)
+  containerConfig?: ContainerConfig;
 
   // GitHub-specific (not part of agent payload — used by AKS Desktop internally)
   repo: GitHubRepo;

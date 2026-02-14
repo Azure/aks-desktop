@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { describe, expect, it, vi } from 'vitest';
+import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
 import { PipelineConfig } from '../types';
 import {
   generateAgentConfig,
@@ -85,6 +86,77 @@ describe('agentTemplates', () => {
       expect(result).not.toContain('Ingress Host:');
       expect(result).not.toContain('Image Reference:');
       expect(result).not.toContain('Port:');
+    });
+
+    it('should include container configuration when provided', () => {
+      const cc: ContainerConfig = {
+        containerStep: 0,
+        appName: 'my-app',
+        containerImage: 'nginx:1.25',
+        replicas: 3,
+        targetPort: 8080,
+        servicePort: 80,
+        useCustomServicePort: true,
+        serviceType: 'LoadBalancer',
+        enableResources: true,
+        cpuRequest: '200m',
+        cpuLimit: '1',
+        memoryRequest: '256Mi',
+        memoryLimit: '1Gi',
+        envVars: [
+          { key: 'NODE_ENV', value: 'production' },
+          { key: '', value: '' },
+        ],
+        enableLivenessProbe: true,
+        enableReadinessProbe: true,
+        enableStartupProbe: false,
+        showProbeConfigs: false,
+        livenessPath: '/health',
+        readinessPath: '/ready',
+        startupPath: '/',
+        livenessInitialDelay: 10,
+        livenessPeriod: 10,
+        livenessTimeout: 1,
+        livenessFailure: 3,
+        livenessSuccess: 1,
+        readinessInitialDelay: 5,
+        readinessPeriod: 10,
+        readinessTimeout: 1,
+        readinessFailure: 3,
+        readinessSuccess: 1,
+        startupInitialDelay: 0,
+        startupPeriod: 10,
+        startupTimeout: 1,
+        startupFailure: 30,
+        startupSuccess: 1,
+        enableHpa: true,
+        hpaMinReplicas: 2,
+        hpaMaxReplicas: 10,
+        hpaTargetCpu: 80,
+        runAsNonRoot: true,
+        readOnlyRootFilesystem: false,
+        allowPrivilegeEscalation: false,
+        enablePodAntiAffinity: true,
+        enableTopologySpreadConstraints: true,
+        containerPreviewYaml: '',
+      };
+      const config: PipelineConfig = { ...validConfig, containerConfig: cc };
+      const result = generateAgentConfig(config);
+
+      expect(result).toContain('Container Image: nginx:1.25');
+      expect(result).toContain('Target Port: 8080');
+      expect(result).toContain('Service Port: 80');
+      expect(result).toContain('Replicas: 3');
+      expect(result).toContain('CPU Request: 200m');
+      expect(result).toContain('Memory Limit: 1Gi');
+      expect(result).toContain('Environment Variables: NODE_ENV=production');
+      expect(result).toContain('Liveness Probe: enabled (path: /health)');
+      expect(result).toContain('Readiness Probe: enabled (path: /ready)');
+      expect(result).toContain('Startup Probe: disabled');
+      expect(result).toContain('HPA: enabled (min: 2, max: 10, target CPU: 80%)');
+      expect(result).toContain('Run As Non-Root: true');
+      expect(result).toContain('Allow Privilege Escalation: false');
+      expect(result).toContain('Pod Anti-Affinity: enabled');
     });
   });
 

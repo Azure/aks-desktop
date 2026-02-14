@@ -70,6 +70,59 @@ export const generateAgentConfig = (config: PipelineConfig): string => {
     optionalLines.push(`- Port: ${config.port}`);
   }
 
+  const cc = config.containerConfig;
+  if (cc) {
+    if (cc.containerImage) {
+      optionalLines.push(`- Container Image: ${cc.containerImage}`);
+    }
+    optionalLines.push(`- Target Port: ${cc.targetPort}`);
+    if (cc.useCustomServicePort) {
+      optionalLines.push(`- Service Port: ${cc.servicePort}`);
+    }
+    optionalLines.push(`- Replicas: ${cc.replicas}`);
+
+    if (cc.enableResources) {
+      optionalLines.push(`- CPU Request: ${cc.cpuRequest}`);
+      optionalLines.push(`- CPU Limit: ${cc.cpuLimit}`);
+      optionalLines.push(`- Memory Request: ${cc.memoryRequest}`);
+      optionalLines.push(`- Memory Limit: ${cc.memoryLimit}`);
+    }
+
+    const envVars = cc.envVars?.filter(e => e.key.trim()) ?? [];
+    if (envVars.length > 0) {
+      optionalLines.push(
+        `- Environment Variables: ${envVars.map(e => `${e.key}=${e.value}`).join(', ')}`
+      );
+    }
+
+    optionalLines.push(
+      `- Liveness Probe: ${
+        cc.enableLivenessProbe ? `enabled (path: ${cc.livenessPath})` : 'disabled'
+      }`
+    );
+    optionalLines.push(
+      `- Readiness Probe: ${
+        cc.enableReadinessProbe ? `enabled (path: ${cc.readinessPath})` : 'disabled'
+      }`
+    );
+    optionalLines.push(
+      `- Startup Probe: ${cc.enableStartupProbe ? `enabled (path: ${cc.startupPath})` : 'disabled'}`
+    );
+
+    if (cc.enableHpa) {
+      optionalLines.push(
+        `- HPA: enabled (min: ${cc.hpaMinReplicas}, max: ${cc.hpaMaxReplicas}, target CPU: ${cc.hpaTargetCpu}%)`
+      );
+    }
+
+    if (cc.runAsNonRoot) optionalLines.push(`- Run As Non-Root: true`);
+    if (cc.readOnlyRootFilesystem) optionalLines.push(`- Read-Only Root Filesystem: true`);
+    if (!cc.allowPrivilegeEscalation) optionalLines.push(`- Allow Privilege Escalation: false`);
+    if (cc.enablePodAntiAffinity) optionalLines.push(`- Pod Anti-Affinity: enabled`);
+    if (cc.enableTopologySpreadConstraints)
+      optionalLines.push(`- Topology Spread Constraints: enabled`);
+  }
+
   const optionalSection = optionalLines.length > 0 ? '\n' + optionalLines.join('\n') : '';
 
   return `---

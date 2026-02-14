@@ -119,23 +119,91 @@ export const triggerCopilotAgent = async (
   }
 
   // PRD Section 6.3: payload in a single fenced block to reduce ambiguity
+  const cc = config.containerConfig;
+  const envVars = cc?.envVars?.filter(e => e.key.trim()) ?? [];
+
   const issueBody = [
     '```yaml',
+    '# AKS Configuration',
     `cluster: ${config.clusterName}`,
     `resourceGroup: ${config.resourceGroup}`,
     `namespace: ${config.namespace}`,
     `tenantId: ${config.tenantId}`,
     `identityId: ${config.identityId}`,
     `subscriptionId: ${config.subscriptionId}`,
+    '',
+    '# Application',
     `appName: ${config.appName}`,
+    cc?.containerImage ? `containerImage: ${cc.containerImage}` : null,
     `serviceType: ${config.serviceType}`,
+    cc ? `targetPort: ${cc.targetPort}` : null,
+    cc?.useCustomServicePort ? `servicePort: ${cc.servicePort}` : null,
+    cc ? `replicas: ${cc.replicas}` : null,
     config.ingressEnabled !== undefined ? `ingressEnabled: ${config.ingressEnabled}` : null,
     config.ingressHost ? `ingressHost: ${config.ingressHost}` : null,
     config.imageReference ? `imageReference: ${config.imageReference}` : null,
     config.port ? `port: ${config.port}` : null,
+    // Resource Limits
+    cc?.enableResources
+      ? [
+          '',
+          '# Resource Limits',
+          `cpuRequest: ${cc.cpuRequest}`,
+          `cpuLimit: ${cc.cpuLimit}`,
+          `memoryRequest: ${cc.memoryRequest}`,
+          `memoryLimit: ${cc.memoryLimit}`,
+        ].join('\n')
+      : null,
+    // Environment Variables
+    envVars.length > 0
+      ? [
+          '',
+          '# Environment Variables',
+          'envVars:',
+          ...envVars.map(e => `  - key: ${e.key}\n    value: "${e.value}"`),
+        ].join('\n')
+      : null,
+    // Health Probes
+    cc
+      ? [
+          '',
+          '# Health Probes',
+          `livenessProbe:`,
+          `  enabled: ${cc.enableLivenessProbe}`,
+          `  path: ${cc.livenessPath}`,
+          `readinessProbe:`,
+          `  enabled: ${cc.enableReadinessProbe}`,
+          `  path: ${cc.readinessPath}`,
+          `startupProbe:`,
+          `  enabled: ${cc.enableStartupProbe}`,
+          `  path: ${cc.startupPath}`,
+        ].join('\n')
+      : null,
+    // HPA
+    cc?.enableHpa
+      ? [
+          '',
+          '# Horizontal Pod Autoscaler',
+          'hpa:',
+          `  enabled: true`,
+          `  minReplicas: ${cc.hpaMinReplicas}`,
+          `  maxReplicas: ${cc.hpaMaxReplicas}`,
+          `  targetCPU: ${cc.hpaTargetCpu}`,
+        ].join('\n')
+      : null,
+    // Security Context
+    cc?.runAsNonRoot || cc?.readOnlyRootFilesystem || cc?.allowPrivilegeEscalation === false
+      ? [
+          '',
+          '# Security Context',
+          `runAsNonRoot: ${cc!.runAsNonRoot}`,
+          `readOnlyRootFilesystem: ${cc!.readOnlyRootFilesystem}`,
+          `allowPrivilegeEscalation: ${cc!.allowPrivilegeEscalation}`,
+        ].join('\n')
+      : null,
     '```',
   ]
-    .filter(Boolean)
+    .filter(line => line !== null)
     .join('\n');
 
   // Step 1: Create the issue without assignees

@@ -140,6 +140,16 @@ describe('useGitHubPipelineState', () => {
     expect(result.current.state.deploymentState).toBe('GitHubAuthorizationNeeded');
   });
 
+  it('should transition from GitHubAuthorizationNeeded to Configured via setAuthCompleted', () => {
+    const { result } = renderHook(() => useGitHubPipelineState(null));
+
+    act(() => result.current.setAuthNeeded());
+    expect(result.current.state.deploymentState).toBe('GitHubAuthorizationNeeded');
+
+    act(() => result.current.setAuthCompleted());
+    expect(result.current.state.deploymentState).toBe('Configured');
+  });
+
   it('should transition through setAppInstallNeeded from CheckingRepo', () => {
     const { result } = renderHook(() => useGitHubPipelineState(null));
 
