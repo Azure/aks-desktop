@@ -27,6 +27,8 @@ interface UsePRPollingResult {
   error: string | null;
   /** Stops polling manually. */
   stopPolling: () => void;
+  /** Triggers an immediate poll outside the normal interval schedule. */
+  pollNow: () => void;
 }
 
 /** Internal composite type returned by each poll cycle. */
@@ -76,7 +78,7 @@ export const usePRPolling = (
     []
   );
 
-  const { data, isTimedOut, error, stopPolling } = usePolling<PRPollData>({
+  const { data, isTimedOut, error, stopPolling, pollNow } = usePolling<PRPollData>({
     enabled: isEnabled,
     intervalMs: POLL_INTERVAL_MS,
     maxPolls: MAX_POLLS,
@@ -89,5 +91,5 @@ export const usePRPolling = (
   const isClosed = !!(data?.prStatus.state === 'closed' && !isMerged);
   const statusChecks = data?.statusChecks ?? null;
 
-  return { prStatus, isMerged, isClosed, isTimedOut, statusChecks, error, stopPolling };
+  return { prStatus, isMerged, isClosed, isTimedOut, statusChecks, error, stopPolling, pollNow };
 };

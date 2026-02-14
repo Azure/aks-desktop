@@ -30,6 +30,10 @@ interface PRStatusScreenProps {
   onReviewInGitHub: () => void;
   /** Returns to previous step. */
   onBack: () => void;
+  /** Triggers an immediate poll check. */
+  onCheckNow?: () => void;
+  /** Close the wizard gracefully (progress is saved). */
+  onClose?: () => void;
 }
 
 const PhaseIcon: React.FC<{ phase: PRPhase; merged: boolean }> = ({ phase, merged }) => {
@@ -129,6 +133,8 @@ export const PRStatusScreen: React.FC<PRStatusScreenProps> = ({
   statusChecks,
   onReviewInGitHub,
   onBack,
+  onCheckNow,
+  onClose,
 }) => {
   const merged = prStatus?.merged ?? false;
   const isClosed = prStatus?.state === 'closed' && !merged;
@@ -158,7 +164,17 @@ export const PRStatusScreen: React.FC<PRStatusScreenProps> = ({
         )}
 
         {isTimedOut && (
-          <Alert severity="warning" sx={{ mb: 2, textAlign: 'left' }}>
+          <Alert
+            severity="warning"
+            sx={{ mb: 2, textAlign: 'left' }}
+            action={
+              onCheckNow ? (
+                <Button color="inherit" size="small" onClick={onCheckNow}>
+                  Check Now
+                </Button>
+              ) : undefined
+            }
+          >
             This is taking longer than expected. The operation may still be in progress
             {' \u2014 '}
             check the {prPhase === 'agent-pending' ? 'GitHub issue' : 'PR on GitHub'} for the latest
@@ -175,20 +191,46 @@ export const PRStatusScreen: React.FC<PRStatusScreenProps> = ({
         )}
 
         {isWaiting && !merged && !isTimedOut && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 3 }}>
-            <CircularProgress size={24} sx={{ mr: 1.5 }} />
-            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-              Waiting for agent to create deployment PR...
-            </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <CircularProgress size={24} sx={{ mr: 1.5 }} />
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                Waiting for agent to create deployment PR...
+              </Typography>
+            </Box>
+            {onCheckNow && (
+              <Button
+                variant="text"
+                size="small"
+                onClick={onCheckNow}
+                startIcon={<Icon icon="mdi:refresh" />}
+                sx={{ textTransform: 'none', mt: 1 }}
+              >
+                Check Now
+              </Button>
+            )}
           </Box>
         )}
 
         {!isWaiting && !merged && !isClosed && !isTimedOut && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 3 }}>
-            <CircularProgress size={20} sx={{ mr: 1 }} />
-            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-              Checking merge status...
-            </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <CircularProgress size={20} sx={{ mr: 1 }} />
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                Checking merge status...
+              </Typography>
+            </Box>
+            {onCheckNow && (
+              <Button
+                variant="text"
+                size="small"
+                onClick={onCheckNow}
+                startIcon={<Icon icon="mdi:refresh" />}
+                sx={{ textTransform: 'none', mt: 1 }}
+              >
+                Check Now
+              </Button>
+            )}
           </Box>
         )}
 
@@ -213,6 +255,12 @@ export const PRStatusScreen: React.FC<PRStatusScreenProps> = ({
           </Box>
         )}
 
+        {onClose && !merged && !isClosed && (
+          <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic', mb: 2 }}>
+            You can close this dialog — your progress is saved and will resume when you return.
+          </Typography>
+        )}
+
         <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
           {prUrl && (
             <Button
@@ -229,14 +277,25 @@ export const PRStatusScreen: React.FC<PRStatusScreenProps> = ({
                 : 'Review on GitHub'}
             </Button>
           )}
-          <Button
-            variant="outlined"
-            color="secondary"
-            onClick={onBack}
-            sx={{ textTransform: 'none', fontSize: 14 }}
-          >
-            Back
-          </Button>
+          {onClose && !merged && !isClosed ? (
+            <Button
+              variant="outlined"
+              color="secondary"
+              onClick={onClose}
+              sx={{ textTransform: 'none', fontSize: 14 }}
+            >
+              Close and Continue Later
+            </Button>
+          ) : (
+            <Button
+              variant="outlined"
+              color="secondary"
+              onClick={onBack}
+              sx={{ textTransform: 'none', fontSize: 14 }}
+            >
+              Back
+            </Button>
+          )}
         </Box>
       </CardContent>
     </Card>

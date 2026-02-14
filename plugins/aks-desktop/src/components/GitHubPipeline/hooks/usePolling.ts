@@ -43,6 +43,8 @@ export interface UsePollingResult<T> {
   error: string | null;
   /** Stops polling manually. */
   stopPolling: () => void;
+  /** Triggers an immediate poll outside the normal interval schedule. */
+  pollNow: () => void;
 }
 
 /**
@@ -65,6 +67,9 @@ export const usePolling = <T>({
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollCountRef = useRef(0);
   const activeRef = useRef(false);
+  const pollingInFlightRef = useRef(false);
+  const pollRequestedRef = useRef(false);
+  const pollImplRef = useRef<(() => Promise<void>) | null>(null);
 
   const stopPolling = useCallback(() => {
     activeRef.current = false;
@@ -88,48 +93,74 @@ export const usePolling = <T>({
     setError(null);
 
     const poll = async () => {
-      pollCountRef.current++;
-
-      if (pollCountRef.current >= maxPolls) {
-        stopPolling();
-        if (onTimeout) {
-          onTimeout();
-        } else {
-          setIsTimedOut(true);
-        }
-        return;
-      }
-
+      if (pollingInFlightRef.current) return;
+      pollingInFlightRef.current = true;
       try {
-        const result = await pollFn();
-        if (!activeRef.current) return;
-        setError(null);
+        pollCountRef.current++;
 
-        if (result !== null) {
-          setData(result);
-          if (shouldStop?.(result)) {
-            stopPolling();
-            return;
+        if (pollCountRef.current >= maxPolls) {
+          stopPolling();
+          if (onTimeout) {
+            onTimeout();
+          } else {
+            setIsTimedOut(true);
           }
+          return;
         }
-      } catch (err) {
-        if (!activeRef.current) return;
-        console.error('Polling error:', err);
-        setError(err instanceof Error ? err.message : 'Polling failed');
-      }
 
-      // Schedule next poll only after current one completes
-      if (activeRef.current) {
-        timeoutRef.current = setTimeout(poll, intervalMs);
+        try {
+          const result = await pollFn();
+          if (!activeRef.current) return;
+          setError(null);
+
+          if (result !== null) {
+            setData(result);
+            if (shouldStop?.(result)) {
+              stopPolling();
+              return;
+            }
+          }
+        } catch (err) {
+          if (!activeRef.current) return;
+          console.error('Polling error:', err);
+          setError(err instanceof Error ? err.message : 'Polling failed');
+        }
+
+        // Schedule next poll only after current one completes.
+        // If pollNow was called while we were in-flight, poll immediately.
+        if (activeRef.current) {
+          const immediate = pollRequestedRef.current;
+          pollRequestedRef.current = false;
+          timeoutRef.current = setTimeout(poll, immediate ? 0 : intervalMs);
+        }
+      } finally {
+        pollingInFlightRef.current = false;
       }
     };
 
+    pollImplRef.current = poll;
     poll();
 
     return () => {
       stopPolling();
+      pollImplRef.current = null;
     };
   }, [enabled, intervalMs, maxPolls, pollFn, shouldStop, onTimeout, stopPolling]);
 
-  return { data, isTimedOut, error, stopPolling };
+  const pollNow = useCallback(() => {
+    if (!activeRef.current) return;
+    // If a poll is already running, flag it so the next cycle fires immediately.
+    if (pollingInFlightRef.current) {
+      pollRequestedRef.current = true;
+      return;
+    }
+    // Clear the scheduled timeout so we don't double-poll
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    pollImplRef.current?.();
+  }, []);
+
+  return { data, isTimedOut, error, stopPolling, pollNow };
 };
