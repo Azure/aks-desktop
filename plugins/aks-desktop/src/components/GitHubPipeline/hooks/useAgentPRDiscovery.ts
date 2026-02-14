@@ -28,6 +28,8 @@ interface UseAgentPRDiscoveryResult {
   error: string | null;
   /** Stops polling manually. */
   stopPolling: () => void;
+  /** Triggers an immediate poll outside the normal interval schedule. */
+  pollNow: () => void;
 }
 
 /** Internal type returned when the agent's PR is found. */
@@ -75,7 +77,7 @@ export const useAgentPRDiscovery = (
   // Any non-null result means the PR was found — stop immediately
   const shouldStop = useCallback((): boolean => true, []);
 
-  const { data, isTimedOut, error, stopPolling } = usePolling<AgentPRPollData>({
+  const { data, isTimedOut, error, stopPolling, pollNow } = usePolling<AgentPRPollData>({
     enabled: isEnabled,
     intervalMs: POLL_INTERVAL_MS,
     maxPolls: MAX_POLLS,
@@ -89,5 +91,6 @@ export const useAgentPRDiscovery = (
     isTimedOut,
     error,
     stopPolling,
+    pollNow,
   };
 };

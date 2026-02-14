@@ -12,7 +12,7 @@ import {
   CircularProgress,
   Typography,
 } from '@mui/material';
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { GitHubAuthState } from '../types';
 
 interface GitHubAuthScreenProps {
@@ -43,6 +43,24 @@ export const GitHubAuthScreen: React.FC<GitHubAuthScreenProps> = ({
   const { isAuthenticated, isAuthorizingDevice, userCode, verificationUri, username, error } =
     authState;
 
+  // Auto-advance after authentication — gives user time to see the success state.
+  // Use a ref for onContinue to avoid restarting the timer when the callback identity changes.
+  const [autoAdvancing, setAutoAdvancing] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onContinueRef = useRef(onContinue);
+  onContinueRef.current = onContinue;
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    setAutoAdvancing(true);
+    timerRef.current = setTimeout(() => {
+      onContinueRef.current();
+    }, 1500);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [isAuthenticated]);
+
   // Authenticated — show success
   if (isAuthenticated) {
     return (
@@ -56,9 +74,14 @@ export const GitHubAuthScreen: React.FC<GitHubAuthScreenProps> = ({
           <Typography variant="h5" sx={{ mb: 1, fontWeight: 600 }}>
             Connected to GitHub
           </Typography>
-          <Typography variant="body1" sx={{ mb: 3, color: 'text.secondary' }}>
+          <Typography variant="body1" sx={{ mb: 1, color: 'text.secondary' }}>
             Signed in as <strong>{username}</strong>
           </Typography>
+          {autoAdvancing && (
+            <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+              Continuing...
+            </Typography>
+          )}
           <Button
             variant="contained"
             color="primary"

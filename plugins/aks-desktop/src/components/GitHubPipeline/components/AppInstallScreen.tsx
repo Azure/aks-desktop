@@ -2,13 +2,14 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-import { Box, Button, Card, CardContent, Typography } from '@mui/material';
+import { Box, Button, Card, CardContent, CircularProgress, Typography } from '@mui/material';
 import React from 'react';
 
 interface AppInstallScreenProps {
   owner: string;
   repo: string;
   installUrl: string | null;
+  isChecking?: boolean;
   onCheckAgain: () => void;
   onCancel: () => void;
 }
@@ -17,6 +18,7 @@ export const AppInstallScreen: React.FC<AppInstallScreenProps> = ({
   owner,
   repo,
   installUrl,
+  isChecking,
   onCheckAgain,
   onCancel,
 }) => (
@@ -37,13 +39,21 @@ export const AppInstallScreen: React.FC<AppInstallScreenProps> = ({
         </strong>{' '}
         to create deployment pipelines.
       </Typography>
+      {isChecking && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 2 }}>
+          <CircularProgress size={16} sx={{ mr: 1 }} />
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            Checking installation...
+          </Typography>
+        </Box>
+      )}
       <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
         {installUrl && (
           <Button variant="contained" onClick={() => window.open(installUrl, '_blank')}>
             Install GitHub App
           </Button>
         )}
-        <Button variant="outlined" onClick={onCheckAgain}>
+        <Button variant="outlined" onClick={onCheckAgain} disabled={isChecking}>
           Check Again
         </Button>
         <Button variant="text" onClick={onCancel}>

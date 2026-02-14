@@ -32,6 +32,8 @@ interface RepoItem {
   name: string;
   fullName: string;
   defaultBranch: string;
+  id: number;
+  ownerId: number;
 }
 
 export const RepoSelector: React.FC<RepoSelectorProps> = ({ octokit, onRepoSelect }) => {
@@ -113,7 +115,13 @@ export const RepoSelector: React.FC<RepoSelectorProps> = ({ octokit, onRepoSelec
             >
               <CardActionArea
                 onClick={() =>
-                  setHighlighted({ owner: r.owner, repo: r.name, defaultBranch: r.defaultBranch })
+                  setHighlighted({
+                    owner: r.owner,
+                    repo: r.name,
+                    defaultBranch: r.defaultBranch,
+                    id: r.id,
+                    ownerId: r.ownerId,
+                  })
                 }
               >
                 <CardContent sx={{ py: 1.5, px: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
