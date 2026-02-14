@@ -20,6 +20,10 @@ interface GitHubPipelineWizardProps {
   resourceGroup: string;
   tenantId: string;
   onClose: () => void;
+  /** Pre-selected repo for resuming an in-progress pipeline. */
+  initialRepo?: import('../../types/github').GitHubRepo;
+  /** Container configuration from the deploy wizard. */
+  containerConfig?: import('../DeployWizard/hooks/useContainerConfiguration').ContainerConfig;
 }
 
 /**
@@ -92,12 +96,15 @@ export default function GitHubPipelineWizard({
   resourceGroup,
   tenantId,
   onClose,
+  initialRepo,
+  containerConfig,
 }: GitHubPipelineWizardProps) {
   const {
     gitHubAuth,
     selectedRepo,
     setSelectedRepo,
     appInstallUrl,
+    isCheckingInstall,
     pipeline,
     identityId,
     setIdentityId,
@@ -108,6 +115,7 @@ export default function GitHubPipelineWizard({
     handleRedeploy,
     setupPrPolling,
     generatedPrPolling,
+    agentPrDiscoveryPollNow,
     workflowPolling,
     deploymentHealth,
   } = useGitHubPipelineOrchestration({
@@ -117,6 +125,8 @@ export default function GitHubPipelineWizard({
     subscriptionId,
     resourceGroup,
     tenantId,
+    initialRepo,
+    containerConfig,
   });
 
   // --- Render the appropriate screen based on state ---
@@ -143,6 +153,7 @@ export default function GitHubPipelineWizard({
             owner={selectedRepo.owner}
             repo={selectedRepo.repo}
             installUrl={appInstallUrl}
+            isChecking={isCheckingInstall}
             onCheckAgain={checkRepoAndApp}
             onCancel={onClose}
           />
@@ -192,6 +203,8 @@ export default function GitHubPipelineWizard({
             statusChecks={setupPrPolling.statusChecks}
             onReviewInGitHub={() => window.open(pipeline.state.setupPr.url ?? '', '_blank')}
             onBack={onClose}
+            onCheckNow={setupPrPolling.pollNow}
+            onClose={onClose}
           />
         );
 
@@ -232,6 +245,8 @@ export default function GitHubPipelineWizard({
             statusChecks={null}
             onReviewInGitHub={() => window.open(pipeline.state.triggerIssue.url ?? '', '_blank')}
             onBack={onClose}
+            onCheckNow={agentPrDiscoveryPollNow}
+            onClose={onClose}
           />
         );
 
@@ -246,6 +261,8 @@ export default function GitHubPipelineWizard({
             statusChecks={generatedPrPolling.statusChecks}
             onReviewInGitHub={() => window.open(pipeline.state.generatedPr.url ?? '', '_blank')}
             onBack={onClose}
+            onCheckNow={generatedPrPolling.pollNow}
+            onClose={onClose}
           />
         );
 

@@ -2,11 +2,13 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-import { Button, Dialog } from '@mui/material';
-import React, { useEffect, useState } from 'react';
+import { Box, Button, Dialog } from '@mui/material';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAzureAuth } from '../../hooks/useAzureAuth';
+import type { GitHubRepo } from '../../types/github';
 import { getClusterInfo } from '../../utils/azure/az-cli';
 import DeployWizard from '../DeployWizard/DeployWizard';
+import { getActivePipeline } from '../GitHubPipeline/hooks/useGitHubPipelineOrchestration';
 import { useDeployUrlParams } from './hooks/useDeployUrlParams';
 import { useDialogState } from './hooks/useDialogState';
 
@@ -47,6 +49,8 @@ function DeployButton({ project }: DeployButtonProps) {
     resourceGroup: string;
     tenantId: string;
   } | null>(null);
+  const [activePipelineRepo, setActivePipelineRepo] = useState<GitHubRepo | null>(null);
+  const [resumeRepo, setResumeRepo] = useState<GitHubRepo | undefined>(undefined);
 
   // Resolve Azure context from cluster info
   useEffect(() => {
@@ -66,6 +70,22 @@ function DeployButton({ project }: DeployButtonProps) {
     })();
   }, [project.clusters, azureAuth.isLoggedIn, azureAuth.tenantId]);
 
+  // Check for an in-progress pipeline on mount and when the dialog closes
+  const checkActivePipeline = useCallback(() => {
+    const cluster = project.clusters?.[0];
+    const ns = project.namespaces?.[0];
+    if (!cluster || !ns) {
+      setActivePipelineRepo(null);
+      return;
+    }
+    const active = getActivePipeline(cluster, ns);
+    setActivePipelineRepo(active?.repo ?? null);
+  }, [project.clusters, project.namespaces]);
+
+  useEffect(() => {
+    checkActivePipeline();
+  }, [checkActivePipeline]);
+
   // Open dialog when URL parameters indicate we should
   useEffect(() => {
     if (urlParams.shouldOpenDialog) {
@@ -80,27 +100,56 @@ function DeployButton({ project }: DeployButtonProps) {
   ]);
 
   const handleClickOpen = () => {
+    setResumeRepo(undefined);
     dialogState.openDialog();
+  };
+
+  const handleResumeClick = () => {
+    if (activePipelineRepo) {
+      setResumeRepo(activePipelineRepo);
+      dialogState.openDialog();
+    }
   };
 
   const handleClose = () => {
     dialogState.closeDialog();
+    setResumeRepo(undefined);
+    // Re-check active pipeline in case state changed while dialog was open
+    checkActivePipeline();
   };
 
   return (
     <>
-      <Button
-        variant="contained"
-        color="primary"
-        startIcon={<Icon icon="mdi:cloud-upload" />}
-        onClick={handleClickOpen}
-        sx={{
-          textTransform: 'none',
-          fontWeight: 'bold',
-        }}
-      >
-        Deploy Application
-      </Button>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={<Icon icon="mdi:cloud-upload" />}
+          onClick={handleClickOpen}
+          sx={{
+            textTransform: 'none',
+            fontWeight: 'bold',
+          }}
+        >
+          Deploy Application
+        </Button>
+        {activePipelineRepo && (
+          <Button
+            variant="outlined"
+            color="info"
+            size="small"
+            startIcon={<Icon icon="mdi:progress-clock" />}
+            onClick={handleResumeClick}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 500,
+              fontSize: '0.8rem',
+            }}
+          >
+            Pipeline in progress
+          </Button>
+        )}
+      </Box>
       <Dialog
         open={dialogState.open}
         onClose={handleClose}
@@ -119,6 +168,7 @@ function DeployButton({ project }: DeployButtonProps) {
           initialApplicationName={dialogState.initialApplicationName}
           azureContext={azureContext ?? undefined}
           onClose={handleClose}
+          resumePipelineRepo={resumeRepo}
         />
       </Dialog>
     </>

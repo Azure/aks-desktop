@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import YAML from 'yaml';
+import type { GitHubRepo } from '../../types/github';
 import { Breadcrumb } from '../CreateAKSProject/components/Breadcrumb';
 import GitHubPipelineWizard from '../GitHubPipeline/GitHubPipelineWizard';
 import ConfigureContainer from './components/ConfigureContainer';
@@ -29,6 +30,8 @@ type DeployWizardProps = {
   initialApplicationName?: string;
   azureContext?: { subscriptionId: string; resourceGroup: string; tenantId: string };
   onClose?: () => void;
+  /** Pre-selected repo to resume an in-progress pipeline. */
+  resumePipelineRepo?: GitHubRepo;
 };
 
 enum WizardStep {
@@ -39,17 +42,25 @@ enum WizardStep {
 
 const STEP_NAMES: string[] = ['Source', 'Configure', 'Deploy'];
 
+const FEATURE_FLAG_GITHUB_PIPELINE = 'aks-desktop:feature:github-pipeline';
+const isGitHubPipelineEnabled = (): boolean =>
+  localStorage.getItem(FEATURE_FLAG_GITHUB_PIPELINE) === 'true';
+
 export default function DeployWizard({
   cluster,
   namespace,
   initialApplicationName,
   azureContext,
   onClose,
+  resumePipelineRepo,
 }: DeployWizardProps) {
-  const [activeStep, setActiveStep] = useState(WizardStep.SOURCE);
-  const [sourceType, setSourceType] = useState<null | 'yaml' | 'container' | 'github-pipeline'>(
-    null
+  const [activeStep, setActiveStep] = useState(
+    resumePipelineRepo ? WizardStep.DEPLOY : WizardStep.SOURCE
   );
+  const [sourceType, setSourceType] = useState<null | 'yaml' | 'container'>(
+    resumePipelineRepo ? 'container' : null
+  );
+  const [showPipeline, setShowPipeline] = useState(!!resumePipelineRepo);
   const [yamlEditorValue, setYamlEditorValue] = useState<string>('');
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -60,15 +71,23 @@ export default function DeployWizard({
   // Container configuration state
   const containerConfig = useContainerConfiguration(initialApplicationName);
 
+  // Generate container preview YAML when entering the Deploy step.
+  // Uses a ref to compare against the previous preview to avoid infinite re-renders
+  // (setConfig creates a new object, which would re-trigger this effect).
+  const prevContainerPreviewRef = React.useRef<string>('');
   useEffect(() => {
     if (activeStep === WizardStep.DEPLOY && sourceType === 'container') {
-      containerConfig.setConfig(prev => ({
-        ...prev,
-        containerPreviewYaml: generateYamlForContainer({
+      const preview = generateYamlForContainer({
+        ...containerConfig.config,
+        namespace,
+      });
+      if (preview !== prevContainerPreviewRef.current) {
+        prevContainerPreviewRef.current = preview;
+        containerConfig.setConfig(prev => ({
           ...prev,
-          namespace,
-        }),
-      }));
+          containerPreviewYaml: preview,
+        }));
+      }
     }
     // Generate preview with namespace override for user YAML in the Review step
     if (activeStep === WizardStep.DEPLOY && sourceType === 'yaml') {
@@ -196,57 +215,42 @@ export default function DeployWizard({
           </Box>
         );
       case WizardStep.DEPLOY:
+        if (showPipeline) {
+          return !azureContext ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <GitHubPipelineWizard
+              clusterName={cluster || ''}
+              namespace={namespace || ''}
+              appName={containerConfig.config.appName || initialApplicationName || ''}
+              subscriptionId={azureContext.subscriptionId}
+              resourceGroup={azureContext.resourceGroup}
+              tenantId={azureContext.tenantId}
+              onClose={() => setShowPipeline(false)}
+              initialRepo={resumePipelineRepo}
+              containerConfig={containerConfig.config}
+            />
+          );
+        }
         return (
           <Deploy
-            sourceType={sourceType as 'container' | 'yaml' | null}
+            sourceType={sourceType}
             namespace={namespace}
             yamlEditorValue={yamlEditorValue}
             userPreviewYaml={userPreviewYaml}
             containerPreviewYaml={containerConfig.config.containerPreviewYaml}
             deployResult={deployResult}
             deployMessage={deployMessage}
+            showGitHubPipeline={isGitHubPipelineEnabled() && sourceType === 'container'}
+            onSetupGitHubPipeline={() => setShowPipeline(true)}
           />
         );
       default:
         return null;
     }
   };
-
-  // GitHub Pipeline flow — bypasses wizard chrome (breadcrumb stepper, YAML/container
-  // configuration, deploy button) because the pipeline wizard has its own multi-step
-  // UI with GitHub auth, repo selection, PR tracking, and deployment status screens.
-  if (sourceType === 'github-pipeline') {
-    return (
-      <Container maxWidth="lg" sx={{ py: 3 }}>
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 600, mb: 2 }}>
-          Deploy Application
-        </Typography>
-        <Card>
-          <CardContent sx={{ p: 0 }}>
-            {!azureContext ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-                <CircularProgress />
-              </Box>
-            ) : (
-              <GitHubPipelineWizard
-                clusterName={cluster || ''}
-                namespace={namespace || ''}
-                appName={initialApplicationName || ''}
-                subscriptionId={azureContext.subscriptionId}
-                resourceGroup={azureContext.resourceGroup}
-                tenantId={azureContext.tenantId}
-                onClose={() => {
-                  setSourceType(null);
-                  setActiveStep(WizardStep.SOURCE);
-                  onClose?.();
-                }}
-              />
-            )}
-          </CardContent>
-        </Card>
-      </Container>
-    );
-  }
 
   return (
     // Todo: noScroll could be done like this? <Container maxWidth="lg" sx={{ py: 3, overflow: 'hidden' }}>
@@ -270,54 +274,57 @@ export default function DeployWizard({
           >
             {renderStepContent()}
           </Box>
-          <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              px: 3,
-              py: 3,
-              borderTop: '1px solid',
-              borderColor: 'divider',
-              marginTop: 2,
-            }}
-          >
-            {activeStep === WizardStep.DEPLOY ? (
-              <Box sx={{ width: '100%', display: 'flex', justifyContent: 'flex-end' }}>
-                {deployResult ? (
-                  <Button variant="contained" onClick={onClose}>
-                    Close
-                  </Button>
-                ) : (
-                  <Button
-                    variant="contained"
-                    onClick={handleDeploy}
-                    disabled={deploying}
-                    startIcon={deploying ? <CircularProgress size={20} /> : null}
-                  >
-                    {deploying ? 'Deploying...' : 'Deploy'}
-                  </Button>
-                )}
-              </Box>
-            ) : (
-              <>
-                <Box>
-                  {activeStep > WizardStep.SOURCE && (
-                    <Button variant="outlined" onClick={handleBack}>
-                      Back
+          {/* Hide button bar when GitHub Pipeline wizard is active — it has its own navigation */}
+          {showPipeline && activeStep === WizardStep.DEPLOY ? null : (
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                px: 3,
+                py: 3,
+                borderTop: '1px solid',
+                borderColor: 'divider',
+                marginTop: 2,
+              }}
+            >
+              {activeStep === WizardStep.DEPLOY ? (
+                <Box sx={{ width: '100%', display: 'flex', justifyContent: 'flex-end' }}>
+                  {deployResult ? (
+                    <Button variant="contained" onClick={onClose}>
+                      Close
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="contained"
+                      onClick={handleDeploy}
+                      disabled={deploying}
+                      startIcon={deploying ? <CircularProgress size={20} /> : null}
+                    >
+                      {deploying ? 'Deploying...' : 'Deploy'}
                     </Button>
                   )}
                 </Box>
-                <Button
-                  variant="contained"
-                  onClick={handleNext}
-                  disabled={!isStepValid(activeStep)}
-                >
-                  Next
-                </Button>
-              </>
-            )}
-          </Box>
+              ) : (
+                <>
+                  <Box>
+                    {activeStep > WizardStep.SOURCE && (
+                      <Button variant="outlined" onClick={handleBack}>
+                        Back
+                      </Button>
+                    )}
+                  </Box>
+                  <Button
+                    variant="contained"
+                    onClick={handleNext}
+                    disabled={!isStepValid(activeStep)}
+                  >
+                    Next
+                  </Button>
+                </>
+              )}
+            </Box>
+          )}
         </CardContent>
       </Card>
     </Container>

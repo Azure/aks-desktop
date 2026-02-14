@@ -7,16 +7,16 @@ import { useTheme } from '@mui/material/styles';
 import React from 'react';
 
 type DeploymentSource = {
-  type: 'container' | 'yaml' | 'github-pipeline';
+  type: 'container' | 'yaml';
   displayName: string;
   description: string;
-  icon: 'container' | 'yaml' | 'github';
+  icon: 'container' | 'yaml';
   features: string[];
 };
 
 export interface SourceStepProps {
-  sourceType: 'container' | 'yaml' | 'github-pipeline' | null;
-  onSourceTypeChange: (type: 'container' | 'yaml' | 'github-pipeline') => void;
+  sourceType: 'container' | 'yaml' | null;
+  onSourceTypeChange: (type: 'container' | 'yaml') => void;
 }
 
 const deploymentSources: DeploymentSource[] = [
@@ -42,17 +42,6 @@ const deploymentSources: DeploymentSource[] = [
       'Preview and basic validation before apply',
     ],
   },
-  {
-    type: 'github-pipeline',
-    displayName: 'GitHub Pipeline',
-    description: 'Create a CI/CD pipeline in your GitHub repository',
-    icon: 'github',
-    features: [
-      'GitOps-style deployment via GitHub Actions',
-      'PR-based workflow with approval gates',
-      'Continuous deployment on push to main',
-    ],
-  },
 ];
 
 export default function SourceStep({ sourceType, onSourceTypeChange }: SourceStepProps) {
@@ -69,11 +58,7 @@ export default function SourceStep({ sourceType, onSourceTypeChange }: SourceSte
         {deploymentSources.map(source => {
           const selected = sourceType === source.type;
           const iconName =
-            source.icon === 'container'
-              ? 'mdi:cube-outline'
-              : source.icon === 'github'
-              ? 'mdi:github'
-              : 'mdi:file-code-outline';
+            source.icon === 'container' ? 'mdi:cube-outline' : 'mdi:file-code-outline';
           return (
             <Card
               key={source.type}
