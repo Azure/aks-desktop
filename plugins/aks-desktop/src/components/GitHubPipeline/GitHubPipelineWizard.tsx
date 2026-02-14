@@ -20,6 +20,10 @@ interface GitHubPipelineWizardProps {
   resourceGroup: string;
   tenantId: string;
   onClose: () => void;
+  /** Pre-selected repo for resuming an in-progress pipeline. */
+  initialRepo?: import('../../types/github').GitHubRepo;
+  /** Container configuration from the deploy wizard. */
+  containerConfig?: import('../DeployWizard/hooks/useContainerConfiguration').ContainerConfig;
 }
 
 /**
@@ -92,12 +96,15 @@ export default function GitHubPipelineWizard({
   resourceGroup,
   tenantId,
   onClose,
+  initialRepo,
+  containerConfig,
 }: GitHubPipelineWizardProps) {
   const {
     gitHubAuth,
     selectedRepo,
     setSelectedRepo,
     appInstallUrl,
+    isCheckingInstall,
     pipeline,
     identityId,
     setIdentityId,
@@ -108,6 +115,7 @@ export default function GitHubPipelineWizard({
     handleRedeploy,
     setupPrPolling,
     generatedPrPolling,
+    agentPrDiscoveryPollNow,
     workflowPolling,
     deploymentHealth,
   } = useGitHubPipelineOrchestration({
@@ -117,6 +125,8 @@ export default function GitHubPipelineWizard({
     subscriptionId,
     resourceGroup,
     tenantId,
+    initialRepo,
+    containerConfig,
   });
 
   // --- Render the appropriate screen based on state ---
@@ -143,6 +153,7 @@ export default function GitHubPipelineWizard({
             owner={selectedRepo.owner}
             repo={selectedRepo.repo}
             installUrl={appInstallUrl}
+            isChecking={isCheckingInstall}
             onCheckAgain={checkRepoAndApp}
             onCancel={onClose}
           />
@@ -192,30 +203,9 @@ export default function GitHubPipelineWizard({
             statusChecks={setupPrPolling.statusChecks}
             onReviewInGitHub={() => window.open(pipeline.state.setupPr.url ?? '', '_blank')}
             onBack={onClose}
+            onCheckNow={setupPrPolling.pollNow}
+            onClose={onClose}
           />
-        );
-
-      // Copilot Not Enabled — fallback screen (shouldn't be reached in normal flow)
-      case 'CopilotNotEnabled':
-        return (
-          <Box sx={{ p: 3 }}>
-            <Alert severity="warning" sx={{ mb: 3 }}>
-              Copilot Coding Agent may not be available for {selectedRepo?.owner}/
-              {selectedRepo?.repo}
-            </Alert>
-            <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
-              Ensure Copilot Coding Agent is enabled for this repository in your GitHub or
-              organization settings.
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
-              <Button variant="contained" onClick={checkRepoAndApp}>
-                Retry
-              </Button>
-              <Button variant="outlined" onClick={onClose}>
-                Cancel
-              </Button>
-            </Box>
-          </Box>
         );
 
       case 'AgentTaskCreating':
@@ -232,6 +222,8 @@ export default function GitHubPipelineWizard({
             statusChecks={null}
             onReviewInGitHub={() => window.open(pipeline.state.triggerIssue.url ?? '', '_blank')}
             onBack={onClose}
+            onCheckNow={agentPrDiscoveryPollNow}
+            onClose={onClose}
           />
         );
 
@@ -246,6 +238,8 @@ export default function GitHubPipelineWizard({
             statusChecks={generatedPrPolling.statusChecks}
             onReviewInGitHub={() => window.open(pipeline.state.generatedPr.url ?? '', '_blank')}
             onBack={onClose}
+            onCheckNow={generatedPrPolling.pollNow}
+            onClose={onClose}
           />
         );
 

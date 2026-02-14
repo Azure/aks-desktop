@@ -8,6 +8,7 @@ import {
   checkRepoReadiness,
   dispatchWorkflow,
 } from '../../../utils/github/github-api';
+import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
 import { createSetupPR, triggerCopilotAgent } from '../utils/pipelineOrchestration';
 import { useAgentPRDiscovery } from './useAgentPRDiscovery';
 import { useDeploymentHealth } from './useDeploymentHealth';
@@ -23,6 +24,47 @@ interface UseGitHubPipelineOrchestrationProps {
   subscriptionId: string;
   resourceGroup: string;
   tenantId: string;
+  /** Pre-selected repo for resuming an in-progress pipeline. */
+  initialRepo?: GitHubRepo;
+  /** Container configuration from the deploy wizard. */
+  containerConfig?: ContainerConfig;
+}
+
+const ACTIVE_PIPELINE_KEY_PREFIX = 'aks-desktop:active-pipeline:';
+
+/** States considered "in progress" — used by DeployButton to show resume indicator. */
+const IN_PROGRESS_STATES = new Set([
+  'CheckingRepo',
+  'ReadyForSetup',
+  'SetupPRCreating',
+  'SetupPRAwaitingMerge',
+  'AgentTaskCreating',
+  'AgentRunning',
+  'GeneratedPRAwaitingMerge',
+  'PipelineRunning',
+]);
+
+/**
+ * Reads the active pipeline reference for a given cluster+namespace.
+ * Used by DeployButton to detect in-progress pipelines.
+ */
+export function getActivePipeline(
+  cluster: string,
+  ns: string
+): { repo: GitHubRepo; state: string } | null {
+  try {
+    const raw = localStorage.getItem(`${ACTIVE_PIPELINE_KEY_PREFIX}${cluster}:${ns}`);
+    if (!raw) return null;
+    const repo = JSON.parse(raw) as GitHubRepo;
+    const stateRaw = localStorage.getItem(`aks-desktop:pipeline-state:${repo.owner}/${repo.repo}`);
+    if (!stateRaw) return null;
+    const pipelineState = JSON.parse(stateRaw);
+    const state = pipelineState?.deploymentState;
+    if (!state || !IN_PROGRESS_STATES.has(state)) return null;
+    return { repo, state };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -34,6 +76,7 @@ export interface UseGitHubPipelineOrchestrationResult {
   selectedRepo: GitHubRepo | null;
   setSelectedRepo: React.Dispatch<React.SetStateAction<GitHubRepo | null>>;
   appInstallUrl: string | null;
+  isCheckingInstall: boolean;
   pipeline: ReturnType<typeof useGitHubPipelineState>;
   identityId: string;
   setIdentityId: React.Dispatch<React.SetStateAction<string>>;
@@ -44,6 +87,7 @@ export interface UseGitHubPipelineOrchestrationResult {
   handleRedeploy: () => Promise<void>;
   setupPrPolling: ReturnType<typeof usePRPolling>;
   generatedPrPolling: ReturnType<typeof usePRPolling>;
+  agentPrDiscoveryPollNow: () => void;
   workflowPolling: ReturnType<typeof useWorkflowPolling>;
   deploymentHealth: ReturnType<typeof useDeploymentHealth>;
 }
@@ -62,13 +106,16 @@ export const useGitHubPipelineOrchestration = ({
   subscriptionId,
   resourceGroup,
   tenantId,
+  initialRepo,
+  containerConfig,
 }: UseGitHubPipelineOrchestrationProps): UseGitHubPipelineOrchestrationResult => {
   const agentTriggerInFlightRef = useRef(false);
   const checkRepoInFlightRef = useRef(false);
 
   const gitHubAuth = useGitHubAuth();
-  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(initialRepo ?? null);
   const [appInstallUrl, setAppInstallUrl] = useState<string | null>(null);
+  const [isCheckingInstall, setIsCheckingInstall] = useState(false);
   const repoKey = selectedRepo ? `${selectedRepo.owner}/${selectedRepo.repo}` : null;
   const pipeline = useGitHubPipelineState(repoKey);
 
@@ -109,7 +156,8 @@ export const useGitHubPipelineOrchestration = ({
         resourceGroup,
         namespace,
         appName,
-        serviceType: 'ClusterIP',
+        serviceType: containerConfig?.serviceType ?? 'ClusterIP',
+        containerConfig,
         repo: selectedRepo,
       });
     } else if (!pipeline.state.config.repo.owner) {
@@ -134,6 +182,7 @@ export const useGitHubPipelineOrchestration = ({
     if (!gitHubAuth.octokit || !selectedRepo) return;
     if (checkRepoInFlightRef.current) return;
     checkRepoInFlightRef.current = true;
+    setIsCheckingInstall(true);
     pipeline.setCheckingRepo();
     try {
       const { installed, installUrl } = await checkAppInstallation(
@@ -157,6 +206,7 @@ export const useGitHubPipelineOrchestration = ({
       pipeline.setFailed(err instanceof Error ? err.message : 'Failed to check repo');
     } finally {
       checkRepoInFlightRef.current = false;
+      setIsCheckingInstall(false);
     }
   }, [
     gitHubAuth.octokit,
@@ -293,13 +343,45 @@ export const useGitHubPipelineOrchestration = ({
   ]);
 
   // --- Auto-recheck app installation while waiting for user to install ---
+  // Polls silently without transitioning to CheckingRepo, so the install
+  // screen stays visible. Only advances state when installation is detected.
   useEffect(() => {
     if (pipeline.state.deploymentState !== 'AppInstallationNeeded') return;
-    const intervalId = setInterval(() => {
-      checkRepoAndApp();
-    }, 10_000);
+    if (!gitHubAuth.octokit || !selectedRepo) return;
+    const intervalId = setInterval(async () => {
+      if (checkRepoInFlightRef.current) return;
+      try {
+        setIsCheckingInstall(true);
+        const { installed } = await checkAppInstallation(
+          gitHubAuth.octokit!,
+          selectedRepo!.owner,
+          selectedRepo!.repo
+        );
+        if (installed) {
+          checkRepoAndApp();
+        }
+      } catch {
+        // Silently ignore — will retry on next interval
+      } finally {
+        setIsCheckingInstall(false);
+      }
+    }, 5_000);
     return () => clearInterval(intervalId);
-  }, [pipeline.state.deploymentState, checkRepoAndApp]);
+  }, [pipeline.state.deploymentState, gitHubAuth.octokit, selectedRepo, checkRepoAndApp]);
+
+  // --- Persist / clear active pipeline reference for resume indicator ---
+  // Saves the selected repo when the pipeline is in progress, so DeployButton
+  // can show a "Resume" button. Clears when the pipeline completes or is reset.
+  useEffect(() => {
+    if (!selectedRepo) return;
+    const key = `${ACTIVE_PIPELINE_KEY_PREFIX}${clusterName}:${namespace}`;
+    const state = pipeline.state.deploymentState;
+    if (IN_PROGRESS_STATES.has(state)) {
+      localStorage.setItem(key, JSON.stringify(selectedRepo));
+    } else if (state === 'Deployed' || state === 'Failed' || state === 'Configured') {
+      localStorage.removeItem(key);
+    }
+  }, [pipeline.state.deploymentState, selectedRepo, clusterName, namespace]);
 
   // --- Handler: create setup PR (or skip to agent trigger if files already exist) ---
   const handleCreateSetupPR = useCallback(async () => {
@@ -365,6 +447,7 @@ export const useGitHubPipelineOrchestration = ({
     selectedRepo,
     setSelectedRepo,
     appInstallUrl,
+    isCheckingInstall,
     pipeline,
     identityId,
     setIdentityId,
@@ -375,6 +458,7 @@ export const useGitHubPipelineOrchestration = ({
     handleRedeploy,
     setupPrPolling,
     generatedPrPolling,
+    agentPrDiscoveryPollNow: agentPrDiscovery.pollNow,
     workflowPolling,
     deploymentHealth,
   };

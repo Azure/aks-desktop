@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { Icon } from '@iconify/react';
 import MonacoEditor from '@monaco-editor/react';
-import { Box, Chip, Paper, Stack, Typography } from '@mui/material';
+import { Box, Button, Chip, Paper, Stack, Typography } from '@mui/material';
 import React, { useMemo } from 'react';
 import YAML from 'yaml';
 
@@ -14,6 +15,10 @@ export interface DeployProps {
   yamlEditorValue: string;
   deployResult: 'success' | 'error' | null;
   deployMessage: string;
+  /** Whether the GitHub Pipeline option is available. */
+  showGitHubPipeline?: boolean;
+  /** Callback when user selects the GitHub Pipeline option. */
+  onSetupGitHubPipeline?: () => void;
 }
 
 interface K8sObject {
@@ -30,6 +35,8 @@ export default function Deploy({
   yamlEditorValue,
   deployResult,
   deployMessage,
+  showGitHubPipeline,
+  onSetupGitHubPipeline,
 }: DeployProps) {
   // Parse YAML to extract object summaries
   const yamlObjects = useMemo<K8sObject[]>(() => {
@@ -79,6 +86,38 @@ export default function Deploy({
           }}
         >
           {deployMessage}
+        </Box>
+      )}
+      {!deployResult && showGitHubPipeline && sourceType === 'container' && (
+        <Box
+          sx={{
+            mb: 3,
+            p: 2,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              Set up CI/CD
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+              Create a GitHub Actions pipeline for continuous deployment with PR-based approval
+              gates.
+            </Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            onClick={onSetupGitHubPipeline}
+            startIcon={<Icon icon="mdi:github" />}
+            sx={{ textTransform: 'none', whiteSpace: 'nowrap', ml: 2 }}
+          >
+            Set up GitHub Pipeline
+          </Button>
         </Box>
       )}
       {sourceType === 'container' ? (
