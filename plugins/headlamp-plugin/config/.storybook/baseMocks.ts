@@ -183,6 +183,74 @@ export const baseMocks = [
       items: [],
     })
   ),
+  http.get('http://localhost:4466/apis/apiextensions.k8s.io/v1/customresourcedefinitions', () =>
+    HttpResponse.json({
+      kind: 'CustomResourceDefinitionList',
+      apiVersion: 'apiextensions.k8s.io/v1',
+      metadata: {},
+      items: [],
+    })
+  ),
+  http.get(
+    'http://localhost:4466/apis/apiextensions.k8s.io/v1beta1/customresourcedefinitions',
+    () => HttpResponse.error()
+  ),
+  http.get('http://localhost:4466/api/v1/pods', () =>
+    HttpResponse.json({
+      kind: 'PodList',
+      apiVersion: 'v1',
+      metadata: {},
+      items: [],
+    })
+  ),
+  http.get('http://localhost:4466/apis/apps/v1/deployments', () =>
+    HttpResponse.json({
+      kind: 'DeploymentList',
+      apiVersion: 'apps/v1',
+      metadata: {},
+      items: [],
+    })
+  ),
+  http.get('http://localhost:4466/apis/apps/v1/statefulsets', () =>
+    HttpResponse.json({
+      kind: 'StatefulSetList',
+      apiVersion: 'apps/v1',
+      metadata: {},
+      items: [],
+    })
+  ),
+  http.get('http://localhost:4466/apis/apps/v1/daemonsets', () =>
+    HttpResponse.json({
+      kind: 'DaemonSetList',
+      apiVersion: 'apps/v1',
+      metadata: {},
+      items: [],
+    })
+  ),
+  http.get('http://localhost:4466/apis/apps/v1/replicasets', () =>
+    HttpResponse.json({
+      kind: 'ReplicaSetList',
+      apiVersion: 'apps/v1',
+      metadata: {},
+      items: [],
+    })
+  ),
+  http.get('http://localhost:4466/apis/batch/v1/jobs', () =>
+    HttpResponse.json({
+      kind: 'JobList',
+      apiVersion: 'batch/v1',
+      metadata: {},
+      items: [],
+    })
+  ),
+  http.get('http://localhost:4466/apis/batch/v1/cronjobs', () =>
+    HttpResponse.json({
+      kind: 'CronJobList',
+      apiVersion: 'batch/v1',
+      metadata: {},
+      items: [],
+    })
+  ),
   http.get('http://localhost:4466/apis/metrics.k8s.io/v1beta1/nodes', () =>
     HttpResponse.json({
       apiVersion: 'metrics.k8s.io/v1beta1',
