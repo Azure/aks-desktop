@@ -111,7 +111,7 @@ const mockSource: GraphSource = {
 
 export const BasicExample = () => (
   <TestContext>
-    <GraphView height="600px" defaultSources={[mockSource]} />;
+    <GraphView height="600px" defaultSources={[mockSource]} defaultRelations={[]} />;
   </TestContext>
 );
 BasicExample.args = {};
