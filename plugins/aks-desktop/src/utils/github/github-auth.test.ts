@@ -13,7 +13,7 @@ import {
   StoredTokens,
 } from './github-auth';
 
-// Mock secure-storage to simulate non-desktop environment (fallback to localStorage)
+// Mock secure-storage to simulate an environment where secure storage is unavailable
 vi.mock('./secure-storage', () => ({
   secureStorageSave: vi.fn().mockResolvedValue(false),
   secureStorageLoad: vi.fn().mockResolvedValue(null),
@@ -23,7 +23,7 @@ vi.mock('./secure-storage', () => ({
 /**
  * Helper to mock fetch with a successful JSON response from /externalproxy.
  */
-function mockFetchResponse(jsonResponse: any) {
+function mockFetchResponse(jsonResponse: Record<string, unknown>) {
   vi.stubGlobal(
     'fetch',
     vi.fn().mockResolvedValue({
@@ -48,25 +48,9 @@ function mockFetchFailure(statusText: string) {
   );
 }
 
-// Mock localStorage
-const mockStorage: Record<string, string> = {};
-const mockLocalStorage = {
-  getItem: vi.fn((key: string) => mockStorage[key] ?? null),
-  setItem: vi.fn((key: string, value: string) => {
-    mockStorage[key] = value;
-  }),
-  removeItem: vi.fn((key: string) => {
-    delete mockStorage[key];
-  }),
-};
-vi.stubGlobal('localStorage', mockLocalStorage);
-
 describe('github-auth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    for (const key of Object.keys(mockStorage)) {
-      delete mockStorage[key];
-    }
   });
 
   afterEach(() => {
@@ -109,6 +93,32 @@ describe('github-auth', () => {
       await expect(initiateDeviceFlow()).rejects.toThrow(
         'GitHub OAuth request failed: Bad Gateway'
       );
+    });
+
+    it('should throw on empty response body', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          statusText: 'OK',
+          text: () => Promise.resolve(''),
+        })
+      );
+
+      await expect(initiateDeviceFlow()).rejects.toThrow('No response from GitHub OAuth endpoint');
+    });
+
+    it('should throw on non-JSON response', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          statusText: 'OK',
+          text: () => Promise.resolve('<html>Not JSON</html>'),
+        })
+      );
+
+      await expect(initiateDeviceFlow()).rejects.toThrow('Invalid JSON response from GitHub');
     });
 
     it('should throw on API-level error', async () => {
@@ -268,64 +278,47 @@ describe('github-auth', () => {
       expiresAt: '2025-12-31T00:00:00.000Z',
     };
 
-    it('should fall back to localStorage when secure storage is unavailable', async () => {
+    it('should call secureStorageSave when saving tokens', async () => {
+      const { secureStorageSave } = await import('./secure-storage');
       await saveTokens(tokens);
-      expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
+      expect(secureStorageSave).toHaveBeenCalledWith(
         'aks-desktop:github-auth',
         JSON.stringify(tokens)
       );
     });
 
-    it('should load tokens from localStorage (fallback)', async () => {
-      mockStorage['aks-desktop:github-auth'] = JSON.stringify(tokens);
-      const result = await loadTokens();
-      expect(result).toEqual(tokens);
-    });
-
-    it('should return null when no tokens are stored', async () => {
+    it('should return null when secure storage is unavailable', async () => {
       expect(await loadTokens()).toBeNull();
     });
 
-    it('should return null for invalid JSON', async () => {
-      mockStorage['aks-desktop:github-auth'] = 'not-json';
-      expect(await loadTokens()).toBeNull();
-    });
-
-    it('should clear tokens from localStorage', async () => {
-      await clearTokens();
-      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('aks-desktop:github-auth');
-    });
-
-    it('should load from secure storage when available', async () => {
+    it('should load tokens from secure storage when available', async () => {
       const { secureStorageLoad } = await import('./secure-storage');
       (secureStorageLoad as ReturnType<typeof vi.fn>).mockResolvedValueOnce(JSON.stringify(tokens));
 
       const result = await loadTokens();
       expect(result).toEqual(tokens);
-      // Should clear legacy localStorage entry
-      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('aks-desktop:github-auth');
     });
 
-    it('should save to secure storage when available and skip localStorage', async () => {
-      const { secureStorageSave } = await import('./secure-storage');
-      (secureStorageSave as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
+    it('should return null for corrupted secure storage', async () => {
+      const { secureStorageLoad } = await import('./secure-storage');
+      (secureStorageLoad as ReturnType<typeof vi.fn>).mockResolvedValueOnce('not-json');
 
-      await saveTokens(tokens);
-      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+      expect(await loadTokens()).toBeNull();
     });
 
-    it('should migrate localStorage tokens to secure storage on load', async () => {
-      const { secureStorageSave } = await import('./secure-storage');
-      (secureStorageSave as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
-      mockStorage['aks-desktop:github-auth'] = JSON.stringify(tokens);
-
-      const result = await loadTokens();
-      expect(result).toEqual(tokens);
-      expect(secureStorageSave).toHaveBeenCalledWith(
-        'aks-desktop:github-auth',
-        JSON.stringify(tokens)
+    it('should return null for invalid token shape in secure storage', async () => {
+      const { secureStorageLoad } = await import('./secure-storage');
+      (secureStorageLoad as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        JSON.stringify({ accessToken: 'ok' })
       );
-      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('aks-desktop:github-auth');
+
+      expect(await loadTokens()).toBeNull();
+    });
+
+    it('should call secureStorageDelete when clearing tokens', async () => {
+      const { secureStorageDelete } = await import('./secure-storage');
+      await clearTokens();
+      expect(secureStorageDelete).toHaveBeenCalledWith('aks-desktop:github-auth');
     });
   });
 });
