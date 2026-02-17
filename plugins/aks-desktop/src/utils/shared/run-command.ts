@@ -61,10 +61,9 @@ export function runCommandAsync(
         done({ stdout, stderr });
       });
       // Headlamp types the error callback param as `number`, but Node's
-      // child_process emits an Error object. Cast to unknown to handle both.
-      cmd.on('error', (errOrCode: number) => {
-        const value: unknown = errOrCode;
-        const msg = value instanceof Error ? value.message : String(value);
+      // child_process emits an Error object. Use `unknown` to handle both.
+      cmd.on('error', (errOrCode: unknown) => {
+        const msg = errOrCode instanceof Error ? errOrCode.message : String(errOrCode);
         done({ stdout: '', stderr: `Command execution error: ${msg}` });
       });
     } catch (error) {
