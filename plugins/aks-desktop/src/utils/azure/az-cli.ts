@@ -1,10 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 // Refactored Azure CLI utility functions for Headlamp plugin using runCommand
-import { runCommand } from '@kinvolk/headlamp-plugin/lib';
+import { runCommandAsync } from '../shared/run-command';
 import { getAzCommand, getInstallationInstructions } from './az-cli-path';
-
-declare const pluginRunCommand: typeof runCommand;
 
 // Debug flag - set to true for development/debugging, false for production
 // Can be controlled via:
@@ -29,72 +27,21 @@ function needsRelogin(error: string): boolean {
   );
 }
 
-export function runCommandAsync(
-  command: string,
-  args: string[]
-): Promise<{ stdout: string; stderr: string }> {
-  return new Promise(resolve => {
-    try {
-      // Check if pluginRunCommand is available
-      if (typeof pluginRunCommand === 'undefined') {
-        console.error('[AZ-CLI] pluginRunCommand is not defined!');
-        resolve({
-          stdout: '',
-          stderr:
-            'pluginRunCommand is not available. This feature may not be supported in the current environment.',
-        });
-        return;
-      }
-
-      // Use bundled Azure CLI if available, otherwise use system CLI
-      let actualCommand = command;
-      if (command === 'az') {
-        actualCommand = getAzCommand();
-        debugLog('[AZ-CLI] Command resolution:', command, '→', actualCommand);
-        if (actualCommand !== 'az') {
-          debugLog('[AZ-CLI] Using bundled Azure CLI:', actualCommand);
-        }
-      }
-
-      debugLog('[AZ-CLI] Executing command:', actualCommand, 'with args:', args);
-
-      //@ts-ignore todo: getAzCommand is hardcoded to return 'az', maybe remove all that actualCommand stuff?
-      const cmd = pluginRunCommand(actualCommand, args, {});
-
-      let stdout = '';
-      let stderr = '';
-
-      cmd.stdout.on('data', (data: string) => (stdout += data));
-      cmd.stderr.on('data', (data: string) => (stderr += data));
-
-      cmd.on('exit', () => {
-        // Even if exit code is non-zero, resolve with stdout/stderr for analysis
-        resolve({ stdout, stderr });
-      });
-
-      cmd.on('error', (code: number) => {
-        console.error('[AZ-CLI] Command execution error:', code);
-        resolve({ stdout: '', stderr: `Command execution code: ${code}` });
-      });
-    } catch (error) {
-      // Handle any synchronous errors during command setup
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[AZ-CLI] Synchronous error:', errorMessage);
-      resolve({ stdout: '', stderr: `Failed to execute command: ${errorMessage}` });
-    }
-  });
+export function runAzCommand(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  const actualCommand = getAzCommand();
+  debugLog('[AZ-CLI] Command resolution: az →', actualCommand);
+  debugLog('[AZ-CLI] Executing command:', actualCommand, 'with args:', args);
+  return runCommandAsync(actualCommand, args);
 }
 
-async function tryExec(
-  command: string,
-  args: string[]
-): Promise<{ stdout: string; stderr: string }> {
-  return await runCommandAsync(command, args);
+function runKubectlCommand(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  debugLog('[KUBECTL] Executing command: kubectl with args:', args);
+  return runCommandAsync('kubectl', args);
 }
 
 export async function isAzCliInstalled(): Promise<boolean> {
   try {
-    const { stdout, stderr } = await tryExec('az', ['version']);
+    const { stdout, stderr } = await runAzCommand(['version']);
     console.debug('Azure CLI version check:', stderr, stdout);
     console.log('Azure CLI version check:', stderr, stdout);
 
@@ -140,7 +87,7 @@ export async function isAksPreviewExtensionInstalled(): Promise<{
   error?: string;
 }> {
   try {
-    const { stderr } = await tryExec('az', ['extension', 'show', '--name', 'aks-preview']);
+    const { stderr } = await runAzCommand(['extension', 'show', '--name', 'aks-preview']);
 
     if (stderr && stderr.includes('not installed')) {
       return { installed: false };
@@ -166,7 +113,7 @@ export async function installAksPreviewExtension(): Promise<{
 }> {
   try {
     debugLog('Installing aks-preview extension...');
-    const { stdout, stderr } = await tryExec('az', ['extension', 'add', '-n', 'aks-preview']);
+    const { stdout, stderr } = await runAzCommand(['extension', 'add', '-n', 'aks-preview']);
 
     if (stderr && (stderr.includes('ERROR') || stderr.includes('error'))) {
       return {
@@ -200,7 +147,7 @@ export async function isAlertsManagementExtensionInstalled(): Promise<{
 }> {
   try {
     debugLog('Checking if alertsmanagement extension is installed...');
-    const { stdout, stderr } = await tryExec('az', [
+    const { stdout, stderr } = await runAzCommand([
       'extension',
       'show',
       '--name',
@@ -236,7 +183,7 @@ export async function installAlertsManagementExtension(): Promise<{
 }> {
   try {
     console.log('[AZ-CLI] Installing alertsmanagement extension...');
-    const { stdout, stderr } = await tryExec('az', [
+    const { stdout, stderr } = await runAzCommand([
       'extension',
       'add',
       '-n',
@@ -284,7 +231,7 @@ export async function configureAzureCliExtensions(): Promise<{
   try {
     console.log('[AZ-CLI] Configuring Azure CLI to auto-install extensions...');
 
-    const result1 = await tryExec('az', [
+    const result1 = await runAzCommand([
       'config',
       'set',
       'extension.use_dynamic_install=yes_without_prompt',
@@ -296,7 +243,7 @@ export async function configureAzureCliExtensions(): Promise<{
       result1.stderr
     );
 
-    const result2 = await tryExec('az', [
+    const result2 = await runAzCommand([
       'config',
       'set',
       'extension.dynamic_install_allow_preview=true',
@@ -331,7 +278,7 @@ export async function isManagedNamespacePreviewRegistered({
   error?: string;
 }> {
   try {
-    const { stdout, stderr } = await tryExec('az', [
+    const { stdout, stderr } = await runAzCommand([
       'feature',
       'show',
       '--namespace',
@@ -376,7 +323,7 @@ export async function registerManagedNamespacePreview(): Promise<{
 }> {
   try {
     debugLog('Registering ManagedNamespacePreview feature...');
-    const { stdout, stderr } = await tryExec('az', [
+    const { stdout, stderr } = await runAzCommand([
       'feature',
       'register',
       '--namespace',
@@ -419,7 +366,7 @@ export async function registerContainerServiceProvider(): Promise<{
 }> {
   try {
     debugLog('Registering Microsoft.ContainerService provider...');
-    const { stdout, stderr } = await tryExec('az', [
+    const { stdout, stderr } = await runAzCommand([
       'provider',
       'register',
       '-n',
@@ -453,7 +400,7 @@ export async function registerContainerServiceProvider(): Promise<{
 
 export async function isAzCliLoggedIn(): Promise<boolean> {
   try {
-    const { stdout, stderr } = await tryExec('az', [
+    const { stdout, stderr } = await runAzCommand([
       'account',
       'show',
       '--query',
@@ -491,7 +438,7 @@ export async function getLoginStatus(): Promise<{
   error?: string;
 }> {
   try {
-    const { stdout, stderr } = await tryExec('az', ['account', 'show', '-o', 'json']);
+    const { stdout, stderr } = await runAzCommand(['account', 'show', '-o', 'json']);
 
     // Check if stderr indicates Azure CLI is not found
     if (
@@ -537,7 +484,7 @@ export async function getLoginStatus(): Promise<{
 }
 
 export async function getUserAccountInfo(): Promise<any> {
-  const { stdout, stderr } = await tryExec('az', ['account', 'show', '-o', 'json']);
+  const { stdout, stderr } = await runAzCommand(['account', 'show', '-o', 'json']);
   if (!stdout) {
     const err: any = new Error(stderr || 'Failed to get account info');
     if (needsRelogin(stderr)) err.needsRelogin = true;
@@ -547,7 +494,7 @@ export async function getUserAccountInfo(): Promise<any> {
 }
 
 export async function getAccessToken(): Promise<any> {
-  const { stdout, stderr } = await tryExec('az', ['account', 'get-access-token']);
+  const { stdout, stderr } = await runAzCommand(['account', 'get-access-token']);
   if (!stdout) {
     const err: any = new Error(stderr || 'Failed to get access token');
     if (needsRelogin(stderr)) err.needsRelogin = true;
@@ -566,7 +513,7 @@ export async function initiateLogin(): Promise<{ success: boolean; message: stri
     );
     debugLog('[AZ-CLI] Platform:', typeof process !== 'undefined' ? process.platform : 'unknown');
 
-    const { stdout, stderr } = await tryExec('az', ['login']);
+    const { stdout, stderr } = await runAzCommand(['login']);
 
     debugLog('[AZ-CLI] Login stdout:', stdout);
     debugLog('[AZ-CLI] Login stderr:', stderr);
@@ -676,7 +623,7 @@ export async function login(timeoutMs = 300000): Promise<boolean> {
 }
 
 export async function getSubscriptionIds(): Promise<string[]> {
-  const { stdout, stderr } = await tryExec('az', [
+  const { stdout, stderr } = await runAzCommand([
     'account',
     'list',
     '--query',
@@ -689,7 +636,7 @@ export async function getSubscriptionIds(): Promise<string[]> {
 }
 
 export async function getSubscriptions(): Promise<any[]> {
-  const { stdout, stderr } = await tryExec('az', ['account', 'list', '-o', 'json']);
+  const { stdout, stderr } = await runAzCommand(['account', 'list', '-o', 'json']);
   if (!stdout) throw new Error(stderr || 'Failed to get subscriptions');
   return JSON.parse(stdout).map((sub: any) => ({
     id: sub.id,
@@ -701,7 +648,7 @@ export async function getSubscriptions(): Promise<any[]> {
 }
 
 export async function getTenants(): Promise<any[]> {
-  const { stdout, stderr } = await tryExec('az', ['account', 'tenant', 'list', '-o', 'json']);
+  const { stdout, stderr } = await runAzCommand(['account', 'tenant', 'list', '-o', 'json']);
   if (!stdout) throw new Error(stderr || 'Failed to get tenants');
   return JSON.parse(stdout).map((tenant: any) => ({
     id: tenant.tenantId,
@@ -735,7 +682,7 @@ export async function getClusters(subscriptionId?: string, query?: string): Prom
     // Always add JSON output format
     command.push('-o', 'json');
 
-    const { stdout, stderr } = await tryExec('az', command);
+    const { stdout, stderr } = await runAzCommand(command);
 
     if (stderr) {
       // Check if stderr contains only warnings (not actual errors)
@@ -779,7 +726,7 @@ export async function getClusters(subscriptionId?: string, query?: string): Prom
     const subs = await getSubscriptions();
 
     for (const sub of subs) {
-      const { stdout } = await tryExec('az', [
+      const { stdout } = await runAzCommand([
         'aks',
         'list',
         '--subscription',
@@ -819,7 +766,7 @@ export async function getClusters(subscriptionId?: string, query?: string): Prom
 
 export async function getResourceGroups(subscriptionId: string): Promise<any[]> {
   console.log('Fetching resource groups for subscription:', subscriptionId);
-  const { stdout } = await tryExec('az', [
+  const { stdout } = await runAzCommand([
     'group',
     'list',
     '--subscription',
@@ -855,7 +802,7 @@ export async function getResourceGroups(subscriptionId: string): Promise<any[]> 
 
 export async function getLocations(subscriptionId: string): Promise<any[]> {
   console.log('Fetching Azure locations for subscription:', subscriptionId);
-  const { stdout, stderr } = await tryExec('az', [
+  const { stdout, stderr } = await runAzCommand([
     'account',
     'list-locations',
     '--query',
@@ -899,7 +846,7 @@ export async function getLocations(subscriptionId: string): Promise<any[]> {
 
 export async function getVmSizes(subscriptionId: string, location: string): Promise<any[]> {
   console.log('Fetching VM sizes for location:', location);
-  const { stdout, stderr } = await tryExec('az', [
+  const { stdout, stderr } = await runAzCommand([
     'vm',
     'list-sizes',
     '--subscription',
@@ -974,7 +921,7 @@ export async function getAksClusterStatus(options: {
 
   console.log('Checking AKS cluster status:', 'az', args.join(' '));
 
-  const { stdout, stderr } = await tryExec('az', args);
+  const { stdout, stderr } = await runAzCommand(args);
 
   if (stderr && needsRelogin(stderr)) {
     throw new Error('Authentication required. Please log in to Azure CLI: az login');
@@ -1041,7 +988,7 @@ export async function getAksKubeconfig(options: {
 
   console.log('Getting AKS kubeconfig:', 'az', args.join(' '));
 
-  const { stderr } = await tryExec('az', args);
+  const { stderr } = await runAzCommand(args);
 
   if (stderr && needsRelogin(stderr)) {
     throw new Error('Authentication required. Please log in to Azure CLI: az login');
@@ -1065,7 +1012,7 @@ export async function getAksKubeconfig(options: {
 
 // Azure Container Registry functions
 export async function getContainerRegistries(subscriptionId: string): Promise<any[]> {
-  const { stdout, stderr } = await tryExec('az', [
+  const { stdout, stderr } = await runAzCommand([
     'acr',
     'list',
     '--subscription',
@@ -1134,7 +1081,7 @@ export async function getContainerImages(
 
 async function getImagesFromRegistry(subscriptionId: string, registryName: string): Promise<any[]> {
   // First get list of repositories
-  const { stdout: repoStdout, stderr: repoStderr } = await tryExec('az', [
+  const { stdout: repoStdout, stderr: repoStderr } = await runAzCommand([
     'acr',
     'repository',
     'list',
@@ -1179,7 +1126,7 @@ async function getImagesFromRegistry(subscriptionId: string, registryName: strin
         break;
       }
 
-      const { stdout: tagStdout, stderr: tagStderr } = await tryExec('az', [
+      const { stdout: tagStdout, stderr: tagStderr } = await runAzCommand([
         'acr',
         'repository',
         'show-tags',
@@ -1259,7 +1206,7 @@ export async function getManagedNamespaces(options: {
 
   console.log('Getting managed namespaces:', 'az', args.join(' '));
 
-  const { stdout, stderr } = await tryExec('az', args);
+  const { stdout, stderr } = await runAzCommand(args);
 
   if (stderr && needsRelogin(stderr)) {
     throw new Error('Authentication required. Please log in to Azure CLI: az login');
@@ -1304,7 +1251,7 @@ export async function getManagedNamespacesForSubscription(subscriptionId: string
 
   console.log('Getting managed namespaces for subscription:', 'az', args.join(' '));
 
-  const { stdout, stderr } = await tryExec('az', args);
+  const { stdout, stderr } = await runAzCommand(args);
 
   if (stderr && needsRelogin(stderr)) {
     throw new Error('Authentication required. Please log in to Azure CLI: az login');
@@ -1384,7 +1331,7 @@ export async function getManagedNamespaceDetails(options: {
 
   console.log('Getting managed namespace details:', 'az', args.join(' '));
 
-  const { stdout, stderr } = await tryExec('az', args);
+  const { stdout, stderr } = await runAzCommand(args);
 
   if (stderr && needsRelogin(stderr)) {
     throw new Error('Authentication required. Please log in to Azure CLI: az login');
@@ -1477,7 +1424,7 @@ export async function updateManagedNamespace(options: {
 
   args.push('--output', 'json');
 
-  const { stdout, stderr } = await tryExec('az', args);
+  const { stdout, stderr } = await runAzCommand(args);
 
   if (stderr && needsRelogin(stderr)) {
     throw new Error('Authentication required. Please log in to Azure CLI: az login');
@@ -1513,7 +1460,7 @@ export async function getClusterResourceGroupViaGraph(
       | limit 1
     `;
 
-    const { stdout, stderr } = await tryExec('az', [
+    const { stdout, stderr } = await runAzCommand([
       'graph',
       'query',
       '-q',
@@ -1584,7 +1531,7 @@ export async function getClustersViaGraph(
       | order by name asc
     `;
 
-    const { stdout, stderr } = await tryExec('az', [
+    const { stdout, stderr } = await runAzCommand([
       'graph',
       'query',
       '-q',
@@ -1636,7 +1583,7 @@ export async function getClusterInfo(clusterName?: string): Promise<{
 
   try {
     // First get the current subscription
-    const { stdout: accountStdout } = await tryExec('az', ['account', 'show', '--output', 'json']);
+    const { stdout: accountStdout } = await runAzCommand(['account', 'show', '--output', 'json']);
     if (accountStdout) {
       try {
         const account = JSON.parse(accountStdout);
@@ -1671,7 +1618,7 @@ export async function getClusterInfo(clusterName?: string): Promise<{
 
       // FALLBACK: Use slower az aks list query if Resource Graph fails
       try {
-        const { stdout: clusterStdout } = await tryExec('az', [
+        const { stdout: clusterStdout } = await runAzCommand([
           'aks',
           'list',
           '--subscription',
@@ -1702,7 +1649,7 @@ export async function getClusterInfo(clusterName?: string): Promise<{
     } else {
       // No cluster name provided, try to get from current kubectl context as fallback
       try {
-        const { stdout: contextStdout } = await tryExec('kubectl', ['config', 'current-context']);
+        const { stdout: contextStdout } = await runKubectlCommand(['config', 'current-context']);
         if (contextStdout && contextStdout.trim()) {
           const contextName = contextStdout.trim();
 
@@ -1723,7 +1670,7 @@ export async function getClusterInfo(clusterName?: string): Promise<{
 
       // If still no cluster name, get the first available cluster
       try {
-        const { stdout: clustersStdout } = await tryExec('az', [
+        const { stdout: clustersStdout } = await runAzCommand([
           'aks',
           'list',
           '--subscription',
@@ -1771,7 +1718,7 @@ export async function getClusterResourceIdAndGroup(
 ): Promise<{ resourceId: string; resourceGroup: string } | null> {
   if (!clusterName) return null;
   console.log('cluster name:', clusterName, 'subscription:', subscription);
-  const { stdout, stderr } = await tryExec('az', [
+  const { stdout, stderr } = await runAzCommand([
     'aks',
     'list',
     '--query',
@@ -1844,7 +1791,7 @@ export async function checkNamespaceExists(
     debugLog('   Command:', 'az', args.join(' '));
     debugLog('   Parameters:', { clusterName, resourceGroup, namespaceName, subscriptionId });
 
-    const { stdout, stderr } = await tryExec('az', args);
+    const { stdout, stderr } = await runAzCommand(args);
 
     debugLog('   📤 Command output:');
     debugLog('      stdout:', stdout);
@@ -1943,7 +1890,7 @@ async function checkNamespaceStatus(
     debugLog('   Command:', 'az', args.join(' '));
     debugLog('   Parameters:', { clusterName, resourceGroup, namespaceName, subscriptionId });
 
-    const { stdout, stderr } = await tryExec('az', args);
+    const { stdout, stderr } = await runAzCommand(args);
 
     debugLog('   📤 Command output:');
     debugLog('      stdout:', stdout);
@@ -2041,7 +1988,7 @@ export async function deleteManagedNamespace(options: {
   const { clusterName, resourceGroup, namespaceName, subscriptionId } = options;
 
   try {
-    const result = await tryExec('az', [
+    const result = await runAzCommand([
       'aks',
       'namespace',
       'delete',
@@ -2158,7 +2105,7 @@ export async function createManagedNamespace(options: {
     debugLog('   Parameters:', { clusterName, resourceGroup, namespaceName, subscriptionId });
 
     // Fire the command and don't wait for it to complete
-    const { stdout: initStdout, stderr: initStderr } = await tryExec('az', args);
+    const { stdout: initStdout, stderr: initStderr } = await runAzCommand(args);
 
     debugLog('   📤 Initial command output:');
     debugLog('      stdout:', initStdout);
@@ -2355,7 +2302,7 @@ export async function createNamespaceRoleAssignment(options: {
 
     debugLog('Getting namespace resource ID:', 'az', namespaceArgs.join(' '));
 
-    const { stdout: namespaceStdout, stderr: namespaceStderr } = await tryExec('az', namespaceArgs);
+    const { stdout: namespaceStdout, stderr: namespaceStderr } = await runAzCommand(namespaceArgs);
 
     if (namespaceStderr && needsRelogin(namespaceStderr)) {
       return {
@@ -2409,7 +2356,7 @@ export async function createNamespaceRoleAssignment(options: {
 
     debugLog('Creating role assignment:', 'az', roleArgs.join(' '));
 
-    const { stdout: roleStdout, stderr: roleStderr } = await tryExec('az', roleArgs);
+    const { stdout: roleStdout, stderr: roleStderr } = await runAzCommand(roleArgs);
 
     if (roleStderr && needsRelogin(roleStderr)) {
       return {
@@ -2489,7 +2436,7 @@ export async function verifyNamespaceAccess(options: {
       namespaceArgs.join(' ')
     );
 
-    const { stdout: namespaceStdout, stderr: namespaceStderr } = await tryExec('az', namespaceArgs);
+    const { stdout: namespaceStdout, stderr: namespaceStderr } = await runAzCommand(namespaceArgs);
 
     if (namespaceStderr && needsRelogin(namespaceStderr)) {
       return {
@@ -2546,7 +2493,7 @@ export async function verifyNamespaceAccess(options: {
 
     debugLog('Checking role assignments:', 'az', roleArgs.join(' '));
 
-    const { stdout: roleStdout, stderr: roleStderr } = await tryExec('az', roleArgs);
+    const { stdout: roleStdout, stderr: roleStderr } = await runAzCommand(roleArgs);
 
     if (roleStderr && needsRelogin(roleStderr)) {
       return {
