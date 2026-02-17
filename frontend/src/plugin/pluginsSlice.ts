@@ -115,6 +115,8 @@ export type PluginInfo = {
      * If not specified, defaults to true
      */
     enabledByDefault?: boolean;
+    /** Array of supported locales for i18n */
+    i18n?: string[];
   };
 
   version?: string; // unused by PluginSettings
