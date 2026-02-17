@@ -35,7 +35,13 @@ export default function AzureProfilePage() {
     try {
       // Import dynamically to avoid circular dependencies
       const { runAzCommand } = await import('../../utils/azure/az-cli');
-      await runAzCommand(['logout']);
+      const result = await runAzCommand(['logout']);
+
+      if (result.stderr && (result.stderr.includes('ERROR') || result.stderr.includes('error'))) {
+        console.error('Azure CLI logout error:', result.stderr);
+        setLoggingOut(false);
+        return;
+      }
 
       // Trigger update event for sidebar label
       window.dispatchEvent(new CustomEvent('azure-auth-update'));
