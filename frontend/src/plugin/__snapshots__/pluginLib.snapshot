@@ -326,7 +326,6 @@
     },
     "cluster": {
       "HEADLAMP_ALLOWED_NAMESPACES": "headlamp.allowed-namespaces",
-      "KubeObject": [Function],
       "getAllowedNamespaces": [Function],
     },
     "clusterRole": {

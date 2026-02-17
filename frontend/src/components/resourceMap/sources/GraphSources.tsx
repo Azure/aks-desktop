@@ -25,7 +25,7 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { KubeObject } from '../../../lib/k8s/cluster';
+import type { KubeObject } from '../../../lib/k8s/KubeObject';
 import { GraphEdge, GraphNode, GraphSource, Relation } from '../graph/graphModel';
 
 /**

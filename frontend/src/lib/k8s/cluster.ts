@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-import { KubeMetadata } from './KubeMetadata';
-export {
-  KubeObject,
-  type KubeObjectClass,
-  type KubeObjectInterface,
-  type ApiListOptions,
-  type ApiListSingleNamespaceOptions,
-  type AuthRequestResourceAttrs,
+import type { KubeMetadata } from './KubeMetadata';
+export type {
+  KubeObjectClass,
+  KubeObjectInterface,
+  ApiListOptions,
+  ApiListSingleNamespaceOptions,
+  AuthRequestResourceAttrs,
 } from './KubeObject';
 export { type KubeMetadata } from './KubeMetadata';
 export { type Workload } from './Workload';

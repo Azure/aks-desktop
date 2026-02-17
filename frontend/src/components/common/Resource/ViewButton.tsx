@@ -17,7 +17,7 @@
 import { Icon } from '@iconify/react';
 import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { KubeObject } from '../../../lib/k8s/cluster';
+import type { KubeObject } from '../../../lib/k8s/KubeObject';
 import { Activity } from '../../activity/Activity';
 import ActionButton, { ButtonStyle } from '../ActionButton';
 import EditorDialog from './EditorDialog';
