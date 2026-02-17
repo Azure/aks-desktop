@@ -5,8 +5,8 @@ import { secureStorageDelete, secureStorageLoad, secureStorageSave } from './sec
 
 // GitHub App public client ID and slug — safe to embed in desktop app
 // TODO: Replace with production app slug before release
-export const GITHUB_APP_CLIENT_ID = 'Iv23liWWbvrfIrA6WWj5';
-export const GITHUB_APP_SLUG = 'aks-desktop-testing';
+const GITHUB_APP_CLIENT_ID = 'Iv23liWWbvrfIrA6WWj5';
+const GITHUB_APP_SLUG = 'aks-desktop-testing';
 export const GITHUB_APP_INSTALL_URL = `https://github.com/apps/${GITHUB_APP_SLUG}/installations/new`;
 
 const DEVICE_CODE_URL = 'https://github.com/login/device/code';
@@ -51,7 +51,7 @@ function requireNumber(data: Record<string, unknown>, key: string): number {
  * so browser fetch() is blocked. Routing through the backend proxy avoids CORS.
  * Requires the target URL to be allowlisted in app-build-manifest.json proxy-urls.
  */
-export const githubOAuthPost = async (
+const githubOAuthPost = async (
   url: string,
   params: Record<string, string>
 ): Promise<Record<string, unknown>> => {
@@ -192,58 +192,26 @@ function validateTokens(parsed: unknown): StoredTokens | null {
  * usable for the current session but will require re-authentication next time.
  */
 export const saveTokens = async (tokens: StoredTokens): Promise<void> => {
-  const json = JSON.stringify(tokens);
-  const saved = await secureStorageSave(STORAGE_KEY, json);
-  if (!saved) {
-    // Fallback to localStorage when Electron safeStorage is unavailable (e.g. dev mode).
-    // loadTokens already reads from localStorage as a fallback, so this keeps the
-    // save/load paths symmetric.
-    localStorage.setItem(STORAGE_KEY, json);
-  }
+  await secureStorageSave(STORAGE_KEY, JSON.stringify(tokens));
 };
 
 /**
- * Loads saved tokens, preferring Electron safeStorage over localStorage.
- * Automatically migrates legacy localStorage tokens to secure storage.
+ * Loads saved tokens from Electron safeStorage.
+ * Returns null if secure storage is unavailable or tokens are missing/corrupted.
  */
 export const loadTokens = async (): Promise<StoredTokens | null> => {
-  // Try secure storage first
   const secure = await secureStorageLoad(STORAGE_KEY);
-  if (secure) {
-    try {
-      const tokens = validateTokens(JSON.parse(secure));
-      if (tokens) {
-        // Clean up any legacy localStorage entry
-        localStorage.removeItem(STORAGE_KEY);
-        return tokens;
-      }
-    } catch {
-      // Corrupted secure storage — fall through to localStorage
-    }
-  }
-
-  // Fallback: try localStorage (migration path or non-desktop)
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) return null;
+  if (!secure) return null;
   try {
-    const tokens = validateTokens(JSON.parse(stored));
-    if (tokens) {
-      // Migrate to secure storage for next time
-      const migrated = await secureStorageSave(STORAGE_KEY, stored);
-      if (migrated) {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-    return tokens;
+    return validateTokens(JSON.parse(secure));
   } catch {
     return null;
   }
 };
 
 /**
- * Removes saved tokens from both secure storage and localStorage.
+ * Removes saved tokens from secure storage.
  */
 export const clearTokens = async (): Promise<void> => {
   await secureStorageDelete(STORAGE_KEY);
-  localStorage.removeItem(STORAGE_KEY);
 };
