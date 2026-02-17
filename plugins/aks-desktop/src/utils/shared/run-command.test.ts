@@ -47,12 +47,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// Mock the headlamp plugin module (needed for the type-only import to resolve).
-vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
-  runCommand: vi.fn(),
-}));
-
-// Import after mocks are set up.
 const { runCommandAsync } = await import('./run-command');
 
 describe('runCommandAsync', () => {
