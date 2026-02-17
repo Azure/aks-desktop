@@ -1,4 +1,4 @@
-import { getClusters, getSubscriptions as getAzSubscriptions, runCommandAsync } from './az-cli';
+import { getClusters, getSubscriptions as getAzSubscriptions, runAzCommand } from './az-cli';
 
 export interface Subscription {
   id: string;
@@ -161,7 +161,7 @@ export async function getAKSClusterDetails(
       'json',
     ];
 
-    const { stdout, stderr } = await runCommandAsync('az', args);
+    const { stdout, stderr } = await runAzCommand(args);
 
     if (stderr && (stderr.includes('ERROR') || stderr.includes('error'))) {
       return {

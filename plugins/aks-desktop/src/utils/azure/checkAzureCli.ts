@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { runCommandAsync } from './az-cli';
+import { runAzCommand } from './az-cli';
 
 /**
  * Checks Azure CLI version and aks-preview extension status.
@@ -23,7 +23,7 @@ export async function checkAzureCliAndAksPreview(): Promise<{
   const suggestions: string[] = [];
 
   // Check Azure CLI version using JSON output
-  const { stdout: versionStdout, stderr: versionStderr } = await runCommandAsync('az', ['version']);
+  const { stdout: versionStdout, stderr: versionStderr } = await runAzCommand(['version']);
   if (
     versionStderr &&
     (versionStderr.includes('not found') || versionStderr.includes('command not found'))

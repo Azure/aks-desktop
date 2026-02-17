@@ -34,8 +34,8 @@ export default function AzureProfilePage() {
     setLoggingOut(true);
     try {
       // Import dynamically to avoid circular dependencies
-      const { runCommandAsync } = await import('../../utils/azure/az-cli');
-      await runCommandAsync('az', ['logout']);
+      const { runAzCommand } = await import('../../utils/azure/az-cli');
+      await runAzCommand(['logout']);
 
       // Trigger update event for sidebar label
       window.dispatchEvent(new CustomEvent('azure-auth-update'));
