@@ -8,7 +8,9 @@
 
 interface DesktopApiSecureStorage {
   secureStorageSave(key: string, value: string): Promise<{ success: boolean; error?: string }>;
-  secureStorageLoad(key: string): Promise<{ success: boolean; value?: string; error?: string }>;
+  secureStorageLoad(
+    key: string
+  ): Promise<{ success: boolean; value?: string | null; error?: string }>;
   secureStorageDelete(key: string): Promise<{ success: boolean; error?: string }>;
 }
 
@@ -50,7 +52,7 @@ export const secureStorageLoad = async (key: string): Promise<string | null> => 
   if (!api) return null;
   try {
     const result = await api.secureStorageLoad(key);
-    if (result.success && result.value !== undefined) {
+    if (result.success && result.value !== undefined && result.value !== null) {
       return result.value;
     }
     return null;
