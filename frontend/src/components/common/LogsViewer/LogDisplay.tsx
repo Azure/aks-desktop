@@ -257,6 +257,7 @@ export function LogDisplay({
           <Button
             variant="contained"
             color="secondary"
+            aria-label="Search logs"
             onClick={() => setShowSearch(true)}
             sx={{ fontSize: '1.25rem', minWidth: '42px', minHeight: '42px', p: 0 }}
           >
@@ -282,10 +283,12 @@ export function LogDisplay({
                 handleChangeResultIndex(+1);
               }}
             >
+              {/* eslint-disable jsx-a11y/no-autofocus */}
               <TextField
                 variant="outlined"
                 size="small"
                 label={<Trans>Search</Trans>}
+                autoFocus
                 value={searchQuery}
                 InputProps={{
                   endAdornment: (
@@ -303,6 +306,7 @@ export function LogDisplay({
                   setSearchResultIndex(0);
                 }}
               />
+              {/* eslint-enable jsx-a11y/no-autofocus */}
             </form>
             <Button
               onClick={() => handleChangeResultIndex(-1)}
