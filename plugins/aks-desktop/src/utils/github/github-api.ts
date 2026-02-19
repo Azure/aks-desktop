@@ -2,7 +2,17 @@
 // Licensed under the Apache 2.0.
 
 import { Octokit } from '@octokit/rest';
-import type { RepoReadiness, WorkflowRunConclusion, WorkflowRunStatus } from '../../types/github';
+import {
+  AGENT_CONFIG_PATH,
+  COPILOT_SETUP_STEPS_PATH,
+} from '../../components/GitHubPipeline/constants';
+import type {
+  GitHubRunConclusion,
+  GitHubRunStatus,
+  RepoReadiness,
+  WorkflowRunConclusion,
+  WorkflowRunStatus,
+} from '../../types/github';
 import { GITHUB_APP_INSTALL_URL } from './github-auth';
 
 // ES2022 Error.cause — available at runtime but not in our TS lib target
@@ -28,10 +38,7 @@ function apiError(context: string, error: unknown): Error {
  */
 function unicodeToBase64(str: string): string {
   const bytes = new TextEncoder().encode(str);
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
+  const binary = Array.from(bytes, b => String.fromCharCode(b)).join('');
   return btoa(binary);
 }
 
@@ -112,8 +119,8 @@ export const checkRepoReadiness = async (
 ): Promise<RepoReadiness> => {
   try {
     const [hasSetupWorkflow, hasAgentConfig] = await Promise.all([
-      fileExists(octokit, owner, repo, '.github/workflows/copilot-setup-steps.yml', defaultBranch),
-      fileExists(octokit, owner, repo, '.github/agents/containerization.agent.md', defaultBranch),
+      fileExists(octokit, owner, repo, COPILOT_SETUP_STEPS_PATH, defaultBranch),
+      fileExists(octokit, owner, repo, AGENT_CONFIG_PATH, defaultBranch),
     ]);
 
     return { hasSetupWorkflow, hasAgentConfig };
@@ -270,7 +277,7 @@ export const getPullRequest = async (
   prNumber: number
 ): Promise<{
   merged: boolean;
-  state: string;
+  state: 'open' | 'closed';
   url: string;
   mergeable: boolean | null;
   headSha: string;
@@ -283,7 +290,7 @@ export const getPullRequest = async (
     });
     return {
       merged: data.merged,
-      state: data.state,
+      state: data.state as 'open' | 'closed',
       url: data.html_url,
       mergeable: data.mergeable ?? null,
       headSha: data.head.sha,
@@ -298,7 +305,7 @@ export const getStatusChecks = async (
   owner: string,
   repo: string,
   ref: string
-): Promise<Array<{ name: string; status: string; conclusion: string | null }>> => {
+): Promise<Array<{ name: string; status: GitHubRunStatus; conclusion: GitHubRunConclusion }>> => {
   try {
     const { data } = await octokit.checks.listForRef({
       owner,
@@ -309,8 +316,8 @@ export const getStatusChecks = async (
 
     return data.check_runs.map(run => ({
       name: run.name,
-      status: run.status,
-      conclusion: run.conclusion ?? null,
+      status: run.status as GitHubRunStatus,
+      conclusion: (run.conclusion ?? null) as GitHubRunConclusion,
     }));
   } catch (error) {
     throw apiError(`Failed to get status checks for ref ${ref} in ${owner}/${repo}`, error);
@@ -375,6 +382,89 @@ export const assignIssueToCopilot = async (
   }
 };
 
+export const getIssue = async (
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  issueNumber: number
+): Promise<{ number: number; state: 'open' | 'closed'; url: string }> => {
+  try {
+    const { data } = await octokit.issues.get({
+      owner,
+      repo,
+      issue_number: issueNumber,
+    });
+    return { number: data.number, state: data.state as 'open' | 'closed', url: data.html_url };
+  } catch (error) {
+    throw apiError(`Failed to get issue #${issueNumber} in ${owner}/${repo}`, error);
+  }
+};
+
+interface TimelineCrossReference {
+  event: 'cross-referenced';
+  source: {
+    issue: {
+      number: number;
+      html_url: string;
+      state: 'open' | 'closed';
+      pull_request?: { merged_at: string | null };
+    };
+  };
+}
+
+function isTimelineCrossReference(event: unknown): event is TimelineCrossReference {
+  if (typeof event !== 'object' || event === null) return false;
+  const e = event as Record<string, unknown>;
+  if (e.event !== 'cross-referenced') return false;
+  const source = e.source as Record<string, unknown> | undefined;
+  const issue = source?.issue as Record<string, unknown> | undefined;
+  return (
+    typeof issue?.number === 'number' &&
+    typeof issue?.html_url === 'string' &&
+    typeof issue?.state === 'string' &&
+    issue?.pull_request !== undefined
+  );
+}
+
+/**
+ * Finds a pull request linked to a specific issue via the timeline API.
+ * Returns the first cross-referenced PR (the agent's PR referencing the trigger issue).
+ */
+export const findLinkedPullRequest = async (
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  issueNumber: number
+): Promise<{ number: number; url: string; merged: boolean; state: 'open' | 'closed' } | null> => {
+  try {
+    const { data } = await octokit.request(
+      'GET /repos/{owner}/{repo}/issues/{issue_number}/timeline',
+      {
+        owner,
+        repo,
+        issue_number: issueNumber,
+        per_page: 100,
+      }
+    );
+
+    for (const event of data) {
+      if (isTimelineCrossReference(event)) {
+        const { issue } = event.source;
+        return {
+          number: issue.number,
+          url: issue.html_url,
+          merged: issue.pull_request?.merged_at !== null,
+          state: issue.state,
+        };
+      }
+    }
+
+    return null;
+  } catch (error) {
+    throw apiError(`Failed to find linked PR for issue #${issueNumber} in ${owner}/${repo}`, error);
+  }
+};
+
 export const listPullRequests = async (
   octokit: Octokit,
   owner: string,
@@ -432,6 +522,7 @@ export const listWorkflowRuns = async (
     status: WorkflowRunStatus | null;
     conclusion: WorkflowRunConclusion;
     name: string;
+    createdAt: string;
   }>
 > => {
   try {
@@ -455,6 +546,7 @@ export const listWorkflowRuns = async (
       status: run.status as WorkflowRunStatus | null,
       conclusion: run.conclusion as WorkflowRunConclusion,
       name: run.name ?? '',
+      createdAt: run.created_at,
     }));
   } catch (error) {
     throw apiError(`Failed to list workflow runs in ${owner}/${repo}`, error);
@@ -493,14 +585,15 @@ export const getWorkflowRun = async (
 
 /**
  * Dispatches a workflow run via the workflow_dispatch event.
- * Used for the "Redeploy" action.
+ * Optionally passes input parameters to parameterized workflows.
  */
 export const dispatchWorkflow = async (
   octokit: Octokit,
   owner: string,
   repo: string,
   workflowId: string,
-  ref: string
+  ref: string,
+  inputs?: Record<string, string>
 ): Promise<void> => {
   try {
     await octokit.actions.createWorkflowDispatch({
@@ -508,6 +601,7 @@ export const dispatchWorkflow = async (
       repo,
       workflow_id: workflowId,
       ref,
+      ...(inputs ? { inputs } : {}),
     });
   } catch (error) {
     throw apiError(`Failed to dispatch workflow ${workflowId} in ${owner}/${repo}`, error);

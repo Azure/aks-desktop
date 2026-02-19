@@ -3,6 +3,7 @@
 
 import type { Octokit } from '@octokit/rest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PIPELINE_WORKFLOW_FILENAME } from '../../components/GitHubPipeline/constants';
 
 const mockOctokit = {
   users: { getAuthenticated: vi.fn() },
@@ -447,6 +448,7 @@ describe('github-api', () => {
               status: 'completed',
               conclusion: 'success',
               name: 'Deploy',
+              created_at: '2024-01-01T00:00:00Z',
             },
           ],
         },
@@ -460,6 +462,7 @@ describe('github-api', () => {
           status: 'completed',
           conclusion: 'success',
           name: 'Deploy',
+          createdAt: '2024-01-01T00:00:00Z',
         },
       ]);
     });
@@ -712,13 +715,14 @@ describe('github-api', () => {
               status: 'completed',
               conclusion: 'success',
               name: 'Deploy',
+              created_at: '2024-01-02T00:00:00Z',
             },
           ],
         },
       });
 
       const result = await listWorkflowRuns(mockOctokit as never, 'owner', 'repo', {
-        workflowFileName: 'deploy-to-aks.yml',
+        workflowFileName: PIPELINE_WORKFLOW_FILENAME,
       });
 
       expect(result).toEqual([
@@ -728,10 +732,11 @@ describe('github-api', () => {
           status: 'completed',
           conclusion: 'success',
           name: 'Deploy',
+          createdAt: '2024-01-02T00:00:00Z',
         },
       ]);
       expect(mockOctokit.actions.listWorkflowRuns).toHaveBeenCalledWith(
-        expect.objectContaining({ workflow_id: 'deploy-to-aks.yml' })
+        expect.objectContaining({ workflow_id: PIPELINE_WORKFLOW_FILENAME })
       );
     });
   });

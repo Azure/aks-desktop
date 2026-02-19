@@ -12,6 +12,7 @@ export const GITHUB_APP_INSTALL_URL = `https://github.com/apps/${GITHUB_APP_SLUG
 const DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const STORAGE_KEY = 'aks-desktop:github-auth';
+const LOCALSTORAGE_FALLBACK_KEY = 'aks-desktop:github-auth-fallback';
 
 export interface DeviceFlowResponse {
   deviceCode: string;
@@ -176,42 +177,71 @@ export const isTokenExpired = (expiresAt: string): boolean => {
  * Validates a parsed JSON object has the expected StoredTokens shape.
  */
 function validateTokens(parsed: unknown): StoredTokens | null {
+  if (parsed === null || typeof parsed !== 'object') return null;
+  const obj = parsed as Record<string, unknown>;
   if (
-    typeof (parsed as Record<string, unknown>)?.accessToken !== 'string' ||
-    typeof (parsed as Record<string, unknown>)?.refreshToken !== 'string' ||
-    typeof (parsed as Record<string, unknown>)?.expiresAt !== 'string'
+    typeof obj.accessToken !== 'string' ||
+    typeof obj.refreshToken !== 'string' ||
+    typeof obj.expiresAt !== 'string'
   ) {
     return null;
   }
   return parsed as StoredTokens;
 }
 
-/**
- * Persists tokens using Electron safeStorage (OS-level encryption).
- * If secure storage is unavailable, tokens are not persisted — they remain
- * usable for the current session but will require re-authentication next time.
- */
-export const saveTokens = async (tokens: StoredTokens): Promise<void> => {
-  await secureStorageSave(STORAGE_KEY, JSON.stringify(tokens));
-};
+const IS_DEV = process.env.NODE_ENV === 'development';
 
 /**
- * Loads saved tokens from Electron safeStorage.
- * Returns null if secure storage is unavailable or tokens are missing/corrupted.
+ * Persists tokens using Electron safeStorage (OS-level encryption).
+ * In development mode, falls back to localStorage when secure storage is unavailable.
  */
-export const loadTokens = async (): Promise<StoredTokens | null> => {
-  const secure = await secureStorageLoad(STORAGE_KEY);
-  if (!secure) return null;
-  try {
-    return validateTokens(JSON.parse(secure));
-  } catch {
-    return null;
+export const saveTokens = async (tokens: StoredTokens): Promise<void> => {
+  const json = JSON.stringify(tokens);
+  const saved = await secureStorageSave(STORAGE_KEY, json);
+  if (!saved && IS_DEV) {
+    try {
+      localStorage.setItem(LOCALSTORAGE_FALLBACK_KEY, json);
+    } catch {
+      // Ignore — tokens remain in React state for the current session
+    }
   }
 };
 
 /**
- * Removes saved tokens from secure storage.
+ * Loads saved tokens from Electron safeStorage.
+ * In development mode, falls back to localStorage.
+ * Returns null if tokens are missing/corrupted.
+ */
+export const loadTokens = async (): Promise<StoredTokens | null> => {
+  const secure = await secureStorageLoad(STORAGE_KEY);
+  if (secure) {
+    try {
+      return validateTokens(JSON.parse(secure));
+    } catch {
+      // Fall through to dev fallback
+    }
+  }
+  if (IS_DEV) {
+    try {
+      const fallback = localStorage.getItem(LOCALSTORAGE_FALLBACK_KEY);
+      if (fallback) return validateTokens(JSON.parse(fallback));
+    } catch {
+      // Ignore
+    }
+  }
+  return null;
+};
+
+/**
+ * Removes saved tokens from secure storage (and localStorage in dev mode).
  */
 export const clearTokens = async (): Promise<void> => {
   await secureStorageDelete(STORAGE_KEY);
+  if (IS_DEV) {
+    try {
+      localStorage.removeItem(LOCALSTORAGE_FALLBACK_KEY);
+    } catch {
+      // Ignore
+    }
+  }
 };
