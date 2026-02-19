@@ -486,14 +486,15 @@ export const getWorkflowRun = async (
 
 /**
  * Dispatches a workflow run via the workflow_dispatch event.
- * Used for the "Redeploy" action.
+ * Optionally passes input parameters to parameterized workflows.
  */
 export const dispatchWorkflow = async (
   octokit: Octokit,
   owner: string,
   repo: string,
   workflowId: string,
-  ref: string
+  ref: string,
+  inputs?: Record<string, string>
 ): Promise<void> => {
   try {
     await octokit.actions.createWorkflowDispatch({
@@ -501,6 +502,7 @@ export const dispatchWorkflow = async (
       repo,
       workflow_id: workflowId,
       ref,
+      ...(inputs ? { inputs } : {}),
     });
   } catch (error) {
     throw apiError(`Failed to dispatch workflow ${workflowId} in ${owner}/${repo}`, error);
