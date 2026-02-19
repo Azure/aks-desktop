@@ -20,9 +20,11 @@ import { Redirect } from 'react-router-dom';
 import RegisterAKSClusterPage from './components/AKS/RegisterAKSClusterPage';
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
+import ConfigurePipelineButton from './components/ConfigurePipeline/ConfigurePipelineButton';
 import CreateAKSProject from './components/CreateAKSProject/CreateAKSProject';
 import AKSProjectDeleteButton from './components/DeleteAKSProject/AKSProjectDeleteButton';
-import DeployButton from './components/Deploy/DeployButton';
+import PipelineCard from './components/Deployments/PipelineCard';
+import DeployTab from './components/DeployTab/DeployTab';
 import ImportAKSProjects from './components/ImportAKSProjects/ImportAKSProjects';
 import InfoTab from './components/InfoTab/InfoTab';
 import AzureLogo from './components/Logo/Logo';
@@ -276,12 +278,30 @@ registerProjectOverviewSection({
   component: ({ project }) => <MetricsCard project={project} />,
 });
 
+registerProjectOverviewSection({
+  id: 'pipeline-overview',
+  // @ts-ignore todo: there is an isEnabled prop in registerProjectOverviewSection it's just not present in the types yet. We need to push our changes to headlamp
+  isEnabled: isAksProject,
+  component: ({ project }) => <PipelineCard project={project} />,
+});
+
 registerProjectDetailsTab({
   id: 'info',
   label: 'Info',
   icon: 'mdi:information',
   component: ({ project }) => {
     return <InfoTab project={project} />;
+  },
+});
+
+registerProjectDetailsTab({
+  id: 'deploy',
+  label: 'Deploy',
+  icon: 'mdi:cloud-upload',
+  // @ts-ignore todo: Type 'unknown' is not assignable to type 'boolean'. isAksProject is a promise
+  isEnabled: isAksProject,
+  component: ({ project }) => {
+    return <DeployTab project={project} />;
   },
 });
 
@@ -314,10 +334,10 @@ registerProjectDetailsTab({
   },
 });
 
-// Register Deploy Application button in project header
+// Register Configure Pipeline button in project header
 registerProjectHeaderAction({
-  id: 'deploy-application',
-  component: ({ project }) => <DeployButton project={project} />,
+  id: 'configure-pipeline',
+  component: ({ project }) => <ConfigurePipelineButton project={project} />,
 });
 
 // Register custom delete button for AKS projects only

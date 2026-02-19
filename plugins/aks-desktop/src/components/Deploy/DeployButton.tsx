@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-import { Button, Dialog } from '@mui/material';
+import { Box, Button, Dialog } from '@mui/material';
 import React, { useEffect } from 'react';
 import DeployWizard from '../DeployWizard/DeployWizard';
 import { useDeployUrlParams } from './hooks/useDeployUrlParams';
@@ -63,18 +63,20 @@ function DeployButton({ project }: DeployButtonProps) {
 
   return (
     <>
-      <Button
-        variant="contained"
-        color="primary"
-        startIcon={<Icon icon="mdi:cloud-upload" />}
-        onClick={handleClickOpen}
-        sx={{
-          textTransform: 'none',
-          fontWeight: 'bold',
-        }}
-      >
-        Deploy Application
-      </Button>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={<Icon icon="mdi:cloud-upload" />}
+          onClick={handleClickOpen}
+          sx={{
+            textTransform: 'none',
+            fontWeight: 'bold',
+          }}
+        >
+          Deploy Application
+        </Button>
+      </Box>
       <Dialog
         open={dialogState.open}
         onClose={handleClose}
