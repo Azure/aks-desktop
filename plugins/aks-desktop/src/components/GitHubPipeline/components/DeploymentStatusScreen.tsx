@@ -274,7 +274,12 @@ export const DeploymentStatusScreen: React.FC<DeploymentStatusScreenProps> = ({
           />
           {workflowStatus.url && (
             <Tooltip title="View on GitHub">
-              <IconButton size="small" onClick={onOpenGitHubRun} sx={{ ml: 0.5 }}>
+              <IconButton
+                size="small"
+                onClick={onOpenGitHubRun}
+                sx={{ ml: 0.5 }}
+                aria-label="View workflow run on GitHub"
+              >
                 <Icon icon="mdi:open-in-new" width={16} />
               </IconButton>
             </Tooltip>
