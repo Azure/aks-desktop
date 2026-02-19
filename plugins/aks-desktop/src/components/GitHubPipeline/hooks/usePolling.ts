@@ -91,12 +91,11 @@ export const usePolling = <T>({
       if (pollingInFlightRef.current) return;
       pollingInFlightRef.current = true;
       try {
+        pollCountRef.current++;
         try {
           const result = await pollFn();
           if (!activeRef.current) return;
           setError(null);
-
-          pollCountRef.current++;
 
           if (result !== null) {
             setData(result);

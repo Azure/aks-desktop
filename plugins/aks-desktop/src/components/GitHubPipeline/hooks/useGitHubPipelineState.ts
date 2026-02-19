@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
 import type { RepoReadiness } from '../../../types/github';
 import type {
   IssueTracking,
@@ -381,19 +381,20 @@ export const useGitHubPipelineState = (repoKey: string | null): UseGitHubPipelin
     return INITIAL_STATE;
   });
 
-  // Synchronous state load when repoKey changes. By dispatching during render
-  // (before effects run), we ensure other effects always see the correct persisted
-  // state — avoiding races where effects dispatch to stale INITIAL_STATE.
   const prevRepoKeyRef = useRef(repoKey);
   const lastLoadedStateRef = useRef<PipelineState | null>(null);
 
-  if (repoKey !== prevRepoKeyRef.current) {
+  // Load persisted state when repoKey changes — useLayoutEffect runs
+  // synchronously before paint and before regular effects, avoiding both
+  // dispatch-during-render warnings and stale-state races.
+  useLayoutEffect(() => {
+    if (repoKey === prevRepoKeyRef.current) return;
     prevRepoKeyRef.current = repoKey;
     const persisted = repoKey ? loadPersistedState(repoKey) : null;
     const loaded = persisted ?? INITIAL_STATE;
     lastLoadedStateRef.current = loaded;
     dispatch({ type: 'LOAD_STATE', state: loaded });
-  }
+  }, [repoKey]);
 
   // Persist state changes to localStorage (skip the render immediately after load).
   // Debounced to avoid frequent JSON.stringify + localStorage writes during active polling.

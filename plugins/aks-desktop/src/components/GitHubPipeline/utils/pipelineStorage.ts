@@ -64,3 +64,27 @@ export function getActivePipeline(
     return null;
   }
 }
+
+/**
+ * Records the active pipeline for a given cluster+namespace.
+ * Called when the user starts a new pipeline deployment.
+ */
+export function setActivePipeline(cluster: string, ns: string, repo: GitHubRepo): void {
+  try {
+    localStorage.setItem(`${ACTIVE_PIPELINE_KEY_PREFIX}${cluster}:${ns}`, JSON.stringify(repo));
+  } catch {
+    // localStorage may be full or unavailable
+  }
+}
+
+/**
+ * Clears the active pipeline reference for a given cluster+namespace.
+ * Called when the pipeline completes or the user dismisses it.
+ */
+export function clearActivePipeline(cluster: string, ns: string): void {
+  try {
+    localStorage.removeItem(`${ACTIVE_PIPELINE_KEY_PREFIX}${cluster}:${ns}`);
+  } catch {
+    // localStorage may be unavailable
+  }
+}
