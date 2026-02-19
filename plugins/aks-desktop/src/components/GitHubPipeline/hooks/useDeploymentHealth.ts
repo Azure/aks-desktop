@@ -96,7 +96,7 @@ export const useDeploymentHealth = (
       return;
     }
 
-    let cancelled = false;
+    let isCancelled = false;
     const cancelFns: Array<() => void> = [];
     setError(null);
 
@@ -105,7 +105,7 @@ export const useDeploymentHealth = (
         // Monitor deployments
         const cancelDeployments = await K8s.ResourceClasses.Deployment.apiList(
           deploymentList => {
-            if (cancelled) return;
+            if (isCancelled) return;
             const deployment = deploymentList.find(
               d => d.getNamespace() === namespace && d.getName() === appName
             );
@@ -119,12 +119,12 @@ export const useDeploymentHealth = (
           },
           (err: unknown) => {
             console.error('Deployment health: error fetching deployments:', err);
-            if (!cancelled) setError('Failed to fetch deployment status');
+            if (!isCancelled) setError('Failed to fetch deployment status');
           },
           { namespace, cluster }
         )();
         cancelFns.push(cancelDeployments);
-        if (cancelled) {
+        if (isCancelled) {
           cancelDeployments();
           return;
         }
@@ -132,7 +132,7 @@ export const useDeploymentHealth = (
         // Monitor pods with label selector
         const cancelPods = await K8s.ResourceClasses.Pod.apiList(
           (podList: unknown[]) => {
-            if (cancelled) return;
+            if (isCancelled) return;
             const statuses = (podList as Array<Record<string, unknown>>).map(pod => ({
               name:
                 ((pod.metadata as Record<string, unknown>)?.name as string) ||
@@ -155,7 +155,7 @@ export const useDeploymentHealth = (
           }
         )();
         cancelFns.push(cancelPods);
-        if (cancelled) {
+        if (isCancelled) {
           cancelPods();
           return;
         }
@@ -163,7 +163,7 @@ export const useDeploymentHealth = (
         // Monitor services
         const cancelServices = await K8s.ResourceClasses.Service.apiList(
           (serviceList: unknown[]) => {
-            if (cancelled) return;
+            if (isCancelled) return;
             const service = (serviceList as Array<Record<string, unknown>>).find(svc => {
               const name =
                 ((svc.metadata as Record<string, unknown>)?.name as string) ||
@@ -186,20 +186,20 @@ export const useDeploymentHealth = (
           { namespace, cluster }
         )();
         cancelFns.push(cancelServices);
-        if (cancelled) {
+        if (isCancelled) {
           cancelServices();
           return;
         }
       } catch (err) {
         console.error('Deployment health: error setting up watchers:', err);
-        if (!cancelled) setError('Failed to monitor deployment health');
+        if (!isCancelled) setError('Failed to monitor deployment health');
       }
     };
 
     setup();
 
     return () => {
-      cancelled = true;
+      isCancelled = true;
       cancelFns.forEach(fn => fn());
     };
   }, [appName, namespace, cluster, enabled]);
