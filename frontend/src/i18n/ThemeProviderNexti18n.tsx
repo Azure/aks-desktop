@@ -15,19 +15,21 @@
  */
 
 import {
-  arSA,
   deDE,
   enUS,
   esES,
   frFR,
-  heIL,
   hiIN,
+  huHU,
+  idID,
   itIT,
   jaJP,
   koKR,
+  nlNL,
+  plPL,
   ptPT,
   ruRU,
-  urPK,
+  trTR,
   zhCN,
   zhTW,
 } from '@mui/material/locale';
@@ -47,42 +49,29 @@ function getLocale(locale: string | undefined): typeof enUS {
 
   const LOCALES = {
     en: enUS,
-    pt: ptPT,
-    ru: ruRU,
-    es: esES,
     de: deDE,
-    ta: enUS, // @todo: material ui needs a translation for this.
-    hi: hiIN,
+    es: esES,
     fr: frFR,
     it: itIT,
-    ko: koKR,
-    'zh-tw': zhTW,
     ja: jaJP,
-    zh: zhCN,
-    ar: arSA,
-    ur: urPK,
-    he: heIL,
+    id: idID,
+    ko: koKR,
+    'pt-BR': ptPT, // @todo: MUI has no pt-BR, using pt-PT as closest match.
+    ru: ruRU,
+    'zh-Hans': zhCN,
+    'zh-Hant': zhTW,
+    cs: enUS, // @todo: MUI has no Czech locale.
+    nl: nlNL,
+    hu: huHU,
+    'pt-PT': ptPT,
+    pl: plPL,
+    sv: enUS, // @todo: MUI has no Swedish locale.
+    tr: trTR,
+    hi: hiIN,
+    ta: enUS, // @todo: MUI has no Tamil locale.
   };
-
-  type LocalesType =
-    | 'en'
-    | 'pt'
-    | 'ru'
-    | 'es'
-    | 'ta'
-    | 'de'
-    | 'hi'
-    | 'fr'
-    | 'it'
-    | 'zh-tw'
-    | 'ja'
-    | 'ko'
-    | 'zh'
-    | 'ar'
-    | 'ur'
-    | 'he';
-
-  return normalizedLocale in LOCALES ? LOCALES[normalizedLocale as LocalesType] : LOCALES['en'];
+  type LocalesType = keyof typeof LOCALES;
+  return normalizedLocale in LOCALES ? LOCALES[locale as LocalesType] : LOCALES['en'];
 }
 
 interface ThemeProviderNexti18nProps {

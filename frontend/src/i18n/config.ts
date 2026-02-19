@@ -29,74 +29,27 @@ export const supportedLanguages: {
     dir: 'ltr' | 'rtl';
   };
 } = {
-  en: {
-    label: 'English',
-    dir: 'ltr',
-  },
-  es: {
-    label: 'Español',
-    dir: 'ltr',
-  },
-  fr: {
-    label: 'Français',
-    dir: 'ltr',
-  },
-  ru: {
-    label: 'Русский',
-    dir: 'ltr',
-  },
-  pt: {
-    label: 'Português',
-    dir: 'ltr',
-  },
-  de: {
-    label: 'Deutsch',
-    dir: 'ltr',
-  },
-  it: {
-    label: 'Italiano',
-    dir: 'ltr',
-  },
-  'zh-TW': {
-    label: '繁體中文',
-    dir: 'ltr',
-  },
-  zh: {
-    label: '简体中文',
-    dir: 'ltr',
-  },
-  ko: {
-    label: '한국어',
-    dir: 'ltr',
-  },
-  ja: {
-    label: '日本語',
-    dir: 'ltr',
-  },
-  hi: {
-    label: 'हिन्दी',
-    dir: 'ltr',
-  },
-  bn: {
-    label: 'বাংলা',
-    dir: 'ltr',
-  },
-  ta: {
-    label: 'தமிழ்',
-    dir: 'ltr',
-  },
-  ar: {
-    label: 'العربية',
-    dir: 'rtl',
-  },
-  ur: {
-    label: 'اردو',
-    dir: 'rtl',
-  },
-  he: {
-    label: 'עברית',
-    dir: 'rtl',
-  },
+  en: { label: 'English', dir: 'ltr' },
+  de: { label: 'Deutsch', dir: 'ltr' },
+  es: { label: 'Español', dir: 'ltr' },
+  fr: { label: 'Français', dir: 'ltr' },
+  it: { label: 'Italiano', dir: 'ltr' },
+  ja: { label: '日本語', dir: 'ltr' },
+  id: { label: 'Bahasa Indonesia', dir: 'ltr' },
+  ko: { label: '한국어', dir: 'ltr' },
+  'pt-BR': { label: 'Português (Brasil)', dir: 'ltr' },
+  ru: { label: 'Русский', dir: 'ltr' },
+  'zh-Hans': { label: '简体中文', dir: 'ltr' },
+  'zh-Hant': { label: '繁體中文', dir: 'ltr' },
+  cs: { label: 'Čeština', dir: 'ltr' },
+  nl: { label: 'Nederlands', dir: 'ltr' },
+  hu: { label: 'Magyar', dir: 'ltr' },
+  'pt-PT': { label: 'Português (Portugal)', dir: 'ltr' },
+  pl: { label: 'Polski', dir: 'ltr' },
+  sv: { label: 'Svenska', dir: 'ltr' },
+  tr: { label: 'Türkçe', dir: 'ltr' },
+  hi: { label: 'हिन्दी', dir: 'ltr' },
+  ta: { label: 'தமிழ்', dir: 'ltr' },
 };
 
 export const isRTL = (lang: string) => supportedLanguages[lang]?.dir === 'rtl';
@@ -115,7 +68,7 @@ i18next
       namespace: Namespace,
       callback: (errorValue: unknown, translations: null | (typeof en)[Namespace]) => void
     ) {
-      import(`./locales/${language.toLowerCase()}/${namespace}.json?import=default`)
+      import(`./locales/${language}/${namespace}.json?import=default`)
         .then(resources => {
           callback(null, resources.default);
         })
