@@ -25,15 +25,24 @@ const en = {}; // To keep TS happy.
 
 export const supportedLanguages: { [langCode: string]: string } = {
   en: 'English',
+  de: 'Deutsch',
   es: 'Español',
   fr: 'Français',
-  pt: 'Português',
-  de: 'Deutsch',
   it: 'Italiano',
-  'zh-TW': '繁體中文',
-  zh: '简体中文',
-  ko: '한국어',
   ja: '日本語',
+  id: 'Bahasa Indonesia',
+  ko: '한국어',
+  'pt-BR': 'Português (Brasil)',
+  ru: 'Русский',
+  'zh-Hans': '简体中文',
+  'zh-Hant': '繁體中文',
+  cs: 'Čeština',
+  nl: 'Nederlands',
+  hu: 'Magyar',
+  'pt-PT': 'Português (Portugal)',
+  pl: 'Polski',
+  sv: 'Svenska',
+  tr: 'Türkçe',
   hi: 'हिन्दी',
   ta: 'தமிழ்',
 };
@@ -52,7 +61,7 @@ i18next
       namespace: Namespace,
       callback: (errorValue: unknown, translations: null | (typeof en)[Namespace]) => void
     ) {
-      import(`./locales/${language.toLowerCase()}/${namespace}.json?import=default`)
+      import(`./locales/${language}/${namespace}.json?import=default`)
         .then(resources => {
           callback(null, resources.default);
         })

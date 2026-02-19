@@ -34,6 +34,12 @@ export function MonacoEditorLoaderInitializer({ children }: React.PropsWithChild
   // inside the initializer of a useState, because that runs before the first render
   useState(() => {
     // We also set the language for Monaco to load if it's available; but this only happens once, changing language is not supported
+    // Monaco uses its own locale codes which differ from our i18next codes.
+    const monacoLocaleMap: Record<string, string> = {
+      'zh-Hans': 'zh-cn',
+      'zh-Hant': 'zh-tw',
+    };
+    const monacoLanguage = monacoLocaleMap[i18n.language] ?? i18n.language;
     const isLanguageSupported = [
       'de',
       'es',
@@ -44,7 +50,7 @@ export function MonacoEditorLoaderInitializer({ children }: React.PropsWithChild
       'ru',
       'zh-cn',
       'zh-tw',
-    ].includes(i18n.language);
+    ].includes(monacoLanguage);
 
     // Configure the monaco loader to load its scripts from the "assets/vs" local url instead of the default internet-based CDN.
     // This needs to include the origin and not just a relative path because it is used as a fetch
@@ -64,7 +70,7 @@ export function MonacoEditorLoaderInitializer({ children }: React.PropsWithChild
       paths: {
         vs: url,
       },
-      ...(isLanguageSupported ? { 'vs/nls': { availableLanguages: { '*': i18n.language } } } : {}),
+      ...(isLanguageSupported ? { 'vs/nls': { availableLanguages: { '*': monacoLanguage } } } : {}),
     });
   });
 

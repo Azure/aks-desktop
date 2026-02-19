@@ -36,14 +36,23 @@ import {
   useMaterialReactTable,
   useMRT_Rows,
 } from 'material-react-table';
+import { MRT_Localization_CS } from 'material-react-table/locales/cs';
 import { MRT_Localization_DE } from 'material-react-table/locales/de';
 import { MRT_Localization_EN } from 'material-react-table/locales/en';
 import { MRT_Localization_ES } from 'material-react-table/locales/es';
 import { MRT_Localization_FR } from 'material-react-table/locales/fr';
+import { MRT_Localization_HU } from 'material-react-table/locales/hu';
+import { MRT_Localization_ID } from 'material-react-table/locales/id';
 import { MRT_Localization_IT } from 'material-react-table/locales/it';
 import { MRT_Localization_JA } from 'material-react-table/locales/ja';
 import { MRT_Localization_KO } from 'material-react-table/locales/ko';
+import { MRT_Localization_NL } from 'material-react-table/locales/nl';
+import { MRT_Localization_PL } from 'material-react-table/locales/pl';
 import { MRT_Localization_PT } from 'material-react-table/locales/pt';
+import { MRT_Localization_PT_BR } from 'material-react-table/locales/pt-BR';
+import { MRT_Localization_RU } from 'material-react-table/locales/ru';
+import { MRT_Localization_SV } from 'material-react-table/locales/sv';
+import { MRT_Localization_TR } from 'material-react-table/locales/tr';
 import { MRT_Localization_ZH_HANS } from 'material-react-table/locales/zh-Hans';
 import { MRT_Localization_ZH_HANT } from 'material-react-table/locales/zh-Hant';
 import { memo, ReactNode, useEffect, useMemo, useState } from 'react';
@@ -153,16 +162,25 @@ function usePageURLState(
 }
 
 const tableLocalizationMap: Record<string, MRT_Localization> = {
-  de: MRT_Localization_DE,
   en: MRT_Localization_EN,
+  de: MRT_Localization_DE,
   es: MRT_Localization_ES,
   fr: MRT_Localization_FR,
   it: MRT_Localization_IT,
   ja: MRT_Localization_JA,
-  pt: MRT_Localization_PT,
+  id: MRT_Localization_ID,
   ko: MRT_Localization_KO,
-  zh: MRT_Localization_ZH_HANS,
-  'zh-TW': MRT_Localization_ZH_HANT,
+  'pt-BR': MRT_Localization_PT_BR,
+  ru: MRT_Localization_RU,
+  'zh-Hans': MRT_Localization_ZH_HANS,
+  'zh-Hant': MRT_Localization_ZH_HANT,
+  cs: MRT_Localization_CS,
+  nl: MRT_Localization_NL,
+  hu: MRT_Localization_HU,
+  'pt-PT': MRT_Localization_PT,
+  pl: MRT_Localization_PL,
+  sv: MRT_Localization_SV,
+  tr: MRT_Localization_TR,
 };
 
 const StyledHeadRow = styled('tr')(({ theme }) => ({

@@ -20,10 +20,16 @@ import {
   esES,
   frFR,
   hiIN,
+  huHU,
+  idID,
   itIT,
   jaJP,
   koKR,
+  nlNL,
+  plPL,
   ptPT,
+  ruRU,
+  trTR,
   zhCN,
   zhTW,
 } from '@mui/material/locale';
@@ -40,31 +46,28 @@ import { useTranslation } from 'react-i18next';
 function getLocale(locale: string): typeof enUS {
   const LOCALES = {
     en: enUS,
-    pt: ptPT,
-    es: esES,
     de: deDE,
-    ta: enUS, // @todo: material ui needs a translation for this.
-    hi: hiIN,
+    es: esES,
     fr: frFR,
     it: itIT,
-    ko: koKR,
-    'zh-tw': zhTW,
     ja: jaJP,
-    zh: zhCN,
+    id: idID,
+    ko: koKR,
+    'pt-BR': ptPT, // @todo: MUI has no pt-BR, using pt-PT as closest match.
+    ru: ruRU,
+    'zh-Hans': zhCN,
+    'zh-Hant': zhTW,
+    cs: enUS, // @todo: MUI has no Czech locale.
+    nl: nlNL,
+    hu: huHU,
+    'pt-PT': ptPT,
+    pl: plPL,
+    sv: enUS, // @todo: MUI has no Swedish locale.
+    tr: trTR,
+    hi: hiIN,
+    ta: enUS, // @todo: MUI has no Tamil locale.
   };
-  type LocalesType =
-    | 'en'
-    | 'pt'
-    | 'es'
-    | 'ta'
-    | 'de'
-    | 'hi'
-    | 'fr'
-    | 'it'
-    | 'zh-tw'
-    | 'ja'
-    | 'ko'
-    | 'zh';
+  type LocalesType = keyof typeof LOCALES;
   return locale in LOCALES ? LOCALES[locale as LocalesType] : LOCALES['en'];
 }
 
