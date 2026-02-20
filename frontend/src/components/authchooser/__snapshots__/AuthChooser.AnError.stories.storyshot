@@ -42,7 +42,10 @@
                 style="font-size: 1.25rem; font-weight: 500; line-height: 1.6;"
               >
                 <div
+                  aria-atomic="true"
+                  aria-live="polite"
                   class="MuiBox-root css-19midj6"
+                  role="status"
                 />
                 <span
                   class="MuiBox-root css-ty8jgw"
@@ -106,7 +109,10 @@
                 class="MuiBox-root css-1c5ij41"
               >
                 <div
+                  aria-atomic="true"
+                  aria-live="polite"
                   class="MuiBox-root css-19midj6"
+                  role="status"
                 >
                   <p
                     class="MuiTypography-root MuiTypography-body1 MuiTypography-alignCenter css-18lkse1-MuiTypography-root"
