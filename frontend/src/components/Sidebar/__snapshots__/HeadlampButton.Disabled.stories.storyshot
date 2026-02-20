@@ -14,7 +14,10 @@
           type="button"
         >
           <div
+            aria-atomic="true"
+            aria-live="polite"
             class="MuiBox-root css-19midj6"
+            role="status"
           />
         </button>
       </div>

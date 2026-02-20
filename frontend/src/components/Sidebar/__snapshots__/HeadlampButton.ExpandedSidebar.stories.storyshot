@@ -13,7 +13,10 @@
           type="button"
         >
           <div
+            aria-atomic="true"
+            aria-live="polite"
             class="MuiBox-root css-19midj6"
+            role="status"
           />
           <span
             class="MuiTouchRipple-root css-8je8zh-MuiTouchRipple-root"

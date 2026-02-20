@@ -224,7 +224,10 @@
               class="MuiBox-root css-1txv3mw"
             >
               <div
+                aria-atomic="true"
+                aria-live="polite"
                 class="MuiBox-root css-19midj6"
+                role="status"
               >
                 <p
                   class="MuiTypography-root MuiTypography-body1 MuiTypography-alignCenter css-18lkse1-MuiTypography-root"
@@ -272,7 +275,10 @@
                 class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded css-1guobrs-MuiPaper-root"
               >
                 <div
+                  aria-atomic="true"
+                  aria-live="polite"
                   class="MuiBox-root css-19midj6"
+                  role="status"
                 >
                   <p
                     class="MuiTypography-root MuiTypography-body1 MuiTypography-alignCenter css-18lkse1-MuiTypography-root"
@@ -321,7 +327,10 @@
                 class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded css-1guobrs-MuiPaper-root"
               >
                 <div
+                  aria-atomic="true"
+                  aria-live="polite"
                   class="MuiBox-root css-19midj6"
+                  role="status"
                 >
                   <p
                     class="MuiTypography-root MuiTypography-body1 MuiTypography-alignCenter css-18lkse1-MuiTypography-root"
