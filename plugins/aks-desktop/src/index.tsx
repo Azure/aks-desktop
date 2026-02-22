@@ -20,6 +20,7 @@ import { Redirect } from 'react-router-dom';
 import RegisterAKSClusterPage from './components/AKS/RegisterAKSClusterPage';
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
+import ClusterCapabilityCard from './components/ClusterCapabilityCard/ClusterCapabilityCard';
 import CreateAKSProject from './components/CreateAKSProject/CreateAKSProject';
 import AKSProjectDeleteButton from './components/DeleteAKSProject/AKSProjectDeleteButton';
 import DeployButton from './components/Deploy/DeployButton';
@@ -261,6 +262,13 @@ if (Headlamp.isRunningAsApp()) {
     noAuthRequired: true,
   });
 }
+
+registerProjectOverviewSection({
+  id: 'cluster-capabilities',
+  // @ts-ignore todo: there is an isEnabled prop in registerProjectOverviewSection it's just not present in the types yet. We need to push our changes to headlamp
+  isEnabled: isAksProject,
+  component: ({ project }) => <ClusterCapabilityCard project={project} />,
+});
 
 registerProjectOverviewSection({
   id: 'scaling-overview',
