@@ -19,7 +19,10 @@ import {
 import React, { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useAzureAuth } from '../../hooks/useAzureAuth';
+import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { getAKSClusters, getSubscriptions, registerAKSCluster } from '../../utils/azure/aks';
+import { getClusterCapabilities } from '../../utils/azure/az-cli';
+import { ClusterConfigurePanel } from '../CreateAKSProject/components/ClusterConfigurePanel';
 
 interface RegisterAKSClusterDialogProps {
   open: boolean;
@@ -58,6 +61,8 @@ export default function RegisterAKSClusterDialog({
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
   const [clusters, setClusters] = useState<AKSCluster[]>([]);
   const [selectedCluster, setSelectedCluster] = useState<AKSCluster | null>(null);
+  const [capabilities, setCapabilities] = useState<ClusterCapabilities | null>(null);
+  const [capabilitiesLoading, setCapabilitiesLoading] = useState(false);
 
   useEffect(() => {
     if (open && authStatus.isLoggedIn) {
@@ -142,7 +147,6 @@ export default function RegisterAKSClusterDialog({
 
     try {
       // Register the cluster by running az aks get-credentials and setting up kubeconfig
-      console.log('[AKS] Registering cluster...');
       const result = await registerAKSCluster(
         selectedSubscription.id,
         selectedCluster.resourceGroup,
@@ -155,7 +159,6 @@ export default function RegisterAKSClusterDialog({
         return;
       }
 
-      console.log('[AKS] Cluster registered successfully:', result.message);
       setLoading(false);
 
       // Show success message with cluster name
@@ -167,10 +170,20 @@ export default function RegisterAKSClusterDialog({
 
       onClusterRegistered?.();
 
-      // Navigate and reload to show cluster list with newly merged cluster
-      onClose();
-      history.replace('/');
-      window.location.reload();
+      // Check cluster capabilities (non-blocking)
+      setCapabilitiesLoading(true);
+      try {
+        const caps = await getClusterCapabilities({
+          subscriptionId: selectedSubscription.id,
+          resourceGroup: selectedCluster.resourceGroup,
+          clusterName: selectedCluster.name,
+        });
+        setCapabilities(caps);
+      } catch {
+        // Non-critical — just don't show capabilities
+      } finally {
+        setCapabilitiesLoading(false);
+      }
     } catch (err) {
       console.error('Error registering AKS cluster:', err);
       setError(
@@ -212,6 +225,65 @@ export default function RegisterAKSClusterDialog({
               {success}
             </Alert>
           )}
+
+          {capabilitiesLoading && (
+            <Box display="flex" alignItems="center" gap={1}>
+              <CircularProgress size={16} />
+              <Typography variant="body2" color="textSecondary">
+                Checking cluster capabilities...
+              </Typography>
+            </Box>
+          )}
+
+          {capabilities && capabilities.azureRbacEnabled !== true && (
+            <Alert severity="error" sx={{ mb: 1 }}>
+              Azure RBAC for Kubernetes is not enabled. Project role assignments (Admin, Writer,
+              Reader) will not work. This must be set at cluster creation.
+            </Alert>
+          )}
+
+          {capabilities &&
+            (!capabilities.networkPolicy || capabilities.networkPolicy === 'none') && (
+              <Alert severity="warning" sx={{ mb: 1 }}>
+                No network policy engine configured. Network policies will not be enforced. This
+                must be set at cluster creation.
+              </Alert>
+            )}
+
+          {capabilities &&
+            (capabilities.prometheusEnabled !== true ||
+              capabilities.kedaEnabled !== true ||
+              capabilities.vpaEnabled !== true) &&
+            selectedSubscription &&
+            selectedCluster && (
+              <ClusterConfigurePanel
+                capabilities={capabilities}
+                subscriptionId={selectedSubscription.id}
+                resourceGroup={selectedCluster.resourceGroup}
+                clusterName={selectedCluster.name}
+                onConfigured={() => {
+                  if (selectedSubscription && selectedCluster) {
+                    getClusterCapabilities({
+                      subscriptionId: selectedSubscription.id,
+                      resourceGroup: selectedCluster.resourceGroup,
+                      clusterName: selectedCluster.name,
+                    })
+                      .then(caps => setCapabilities(caps))
+                      .catch(() => {});
+                  }
+                }}
+              />
+            )}
+
+          {capabilities &&
+            capabilities.azureRbacEnabled === true &&
+            capabilities.prometheusEnabled === true &&
+            capabilities.kedaEnabled === true &&
+            capabilities.vpaEnabled === true &&
+            capabilities.networkPolicy &&
+            capabilities.networkPolicy !== 'none' && (
+              <Alert severity="success">All recommended cluster configurations are in place.</Alert>
+            )}
 
           {!authStatus.isLoggedIn && (
             <Alert severity="warning">
@@ -340,19 +412,32 @@ export default function RegisterAKSClusterDialog({
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={handleClose} disabled={loading}>
-          {t('Cancel')}
-        </Button>
-        {!success && (
+        {success ? (
           <Button
-            onClick={handleRegister}
+            onClick={() => {
+              onClose();
+              history.replace('/');
+              window.location.reload();
+            }}
             variant="contained"
-            color="primary"
-            disabled={!selectedCluster || loading || !authStatus.isLoggedIn}
-            startIcon={loading ? <CircularProgress size={20} /> : <Icon icon="mdi:cloud-check" />}
           >
-            {loading ? `${t('Registering')}...` : t('Register Cluster')}
+            {t('Done')}
           </Button>
+        ) : (
+          <>
+            <Button onClick={handleClose} disabled={loading}>
+              {t('Cancel')}
+            </Button>
+            <Button
+              onClick={handleRegister}
+              variant="contained"
+              color="primary"
+              disabled={!selectedCluster || loading || !authStatus.isLoggedIn}
+              startIcon={loading ? <CircularProgress size={20} /> : <Icon icon="mdi:cloud-check" />}
+            >
+              {loading ? `${t('Registering')}...` : t('Register Cluster')}
+            </Button>
+          </>
         )}
       </DialogActions>
     </Dialog>
