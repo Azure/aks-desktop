@@ -26,6 +26,7 @@ import { ComputeStep } from './components/ComputeStep';
 import { NetworkingStep } from './components/NetworkingStep';
 import { ReviewStep } from './components/ReviewStep';
 import { useAzureResources } from './hooks/useAzureResources';
+import { useClusterCapabilities } from './hooks/useClusterCapabilities';
 import { useExtensionCheck } from './hooks/useExtensionCheck';
 import { useFeatureCheck } from './hooks/useFeatureCheck';
 import { useFormData } from './hooks/useFormData';
@@ -61,6 +62,7 @@ function CreateAKSProject() {
   // Custom hooks
   const { formData, updateFormData } = useFormData();
   const azureResources = useAzureResources();
+  const clusterCapabilities = useClusterCapabilities();
   const extensionStatus = useExtensionCheck();
   const featureStatus = useFeatureCheck({ subscription: formData.subscription });
   const namespaceCheck = useNamespaceCheck();
@@ -73,7 +75,8 @@ function CreateAKSProject() {
     extensionStatus,
     featureStatus,
     namespaceCheck,
-    isClusterMissing
+    isClusterMissing,
+    clusterCapabilities.capabilities
   );
 
   // Fetch subscriptions and check extension/feature on component mount
@@ -97,7 +100,22 @@ function CreateAKSProject() {
     } else {
       azureResources.clearClusters();
     }
+    // Clear capabilities when subscription changes
+    clusterCapabilities.clearCapabilities();
   }, [formData.subscription]);
+
+  // Fetch cluster capabilities when cluster selection changes
+  useEffect(() => {
+    if (formData.cluster && formData.subscription && formData.resourceGroup) {
+      clusterCapabilities.fetchCapabilities(
+        formData.subscription,
+        formData.resourceGroup,
+        formData.cluster
+      );
+    } else {
+      clusterCapabilities.clearCapabilities();
+    }
+  }, [formData.cluster, formData.subscription, formData.resourceGroup]);
 
   // Check namespace existence when project name, cluster, or subscription changes
   useEffect(() => {
@@ -503,11 +521,14 @@ function CreateAKSProject() {
             {...commonProps}
             subscriptions={azureResources.subscriptions}
             clusters={azureResources.clusters}
+            totalClusterCount={azureResources.totalClusterCount}
             loadingClusters={azureResources.loadingClusters}
             clusterError={azureResources.clusterError}
             extensionStatus={extensionStatus}
             featureStatus={featureStatus}
             namespaceStatus={namespaceCheck}
+            clusterCapabilities={clusterCapabilities.capabilities}
+            capabilitiesLoading={clusterCapabilities.loading}
             onInstallExtension={extensionStatus.installExtension}
             onRegisterFeature={featureStatus.registerFeature}
             onRetrySubscriptions={async () => {
@@ -515,6 +536,15 @@ function CreateAKSProject() {
             }}
             onRetryClusters={async () => {
               await azureResources.fetchClusters(formData.subscription);
+            }}
+            onRefreshCapabilities={() => {
+              if (formData.cluster && formData.subscription && formData.resourceGroup) {
+                clusterCapabilities.fetchCapabilities(
+                  formData.subscription,
+                  formData.resourceGroup,
+                  formData.cluster
+                );
+              }
             }}
           />
         );

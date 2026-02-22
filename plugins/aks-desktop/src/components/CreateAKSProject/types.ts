@@ -3,6 +3,8 @@
 
 // Types for CreateAKSProject component and its sub-components
 
+import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
+
 export interface AzureSubscription {
   id: string;
   name: string;
@@ -79,6 +81,7 @@ export interface NamespaceStatus {
 export interface AzureResourceState {
   subscriptions: AzureSubscription[];
   clusters: AzureCluster[];
+  totalClusterCount: number | null;
   loading: boolean;
   loadingClusters: boolean;
   error: string | null;
@@ -96,15 +99,19 @@ export interface StepProps {
 export interface BasicsStepProps extends StepProps {
   subscriptions: AzureSubscription[];
   clusters: AzureCluster[];
+  totalClusterCount: number | null;
   loadingClusters: boolean;
   clusterError: string | null;
   extensionStatus: ExtensionStatus;
   featureStatus: FeatureStatus;
   namespaceStatus: NamespaceStatus;
+  clusterCapabilities: ClusterCapabilities | null;
+  capabilitiesLoading: boolean;
   onInstallExtension: () => Promise<void>;
   onRegisterFeature: () => Promise<void>;
   onRetrySubscriptions: () => Promise<void>;
   onRetryClusters: () => Promise<void>;
+  onRefreshCapabilities?: () => void;
 }
 
 export interface NetworkingStepProps extends StepProps {
@@ -165,7 +172,7 @@ export interface ResourceCardProps {
 export interface ValidationResult {
   isValid: boolean;
   errors: string[];
-  warnings?: string[];
+  warnings: string[];
   fieldErrors?: Record<string, string[]>;
 }
 

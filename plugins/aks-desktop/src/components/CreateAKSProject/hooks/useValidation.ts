@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useMemo } from 'react';
+import type { ClusterCapabilities } from '../../../types/ClusterCapabilities';
 import type {
   ExtensionStatus,
   FeatureStatus,
@@ -21,7 +22,8 @@ export const useValidation = (
   extensionStatus?: ExtensionStatus,
   featureStatus?: FeatureStatus,
   namespaceStatus?: NamespaceStatus,
-  isClusterMissing?: boolean
+  isClusterMissing?: boolean,
+  capabilities?: ClusterCapabilities | null
 ) => {
   const validation = useMemo((): ValidationState => {
     const result = validateStep(
@@ -32,11 +34,12 @@ export const useValidation = (
       namespaceStatus?.exists,
       namespaceStatus?.checking,
       namespaceStatus?.error || undefined,
-      isClusterMissing
+      isClusterMissing,
+      capabilities
     );
     return {
       ...result,
-      warnings: result.warnings || [],
+      warnings: result.warnings,
     };
   }, [
     activeStep,
@@ -47,6 +50,7 @@ export const useValidation = (
     namespaceStatus?.checking,
     namespaceStatus?.error,
     isClusterMissing,
+    capabilities,
   ]);
 
   const fieldValidation = useMemo((): FormValidationResult => {

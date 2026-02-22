@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useCallback, useState } from 'react';
-import { getClusters, getSubscriptions } from '../../../utils/azure/az-cli';
+import { getClusterCount, getClusters, getSubscriptions } from '../../../utils/azure/az-cli';
 import type { AzureResourceState } from '../types';
 
 /**
@@ -12,6 +12,7 @@ export const useAzureResources = () => {
   const [state, setState] = useState<AzureResourceState>({
     subscriptions: [],
     clusters: [],
+    totalClusterCount: null,
     loading: false,
     loadingClusters: false,
     error: null,
@@ -42,9 +43,23 @@ export const useAzureResources = () => {
 
   const fetchClusters = useCallback(async (subscriptionId: string) => {
     try {
-      setState(prev => ({ ...prev, loadingClusters: true, clusterError: null, clusters: [] }));
-      const clusterList = await getClusters(subscriptionId, '[?aadProfile!=null]');
-      setState(prev => ({ ...prev, clusters: clusterList, loadingClusters: false }));
+      setState(prev => ({
+        ...prev,
+        loadingClusters: true,
+        clusterError: null,
+        clusters: [],
+        totalClusterCount: null,
+      }));
+      const [clusterList, totalCount] = await Promise.all([
+        getClusters(subscriptionId, '[?aadProfile!=null]'),
+        getClusterCount(subscriptionId),
+      ]);
+      setState(prev => ({
+        ...prev,
+        clusters: clusterList,
+        totalClusterCount: totalCount,
+        loadingClusters: false,
+      }));
       return clusterList;
     } catch (err) {
       console.error('Failed to fetch clusters:', err);

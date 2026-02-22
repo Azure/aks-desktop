@@ -4,6 +4,7 @@
 // Pure validation functions for CreateAKSProject component
 // These functions are easily testable and don't depend on React
 
+import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { FormData, FormValidationResult, UserAssignment, ValidationResult } from './types';
 
 /**
@@ -45,6 +46,7 @@ export const validateProjectName = (projectName: string): ValidationResult => {
   return {
     isValid: errors.length === 0,
     errors,
+    warnings: [],
   };
 };
 
@@ -56,12 +58,12 @@ export const validateAssignments = (assignments: UserAssignment[]): ValidationRe
 
   if (!Array.isArray(assignments)) {
     errors.push('Assignments must be an array');
-    return { isValid: false, errors };
+    return { isValid: false, errors, warnings: [] };
   }
 
   // Check if assignments array is empty (length 0) - this is valid
   if (assignments.length === 0) {
-    return { isValid: true, errors: [] };
+    return { isValid: true, errors: [], warnings: [] };
   }
 
   // If there are assignments, ALL of them must have valid, non-empty email addresses
@@ -77,6 +79,7 @@ export const validateAssignments = (assignments: UserAssignment[]): ValidationRe
   return {
     isValid: errors.length === 0,
     errors,
+    warnings: [],
   };
 };
 
@@ -126,6 +129,7 @@ export const validateComputeQuota = (
   return {
     isValid: errors.length === 0,
     errors,
+    warnings: [],
     fieldErrors,
   };
 };
@@ -151,6 +155,7 @@ export const validateNetworkingPolicies = (
   return {
     isValid: errors.length === 0,
     errors,
+    warnings: [],
   };
 };
 
@@ -164,9 +169,11 @@ export const validateBasicsStep = (
   namespaceExists: boolean | null,
   checkingNamespace: boolean,
   namespaceError: string | null,
-  isClusterMissing?: boolean
+  isClusterMissing?: boolean,
+  capabilities?: ClusterCapabilities | null
 ): ValidationResult => {
   const errors: string[] = [];
+  const warnings: string[] = [];
 
   if (isClusterMissing) {
     errors.push('Selected cluster is not registered');
@@ -212,9 +219,35 @@ export const validateBasicsStep = (
     errors.push(`Namespace check failed: ${namespaceError}`);
   }
 
+  // Capability warnings (non-blocking)
+  if (capabilities) {
+    if (capabilities.azureRbacEnabled !== true) {
+      warnings.push(
+        'Azure RBAC for Kubernetes is not enabled. Project role assignments (Admin, Writer, Reader) will not work. This must be set at cluster creation.'
+      );
+    }
+    if (!capabilities.networkPolicy || capabilities.networkPolicy === 'none') {
+      warnings.push(
+        'Cluster has no network policy engine. Network policies will not be enforced. This must be set at cluster creation.'
+      );
+    }
+    if (capabilities.prometheusEnabled !== true) {
+      warnings.push(
+        'Managed Prometheus not enabled. Metrics and scaling charts will be unavailable.'
+      );
+    }
+    if (capabilities.kedaEnabled !== true) {
+      warnings.push('KEDA not enabled. Event-driven autoscaling will be unavailable.');
+    }
+    if (capabilities.vpaEnabled !== true) {
+      warnings.push('VPA not enabled. Vertical pod autoscaling will be unavailable.');
+    }
+  }
+
   return {
     isValid: errors.length === 0,
     errors,
+    warnings,
   };
 };
 
@@ -276,6 +309,7 @@ export const validateForm = (formData: FormData): FormValidationResult => {
   return {
     isValid: allErrors.length === 0,
     errors: allErrors,
+    warnings: [],
     fieldErrors,
   };
 };
@@ -291,7 +325,8 @@ export const validateStep = (
   namespaceExists?: boolean | null,
   checkingNamespace?: boolean,
   namespaceError?: string | null,
-  isClusterMissing?: boolean
+  isClusterMissing?: boolean,
+  capabilities?: ClusterCapabilities | null
 ): ValidationResult => {
   switch (step) {
     case 0: // Basics
@@ -302,7 +337,8 @@ export const validateStep = (
         namespaceExists ?? null,
         checkingNamespace ?? false,
         namespaceError ?? null,
-        isClusterMissing
+        isClusterMissing,
+        capabilities
       );
     case 1: // Networking
       return validateNetworkingPolicies({
@@ -319,9 +355,9 @@ export const validateStep = (
     case 3: // Access
       return validateAccessStep(formData.userAssignments);
     case 4: // Review
-      return { isValid: true, errors: [] }; // Review step is always valid
+      return { isValid: true, errors: [], warnings: [] }; // Review step is always valid
     default:
-      return { isValid: false, errors: ['Invalid step number'] };
+      return { isValid: false, errors: ['Invalid step number'], warnings: [] };
   }
 };
 
