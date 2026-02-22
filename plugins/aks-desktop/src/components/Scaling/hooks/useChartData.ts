@@ -181,7 +181,7 @@ export const useChartData = (
     } catch (err) {
       console.error('Failed to fetch chart data from Prometheus:', err);
       applyIfLatest(() => {
-        const nextError = err instanceof Error ? err.message : 'Failed to fetch chart data';
+        const nextError = err instanceof Error ? err.message : 'Failed to fetch scaling data';
         setError(nextError);
         setChartData([]);
       });

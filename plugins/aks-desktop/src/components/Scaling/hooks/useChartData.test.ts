@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+// @vitest-environment jsdom
+
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { clearChartDataCaches, useChartData } from './useChartData';
@@ -213,7 +215,7 @@ describe('useChartData', () => {
     });
 
     expect(result.current.chartData).toHaveLength(0);
-    expect(result.current.error).toBe('Failed to fetch chart data');
+    expect(result.current.error).toBe('Failed to fetch scaling data');
   });
 
   test('handles null result from getClusterResourceIdAndGroup', async () => {

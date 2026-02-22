@@ -3,7 +3,7 @@
 
 import { Icon } from '@iconify/react';
 import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { Box, Typography } from '@mui/material';
+import { Alert, Box, Typography } from '@mui/material';
 import React from 'react';
 import { DeploymentSelector } from './components/DeploymentSelector';
 import { ScalingChart } from './components/ScalingChart';
@@ -96,9 +96,9 @@ function ScalingCard({ project }: ScalingCardProps) {
 
       {error && (
         <Box mb={2}>
-          <Typography color="error" variant="body2">
-            {error}
-          </Typography>
+          <Alert severity="warning">
+            <Typography variant="body2">{error}</Typography>
+          </Alert>
         </Box>
       )}
 

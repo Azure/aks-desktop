@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Alert, AlertTitle, Box, CircularProgress, Typography } from '@mui/material';
 import React from 'react';
 import {
   CartesianGrid,
@@ -70,10 +70,11 @@ export const ScalingChart: React.FC<ScalingChartProps> = ({ chartData, loading, 
 
   if (error) {
     return (
-      <Box display="flex" alignItems="center" justifyContent="center" height="100%">
-        <Typography color="error" variant="body2">
-          {error}
-        </Typography>
+      <Box display="flex" alignItems="center" justifyContent="center" height="100%" p={2}>
+        <Alert severity="warning" sx={{ maxWidth: 600 }}>
+          <AlertTitle>Scaling Chart Unavailable</AlertTitle>
+          <Typography variant="body2">{error}</Typography>
+        </Alert>
       </Box>
     );
   }
