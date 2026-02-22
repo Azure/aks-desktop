@@ -6,6 +6,8 @@ import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import Deployment from '@kinvolk/headlamp-plugin/lib/lib/k8s/deployment';
 import Pod from '@kinvolk/headlamp-plugin/lib/lib/k8s/pod';
 import {
+  Alert,
+  AlertTitle,
   Box,
   Card,
   CircularProgress,
@@ -556,7 +558,9 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
       }
     } catch (error) {
       console.error('MetricsTab: Failed to fetch metrics:', error);
-      setError(t('Failed to fetch metrics from Prometheus'));
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to fetch metrics from Prometheus';
+      setError(errorMessage);
     } finally {
       setMetricsLoading(false);
     }
@@ -600,7 +604,10 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
   if (error && deployments.length === 0) {
     return (
       <Box p={3}>
-        <Typography color="error">{error}</Typography>
+        <Alert severity="warning">
+          <AlertTitle>Metrics Unavailable</AlertTitle>
+          <Typography variant="body2">{error}</Typography>
+        </Alert>
       </Box>
     );
   }

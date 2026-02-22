@@ -42,7 +42,11 @@ export async function getPrometheusEndpoint(
     console.log('[getPrometheusEndpoint]   stderr:', allGroupsStderr);
 
     if (!allGroupsStdout.trim()) {
-      throw new Error('No prometheus rule groups found in resource group');
+      throw new Error(
+        'Azure Monitor Metrics (Managed Prometheus) does not appear to be configured for this cluster. ' +
+          `To enable it, run: az aks update --resource-group ${resourceGroup} --name ${clusterName} --enable-azure-monitor-metrics.` +
+          ' See docs/cluster-requirements.md for full cluster requirements.'
+      );
     }
 
     let ruleGroups;
@@ -70,7 +74,12 @@ export async function getPrometheusEndpoint(
         '[getPrometheusEndpoint] Available clusters:',
         ruleGroups.map((rg: any) => rg.clusterName)
       );
-      throw new Error(`No prometheus workspace found for cluster '${clusterName}'`);
+      throw new Error(
+        `No Prometheus workspace found for cluster '${clusterName}'. ` +
+          'Ensure Azure Monitor Metrics is enabled. ' +
+          `To enable it, run: az aks update --resource-group ${resourceGroup} --name ${clusterName} --enable-azure-monitor-metrics.` +
+          ' See docs/cluster-requirements.md for full cluster requirements.'
+      );
     }
 
     console.log('[getPrometheusEndpoint] Found matching rule group:', matchingGroup.name);
