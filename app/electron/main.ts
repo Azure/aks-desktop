@@ -1287,6 +1287,12 @@ function menusToTemplate(mainWindow: BrowserWindow | null, menusFromPlugins: App
       menu.click = () => {
         mainWindow?.webContents.send('open-about-dialog');
       };
+    } else if (appMenu.id === 'original-zoom-in') {
+      menu.click = () => adjustZoom(0.1);
+    } else if (appMenu.id === 'original-zoom-out') {
+      menu.click = () => adjustZoom(-0.1);
+    } else if (appMenu.id === 'original-reset-zoom') {
+      menu.click = () => setZoom(1.0);
     } else if (!!url) {
       menu.click = async () => {
         // Open external links in the external browser.
