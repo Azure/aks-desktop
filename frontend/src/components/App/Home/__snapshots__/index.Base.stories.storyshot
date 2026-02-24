@@ -189,6 +189,8 @@
                         />
                       </button>
                       <button
+                        aria-expanded="false"
+                        aria-haspopup="menu"
                         aria-label="Show/Hide columns"
                         class="MuiButtonBase-root MuiIconButton-root MuiIconButton-sizeMedium css-whz9ym-MuiButtonBase-root-MuiIconButton-root"
                         data-mui-internal-clone-element="true"
