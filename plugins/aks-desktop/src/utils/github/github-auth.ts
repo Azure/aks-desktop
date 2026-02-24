@@ -42,6 +42,7 @@ interface DesktopApi {
 }
 
 function getDesktopApi(): DesktopApi {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const api = (window as any).desktopApi as DesktopApi | undefined;
   if (!api) throw new Error('desktopApi not available — not running in Electron');
   return api;
