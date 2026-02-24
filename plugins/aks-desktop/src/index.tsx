@@ -21,6 +21,7 @@ import RegisterAKSClusterPage from './components/AKS/RegisterAKSClusterPage';
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
 import CreateAKSProject from './components/CreateAKSProject/CreateAKSProject';
+import CreateProjectFromNamespace from './components/CreateProjectFromNamespace/CreateProjectFromNamespace';
 import AKSProjectDeleteButton from './components/DeleteAKSProject/AKSProjectDeleteButton';
 import DeployButton from './components/Deploy/DeployButton';
 import ImportAKSProjects from './components/ImportAKSProjects/ImportAKSProjects';
@@ -238,6 +239,28 @@ if (Headlamp.isRunningAsApp()) {
     description: 'Import existing AKS managed namespaces as projects',
     component: () => <Redirect to="/projects/import-aks-projects" />,
     icon: 'mdi:import',
+  });
+
+  // register create project from existing namespace
+  registerRoute({
+    path: '/projects/create-from-namespace',
+    component: CreateProjectFromNamespace,
+    name: 'Create Project from Namespace',
+    sidebar: {
+      sidebar: 'HOME',
+      item: 'projects',
+    },
+    exact: true,
+    noAuthRequired: true,
+    useClusterURL: false,
+  });
+
+  registerCustomCreateProject({
+    id: 'aks-from-namespace',
+    name: 'AKS project from existing namespace',
+    description: 'Convert an existing AKS managed namespace into a project',
+    component: () => <Redirect to="/projects/create-from-namespace" />,
+    icon: 'mdi:folder-swap-outline',
   });
 
   // Register AKS as a cluster provider in the "Add Cluster" page

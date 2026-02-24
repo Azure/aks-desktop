@@ -92,6 +92,11 @@ To get started with AKS desktop, follow these steps:
    npm run build
    ```
 
+## Documentation
+
+- [AKS Desktop Documentation](https://aka.ms/aks/aks-desktop)
+- [AKS Managed Namespaces](https://learn.microsoft.com/en-us/azure/aks/manage-namespaces)
+
 ## Contributing
 
 Check out the [CONTRIBUTING.md](CONTRIBUTING.md) file. More
