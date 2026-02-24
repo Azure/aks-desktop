@@ -1,15 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearTokens,
-  initiateDeviceFlow,
   isTokenExpired,
   loadTokens,
+  onOAuthCallback,
   refreshAccessToken,
-  requestAccessToken,
   saveTokens,
+  startBrowserOAuth,
   StoredTokens,
 } from './github-auth';
 
@@ -21,31 +22,23 @@ vi.mock('./secure-storage', () => ({
 }));
 
 /**
- * Helper to mock fetch with a successful JSON response from /externalproxy.
+ * Helper to set up a mock desktopApi on the window object.
  */
-function mockFetchResponse(jsonResponse: Record<string, unknown>) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({
-      ok: true,
-      statusText: 'OK',
-      text: () => Promise.resolve(JSON.stringify(jsonResponse)),
-    })
-  );
-}
-
-/**
- * Helper to mock fetch with a non-ok response (e.g. proxy rejection or network error).
- */
-function mockFetchFailure(statusText: string) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({
-      ok: false,
-      statusText,
-      text: () => Promise.resolve(''),
-    })
-  );
+function mockDesktopApi(overrides: Record<string, unknown> = {}) {
+  const api = {
+    startGitHubOAuth: vi.fn().mockResolvedValue({ success: true }),
+    onGitHubOAuthCallback: vi.fn().mockReturnValue(() => {}),
+    refreshGitHubOAuth: vi.fn().mockResolvedValue({
+      success: true,
+      accessToken: 'ghu_new_token',
+      refreshToken: 'ghr_new_refresh',
+      expiresAt: new Date(Date.now() + 28800 * 1000).toISOString(),
+    }),
+    ...overrides,
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).desktopApi = api;
+  return api;
 }
 
 describe('github-auth', () => {
@@ -55,185 +48,94 @@ describe('github-auth', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).desktopApi;
   });
 
-  describe('initiateDeviceFlow', () => {
-    it('should call /externalproxy and return parsed device flow response', async () => {
-      mockFetchResponse({
-        device_code: 'device-123',
-        user_code: 'ABCD-1234',
-        verification_uri: 'https://github.com/login/device',
-        expires_in: 900,
-        interval: 5,
-      });
+  describe('startBrowserOAuth', () => {
+    it('should call desktopApi.startGitHubOAuth', async () => {
+      const api = mockDesktopApi();
 
-      const result = await initiateDeviceFlow();
+      await startBrowserOAuth();
 
-      expect(fetch).toHaveBeenCalledWith('/externalproxy', {
-        method: 'POST',
-        headers: {
-          'Forward-To': 'https://github.com/login/device/code',
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: 'application/json',
-        },
-        body: expect.any(String),
-      });
-      expect(result).toEqual({
-        deviceCode: 'device-123',
-        userCode: 'ABCD-1234',
-        verificationUri: 'https://github.com/login/device',
-        expiresIn: 900,
-        interval: 5,
-      });
+      expect(api.startGitHubOAuth).toHaveBeenCalledOnce();
     });
 
-    it('should throw when proxy request fails', async () => {
-      mockFetchFailure('Bad Gateway');
-
-      await expect(initiateDeviceFlow()).rejects.toThrow(
-        'GitHub OAuth request failed: Bad Gateway'
-      );
-    });
-
-    it('should throw on empty response body', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockResolvedValue({
-          ok: true,
-          statusText: 'OK',
-          text: () => Promise.resolve(''),
-        })
-      );
-
-      await expect(initiateDeviceFlow()).rejects.toThrow('No response from GitHub OAuth endpoint');
-    });
-
-    it('should throw on non-JSON response', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockResolvedValue({
-          ok: true,
-          statusText: 'OK',
-          text: () => Promise.resolve('<html>Not JSON</html>'),
-        })
-      );
-
-      await expect(initiateDeviceFlow()).rejects.toThrow('Invalid JSON response from GitHub');
-    });
-
-    it('should throw on API-level error', async () => {
-      mockFetchResponse({
-        error: 'unauthorized_client',
-        error_description: 'Client ID is not valid',
+    it('should throw when startGitHubOAuth returns failure', async () => {
+      mockDesktopApi({
+        startGitHubOAuth: vi.fn().mockResolvedValue({
+          success: false,
+          error: 'Something went wrong',
+        }),
       });
 
-      await expect(initiateDeviceFlow()).rejects.toThrow(
-        'Device flow initiation failed: Client ID is not valid'
+      await expect(startBrowserOAuth()).rejects.toThrow('Something went wrong');
+    });
+
+    it('should throw when desktopApi is not available', async () => {
+      await expect(startBrowserOAuth()).rejects.toThrow(
+        'desktopApi not available — not running in Electron'
       );
     });
   });
 
-  describe('requestAccessToken', () => {
-    it('should return tokens on successful authorization', async () => {
-      mockFetchResponse({
-        access_token: 'ghu_abc123',
-        refresh_token: 'ghr_refresh456',
-        expires_in: 28800,
+  describe('onOAuthCallback', () => {
+    it('should call desktopApi.onGitHubOAuthCallback with the provided callback', () => {
+      const unsubscribe = vi.fn();
+      const api = mockDesktopApi({
+        onGitHubOAuthCallback: vi.fn().mockReturnValue(unsubscribe),
       });
 
-      const result = await requestAccessToken('device-123');
+      const callback = vi.fn();
+      const result = onOAuthCallback(callback);
 
-      expect(fetch).toHaveBeenCalledWith('/externalproxy', {
-        method: 'POST',
-        headers: {
-          'Forward-To': 'https://github.com/login/oauth/access_token',
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: 'application/json',
-        },
-        body: expect.any(String),
-      });
-      expect(result).toEqual({
-        accessToken: 'ghu_abc123',
-        refreshToken: 'ghr_refresh456',
-        expiresIn: 28800,
-      });
+      expect(api.onGitHubOAuthCallback).toHaveBeenCalledWith(callback);
+      expect(result).toBe(unsubscribe);
     });
 
-    it('should throw when proxy request fails', async () => {
-      mockFetchFailure('Service Unavailable');
-
-      await expect(requestAccessToken('device-123')).rejects.toThrow(
-        'GitHub OAuth request failed: Service Unavailable'
+    it('should throw when desktopApi is not available', () => {
+      expect(() => onOAuthCallback(vi.fn())).toThrow(
+        'desktopApi not available — not running in Electron'
       );
-    });
-
-    it('should throw authorization_pending while waiting for user', async () => {
-      mockFetchResponse({ error: 'authorization_pending' });
-
-      await expect(requestAccessToken('device-123')).rejects.toThrow('authorization_pending');
-    });
-
-    it('should throw slow_down when rate limited', async () => {
-      mockFetchResponse({ error: 'slow_down' });
-
-      await expect(requestAccessToken('device-123')).rejects.toThrow('slow_down');
-    });
-
-    it('should throw expired_token when flow expires', async () => {
-      mockFetchResponse({ error: 'expired_token' });
-
-      await expect(requestAccessToken('device-123')).rejects.toThrow('expired_token');
-    });
-
-    it('should throw access_denied when user rejects', async () => {
-      mockFetchResponse({ error: 'access_denied' });
-
-      await expect(requestAccessToken('device-123')).rejects.toThrow('access_denied');
     });
   });
 
   describe('refreshAccessToken', () => {
     it('should return new tokens on success', async () => {
-      mockFetchResponse({
-        access_token: 'ghu_new_token',
-        refresh_token: 'ghr_new_refresh',
-        expires_in: 28800,
+      const expiresAt = new Date(Date.now() + 28800 * 1000).toISOString();
+      const api = mockDesktopApi({
+        refreshGitHubOAuth: vi.fn().mockResolvedValue({
+          success: true,
+          accessToken: 'ghu_new_token',
+          refreshToken: 'ghr_new_refresh',
+          expiresAt,
+        }),
       });
 
       const result = await refreshAccessToken('ghr_refresh456');
 
-      expect(fetch).toHaveBeenCalledWith('/externalproxy', {
-        method: 'POST',
-        headers: {
-          'Forward-To': 'https://github.com/login/oauth/access_token',
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: 'application/json',
-        },
-        body: expect.any(String),
-      });
-      expect(result).toEqual({
-        accessToken: 'ghu_new_token',
-        refreshToken: 'ghr_new_refresh',
-        expiresIn: 28800,
-      });
+      expect(api.refreshGitHubOAuth).toHaveBeenCalledWith('ghr_refresh456');
+      expect(result.accessToken).toBe('ghu_new_token');
+      expect(result.refreshToken).toBe('ghr_new_refresh');
+      expect(result.expiresIn).toBeGreaterThan(0);
     });
 
-    it('should throw when proxy request fails', async () => {
-      mockFetchFailure('Gateway Timeout');
-
-      await expect(refreshAccessToken('ghr_refresh456')).rejects.toThrow(
-        'GitHub OAuth request failed: Gateway Timeout'
-      );
-    });
-
-    it('should throw on refresh error', async () => {
-      mockFetchResponse({
-        error: 'bad_refresh_token',
-        error_description: 'The refresh token is invalid',
+    it('should throw when refresh returns failure', async () => {
+      mockDesktopApi({
+        refreshGitHubOAuth: vi.fn().mockResolvedValue({
+          success: false,
+          error: 'The refresh token is invalid',
+        }),
       });
 
       await expect(refreshAccessToken('bad-token')).rejects.toThrow(
         'Token refresh failed: The refresh token is invalid'
+      );
+    });
+
+    it('should throw when desktopApi is not available', async () => {
+      await expect(refreshAccessToken('ghr_refresh456')).rejects.toThrow(
+        'desktopApi not available — not running in Electron'
       );
     });
   });

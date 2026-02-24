@@ -3,24 +3,13 @@
 
 import { secureStorageDelete, secureStorageLoad, secureStorageSave } from './secure-storage';
 
-// GitHub App public client ID and slug — safe to embed in desktop app
+// GitHub App slug — used for the app installation URL
 // TODO: Replace with production app slug before release
-const GITHUB_APP_CLIENT_ID = 'Iv23liWWbvrfIrA6WWj5';
 const GITHUB_APP_SLUG = 'aks-desktop-testing';
 export const GITHUB_APP_INSTALL_URL = `https://github.com/apps/${GITHUB_APP_SLUG}/installations/new`;
 
-const DEVICE_CODE_URL = 'https://github.com/login/device/code';
-const ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const STORAGE_KEY = 'aks-desktop:github-auth';
 const LOCALSTORAGE_FALLBACK_KEY = 'aks-desktop:github-auth-fallback';
-
-export interface DeviceFlowResponse {
-  deviceCode: string;
-  userCode: string;
-  verificationUri: string;
-  expiresIn: number;
-  interval: number;
-}
 
 export interface TokenResponse {
   accessToken: string;
@@ -34,127 +23,72 @@ export interface StoredTokens {
   expiresAt: string;
 }
 
-function requireString(data: Record<string, unknown>, key: string): string {
-  const val = data[key];
-  if (typeof val !== 'string') throw new Error(`Missing or invalid field: ${key}`);
-  return val;
+/** Result shape from the Electron main process OAuth callback. */
+export interface OAuthCallbackResult {
+  success: boolean;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: string;
+  error?: string;
 }
 
-function requireNumber(data: Record<string, unknown>, key: string): number {
-  const val = data[key];
-  if (typeof val !== 'number') throw new Error(`Missing or invalid field: ${key}`);
-  return val;
+/** desktopApi methods exposed by the Electron preload script. */
+interface DesktopApi {
+  startGitHubOAuth: () => Promise<{ success: boolean; error?: string }>;
+  onGitHubOAuthCallback: (callback: (result: OAuthCallbackResult) => void) => () => void;
+  refreshGitHubOAuth: (refreshToken: string) => Promise<OAuthCallbackResult>;
+}
+
+function getDesktopApi(): DesktopApi {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const api = (window as any).desktopApi as DesktopApi | undefined;
+  if (!api) throw new Error('desktopApi not available — not running in Electron');
+  return api;
 }
 
 /**
- * Makes a POST request to a GitHub OAuth endpoint via Headlamp's /externalproxy.
- * GitHub's OAuth endpoints don't return Access-Control-Allow-Origin headers,
- * so browser fetch() is blocked. Routing through the backend proxy avoids CORS.
- * Requires the target URL to be allowlisted in app-build-manifest.json proxy-urls.
+ * Opens the user's browser to the GitHub OAuth authorize page.
+ * The Electron main process generates a CSRF state token and opens the URL.
  */
-const githubOAuthPost = async (
-  url: string,
-  params: Record<string, string>
-): Promise<Record<string, unknown>> => {
-  const response = await fetch('/externalproxy', {
-    method: 'POST',
-    headers: {
-      'Forward-To': url,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-    },
-    body: new URLSearchParams(params).toString(),
-  });
-
-  if (!response.ok) {
-    throw new Error(`GitHub OAuth request failed: ${response.statusText}`);
-  }
-
-  const text = await response.text();
-  if (!text) {
-    throw new Error('No response from GitHub OAuth endpoint');
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`Invalid JSON response from GitHub: ${text.slice(0, 200)}`);
+export const startBrowserOAuth = async (): Promise<void> => {
+  const api = getDesktopApi();
+  const result = await api.startGitHubOAuth();
+  if (!result.success) {
+    throw new Error(result.error ?? 'Failed to start GitHub OAuth flow');
   }
 };
 
 /**
- * Initiates the GitHub OAuth device flow.
- * Calls POST https://github.com/login/device/code with the client ID.
- * Returns the device code, user code, verification URI, and polling interval.
+ * Registers a listener for the OAuth callback from the Electron main process.
+ * Returns an unsubscribe function.
  */
-export const initiateDeviceFlow = async (): Promise<DeviceFlowResponse> => {
-  const data = await githubOAuthPost(DEVICE_CODE_URL, { client_id: GITHUB_APP_CLIENT_ID });
-
-  if (data.error) {
-    throw new Error(
-      `Device flow initiation failed: ${
-        (data.error_description as string) || (data.error as string)
-      }`
-    );
-  }
-
-  return {
-    deviceCode: requireString(data, 'device_code'),
-    userCode: requireString(data, 'user_code'),
-    verificationUri: requireString(data, 'verification_uri'),
-    expiresIn: requireNumber(data, 'expires_in'),
-    interval: requireNumber(data, 'interval'),
-  };
+export const onOAuthCallback = (callback: (result: OAuthCallbackResult) => void): (() => void) => {
+  const api = getDesktopApi();
+  return api.onGitHubOAuthCallback(callback);
 };
 
 /**
- * Makes a single request to exchange the device code for an access token.
- * Returns { accessToken, refreshToken, expiresIn } on success.
- * Throws with error message matching the GitHub error type:
- *   'authorization_pending' (caller should keep polling),
- *   'slow_down' (caller increases interval),
- *   'expired_token' (flow expired),
- *   'access_denied' (user rejected)
- */
-export const requestAccessToken = async (deviceCode: string): Promise<TokenResponse> => {
-  const data = await githubOAuthPost(ACCESS_TOKEN_URL, {
-    client_id: GITHUB_APP_CLIENT_ID,
-    device_code: deviceCode,
-    grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-  });
-
-  if (data.error) {
-    throw new Error(data.error as string);
-  }
-
-  return {
-    accessToken: requireString(data, 'access_token'),
-    refreshToken: requireString(data, 'refresh_token'),
-    expiresIn: requireNumber(data, 'expires_in'),
-  };
-};
-
-/**
- * Uses the refresh token to get a new access token.
+ * Uses the refresh token to get a new access token via the Electron main process.
+ * The main process makes the POST request directly (no CORS issues).
  * Returns { accessToken, refreshToken, expiresIn }.
  */
 export const refreshAccessToken = async (refreshToken: string): Promise<TokenResponse> => {
-  const data = await githubOAuthPost(ACCESS_TOKEN_URL, {
-    client_id: GITHUB_APP_CLIENT_ID,
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken,
-  });
+  const api = getDesktopApi();
+  const result = await api.refreshGitHubOAuth(refreshToken);
 
-  if (data.error) {
-    throw new Error(
-      `Token refresh failed: ${(data.error_description as string) || (data.error as string)}`
-    );
+  if (!result.success || !result.accessToken || !result.refreshToken || !result.expiresAt) {
+    throw new Error(`Token refresh failed: ${result.error ?? 'unknown error'}`);
   }
 
+  const expiresIn = Math.max(
+    0,
+    Math.floor((new Date(result.expiresAt).getTime() - Date.now()) / 1000)
+  );
+
   return {
-    accessToken: requireString(data, 'access_token'),
-    refreshToken: requireString(data, 'refresh_token'),
-    expiresIn: requireNumber(data, 'expires_in'),
+    accessToken: result.accessToken,
+    refreshToken: result.refreshToken,
+    expiresIn,
   };
 };
 
