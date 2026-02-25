@@ -5,6 +5,7 @@ import { Icon } from '@iconify/react';
 import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Box, Typography } from '@mui/material';
 import React from 'react';
+import { RESOURCE_GROUP_LABEL, SUBSCRIPTION_LABEL } from '../../utils/constants/projectLabels';
 import { DeploymentSelector } from './components/DeploymentSelector';
 import { ScalingChart } from './components/ScalingChart';
 import { ScalingMetrics } from './components/ScalingMetrics';
@@ -53,10 +54,8 @@ function ScalingCard({ project }: ScalingCardProps) {
   const [namespaceInstance] = K8s.ResourceClasses.Namespace.useGet(namespace, undefined, {
     cluster,
   });
-  const subscription =
-    namespaceInstance?.jsonData?.metadata?.labels?.['aks-desktop/project-subscription'];
-  const resourceGroupLabel =
-    namespaceInstance?.jsonData?.metadata?.labels?.['aks-desktop/project-resource-group'];
+  const subscription = namespaceInstance?.jsonData?.metadata?.labels?.[SUBSCRIPTION_LABEL];
+  const resourceGroupLabel = namespaceInstance?.jsonData?.metadata?.labels?.[RESOURCE_GROUP_LABEL];
 
   // Fetch real deployments from Kubernetes API
   const { deployments, selectedDeployment, loading, error, setSelectedDeployment } = useDeployments(

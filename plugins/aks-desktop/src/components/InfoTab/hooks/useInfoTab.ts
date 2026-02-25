@@ -8,6 +8,7 @@ import {
   getManagedNamespaces,
   updateManagedNamespace,
 } from '../../../utils/azure/az-cli';
+import { RESOURCE_GROUP_LABEL, SUBSCRIPTION_LABEL } from '../../../utils/constants/projectLabels';
 import {
   DEFAULT_FORM_DATA,
   type FormData,
@@ -109,10 +110,8 @@ export const useInfoTab = (project: {
     undefined,
     { cluster: clusterName }
   );
-  const subscription =
-    namespaceInstance?.jsonData?.metadata?.labels?.['aks-desktop/project-subscription'];
-  const resourceGroup =
-    namespaceInstance?.jsonData?.metadata?.labels?.['aks-desktop/project-resource-group'];
+  const subscription = namespaceInstance?.jsonData?.metadata?.labels?.[SUBSCRIPTION_LABEL];
+  const resourceGroup = namespaceInstance?.jsonData?.metadata?.labels?.[RESOURCE_GROUP_LABEL];
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

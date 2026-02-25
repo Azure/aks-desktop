@@ -36,6 +36,7 @@ import {
   YAxis,
 } from 'recharts';
 import { getClusterResourceIdAndGroup } from '../../utils/azure/az-cli';
+import { RESOURCE_GROUP_LABEL, SUBSCRIPTION_LABEL } from '../../utils/constants/projectLabels';
 import { getPrometheusEndpoint } from './getPrometheusEndpoint';
 import { queryPrometheus } from './queryPrometheus';
 
@@ -140,10 +141,8 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
   const [namespaceInstance] = K8s.ResourceClasses.Namespace.useGet(namespace, undefined, {
     cluster,
   });
-  const subscription =
-    namespaceInstance?.jsonData?.metadata?.labels?.['aks-desktop/project-subscription'];
-  const resourceGroupLabel =
-    namespaceInstance?.jsonData?.metadata?.labels?.['aks-desktop/project-resource-group'];
+  const subscription = namespaceInstance?.jsonData?.metadata?.labels?.[SUBSCRIPTION_LABEL];
+  const resourceGroupLabel = namespaceInstance?.jsonData?.metadata?.labels?.[RESOURCE_GROUP_LABEL];
 
   // Fetch deployments
   const fetchDeployments = useCallback(async () => {

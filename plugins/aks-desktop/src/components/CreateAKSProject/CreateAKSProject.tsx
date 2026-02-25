@@ -2,24 +2,24 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
+import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { PageGrid, SectionBox } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { useClustersConf } from '@kinvolk/headlamp-plugin/lib/k8s';
 import { Box, Button, Card, CardContent, CircularProgress, Typography } from '@mui/material';
 import React, { useEffect, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
-import {
-  checkNamespaceExists,
-  createManagedNamespace,
-  createNamespaceRoleAssignment,
-  verifyNamespaceAccess,
-} from '../../utils/azure/az-cli';
+import { checkNamespaceExists, createManagedNamespace } from '../../utils/azure/az-cli';
 import { checkAzureCliAndAksPreview } from '../../utils/azure/checkAzureCli';
+import {
+  PROJECT_ID_LABEL,
+  PROJECT_MANAGED_BY_LABEL,
+  PROJECT_MANAGED_BY_VALUE,
+  RESOURCE_GROUP_LABEL,
+  SUBSCRIPTION_LABEL,
+} from '../../utils/constants/projectLabels';
 import AzureAuthGuard from '../AzureAuth/AzureAuthGuard';
 import AzureCliWarning from '../AzureCliWarning';
 import { AccessStep } from './components/AccessStep';
 import { BasicsStep } from './components/BasicsStep';
-// Import our new components and hooks
 import { Breadcrumb } from './components/Breadcrumb';
 import { ComputeStep } from './components/ComputeStep';
 import { NetworkingStep } from './components/NetworkingStep';
@@ -31,10 +31,10 @@ import { useFeatureCheck } from './hooks/useFeatureCheck';
 import { useFormData } from './hooks/useFormData';
 import { useNamespaceCheck } from './hooks/useNamespaceCheck';
 import { useValidation } from './hooks/useValidation';
-import { mapUIRoleToAzureRole, STEPS } from './types';
+import { STEPS } from './types';
 
 const useClusterCheck = ({ cluster }: { cluster?: string }) => {
-  const clustersConf = useClustersConf();
+  const clustersConf = K8s.useClustersConf();
 
   const isClusterMissing =
     cluster && Object.values(clustersConf).find((it: any) => it.name === cluster) === undefined;
@@ -206,10 +206,10 @@ function CreateAKSProject() {
           ingressPolicy: formData.ingress,
           egressPolicy: formData.egress,
           labels: {
-            'headlamp.dev/project-id': formData.projectName,
-            'headlamp.dev/project-managed-by': 'aks-desktop',
-            'aks-desktop/project-subscription': formData.subscription,
-            'aks-desktop/project-resource-group': formData.resourceGroup,
+            [PROJECT_ID_LABEL]: formData.projectName,
+            [PROJECT_MANAGED_BY_LABEL]: PROJECT_MANAGED_BY_VALUE,
+            [SUBSCRIPTION_LABEL]: formData.subscription,
+            [RESOURCE_GROUP_LABEL]: formData.resourceGroup,
           },
         });
 

@@ -19,6 +19,13 @@ import {
 import React, { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { deleteManagedNamespace } from '../../utils/azure/az-cli';
+import {
+  PROJECT_ID_LABEL,
+  PROJECT_MANAGED_BY_LABEL,
+  PROJECT_MANAGED_BY_VALUE,
+  RESOURCE_GROUP_LABEL,
+  SUBSCRIPTION_LABEL,
+} from '../../utils/constants/projectLabels';
 
 interface ProjectDefinition {
   id: string;
@@ -106,16 +113,16 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
 
       for (const ns of namespaces) {
         const labels = ns.metadata?.labels || {};
-        const isAKSManaged = labels['headlamp.dev/project-managed-by'] === 'aks-desktop';
+        const isAKSManaged = labels[PROJECT_MANAGED_BY_LABEL] === PROJECT_MANAGED_BY_VALUE;
         const namespaceName = ns.metadata?.name || '';
 
         if (isAKSManaged) {
           // Delete ARM managed namespace
           const result = await deleteManagedNamespace({
             clusterName: project.clusters[0],
-            resourceGroup: labels['aks-desktop/project-resource-group'],
+            resourceGroup: labels[RESOURCE_GROUP_LABEL],
             namespaceName,
-            subscriptionId: labels['aks-desktop/project-subscription'],
+            subscriptionId: labels[SUBSCRIPTION_LABEL],
           });
 
           if (!result.success) {
@@ -144,10 +151,10 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
             // Remove project labels from namespace
             const updatedData = { ...freshNs.jsonData };
             if (updatedData.metadata?.labels) {
-              delete updatedData.metadata.labels['headlamp.dev/project-id'];
-              delete updatedData.metadata.labels['headlamp.dev/project-managed-by'];
-              delete updatedData.metadata.labels['aks-desktop/project-subscription'];
-              delete updatedData.metadata.labels['aks-desktop/project-resource-group'];
+              delete updatedData.metadata.labels[PROJECT_ID_LABEL];
+              delete updatedData.metadata.labels[PROJECT_MANAGED_BY_LABEL];
+              delete updatedData.metadata.labels[SUBSCRIPTION_LABEL];
+              delete updatedData.metadata.labels[RESOURCE_GROUP_LABEL];
             }
             await K8s.ResourceClasses.Namespace.apiEndpoint.put(
               updatedData,
@@ -163,8 +170,8 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
             // Remove project labels
             const updatedData = { ...ns.jsonData };
             if (updatedData.metadata?.labels) {
-              delete updatedData.metadata.labels['headlamp.dev/project-id'];
-              delete updatedData.metadata.labels['headlamp.dev/project-managed-by'];
+              delete updatedData.metadata.labels[PROJECT_ID_LABEL];
+              delete updatedData.metadata.labels[PROJECT_MANAGED_BY_LABEL];
             }
             await K8s.ResourceClasses.Namespace.apiEndpoint.put(
               updatedData,
