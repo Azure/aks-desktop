@@ -53,6 +53,7 @@ import {
   PluginManager,
 } from './plugin-management';
 import { addRunCmdConsent, removeRunCmdConsent, runScript, setupRunCmdHandlers } from './runCmd';
+import { setupSecureStorageHandlers } from './secure-storage';
 import windowSize from './windowSize';
 
 let isRunningScript = false;
@@ -1815,6 +1816,9 @@ async function startElecron() {
         return { success: false, error: String(error) };
       }
     });
+
+    // aksd: Secure storage via Electron safeStorage API
+    setupSecureStorageHandlers();
 
     // Handle AKS cluster registration
     ipcMain.handle(

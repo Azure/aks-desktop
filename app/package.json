@@ -139,7 +139,9 @@
       "electron/env-paths.js",
       "electron/plugin-management.js",
       "electron/runCmd.js",
-      "electron/aks-cluster.js"
+      "electron/aks-cluster.js",
+      "electron/secure-storage.js",
+      "electron/ipc-channels.js"
     ],
     "extraResources": [
       {
