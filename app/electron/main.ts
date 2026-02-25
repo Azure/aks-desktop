@@ -42,6 +42,7 @@ import path from 'path';
 import url from 'url';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import { handleOAuthCallback, setupGitHubOAuthHandlers } from './github-oauth';
 import i18n from './i18next.config';
 import {
   addToPath,
@@ -1670,6 +1671,15 @@ async function startElectron() {
 
       // Inject the backend port into the window object
       mainWindow?.webContents.executeJavaScript(`window.headlampBackendPort = ${actualPort};`);
+
+      // aksd: On Windows/Linux cold start, deep link URLs arrive via process.argv
+      // (not via second-instance). Check initial argv after the window is ready.
+      if (process.platform !== 'darwin') {
+        const deepLink = process.argv.find(arg => arg.startsWith('headlamp://'));
+        if (deepLink) {
+          handleDeepLink(deepLink, mainWindow);
+        }
+      }
     });
 
     mainWindow.webContents.on('dom-ready', () => {
@@ -1700,14 +1710,38 @@ async function startElectron() {
       }
     });
 
+    /** Routes headlamp:// deep links to the appropriate handler. Returns true if handled. */
+    function handleDeepLink(urlString: string, targetWindow: BrowserWindow | null): boolean {
+      if (!targetWindow) return false;
+      try {
+        const urlObj = new URL(urlString);
+        if (urlObj.protocol !== 'headlamp:') {
+          return false;
+        }
+        if (urlObj.hostname === 'oauth' && urlObj.pathname === '/callback') {
+          handleOAuthCallback(urlObj, targetWindow);
+          return true;
+        }
+      } catch {
+        // Ignore malformed URLs
+      }
+      return false;
+    }
+
     // Force Single Instance Application
     const gotTheLock = app.requestSingleInstanceLock();
     if (gotTheLock) {
-      app.on('second-instance', () => {
+      app.on('second-instance', (_event, argv) => {
         // Someone tried to run a second instance, we should focus our window.
         if (mainWindow) {
           if (mainWindow.isMinimized()) mainWindow.restore();
           mainWindow.focus();
+        }
+
+        // aksd: On Windows/Linux, deep link URLs arrive as the last argv element
+        const deepLink = argv.find(arg => arg.startsWith('headlamp://'));
+        if (deepLink) {
+          handleDeepLink(deepLink, mainWindow);
         }
       });
     } else {
@@ -1738,6 +1772,11 @@ async function startElectron() {
           i18n.t('Invalid URL'),
           i18n.t('Application opened with an invalid URL: {{ url }}', { url })
         );
+        return;
+      }
+
+      // aksd: Intercept OAuth callback deep links
+      if (handleDeepLink(url, mainWindow)) {
         return;
       }
 
@@ -1835,6 +1874,10 @@ async function startElectron() {
 
     // aksd: Secure storage via Electron safeStorage API
     setupSecureStorageHandlers();
+
+    // aksd: GitHub OAuth web flow (start, callback, refresh) via main process
+    // In dev mode, uses a localhost HTTP callback server instead of the custom URL scheme.
+    setupGitHubOAuthHandlers({ isDev, getMainWindow: () => mainWindow });
 
     // Handle AKS cluster registration
     ipcMain.handle(
