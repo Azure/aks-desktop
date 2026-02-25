@@ -54,6 +54,7 @@ import {
   PluginManager,
 } from './plugin-management';
 import { addRunCmdConsent, removeRunCmdConsent, runScript, setupRunCmdHandlers } from './runCmd';
+import { setupSecureStorageHandlers } from './secure-storage';
 import { cleanupHeadlampTray, createHeadlampTray } from './tray';
 import windowSize from './windowSize';
 
@@ -1877,6 +1878,9 @@ async function startElectron() {
         return { success: false, error: String(error) };
       }
     });
+
+    // aksd: Secure storage via Electron safeStorage API
+    setupSecureStorageHandlers();
 
     // Handle AKS cluster registration
     ipcMain.handle(
