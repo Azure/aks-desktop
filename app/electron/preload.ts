@@ -23,6 +23,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 const SECURE_STORAGE_SAVE = 'secure-storage-save';
 const SECURE_STORAGE_LOAD = 'secure-storage-load';
 const SECURE_STORAGE_DELETE = 'secure-storage-delete';
+const GITHUB_OAUTH_START = 'github-oauth-start';
+const GITHUB_OAUTH_REFRESH = 'github-oauth-refresh';
+const GITHUB_OAUTH_CALLBACK = 'github-oauth-callback';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -59,6 +62,7 @@ contextBridge.exposeInMainWorld('desktopApi', {
       'plugin-permission-secrets',
       'open-about-dialog',
       'backend-port',
+      GITHUB_OAUTH_CALLBACK,
     ];
     if (validChannels.includes(channel)) {
       // Deliberately strip event as it includes `sender`
@@ -112,5 +116,37 @@ contextBridge.exposeInMainWorld('desktopApi', {
 
   secureStorageDelete: (key: string): Promise<{ success: boolean; error?: string }> => {
     return ipcRenderer.invoke(SECURE_STORAGE_DELETE, { key });
+  },
+
+  // aksd: GitHub OAuth web flow
+  startGitHubOAuth: (): Promise<{ success: boolean; error?: string }> => {
+    return ipcRenderer.invoke(GITHUB_OAUTH_START);
+  },
+
+  onGitHubOAuthCallback: (
+    callback: (result: {
+      success: boolean;
+      accessToken?: string;
+      refreshToken?: string;
+      expiresAt?: string;
+      error?: string;
+    }) => void
+  ): (() => void) => {
+    const wrapper = (_event: unknown, result: unknown) => callback(result as any);
+    ipcRenderer.on(GITHUB_OAUTH_CALLBACK, wrapper);
+    return () => ipcRenderer.removeListener(GITHUB_OAUTH_CALLBACK, wrapper);
+  },
+
+  // aksd: GitHub OAuth token refresh via main process (avoids CORS / proxy)
+  refreshGitHubOAuth: (
+    refreshToken: string
+  ): Promise<{
+    success: boolean;
+    accessToken?: string;
+    refreshToken?: string;
+    expiresAt?: string;
+    error?: string;
+  }> => {
+    return ipcRenderer.invoke(GITHUB_OAUTH_REFRESH, { refreshToken });
   },
 });

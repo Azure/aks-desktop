@@ -141,7 +141,8 @@
       "electron/runCmd.js",
       "electron/aks-cluster.js",
       "electron/secure-storage.js",
-      "electron/ipc-channels.js"
+      "electron/ipc-channels.js",
+      "electron/github-oauth.js"
     ],
     "extraResources": [
       {
