@@ -18,6 +18,12 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 
+// IPC channel constants inlined here because the sandboxed preload environment
+// only allows require('electron') — relative module imports are not supported.
+const SECURE_STORAGE_SAVE = 'secure-storage-save';
+const SECURE_STORAGE_LOAD = 'secure-storage-load';
+const SECURE_STORAGE_DELETE = 'secure-storage-delete';
+
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('desktopApi', {
@@ -89,4 +95,22 @@ contextBridge.exposeInMainWorld('desktopApi', {
   },
 
   platform: process.platform,
+
+  // aksd: Secure storage — encrypt/decrypt via Electron safeStorage
+  secureStorageSave: (
+    key: string,
+    value: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    return ipcRenderer.invoke(SECURE_STORAGE_SAVE, { key, value });
+  },
+
+  secureStorageLoad: (
+    key: string
+  ): Promise<{ success: boolean; value?: string | null; error?: string }> => {
+    return ipcRenderer.invoke(SECURE_STORAGE_LOAD, { key });
+  },
+
+  secureStorageDelete: (key: string): Promise<{ success: boolean; error?: string }> => {
+    return ipcRenderer.invoke(SECURE_STORAGE_DELETE, { key });
+  },
 });
