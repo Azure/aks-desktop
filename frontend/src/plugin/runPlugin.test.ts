@@ -351,7 +351,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube',
       false
     );
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true });
+    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
   });
 
   test('should identify package by static-plugins prerelease path and name in production mode', () => {
@@ -360,7 +360,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikubeprerelease',
       false
     );
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true });
+    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
   });
 
   test('should not identify package if path does not match', () => {
@@ -408,7 +408,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube',
       false
     );
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true });
+    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
   });
 
   test('should handle windows paths in development mode', () => {
