@@ -19,19 +19,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Mock electron modules before importing the module under test
-jest.mock('electron', () => ({
+vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/test-userdata' },
-  ipcMain: { handle: jest.fn() },
-  shell: { openExternal: jest.fn() },
-  BrowserWindow: jest.fn(),
+  ipcMain: { handle: vi.fn() },
+  shell: { openExternal: vi.fn() },
+  BrowserWindow: vi.fn(),
 }));
 
-jest.mock('./secure-storage', () => ({
-  handleSecureStorageSave: jest.fn(() => ({ success: true })),
+vi.mock('./secure-storage', () => ({
+  handleSecureStorageSave: vi.fn(() => ({ success: true })),
 }));
 
-import { afterAll, afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { ipcMain } from 'electron';
+import { ipcMain, shell } from 'electron';
+import { afterAll, afterEach, beforeEach, describe, expect, it, Mock, vi } from 'vitest';
 import {
   DEV_CALLBACK_PORT,
   DEV_REDIRECT_URI,
@@ -39,6 +39,7 @@ import {
   getPendingState,
   handleOAuthCallback,
   setPendingState,
+  setupGitHubOAuthHandlers,
   STORAGE_KEY,
 } from './github-oauth';
 import { GITHUB_OAUTH_CALLBACK, GITHUB_OAUTH_REFRESH, GITHUB_OAUTH_START } from './ipc-channels';
@@ -50,14 +51,14 @@ const originalFetch = global.fetch;
 function createMockMainWindow() {
   return {
     webContents: {
-      send: jest.fn(),
+      send: vi.fn(),
     },
-    focus: jest.fn(),
+    focus: vi.fn(),
   } as any;
 }
 
 function mockFetchResponse(data: any, ok = true, status = 200) {
-  global.fetch = jest.fn(() =>
+  global.fetch = vi.fn(() =>
     Promise.resolve({ ok, status, json: () => Promise.resolve(data) })
   ) as any;
 }
@@ -72,7 +73,7 @@ describe('handleOAuthCallback', () => {
   beforeEach(() => {
     mockMainWindow = createMockMainWindow();
     setPendingState(null);
-    (handleSecureStorageSave as jest.Mock).mockClear();
+    (handleSecureStorageSave as Mock).mockClear();
     mockMainWindow.webContents.send.mockClear();
     mockMainWindow.focus.mockClear();
   });
@@ -202,10 +203,8 @@ describe('github-oauth-refresh handler', () => {
     // Register handlers and capture them
     const mockIpcMain = ipcMain as any;
     mockIpcMain.handle.mockClear();
-    (handleSecureStorageSave as jest.Mock).mockClear();
+    (handleSecureStorageSave as Mock).mockClear();
 
-    // Re-import to re-register handlers
-    const { setupGitHubOAuthHandlers } = require('./github-oauth');
     setupGitHubOAuthHandlers();
 
     // Find the refresh handler from the registered calls
@@ -264,7 +263,7 @@ describe('github-oauth-refresh handler', () => {
   });
 
   it('returns error on network failure', async () => {
-    global.fetch = jest.fn(() => Promise.reject(new Error('Network error'))) as any;
+    global.fetch = vi.fn(() => Promise.reject(new Error('Network error'))) as any;
 
     const result = await refreshHandler({}, { refreshToken: 'ghr_test' });
 
@@ -290,9 +289,8 @@ describe('dev callback server', () => {
     mockMainWindow = createMockMainWindow();
     const mockIpcMain = ipcMain as any;
     mockIpcMain.handle.mockClear();
-    (handleSecureStorageSave as jest.Mock).mockClear();
+    (handleSecureStorageSave as Mock).mockClear();
 
-    const { setupGitHubOAuthHandlers } = require('./github-oauth');
     setupGitHubOAuthHandlers({ isDev: true, getMainWindow: () => mockMainWindow });
 
     const handleCalls = mockIpcMain.handle.mock.calls;
@@ -342,8 +340,7 @@ describe('dev callback server', () => {
   });
 
   it('uses DEV_REDIRECT_URI for the authorization URL in dev mode', async () => {
-    const { shell } = require('electron');
-    (shell.openExternal as jest.Mock).mockClear();
+    (shell.openExternal as Mock).mockClear();
 
     await startHandler();
 
@@ -371,7 +368,7 @@ describe('dev callback server', () => {
     await handleOAuthCallback(url, mockMainWindow, DEV_REDIRECT_URI);
 
     // Verify the fetch call uses the dev redirect URI
-    const fetchCall = (global.fetch as jest.Mock).mock.calls[0] as any[];
+    const fetchCall = (global.fetch as Mock).mock.calls[0] as any[];
     const fetchBody = fetchCall[1].body;
     expect(fetchBody).toContain(encodeURIComponent(DEV_REDIRECT_URI).replace(/%/g, '%'));
     expect(fetchBody).toContain('redirect_uri=' + encodeURIComponent(DEV_REDIRECT_URI));
