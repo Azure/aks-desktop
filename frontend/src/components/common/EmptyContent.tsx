@@ -27,8 +27,8 @@ export default function Empty({ color = 'textSecondary', children }: EmptyProps)
   // Screen readers only announce content that changes inside a live region, not content present on mount.
   const [ready, setReady] = React.useState(false);
   React.useEffect(() => {
-    const id = requestAnimationFrame(() => setReady(true));
-    return () => cancelAnimationFrame(id);
+    const id = setTimeout(() => setReady(true), 0);
+    return () => clearTimeout(id);
   }, []);
 
   return (
