@@ -144,16 +144,19 @@
               <div
                 class="MuiBox-root css-0"
               >
-                <h6
+                <span
                   class="MuiTypography-root MuiTypography-subtitle2 css-14jjanu-MuiTypography-root"
+                  id="accent-color-label"
                 >
                   Accent color
-                </h6>
+                </span>
                 <div
                   class="MuiBox-root css-axw7ok"
                 >
                   <button
+                    aria-labelledby="cluster-appearance-label color-picker-button"
                     class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-outlinedPrimary MuiButton-sizeSmall MuiButton-outlinedSizeSmall MuiButton-colorPrimary MuiButton-disableElevation MuiButton-root MuiButton-outlined MuiButton-outlinedPrimary MuiButton-sizeSmall MuiButton-outlinedSizeSmall MuiButton-colorPrimary MuiButton-disableElevation css-irzb5y-MuiButtonBase-root-MuiButton-root"
+                    id="color-picker-button"
                     tabindex="0"
                     type="button"
                   >
@@ -170,16 +173,19 @@
               <div
                 class="MuiBox-root css-0"
               >
-                <h6
+                <span
                   class="MuiTypography-root MuiTypography-subtitle2 css-14jjanu-MuiTypography-root"
+                  id="cluster-icon-label"
                 >
                   Cluster icon
-                </h6>
+                </span>
                 <div
                   class="MuiBox-root css-axw7ok"
                 >
                   <button
+                    aria-labelledby="cluster-appearance-label icon-picker-button"
                     class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-outlinedPrimary MuiButton-sizeSmall MuiButton-outlinedSizeSmall MuiButton-colorPrimary MuiButton-disableElevation MuiButton-root MuiButton-outlined MuiButton-outlinedPrimary MuiButton-sizeSmall MuiButton-outlinedSizeSmall MuiButton-colorPrimary MuiButton-disableElevation css-irzb5y-MuiButtonBase-root-MuiButton-root"
+                    id="icon-picker-button"
                     tabindex="0"
                     type="button"
                   >
