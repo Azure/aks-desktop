@@ -653,12 +653,20 @@ function CreateAKSProject() {
                     </Box>
                     {/* Scrollable error content */}
                     <Box
+                      tabIndex={0}
+                      role="region"
+                      aria-label={t('Error details')}
                       sx={{
                         flex: 1,
                         overflowY: 'auto',
                         mb: 2,
                         minHeight: '100px',
                         maxHeight: '400px',
+                        '&:focus': {
+                          outline: '2px solid',
+                          outlineColor: theme => theme.palette.error.main,
+                          outlineOffset: '2px',
+                        },
                       }}
                     >
                       <Typography
