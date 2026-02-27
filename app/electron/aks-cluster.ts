@@ -330,7 +330,13 @@ export async function registerAKSCluster(
     }
 
     // Step 3: Merge into main kubeconfig
-    const kubeconfigPath = path.join(os.homedir(), '.kube', 'config');
+    // Use the first non-empty path from $KUBECONFIG if set,
+    // otherwise default to ~/.kube/config
+    const defaultKubeconfigPath = path.join(os.homedir(), '.kube', 'config');
+    const kubeconfigPath =
+      process.env.KUBECONFIG?.split(path.delimiter)
+        .map(p => p.trim())
+        .find(p => p) || defaultKubeconfigPath;
     const kubeconfigDir = path.dirname(kubeconfigPath);
 
     // Ensure .kube directory exists
