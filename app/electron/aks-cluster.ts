@@ -250,7 +250,7 @@ export async function registerAKSCluster(
   const tempKubeconfigPath = path.join(os.tmpdir(), `kubeconfig-${Date.now()}.yaml`);
 
   try {
-    // Step 1: Get the kubeconfig to a temporary file with --format azure
+    // Step 1: Get the kubeconfig to a temporary file
     // Use namespace get-credentials if a managed namespace is provided
     const args: string[] = ['aks'];
 
@@ -282,9 +282,7 @@ export async function registerAKSCluster(
         '--resource-group',
         resourceGroup,
         '--name',
-        clusterName,
-        '--format',
-        'azure'
+        clusterName
       );
     }
 
