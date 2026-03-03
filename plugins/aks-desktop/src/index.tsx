@@ -7,6 +7,7 @@ import {
   registerAppLogo,
   registerAppTheme,
   registerCustomCreateProject,
+  registerPluginSettings,
   registerProjectDeleteButton,
   registerProjectDetailsTab,
   // @ts-ignore todo: registerProjectHeaderAction is not exported properly
@@ -30,6 +31,7 @@ import AzureLogo from './components/Logo/Logo';
 import LogsTab from './components/LogsTab/LogsTab';
 import MetricsCard from './components/Metrics/MetricsCard';
 import MetricsTab from './components/MetricsTab/MetricsTab';
+import PreviewFeaturesSettings from './components/PluginSettings/PreviewFeaturesSettings';
 import ScalingCard from './components/Scaling/ScalingCard';
 import ScalingTab from './components/ScalingTab/ScalingTab';
 import { getLoginStatus } from './utils/azure/az-cli';
@@ -262,6 +264,8 @@ if (Headlamp.isRunningAsApp()) {
     noAuthRequired: true,
   });
 }
+
+registerPluginSettings('aks-desktop', PreviewFeaturesSettings, false);
 
 registerProjectOverviewSection({
   id: 'cluster-capabilities',
