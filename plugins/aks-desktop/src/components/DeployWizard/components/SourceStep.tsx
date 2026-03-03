@@ -131,7 +131,13 @@ export default function SourceStep({ sourceType, onSourceTypeChange }: SourceSte
                       transition: 'all 0.3s ease',
                     }}
                   >
-                    <Icon icon={iconName} width={36} height={36} color="contrastText" />
+                    <Icon
+                      icon={iconName}
+                      width={36}
+                      height={36}
+                      color="contrastText"
+                      aria-hidden="true"
+                    />
                   </Box>
                   {selected && (
                     <Box
@@ -155,6 +161,7 @@ export default function SourceStep({ sourceType, onSourceTypeChange }: SourceSte
                         color={theme.palette.getContrastText(theme.palette.primary.main)}
                         width={18}
                         height={18}
+                        aria-hidden="true"
                       />
                     </Box>
                   )}
@@ -208,34 +215,40 @@ export default function SourceStep({ sourceType, onSourceTypeChange }: SourceSte
                       position: 'relative',
                     }}
                   >
-                    {source.features.map(feature => (
-                      <Box
-                        component="li"
-                        key={feature}
-                        sx={{
-                          position: 'relative',
-                          pl: 2.5,
-                          mb: 1.5,
-                          '&::before': {
-                            content: '""',
-                            position: 'absolute',
-                            left: 0,
-                            top: '0.5em',
-                            width: 6,
-                            height: 6,
-                            borderRadius: '50%',
-                            backgroundColor: selected ? 'primary.main' : 'text.secondary',
-                          },
-                          '&:last-child': {
-                            mb: 0,
-                          },
-                        }}
-                      >
-                        <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-                          {feature}
-                        </Typography>
-                      </Box>
-                    ))}
+                    {source.features
+                      .filter(x => x)
+                      .map(feature => (
+                        <Box
+                          component="li"
+                          key={feature}
+                          sx={{
+                            position: 'relative',
+                            pl: 2.5,
+                            mb: 1.5,
+                            '&::before': {
+                              content: '""',
+                              position: 'absolute',
+                              left: 0,
+                              top: '0.5em',
+                              width: 6,
+                              height: 6,
+                              borderRadius: '50%',
+                              backgroundColor: selected ? 'primary.main' : 'text.secondary',
+                            },
+                            '&:last-child': {
+                              mb: 0,
+                            },
+                          }}
+                        >
+                          <Typography
+                            variant="body2"
+                            color="text.secondary"
+                            sx={{ lineHeight: 1.6 }}
+                          >
+                            {feature}
+                          </Typography>
+                        </Box>
+                      ))}
                   </Box>
                 </Box>
               </CardContent>

@@ -362,10 +362,12 @@
   "Add one or more Kubernetes manifests. Upload files to populate the editor or paste/edit directly below.": "",
   "Upload files": "",
   "Clear editor": "",
-  "unnamed": "",
   "Review & Deploy": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "",
   "Resources to be deployed ({{count}} object)_other": "",
+  "namespace: {{namespace}}": "",
+  "Configure": "",
+  "Deploying": "",
   "Container Image": "",
   "Deploy from Azure Container Registry, Docker Hub, or GHCR": "",
   "Auto-generated Deployment and Service manifests": "",
@@ -383,8 +385,7 @@
   "Invalid YAML": "",
   "Applied {{count}} resource successfully._other": "",
   "Failed to apply resources.": "",
-  "Configure": "",
-  "Deploying": "",
+  "unnamed": "",
   "Contents": "",
   "Push agent config files": "",
   "Workflows": "",
@@ -615,6 +616,5 @@
   "{{minutes}} min ago": "",
   "{{hours}}h ago": "",
   "{{days}}d ago": "",
-  "{{weeks}}w ago": "",
-  "{{count}} restart_one": ""
+  "{{weeks}}w ago": ""
 }
