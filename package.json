@@ -29,7 +29,9 @@
     "build:all": "npm run headlamp:build && npm run plugin:build",
     "dev": "concurrently --kill-others --names \"PLUGIN,BACKEND,FRONTEND,APP\" -c \"cyan,green,yellow,magenta\" \"npm run plugin:start\" \"cd headlamp && make run-backend\" \"cd headlamp && make run-frontend\" \"cd headlamp && make run-only-app\"",
     "prepare": "husky",
-    "knip": "knip"
+    "knip": "knip",
+    "i18n:collect": "node Localize/translation-manager.mjs collect",
+    "i18n:distribute": "node Localize/translation-manager.mjs distribute"
   },
   "config": {
     "externalTools": {

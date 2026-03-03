@@ -191,3 +191,15 @@ When writing commit messages, follow these guidelines:
 
 As new functionality is added, tests of that functionality should be added to an automated test suite.
 As bugs are fixed, there should be a test covering that bug fix.
+
+## Translations
+
+Translation strings from `headlamp/frontend/` and `plugins/aks-desktop/` are managed via OneLocBuild. English source files are collected into `Localize/locales/en/`, and OneLocBuild produces translated files into `Localize/locales/{lang}/`. The `Localize/LocProject.json` file configures this pipeline.
+
+### Workflow
+
+1. **Collect English keys**: Run `npm run i18n:collect` to copy English locale files from `headlamp/frontend/` and `plugins/aks-desktop/` into `Localize/locales/en/`. These are the source files OneLocBuild uses.
+
+2. **Translate**: OneLocBuild picks up the English files and produces translated files in `Localize/locales/{lang}/` for each target language.
+
+3. **Distribute**: Run `npm run i18n:distribute` to copy translated files from `Localize/locales/` back to the source locale directories (`headlamp/frontend/src/i18n/locales/` and `plugins/aks-desktop/locales/`), fully replacing their content.

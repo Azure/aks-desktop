@@ -1,0 +1,29 @@
+{
+  "Projects": [
+    {
+      "LanguageSet": "Azure_LanguagesExt",
+      "LocItems": [
+        {
+          "SourceFile": "Localize\\locales\\en\\frontend-app.json",
+          "CopyOption": "LangIDOnPath",
+          "OutputPath": "Localize\\locales"
+        },
+        {
+          "SourceFile": "Localize\\locales\\en\\frontend-glossary.json",
+          "CopyOption": "LangIDOnPath",
+          "OutputPath": "Localize\\locales"
+        },
+        {
+          "SourceFile": "Localize\\locales\\en\\frontend-translation.json",
+          "CopyOption": "LangIDOnPath",
+          "OutputPath": "Localize\\locales"
+        },
+        {
+          "SourceFile": "Localize\\locales\\en\\plugin-translation.json",
+          "CopyOption": "LangIDOnPath",
+          "OutputPath": "Localize\\locales"
+        }
+      ]
+    }
+  ]
+}
