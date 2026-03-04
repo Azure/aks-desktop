@@ -391,6 +391,9 @@ export function ProjectResourcesTab({
           flexGrow: 1,
           minHeight: 0,
           flexBasis: 0,
+          [theme.breakpoints.down('md')]: {
+            flexDirection: 'column',
+          },
         })}
       >
         <ResourceCategoriesList
@@ -408,7 +411,7 @@ export function ProjectResourcesTab({
           })}
         >
           {selectedCategory && (
-            <Box>
+            <Box sx={{ minHeight: '400px' }}>
               {selectedResources.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
                   {t('No {{category}} resources found for this project.', {

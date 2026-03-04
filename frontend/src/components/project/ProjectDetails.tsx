@@ -583,7 +583,12 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
           }
         >
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <Tabs value={selectedTab} onChange={handleTabChange}>
+            <Tabs
+              value={selectedTab}
+              onChange={handleTabChange}
+              variant="scrollable"
+              scrollButtons="auto"
+            >
               {Object.values(allTabs)
                 .filter(tab => tab.component)
                 .map(tab => (
@@ -642,6 +647,7 @@ function ProjectGraph({ project: { namespaces, clusters } }: { project: ProjectD
         flexGrow: 1,
         display: 'flex',
         flexDirection: 'column',
+        minHeight: '600px',
       }}
     >
       <SelectedClustersContext.Provider value={clusters}>
