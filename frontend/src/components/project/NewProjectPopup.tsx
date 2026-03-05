@@ -37,9 +37,17 @@ import { apply } from '../../lib/k8s/api/v1/apply';
 import { ApiError } from '../../lib/k8s/api/v2/ApiError';
 import { KubeObjectInterface } from '../../lib/k8s/KubeObject';
 import Namespace from '../../lib/k8s/namespace';
-import { createRouteURL } from '../../lib/router/createRouteURL';
 import { useTypedSelector } from '../../redux/hooks';
+import { CustomCreateProject } from '../../redux/projectsSlice';
 import { PROJECT_ID_LABEL, toKubernetesName } from './projectUtils';
+
+/**
+ * Well-known IDs for built-in project creation options.
+ * Plugins can override these by registering a customCreateProject with the same ID.
+ */
+export const BUILTIN_USE_EXISTING_NAMESPACE_ID = 'use-existing-namespace';
+export const BUILTIN_CREATE_NAMESPACE_ID = 'create-namespace';
+
 /**
  * A styled button for selecting a project type.
  */
@@ -100,9 +108,10 @@ function ProjectTypeButton({
 }
 
 /**
- * Popup content for creating a new Project from existing or new namespace
+ * Built-in dialog for creating or selecting a namespace as a project.
+ * Used for both "Use Existing Namespace(s)" and "Create New Namespace".
  */
-function ProjectFromExistingNamespace({ onBack }: { onBack: () => void }) {
+function NamespaceProjectDialog({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation();
   const history = useHistory();
 
@@ -186,7 +195,7 @@ function ProjectFromExistingNamespace({ onBack }: { onBack: () => void }) {
         await apply(namespace, cluster);
       }
 
-      history.push(createRouteURL('projectDetails', { name: projectName }));
+      history.push('/projects');
     } catch (e: any) {
       setError(e);
     } finally {
@@ -198,7 +207,7 @@ function ProjectFromExistingNamespace({ onBack }: { onBack: () => void }) {
     <>
       <DialogTitle sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
         <Icon icon="mdi:folder-add" />
-        {t('Create new project')}
+        {t('Create Project')}
       </DialogTitle>
       <DialogContent
         sx={{
@@ -224,12 +233,10 @@ function ProjectFromExistingNamespace({ onBack }: { onBack: () => void }) {
             setProjectName(inputValue);
           }}
           onBlur={event => {
-            // Convert to Kubernetes name when user finishes typing (loses focus)
             const converted = toKubernetesName(event.target.value);
             setProjectName(converted);
           }}
           onKeyDown={event => {
-            // Convert spaces to dashes immediately when space is pressed
             if (event.key === ' ') {
               event.preventDefault();
               const target = event.target as HTMLInputElement;
@@ -238,7 +245,6 @@ function ProjectFromExistingNamespace({ onBack }: { onBack: () => void }) {
               const currentValue = projectName;
               const newValue = currentValue.substring(0, start) + '-' + currentValue.substring(end);
               setProjectName(newValue);
-              // Set cursor position after the inserted dash
               setTimeout(() => {
                 target.setSelectionRange(start + 1, start + 1);
               }, 0);
@@ -279,7 +285,6 @@ function ProjectFromExistingNamespace({ onBack }: { onBack: () => void }) {
           options={uniq(namespaces?.map(it => it.metadata.name)) ?? []}
           value={selectedNamespace}
           onChange={(event, newValue) => {
-            console.log({ newValue });
             setSelectedNamespace(newValue ?? undefined);
           }}
           onInputChange={(e, v) => {
@@ -320,20 +325,57 @@ function ProjectFromExistingNamespace({ onBack }: { onBack: () => void }) {
 }
 
 /**
+ * Returns the merged list of project creation options.
+ * Built-in defaults are included unless a plugin has registered an override with the same ID.
+ */
+function useCreateProjectOptions(): CustomCreateProject[] {
+  const { t } = useTranslation();
+  const pluginOptions = useTypedSelector(state => state.projects.customCreateProject);
+
+  return useMemo(() => {
+    const builtinDefaults: CustomCreateProject[] = [
+      {
+        id: BUILTIN_USE_EXISTING_NAMESPACE_ID,
+        name: t('Use Existing Namespace(s)'),
+        description: t('Select namespaces to use as a project'),
+        icon: 'mdi:folder-open-outline',
+        component: NamespaceProjectDialog,
+      },
+      {
+        id: BUILTIN_CREATE_NAMESPACE_ID,
+        name: t('Create New Namespace'),
+        description: t('New namespace with resources as a project'),
+        icon: 'mdi:folder-add',
+        component: NamespaceProjectDialog,
+      },
+    ];
+
+    // Merge: plugin registrations override built-ins with the same ID
+    const merged = new Map<string, CustomCreateProject>();
+    for (const builtin of builtinDefaults) {
+      merged.set(builtin.id, builtin);
+    }
+    for (const plugin of Object.values(pluginOptions)) {
+      merged.set(plugin.id, plugin);
+    }
+
+    return Array.from(merged.values());
+  }, [pluginOptions, t]);
+}
+
+/**
  * A dialog for creating a new project.
- * It provides several options for creating a project, such as from a namespace,
- * auto-detection, from YAML, or a custom project.
+ * Shows built-in options (Use Existing Namespace, Create New Namespace) plus any
+ * custom options registered by plugins. Plugins can override built-in options by
+ * registering with the same well-known ID.
  */
 export function NewProjectPopup({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const history = useHistory();
   const theme = useTheme();
   const { t } = useTranslation();
-  const customCreateProject = Object.values(
-    useTypedSelector(state => state.projects.customCreateProject)
-  );
+  const createProjectOptions = useCreateProjectOptions();
 
   const [projectStep, setProjectStep] = useState<string | undefined>();
-  const selectedCustomProject = customCreateProject.find(it => it.id === projectStep);
+  const selectedOption = createProjectOptions.find(it => it.id === projectStep);
 
   const handleBack = useCallback(() => {
     setProjectStep(undefined);
@@ -352,48 +394,14 @@ export function NewProjectPopup({ open, onClose }: { open: boolean; onClose: () 
           <DialogContent sx={{ maxWidth: '540px' }}>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
               <Trans>
-                Project is a collection of Kubernetes resources. You can use projects to organize
-                your resources, for example, by environment, team, or application.
+                A project groups one or more namespaces across your clusters, making it easy to view
+                and manage related resources in one place.
               </Trans>
             </Typography>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <ProjectTypeButton
-                index={index++}
-                icon={
-                  <Icon
-                    icon="mdi:folder-add"
-                    width="100%"
-                    height="100%"
-                    color={theme.palette.text.secondary}
-                  />
-                }
-                title={<Trans>New Project</Trans>}
-                description={<Trans>Create a new project</Trans>}
-                onClick={() => {
-                  setProjectStep('new-project');
-                }}
-              />
-
-              <ProjectTypeButton
-                index={index++}
-                icon={
-                  <Icon
-                    icon="mdi:file-document-add"
-                    width="100%"
-                    height="100%"
-                    color={theme.palette.text.secondary}
-                  />
-                }
-                title={<Trans>New Project from YAML</Trans>}
-                description={<Trans>Deploy a new application from YAML</Trans>}
-                onClick={() => {
-                  onClose();
-                  history.push(createRouteURL('projectCreateYaml'));
-                }}
-              />
-
-              {customCreateProject.map(it => (
+              {createProjectOptions.map(it => (
                 <ProjectTypeButton
+                  key={it.id}
                   index={index++}
                   icon={
                     typeof it.icon === 'string' ? (
@@ -421,8 +429,7 @@ export function NewProjectPopup({ open, onClose }: { open: boolean; onClose: () 
           </DialogActions>
         </>
       )}
-      {projectStep === 'new-project' && <ProjectFromExistingNamespace onBack={handleBack} />}
-      {selectedCustomProject && <selectedCustomProject.component onBack={handleBack} />}
+      {selectedOption && <selectedOption.component onBack={handleBack} />}
     </Dialog>
   );
 }
