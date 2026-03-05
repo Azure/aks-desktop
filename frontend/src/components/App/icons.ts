@@ -476,6 +476,9 @@ const mdiIcons = {
     'folder-open': {
       body: '\u003Cpath fill="currentColor" d="M19 20H4a2 2 0 0 1-2-2V6c0-1.11.89-2 2-2h6l2 2h7a2 2 0 0 1 2 2H4v10l2.14-8h17.07l-2.28 8.5c-.23.87-1.01 1.5-1.93 1.5"/\u003E',
     },
+    'folder-open-outline': {
+      body: '\u003Cpath fill="currentColor" d="M6.1 10L4 18V8h17a2 2 0 0 0-2-2h-7l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h15c.9 0 1.7-.6 1.9-1.5l2.3-8.5zM19 18H6l1.6-6h13z"/\u003E',
+    },
     sitemap: {
       body: '<path fill="currentColor" d="M9 2v6H5V2h4m3 11V9h2v4H9m6 0v-4h2v4h-2M5 16h4v6H5v-6m10 0h4v6h-4v-6M11 2v6h2V2h-2m4 0v6h2V2h-2m-8 7v4H5v2h14v-2h-2V9H7m4 7v6h2v-6h-2z"/>',
     },

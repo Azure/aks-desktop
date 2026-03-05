@@ -42,7 +42,7 @@
           <p
             class="MuiTypography-root MuiTypography-body2 css-1enx7tw-MuiTypography-root"
           >
-            Project is a collection of Kubernetes resources. You can use projects to organize your resources, for example, by environment, team, or application.
+            A project groups one or more namespaces across your clusters, making it easy to view and manage related resources in one place.
           </p>
           <div
             class="MuiBox-root css-1821gv5"
@@ -61,12 +61,12 @@
                 <span
                   class="MuiTypography-root MuiTypography-h6 css-16yif3g-MuiTypography-root"
                 >
-                  New Project
+                  Use Existing Namespace
                 </span>
                 <p
                   class="MuiTypography-root MuiTypography-body2 css-11zj6ou-MuiTypography-root"
                 >
-                  Create a new project
+                  Select an existing namespace to use as a project
                 </p>
               </div>
               <span
@@ -87,12 +87,12 @@
                 <span
                   class="MuiTypography-root MuiTypography-h6 css-16yif3g-MuiTypography-root"
                 >
-                  New Project from YAML
+                  Create New Namespace
                 </span>
                 <p
                   class="MuiTypography-root MuiTypography-body2 css-11zj6ou-MuiTypography-root"
                 >
-                  Deploy a new application from YAML
+                  Create a new namespace and use it as a project
                 </p>
               </div>
               <span

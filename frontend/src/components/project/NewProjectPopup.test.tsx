@@ -97,8 +97,8 @@ describe('NewProjectPopup', () => {
     );
 
     expect(screen.getByText('Create a Project')).toBeInTheDocument();
-    expect(screen.getByText('New Project')).toBeInTheDocument();
-    expect(screen.getByText('New Project from YAML')).toBeInTheDocument();
+    expect(screen.getByText('Use Existing Namespace')).toBeInTheDocument();
+    expect(screen.getByText('Create New Namespace')).toBeInTheDocument();
   });
 
   test('navigates to New Project step when clicked', () => {
@@ -108,8 +108,8 @@ describe('NewProjectPopup', () => {
       </TestContext>
     );
 
-    fireEvent.click(screen.getByText('New Project'));
-    expect(screen.getByText('Create new project')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Create New Namespace'));
+    expect(screen.getByText('Create New Namespace')).toBeInTheDocument();
     expect(screen.getByLabelText(/Project Name/i)).toBeInTheDocument();
   });
 
@@ -120,7 +120,7 @@ describe('NewProjectPopup', () => {
       </TestContext>
     );
 
-    fireEvent.click(screen.getByText('New Project'));
+    fireEvent.click(screen.getByText('Create New Namespace'));
 
     const createBtn = screen.getByRole('button', { name: 'Create' });
     expect(createBtn).toBeDisabled();
@@ -134,7 +134,7 @@ describe('NewProjectPopup', () => {
     fireEvent.click(screen.getByText('cluster-1'));
 
     // Fill namespace (freeSolo Autocomplete)
-    const nsInput = screen.getByLabelText('Namespace');
+    const nsInput = screen.getByLabelText('Namespace Name');
     fireEvent.change(nsInput, { target: { value: 'my-ns' } });
     fireEvent.keyDown(nsInput, { key: 'Enter' });
 
@@ -163,7 +163,7 @@ describe('NewProjectPopup', () => {
       </TestContext>
     );
 
-    fireEvent.click(screen.getByText('New Project'));
+    fireEvent.click(screen.getByText('Create New Namespace'));
 
     fireEvent.change(screen.getByLabelText(/Project Name/i), {
       target: { value: 'existing-project' },
@@ -179,7 +179,7 @@ describe('NewProjectPopup', () => {
       </TestContext>
     );
 
-    fireEvent.click(screen.getByText('New Project'));
+    fireEvent.click(screen.getByText('Create New Namespace'));
 
     fireEvent.change(screen.getByLabelText(/Project Name/i), { target: { value: 'new-project' } });
 
@@ -187,7 +187,7 @@ describe('NewProjectPopup', () => {
     fireEvent.mouseDown(clusterInput);
     fireEvent.click(screen.getByText('cluster-1'));
 
-    const nsInput = screen.getByLabelText('Namespace');
+    const nsInput = screen.getByLabelText('Namespace Name');
     fireEvent.change(nsInput, { target: { value: 'new-ns' } });
     fireEvent.keyDown(nsInput, { key: 'Enter' });
 
@@ -209,20 +209,8 @@ describe('NewProjectPopup', () => {
       </TestContext>
     );
 
-    fireEvent.click(screen.getByText('New Project'));
+    fireEvent.click(screen.getByText('Create New Namespace'));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.getByText('Create a Project')).toBeInTheDocument();
-  });
-
-  test('navigates to YAML creation when clicked', () => {
-    render(
-      <TestContext>
-        <NewProjectPopup open onClose={mockOnClose} />
-      </TestContext>
-    );
-
-    fireEvent.click(screen.getByText('New Project from YAML'));
-    expect(mockOnClose).toHaveBeenCalled();
-    expect(mockHistoryPush).toHaveBeenCalledWith(expect.stringContaining('create-yaml'));
   });
 });
