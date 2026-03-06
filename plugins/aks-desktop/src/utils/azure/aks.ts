@@ -1,4 +1,4 @@
-import { getClusters, getSubscriptions as getAzSubscriptions, runCommandAsync } from './az-cli';
+import { getClusters, getSubscriptions as getAzSubscriptions } from './az-cli';
 
 export interface Subscription {
   id: string;
@@ -127,79 +127,6 @@ export async function registerAKSCluster(
     return result;
   } catch (error) {
     console.error('[AKS] Error registering AKS cluster:', error);
-    return {
-      success: false,
-      message: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
-}
-
-/**
- * Get details for a specific AKS cluster
- */
-export async function getAKSClusterDetails(
-  subscriptionId: string,
-  resourceGroup: string,
-  clusterName: string
-): Promise<{
-  success: boolean;
-  message: string;
-  cluster?: AKSCluster;
-}> {
-  try {
-    const args = [
-      'aks',
-      'show',
-      '--subscription',
-      subscriptionId,
-      '--resource-group',
-      resourceGroup,
-      '--name',
-      clusterName,
-      '--output',
-      'json',
-    ];
-
-    const { stdout, stderr } = await runCommandAsync('az', args);
-
-    if (stderr && (stderr.includes('ERROR') || stderr.includes('error'))) {
-      return {
-        success: false,
-        message: stderr,
-      };
-    }
-
-    if (!stdout) {
-      return {
-        success: false,
-        message: 'No cluster details returned from Azure CLI',
-      };
-    }
-
-    try {
-      const cluster = JSON.parse(stdout);
-      return {
-        success: true,
-        message: 'Cluster details retrieved successfully',
-        cluster: {
-          name: cluster.name,
-          resourceGroup: cluster.resourceGroup,
-          location: cluster.location,
-          kubernetesVersion: cluster.kubernetesVersion,
-          provisioningState: cluster.provisioningState,
-          fqdn: cluster.fqdn,
-          isAzureRBACEnabled: cluster.aadProfile !== null,
-        },
-      };
-    } catch (parseError) {
-      console.error('Error parsing cluster details:', parseError);
-      return {
-        success: false,
-        message: 'Failed to parse cluster details',
-      };
-    }
-  } catch (error) {
-    console.error('Error getting AKS cluster details:', error);
     return {
       success: false,
       message: error instanceof Error ? error.message : 'Unknown error',

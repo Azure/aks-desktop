@@ -24,14 +24,11 @@
         "src/index.tsx"
       ],
       "project": [
-        "src/**/*.{ts,tsx}",
-        "test-config/**/*.{js,ts}"
+        "src/**/*.{ts,tsx}"
       ],
       "ignore": [
         "dist/**",
         "src/**/*.d.ts",
-        "src/setupTests.ts",
-        "test-config/setup/setupTests.ts",
         "src/utils/test/*.test.ts",
         "src/utils/test/run-tests.js"
       ],
@@ -42,15 +39,11 @@
         "@iconify/react",
         "@monaco-editor/react",
         "@mui/material",
-        "@octokit/rest",
         "eslint-plugin-no-barrel-files",
         "react-router-dom"
       ],
       "ignoreBinaries": [
         "prettier"
-      ],
-      "jest": [
-        "test-config/jest/*.js"
       ]
     }
   },

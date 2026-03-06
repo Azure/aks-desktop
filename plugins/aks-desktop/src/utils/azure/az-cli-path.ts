@@ -149,14 +149,6 @@ export function getAzCommand(): string {
 }
 
 /**
- * Check if we should use the bundled CLI
- * @returns true if bundled CLI is available and should be used
- */
-export function shouldUseBundledCli(): boolean {
-  return getBundledAzPath() !== null;
-}
-
-/**
  * Get installation instructions based on platform
  * @returns Installation instructions string
  */
