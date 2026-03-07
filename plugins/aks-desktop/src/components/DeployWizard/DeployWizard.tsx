@@ -19,6 +19,7 @@ import ConfigureContainer from './components/ConfigureContainer';
 import ConfigureYAML from './components/ConfigureYAML';
 import Deploy from './components/Deploy';
 import SourceStep from './components/SourceStep';
+import type { ContainerConfig } from './hooks/useContainerConfiguration';
 import { useContainerConfiguration } from './hooks/useContainerConfiguration';
 import { applyNamespaceOverride } from './utils/namespaceOverride';
 import { generateYamlForContainer } from './utils/yamlGenerator';
@@ -27,6 +28,7 @@ type DeployWizardProps = {
   cluster?: string;
   namespace?: string;
   initialApplicationName?: string;
+  initialContainerConfig?: Partial<ContainerConfig>;
   onClose?: () => void;
 };
 
@@ -40,11 +42,17 @@ export default function DeployWizard({
   cluster,
   namespace,
   initialApplicationName,
+  initialContainerConfig,
   onClose,
 }: DeployWizardProps) {
   const { t } = useTranslation();
-  const [activeStep, setActiveStep] = useState(WizardStep.SOURCE);
-  const [sourceType, setSourceType] = useState<null | 'yaml' | 'container'>(null);
+  const isEditMode = !!initialContainerConfig;
+  const [activeStep, setActiveStep] = useState(
+    isEditMode ? WizardStep.CONFIGURE : WizardStep.SOURCE
+  );
+  const [sourceType, setSourceType] = useState<null | 'yaml' | 'container'>(
+    isEditMode ? 'container' : null
+  );
   const [yamlEditorValue, setYamlEditorValue] = useState<string>('');
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -53,7 +61,7 @@ export default function DeployWizard({
   const [userPreviewYaml, setUserPreviewYaml] = useState<string>('');
 
   // Container configuration state
-  const containerConfig = useContainerConfiguration(initialApplicationName);
+  const containerConfig = useContainerConfiguration(initialApplicationName, initialContainerConfig);
 
   useEffect(() => {
     if (activeStep === WizardStep.DEPLOY && sourceType === 'container') {

@@ -28,6 +28,8 @@ interface ConfigureContainerProps {
     config: ContainerConfig;
     setConfig: React.Dispatch<React.SetStateAction<ContainerConfig>>;
   };
+  /** When false, containerImage is not required to proceed past the Basics step. Default: true. */
+  requireContainerImage?: boolean;
 }
 
 function LabelWithInfo({ label, infoText }: { label: string; infoText: string }) {
@@ -45,9 +47,11 @@ function LabelWithInfo({ label, infoText }: { label: string; infoText: string })
   );
 }
 
-export default function ConfigureContainer({ containerConfig }: ConfigureContainerProps) {
+export default function ConfigureContainer({
+  containerConfig,
+  requireContainerImage = true,
+}: ConfigureContainerProps) {
   const { t } = useTranslation();
-
   return (
     <>
       <Typography variant="h6" component="h2" gutterBottom>
@@ -98,7 +102,7 @@ export default function ConfigureContainer({ containerConfig }: ConfigureContain
                 onClick={() => containerConfig.setConfig(c => ({ ...c, containerStep: 1 }))}
                 disabled={
                   !containerConfig.config.appName.trim() ||
-                  !containerConfig.config.containerImage.trim() ||
+                  (requireContainerImage && !containerConfig.config.containerImage.trim()) ||
                   containerConfig.config.replicas < 1
                 }
               >
