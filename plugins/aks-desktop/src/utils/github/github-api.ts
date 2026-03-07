@@ -5,6 +5,7 @@ import { Octokit } from '@octokit/rest';
 import {
   AGENT_CONFIG_PATH,
   COPILOT_SETUP_STEPS_PATH,
+  PIPELINE_WORKFLOW_FILENAME,
 } from '../../components/GitHubPipeline/constants';
 import type {
   GitHubRunConclusion,
@@ -116,12 +117,19 @@ export async function checkRepoReadiness(
   defaultBranch?: string
 ): Promise<RepoReadiness> {
   try {
-    const [hasSetupWorkflow, hasAgentConfig] = await Promise.all([
+    const [hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow] = await Promise.all([
       fileExists(octokit, owner, repo, COPILOT_SETUP_STEPS_PATH, defaultBranch),
       fileExists(octokit, owner, repo, AGENT_CONFIG_PATH, defaultBranch),
+      fileExists(
+        octokit,
+        owner,
+        repo,
+        `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
+        defaultBranch
+      ),
     ]);
 
-    return { hasSetupWorkflow, hasAgentConfig };
+    return { hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow };
   } catch (error) {
     throw apiError(`Failed to check repo readiness for ${owner}/${repo}`, error);
   }
@@ -153,15 +161,20 @@ export async function checkAppInstallation(
         continue;
       }
       try {
-        // The response nests repos under `.data.repositories` at runtime,
-        // but Octokit's paginate types flatten to `.data`. Cast to access the real shape.
         const repos = await octokit.paginate(
           octokit.apps.listInstallationReposForAuthenticatedUser,
           { installation_id: installation.id, per_page: 100 },
-          response =>
-            (response.data as unknown as { repositories: typeof response.data }).repositories
+          response => {
+            const data = response.data;
+            // Octokit's paginate types flatten `.data`, but the runtime response
+            // nests repos under `.data.repositories`. Check the real shape.
+            if (data && typeof data === 'object' && 'repositories' in data) {
+              return (data as { repositories: typeof data }).repositories;
+            }
+            return data;
+          }
         );
-        if (repos.some(r => r.full_name === `${owner}/${repo}`)) {
+        if (Array.isArray(repos) && repos.some(r => r?.full_name === `${owner}/${repo}`)) {
           return { installed: true, installUrl: null };
         }
       } catch (err) {
@@ -330,6 +343,81 @@ export async function getStatusChecks(
   }
 }
 
+/**
+ * Fetches the repository's Actions public key (used to encrypt secrets).
+ * @see https://docs.github.com/en/rest/actions/secrets#get-a-repository-public-key
+ */
+export async function getRepoPublicKey(
+  octokit: Octokit,
+  owner: string,
+  repo: string
+): Promise<{ key: string; keyId: string }> {
+  try {
+    const { data } = await octokit.actions.getRepoPublicKey({ owner, repo });
+    return { key: data.key, keyId: data.key_id };
+  } catch (error) {
+    throw apiError(`Failed to get repo public key for ${owner}/${repo}`, error);
+  }
+}
+
+/**
+ * Creates or updates a single GitHub Actions repository secret.
+ * The value is encrypted client-side using the repo's public key
+ * via libsodium sealed box (crypto_box_seal).
+ */
+export async function createOrUpdateRepoSecret(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  secretName: string,
+  plaintext: string,
+  publicKey: { key: string; keyId: string }
+): Promise<void> {
+  try {
+    // Dynamic import to avoid loading libsodium until needed.
+    // The default export holds the actual API; the namespace object does not.
+    const sodiumModule = await import('libsodium-wrappers');
+    const sodium = sodiumModule.default ?? sodiumModule;
+    await sodium.ready;
+
+    const keyBytes = sodium.from_base64(publicKey.key, sodium.base64_variants.ORIGINAL);
+    const messageBytes = sodium.from_string(plaintext);
+    const encrypted = sodium.crypto_box_seal(messageBytes, keyBytes);
+    const encryptedBase64 = sodium.to_base64(encrypted, sodium.base64_variants.ORIGINAL);
+
+    await octokit.actions.createOrUpdateRepoSecret({
+      owner,
+      repo,
+      secret_name: secretName,
+      encrypted_value: encryptedBase64,
+      key_id: publicKey.keyId,
+    });
+  } catch (error) {
+    throw apiError(`Failed to create/update secret ${secretName} in ${owner}/${repo}`, error);
+  }
+}
+
+/**
+ * Creates or updates multiple GitHub Actions repository secrets in batch.
+ * Fetches the public key once and encrypts all values with it.
+ */
+export async function setRepoSecrets(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  secrets: Record<string, string>
+): Promise<void> {
+  const entries = Object.entries(secrets).filter(([, value]) => value.trim());
+  if (entries.length === 0) return;
+
+  const publicKey = await getRepoPublicKey(octokit, owner, repo);
+  await Promise.all(
+    entries.map(([name, value]) =>
+      createOrUpdateRepoSecret(octokit, owner, repo, name, value, publicKey)
+    )
+  );
+}
+
 /** Creates an issue (used for agent task trigger in Step D). */
 export async function createIssue(
   octokit: Octokit,
@@ -441,7 +529,13 @@ export async function findLinkedPullRequest(
   owner: string,
   repo: string,
   issueNumber: number
-): Promise<{ number: number; url: string; merged: boolean; state: 'open' | 'closed' } | null> {
+): Promise<{
+  number: number;
+  url: string;
+  merged: boolean;
+  draft: boolean;
+  state: 'open' | 'closed';
+} | null> {
   try {
     const { data } = await octokit.request(
       'GET /repos/{owner}/{repo}/issues/{issue_number}/timeline',
@@ -456,10 +550,18 @@ export async function findLinkedPullRequest(
     for (const event of data) {
       if (isTimelineCrossReference(event)) {
         const { issue } = event.source;
+        // The timeline cross-reference doesn't include draft status,
+        // so fetch the PR details to check.
+        const { data: pr } = await octokit.pulls.get({
+          owner,
+          repo,
+          pull_number: issue.number,
+        });
         return {
           number: issue.number,
           url: issue.html_url,
           merged: !!issue.pull_request?.merged_at,
+          draft: pr.draft ?? false,
           state: issue.state,
         };
       }
@@ -587,6 +689,53 @@ export async function getWorkflowRun(
     };
   } catch (error) {
     throw apiError(`Failed to get workflow run ${runId} in ${owner}/${repo}`, error);
+  }
+}
+
+/** Step-level status for a workflow run job. */
+export interface WorkflowJobStep {
+  name: string;
+  status: 'queued' | 'in_progress' | 'completed';
+  conclusion: string | null;
+  number: number;
+  started_at: string | null;
+}
+
+/** Job-level status for a workflow run. */
+export interface WorkflowJob {
+  name: string;
+  status: 'queued' | 'in_progress' | 'completed';
+  conclusion: string | null;
+  steps: WorkflowJobStep[];
+}
+
+/** Lists jobs (with steps) for a specific workflow run. */
+export async function listWorkflowRunJobs(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  runId: number
+): Promise<WorkflowJob[]> {
+  try {
+    const { data } = await octokit.actions.listJobsForWorkflowRun({
+      owner,
+      repo,
+      run_id: runId,
+    });
+    return data.jobs.map(job => ({
+      name: job.name,
+      status: job.status as WorkflowJob['status'],
+      conclusion: job.conclusion ?? null,
+      steps: (job.steps ?? []).map(step => ({
+        name: step.name,
+        status: step.status as WorkflowJobStep['status'],
+        conclusion: step.conclusion ?? null,
+        number: step.number,
+        started_at: step.started_at ?? null,
+      })),
+    }));
+  } catch (error) {
+    throw apiError(`Failed to list jobs for workflow run ${runId} in ${owner}/${repo}`, error);
   }
 }
 

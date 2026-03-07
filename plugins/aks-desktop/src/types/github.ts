@@ -23,6 +23,8 @@ export interface RepoReadiness {
   hasSetupWorkflow: boolean;
   /** Whether containerization.agent.md exists on the default branch. */
   hasAgentConfig: boolean;
+  /** Whether deploy-to-aks.yml exists on the default branch. */
+  hasDeployWorkflow: boolean;
 }
 
 /**

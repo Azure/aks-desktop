@@ -5,6 +5,28 @@ import type { Octokit } from '@octokit/rest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PIPELINE_WORKFLOW_FILENAME } from '../../components/GitHubPipeline/constants';
 
+const mockSodiumFns = vi.hoisted(() => {
+  const fns = {
+    from_base64: vi.fn(),
+    from_string: vi.fn(),
+    crypto_box_seal: vi.fn(),
+    to_base64: vi.fn(),
+  };
+  return fns;
+});
+
+vi.mock('libsodium-wrappers', () => {
+  const sodium = {
+    ready: Promise.resolve(),
+    from_base64: (...args: unknown[]) => mockSodiumFns.from_base64(...args),
+    from_string: (...args: unknown[]) => mockSodiumFns.from_string(...args),
+    crypto_box_seal: (...args: unknown[]) => mockSodiumFns.crypto_box_seal(...args),
+    to_base64: (...args: unknown[]) => mockSodiumFns.to_base64(...args),
+    base64_variants: { ORIGINAL: 0 },
+  };
+  return { ...sodium, default: sodium };
+});
+
 const mockOctokit = {
   users: { getAuthenticated: vi.fn() },
   repos: {
@@ -31,7 +53,10 @@ const mockOctokit = {
     listWorkflowRunsForRepo: vi.fn(),
     listWorkflowRuns: vi.fn(),
     getWorkflowRun: vi.fn(),
+    listJobsForWorkflowRun: vi.fn(),
     createWorkflowDispatch: vi.fn(),
+    getRepoPublicKey: vi.fn(),
+    createOrUpdateRepoSecret: vi.fn(),
   },
   checks: {
     listForRef: vi.fn(),
@@ -52,6 +77,7 @@ import {
   createIssue,
   createOctokitClient,
   createOrUpdateFile,
+  createOrUpdateRepoSecret,
   createPullRequest,
   dispatchWorkflow,
   findLinkedPullRequest,
@@ -60,11 +86,14 @@ import {
   getIssue,
   getPullRequest,
   getRepo,
+  getRepoPublicKey,
   getStatusChecks,
   getWorkflowRun,
   listPullRequests,
   listUserRepos,
+  listWorkflowRunJobs,
   listWorkflowRuns,
+  setRepoSecrets,
 } from './github-api';
 
 describe('github-api', () => {
@@ -118,17 +147,18 @@ describe('github-api', () => {
   });
 
   describe('checkRepoReadiness', () => {
-    it('should detect both files present', async () => {
+    it('should detect all files present', async () => {
       mockOctokit.repos.getContent.mockResolvedValue({ data: {} });
 
       const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual({
         hasSetupWorkflow: true,
         hasAgentConfig: true,
+        hasDeployWorkflow: true,
       });
     });
 
-    it('should detect both files missing', async () => {
+    it('should detect all files missing', async () => {
       const notFoundError = new Error('Not Found');
       Object.assign(notFoundError, { status: 404 });
       mockOctokit.repos.getContent.mockRejectedValue(notFoundError);
@@ -137,6 +167,7 @@ describe('github-api', () => {
       expect(result).toEqual({
         hasSetupWorkflow: false,
         hasAgentConfig: false,
+        hasDeployWorkflow: false,
       });
     });
 
@@ -146,12 +177,14 @@ describe('github-api', () => {
 
       mockOctokit.repos.getContent
         .mockResolvedValueOnce({ data: {} }) // setup workflow exists
-        .mockRejectedValueOnce(notFoundError); // agent config missing
+        .mockRejectedValueOnce(notFoundError) // agent config missing
+        .mockRejectedValueOnce(notFoundError); // deploy workflow missing
 
       const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual({
         hasSetupWorkflow: true,
         hasAgentConfig: false,
+        hasDeployWorkflow: false,
       });
     });
 
@@ -426,7 +459,7 @@ describe('github-api', () => {
   });
 
   describe('findLinkedPullRequest', () => {
-    it('should return the first cross-referenced PR', async () => {
+    it('should return the first cross-referenced PR with draft status', async () => {
       mockOctokit.request.mockResolvedValue({
         data: [
           {
@@ -442,12 +475,14 @@ describe('github-api', () => {
           },
         ],
       });
+      mockOctokit.pulls.get.mockResolvedValue({ data: { draft: false } });
 
       const result = await findLinkedPullRequest(mockOctokit as never, 'owner', 'repo', 5);
       expect(result).toEqual({
         number: 42,
         url: 'https://github.com/owner/repo/pull/42',
         merged: false,
+        draft: false,
         state: 'open',
       });
     });
@@ -646,7 +681,7 @@ describe('github-api', () => {
     it('should return installed: true when repo is found in installation', async () => {
       mockOctokit.apps.listInstallationsForAuthenticatedUser.mockResolvedValue({
         data: {
-          installations: [{ id: 1, account: { login: 'owner' }, app_slug: 'aks-desktop-testing' }],
+          installations: [{ id: 1, account: { login: 'owner' }, app_slug: 'aks-desktop-preview' }],
         },
       });
       mockOctokit.paginate.mockResolvedValue([{ full_name: 'owner/repo' }]);
@@ -666,7 +701,7 @@ describe('github-api', () => {
       const result = await checkAppInstallation(mockOctokit as never, 'owner', 'repo');
       expect(result).toEqual({
         installed: false,
-        installUrl: 'https://github.com/apps/aks-desktop-testing/installations/new',
+        installUrl: 'https://github.com/apps/aks-desktop-preview/installations/new',
       });
     });
 
@@ -810,6 +845,203 @@ describe('github-api', () => {
       expect(mockOctokit.actions.listWorkflowRuns).toHaveBeenCalledWith(
         expect.objectContaining({ workflow_id: PIPELINE_WORKFLOW_FILENAME })
       );
+    });
+  });
+
+  describe('listWorkflowRunJobs', () => {
+    it('should return jobs with steps', async () => {
+      mockOctokit.actions.listJobsForWorkflowRun.mockResolvedValue({
+        data: {
+          jobs: [
+            {
+              name: 'build',
+              status: 'completed',
+              conclusion: 'success',
+              steps: [
+                { name: 'Checkout', status: 'completed', conclusion: 'success', number: 1 },
+                { name: 'Build', status: 'completed', conclusion: 'success', number: 2 },
+              ],
+            },
+          ],
+        },
+      });
+
+      const result = await listWorkflowRunJobs(mockOctokit as never, 'owner', 'repo', 123);
+      expect(result).toEqual([
+        {
+          name: 'build',
+          status: 'completed',
+          conclusion: 'success',
+          steps: [
+            {
+              name: 'Checkout',
+              status: 'completed',
+              conclusion: 'success',
+              number: 1,
+              started_at: null,
+            },
+            {
+              name: 'Build',
+              status: 'completed',
+              conclusion: 'success',
+              number: 2,
+              started_at: null,
+            },
+          ],
+        },
+      ]);
+    });
+
+    it('should handle jobs with no steps', async () => {
+      mockOctokit.actions.listJobsForWorkflowRun.mockResolvedValue({
+        data: {
+          jobs: [{ name: 'deploy', status: 'queued', conclusion: null, steps: undefined }],
+        },
+      });
+
+      const result = await listWorkflowRunJobs(mockOctokit as never, 'owner', 'repo', 456);
+      expect(result).toEqual([{ name: 'deploy', status: 'queued', conclusion: null, steps: [] }]);
+    });
+
+    it('should throw on failure', async () => {
+      mockOctokit.actions.listJobsForWorkflowRun.mockRejectedValue(new Error('Not Found'));
+      await expect(listWorkflowRunJobs(mockOctokit as never, 'owner', 'repo', 789)).rejects.toThrow(
+        'Failed to list jobs'
+      );
+    });
+  });
+
+  describe('getRepoPublicKey', () => {
+    it('should return the public key and key ID', async () => {
+      mockOctokit.actions.getRepoPublicKey.mockResolvedValue({
+        data: { key: 'base64-public-key', key_id: 'key-id-123' },
+      });
+
+      const result = await getRepoPublicKey(mockOctokit as unknown as Octokit, 'owner', 'repo');
+      expect(result).toEqual({ key: 'base64-public-key', keyId: 'key-id-123' });
+      expect(mockOctokit.actions.getRepoPublicKey).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+      });
+    });
+
+    it('should throw on failure', async () => {
+      mockOctokit.actions.getRepoPublicKey.mockRejectedValue(new Error('Not Found'));
+
+      await expect(
+        getRepoPublicKey(mockOctokit as unknown as Octokit, 'owner', 'repo')
+      ).rejects.toThrow('Failed to get repo public key for owner/repo: Not Found');
+    });
+  });
+
+  describe('createOrUpdateRepoSecret', () => {
+    const publicKey = { key: 'base64-public-key', keyId: 'key-id-123' };
+
+    beforeEach(() => {
+      mockSodiumFns.from_base64.mockReturnValue(new Uint8Array([1, 2, 3]));
+      mockSodiumFns.from_string.mockReturnValue(new Uint8Array([4, 5, 6]));
+      mockSodiumFns.crypto_box_seal.mockReturnValue(new Uint8Array([7, 8, 9]));
+      mockSodiumFns.to_base64.mockReturnValue('encrypted-base64');
+    });
+
+    it('should encrypt plaintext and create the secret', async () => {
+      mockOctokit.actions.createOrUpdateRepoSecret.mockResolvedValue({ data: {} });
+
+      await createOrUpdateRepoSecret(
+        mockOctokit as unknown as Octokit,
+        'owner',
+        'repo',
+        'MY_SECRET',
+        'secret-value',
+        publicKey
+      );
+
+      expect(mockSodiumFns.from_base64).toHaveBeenCalledWith('base64-public-key', 0);
+      expect(mockSodiumFns.from_string).toHaveBeenCalledWith('secret-value');
+      expect(mockSodiumFns.crypto_box_seal).toHaveBeenCalled();
+      expect(mockOctokit.actions.createOrUpdateRepoSecret).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        secret_name: 'MY_SECRET',
+        encrypted_value: 'encrypted-base64',
+        key_id: 'key-id-123',
+      });
+    });
+
+    it('should propagate errors from libsodium', async () => {
+      mockSodiumFns.from_base64.mockImplementationOnce(() => {
+        throw new Error('Invalid base64');
+      });
+
+      await expect(
+        createOrUpdateRepoSecret(
+          mockOctokit as unknown as Octokit,
+          'owner',
+          'repo',
+          'MY_SECRET',
+          'secret-value',
+          publicKey
+        )
+      ).rejects.toThrow('Failed to create/update secret MY_SECRET in owner/repo: Invalid base64');
+    });
+
+    it('should propagate errors from Octokit', async () => {
+      mockOctokit.actions.createOrUpdateRepoSecret.mockRejectedValue(new Error('Forbidden'));
+
+      await expect(
+        createOrUpdateRepoSecret(
+          mockOctokit as unknown as Octokit,
+          'owner',
+          'repo',
+          'MY_SECRET',
+          'secret-value',
+          publicKey
+        )
+      ).rejects.toThrow('Failed to create/update secret MY_SECRET in owner/repo: Forbidden');
+    });
+  });
+
+  describe('setRepoSecrets', () => {
+    it('should skip entirely when all secrets are empty', async () => {
+      await setRepoSecrets(mockOctokit as unknown as Octokit, 'owner', 'repo', {
+        EMPTY: '',
+        WHITESPACE: '  ',
+      });
+
+      expect(mockOctokit.actions.getRepoPublicKey).not.toHaveBeenCalled();
+    });
+
+    it('should fetch public key when there are non-empty secrets', async () => {
+      mockSodiumFns.from_base64.mockReturnValue(new Uint8Array([1, 2, 3]));
+      mockSodiumFns.from_string.mockReturnValue(new Uint8Array([4, 5, 6]));
+      mockSodiumFns.crypto_box_seal.mockReturnValue(new Uint8Array([7, 8, 9]));
+      mockSodiumFns.to_base64.mockReturnValue('encrypted-base64');
+
+      mockOctokit.actions.getRepoPublicKey.mockResolvedValue({
+        data: { key: 'base64-public-key', key_id: 'key-id-123' },
+      });
+      mockOctokit.actions.createOrUpdateRepoSecret.mockResolvedValue({ data: {} });
+
+      await setRepoSecrets(mockOctokit as unknown as Octokit, 'owner', 'repo', {
+        SECRET_A: 'value-a',
+        SECRET_B: '',
+      });
+
+      expect(mockOctokit.actions.getRepoPublicKey).toHaveBeenCalledTimes(1);
+      expect(mockOctokit.actions.getRepoPublicKey).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+      });
+    });
+
+    it('should propagate errors from getRepoPublicKey', async () => {
+      mockOctokit.actions.getRepoPublicKey.mockRejectedValue(new Error('Not Found'));
+
+      await expect(
+        setRepoSecrets(mockOctokit as unknown as Octokit, 'owner', 'repo', {
+          SECRET: 'value',
+        })
+      ).rejects.toThrow('Failed to get repo public key');
     });
   });
 });

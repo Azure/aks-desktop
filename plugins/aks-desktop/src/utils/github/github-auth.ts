@@ -7,7 +7,7 @@ import { secureStorageDelete, secureStorageLoad, secureStorageSave } from './sec
 const GITHUB_APP_SLUG =
   typeof process !== 'undefined' && process.env?.AKS_DESKTOP_GITHUB_APP_SLUG
     ? process.env.AKS_DESKTOP_GITHUB_APP_SLUG
-    : 'aks-desktop-testing';
+    : 'aks-desktop-preview';
 export const GITHUB_APP_INSTALL_URL = `https://github.com/apps/${GITHUB_APP_SLUG}/installations/new`;
 
 const STORAGE_KEY = 'aks-desktop:github-auth';
@@ -42,6 +42,7 @@ interface DesktopApi {
 }
 
 function getDesktopApi(): DesktopApi {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const api = (window as any).desktopApi as DesktopApi | undefined;
   if (!api) throw new Error('desktopApi not available — not running in Electron');
   return api;
