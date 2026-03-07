@@ -27,3 +27,21 @@ export const STORAGE_KEY_PREFIX = 'aks-desktop:pipeline-state:';
 
 /** Schema version for serialized pipeline state. Bump when the shape changes. */
 export const SCHEMA_VERSION = 1;
+
+/** Version of the containerization-assist-mcp used in agent setup steps. */
+export const CONTAINERIZATION_MCP_VERSION = '1.2.0';
+
+/** Default polling interval for GitHub API checks (5 seconds). */
+export const POLLING_INTERVAL_MS = 5_000;
+
+/** App installation check interval (3 seconds). */
+export const APP_INSTALL_CHECK_INTERVAL_MS = 3_000;
+
+/** PR polling: 5s x 720 = 1 hour max. */
+export const PR_POLLING_MAX_POLLS = 720;
+
+/** Workflow polling: 5s x 360 = 30 minutes max. */
+export const WORKFLOW_POLLING_MAX_POLLS = 360;
+
+/** Agent PR discovery: 5s x 120 = 10 minutes max. */
+export const AGENT_DISCOVERY_MAX_POLLS = 120;
