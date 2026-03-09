@@ -16,10 +16,18 @@
 
 // Portions (c) Microsoft Corp.
 
-import { Icon } from '@iconify/react';
-import { Button, Divider, Menu, MenuItem } from '@mui/material';
-import { Dispatch, SetStateAction, useMemo, useState } from 'react';
-import { Trans } from 'react-i18next';
+import {
+  Checkbox,
+  FormControl,
+  InputLabel,
+  ListItemText,
+  MenuItem,
+  OutlinedInput,
+  Select,
+  type SelectChangeEvent,
+} from '@mui/material';
+import { Dispatch, SetStateAction, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { type ParsedLog } from './ParsedLog';
 
 /** Calculate counts for each severity */
@@ -38,6 +46,17 @@ const useSeverityStats = (logs: ParsedLog[]) => {
 
 const ALL_SEVERITIES = ['info', 'error', 'warning', 'fatal', 'trace', 'debug'];
 
+const ITEM_HEIGHT = 48;
+const ITEM_PADDING_TOP = 8;
+const SelectMenuProps = {
+  PaperProps: {
+    style: {
+      maxHeight: ITEM_HEIGHT * 4.5 + ITEM_PADDING_TOP,
+      width: 250,
+    },
+  },
+};
+
 /** Show a dropdown picker with different severity levels and their counts */
 export function SeveritySelector({
   logs,
@@ -48,80 +67,49 @@ export function SeveritySelector({
   severityFilter?: Set<string>;
   setSeverityFilter: Dispatch<SetStateAction<Set<string> | undefined>>;
 }) {
+  const { t } = useTranslation();
   const stats = useSeverityStats(logs);
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const open = Boolean(anchorEl);
-  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
-  const handleClose = () => {
-    setAnchorEl(null);
+
+  const selected = severityFilter
+    ? ALL_SEVERITIES.filter(s => severityFilter.has(s))
+    : ALL_SEVERITIES;
+
+  const handleChange = (event: SelectChangeEvent<string[]>) => {
+    const {
+      target: { value },
+    } = event;
+    const newValue = typeof value === 'string' ? value.split(',') : value;
+
+    if (newValue.length === ALL_SEVERITIES.length) {
+      setSeverityFilter(undefined);
+    } else {
+      setSeverityFilter(new Set(newValue));
+    }
   };
 
-  const handleSeverityClick = (severity: string) => {
-    setSeverityFilter(f => {
-      const newFilter = f ? new Set(f) : new Set(ALL_SEVERITIES);
-      if (newFilter.has(severity)) {
-        newFilter.delete(severity);
-      } else {
-        newFilter.add(severity);
-      }
-      return newFilter;
-    });
-  };
-
-  const allLevels = severityFilter === undefined || severityFilter.size === ALL_SEVERITIES.length;
+  const allSelected = severityFilter === undefined || severityFilter.size === ALL_SEVERITIES.length;
 
   return (
-    <>
-      <Button
-        id="basic-button"
-        aria-controls={open ? 'basic-menu' : undefined}
-        aria-haspopup="true"
-        aria-expanded={open ? 'true' : undefined}
-        onClick={handleClick}
-        endIcon={<Icon icon="mdi:chevron-down" />}
-        startIcon={<Icon icon="mdi:format-list-bulleted" />}
-        sx={{ lineHeight: 1.5, textTransform: 'capitalize' }}
-        variant="contained"
-        color="secondary"
+    <FormControl sx={{ minWidth: 180 }} size="small" variant="outlined">
+      <InputLabel id="severity-select-label">{t('Log Level')}</InputLabel>
+      <Select
+        labelId="severity-select-label"
+        id="severity-select"
+        multiple
+        value={selected}
+        onChange={handleChange}
+        input={<OutlinedInput label={t('Log Level')} />}
+        renderValue={sel => (allSelected ? t('All levels') : sel.join(', '))}
+        MenuProps={SelectMenuProps}
+        sx={{ textTransform: 'capitalize' }}
       >
-        {allLevels ? <Trans>All levels</Trans> : [...severityFilter].join(', ')}
-      </Button>
-      <Menu
-        id="basic-menu"
-        anchorEl={anchorEl}
-        open={open}
-        onClose={handleClose}
-        MenuListProps={{
-          'aria-labelledby': 'basic-button',
-        }}
-      >
-        <MenuItem
-          onClick={() => {
-            setSeverityFilter(undefined);
-            handleClose();
-          }}
-        >
-          {(severityFilter === undefined || severityFilter.size === ALL_SEVERITIES.length) && (
-            <Icon icon="mdi:check" style={{ marginRight: '0.5em' }} />
-          )}
-          <Trans>All levels</Trans>
-        </MenuItem>
-        <Divider />
-        {['info', 'error', 'warning', 'fatal', 'trace', 'debug'].map(s => (
-          <MenuItem
-            onClick={() => handleSeverityClick(s)}
-            key={s}
-            sx={{ textTransform: 'capitalize' }}
-          >
-            {(severityFilter === undefined || severityFilter.has(s)) && (
-              <Icon icon="mdi:check" style={{ marginRight: '0.5em' }} />
-            )}
-            {s} ({stats.get(s) ?? 0})
+        {ALL_SEVERITIES.map(severity => (
+          <MenuItem key={severity} value={severity} sx={{ textTransform: 'capitalize' }}>
+            <Checkbox checked={selected.indexOf(severity) > -1} />
+            <ListItemText primary={`${severity} (${stats.get(severity) ?? 0})`} />
           </MenuItem>
         ))}
-      </Menu>
-    </>
+      </Select>
+    </FormControl>
   );
 }
