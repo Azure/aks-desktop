@@ -169,13 +169,10 @@ function ImportAKSProjectsContent() {
     // Step 2: Register clusters, convert namespaces, and import — per cluster
     let processedCount = 0;
     const totalCount = selectedNamespaces.length;
-    for (const [
-      ,
-      {
-        key: { clusterName, resourceGroup, subscriptionId },
-        namespaces: namespacesInCluster,
-      },
-    ] of clusterMap) {
+    for (const {
+      key: { clusterName, resourceGroup, subscriptionId },
+      namespaces: namespacesInCluster,
+    } of clusterMap.values()) {
       try {
         // 2a: Register the cluster if it's not already registered in Headlamp.
         // Re-registering with a managedNamespace param overwrites the kubeconfig
