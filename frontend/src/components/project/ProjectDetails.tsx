@@ -451,6 +451,9 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
     };
   }, [customDeleteButton, project]);
 
+  const [selectedTab, setSelectedTab] = useState<string>();
+  const [selectedCategoryName, setSelectedCategoryName] = React.useState<string>();
+
   // Load custom header actions
   useEffect(() => {
     let isCurrent = true;
@@ -477,7 +480,11 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
 
       if (isCurrent) {
         const actions = enabledActions
-          .map(action => (action ? <action.component key={action.id} project={project} /> : null))
+          .map(action =>
+            action ? (
+              <action.component key={action.id} project={project} setSelectedTab={setSelectedTab} />
+            ) : null
+          )
           .filter(Boolean);
         setHeaderActions(actions);
       }
@@ -488,10 +495,7 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
     return () => {
       isCurrent = false;
     };
-  }, [registeredHeaderActions, project]);
-
-  const [selectedTab, setSelectedTab] = useState<string>();
-  const [selectedCategoryName, setSelectedCategoryName] = React.useState<string>();
+  }, [registeredHeaderActions, project, setSelectedTab]);
 
   const { items, isLoading } = useProjectItems(project);
 
