@@ -4,12 +4,15 @@
 import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Box, Button, Drawer } from '@mui/material';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAzureContext } from '../../hooks/useAzureContext';
 import { usePreviewFeatures } from '../../hooks/usePreviewFeatures';
 import type { ProjectDefinition } from '../../types/project';
 import { usePipelineStatus } from '../DeployTab/hooks/usePipelineStatus';
-import { OPEN_CONFIGURE_PIPELINE_EVENT } from '../GitHubPipeline/constants';
+import {
+  NAVIGATE_TO_PROJECT_TAB_EVENT,
+  OPEN_CONFIGURE_PIPELINE_EVENT,
+} from '../GitHubPipeline/constants';
 import { GitHubPipelineWizard } from '../GitHubPipeline/GitHubPipelineWizard';
 import { clearActivePipeline } from '../GitHubPipeline/utils/pipelineStorage';
 
@@ -49,6 +52,11 @@ function ConfigurePipelineButton({ project }: ConfigurePipelineButtonProps) {
     setWizardKey(k => k + 1);
   };
 
+  const handleViewDeployment = useCallback(() => {
+    setOpen(false);
+    window.dispatchEvent(new CustomEvent(NAVIGATE_TO_PROJECT_TAB_EVENT, { detail: 'deploy' }));
+  }, []);
+
   return (
     <>
       <Button
@@ -82,6 +90,7 @@ function ConfigurePipelineButton({ project }: ConfigurePipelineButtonProps) {
             tenantId={azureContext.tenantId}
             onClose={handleClose}
             onCancel={handleStartOver}
+            onViewDeployment={handleViewDeployment}
             initialRepo={
               !startedOver && pipelineStatus.isConfigured ? pipelineStatus.repos[0] : undefined
             }
