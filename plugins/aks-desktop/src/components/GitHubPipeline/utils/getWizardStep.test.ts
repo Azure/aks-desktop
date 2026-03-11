@@ -18,7 +18,7 @@ describe('getWizardStep', () => {
     expect(getWizardStep('AppInstallationNeeded')).toBe(0);
   });
 
-  // Step 1: Configure
+  // Step 1: Set up Copilot Agent
   it('returns 1 for CheckingRepo', () => {
     expect(getWizardStep('CheckingRepo')).toBe(1);
   });
@@ -31,7 +31,7 @@ describe('getWizardStep', () => {
     expect(getWizardStep('ReadyForSetup')).toBe(1);
   });
 
-  // Step 2: Setup PR
+  // Step 2: Review & Merge
   it('returns 2 for SetupPRCreating', () => {
     expect(getWizardStep('SetupPRCreating')).toBe(2);
   });
@@ -40,30 +40,28 @@ describe('getWizardStep', () => {
     expect(getWizardStep('SetupPRAwaitingMerge')).toBe(2);
   });
 
-  // Step 3: Agent
-  it('returns 3 for AgentTaskCreating', () => {
-    expect(getWizardStep('AgentTaskCreating')).toBe(3);
+  it('returns 2 for AgentTaskCreating', () => {
+    expect(getWizardStep('AgentTaskCreating')).toBe(2);
   });
 
-  it('returns 3 for AgentRunning', () => {
-    expect(getWizardStep('AgentRunning')).toBe(3);
+  it('returns 2 for AgentRunning', () => {
+    expect(getWizardStep('AgentRunning')).toBe(2);
   });
 
-  it('returns 3 for GeneratedPRAwaitingMerge', () => {
-    expect(getWizardStep('GeneratedPRAwaitingMerge')).toBe(3);
+  it('returns 2 for GeneratedPRAwaitingMerge', () => {
+    expect(getWizardStep('GeneratedPRAwaitingMerge')).toBe(2);
   });
 
-  // Step 4: Complete
-  it('returns 4 for PipelineConfigured', () => {
-    expect(getWizardStep('PipelineConfigured')).toBe(4);
+  it('returns 2 for PipelineConfigured', () => {
+    expect(getWizardStep('PipelineConfigured')).toBe(2);
   });
 
-  it('returns 4 for PipelineRunning', () => {
-    expect(getWizardStep('PipelineRunning')).toBe(4);
+  it('returns 2 for PipelineRunning', () => {
+    expect(getWizardStep('PipelineRunning')).toBe(2);
   });
 
-  it('returns 4 for Deployed', () => {
-    expect(getWizardStep('Deployed')).toBe(4);
+  it('returns 2 for Deployed', () => {
+    expect(getWizardStep('Deployed')).toBe(2);
   });
 
   // Failed state

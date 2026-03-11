@@ -7,16 +7,14 @@ import { Alert, Box, Button, IconButton, Typography } from '@mui/material';
 import React, { useState } from 'react';
 
 interface WizardShellProps {
-  activeStep: 0 | 1 | 2 | 3 | 4;
+  activeStep: 0 | 1 | 2;
   onClose: () => void;
   onCancel?: () => void;
   children: React.ReactNode;
   footerActions?: React.ReactNode;
 }
 
-function getStepLabels(t: (key: string) => string): string[] {
-  return [t('Connect Source'), t('Configure'), t('Setup PR'), t('Agent'), t('Complete')];
-}
+const STEPS = ['Connect Source', 'Set up Copilot Agent', 'Review & Merge'] as const;
 
 function StepIndicator({
   index,
@@ -86,14 +84,14 @@ export function WizardShell({
               )}
             </Typography>
           </Box>
-          <IconButton onClick={onClose} size="small" aria-label={t('Close')}>
-            <Icon icon="mdi:close" aria-hidden="true" />
+          <IconButton onClick={onClose} size="small" aria-label={t('Collapse panel')}>
+            <Icon icon="mdi:chevron-double-right" aria-hidden="true" />
           </IconButton>
         </Box>
 
         {/* Stepper */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 2.5 }}>
-          {getStepLabels(t).map((label, i) => (
+          {STEPS.map((label, i) => (
             <React.Fragment key={i}>
               {i > 0 && (
                 <Box
@@ -161,6 +159,7 @@ export function WizardShell({
             flexShrink: 0,
           }}
         >
+          <Box sx={{ display: 'flex', gap: 1.5 }}>{footerActions}</Box>
           {onCancel ? (
             <Button
               size="small"
@@ -168,12 +167,11 @@ export function WizardShell({
               onClick={() => setShowCancelConfirm(true)}
               sx={{ textTransform: 'none', color: 'text.secondary', fontSize: '0.8rem' }}
             >
-              {t('Start over')}
+              {t('Cancel')}
             </Button>
           ) : (
             <Box />
           )}
-          <Box sx={{ display: 'flex', gap: 1.5 }}>{footerActions}</Box>
         </Box>
       )}
     </Box>

@@ -22,6 +22,9 @@ export const DEFAULT_IMAGE_TAG = '1.0';
 /** Custom DOM event used to open the pipeline drawer from a separate React tree. */
 export const OPEN_CONFIGURE_PIPELINE_EVENT = 'open-configure-pipeline';
 
+/** Custom DOM event used to navigate to a project tab (e.g. from the pipeline wizard). */
+export const NAVIGATE_TO_PROJECT_TAB_EVENT = 'navigate-to-project-tab';
+
 /** Prefix for localStorage keys that store pipeline state per repo. */
 export const STORAGE_KEY_PREFIX = 'aks-desktop:pipeline-state:';
 
