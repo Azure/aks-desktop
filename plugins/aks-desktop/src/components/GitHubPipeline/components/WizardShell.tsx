@@ -6,14 +6,14 @@ import { Alert, Box, Button, IconButton, Typography } from '@mui/material';
 import React, { useState } from 'react';
 
 interface WizardShellProps {
-  activeStep: 0 | 1 | 2 | 3 | 4;
+  activeStep: 0 | 1 | 2;
   onClose: () => void;
   onCancel?: () => void;
   children: React.ReactNode;
   footerActions?: React.ReactNode;
 }
 
-const STEPS = ['Connect Source', 'Configure', 'Setup PR', 'Agent', 'Complete'] as const;
+const STEPS = ['Connect Source', 'Set up Copilot Agent', 'Review & Merge'] as const;
 
 function StepIndicator({
   index,
@@ -80,8 +80,8 @@ export function WizardShell({
               Set up a CI/CD pipeline to automate your deployments and streamline your workflow
             </Typography>
           </Box>
-          <IconButton onClick={onClose} size="small" aria-label="Close">
-            <Icon icon="mdi:close" />
+          <IconButton onClick={onClose} size="small" aria-label="Collapse panel">
+            <Icon icon="mdi:chevron-double-right" />
           </IconButton>
         </Box>
 
@@ -155,6 +155,7 @@ export function WizardShell({
             flexShrink: 0,
           }}
         >
+          <Box sx={{ display: 'flex', gap: 1.5 }}>{footerActions}</Box>
           {onCancel ? (
             <Button
               size="small"
@@ -162,12 +163,11 @@ export function WizardShell({
               onClick={() => setShowCancelConfirm(true)}
               sx={{ textTransform: 'none', color: 'text.secondary', fontSize: '0.8rem' }}
             >
-              Start over
+              Cancel
             </Button>
           ) : (
             <Box />
           )}
-          <Box sx={{ display: 'flex', gap: 1.5 }}>{footerActions}</Box>
         </Box>
       )}
     </Box>

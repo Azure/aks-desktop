@@ -10,9 +10,7 @@ import type { ContainerConfig } from '../DeployWizard/hooks/useContainerConfigur
 import { useContainerConfiguration } from '../DeployWizard/hooks/useContainerConfiguration';
 import { AgentSetupReview } from './components/AgentSetupReview';
 import { ConnectSourceStep } from './components/ConnectSourceStep';
-import { DeploymentStatusScreen } from './components/DeploymentStatusScreen';
-import { PipelineConfiguredScreen } from './components/PipelineConfiguredScreen';
-import { PRStatusScreen } from './components/PRStatusScreen';
+import { ReviewAndMergeStep } from './components/ReviewAndMergeStep';
 import { WizardShell } from './components/WizardShell';
 import { WorkloadIdentitySetup } from './components/WorkloadIdentitySetup';
 import { useGitHubPipelineOrchestration } from './hooks/useGitHubPipelineOrchestration';
@@ -30,6 +28,8 @@ interface GitHubPipelineWizardProps {
   onClose: () => void;
   /** Called when the user explicitly cancels/abandons the pipeline (clears progress). */
   onCancel?: () => void;
+  /** Called when the user clicks "View deployment" after pipeline is configured. */
+  onViewDeployment?: () => void;
   /** Pre-selected repo for resuming an in-progress pipeline. */
   initialRepo?: GitHubRepo;
   /** Container configuration from the deploy wizard. */
@@ -112,6 +112,7 @@ export function GitHubPipelineWizard({
   tenantId,
   onClose,
   onCancel,
+  onViewDeployment,
   initialRepo,
   containerConfig,
   mode = 'deploy',
@@ -136,12 +137,9 @@ export function GitHubPipelineWizard({
     setLocalAppName,
     checkRepoAndApp,
     handleCreateSetupPR,
-    handleRedeploy,
     setupPrPolling,
     generatedPrPolling,
     agentWorkflowProgress,
-    workflowPolling,
-    deploymentHealth,
     identitySetup,
   } = useGitHubPipelineOrchestration({
     clusterName,
@@ -189,6 +187,10 @@ export function GitHubPipelineWizard({
   }, [deploymentState, gitHubAuth.authState.isAuthenticated]);
 
   const isAppInstallNeeded = deploymentState === 'AppInstallationNeeded';
+
+  const repoFullName = pipeline.state.config
+    ? `${pipeline.state.config.repo.owner}/${pipeline.state.config.repo.repo}`
+    : '';
 
   function renderContent() {
     switch (deploymentState) {
@@ -250,86 +252,33 @@ export function GitHubPipelineWizard({
         );
       }
 
+      // All review & merge states are handled by the consolidated ReviewAndMergeStep
       case 'SetupPRCreating':
-        return <LoadingSpinner message="Creating setup PR..." />;
-
       case 'SetupPRAwaitingMerge':
-        return (
-          <PRStatusScreen
-            pipelineState={pipeline.state}
-            prPhase="setup"
-            prStatus={setupPrPolling.prStatus}
-            isTimedOut={setupPrPolling.isTimedOut}
-            statusChecks={setupPrPolling.statusChecks}
-            onReviewInGitHub={() => {
-              if (pipeline.state.setupPr.url) openExternalUrl(pipeline.state.setupPr.url);
-            }}
-          />
-        );
-
       case 'AgentTaskCreating':
-        return <LoadingSpinner message="Creating agent task..." />;
-
       case 'AgentRunning':
-        return (
-          <PRStatusScreen
-            pipelineState={pipeline.state}
-            prPhase="agent-pending"
-            prStatus={null}
-            isTimedOut={false}
-            statusChecks={null}
-            onReviewInGitHub={() => {
-              if (pipeline.state.triggerIssue.url) openExternalUrl(pipeline.state.triggerIssue.url);
-            }}
-            agentProgress={agentWorkflowProgress}
-          />
-        );
-
       case 'GeneratedPRAwaitingMerge':
-        return (
-          <PRStatusScreen
-            pipelineState={pipeline.state}
-            prPhase="agent-created"
-            prStatus={generatedPrPolling.prStatus}
-            isTimedOut={generatedPrPolling.isTimedOut}
-            statusChecks={generatedPrPolling.statusChecks}
-            onReviewInGitHub={() => {
-              if (pipeline.state.generatedPr.url) openExternalUrl(pipeline.state.generatedPr.url);
-            }}
-          />
-        );
-
       case 'PipelineConfigured':
-        return (
-          <PipelineConfiguredScreen
-            repoFullName={
-              pipeline.state.config
-                ? `${pipeline.state.config.repo.owner}/${pipeline.state.config.repo.repo}`
-                : ''
-            }
-          />
-        );
-
       case 'PipelineRunning':
       case 'Deployed':
         return (
-          <DeploymentStatusScreen
+          <ReviewAndMergeStep
+            deploymentState={deploymentState}
             pipelineState={pipeline.state}
-            workflowStatus={{
-              status: workflowPolling.runStatus,
-              conclusion: workflowPolling.runConclusion,
-              url: workflowPolling.runUrl,
+            setupPrPolling={setupPrPolling}
+            generatedPrPolling={generatedPrPolling}
+            agentWorkflowProgress={agentWorkflowProgress}
+            onReviewSetupPR={() => {
+              if (pipeline.state.setupPr.url) openExternalUrl(pipeline.state.setupPr.url);
             }}
-            deploymentHealth={{
-              ready: deploymentHealth.deploymentReady,
-              podStatuses: deploymentHealth.podStatuses,
-              serviceEndpoint: deploymentHealth.serviceEndpoint,
+            onReviewAgentIssue={() => {
+              if (pipeline.state.triggerIssue.url) openExternalUrl(pipeline.state.triggerIssue.url);
             }}
-            deploymentHealthError={deploymentHealth.error}
-            onRedeploy={handleRedeploy}
-            onOpenGitHubRun={() => {
-              if (workflowPolling.runUrl) openExternalUrl(workflowPolling.runUrl);
+            onReviewDeploymentPR={() => {
+              if (pipeline.state.generatedPr.url) openExternalUrl(pipeline.state.generatedPr.url);
             }}
+            repoFullName={repoFullName}
+            onViewDeployment={onViewDeployment}
           />
         );
 
@@ -400,13 +349,6 @@ export function GitHubPipelineWizard({
           </Button>
         );
       }
-      case 'PipelineConfigured':
-      case 'Deployed':
-        return (
-          <Button variant="contained" onClick={onClose} sx={{ textTransform: 'none' }}>
-            Done
-          </Button>
-        );
       case 'Failed':
         return (
           <>
@@ -423,6 +365,7 @@ export function GitHubPipelineWizard({
           </>
         );
       default:
+        // No footer actions for review & merge states — the CTA is inline
         return null;
     }
   }
