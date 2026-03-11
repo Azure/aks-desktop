@@ -64,15 +64,19 @@ export default function DeployWizard({
   const containerConfig = useContainerConfiguration(initialApplicationName, initialContainerConfig);
 
   useEffect(() => {
+    // Generate YAML preview for the review step
     if (activeStep === WizardStep.DEPLOY && sourceType === 'container') {
-      containerConfig.setConfig(prev => ({
-        ...prev,
-        containerPreviewYaml: generateYamlForContainer({
+      const newYaml = generateYamlForContainer({ ...containerConfig.config, namespace });
+      if (newYaml !== containerConfig.config.containerPreviewYaml) {
+        containerConfig.setConfig(prev => ({
           ...prev,
-          namespace,
-        }),
-      }));
+          containerPreviewYaml: newYaml,
+        }));
+      }
     }
+  }, [namespace, sourceType, activeStep, containerConfig.config]);
+
+  useEffect(() => {
     // Generate preview with namespace override for user YAML in the Review step
     if (activeStep === WizardStep.DEPLOY && sourceType === 'yaml') {
       try {

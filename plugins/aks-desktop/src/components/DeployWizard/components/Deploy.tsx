@@ -57,7 +57,15 @@ export default function Deploy({
   }, [sourceType, userPreviewYaml, yamlEditorValue]);
 
   return (
-    <Box>
+    <Box
+      sx={{
+        height: '100%',
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
       <Typography variant="h6" gutterBottom>
         {t('Review & Deploy')}
       </Typography>
@@ -96,13 +104,13 @@ export default function Deploy({
               borderColor: 'divider',
               borderRadius: 1,
               overflow: 'hidden',
+              flexGrow: 1,
             }}
           >
             <MonacoEditor
-              height="60vh"
+              height="100%"
               language="yaml"
               value={containerPreviewYaml}
-              onChange={() => {}}
               options={{
                 readOnly: true,
                 minimap: { enabled: false },
@@ -123,7 +131,7 @@ export default function Deploy({
               count: yamlObjects.length,
             })}
           </Typography>
-          <Stack spacing={1.5}>
+          <Stack spacing={1.5} sx={{ overflowY: 'auto', minHeight: '200px' }}>
             {yamlObjects.map((obj, index) => (
               <Paper
                 key={index}
