@@ -22,7 +22,7 @@ import { alpha, Box, Button, InputAdornment, TextField, useTheme } from '@mui/ma
 import { blue } from '@mui/material/colors';
 import { memoize } from 'lodash';
 import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Trans } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { VariableSizeList } from 'react-window';
 import { AnsiText } from './AnsiText';
 import { type ParsedLog } from './ParsedLog';
@@ -132,6 +132,8 @@ export function LogDisplay({
   textWrap?: boolean;
   showSeverity?: boolean;
 }) {
+  const { t } = useTranslation();
+
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [height, setHeight] = useState(0);
@@ -312,6 +314,7 @@ export function LogDisplay({
               onClick={() => handleChangeResultIndex(-1)}
               size="small"
               sx={{ minWidth: '3em' }}
+              aria-label={t('Previous')}
             >
               <Icon icon="mdi:chevron-up" />
             </Button>
@@ -319,6 +322,7 @@ export function LogDisplay({
               onClick={() => handleChangeResultIndex(+1)}
               size="small"
               sx={{ minWidth: '3em' }}
+              aria-label={t('Next')}
             >
               <Icon icon="mdi:chevron-down" />
             </Button>
@@ -329,6 +333,7 @@ export function LogDisplay({
               }}
               size="small"
               sx={{ minWidth: '3em' }}
+              aria-label={t('Close')}
             >
               <Icon icon="mdi:close" />
             </Button>
