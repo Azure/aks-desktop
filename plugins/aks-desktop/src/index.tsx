@@ -391,9 +391,12 @@ registerProjectHeaderAction({
 
 registerProjectHeaderAction({
   id: 'configure-pipeline',
-  component: ({ project }) => (
+  component: props => (
     <GitHubAuthProvider>
-      <ConfigurePipelineButton project={project} />
+      <ConfigurePipelineButton
+        project={props.project}
+        setSelectedTab={(props as { setSelectedTab?: (tabId: string) => void }).setSelectedTab}
+      />
     </GitHubAuthProvider>
   ),
 });

@@ -10,19 +10,17 @@ import { getCheckColor, getCheckIcon } from '../utils/statusDisplay';
 import type { StepStatus } from './StepStatusIcon';
 import { StepStatusIcon } from './StepStatusIcon';
 
+interface PrPolling {
+  prStatus: { state: string; merged: boolean; mergeable: boolean | null } | null;
+  isTimedOut: boolean;
+  statusChecks: Array<{ name: string; status: string; conclusion: string | null }> | null;
+}
+
 interface ReviewAndMergeStepProps {
   deploymentState: PipelineDeploymentState;
   pipelineState: PipelineState;
-  setupPrPolling: {
-    prStatus: { state: string; merged: boolean; mergeable: boolean | null } | null;
-    isTimedOut: boolean;
-    statusChecks: Array<{ name: string; status: string; conclusion: string | null }> | null;
-  };
-  generatedPrPolling: {
-    prStatus: { state: string; merged: boolean; mergeable: boolean | null } | null;
-    isTimedOut: boolean;
-    statusChecks: Array<{ name: string; status: string; conclusion: string | null }> | null;
-  };
+  setupPrPolling: PrPolling;
+  generatedPrPolling: PrPolling;
   agentWorkflowProgress: { phases: AgentPhase[]; agentStartedAt: string | null } | undefined;
   onReviewSetupPR: () => void;
   onReviewAgentIssue: () => void;
@@ -157,7 +155,7 @@ function PRStatusCard({
   description: string;
   prNumber: number | null;
   prUrl: string | null;
-  prPolling: ReviewAndMergeStepProps['setupPrPolling'];
+  prPolling: PrPolling;
   onReviewInGitHub: () => void;
 }) {
   const merged = prPolling.prStatus?.merged ?? false;
@@ -280,7 +278,7 @@ function ActiveAgentWorking({
         </Typography>
       </Box>
       <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
-        The copilot coding agent is analyzing your repo and generating a deployment PR with
+        The Copilot coding agent is analyzing your repo and generating a deployment PR with
         Dockerfile, Kubernetes manifests and a GitHub Actions workflow.
       </Typography>
 
@@ -297,7 +295,7 @@ function ActiveAgentWorking({
             Issue {issueNumber}
           </Typography>
           {hasPhases ? (
-            agentProgress.phases.map(phase => (
+            (agentProgress?.phases ?? []).map(phase => (
               <Box key={phase.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                 <StepStatusIcon status={phase.status as StepStatus} size={18} />
                 <Typography
@@ -376,8 +374,8 @@ function PipelineComplete({
         Pipeline configured
       </Typography>
       <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
-        CI/CD pipeline for <strong>{repoFullName}</strong> is ready. Trigger deployment from
-        deployment tab
+        CI/CD pipeline for <strong>{repoFullName}</strong> is ready. Trigger deployments from the
+        Deploy tab.
       </Typography>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
         <Typography variant="body2">
@@ -443,9 +441,7 @@ export function ReviewAndMergeStep({
   );
 
   const isPipelineComplete =
-    deploymentState === 'PipelineConfigured' ||
-    deploymentState === 'PipelineRunning' ||
-    deploymentState === 'Deployed';
+    deploymentState === 'PipelineConfigured' || deploymentState === 'Deployed';
 
   // Show the "collapse to save progress" info banner when work is in progress
   const showProgressBanner = !isPipelineComplete;

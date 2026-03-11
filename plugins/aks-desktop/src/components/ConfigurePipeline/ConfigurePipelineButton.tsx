@@ -9,18 +9,16 @@ import { useAzureContext } from '../../hooks/useAzureContext';
 import { usePreviewFeatures } from '../../hooks/usePreviewFeatures';
 import type { ProjectDefinition } from '../../types/project';
 import { usePipelineStatus } from '../DeployTab/hooks/usePipelineStatus';
-import {
-  NAVIGATE_TO_PROJECT_TAB_EVENT,
-  OPEN_CONFIGURE_PIPELINE_EVENT,
-} from '../GitHubPipeline/constants';
+import { OPEN_CONFIGURE_PIPELINE_EVENT } from '../GitHubPipeline/constants';
 import { GitHubPipelineWizard } from '../GitHubPipeline/GitHubPipelineWizard';
 import { clearActivePipeline } from '../GitHubPipeline/utils/pipelineStorage';
 
 interface ConfigurePipelineButtonProps {
   project: ProjectDefinition;
+  setSelectedTab?: (tabId: string) => void;
 }
 
-function ConfigurePipelineButton({ project }: ConfigurePipelineButtonProps) {
+function ConfigurePipelineButton({ project, setSelectedTab }: ConfigurePipelineButtonProps) {
   const { t } = useTranslation();
   const { githubPipelines } = usePreviewFeatures();
   const { azureContext } = useAzureContext(project.clusters?.[0]);
@@ -54,8 +52,8 @@ function ConfigurePipelineButton({ project }: ConfigurePipelineButtonProps) {
 
   const handleViewDeployment = useCallback(() => {
     setOpen(false);
-    window.dispatchEvent(new CustomEvent(NAVIGATE_TO_PROJECT_TAB_EVENT, { detail: 'deploy' }));
-  }, []);
+    setSelectedTab?.('deploy');
+  }, [setSelectedTab]);
 
   return (
     <>
