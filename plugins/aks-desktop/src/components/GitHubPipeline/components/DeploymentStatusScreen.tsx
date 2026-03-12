@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Box, Button, Chip, IconButton, Tooltip, Typography } from '@mui/material';
 import React, { Fragment } from 'react';
 import type { WorkflowRunConclusion, WorkflowRunStatus } from '../../../types/github';
@@ -41,18 +42,21 @@ interface StageInfo {
 }
 
 function getPipelineStageInfo(
+  t: (key: string) => string,
   succeeded: boolean,
   failed: boolean,
   running: boolean
 ): { label: string; icon: string; color: string } {
-  if (failed) return { label: 'Pipeline Failed', icon: 'mdi:close-circle', color: 'error.main' };
+  if (failed) return { label: t('Pipeline Failed'), icon: 'mdi:close-circle', color: 'error.main' };
   if (succeeded)
-    return { label: 'Pipeline Succeeded', icon: 'mdi:check-circle', color: 'success.main' };
-  if (running) return { label: 'Pipeline Running', icon: 'mdi:progress-clock', color: 'info.main' };
-  return { label: 'Pipeline Running', icon: 'mdi:progress-clock', color: 'text.disabled' };
+    return { label: t('Pipeline Succeeded'), icon: 'mdi:check-circle', color: 'success.main' };
+  if (running)
+    return { label: t('Pipeline Running'), icon: 'mdi:progress-clock', color: 'info.main' };
+  return { label: t('Pipeline Running'), icon: 'mdi:progress-clock', color: 'text.disabled' };
 }
 
 const getStages = (
+  t: (key: string) => string,
   workflowStatus: DeploymentStatusScreenProps['workflowStatus'],
   deploymentReady: boolean
 ): StageInfo[] => {
@@ -62,18 +66,18 @@ const getStages = (
   const pipelineRunning =
     workflowStatus.status === 'in_progress' || workflowStatus.status === 'queued';
 
-  const pipelineStage = getPipelineStageInfo(pipelineSucceeded, pipelineFailed, pipelineRunning);
+  const pipelineStage = getPipelineStageInfo(t, pipelineSucceeded, pipelineFailed, pipelineRunning);
 
   return [
     {
-      label: 'PR Created',
+      label: t('PR Created'),
       icon: 'mdi:check-circle',
       color: 'success.main',
       completed: true,
       active: false,
     },
     {
-      label: 'PR Merged',
+      label: t('PR Merged'),
       icon: 'mdi:check-circle',
       color: 'success.main',
       completed: true,
@@ -87,7 +91,7 @@ const getStages = (
       active: pipelineRunning,
     },
     {
-      label: deploymentReady ? 'Deployment Ready' : 'Deployment Pending',
+      label: deploymentReady ? t('Deployment Ready') : t('Deployment Pending'),
       icon: deploymentReady ? 'mdi:check-circle' : 'mdi:timer-sand',
       color: deploymentReady ? 'success.main' : pipelineSucceeded ? 'info.main' : 'text.disabled',
       completed: deploymentReady,
@@ -104,7 +108,8 @@ export function DeploymentStatusScreen({
   onRedeploy,
   onOpenGitHubRun,
 }: DeploymentStatusScreenProps) {
-  const stages = getStages(workflowStatus, deploymentHealth.ready);
+  const { t } = useTranslation();
+  const stages = getStages(t, workflowStatus, deploymentHealth.ready);
   const namespace = pipelineState.config?.namespace ?? '';
   const pipelineFailed =
     workflowStatus.status === 'completed' && workflowStatus.conclusion !== 'success';
@@ -150,7 +155,7 @@ export function DeploymentStatusScreen({
       {namespace && (
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
           <Typography variant="body2" sx={{ color: 'text.secondary', mr: 1 }}>
-            Namespace:
+            {t('Namespace')}:
           </Typography>
           <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
             {namespace}
@@ -161,7 +166,7 @@ export function DeploymentStatusScreen({
 
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
         <Typography variant="body2" sx={{ color: 'text.secondary', mr: 1 }}>
-          Pipeline:
+          {t('Pipeline')}:
         </Typography>
         <Chip
           label={getWorkflowBadgeLabel(workflowStatus.status, workflowStatus.conclusion)}
@@ -170,14 +175,14 @@ export function DeploymentStatusScreen({
           sx={{ fontWeight: 600 }}
         />
         {workflowStatus.url && (
-          <Tooltip title="View on GitHub">
+          <Tooltip title={t('View on GitHub')}>
             <IconButton
               size="small"
               onClick={onOpenGitHubRun}
               sx={{ ml: 0.5 }}
-              aria-label="View workflow run on GitHub"
+              aria-label={t('View workflow run on GitHub')}
             >
-              <Icon icon="mdi:open-in-new" width={16} />
+              <Icon icon="mdi:open-in-new" width={16} aria-hidden="true" />
             </IconButton>
           </Tooltip>
         )}
@@ -185,9 +190,12 @@ export function DeploymentStatusScreen({
 
       {pipelineFailed && (
         <Alert severity="error" sx={{ mb: 2, textAlign: 'left' }}>
-          The deployment pipeline failed
-          {workflowStatus.conclusion ? ` (${workflowStatus.conclusion})` : ''}. Check the GitHub
-          Actions logs for details.
+          {workflowStatus.conclusion
+            ? t(
+                'The deployment pipeline failed ({{conclusion}}). Check the GitHub Actions logs for details.',
+                { conclusion: workflowStatus.conclusion }
+              )
+            : t('The deployment pipeline failed. Check the GitHub Actions logs for details.')}
         </Alert>
       )}
 
@@ -200,7 +208,7 @@ export function DeploymentStatusScreen({
       {deploymentHealth.podStatuses.length > 0 && (
         <Box sx={{ mb: 2 }}>
           <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
-            Pod Status
+            {t('Pod Status')}
           </Typography>
           {deploymentHealth.podStatuses.map(pod => (
             <Box
@@ -231,7 +239,7 @@ export function DeploymentStatusScreen({
               />
               {pod.restarts > 0 && (
                 <Typography variant="caption" sx={{ color: 'warning.main' }}>
-                  {pod.restarts} restart{pod.restarts !== 1 ? 's' : ''}
+                  {t('{{count}} restart', { count: pod.restarts })}
                 </Typography>
               )}
             </Box>
@@ -242,7 +250,7 @@ export function DeploymentStatusScreen({
       {deploymentHealth.serviceEndpoint && (
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
           <Typography variant="body2" sx={{ color: 'text.secondary', mr: 1 }}>
-            Service Endpoint:
+            {t('Service Endpoint')}:
           </Typography>
           <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
             {deploymentHealth.serviceEndpoint}
@@ -264,12 +272,14 @@ export function DeploymentStatusScreen({
       >
         <Typography variant="body2" sx={{ color: 'text.secondary' }}>
           {totalPods > 0
-            ? `${readyPods}/${totalPods} pod${totalPods !== 1 ? 's' : ''} ready`
-            : 'No pods found'}
+            ? totalPods === 1
+              ? t('{{ready}}/{{total}} pod ready', { ready: readyPods, total: totalPods })
+              : t('{{ready}}/{{total}} pods ready', { ready: readyPods, total: totalPods })
+            : t('No pods found')}
         </Typography>
         {lastUpdated && (
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Last updated: {lastUpdated}
+            {t('Last updated')}: {lastUpdated}
           </Typography>
         )}
       </Box>
@@ -280,19 +290,19 @@ export function DeploymentStatusScreen({
             variant="contained"
             color="primary"
             onClick={onOpenGitHubRun}
-            startIcon={<Icon icon="mdi:open-in-new" />}
+            startIcon={<Icon icon="mdi:open-in-new" aria-hidden="true" />}
             sx={{ textTransform: 'none', fontSize: 14 }}
           >
-            View on GitHub
+            {t('View on GitHub')}
           </Button>
         )}
         <Button
           variant="outlined"
           onClick={onRedeploy}
-          startIcon={<Icon icon="mdi:refresh" />}
+          startIcon={<Icon icon="mdi:refresh" aria-hidden="true" />}
           sx={{ textTransform: 'none', fontSize: 14 }}
         >
-          Redeploy
+          {t('Redeploy')}
         </Button>
       </Box>
     </Box>

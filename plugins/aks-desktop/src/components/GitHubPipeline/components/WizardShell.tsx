@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Box, Button, IconButton, Typography } from '@mui/material';
 import React, { useState } from 'react';
 
@@ -13,7 +14,9 @@ interface WizardShellProps {
   footerActions?: React.ReactNode;
 }
 
-const STEPS = ['Connect Source', 'Configure', 'Setup PR', 'Agent', 'Complete'] as const;
+function getStepLabels(t: (key: string) => string): string[] {
+  return [t('Connect Source'), t('Configure'), t('Setup PR'), t('Agent'), t('Complete')];
+}
 
 function StepIndicator({
   index,
@@ -65,6 +68,7 @@ export function WizardShell({
   children,
   footerActions,
 }: WizardShellProps) {
+  const { t } = useTranslation();
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   return (
@@ -74,21 +78,23 @@ export function WizardShell({
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Box>
             <Typography variant="h5" sx={{ fontWeight: 600 }}>
-              Configure Pipeline
+              {t('Configure Pipeline')}
             </Typography>
             <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
-              Set up a CI/CD pipeline to automate your deployments and streamline your workflow
+              {t(
+                'Set up a CI/CD pipeline to automate your deployments and streamline your workflow'
+              )}
             </Typography>
           </Box>
-          <IconButton onClick={onClose} size="small" aria-label="Close">
-            <Icon icon="mdi:close" />
+          <IconButton onClick={onClose} size="small" aria-label={t('Close')}>
+            <Icon icon="mdi:close" aria-hidden="true" />
           </IconButton>
         </Box>
 
         {/* Stepper */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 2.5 }}>
-          {STEPS.map((label, i) => (
-            <React.Fragment key={label}>
+          {getStepLabels(t).map((label, i) => (
+            <React.Fragment key={i}>
               {i > 0 && (
                 <Box
                   component={Icon}
@@ -120,7 +126,7 @@ export function WizardShell({
                   onClick={() => setShowCancelConfirm(false)}
                   sx={{ textTransform: 'none' }}
                 >
-                  Keep Going
+                  {t('Keep Going')}
                 </Button>
                 <Button
                   size="small"
@@ -129,12 +135,12 @@ export function WizardShell({
                   onClick={() => onCancel?.()}
                   sx={{ textTransform: 'none' }}
                 >
-                  Discard
+                  {t('Discard')}
                 </Button>
               </Box>
             }
           >
-            Canceling will discard your pipeline progress. Are you sure?
+            {t('Canceling will discard your pipeline progress. Are you sure?')}
           </Alert>
         ) : (
           children
@@ -162,7 +168,7 @@ export function WizardShell({
               onClick={() => setShowCancelConfirm(true)}
               sx={{ textTransform: 'none', color: 'text.secondary', fontSize: '0.8rem' }}
             >
-              Start over
+              {t('Start over')}
             </Button>
           ) : (
             <Box />

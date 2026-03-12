@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Alert,
   AlertTitle,
@@ -27,27 +28,29 @@ type AddonKey = 'azure-monitor-metrics' | 'keda' | 'vpa';
 
 interface AddonOption {
   key: AddonKey;
-  label: string;
   capabilityField: keyof ClusterCapabilities;
 }
 
 const ADDON_OPTIONS: AddonOption[] = [
-  {
-    key: 'azure-monitor-metrics',
-    label: 'Azure Monitor Metrics (Managed Prometheus)',
-    capabilityField: 'prometheusEnabled',
-  },
-  {
-    key: 'keda',
-    label: 'KEDA (Event-Driven Autoscaling)',
-    capabilityField: 'kedaEnabled',
-  },
-  {
-    key: 'vpa',
-    label: 'VPA (Vertical Pod Autoscaler)',
-    capabilityField: 'vpaEnabled',
-  },
+  { key: 'azure-monitor-metrics', capabilityField: 'prometheusEnabled' },
+  { key: 'keda', capabilityField: 'kedaEnabled' },
+  { key: 'vpa', capabilityField: 'vpaEnabled' },
 ];
+
+function getAddonLabel(t: (key: string) => string, key: AddonKey): string {
+  switch (key) {
+    case 'azure-monitor-metrics':
+      return t('Azure Monitor Metrics (Managed Prometheus)');
+    case 'keda':
+      return t('KEDA (Event-Driven Autoscaling)');
+    case 'vpa':
+      return t('VPA (Vertical Pod Autoscaler)');
+    default: {
+      const _exhaustive: never = key;
+      return String(_exhaustive);
+    }
+  }
+}
 
 const MAX_POLL_ATTEMPTS = 30;
 const POLL_INTERVAL_MS = 10000;
@@ -71,6 +74,7 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
   clusterName,
   onConfigured,
 }) => {
+  const { t } = useTranslation();
   const [selectedAddons, setSelectedAddons] = useState<Set<AddonKey>>(new Set());
   const [enabling, setEnabling] = useState(false);
   const [polling, setPolling] = useState(false);
@@ -137,50 +141,54 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
     });
   };
 
-  const pollForCompletion = useCallback(async (addonsToCheck: Set<AddonKey>, attempt: number) => {
-    if (attempt >= MAX_POLL_ATTEMPTS) {
-      setPolling(false);
-      setError(
-        'Configuration is taking longer than expected. ' +
-          'Please check the Azure portal for the current status of your cluster.'
-      );
-      return;
-    }
-
-    try {
-      const params = clusterParamsRef.current;
-      const updatedCapabilities = await getClusterCapabilities({
-        subscriptionId: params.subscriptionId,
-        resourceGroup: params.resourceGroup,
-        clusterName: params.clusterName,
-      });
-
-      // Check if all selected addons are now enabled
-      const allEnabled = Array.from(addonsToCheck).every(addonKey => {
-        const option = ADDON_OPTIONS.find(o => o.key === addonKey);
-        if (!option) return true;
-        return updatedCapabilities[option.capabilityField] === true;
-      });
-
-      if (allEnabled) {
+  const pollForCompletion = useCallback(
+    async (addonsToCheck: Set<AddonKey>, attempt: number) => {
+      if (attempt >= MAX_POLL_ATTEMPTS) {
         setPolling(false);
-        setSuccess(true);
-        onConfiguredRef.current();
+        setError(
+          t(
+            'Configuration is taking longer than expected. Please check the Azure portal for the current status of your cluster.'
+          )
+        );
         return;
       }
 
-      // Schedule next poll
-      pollingTimerRef.current = setTimeout(() => {
-        pollForCompletion(addonsToCheck, attempt + 1);
-      }, POLL_INTERVAL_MS);
-    } catch (pollError) {
-      // Don't stop polling on transient errors, just log and continue
-      console.error('Error polling cluster capabilities:', pollError);
-      pollingTimerRef.current = setTimeout(() => {
-        pollForCompletion(addonsToCheck, attempt + 1);
-      }, POLL_INTERVAL_MS);
-    }
-  }, []);
+      try {
+        const params = clusterParamsRef.current;
+        const updatedCapabilities = await getClusterCapabilities({
+          subscriptionId: params.subscriptionId,
+          resourceGroup: params.resourceGroup,
+          clusterName: params.clusterName,
+        });
+
+        // Check if all selected addons are now enabled
+        const allEnabled = Array.from(addonsToCheck).every(addonKey => {
+          const option = ADDON_OPTIONS.find(o => o.key === addonKey);
+          if (!option) return true;
+          return updatedCapabilities[option.capabilityField] === true;
+        });
+
+        if (allEnabled) {
+          setPolling(false);
+          setSuccess(true);
+          onConfiguredRef.current();
+          return;
+        }
+
+        // Schedule next poll
+        pollingTimerRef.current = setTimeout(() => {
+          pollForCompletion(addonsToCheck, attempt + 1);
+        }, POLL_INTERVAL_MS);
+      } catch (pollError) {
+        // Don't stop polling on transient errors, just log and continue
+        console.error('Error polling cluster capabilities:', pollError);
+        pollingTimerRef.current = setTimeout(() => {
+          pollForCompletion(addonsToCheck, attempt + 1);
+        }, POLL_INTERVAL_MS);
+      }
+    },
+    [t]
+  );
 
   const handleConfigure = async () => {
     if (selectedAddons.size === 0) return;
@@ -205,10 +213,15 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
       if (settled.status === 'rejected') {
         const err = settled.reason;
         errors.push(
-          `Failed to enable addon: ${err instanceof Error ? err.message : 'Unknown error'}`
+          t('Failed to enable addon: {{error}}', {
+            error: err instanceof Error ? err.message : t('Unknown error'),
+          })
         );
       } else if (!settled.value.result.success) {
-        errors.push(settled.value.result.error || `Failed to enable ${settled.value.addonKey}`);
+        errors.push(
+          settled.value.result.error ||
+            t('Failed to enable {{addonKey}}', { addonKey: settled.value.addonKey })
+        );
       }
     }
 
@@ -241,7 +254,7 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
         }}
       >
         <Typography variant="subtitle2" gutterBottom>
-          Cluster Configuration
+          {t('Cluster Configuration')}
         </Typography>
         <Alert severity="info" sx={{ mt: 1 }}>
           {NETWORK_POLICY_INFO}
@@ -260,10 +273,10 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
       }}
     >
       <Typography variant="subtitle2" gutterBottom>
-        Cluster Configuration
+        {t('Cluster Configuration')}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        The following addons can be enabled on this cluster:
+        {t('The following addons can be enabled on this cluster:')}
       </Typography>
 
       {/* Addon checkboxes */}
@@ -279,7 +292,7 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
                 size="small"
               />
             }
-            label={<Typography variant="body2">{addon.label}</Typography>}
+            label={<Typography variant="body2">{getAddonLabel(t, addon.key)}</Typography>}
           />
         ))}
       </Box>
@@ -294,14 +307,14 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
       {/* Cost warning */}
       <Alert severity="warning" sx={{ mt: 1 }} icon={false}>
         <Typography variant="body2">
-          Enabling these addons may incur additional Azure costs.
+          {t('Enabling these addons may incur additional Azure costs.')}
         </Typography>
       </Alert>
 
       {/* Error message */}
       {error && (
         <Alert severity="error" sx={{ mt: 1 }} onClose={() => setError(null)}>
-          <AlertTitle>Configuration Error</AlertTitle>
+          <AlertTitle>{t('Configuration Error')}</AlertTitle>
           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
             {error}
           </Typography>
@@ -311,8 +324,8 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
       {/* Success message */}
       {success && (
         <Alert severity="success" sx={{ mt: 1 }}>
-          <AlertTitle>Configuration Complete</AlertTitle>
-          All selected addons have been enabled successfully.
+          <AlertTitle>{t('Configuration Complete')}</AlertTitle>
+          {t('All selected addons have been enabled successfully.')}
         </Alert>
       )}
 
@@ -321,7 +334,7 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
         <Box display="flex" alignItems="center" gap={1} sx={{ mt: 1 }}>
           <CircularProgress size={16} aria-hidden="true" />
           <Typography variant="body2" color="text.secondary" aria-hidden="true">
-            Configuring cluster... This may take a few minutes.
+            {t('Configuring cluster... This may take a few minutes.')}
           </Typography>
         </Box>
       )}
@@ -348,7 +361,7 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
           border: 0,
         }}
       >
-        {polling ? 'Configuring cluster... This may take a few minutes.' : ''}
+        {polling ? t('Configuring cluster... This may take a few minutes.') : ''}
       </Box>
 
       {/* Configure button */}
@@ -367,7 +380,11 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
             enabling ? <CircularProgress size={16} color="inherit" aria-hidden="true" /> : undefined
           }
         >
-          {enabling ? 'Enabling Addons...' : polling ? 'Configuring...' : 'Configure Cluster'}
+          {enabling
+            ? t('Enabling Addons...')
+            : polling
+            ? t('Configuring...')
+            : t('Configure Cluster')}
         </Button>
       )}
     </Box>

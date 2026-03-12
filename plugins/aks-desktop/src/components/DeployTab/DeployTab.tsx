@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Box, Typography } from '@mui/material';
 import React from 'react';
 import { usePreviewFeatures } from '../../hooks/usePreviewFeatures';
@@ -13,6 +14,7 @@ interface DeployTabProps {
 }
 
 function DeployTab({ project }: DeployTabProps) {
+  const { t } = useTranslation();
   const { githubPipelines } = usePreviewFeatures();
   const { settings } = usePipelineSettings();
 
@@ -20,7 +22,7 @@ function DeployTab({ project }: DeployTabProps) {
     return (
       <Box sx={{ p: 3, textAlign: 'center' }}>
         <Typography color="text.secondary">
-          Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.
+          {t('Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.')}
         </Typography>
       </Box>
     );
@@ -29,12 +31,12 @@ function DeployTab({ project }: DeployTabProps) {
   return (
     <Box sx={{ my: 3 }}>
       <Box sx={{ mb: 3 }}>
-        <Typography variant="h5">Workloads</Typography>
+        <Typography variant="h5">{t('Workloads')}</Typography>
       </Box>
 
       {project.clusters?.length === 0 && (
         <Typography variant="body2" color="text.secondary">
-          No clusters in this project.
+          {t('No clusters in this project.')}
         </Typography>
       )}
 

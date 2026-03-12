@@ -7,15 +7,19 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // Mock the Headlamp K8s API — vi.hoisted ensures the variable is available when vi.mock is hoisted
 const mockApiList = vi.hoisted(() => vi.fn());
 
-vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
-  K8s: {
-    ResourceClasses: {
-      Deployment: {
-        apiList: mockApiList,
+vi.mock('@kinvolk/headlamp-plugin/lib', () => {
+  const t = (key: string) => key;
+  return {
+    K8s: {
+      ResourceClasses: {
+        Deployment: {
+          apiList: mockApiList,
+        },
       },
     },
-  },
-}));
+    useTranslation: () => ({ t }),
+  };
+});
 
 import { useDeployments } from './useDeployments';
 

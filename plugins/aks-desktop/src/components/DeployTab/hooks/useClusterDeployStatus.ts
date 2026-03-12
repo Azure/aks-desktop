@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useState } from 'react';
 
 export const ANNOTATION_DEPLOYED_BY = 'aks-project/deployed-by';
@@ -44,6 +44,7 @@ export const useClusterDeployStatus = (
   namespace: string,
   enabled: boolean
 ): ClusterDeployStatus => {
+  const { t } = useTranslation();
   const [deployments, setDeployments] = useState<DeploymentStatus[]>([]);
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,7 +96,7 @@ export const useClusterDeployStatus = (
           (err: unknown) => {
             console.error('Cluster deploy status: error fetching deployments:', err);
             if (!isCancelled) {
-              setError('Failed to fetch deployments');
+              setError(t('Failed to fetch deployments'));
               setLoading(false);
             }
           },
@@ -138,7 +139,7 @@ export const useClusterDeployStatus = (
       } catch (err) {
         console.error('Cluster deploy status: error setting up watchers:', err);
         if (!isCancelled) {
-          setError('Failed to fetch cluster status');
+          setError(t('Failed to fetch cluster status'));
           setLoading(false);
         }
       }
@@ -150,7 +151,7 @@ export const useClusterDeployStatus = (
       isCancelled = true;
       cancelFns.forEach(fn => fn());
     };
-  }, [cluster, namespace, enabled]);
+  }, [cluster, namespace, enabled, t]);
 
   return { deployments, services, loading, error };
 };

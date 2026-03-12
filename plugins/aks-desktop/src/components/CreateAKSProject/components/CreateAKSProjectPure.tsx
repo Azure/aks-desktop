@@ -25,6 +25,27 @@ import { Breadcrumb } from './Breadcrumb';
 /** Set to `true` locally to enable verbose debug logging. Never enable in production. */
 const DEBUG = false;
 
+type StepName = (typeof STEPS)[number];
+
+function getStepLabel(t: (key: string) => string, step: StepName): string {
+  switch (step) {
+    case 'Basics':
+      return t('Basics');
+    case 'Networking Policies':
+      return t('Networking Policies');
+    case 'Compute Quota':
+      return t('Compute Quota');
+    case 'Access':
+      return t('Access');
+    case 'Review':
+      return t('Review');
+    default: {
+      const _exhaustive: never = step;
+      return String(_exhaustive);
+    }
+  }
+}
+
 /**
  * Pure presentational props for {@link CreateAKSProjectPure}.
  * Every value and callback is passed in from the connector — the component
@@ -246,7 +267,7 @@ export default function CreateAKSProjectPure({
           >
             {/* Breadcrumbs */}
             <Breadcrumb
-              steps={steps.map(step => t(step))}
+              steps={steps.map(step => getStepLabel(t, step))}
               activeStep={activeStep}
               onStepClick={handleStepClick}
             />

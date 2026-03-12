@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Alert,
   Box,
@@ -23,6 +24,7 @@ interface RepoSelectorProps {
 }
 
 export function RepoSelector({ octokit, selectedRepo, onRepoSelect }: RepoSelectorProps) {
+  const { t } = useTranslation();
   const [repos, setRepos] = useState<RepoListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,11 +43,11 @@ export function RepoSelector({ octokit, selectedRepo, onRepoSelect }: RepoSelect
         },
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load repositories');
+      setError(err instanceof Error ? err.message : t('Failed to load repositories'));
     } finally {
       setLoading(false);
     }
-  }, [octokit]);
+  }, [octokit, t]);
 
   useEffect(() => {
     fetchRepos();
@@ -64,8 +66,8 @@ export function RepoSelector({ octokit, selectedRepo, onRepoSelect }: RepoSelect
     <Box>
       <TextField
         size="small"
-        placeholder="Filter repositories"
-        aria-label="Filter repositories"
+        placeholder={t('Filter repositories')}
+        aria-label={t('Filter repositories')}
         value={filter}
         onChange={e => setFilter(e.target.value)}
         fullWidth
@@ -91,7 +93,7 @@ export function RepoSelector({ octokit, selectedRepo, onRepoSelect }: RepoSelect
         </Box>
       ) : filtered.length === 0 ? (
         <Typography variant="body2" sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>
-          {filter ? 'No repositories match your filter' : 'No repositories found'}
+          {filter ? t('No repositories match your filter') : t('No repositories found')}
         </Typography>
       ) : (
         <Box

@@ -14,18 +14,19 @@ vi.mock('react-router-dom', () => ({
   useHistory: () => ({ push: mockPush, replace: mockReplace }),
 }));
 
-vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
-  useTranslation: () => ({
-    t: (key: string, params?: Record<string, any>) => {
-      if (!params) return key;
-      let result = key;
-      for (const [k, v] of Object.entries(params)) {
-        result = result.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v));
-      }
-      return result;
-    },
-  }),
-}));
+vi.mock('@kinvolk/headlamp-plugin/lib', () => {
+  const t = (key: string, params?: Record<string, any>) => {
+    if (!params) return key;
+    let result = key;
+    for (const [k, v] of Object.entries(params)) {
+      result = result.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v));
+    }
+    return result;
+  };
+  return {
+    useTranslation: () => ({ t }),
+  };
+});
 
 vi.mock('@kinvolk/headlamp-plugin/lib/CommonComponents', () => ({
   PageGrid: ({ children }: any) => <div data-testid="page-grid">{children}</div>,

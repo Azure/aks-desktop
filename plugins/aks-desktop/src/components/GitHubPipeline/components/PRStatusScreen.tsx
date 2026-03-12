@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material';
 import React from 'react';
 import type { AgentPhase } from '../hooks/useAgentWorkflowProgress';
@@ -38,30 +39,36 @@ const getHeaderColor = (phase: PRPhase, merged: boolean): string => {
   return 'primary.main';
 };
 
-const getTitle = (phase: PRPhase, merged: boolean): string => {
+const getTitle = (t: (key: string) => string, phase: PRPhase, merged: boolean): string => {
   if (phase === 'setup') {
-    return merged ? 'Setup PR Merged' : 'Setup PR Created';
+    return merged ? t('Setup PR Merged') : t('Setup PR Created');
   }
   if (phase === 'agent-pending') {
-    return 'Agent is Working';
+    return t('Agent is Working');
   }
-  return merged ? 'Deployment PR Merged' : 'Deployment PR Ready';
+  return merged ? t('Deployment PR Merged') : t('Deployment PR Ready');
 };
 
-const getDescription = (phase: PRPhase, merged: boolean): string => {
+const getDescription = (t: (key: string) => string, phase: PRPhase, merged: boolean): string => {
   if (phase === 'setup' && !merged) {
-    return 'Review and merge the setup PR to enable the Copilot agent. After merging, the agent will analyze your repo and create a deployment PR.';
+    return t(
+      'Review and merge the setup PR to enable the Copilot agent. After merging, the agent will analyze your repo and create a deployment PR.'
+    );
   }
   if (phase === 'setup' && merged) {
-    return 'The setup PR has been merged. The Copilot agent is now being triggered...';
+    return t('The setup PR has been merged. The Copilot agent is now being triggered...');
   }
   if (phase === 'agent-pending') {
-    return 'The Copilot Coding Agent is analyzing your repository and generating a deployment PR with Dockerfile, Kubernetes manifests, and a GitHub Actions workflow.';
+    return t(
+      'The Copilot Coding Agent is analyzing your repository and generating a deployment PR with Dockerfile, Kubernetes manifests, and a GitHub Actions workflow.'
+    );
   }
   if (phase === 'agent-created' && !merged) {
-    return 'The agent has created a deployment PR. Review the generated files and merge to start the deployment pipeline.';
+    return t(
+      'The agent has created a deployment PR. Review the generated files and merge to start the deployment pipeline.'
+    );
   }
-  return 'The deployment PR has been merged. The deployment pipeline is starting...';
+  return t('The deployment PR has been merged. The deployment pipeline is starting...');
 };
 
 const getTracking = (
@@ -76,6 +83,7 @@ const getTracking = (
 };
 
 function useElapsedTime(startedAt: string | null): string | null {
+  const { t } = useTranslation();
   const [elapsed, setElapsed] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -91,18 +99,29 @@ function useElapsedTime(startedAt: string | null): string | null {
     const update = () => {
       const seconds = Math.floor((Date.now() - parsed) / 1000);
       if (seconds < 60) {
-        setElapsed('less than a minute');
+        setElapsed(t('less than a minute'));
       } else {
         const minutes = Math.floor(seconds / 60);
-        setElapsed(`${minutes} min`);
+        setElapsed(t('{{minutes}} min', { minutes }));
       }
     };
     update();
     const id = setInterval(update, 30_000);
     return () => clearInterval(id);
-  }, [startedAt]);
+  }, [startedAt, t]);
 
   return elapsed;
+}
+
+function getPhaseLabel(t: (key: string) => string, phaseId: string, fallbackLabel: string): string {
+  switch (phaseId) {
+    case 'setup':
+      return t('Setting up environment');
+    case 'working':
+      return t('Analyzing repo, generating Dockerfile, K8s manifests, and workflow');
+    default:
+      return fallbackLabel;
+  }
 }
 
 function AgentProgressPhases({
@@ -112,13 +131,14 @@ function AgentProgressPhases({
   phases: AgentPhase[];
   agentStartedAt: string | null;
 }) {
+  const { t } = useTranslation();
   const elapsed = useElapsedTime(agentStartedAt);
 
   if (phases.length === 0) return null;
   return (
     <Box sx={{ mb: 3 }}>
       <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
-        Agent Progress
+        {t('Agent Progress')}
       </Typography>
       {phases.map(phase => (
         <Box key={phase.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
@@ -130,7 +150,7 @@ function AgentProgressPhases({
               fontWeight: phase.status === 'active' ? 600 : 400,
             }}
           >
-            {phase.label}
+            {getPhaseLabel(t, phase.id, phase.label)}
             {phase.id === 'working' && phase.status === 'active' && elapsed && (
               <Typography component="span" variant="body2" sx={{ color: 'text.secondary', ml: 1 }}>
                 ({elapsed})
@@ -141,7 +161,7 @@ function AgentProgressPhases({
       ))}
       {agentStartedAt && (
         <Typography variant="caption" sx={{ color: 'text.secondary', mt: 1, display: 'block' }}>
-          This typically takes 10–25 minutes.
+          {t('This typically takes 10–25 minutes.')}
         </Typography>
       )}
     </Box>
@@ -159,8 +179,9 @@ export function PRStatusScreen({
 }: PRStatusScreenProps) {
   const merged = prStatus?.merged ?? false;
   const isClosed = prStatus?.state === 'closed' && !merged;
-  const title = getTitle(prPhase, merged);
-  const description = getDescription(prPhase, merged);
+  const { t } = useTranslation();
+  const title = getTitle(t, prPhase, merged);
+  const description = getDescription(t, prPhase, merged);
   const { url: prUrl, number: prNumber } = getTracking(pipelineState, prPhase);
   const isWaiting = prPhase === 'agent-pending';
 
@@ -193,23 +214,29 @@ export function PRStatusScreen({
 
       {prNumber !== null && (
         <Typography variant="body2" sx={{ mb: 2, fontFamily: 'monospace' }}>
-          {prPhase === 'agent-pending' ? `Issue #${prNumber}` : `PR #${prNumber}`}
+          {prPhase === 'agent-pending'
+            ? t('Issue #{{number}}', { number: prNumber })
+            : t('PR #{{number}}', { number: prNumber })}
         </Typography>
       )}
 
       {isTimedOut && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          This is taking longer than expected. The operation may still be in progress
-          {' \u2014 '}
-          check the {prPhase === 'agent-pending' ? 'GitHub issue' : 'PR on GitHub'} for the latest
-          status.
+          {prPhase === 'agent-pending'
+            ? t(
+                'This is taking longer than expected. The operation may still be in progress — check the GitHub issue for the latest status.'
+              )
+            : t(
+                'This is taking longer than expected. The operation may still be in progress — check the PR on GitHub for the latest status.'
+              )}
         </Alert>
       )}
 
       {isClosed && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          This {prPhase === 'agent-pending' ? 'issue was closed' : 'PR was closed without merging'}.
-          You may need to restart the process.
+          {prPhase === 'agent-pending'
+            ? t('This issue was closed. You may need to restart the process.')
+            : t('This PR was closed without merging. You may need to restart the process.')}
         </Alert>
       )}
 
@@ -224,7 +251,7 @@ export function PRStatusScreen({
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
           <CircularProgress size={20} sx={{ mr: 1.5 }} />
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            Waiting for agent workflow to start...
+            {t('Waiting for agent workflow to start...')}
           </Typography>
         </Box>
       )}
@@ -233,7 +260,7 @@ export function PRStatusScreen({
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
           <CircularProgress size={20} sx={{ mr: 1.5 }} />
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            Checking merge status...
+            {t('Checking merge status...')}
           </Typography>
         </Box>
       )}
@@ -241,7 +268,7 @@ export function PRStatusScreen({
       {statusChecks && statusChecks.length > 0 && !merged && (
         <Box sx={{ mb: 3 }}>
           <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
-            Status Checks
+            {t('Status Checks')}
           </Typography>
           {statusChecks.map(check => (
             <Box key={check.name} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
@@ -261,7 +288,7 @@ export function PRStatusScreen({
 
       {!merged && !isClosed && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          You can close this panel — progress is saved and will resume when you return.
+          {t('You can close this panel — progress is saved and will resume when you return.')}
         </Alert>
       )}
 
@@ -269,14 +296,14 @@ export function PRStatusScreen({
         <Button
           variant="outlined"
           onClick={onReviewInGitHub}
-          startIcon={<Icon icon="mdi:open-in-new" />}
+          startIcon={<Icon icon="mdi:open-in-new" aria-hidden="true" />}
           sx={{ textTransform: 'none' }}
         >
           {prPhase === 'agent-pending'
-            ? 'View Issue on GitHub'
+            ? t('View Issue on GitHub')
             : merged
-            ? 'View on GitHub'
-            : 'Review on GitHub'}
+            ? t('View on GitHub')
+            : t('Review on GitHub')}
         </Button>
       )}
     </Box>

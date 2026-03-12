@@ -28,6 +28,21 @@ import {
 
 const STEPS = ['Basics', 'Review'] as const;
 
+type NamespaceStepName = (typeof STEPS)[number];
+
+function getStepLabel(t: (key: string) => string, step: NamespaceStepName): string {
+  switch (step) {
+    case 'Basics':
+      return t('Basics');
+    case 'Review':
+      return t('Review');
+    default: {
+      const _exhaustive: never = step;
+      return String(_exhaustive);
+    }
+  }
+}
+
 const NAMESPACE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 
 function CreateNamespaceContent() {
@@ -407,7 +422,7 @@ function CreateNamespaceContent() {
           >
             {/* Breadcrumbs */}
             <Breadcrumb
-              steps={STEPS.map(step => t(step))}
+              steps={STEPS.map(step => getStepLabel(t, step))}
               activeStep={activeStep}
               onStepClick={step => setActiveStep(step)}
             />

@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Box, Typography } from '@mui/material';
 import React from 'react';
 
@@ -10,6 +11,7 @@ interface PipelineConfiguredScreenProps {
 }
 
 export function PipelineConfiguredScreen({ repoFullName }: PipelineConfiguredScreenProps) {
+  const { t } = useTranslation();
   return (
     <Box sx={{ textAlign: 'center', py: 4 }}>
       <Box
@@ -18,11 +20,11 @@ export function PipelineConfiguredScreen({ repoFullName }: PipelineConfiguredScr
         sx={{ fontSize: 64, color: 'success.main', mb: 2 }}
       />
       <Typography variant="h5" sx={{ fontWeight: 600, mb: 1 }}>
-        Pipeline Configured
+        {t('Pipeline Configured')}
       </Typography>
       <Typography variant="body1" sx={{ color: 'text.secondary' }}>
-        CI/CD pipeline for <strong>{repoFullName}</strong> is ready. Trigger deployments from the
-        Deploy tab.
+        {t('CI/CD pipeline for')} <strong>{repoFullName}</strong>{' '}
+        {t('is ready. Trigger deployments from the Deploy tab.')}
       </Typography>
     </Box>
   );

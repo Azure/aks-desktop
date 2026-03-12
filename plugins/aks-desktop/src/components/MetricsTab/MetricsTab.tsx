@@ -597,7 +597,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
     return (
       <Box p={3}>
         <Alert severity="warning">
-          <AlertTitle>Metrics Unavailable</AlertTitle>
+          <AlertTitle>{t('Metrics Unavailable')}</AlertTitle>
           <Typography variant="body2">{error}</Typography>
         </Alert>
       </Box>

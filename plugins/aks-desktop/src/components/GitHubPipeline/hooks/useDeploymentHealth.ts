@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useState } from 'react';
 
 /** Sanitizes a value for use in a Kubernetes label selector. */
@@ -115,6 +115,7 @@ export const useDeploymentHealth = (
   cluster: string,
   enabled: boolean
 ): UseDeploymentHealthResult => {
+  const { t } = useTranslation();
   const [deploymentReady, setDeploymentReady] = useState(false);
   const [podStatuses, setPodStatuses] = useState<
     Array<{ name: string; status: string; restarts: number }>
@@ -153,7 +154,7 @@ export const useDeploymentHealth = (
           },
           (err: unknown) => {
             console.error('Deployment health: error fetching deployments:', err);
-            if (!isCancelled) setError('Failed to fetch deployment status');
+            if (!isCancelled) setError(t('Failed to fetch deployment status'));
           },
           { namespace, cluster }
         )();
@@ -175,7 +176,7 @@ export const useDeploymentHealth = (
           },
           (err: unknown) => {
             console.error('Deployment health: error fetching pods:', err);
-            if (!isCancelled) setError('Failed to fetch pod status');
+            if (!isCancelled) setError(t('Failed to fetch pod status'));
           },
           {
             namespace,
@@ -207,7 +208,7 @@ export const useDeploymentHealth = (
           },
           (err: unknown) => {
             console.error('Deployment health: error fetching services:', err);
-            if (!isCancelled) setError('Failed to fetch service status');
+            if (!isCancelled) setError(t('Failed to fetch service status'));
           },
           { namespace, cluster }
         )();
@@ -218,7 +219,7 @@ export const useDeploymentHealth = (
         }
       } catch (err) {
         console.error('Deployment health: error setting up watchers:', err);
-        if (!isCancelled) setError('Failed to monitor deployment health');
+        if (!isCancelled) setError(t('Failed to monitor deployment health'));
       }
     };
 
@@ -228,7 +229,7 @@ export const useDeploymentHealth = (
       isCancelled = true;
       cancelFns.forEach(fn => fn());
     };
-  }, [appName, namespace, cluster, enabled]);
+  }, [appName, namespace, cluster, enabled, t]);
 
   return { deploymentReady, podStatuses, serviceEndpoint, error };
 };

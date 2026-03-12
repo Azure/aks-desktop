@@ -37,10 +37,10 @@ function LabelWithInfo({ label, infoText }: { label: string; infoText: string })
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-      <span>{t(label)}</span>
-      <Tooltip title={t(infoText)} arrow>
-        <IconButton aria-label={`Information about ${label}`}>
-          <Icon icon="mdi:information-outline" width="16px" height="16px" />
+      <span>{label}</span>
+      <Tooltip title={infoText} arrow>
+        <IconButton aria-label={t('Information about {{label}}', { label })}>
+          <Icon icon="mdi:information-outline" width="16px" height="16px" aria-hidden />
         </IconButton>
       </Tooltip>
     </Box>
@@ -81,8 +81,10 @@ export default function ConfigureContainer({
               <TextField
                 label={
                   <LabelWithInfo
-                    label="Replicas"
-                    infoText="The number of pod replicas to run. More replicas provide better availability and load distribution."
+                    label={t('Replicas')}
+                    infoText={t(
+                      'The number of pod replicas to run. More replicas provide better availability and load distribution.'
+                    )}
                   />
                 }
                 type="number"
@@ -120,8 +122,10 @@ export default function ConfigureContainer({
               <TextField
                 label={
                   <LabelWithInfo
-                    label="Target port"
-                    infoText="The port number that your container listens on. This is the port inside the container where your application runs."
+                    label={t('Target port')}
+                    infoText={t(
+                      'The port number that your container listens on. This is the port inside the container where your application runs.'
+                    )}
                   />
                 }
                 type="number"
@@ -138,8 +142,10 @@ export default function ConfigureContainer({
                 <TextField
                   label={
                     <LabelWithInfo
-                      label="Service port"
-                      infoText="The port number exposed by the Kubernetes service. Traffic to this port is forwarded to the target port."
+                      label={t('Service port')}
+                      infoText={t(
+                        'The port number exposed by the Kubernetes service. Traffic to this port is forwarded to the target port.'
+                      )}
                     />
                   }
                   type="number"
@@ -169,8 +175,10 @@ export default function ConfigureContainer({
                 }
                 label={
                   <LabelWithInfo
-                    label="Use custom service port"
-                    infoText="By default, the service port matches the target port. Enable this to use a different port for the service."
+                    label={t('Use custom service port')}
+                    infoText={t(
+                      'By default, the service port matches the target port. Enable this to use a different port for the service.'
+                    )}
                   />
                 }
               />
@@ -290,8 +298,10 @@ export default function ConfigureContainer({
                 }
                 label={
                   <LabelWithInfo
-                    label="Manually configure settings"
-                    infoText="By default, probes use HTTP GET on the root path with sensible defaults. Enable this to customize probe settings."
+                    label={t('Manually configure settings')}
+                    infoText={t(
+                      'By default, probes use HTTP GET on the root path with sensible defaults. Enable this to customize probe settings.'
+                    )}
                   />
                 }
               />
@@ -321,8 +331,10 @@ export default function ConfigureContainer({
                   }
                   label={
                     <LabelWithInfo
-                      label="Enable liveness probe"
-                      infoText="Kubernetes restarts the container if this check fails repeatedly. Used to detect and recover from deadlocks or unresponsive containers."
+                      label={t('Enable liveness probe')}
+                      infoText={t(
+                        'Kubernetes restarts the container if this check fails repeatedly. Used to detect and recover from deadlocks or unresponsive containers.'
+                      )}
                     />
                   }
                 />
@@ -342,8 +354,10 @@ export default function ConfigureContainer({
                           fullWidth
                           label={
                             <LabelWithInfo
-                              label="Liveness path"
-                              infoText="The HTTP path to check for liveness (e.g., /healthz). The probe performs an HTTP GET request to this path."
+                              label={t('Liveness path')}
+                              infoText={t(
+                                'The HTTP path to check for liveness (e.g., /healthz). The probe performs an HTTP GET request to this path.'
+                              )}
                             />
                           }
                           value={containerConfig.config.livenessPath}
@@ -359,8 +373,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="initialDelaySeconds"
-                              infoText="Number of seconds after the container has started before liveness probes are initiated."
+                              label={t('initialDelaySeconds')}
+                              infoText={t(
+                                'Number of seconds after the container has started before liveness probes are initiated.'
+                              )}
                             />
                           }
                           value={containerConfig.config.livenessInitialDelay}
@@ -376,8 +392,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="periodSeconds"
-                              infoText="How often (in seconds) to perform the liveness probe. Default is 10 seconds."
+                              label={t('periodSeconds')}
+                              infoText={t(
+                                'How often (in seconds) to perform the liveness probe. Default is 10 seconds.'
+                              )}
                             />
                           }
                           value={containerConfig.config.livenessPeriod}
@@ -393,8 +411,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="timeoutSeconds"
-                              infoText="Number of seconds after which the probe times out. Default is 1 second."
+                              label={t('timeoutSeconds')}
+                              infoText={t(
+                                'Number of seconds after which the probe times out. Default is 1 second.'
+                              )}
                             />
                           }
                           value={containerConfig.config.livenessTimeout}
@@ -410,8 +430,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="failureThreshold"
-                              infoText="When a probe fails, Kubernetes will try this many times before giving up and restarting the container."
+                              label={t('failureThreshold')}
+                              infoText={t(
+                                'When a probe fails, Kubernetes will try this many times before giving up and restarting the container.'
+                              )}
                             />
                           }
                           value={containerConfig.config.livenessFailure}
@@ -427,8 +449,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="successThreshold"
-                              infoText="Minimum consecutive successes for the probe to be considered successful after having failed. Default is 1."
+                              label={t('successThreshold')}
+                              infoText={t(
+                                'Minimum consecutive successes for the probe to be considered successful after having failed. Default is 1.'
+                              )}
                             />
                           }
                           value={containerConfig.config.livenessSuccess}
@@ -458,8 +482,10 @@ export default function ConfigureContainer({
                   }
                   label={
                     <LabelWithInfo
-                      label="Enable readiness probe"
-                      infoText="Kubernetes won't send traffic to the pod until this check passes. Used to indicate when a container is ready to accept traffic."
+                      label={t('Enable readiness probe')}
+                      infoText={t(
+                        "Kubernetes won't send traffic to the pod until this check passes. Used to indicate when a container is ready to accept traffic."
+                      )}
                     />
                   }
                 />
@@ -479,8 +505,10 @@ export default function ConfigureContainer({
                           fullWidth
                           label={
                             <LabelWithInfo
-                              label="Readiness path"
-                              infoText="The HTTP path to check for readiness (e.g., /ready). The probe performs an HTTP GET request to this path."
+                              label={t('Readiness path')}
+                              infoText={t(
+                                'The HTTP path to check for readiness (e.g., /ready). The probe performs an HTTP GET request to this path.'
+                              )}
                             />
                           }
                           value={containerConfig.config.readinessPath}
@@ -499,8 +527,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="initialDelaySeconds"
-                              infoText="Number of seconds after the container has started before readiness probes are initiated."
+                              label={t('initialDelaySeconds')}
+                              infoText={t(
+                                'Number of seconds after the container has started before readiness probes are initiated.'
+                              )}
                             />
                           }
                           value={containerConfig.config.readinessInitialDelay}
@@ -516,8 +546,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="periodSeconds"
-                              infoText="How often (in seconds) to perform the readiness probe. Default is 10 seconds."
+                              label={t('periodSeconds')}
+                              infoText={t(
+                                'How often (in seconds) to perform the readiness probe. Default is 10 seconds.'
+                              )}
                             />
                           }
                           value={containerConfig.config.readinessPeriod}
@@ -533,8 +565,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="timeoutSeconds"
-                              infoText="Number of seconds after which the probe times out. Default is 1 second."
+                              label={t('timeoutSeconds')}
+                              infoText={t(
+                                'Number of seconds after which the probe times out. Default is 1 second.'
+                              )}
                             />
                           }
                           value={containerConfig.config.readinessTimeout}
@@ -550,8 +584,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="failureThreshold"
-                              infoText="When a probe fails, Kubernetes will try this many times before marking the pod as not ready."
+                              label={t('failureThreshold')}
+                              infoText={t(
+                                'When a probe fails, Kubernetes will try this many times before marking the pod as not ready.'
+                              )}
                             />
                           }
                           value={containerConfig.config.readinessFailure}
@@ -567,8 +603,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="successThreshold"
-                              infoText="Minimum consecutive successes for the probe to be considered successful after having failed. Default is 1."
+                              label={t('successThreshold')}
+                              infoText={t(
+                                'Minimum consecutive successes for the probe to be considered successful after having failed. Default is 1.'
+                              )}
                             />
                           }
                           value={containerConfig.config.readinessSuccess}
@@ -598,8 +636,10 @@ export default function ConfigureContainer({
                   }
                   label={
                     <LabelWithInfo
-                      label="Enable startup probe"
-                      infoText="Kubernetes temporarily disables liveness/readiness until startup succeeds. Useful for containers that take a long time to start."
+                      label={t('Enable startup probe')}
+                      infoText={t(
+                        'Kubernetes temporarily disables liveness/readiness until startup succeeds. Useful for containers that take a long time to start.'
+                      )}
                     />
                   }
                 />
@@ -619,8 +659,10 @@ export default function ConfigureContainer({
                           fullWidth
                           label={
                             <LabelWithInfo
-                              label="Startup path"
-                              infoText="The HTTP path to check for startup (e.g., /startup). The probe performs an HTTP GET request to this path."
+                              label={t('Startup path')}
+                              infoText={t(
+                                'The HTTP path to check for startup (e.g., /startup). The probe performs an HTTP GET request to this path.'
+                              )}
                             />
                           }
                           value={containerConfig.config.startupPath}
@@ -636,8 +678,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="initialDelaySeconds"
-                              infoText="Number of seconds after the container has started before startup probes are initiated."
+                              label={t('initialDelaySeconds')}
+                              infoText={t(
+                                'Number of seconds after the container has started before startup probes are initiated.'
+                              )}
                             />
                           }
                           value={containerConfig.config.startupInitialDelay}
@@ -653,8 +697,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="periodSeconds"
-                              infoText="How often (in seconds) to perform the startup probe. Default is 10 seconds."
+                              label={t('periodSeconds')}
+                              infoText={t(
+                                'How often (in seconds) to perform the startup probe. Default is 10 seconds.'
+                              )}
                             />
                           }
                           value={containerConfig.config.startupPeriod}
@@ -670,8 +716,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="timeoutSeconds"
-                              infoText="Number of seconds after which the probe times out. Default is 1 second."
+                              label={t('timeoutSeconds')}
+                              infoText={t(
+                                'Number of seconds after which the probe times out. Default is 1 second.'
+                              )}
                             />
                           }
                           value={containerConfig.config.startupTimeout}
@@ -687,8 +735,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="failureThreshold"
-                              infoText="When a probe fails, Kubernetes will try this many times before giving up. For startup probes, this determines how long to wait before restarting."
+                              label={t('failureThreshold')}
+                              infoText={t(
+                                'When a probe fails, Kubernetes will try this many times before giving up. For startup probes, this determines how long to wait before restarting.'
+                              )}
                             />
                           }
                           value={containerConfig.config.startupFailure}
@@ -704,8 +754,10 @@ export default function ConfigureContainer({
                           type="number"
                           label={
                             <LabelWithInfo
-                              label="successThreshold"
-                              infoText="Minimum consecutive successes for the probe to be considered successful after having failed. Default is 1."
+                              label={t('successThreshold')}
+                              infoText={t(
+                                'Minimum consecutive successes for the probe to be considered successful after having failed. Default is 1.'
+                              )}
                             />
                           }
                           value={containerConfig.config.startupSuccess}
@@ -753,8 +805,10 @@ export default function ConfigureContainer({
               }
               label={
                 <LabelWithInfo
-                  label="Enable resource requests and limits"
-                  infoText="Set CPU and memory requests (guaranteed resources) and limits (maximum resources) to control resource allocation and prevent containers from consuming excessive cluster resources."
+                  label={t('Enable resource requests and limits')}
+                  infoText={t(
+                    'Set CPU and memory requests (guaranteed resources) and limits (maximum resources) to control resource allocation and prevent containers from consuming excessive cluster resources.'
+                  )}
                 />
               }
             />
@@ -780,8 +834,13 @@ export default function ConfigureContainer({
                     )}
                     arrow
                   >
-                    <IconButton aria-label="Information about CPU request">
-                      <Icon icon="mdi:information-outline" width="16px" height="16px" />
+                    <IconButton aria-label={t('Information about CPU request')}>
+                      <Icon
+                        icon="mdi:information-outline"
+                        width="16px"
+                        height="16px"
+                        aria-hidden="true"
+                      />
                     </IconButton>
                   </Tooltip>
                 </Box>
@@ -818,8 +877,13 @@ export default function ConfigureContainer({
                     )}
                     arrow
                   >
-                    <IconButton aria-label="Information about CPU limit">
-                      <Icon icon="mdi:information-outline" width="16px" height="16px" />
+                    <IconButton aria-label={t('Information about CPU limit')}>
+                      <Icon
+                        icon="mdi:information-outline"
+                        width="16px"
+                        height="16px"
+                        aria-hidden="true"
+                      />
                     </IconButton>
                   </Tooltip>
                 </Box>
@@ -855,8 +919,13 @@ export default function ConfigureContainer({
                     )}
                     arrow
                   >
-                    <IconButton aria-label="Information about memory request">
-                      <Icon icon="mdi:information-outline" width="16px" height="16px" />
+                    <IconButton aria-label={t('Information about memory request')}>
+                      <Icon
+                        icon="mdi:information-outline"
+                        width="16px"
+                        height="16px"
+                        aria-hidden="true"
+                      />
                     </IconButton>
                   </Tooltip>
                 </Box>
@@ -893,8 +962,13 @@ export default function ConfigureContainer({
                     )}
                     arrow
                   >
-                    <IconButton aria-label="Information about memory limit">
-                      <Icon icon="mdi:information-outline" width="16px" height="16px" />
+                    <IconButton aria-label={t('Information about memory limit')}>
+                      <Icon
+                        icon="mdi:information-outline"
+                        width="16px"
+                        height="16px"
+                        aria-hidden="true"
+                      />
                     </IconButton>
                   </Tooltip>
                 </Box>
@@ -1019,8 +1093,10 @@ export default function ConfigureContainer({
               }
               label={
                 <LabelWithInfo
-                  label="Enable Horizontal Pod Autoscaler"
-                  infoText="Automatically scales the number of pods based on CPU utilization. HPA will increase pods when CPU usage exceeds the target and decrease when it's below."
+                  label={t('Enable Horizontal Pod Autoscaler')}
+                  infoText={t(
+                    "Automatically scales the number of pods based on CPU utilization. HPA will increase pods when CPU usage exceeds the target and decrease when it's below."
+                  )}
                 />
               }
             />
@@ -1043,8 +1119,10 @@ export default function ConfigureContainer({
                   <TextField
                     label={
                       <LabelWithInfo
-                        label="Min replicas"
-                        infoText="The minimum number of pod replicas that HPA will maintain, even when CPU usage is low."
+                        label={t('Min replicas')}
+                        infoText={t(
+                          'The minimum number of pod replicas that HPA will maintain, even when CPU usage is low.'
+                        )}
                       />
                     }
                     type="number"
@@ -1062,8 +1140,10 @@ export default function ConfigureContainer({
                   <TextField
                     label={
                       <LabelWithInfo
-                        label="Max replicas"
-                        infoText="The maximum number of pod replicas that HPA can scale up to when CPU usage is high."
+                        label={t('Max replicas')}
+                        infoText={t(
+                          'The maximum number of pod replicas that HPA can scale up to when CPU usage is high.'
+                        )}
                       />
                     }
                     type="number"
@@ -1093,8 +1173,13 @@ export default function ConfigureContainer({
                       )}
                       arrow
                     >
-                      <IconButton aria-label="Information about target CPU utilization">
-                        <Icon icon="mdi:information-outline" width="16px" height="16px" />
+                      <IconButton aria-label={t('Information about target CPU utilization')}>
+                        <Icon
+                          icon="mdi:information-outline"
+                          width="16px"
+                          height="16px"
+                          aria-hidden="true"
+                        />
                       </IconButton>
                     </Tooltip>
                   </Box>
@@ -1161,8 +1246,10 @@ export default function ConfigureContainer({
                 }
                 label={
                   <LabelWithInfo
-                    label="Run as non root user"
-                    infoText="Ensures the container runs as a non-root user (UID != 0) for better security. This prevents privilege escalation attacks."
+                    label={t('Run as non root user')}
+                    infoText={t(
+                      'Ensures the container runs as a non-root user (UID != 0) for better security. This prevents privilege escalation attacks.'
+                    )}
                   />
                 }
               />
@@ -1188,8 +1275,10 @@ export default function ConfigureContainer({
                 }
                 label={
                   <LabelWithInfo
-                    label="Read only root filesystem"
-                    infoText="Mounts the container's root filesystem as read-only to prevent write operations. This enhances security by preventing malicious code from modifying system files."
+                    label={t('Read only root filesystem')}
+                    infoText={t(
+                      "Mounts the container's root filesystem as read-only to prevent write operations. This enhances security by preventing malicious code from modifying system files."
+                    )}
                   />
                 }
               />
@@ -1217,8 +1306,10 @@ export default function ConfigureContainer({
                 }
                 label={
                   <LabelWithInfo
-                    label="Allow privilege escalation"
-                    infoText="Controls whether a process can gain more privileges than its parent process. Disabling this (recommended) prevents privilege escalation attacks."
+                    label={t('Allow privilege escalation')}
+                    infoText={t(
+                      'Controls whether a process can gain more privileges than its parent process. Disabling this (recommended) prevents privilege escalation attacks.'
+                    )}
                   />
                 }
               />
@@ -1244,8 +1335,10 @@ export default function ConfigureContainer({
                 }
                 label={
                   <LabelWithInfo
-                    label="Enable pod anti-affinity"
-                    infoText="Prefer scheduling pods on different nodes to improve availability and fault tolerance. This helps ensure pods are distributed across the cluster."
+                    label={t('Enable pod anti-affinity')}
+                    infoText={t(
+                      'Prefer scheduling pods on different nodes to improve availability and fault tolerance. This helps ensure pods are distributed across the cluster.'
+                    )}
                   />
                 }
               />
@@ -1273,8 +1366,10 @@ export default function ConfigureContainer({
                 }
                 label={
                   <LabelWithInfo
-                    label="Enable topology spread constraints"
-                    infoText="Distributes pods evenly across nodes, zones, or other topology domains to improve workload distribution and availability."
+                    label={t('Enable topology spread constraints')}
+                    infoText={t(
+                      'Distributes pods evenly across nodes, zones, or other topology domains to improve workload distribution and availability.'
+                    )}
                   />
                 }
               />

@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Alert,
   Box,
@@ -37,6 +38,7 @@ export function PipelineDeployDialog({
   resourceGroup,
 }: PipelineDeployDialogProps) {
   const gitHubAuth = useGitHubAuthContext();
+  const { t } = useTranslation();
   const [dispatching, setDispatching] = useState(false);
   const [result, setResult] = useState<'success' | 'error' | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -62,7 +64,7 @@ export function PipelineDeployDialog({
       setResult('success');
     } catch (err) {
       setResult('error');
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to trigger deployment');
+      setErrorMessage(err instanceof Error ? err.message : t('Failed to trigger deployment'));
     } finally {
       setDispatching(false);
     }
@@ -76,25 +78,25 @@ export function PipelineDeployDialog({
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Deploy via Pipeline</DialogTitle>
+      <DialogTitle>{t('Deploy via Pipeline')}</DialogTitle>
       <DialogContent>
         <Box sx={{ py: 1 }}>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Trigger <strong>deploy-to-aks.yml</strong> workflow on{' '}
+            {t('Trigger')} <strong>deploy-to-aks.yml</strong> {t('workflow on')}{' '}
             <strong>
               {repo.owner}/{repo.repo}
             </strong>{' '}
-            with the following parameters:
+            {t('with the following parameters:')}
           </Typography>
           <Box sx={{ pl: 2, mb: 2 }}>
             <Typography variant="body2">
-              <strong>Cluster:</strong> {cluster}
+              <strong>{t('Cluster')}:</strong> {cluster}
             </Typography>
             <Typography variant="body2">
-              <strong>Resource Group:</strong> {resourceGroup}
+              <strong>{t('Resource Group')}:</strong> {resourceGroup}
             </Typography>
             <Typography variant="body2">
-              <strong>Namespace:</strong> {namespace}
+              <strong>{t('Namespace')}:</strong> {namespace}
             </Typography>
           </Box>
           {!gitHubAuth.authState.isAuthenticated &&
@@ -103,7 +105,7 @@ export function PipelineDeployDialog({
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <CircularProgress size={14} />
                   <Typography variant="body2" color="text.secondary">
-                    Waiting for browser authorization...
+                    {t('Waiting for browser authorization...')}
                   </Typography>
                 </Box>
               </Alert>
@@ -113,16 +115,16 @@ export function PipelineDeployDialog({
                 sx={{ mb: 2 }}
                 action={
                   <Button color="inherit" size="small" onClick={gitHubAuth.startOAuth}>
-                    Sign in
+                    {t('Sign in')}
                   </Button>
                 }
               >
-                GitHub authentication required to trigger deployment.
+                {t('GitHub authentication required to trigger deployment.')}
               </Alert>
             ))}
           {result === 'success' && (
             <Alert severity="success" sx={{ mb: 2 }}>
-              Workflow dispatch triggered successfully. Check GitHub Actions for progress.
+              {t('Workflow dispatch triggered successfully. Check GitHub Actions for progress.')}
             </Alert>
           )}
           {result === 'error' && (
@@ -133,17 +135,21 @@ export function PipelineDeployDialog({
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={handleClose}>{result ? 'Close' : 'Cancel'}</Button>
+        <Button onClick={handleClose}>{result ? t('Close') : t('Cancel')}</Button>
         {!result && (
           <Button
             variant="contained"
             onClick={handleDeploy}
             disabled={dispatching || !gitHubAuth.authState.isAuthenticated}
             startIcon={
-              dispatching ? <CircularProgress size={16} /> : <Icon icon="mdi:rocket-launch" />
+              dispatching ? (
+                <CircularProgress size={16} />
+              ) : (
+                <Icon icon="mdi:rocket-launch" aria-hidden="true" />
+              )
             }
           >
-            {dispatching ? 'Triggering...' : 'Deploy'}
+            {dispatching ? t('Triggering...') : t('Deploy')}
           </Button>
         )}
       </DialogActions>

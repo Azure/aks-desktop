@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useState } from 'react';
 
 /**
@@ -47,6 +47,7 @@ export const useDeployments = (
   namespace: string | undefined,
   cluster: string | undefined
 ): UseDeploymentsResult => {
+  const { t } = useTranslation();
   const [selectedDeployment, setSelectedDeployment] = useState<string>('');
   const [deployments, setDeployments] = useState<DeploymentInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -87,7 +88,7 @@ export const useDeployments = (
       },
       (error: any) => {
         console.error('Error fetching deployments:', error);
-        setError('Failed to fetch deployments');
+        setError(t('Failed to fetch deployments'));
         setDeployments([]);
         setLoading(false);
       },
@@ -103,7 +104,7 @@ export const useDeployments = (
     }
 
     return;
-  }, [namespace, cluster]);
+  }, [namespace, cluster, t]);
 
   return {
     deployments,

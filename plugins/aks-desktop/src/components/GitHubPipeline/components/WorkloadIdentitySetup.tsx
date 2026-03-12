@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Box, Button, Typography } from '@mui/material';
 import React, { useEffect, useRef } from 'react';
 import type { GitHubRepo } from '../../../types/github';
@@ -21,15 +22,23 @@ interface WorkloadIdentitySetupProps {
   identitySetup: UseWorkloadIdentitySetupReturn;
 }
 
-const STATUS_STEPS = [
-  { key: 'checking', label: 'Checking for existing identity...' },
-  { key: 'creating-identity', label: 'Creating managed identity...' },
-  { key: 'assigning-role', label: 'Assigning AKS Cluster User Role...' },
-  { key: 'creating-credential', label: 'Configuring federated credential...' },
-  { key: 'done', label: 'Workload identity configured' },
+const STATUS_ORDER = [
+  'checking',
+  'creating-identity',
+  'assigning-role',
+  'creating-credential',
+  'done',
 ] as const;
 
-const STATUS_ORDER = STATUS_STEPS.map(s => s.key);
+function getStatusSteps(t: (key: string) => string) {
+  return [
+    { key: 'checking', label: t('Checking for existing identity...') },
+    { key: 'creating-identity', label: t('Creating managed identity...') },
+    { key: 'assigning-role', label: t('Assigning AKS Cluster User Role...') },
+    { key: 'creating-credential', label: t('Configuring federated credential...') },
+    { key: 'done', label: t('Workload identity configured') },
+  ] as const;
+}
 
 function getStepStatus(step: string, currentStatus: string, lastActiveStatus: string): StepStatus {
   const effectiveStatus = currentStatus === 'error' ? lastActiveStatus : currentStatus;
@@ -50,7 +59,9 @@ export function WorkloadIdentitySetup({
   identitySetup,
 }: WorkloadIdentitySetupProps) {
   const { status, error, setupWorkloadIdentity } = identitySetup;
+  const { t } = useTranslation();
   const identityName = getIdentityName(namespace);
+  const statusSteps = getStatusSteps(t);
 
   // Track the last non-error status so StepIcon can show which step failed
   const lastActiveStatusRef = useRef(status);
@@ -75,15 +86,16 @@ export function WorkloadIdentitySetup({
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
         <Icon icon="mdi:shield-key-outline" width={28} height={28} />
         <Typography variant="h5" sx={{ fontWeight: 600 }}>
-          Configure Workload Identity
+          {t('Configure Workload Identity')}
         </Typography>
       </Box>
 
       {status === 'idle' ? (
         <>
           <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
-            The following Azure resources will be created to enable your GitHub Actions pipeline to
-            authenticate with your AKS cluster:
+            {t(
+              'The following Azure resources will be created to enable your GitHub Actions pipeline to authenticate with your AKS cluster:'
+            )}
           </Typography>
 
           <Box sx={{ mb: 3, pl: 1 }}>
@@ -91,10 +103,10 @@ export function WorkloadIdentitySetup({
               <Icon icon="mdi:identifier" width={20} height={20} style={{ marginTop: 2 }} />
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  Managed Identity
+                  {t('Managed Identity')}
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  <code>{identityName}</code> in resource group <code>{resourceGroup}</code>
+                  <code>{identityName}</code> {t('in resource group')} <code>{resourceGroup}</code>
                 </Typography>
               </Box>
             </Box>
@@ -108,10 +120,10 @@ export function WorkloadIdentitySetup({
               />
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  Role Assignment
+                  {t('Role Assignment')}
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  &quot;AKS Cluster User Role&quot; scoped to the resource group
+                  {t('"AKS Cluster User Role" scoped to the resource group')}
                 </Typography>
               </Box>
             </Box>
@@ -120,14 +132,14 @@ export function WorkloadIdentitySetup({
               <Icon icon="mdi:handshake-outline" width={20} height={20} style={{ marginTop: 2 }} />
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  Federated Credential
+                  {t('Federated Credential')}
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  OIDC trust for{' '}
+                  {t('OIDC trust for')}{' '}
                   <code>
                     {repo.owner}/{repo.repo}
                   </code>{' '}
-                  (branch: <code>{repo.defaultBranch}</code>)
+                  ({t('branch')}: <code>{repo.defaultBranch}</code>)
                 </Typography>
               </Box>
             </Box>
@@ -136,16 +148,16 @@ export function WorkloadIdentitySetup({
           <Button
             variant="contained"
             onClick={handleSetup}
-            startIcon={<Icon icon="mdi:shield-check-outline" />}
+            startIcon={<Icon icon="mdi:shield-check-outline" aria-hidden="true" />}
             sx={{ textTransform: 'none' }}
           >
-            Continue
+            {t('Continue')}
           </Button>
         </>
       ) : (
         <>
           <Box sx={{ mb: 3 }}>
-            {STATUS_STEPS.map(step => (
+            {statusSteps.map(step => (
               <Box key={step.key} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
                 <StepStatusIcon
                   status={getStepStatus(step.key, status, lastActiveStatusRef.current)}
@@ -180,16 +192,16 @@ export function WorkloadIdentitySetup({
             <Button
               variant="outlined"
               onClick={handleSetup}
-              startIcon={<Icon icon="mdi:refresh" />}
+              startIcon={<Icon icon="mdi:refresh" aria-hidden="true" />}
               sx={{ textTransform: 'none' }}
             >
-              Retry
+              {t('Retry')}
             </Button>
           )}
 
           {status === 'done' && (
             <Alert severity="success" sx={{ mb: 2 }}>
-              Workload identity configured successfully.
+              {t('Workload identity configured successfully.')}
             </Alert>
           )}
         </>

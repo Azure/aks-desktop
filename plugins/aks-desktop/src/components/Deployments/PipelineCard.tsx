@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Box,
   Button,
@@ -26,6 +27,7 @@ interface PipelineCardProps {
 }
 
 function PipelineCard({ project }: PipelineCardProps) {
+  const { t } = useTranslation();
   const { githubPipelines } = usePreviewFeatures();
   const cluster = project.clusters?.[0] ?? '';
   const namespace = project.namespaces?.[0] ?? '';
@@ -40,7 +42,7 @@ function PipelineCard({ project }: PipelineCardProps) {
       sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 0, '&:last-child': { pb: 0 } }}
     >
       <Typography variant="h6" sx={{ mb: 2 }}>
-        Pipeline
+        {t('Pipeline')}
       </Typography>
 
       {!pipelineStatus.isConfigured && (
@@ -61,10 +63,10 @@ function PipelineCard({ project }: PipelineCardProps) {
             sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }}
           />
           <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
-            Set up your pipeline
+            {t('Set up your pipeline')}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2, maxWidth: 280 }}>
-            Set up a CI/CD pipeline to automate your deployments and streamline your workflow
+            {t('Set up a CI/CD pipeline to automate your deployments and streamline your workflow')}
           </Typography>
           <Button
             variant="contained"
@@ -72,7 +74,7 @@ function PipelineCard({ project }: PipelineCardProps) {
             onClick={() => window.dispatchEvent(new CustomEvent(OPEN_CONFIGURE_PIPELINE_EVENT))}
             sx={{ textTransform: 'none' }}
           >
-            Configure Pipeline
+            {t('Configure Pipeline')}
           </Button>
         </Box>
       )}
@@ -83,7 +85,7 @@ function PipelineCard({ project }: PipelineCardProps) {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <CircularProgress size={14} />
               <Typography variant="body2" color="text.secondary">
-                Waiting for browser authorization...
+                {t('Waiting for browser authorization...')}
               </Typography>
             </Box>
           ) : (
@@ -93,7 +95,7 @@ function PipelineCard({ project }: PipelineCardProps) {
               sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
               onClick={startOAuth}
             >
-              Sign in to GitHub to view pipeline runs.
+              {t('Sign in to GitHub to view pipeline runs.')}
             </Typography>
           )}
         </Box>
@@ -103,7 +105,7 @@ function PipelineCard({ project }: PipelineCardProps) {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
           <CircularProgress size={14} />
           <Typography variant="body2" color="text.secondary">
-            Connecting...
+            {t('Connecting...')}
           </Typography>
         </Box>
       )}
@@ -135,7 +137,7 @@ function PipelineCard({ project }: PipelineCardProps) {
 
           {!loading && !error && runs.length === 0 && (
             <Typography variant="body2" color="text.secondary">
-              No pipeline runs yet.
+              {t('No pipeline runs yet.')}
             </Typography>
           )}
 
@@ -166,13 +168,18 @@ function PipelineCard({ project }: PipelineCardProps) {
                     sx={{ textTransform: 'capitalize' }}
                   />
                 </Box>
-                <Tooltip title="View on GitHub">
+                <Tooltip title={t('View on GitHub')}>
                   <IconButton
                     size="small"
-                    aria-label="View run on GitHub"
+                    aria-label={t('View run on GitHub')}
                     onClick={() => openExternalUrl(run.url)}
                   >
-                    <Box component={Icon} icon="mdi:open-in-new" sx={{ fontSize: 16 }} />
+                    <Box
+                      component={Icon}
+                      icon="mdi:open-in-new"
+                      sx={{ fontSize: 16 }}
+                      aria-hidden
+                    />
                   </IconButton>
                 </Tooltip>
               </Box>

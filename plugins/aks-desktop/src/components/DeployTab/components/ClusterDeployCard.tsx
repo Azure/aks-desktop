@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Box,
   Button,
@@ -34,26 +35,32 @@ import { usePipelineStatus } from '../hooks/usePipelineStatus';
 import { extractContainerConfigFromDeployment } from '../utils/extractContainerConfig';
 import { PipelineDeployDialog } from './PipelineDeployDialog';
 
-function getDeploymentHealth(d: DeploymentStatus): {
+function getDeploymentHealth(
+  t: (key: string) => string,
+  d: DeploymentStatus
+): {
   label: string;
   color: 'success' | 'default' | 'warning';
 } {
   if (d.availableReplicas >= d.replicas && d.replicas > 0)
-    return { label: 'Healthy', color: 'success' };
-  if (d.replicas === 0) return { label: 'Scaled down', color: 'default' };
-  return { label: 'Degraded', color: 'warning' };
+    return { label: t('Healthy'), color: 'success' };
+  if (d.replicas === 0) return { label: t('Scaled down'), color: 'default' };
+  return { label: t('Degraded'), color: 'warning' };
 }
 
-function getProvenanceDisplay(provenance: DeploymentProvenance): {
+function getProvenanceDisplay(
+  t: (key: string) => string,
+  provenance: DeploymentProvenance
+): {
   label: string;
   icon: string;
   color: 'info' | 'secondary' | 'default';
 } | null {
   switch (provenance) {
     case 'pipeline':
-      return { label: 'Pipeline', icon: 'mdi:rocket-launch', color: 'info' };
+      return { label: t('Pipeline'), icon: 'mdi:rocket-launch', color: 'info' };
     case 'manual':
-      return { label: 'Manual', icon: 'mdi:cloud-upload', color: 'secondary' };
+      return { label: t('Manual'), icon: 'mdi:cloud-upload', color: 'secondary' };
     case 'unknown':
       return null;
     default: {
@@ -70,6 +77,7 @@ interface ClusterDeployCardProps {
 }
 
 export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: ClusterDeployCardProps) {
+  const { t } = useTranslation();
   const { azureContext } = useAzureContext(cluster);
   const pipelineStatus = usePipelineStatus(cluster, namespace);
   const pipelineRepos = pipelineStatus.isConfigured ? pipelineStatus.repos : [];
@@ -133,7 +141,7 @@ export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: Clust
               }}
               sx={{ textTransform: 'none' }}
             >
-              Manual Deploy
+              {t('Manual Deploy')}
             </Button>
             {pipelineEnabled &&
               pipelineRepos.map(repo => (
@@ -141,11 +149,13 @@ export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: Clust
                   key={`${repo.owner}/${repo.repo}`}
                   variant="contained"
                   size="small"
-                  startIcon={<Icon icon="mdi:rocket-launch" />}
+                  startIcon={<Icon icon="mdi:rocket-launch" aria-hidden="true" />}
                   onClick={() => setPipelineDeployRepo(repo)}
                   sx={{ textTransform: 'none' }}
                 >
-                  Deploy {pipelineRepos.length > 1 ? repo.repo : 'via Pipeline'}
+                  {pipelineRepos.length > 1
+                    ? t('Deploy {{repo}}', { repo: repo.repo })
+                    : t('Deploy via Pipeline')}
                 </Button>
               ))}
           </Box>
@@ -167,24 +177,24 @@ export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: Clust
           <>
             {deployments.length === 0 ? (
               <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                No deployments found in this namespace.
+                {t('No deployments found in this namespace.')}
               </Typography>
             ) : (
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Deployment</TableCell>
-                    <TableCell align="center">Source</TableCell>
-                    <TableCell align="center">Replicas</TableCell>
-                    <TableCell align="center">Ready</TableCell>
-                    <TableCell align="center">Status</TableCell>
-                    <TableCell align="right">Actions</TableCell>
+                    <TableCell>{t('Deployment')}</TableCell>
+                    <TableCell align="center">{t('Source')}</TableCell>
+                    <TableCell align="center">{t('Replicas')}</TableCell>
+                    <TableCell align="center">{t('Ready')}</TableCell>
+                    <TableCell align="center">{t('Status')}</TableCell>
+                    <TableCell align="right">{t('Actions')}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {deployments.map(d => {
-                    const health = getDeploymentHealth(d);
-                    const provDisplay = getProvenanceDisplay(d.provenance);
+                    const health = getDeploymentHealth(t, d);
+                    const provDisplay = getProvenanceDisplay(t, d.provenance);
                     return (
                       <TableRow key={d.name}>
                         <TableCell>{d.name}</TableCell>
@@ -211,26 +221,26 @@ export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: Clust
                         </TableCell>
                         <TableCell align="right">
                           {d.provenance === 'manual' && (
-                            <Tooltip title="Edit deployment">
+                            <Tooltip title={t('Edit deployment')}>
                               <IconButton size="small" onClick={() => handleEditManual(d)}>
-                                <Icon icon="mdi:pencil" />
+                                <Icon icon="mdi:pencil" aria-hidden="true" />
                               </IconButton>
                             </Tooltip>
                           )}
                           {d.provenance === 'pipeline' && d.pipelineRunUrl && (
-                            <Tooltip title="View pipeline run">
+                            <Tooltip title={t('View pipeline run')}>
                               <IconButton
                                 size="small"
                                 onClick={() => openExternalUrl(d.pipelineRunUrl ?? '')}
                               >
-                                <Icon icon="mdi:open-in-new" />
+                                <Icon icon="mdi:open-in-new" aria-hidden="true" />
                               </IconButton>
                             </Tooltip>
                           )}
                           {d.provenance === 'pipeline' && (
-                            <Tooltip title="Re-deploy via pipeline">
+                            <Tooltip title={t('Re-deploy via pipeline')}>
                               <IconButton size="small" onClick={() => handleRedeployPipeline(d)}>
-                                <Icon icon="mdi:replay" />
+                                <Icon icon="mdi:replay" aria-hidden="true" />
                               </IconButton>
                             </Tooltip>
                           )}

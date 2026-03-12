@@ -7,11 +7,12 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import React from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-  }),
-}));
+vi.mock('@kinvolk/headlamp-plugin/lib', () => {
+  const t = (key: string) => key;
+  return {
+    useTranslation: () => ({ t }),
+  };
+});
 
 import { ConversionDialog } from './ConversionDialog';
 

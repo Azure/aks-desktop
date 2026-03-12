@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import type { Octokit } from '@octokit/rest';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GitHubRepo, WorkflowRunConclusion, WorkflowRunStatus } from '../../../types/github';
@@ -30,6 +31,7 @@ export const usePipelineRuns = (
   octokit: Octokit | null,
   repos: GitHubRepo[]
 ): UsePipelineRunsResult => {
+  const { t } = useTranslation();
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +64,7 @@ export const usePipelineRuns = (
       }
       const failures = results.filter(r => r.status === 'rejected');
       if (failures.length === results.length && results.length > 0) {
-        setError('Failed to load pipeline runs');
+        setError(t('Failed to load pipeline runs'));
       } else if (failures.length > 0) {
         console.warn(`Pipeline runs: ${failures.length}/${results.length} repos failed to load`);
         setError(null); // Partial success — show what we have
@@ -71,7 +73,7 @@ export const usePipelineRuns = (
       setRuns(allRuns.slice(0, 10));
       setLoading(false);
     },
-    [octokit, stableRepos]
+    [octokit, stableRepos, t]
   );
 
   useEffect(() => {

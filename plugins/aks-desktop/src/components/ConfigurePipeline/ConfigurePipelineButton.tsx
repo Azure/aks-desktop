@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Box, Button, Drawer } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { useAzureContext } from '../../hooks/useAzureContext';
@@ -17,6 +18,7 @@ interface ConfigurePipelineButtonProps {
 }
 
 function ConfigurePipelineButton({ project }: ConfigurePipelineButtonProps) {
+  const { t } = useTranslation();
   const { githubPipelines } = usePreviewFeatures();
   const { azureContext } = useAzureContext(project.clusters?.[0]);
   const [open, setOpen] = useState(false);
@@ -52,11 +54,11 @@ function ConfigurePipelineButton({ project }: ConfigurePipelineButtonProps) {
       <Button
         variant="contained"
         color="primary"
-        startIcon={<Icon icon="mdi:pipe" />}
+        startIcon={<Icon icon="mdi:pipe" aria-hidden="true" />}
         onClick={() => setOpen(true)}
         sx={{ textTransform: 'none', fontWeight: 'bold' }}
       >
-        Configure Pipeline
+        {t('Configure Pipeline')}
       </Button>
       <Drawer
         anchor="right"
@@ -87,7 +89,7 @@ function ConfigurePipelineButton({ project }: ConfigurePipelineButtonProps) {
           />
         ) : (
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
-            Loading Azure context...
+            {t('Loading Azure context...')}
           </Box>
         )}
       </Drawer>

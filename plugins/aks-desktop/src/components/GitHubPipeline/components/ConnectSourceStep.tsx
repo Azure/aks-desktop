@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material';
 import type { Octokit } from '@octokit/rest';
 import React, { useState } from 'react';
@@ -10,13 +11,19 @@ import { openExternalUrl } from '../../../utils/shared/openExternalUrl';
 import type { GitHubAuthState } from '../types';
 import { RepoSelector } from './RepoSelector';
 
-const PERMISSIONS = [
-  { name: 'Contents', purpose: 'Push agent config files' },
-  { name: 'Workflows', purpose: 'Create setup workflow in .github/workflows/' },
-  { name: 'Pull requests', purpose: 'Create deployment PRs' },
-  { name: 'Issues', purpose: 'Track agent progress' },
-  { name: 'Actions', purpose: 'Run deployment workflows' },
-];
+function getPermissions(t: (key: string) => string) {
+  return [
+    { id: 'contents', name: t('Contents'), purpose: t('Push agent config files') },
+    {
+      id: 'workflows',
+      name: t('Workflows'),
+      purpose: t('Create setup workflow in .github/workflows/'),
+    },
+    { id: 'pull-requests', name: t('Pull requests'), purpose: t('Create deployment PRs') },
+    { id: 'issues', name: t('Issues'), purpose: t('Track agent progress') },
+    { id: 'actions', name: t('Actions'), purpose: t('Run deployment workflows') },
+  ];
+}
 
 interface ConnectSourceStepProps {
   authState: GitHubAuthState;
@@ -40,8 +47,10 @@ export function ConnectSourceStep({
   appInstallUrl,
   authCompleted,
 }: ConnectSourceStepProps) {
+  const { t } = useTranslation();
   const { isAuthorizingBrowser, username, error } = authState;
   const isAuthenticated = authCompleted || authState.isAuthenticated;
+  const permissions = getPermissions(t);
 
   return (
     <Box sx={{ maxWidth: 600 }}>
@@ -49,7 +58,7 @@ export function ConnectSourceStep({
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
         <Icon icon="mdi:github" width={22} height={22} />
         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-          Connect to GitHub
+          {t('Connect to GitHub')}
         </Typography>
       </Box>
 
@@ -61,21 +70,21 @@ export function ConnectSourceStep({
             sx={{ color: 'success.main', fontSize: 18 }}
           />
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-            {`Connected to '${username}'.`}
+            {t("Connected to '{{username}}'.", { username })}
           </Typography>
         </Box>
       ) : (
         <>
           <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
-            Authorize AKS Desktop to create deployment pipelines in your repository.
+            {t('Authorize AKS Desktop to create deployment pipelines in your repository.')}
           </Typography>
 
           <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
-            Required Permissions
+            {t('Required Permissions')}
           </Typography>
           <Box sx={{ mb: 2 }}>
-            {PERMISSIONS.map(perm => (
-              <Box key={perm.name} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+            {permissions.map(perm => (
+              <Box key={perm.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                 <Box
                   component={Icon}
                   icon="mdi:check-circle-outline"
@@ -97,18 +106,18 @@ export function ConnectSourceStep({
                 sx={{ fontSize: 16, color: 'primary.main' }}
               />
               <Typography variant="body2" sx={{ color: 'primary.main' }}>
-                Complete authorization on your browser screen
+                {t('Complete authorization on your browser screen')}
               </Typography>
             </Box>
           ) : (
             <Button
               variant="outlined"
               size="small"
-              startIcon={<Icon icon="mdi:open-in-new" />}
+              startIcon={<Icon icon="mdi:open-in-new" aria-hidden="true" />}
               onClick={onStartOAuth}
               sx={{ textTransform: 'none', mb: 2 }}
             >
-              Connect
+              {t('Connect')}
             </Button>
           )}
 
@@ -124,7 +133,7 @@ export function ConnectSourceStep({
       {isAuthenticated && octokit && (
         <>
           <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5 }}>
-            Select repository
+            {t('Select repository')}
           </Typography>
           <RepoSelector octokit={octokit} selectedRepo={selectedRepo} onRepoSelect={onRepoSelect} />
 
@@ -146,6 +155,7 @@ function AppInstallAlert({
   appInstallUrl?: string | null;
 }) {
   const [installClicked, setInstallClicked] = useState(false);
+  const { t } = useTranslation();
 
   const handleInstallClick = () => {
     if (appInstallUrl) {
@@ -160,8 +170,13 @@ function AppInstallAlert({
     <Alert severity={installClicked ? 'info' : 'warning'} sx={{ mt: 2 }}>
       <Typography variant="body2" sx={{ mb: 1 }}>
         {installClicked
-          ? `Complete the installation in your browser. This will update automatically once the app is installed on ${repoName}.`
-          : `The AKS Desktop GitHub App must be installed on ${repoName} to continue.`}
+          ? t(
+              'Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.',
+              { repoName }
+            )
+          : t('The AKS Desktop GitHub App must be installed on {{repoName}} to continue.', {
+              repoName,
+            })}
       </Typography>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         {appInstallUrl && (
@@ -171,14 +186,14 @@ function AppInstallAlert({
             onClick={handleInstallClick}
             sx={{ textTransform: 'none' }}
           >
-            {installClicked ? 'Reopen install page' : 'Install GitHub App'}
+            {installClicked ? t('Reopen install page') : t('Install GitHub App')}
           </Button>
         )}
         {installClicked && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
             <CircularProgress size={12} />
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              Checking...
+              {t('Checking...')}
             </Typography>
           </Box>
         )}

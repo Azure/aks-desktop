@@ -7,6 +7,13 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { ClusterCapabilities } from '../../../types/ClusterCapabilities';
 
+vi.mock('@kinvolk/headlamp-plugin/lib', () => {
+  const t = (key: string) => key;
+  return {
+    useTranslation: () => ({ t }),
+  };
+});
+
 // Mock the az-cli functions, import more afterwards
 vi.mock('../../../utils/azure/az-cli', () => ({
   enableClusterAddon: vi.fn(),
