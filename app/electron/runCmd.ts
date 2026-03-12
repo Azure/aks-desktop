@@ -349,6 +349,9 @@ export async function handleRunCommand(
   const [isValid, errorMessage] = validateCommandData(eventData);
   if (!isValid) {
     console.error(errorMessage);
+    if (eventData.id) {
+      event.sender.send('command-exit', eventData.id, -1);
+    }
     return;
   }
   const commandData = eventData as CommandData;
@@ -356,9 +359,11 @@ export async function handleRunCommand(
   const [permissionsValid, permissionError] = checkPermissionSecret(commandData, permissionSecrets);
   if (!permissionsValid) {
     console.error(permissionError);
+    event.sender.send('command-exit', commandData.id, -2);
     return;
   }
   if (!checkCommandConsent(commandData.command, commandData.args, mainWindow)) {
+    event.sender.send('command-exit', commandData.id, -3);
     return;
   }
 
