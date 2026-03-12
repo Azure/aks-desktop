@@ -34,6 +34,7 @@ import {
 } from '../../redux/projectsSlice';
 import { Activity } from '../activity/Activity';
 import { ButtonStyle, EditButton, EditorDialog, Loader, StatusLabel } from '../common';
+import ActionButton from '../common/ActionButton';
 import Link from '../common/Link';
 import ResourceTable from '../common/Resource/ResourceTable';
 import SectionBox from '../common/SectionBox';
@@ -415,27 +416,34 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
   const registeredHeaderActions = useTypedSelector(state => state.projects.headerActions);
 
   const [DeleteButton, setDeleteButton] = useState<
-    (p: { project: ProjectDefinition; buttonStyle?: ButtonStyle }) => ReactNode
-  >(() => ProjectDeleteButton);
+    ((p: { project: ProjectDefinition; buttonStyle?: ButtonStyle }) => ReactNode) | null
+  >(() => (customDeleteButton ? null : ProjectDeleteButton));
 
   const [headerActions, setHeaderActions] = useState<ReactNode[]>([]);
 
   // Load custom delete button
   useEffect(() => {
-    if (!customDeleteButton) return;
+    if (!customDeleteButton) {
+      setDeleteButton(() => ProjectDeleteButton);
+      return;
+    }
 
     let isCurrent = true;
 
     if (customDeleteButton.isEnabled) {
+      setDeleteButton(null);
       customDeleteButton
         .isEnabled({ project })
         .then(isEnabled => {
-          if (isEnabled && isCurrent) {
-            setDeleteButton(() => customDeleteButton.component);
+          if (isCurrent) {
+            setDeleteButton(() => (isEnabled ? customDeleteButton.component : ProjectDeleteButton));
           }
         })
         .catch(e => {
           console.log(`Failed to check if custom delete button is ready`, e);
+          if (isCurrent) {
+            setDeleteButton(() => ProjectDeleteButton);
+          }
         });
     } else {
       setDeleteButton(() => customDeleteButton.component);
@@ -578,7 +586,15 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
               </Typography>
 
               {headerActions}
-              <DeleteButton project={project} />
+              {DeleteButton ? (
+                <DeleteButton project={project} />
+              ) : (
+                <ActionButton
+                  description={t('Delete project')}
+                  onClick={() => {}}
+                  icon="mdi:delete"
+                />
+              )}
             </Box>
           }
         >
