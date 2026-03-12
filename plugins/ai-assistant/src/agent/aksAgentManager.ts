@@ -168,10 +168,7 @@ export async function getClustersFromHeadlampConfig(): Promise<
             }
             const parsed = new URL(urlString);
             const hostname = parsed.hostname.toLowerCase();
-            return (
-              hostname === 'azmk8s.io' ||
-              hostname.endsWith('.azmk8s.io')
-            );
+            return hostname === 'azmk8s.io' || hostname.endsWith('.azmk8s.io');
           } catch {
             // If the URL cannot be parsed, treat it as not an AKS cluster.
             return false;
@@ -328,6 +325,8 @@ function normalizeBullets(text: string): string {
  */
 function looksLikeYaml(trimmed: string): boolean {
   if (trimmed === '' || trimmed.startsWith('#')) return true;
+  // YAML document separator (exactly ---) and document end marker (exactly ...)
+  if (trimmed === '---' || trimmed === '...') return true;
   // key: or key:  (with optional value)
   if (/^[\w][\w.\/-]*:\s?/.test(trimmed)) return true;
   // quoted key
@@ -351,9 +350,6 @@ function looksLikeYaml(trimmed: string): boolean {
  * is clearly not YAML.
  */
 function wrapBareYamlBlocks(text: string): string {
-  // If code fences with yaml already exist, skip early for perf
-  if (/```ya?ml/i.test(text)) return text;
-
   const lines = text.split('\n');
   const result: string[] = [];
   let i = 0;
@@ -376,8 +372,8 @@ function wrapBareYamlBlocks(text: string): string {
       continue;
     }
 
-    // Detect start of a bare YAML block: apiVersion: <value>
-    if (/^\s*apiVersion:\s*\S/.test(line)) {
+    // Detect start of a bare YAML block: apiVersion: (with optional value)
+    if (/^\s*apiVersion:\s*/.test(line)) {
       const yamlLines: string[] = [];
       let j = i;
       let consecutiveBlanks = 0;
@@ -499,17 +495,18 @@ const AGENT_NOISE_PATTERNS: RegExp[] = [
   // The python command we exec'd into the pod
   /^python\s+\/app\/aks-agent\.py/,
   // Task-list table decorations (borders, header, data rows, section header)
+  // Matches +---+, +====+, and mixed variants like +-=+-+
   /^Task List:\s*$/,
-  /^\+[-+]+\+$/,
+  /^\+[-+=]+\+$/,
   /^\|\s*ID\s*\|/,
   /^\|\s*t\d+\s*\|/,
   // /show N hints
   /^\s*-\s*\/show\s+\d+\s+to view contents/,
   // Echo of the user's question (User: ...)
   /^User:\s+/,
-  // Table remnant lines: only pipes, plus, dashes, whitespace — but must contain at least one
-  // pipe or plus to avoid matching YAML list items ("- foo") or markdown hr ("---")
-  /^[\s|+\-]*[|+][\s|+\-]*$/,
+  // Table remnant lines: only pipes, plus, dashes, equals, whitespace — but must contain at
+  // least one pipe or plus to avoid matching YAML list items ("- foo") or markdown hr ("---")
+  /^[\s|+=\-]*[|+][\s|+=\-]*$/,
 ];
 
 /** Return true if a trimmed line matches any agent-noise pattern. */
@@ -688,7 +685,7 @@ class ThinkingStepTracker {
     // ── Handle partial (wrapped) task-table row buffering ──
     if (this.partialTaskRow) {
       // Blank line, table border, table header, or new task row → abandon partial, fall through
-      if (!trimmed || /^\+[-+]+\+$/.test(trimmed) || /^\|\s*(ID|t\d+)\s*\|/.test(trimmed)) {
+      if (!trimmed || /^\+[-+=]+\+$/.test(trimmed) || /^\|\s*(ID|t\d+)\s*\|/.test(trimmed)) {
         this.partialTaskRow = '';
         // Fall through to normal processing below
       } else {
@@ -1305,3 +1302,19 @@ class AgentSession {
     this.clearWallTimer();
   }
 }
+
+// Exported for testing — these are internal parsing helpers that
+// need thorough test coverage for correctness.
+export const _testing = {
+  stripAnsi,
+  normalizeBullets,
+  looksLikeYaml,
+  wrapBareYamlBlocks,
+  cleanTerminalFormatting,
+  stripAgentNoise,
+  isAgentNoiseLine,
+  extractAIAnswer,
+  ThinkingStepTracker,
+  extractTaskRow,
+  friendlyToolLabel,
+};

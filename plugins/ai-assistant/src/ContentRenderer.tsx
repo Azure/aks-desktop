@@ -41,15 +41,38 @@ const parseLogsButtonData = (content: string, logsButtonIndex: number): ParseRes
     let jsonString = '';
     let braceCount = 0;
     let foundFirstBrace = false;
+    let inString = false;
+    let escaped = false;
 
-    // Parse character by character to find the complete JSON object
+    // Parse character by character to find the complete JSON object,
+    // tracking whether we are inside a JSON string to avoid counting
+    // braces that appear inside string values.
     for (let i = jsonStart; i < content.length; i++) {
       const char = content[i];
-      if (char === '{') {
-        foundFirstBrace = true;
-        braceCount++;
-      } else if (char === '}') {
-        braceCount--;
+
+      if (escaped) {
+        escaped = false;
+        if (foundFirstBrace) jsonString += char;
+        continue;
+      }
+
+      if (char === '\\' && inString) {
+        escaped = true;
+        if (foundFirstBrace) jsonString += char;
+        continue;
+      }
+
+      if (char === '"' && foundFirstBrace) {
+        inString = !inString;
+      }
+
+      if (!inString) {
+        if (char === '{') {
+          foundFirstBrace = true;
+          braceCount++;
+        } else if (char === '}') {
+          braceCount--;
+        }
       }
 
       if (foundFirstBrace) {
@@ -653,3 +676,6 @@ const ContentRenderer: React.FC<ContentRendererProps> = React.memo(
 ContentRenderer.displayName = 'ContentRenderer';
 
 export default ContentRenderer;
+
+// Exported for testing — internal parsing helpers
+export { parseLogsButtonData, parseJsonContent, isJsonKubernetesResource, convertJsonToYaml };
