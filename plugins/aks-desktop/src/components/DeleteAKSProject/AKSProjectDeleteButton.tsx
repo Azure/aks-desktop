@@ -1,197 +1,40 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the Apache 2.0.
 import { Icon } from '@iconify/react';
-import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import type { ApiClient } from '@kinvolk/headlamp-plugin/lib/lib/k8s/api/v1/factories';
-import type { KubeNamespace } from '@kinvolk/headlamp-plugin/lib/lib/k8s/namespace';
-import Namespace from '@kinvolk/headlamp-plugin/lib/lib/k8s/namespace';
-import {
-  Button,
-  Checkbox,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  FormControlLabel,
-  IconButton,
-  Tooltip,
-  Typography,
-} from '@mui/material';
-import React, { useEffect, useState } from 'react';
-import { useHistory } from 'react-router-dom';
-import { deleteManagedNamespace } from '../../utils/azure/az-cli';
-import {
-  PROJECT_ID_LABEL,
-  PROJECT_MANAGED_BY_LABEL,
-  PROJECT_MANAGED_BY_VALUE,
-  RESOURCE_GROUP_LABEL,
-  SUBSCRIPTION_LABEL,
-} from '../../utils/constants/projectLabels';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
+import { IconButton, Tooltip } from '@mui/material';
+import React, { useState } from 'react';
+import { AKSProjectDeleteDialog } from './components/AKSProjectDeleteDialog';
+import { useProjectDeletion } from './hooks/useProjectDeletion';
+import { useProjectPermissions } from './hooks/useProjectPermissions';
 
-interface ProjectDefinition {
+export interface ProjectDefinition {
   id: string;
   namespaces: string[];
   clusters: string[];
 }
 
-interface AKSProjectDeleteButtonProps {
+export interface AKSProjectDeleteButtonProps {
   project: ProjectDefinition;
 }
 
 const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [deleteNamespaces, setDeleteNamespaces] = useState(false);
-  const [nsIsEditable, setNsIsEditable] = useState(false);
-  const [nsIsDeletable, setNsIsDeletable] = useState(false);
-  const history = useHistory();
 
-  // AKS projects have only one namespace
-  const namespaceName = project.namespaces[0];
-  const [namespace] = K8s.ResourceClasses.Namespace.useGet(namespaceName, undefined, {
-    cluster: project.clusters[0],
-  });
+  const { isLoading, canDelete } = useProjectPermissions(project);
+  const { handleDelete } = useProjectDeletion();
 
-  // Check permissions for the single namespace
-  useEffect(() => {
-    if (namespace) {
-      const checkPermissions = async () => {
-        try {
-          // @ts-ignore: need to check types and if the third arg is necessary for getAuthorization
-          const updateAuth = await namespace.getAuthorization('update', {}, project.clusters[0]);
-          // @ts-ignore: need to check types and if the third arg is necessary for getAuthorization
-          const deleteAuth = await namespace.getAuthorization('delete', {}, project.clusters[0]);
-
-          const editable = updateAuth?.status?.allowed ?? false;
-          const deletable = deleteAuth?.status?.allowed ?? false;
-
-          console.debug(`Namespace permissions for ${namespaceName}:`, {
-            namespace: namespaceName,
-            update: updateAuth,
-            delete: deleteAuth,
-            editable,
-            deletable,
-          });
-
-          setNsIsEditable(editable);
-          setNsIsDeletable(deletable);
-        } catch (error) {
-          console.error(`Error checking permissions for ${namespaceName}:`, error);
-          setNsIsEditable(false);
-          setNsIsDeletable(false);
-        }
-      };
-      checkPermissions();
-    }
-  }, [namespace, namespaceName, project.clusters]);
-
-  const handleDelete = async () => {
-    setDeleting(true);
-    try {
-      const namespacePromises = project.namespaces.map(
-        nsName =>
-          new Promise<Namespace | null>(resolve => {
-            K8s.ResourceClasses.Namespace.apiGet(
-              (ns: Namespace) => resolve(ns),
-              nsName,
-              undefined,
-              () => resolve(null),
-              { cluster: project.clusters[0] }
-            )();
-          })
-      );
-
-      const namespaces = (await Promise.all(namespacePromises)).filter(
-        (ns): ns is Namespace => ns !== null
-      );
-
-      for (const ns of namespaces) {
-        const labels = ns.metadata?.labels || {};
-        const isAKSManaged = labels[PROJECT_MANAGED_BY_LABEL] === PROJECT_MANAGED_BY_VALUE;
-        const namespaceName = ns.metadata?.name || '';
-
-        if (isAKSManaged) {
-          // Delete ARM managed namespace
-          const result = await deleteManagedNamespace({
-            clusterName: project.clusters[0],
-            resourceGroup: labels[RESOURCE_GROUP_LABEL],
-            namespaceName,
-            subscriptionId: labels[SUBSCRIPTION_LABEL],
-          });
-
-          if (!result.success) {
-            throw new Error(result.error || 'Failed to delete managed namespace');
-          }
-
-          if (deleteNamespaces) {
-            // Delete the Kubernetes namespace
-            await (K8s.ResourceClasses.Namespace.apiEndpoint as ApiClient<KubeNamespace>).delete(
-              namespaceName,
-              {},
-              project.clusters[0]
-            );
-          } else {
-            // Re-fetch namespace to get latest resourceVersion after ARM call modified it
-            const freshNs = await new Promise<Namespace>((resolve, reject) => {
-              K8s.ResourceClasses.Namespace.apiGet(
-                (ns: Namespace) => resolve(ns),
-                namespaceName,
-                undefined,
-                (err: any) => reject(err),
-                { cluster: project.clusters[0] }
-              )();
-            });
-
-            // Remove project labels from namespace
-            const updatedData = { ...freshNs.jsonData };
-            if (updatedData.metadata?.labels) {
-              delete updatedData.metadata.labels[PROJECT_ID_LABEL];
-              delete updatedData.metadata.labels[PROJECT_MANAGED_BY_LABEL];
-              delete updatedData.metadata.labels[SUBSCRIPTION_LABEL];
-              delete updatedData.metadata.labels[RESOURCE_GROUP_LABEL];
-            }
-            await K8s.ResourceClasses.Namespace.apiEndpoint.put(
-              updatedData,
-              {},
-              project.clusters[0]
-            );
-          }
-        } else {
-          // Regular namespace (not AKS managed)
-          if (deleteNamespaces) {
-            await ns.delete();
-          } else {
-            // Remove project labels
-            const updatedData = { ...ns.jsonData };
-            if (updatedData.metadata?.labels) {
-              delete updatedData.metadata.labels[PROJECT_ID_LABEL];
-              delete updatedData.metadata.labels[PROJECT_MANAGED_BY_LABEL];
-            }
-            await K8s.ResourceClasses.Namespace.apiEndpoint.put(
-              updatedData,
-              {},
-              project.clusters[0]
-            );
-          }
-        }
-      }
-
-      history.push('/');
-    } catch (error) {
-      console.error('Error deleting project:', error);
-      alert(
-        t('Error: {{message}}', {
-          message: error instanceof Error ? error.message : t('Unknown error'),
-        })
-      );
-    } finally {
-      setDeleting(false);
-      setOpen(false);
-    }
-  };
-
-  // Only show button if user has both edit and delete permissions
-  const canDelete = nsIsEditable && nsIsDeletable;
+  if (isLoading) {
+    return (
+      <Tooltip title={t('Delete project')}>
+        <IconButton aria-label={t('Delete project')} size="medium">
+          <Icon icon="mdi:delete" />
+        </IconButton>
+      </Tooltip>
+    );
+  }
 
   if (!canDelete) {
     return null;
@@ -200,97 +43,19 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
   return (
     <>
       <Tooltip title={t('Delete project')}>
-        <IconButton
-          aria-label={t('Delete project')}
-          onClick={() => setOpen(true)}
-          disabled={deleting}
-          size="medium"
-        >
+        <IconButton aria-label={t('Delete project')} onClick={() => setOpen(true)} size="medium">
           <Icon icon="mdi:delete" />
         </IconButton>
       </Tooltip>
 
-      <Dialog
+      <AKSProjectDeleteDialog
         open={open}
-        onClose={() => !deleting && setOpen(false)}
-        aria-labelledby="project-delete-dialog-title"
-        aria-describedby="project-delete-dialog-description"
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle id="project-delete-dialog-title">{t('Delete Project')}</DialogTitle>
-        <DialogContent>
-          <DialogContentText id="project-delete-dialog-description" component="div">
-            <Typography variant="body1" paragraph>
-              {t('Are you sure you want to delete project "{{projectId}}"?', {
-                projectId: project.id,
-              })}
-            </Typography>
-
-            <Typography variant="body2" paragraph>
-              {t(
-                'By default, this will remove the Azure managed namespace and project labels from the following namespaces:'
-              )}
-            </Typography>
-
-            <ul>
-              {project.namespaces.map(ns => (
-                <li key={ns}>
-                  <strong>{ns}</strong>
-                </li>
-              ))}
-            </ul>
-
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={deleteNamespaces}
-                  onChange={e => setDeleteNamespaces(e.target.checked)}
-                  name="deleteNamespaces"
-                  color="primary"
-                />
-              }
-              label={
-                <Typography variant="body2">
-                  {t('Also delete the namespaces (this will remove all resources within them)')}
-                </Typography>
-              }
-            />
-
-            {deleteNamespaces && (
-              <Typography variant="body2" color="error" sx={{ mt: 1, fontWeight: 'bold' }}>
-                {t(
-                  'Warning: This action cannot be undone. All resources in these namespaces will be permanently deleted.'
-                )}
-              </Typography>
-            )}
-
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              {t(
-                'Note: For AKS managed namespaces, Azure ARM management will be removed automatically.'
-              )}
-            </Typography>
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpen(false)} color="secondary" variant="contained">
-            {t('Cancel')}
-          </Button>
-          <Button
-            onClick={handleDelete}
-            color="primary"
-            variant="contained"
-            disabled={deleting}
-            sx={{ minWidth: '200px' }}
-          >
-            {deleting
-              ? `${t('Deleting')}...`
-              : deleteNamespaces
-              ? t('Delete Project & Namespaces')
-              : t('Delete Project')}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onClose={() => setOpen(false)}
+        project={project}
+        deleteNamespaces={deleteNamespaces}
+        setDeleteNamespaces={setDeleteNamespaces}
+        onDelete={() => handleDelete(project, deleteNamespaces, () => setOpen(false))}
+      />
     </>
   );
 };
