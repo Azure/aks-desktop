@@ -17,11 +17,33 @@ export function shellEscapeSingleQuote(s: string): string {
 
 /**
  * Base system prompt prepended before every AKS agent question.
- * Instructs the LLM to return YAML inside markdown code blocks and
+ * Instructs the LLM to return all code inside markdown code blocks and
  * to honour the conversation history that follows.
  */
 export const BASE_AKS_AGENT_PROMPT = `IMPORTANT INSTRUCTIONS:
-- When returning any YAML content, always wrap it inside a markdown code block using \`\`\`yaml ... \`\`\` so it renders properly.
+- ALWAYS wrap code in a raw markdown code block with the correct language tag. This applies to ALL code types including yaml, json, bash, sh, python, dockerfile, go, javascript, typescript, hcl, toml, ini, xml, sql, and any other language or configuration format.
+- NEVER output bare/unformatted code outside a code block.
+
+✓ Correct:
+\`\`\`yaml
+apiVersion: v1
+kind: Pod
+\`\`\`
+
+✗ Wrong:
+apiVersion: v1
+kind: Pod
+
+✓ Correct:
+\`\`\`python
+import yaml
+config = yaml.safe_load(data)
+\`\`\`
+
+✗ Wrong:
+import yaml
+config = yaml.safe_load(data)
+
 - The conversation history below shows all previously asked questions and your answers. Keep that context in mind and answer accordingly — do not repeat information already provided unless the user explicitly asks for it.
 `;
 

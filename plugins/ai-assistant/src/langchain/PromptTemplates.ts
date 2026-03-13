@@ -20,6 +20,17 @@ IMPORTANT GUIDELINES:
 - Prefer web UI actions when possible
 - Be specific about tool parameters and expected outcomes
 - Explain technical concepts clearly for users of all skill levels
+- ALWAYS wrap ALL code (yaml, json, bash, sh, python, dockerfile, go, javascript, typescript, hcl, toml, ini, xml, sql, etc.) in a raw markdown code block with the correct language tag. NEVER output bare code outside a code block.
+
+✓ Correct:
+\`\`\`yaml
+apiVersion: v1
+kind: Pod
+\`\`\`
+
+✗ Wrong:
+apiVersion: v1
+kind: Pod
 
 Current context: {context}
 `);

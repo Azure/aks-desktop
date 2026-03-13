@@ -84,6 +84,17 @@ describe('buildEnrichedPrompt', () => {
     expect(result).toContain('Follow up');
   });
 
+  it('contains code-formatting examples with Correct and Wrong labels', () => {
+    expect(BASE_AKS_AGENT_PROMPT).toContain('✓ Correct');
+    expect(BASE_AKS_AGENT_PROMPT).toContain('✗ Wrong');
+  });
+
+  it('covers major language tags in the code-formatting instruction', () => {
+    for (const lang of ['yaml', 'json', 'bash', 'sh', 'python', 'dockerfile']) {
+      expect(BASE_AKS_AGENT_PROMPT.toLowerCase()).toContain(lang);
+    }
+  });
+
   it('preserves conversation order', () => {
     const history = [
       { role: 'user' as const, content: 'First question' },
