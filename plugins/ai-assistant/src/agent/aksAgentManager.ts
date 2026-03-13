@@ -504,6 +504,12 @@ const AGENT_NOISE_PATTERNS: RegExp[] = [
   /^\s*-\s*\/show\s+\d+\s+to view contents/,
   // Echo of the user's question (User: ...)
   /^User:\s+/,
+  // Echo of assistant's answer from conversation history
+  /^Assistant:\s+/,
+  // Enriched prompt markers from echoed command
+  /^IMPORTANT INSTRUCTIONS:\s*$/,
+  /^---\s*(CONVERSATION HISTORY|END OF CONVERSATION HISTORY)\s*---\s*$/,
+  /^Now answer the following new question:\s*$/,
   // Table remnant lines: only pipes, plus, dashes, equals, whitespace — but must contain at
   // least one pipe or plus to avoid matching YAML list items ("- foo") or markdown hr ("---")
   /^[\s|+=\-]*[|+][\s|+=\-]*$/,
@@ -556,6 +562,26 @@ function stripAgentNoise(lines: string[]): string[] {
 }
 
 /**
+ * Remove the echoed command block from output lines.
+ * When tty echo is active, the entire multi-line `python /app/aks-agent.py ask '…'`
+ * command is echoed line-by-line.  The first line matches the python invocation and
+ * subsequent lines are bash PS2 continuation prompt lines starting with "> ".
+ * This helper strips that block so it doesn't leak into the extracted answer.
+ */
+function stripCommandEcho(lines: string[]): string[] {
+  const cmdIdx = lines.findIndex(l => /python\s+\/app\/aks-agent\.py/.test(l));
+  if (cmdIdx < 0) return lines;
+
+  // Skip the command line and all subsequent bash continuation prompt lines
+  let end = cmdIdx + 1;
+  while (end < lines.length && /^\s*>/.test(lines[end])) {
+    end++;
+  }
+
+  return [...lines.slice(0, cmdIdx), ...lines.slice(end)];
+}
+
+/**
  * Extract the AI's final answer from the full raw exec output.
  * Finds the "AI:" line and returns everything after it, stripped of any
  * trailing bash prompt, agent tool-call noise, and Rich terminal decorations.
@@ -569,7 +595,11 @@ function extractAIAnswer(rawOutput: string): string {
     .map(l => stripAnsi(l).trimEnd())
     .join('\n');
 
-  const lines = normalised.split('\n');
+  // Strip the echoed command block before parsing — when tty echo is on,
+  // the entire multi-line command (including conversation history) is echoed
+  // back through stdout as the python invocation line followed by bash
+  // continuation prompt lines ("> ...").
+  const lines = stripCommandEcho(normalised.split('\n'));
 
   // Locate the "AI:" line — it may be alone or have content after the colon
   const aiLineIdx = lines.findIndex(l => /^AI:\s*$/.test(l.trim()) || /^AI:\s+\S/.test(l));
@@ -956,6 +986,10 @@ class AgentSession {
   private _alive = false;
   /** True once the initial bash prompt has been received. */
   private bashReady = false;
+  /** True once `stty -echo` has been confirmed active. */
+  private echoDisabled = false;
+  /** True while `stty -echo` has been sent but not yet confirmed. */
+  private sttyInFlight = false;
 
   // ── Per-question state ──────────────────────────────────────────────────
   private output = '';
@@ -1108,7 +1142,36 @@ class AgentSession {
   }
 
   private handleStdout(text: string): void {
-    // ── First-time initialisation: send the stored command when bash is ready
+    // ── Phase 0: Disable terminal echo on very first stdout ──
+    // Sending `stty -echo` prevents the TTY from echoing multi-line commands
+    // back through stdout, which would otherwise pollute the output with the
+    // full conversation history embedded in the prompt.
+    if (!this.echoDisabled) {
+      if (!this.sttyInFlight) {
+        // First stdout ever (initial bash prompt) — send stty -echo
+        this.sendStdin('stty -echo\n');
+        this.sttyInFlight = true;
+        console.log('[AKS Agent] Sent stty -echo to disable terminal echo');
+        return;
+      }
+      // Waiting for stty to complete — look for the bash prompt
+      const plainStty = stripAnsi(text);
+      if (/root@[^:]+:[^#]*#\s*$/.test(plainStty.trim())) {
+        this.echoDisabled = true;
+        this.bashReady = true;
+        console.log('[AKS Agent] Terminal echo disabled, bash ready');
+        // If ask() has already queued a command, send it now
+        if (!this.commandSent && this.pendingCommand) {
+          this.sendStdin(this.pendingCommand + '\n');
+          this.commandSent = true;
+          this.pendingCommand = null;
+          console.log('[AKS Agent] Sent initial command after echo disabled');
+        }
+      }
+      return; // Don't add stty-related output to command output
+    }
+
+    // ── First-time initialisation (fallback): send the stored command when bash is ready
     if (!this.bashReady && !this.commandSent && this.pendingCommand) {
       const socket = this.getSocket();
       if (socket && socket.readyState === WebSocket.OPEN) {
@@ -1317,4 +1380,5 @@ export const _testing = {
   ThinkingStepTracker,
   extractTaskRow,
   friendlyToolLabel,
+  stripCommandEcho,
 };
