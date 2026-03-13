@@ -14,6 +14,7 @@ import {
 } from '@mui/material';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ClusterCapabilities } from '../../../types/ClusterCapabilities';
+import type { AddonKey } from '../../../utils/azure/az-cli';
 import { enableClusterAddon, getClusterCapabilities } from '../../../utils/azure/az-cli';
 
 interface ClusterConfigurePanelProps {
@@ -23,8 +24,6 @@ interface ClusterConfigurePanelProps {
   clusterName: string;
   onConfigured: () => void;
 }
-
-type AddonKey = 'azure-monitor-metrics' | 'keda' | 'vpa';
 
 interface AddonOption {
   key: AddonKey;
@@ -58,7 +57,8 @@ const POLL_INTERVAL_MS = 10000;
 const NETWORK_POLICY_INFO = (
   <>
     Network policy engine cannot be changed after cluster creation. Create a new cluster with{' '}
-    <code>--network-policy cilium</code> for full network policy support.
+    <code>--network-plugin azure --network-plugin-mode overlay --network-dataplane cilium</code> for
+    full network policy support.
   </>
 );
 
@@ -85,8 +85,9 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
   const onConfiguredRef = useRef(onConfigured);
   const clusterParamsRef = useRef({ subscriptionId, resourceGroup, clusterName });
 
-  // Determine which addons are missing
+  // Determine which addons are missing vs already enabled
   const missingAddons = ADDON_OPTIONS.filter(addon => capabilities[addon.capabilityField] !== true);
+  const enabledAddons = ADDON_OPTIONS.filter(addon => capabilities[addon.capabilityField] === true);
 
   const hasNetworkPolicyWarning =
     !capabilities.networkPolicy || capabilities.networkPolicy === 'none';
@@ -197,39 +198,27 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
     setError(null);
     setSuccess(false);
 
-    const results = await Promise.allSettled(
-      Array.from(selectedAddons).map(addonKey =>
-        enableClusterAddon({
-          subscriptionId,
-          resourceGroup,
-          clusterName,
-          addon: addonKey,
-        }).then(result => ({ addonKey, result }))
-      )
-    );
+    try {
+      const result = await enableClusterAddon({
+        subscriptionId,
+        resourceGroup,
+        clusterName,
+        addon: Array.from(selectedAddons),
+      });
 
-    const errors: string[] = [];
-    for (const settled of results) {
-      if (settled.status === 'rejected') {
-        const err = settled.reason;
-        errors.push(
-          t('Failed to enable addon: {{error}}', {
-            error: err instanceof Error ? err.message : t('Unknown error'),
-          })
-        );
-      } else if (!settled.value.result.success) {
-        errors.push(
-          settled.value.result.error ||
-            t('Failed to enable {{addonKey}}', { addonKey: settled.value.addonKey })
-        );
+      if (!result.success) {
+        setError(result.error || t('Failed to enable addons'));
+        return;
       }
-    }
-
-    setEnabling(false);
-
-    if (errors.length > 0) {
-      setError(errors.join('\n'));
+    } catch (err) {
+      setError(
+        t('Failed to enable addon: {{error}}', {
+          error: err instanceof Error ? err.message : t('Unknown error'),
+        })
+      );
       return;
+    } finally {
+      setEnabling(false);
     }
 
     // Start polling for completion
@@ -238,29 +227,9 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
     pollForCompletion(addonsToWatch, 0);
   };
 
-  // Don't render if there are no configurable addons (all already enabled)
+  // Don't render if there are no configurable addons (all already enabled) and no network warning
   if (missingAddons.length === 0 && !hasNetworkPolicyWarning) {
     return null;
-  }
-
-  if (missingAddons.length === 0) {
-    return (
-      <Box
-        sx={{
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 1,
-          p: 2,
-        }}
-      >
-        <Typography variant="subtitle2" gutterBottom>
-          {t('Cluster Configuration')}
-        </Typography>
-        <Alert severity="info" sx={{ mt: 1 }}>
-          {NETWORK_POLICY_INFO}
-        </Alert>
-      </Box>
-    );
   }
 
   return (
@@ -275,27 +244,51 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
       <Typography variant="subtitle2" gutterBottom>
         {t('Cluster Configuration')}
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        {t('The following addons can be enabled on this cluster:')}
-      </Typography>
+      {/* Already-enabled addons: checked and disabled */}
+      {enabledAddons.length > 0 && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', ml: 1 }}>
+          {enabledAddons.map(addon => (
+            <FormControlLabel
+              key={addon.key}
+              control={<Checkbox checked disabled size="small" />}
+              label={
+                <Typography variant="body2">
+                  {getAddonLabel(t, addon.key)} {t('(already enabled)')}
+                </Typography>
+              }
+            />
+          ))}
+        </Box>
+      )}
 
-      {/* Addon checkboxes */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', ml: 1 }}>
-        {missingAddons.map(addon => (
-          <FormControlLabel
-            key={addon.key}
-            control={
-              <Checkbox
-                checked={selectedAddons.has(addon.key)}
-                onChange={() => handleToggleAddon(addon.key)}
-                disabled={enabling || polling || success}
-                size="small"
+      {/* Helper text and missing addons: toggleable */}
+      {missingAddons.length > 0 && (
+        <>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ mb: 1, mt: enabledAddons.length > 0 ? 1 : 0 }}
+          >
+            {t('The following addons can be enabled on this cluster:')}
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', ml: 1 }}>
+            {missingAddons.map(addon => (
+              <FormControlLabel
+                key={addon.key}
+                control={
+                  <Checkbox
+                    checked={selectedAddons.has(addon.key)}
+                    onChange={() => handleToggleAddon(addon.key)}
+                    disabled={enabling || polling || success}
+                    size="small"
+                  />
+                }
+                label={<Typography variant="body2">{getAddonLabel(t, addon.key)}</Typography>}
               />
-            }
-            label={<Typography variant="body2">{getAddonLabel(t, addon.key)}</Typography>}
-          />
-        ))}
-      </Box>
+            ))}
+          </Box>
+        </>
+      )}
 
       {/* Network policy info (non-actionable) */}
       {hasNetworkPolicyWarning && (
@@ -304,12 +297,14 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
         </Alert>
       )}
 
-      {/* Cost warning */}
-      <Alert severity="warning" sx={{ mt: 1 }} icon={false}>
-        <Typography variant="body2">
-          {t('Enabling these addons may incur additional Azure costs.')}
-        </Typography>
-      </Alert>
+      {/* Cost warning — only when there are addons to enable */}
+      {missingAddons.length > 0 && (
+        <Alert severity="warning" sx={{ mt: 1 }} icon={false}>
+          <Typography variant="body2">
+            {t('Enabling these addons may incur additional Azure costs.')}
+          </Typography>
+        </Alert>
+      )}
 
       {/* Error message */}
       {error && (
@@ -364,8 +359,8 @@ export const ClusterConfigurePanel: React.FC<ClusterConfigurePanelProps> = ({
         {polling ? t('Configuring cluster... This may take a few minutes.') : ''}
       </Box>
 
-      {/* Configure button */}
-      {!success && (
+      {/* Configure button — only when there are addons to enable */}
+      {!success && missingAddons.length > 0 && (
         /* aria-busy signals to AT that the button is performing an async operation.
            The CircularProgress spinner is decorative and hidden from AT with aria-hidden
            because the button text ("Enabling Addons...") already conveys the busy state.

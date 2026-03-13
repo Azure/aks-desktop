@@ -412,7 +412,7 @@ describe('enableClusterAddon', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Failed to enable azure-monitor-metrics');
+    expect(result.error).toContain('Failed to enable addons');
   });
 
   test('ignores warnings in stderr (WARNING: only)', async () => {
@@ -452,14 +452,38 @@ describe('enableClusterAddon', () => {
     expect(result.error).toBeDefined();
   });
 
-  test('returns error for unknown addon', async () => {
+  test('accepts an array of addons and produces a single CLI command with multiple --enable flags', async () => {
+    const mockProcess = createMockChildProcess('');
+    mockPluginRunCommand.mockReturnValue(mockProcess);
+
     const result = await enableClusterAddon({
       ...defaultOptions,
-      addon: 'unknown-addon' as any,
+      addon: ['azure-monitor-metrics', 'keda'],
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(mockPluginRunCommand).toHaveBeenCalledTimes(1);
+    expect(mockPluginRunCommand).toHaveBeenCalledWith(
+      'az',
+      expect.arrayContaining([
+        'aks',
+        'update',
+        '--enable-azure-monitor-metrics',
+        '--enable-keda',
+        '--no-wait',
+      ]),
+      expect.anything()
+    );
+  });
+
+  test('returns error for empty addon array', async () => {
+    const result = await enableClusterAddon({
+      ...defaultOptions,
+      addon: [],
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('Unknown addon');
+    expect(result.error).toContain('No addons specified');
   });
 });
 
