@@ -251,6 +251,7 @@ All generated deployment files must be placed under \`/deploy/\`:
 All generated Deployment manifests MUST include these annotations in \`metadata.annotations\`:
 - \`aks-project/deployed-by: pipeline\`
 - \`aks-project/pipeline-repo: ${config.repo.owner}/${config.repo.repo}\`
+- \`aks-project/pipeline-workflow: \${{ github.workflow }}\`
 
 Example:
 \`\`\`yaml
@@ -260,6 +261,7 @@ metadata:
   annotations:
     aks-project/deployed-by: pipeline
     aks-project/pipeline-repo: ${config.repo.owner}/${config.repo.repo}
+    aks-project/pipeline-workflow: \${{ github.workflow }}
 \`\`\`
 
 ## GitHub Actions Workflow Requirements
@@ -276,7 +278,7 @@ Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\` with the following:
     config
   )}- Run: \`kubectl apply -f deploy/kubernetes/ -n \${{ inputs.namespace }}\`
 - After applying manifests, annotate each Deployment with the run URL:
-  \`kubectl annotate deployment --all -n \${{ inputs.namespace }} aks-project/pipeline-run-url=\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }} --overwrite\`
+  \`kubectl annotate deployment --all -n \${{ inputs.namespace }} aks-project/pipeline-run-url=\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }} aks-project/pipeline-workflow=\${{ github.workflow }} --overwrite\`
 
 ## Naming Conventions
 - PR title: "[AKS Desktop] Add deployment pipeline for ${config.appName}"

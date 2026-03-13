@@ -40,6 +40,7 @@ import MetricsTab from './components/MetricsTab/MetricsTab';
 import PreviewFeaturesSettings from './components/PluginSettings/PreviewFeaturesSettings';
 import ScalingCard from './components/Scaling/ScalingCard';
 import ScalingTab from './components/Scaling/ScalingTab';
+import type { ProjectDefinition } from './types/project';
 import { getLoginStatus } from './utils/azure/az-cli';
 import { isAksProject } from './utils/shared/isAksProject';
 import { azureTheme } from './utils/shared/theme';
@@ -391,12 +392,10 @@ registerProjectHeaderAction({
 
 registerProjectHeaderAction({
   id: 'configure-pipeline',
-  component: props => (
+  // setSelectedTab is provided by the headlamp fork (PR #406) but not yet in published types
+  component: (props: { project: ProjectDefinition; setSelectedTab?: (tabId: string) => void }) => (
     <GitHubAuthProvider>
-      <ConfigurePipelineButton
-        project={props.project}
-        setSelectedTab={(props as { setSelectedTab?: (tabId: string) => void }).setSelectedTab}
-      />
+      <ConfigurePipelineButton project={props.project} setSelectedTab={props.setSelectedTab} />
     </GitHubAuthProvider>
   ),
 });

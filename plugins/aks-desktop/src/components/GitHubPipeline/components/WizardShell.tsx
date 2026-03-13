@@ -14,8 +14,6 @@ interface WizardShellProps {
   footerActions?: React.ReactNode;
 }
 
-const STEPS = ['Connect Source', 'Set up Copilot Agent', 'Review & Merge'] as const;
-
 function StepIndicator({
   index,
   label,
@@ -68,6 +66,7 @@ export function WizardShell({
 }: WizardShellProps) {
   const { t } = useTranslation();
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const steps = [t('Connect Source'), t('Set up Copilot Agent'), t('Review & Merge')];
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -91,7 +90,7 @@ export function WizardShell({
 
         {/* Stepper */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 2.5 }}>
-          {STEPS.map((label, i) => (
+          {steps.map((label, i) => (
             <React.Fragment key={i}>
               {i > 0 && (
                 <Box
