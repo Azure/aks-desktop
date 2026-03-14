@@ -1026,24 +1026,32 @@ export async function getClusterCapabilities(options: {
   }
 }
 
-// Enable a cluster addon (azure-monitor-metrics, keda, or vpa)
+export type AddonKey = 'azure-monitor-metrics' | 'keda' | 'vpa';
+
+// Enable one or more cluster addons in a single az aks update command
 export async function enableClusterAddon(options: {
   subscriptionId: string;
   resourceGroup: string;
   clusterName: string;
-  addon: 'azure-monitor-metrics' | 'keda' | 'vpa';
+  addon: AddonKey | AddonKey[];
 }): Promise<{ success: boolean; error?: string }> {
   const { subscriptionId, resourceGroup, clusterName, addon } = options;
 
-  const addonFlags: Record<string, string[]> = {
+  const addons = Array.isArray(addon) ? addon : [addon];
+
+  if (addons.length === 0) {
+    return { success: false, error: 'No addons specified' };
+  }
+
+  const addonFlags: Record<AddonKey, string[]> = {
     'azure-monitor-metrics': ['--enable-azure-monitor-metrics'],
     keda: ['--enable-keda'],
     vpa: ['--enable-vpa'],
   };
 
-  const flags = addonFlags[addon];
-  if (!flags) {
-    return { success: false, error: `Unknown addon: ${addon}` };
+  const flags: string[] = [];
+  for (const a of addons) {
+    flags.push(...addonFlags[a]);
   }
 
   const args = [
@@ -1066,7 +1074,7 @@ export async function enableClusterAddon(options: {
   }
 
   if (stderr && stderr.includes('ERROR:')) {
-    return { success: false, error: `Failed to enable ${addon}: ${stderr}` };
+    return { success: false, error: `Failed to enable addons (${addons.join(', ')}): ${stderr}` };
   }
 
   return { success: true };

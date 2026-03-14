@@ -74,8 +74,39 @@ describe('ClusterConfigurePanel', () => {
     expect(screen.getByText('Azure Monitor Metrics (Managed Prometheus)')).toBeTruthy();
     expect(screen.getByText('KEDA (Event-Driven Autoscaling)')).toBeTruthy();
 
-    // VPA is already enabled, so it should NOT appear as a checkbox option
-    expect(screen.queryByText('VPA (Vertical Pod Autoscaler)')).toBeNull();
+    // VPA is already enabled — shown as disabled checkbox with "(already enabled)"
+    expect(screen.getByText(/VPA \(Vertical Pod Autoscaler\).*\(already enabled\)/)).toBeTruthy();
+  });
+
+  test('shows already-enabled addons as disabled checked checkboxes', () => {
+    const capabilities = makeCapabilities({
+      prometheusEnabled: true,
+      kedaEnabled: false,
+      vpaEnabled: true,
+    });
+
+    render(<ClusterConfigurePanel {...defaultProps} capabilities={capabilities} />);
+
+    // Prometheus and VPA are enabled — their checkboxes should be checked and disabled
+    const prometheusLabel = screen
+      .getByText(/Azure Monitor Metrics.*\(already enabled\)/)
+      .closest('label');
+    const prometheusCheckbox = prometheusLabel?.querySelector('input[type="checkbox"]');
+    expect(prometheusCheckbox).toBeTruthy();
+    expect((prometheusCheckbox as HTMLInputElement).checked).toBe(true);
+    expect((prometheusCheckbox as HTMLInputElement).disabled).toBe(true);
+
+    const vpaLabel = screen.getByText(/VPA.*\(already enabled\)/).closest('label');
+    const vpaCheckbox = vpaLabel?.querySelector('input[type="checkbox"]');
+    expect(vpaCheckbox).toBeTruthy();
+    expect((vpaCheckbox as HTMLInputElement).checked).toBe(true);
+    expect((vpaCheckbox as HTMLInputElement).disabled).toBe(true);
+
+    // KEDA is missing — its checkbox should be enabled
+    const kedaLabel = screen.getByText('KEDA (Event-Driven Autoscaling)').closest('label');
+    const kedaCheckbox = kedaLabel?.querySelector('input[type="checkbox"]');
+    expect(kedaCheckbox).toBeTruthy();
+    expect((kedaCheckbox as HTMLInputElement).disabled).toBe(false);
   });
 
   test('does not show network policy as configurable', () => {
@@ -86,11 +117,14 @@ describe('ClusterConfigurePanel', () => {
 
     render(<ClusterConfigurePanel {...defaultProps} capabilities={capabilities} />);
 
-    // Should show an info message about network policy (MUI Alert may render text in multiple nodes)
+    // Should show an info message about network policy with cilium flags (MUI Alert may render text in multiple nodes)
     const networkPolicyMessages = screen.queryAllByText(
       /Network policy engine cannot be changed after cluster creation/
     );
     expect(networkPolicyMessages.length).toBeGreaterThan(0);
+
+    // Verify the updated cilium flags are mentioned
+    expect(screen.getByText(/--network-plugin azure/)).toBeTruthy();
 
     // Should NOT have a checkbox for network policy
     const checkboxes = screen.getAllByRole('checkbox');
@@ -118,7 +152,7 @@ describe('ClusterConfigurePanel', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  test('calls enableClusterAddon for each selected addon', async () => {
+  test('calls enableClusterAddon once with all selected addons', async () => {
     const capabilities = makeCapabilities({
       prometheusEnabled: false,
       kedaEnabled: false,
@@ -143,21 +177,15 @@ describe('ClusterConfigurePanel', () => {
     fireEvent.click(configureButtons[0]);
 
     await waitFor(() => {
-      expect(mockEnableClusterAddon).toHaveBeenCalledTimes(2);
+      expect(mockEnableClusterAddon).toHaveBeenCalledTimes(1);
     });
 
-    // Verify each addon was called with the correct parameters
+    // Verify a single call with both addons as an array
     expect(mockEnableClusterAddon).toHaveBeenCalledWith({
       subscriptionId: 'test-sub-id',
       resourceGroup: 'test-rg',
       clusterName: 'test-cluster',
-      addon: 'azure-monitor-metrics',
-    });
-    expect(mockEnableClusterAddon).toHaveBeenCalledWith({
-      subscriptionId: 'test-sub-id',
-      resourceGroup: 'test-rg',
-      clusterName: 'test-cluster',
-      addon: 'keda',
+      addon: expect.arrayContaining(['azure-monitor-metrics', 'keda']),
     });
   });
 
@@ -337,8 +365,8 @@ describe('ClusterConfigurePanel', () => {
     expect(screen.getByText('KEDA (Event-Driven Autoscaling)')).toBeTruthy();
     expect(screen.getByText('VPA (Vertical Pod Autoscaler)')).toBeTruthy();
 
-    // Prometheus should NOT be shown (it's already enabled on cluster-two)
-    expect(screen.queryByText('Azure Monitor Metrics (Managed Prometheus)')).toBeNull();
+    // Prometheus should be shown as "(already enabled)" on cluster-two
+    expect(screen.getByText(/Azure Monitor Metrics.*\(already enabled\)/)).toBeTruthy();
 
     // Configure button should be visible again
     const newConfigureButtons = screen.getAllByRole('button', { name: /Configure Cluster/i });
