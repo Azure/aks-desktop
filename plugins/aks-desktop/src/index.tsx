@@ -36,7 +36,7 @@ import InfoTab from './components/InfoTab/InfoTab';
 import AzureLogo from './components/Logo/Logo';
 import LogsTab from './components/LogsTab/LogsTab';
 import MetricsCard from './components/Metrics/MetricsCard';
-import MetricsTab from './components/MetricsTab/MetricsTab';
+import MetricsTab from './components/Metrics/MetricsTab';
 import PreviewFeaturesSettings from './components/PluginSettings/PreviewFeaturesSettings';
 import ScalingCard from './components/Scaling/ScalingCard';
 import ScalingTab from './components/Scaling/ScalingTab';
