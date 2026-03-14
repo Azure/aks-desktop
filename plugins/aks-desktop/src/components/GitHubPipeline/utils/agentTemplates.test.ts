@@ -56,12 +56,14 @@ describe('agentTemplates', () => {
       const result = generateAgentConfig(validConfig);
       expect(result).toContain('aks-project/deployed-by: pipeline');
       expect(result).toContain('aks-project/pipeline-repo: testuser/my-repo');
+      expect(result).toContain('aks-project/pipeline-workflow: ${{ github.workflow }}');
       expect(result).toContain('Deployment Annotations (mandatory)');
     });
 
-    it('should include pipeline-run-url annotation instruction in workflow requirements', () => {
+    it('should include pipeline-run-url and pipeline-workflow annotation instructions in workflow requirements', () => {
       const result = generateAgentConfig(validConfig);
       expect(result).toContain('aks-project/pipeline-run-url=');
+      expect(result).toContain('aks-project/pipeline-workflow=${{ github.workflow }}');
       expect(result).toContain('kubectl annotate deployment --all');
     });
 

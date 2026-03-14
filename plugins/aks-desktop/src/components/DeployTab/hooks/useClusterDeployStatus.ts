@@ -7,8 +7,9 @@ import { useEffect, useState } from 'react';
 export const ANNOTATION_DEPLOYED_BY = 'aks-project/deployed-by';
 export const ANNOTATION_PIPELINE_REPO = 'aks-project/pipeline-repo';
 export const ANNOTATION_PIPELINE_RUN_URL = 'aks-project/pipeline-run-url';
+export const ANNOTATION_PIPELINE_WORKFLOW = 'aks-project/pipeline-workflow';
 
-export type DeploymentProvenance = 'manual' | 'pipeline' | 'unknown';
+export type DeploymentProvenance = 'manual' | 'pipeline' | 'vscode' | 'unknown';
 
 export interface DeploymentStatus {
   name: string;
@@ -18,6 +19,7 @@ export interface DeploymentStatus {
   provenance: DeploymentProvenance;
   pipelineRepo: string | null;
   pipelineRunUrl: string | null;
+  pipelineWorkflow: string | null;
   rawDeployment?: unknown;
 }
 
@@ -84,9 +86,12 @@ export const useClusterDeployStatus = (
                       ? 'manual'
                       : deployedBy === 'pipeline'
                       ? 'pipeline'
+                      : deployedBy === 'vscode'
+                      ? 'vscode'
                       : 'unknown') as DeploymentProvenance,
                     pipelineRepo: annotations[ANNOTATION_PIPELINE_REPO] ?? null,
                     pipelineRunUrl: annotations[ANNOTATION_PIPELINE_RUN_URL] ?? null,
+                    pipelineWorkflow: annotations[ANNOTATION_PIPELINE_WORKFLOW] ?? null,
                     rawDeployment: d.jsonData,
                   };
                 })
