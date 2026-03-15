@@ -42,6 +42,8 @@ interface GitHubPipelineWizardProps {
    * Defaults to 'deploy'.
    */
   mode?: 'configure' | 'deploy';
+  /** Project name — used for identity naming and resource group defaults. */
+  projectName?: string;
 }
 
 const LoadingSpinner: React.FC<{ message: string }> = ({ message }) => (
@@ -118,6 +120,7 @@ export function GitHubPipelineWizard({
   initialRepo,
   containerConfig,
   mode = 'deploy',
+  projectName,
 }: GitHubPipelineWizardProps) {
   const { t } = useTranslation();
   const localContainerConfig = useContainerConfiguration(appName);
@@ -147,6 +150,7 @@ export function GitHubPipelineWizard({
     workflowPolling,
     deploymentHealth,
     identitySetup,
+    projectName: resolvedProjectName,
   } = useGitHubPipelineOrchestration({
     clusterName,
     namespace,
@@ -157,6 +161,7 @@ export function GitHubPipelineWizard({
     initialRepo,
     containerConfig: localContainerConfig.config,
     mode,
+    projectName,
   });
 
   useEffect(() => {
@@ -230,9 +235,9 @@ export function GitHubPipelineWizard({
           <WorkloadIdentitySetup
             subscriptionId={subscriptionId}
             resourceGroup={resourceGroup}
-            namespace={namespace}
             repo={selectedRepo}
             identitySetup={identitySetup}
+            projectName={resolvedProjectName ?? namespace}
           />
         );
       }

@@ -139,7 +139,7 @@ export function RepoSelector({ octokit, selectedRepo, onRepoSelect }: RepoSelect
               )}
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="body2" sx={{ fontWeight: 500 }} noWrap>
-                  {r.name}
+                  {r.fullName}
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   {r.defaultBranch}

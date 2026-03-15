@@ -3,8 +3,8 @@
 
 import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { Alert, Box, Button, Typography } from '@mui/material';
-import React, { useEffect, useRef } from 'react';
+import { Alert, Box, Button, TextField, Typography } from '@mui/material';
+import React, { useEffect, useRef, useState } from 'react';
 import type { GitHubRepo } from '../../../types/github';
 import type {
   UseWorkloadIdentitySetupReturn,
@@ -17,12 +17,13 @@ import { StepStatusIcon } from './StepStatusIcon';
 interface WorkloadIdentitySetupProps {
   subscriptionId: string;
   resourceGroup: string;
-  namespace: string;
   repo: GitHubRepo;
   identitySetup: UseWorkloadIdentitySetupReturn;
+  projectName: string;
 }
 
 const STATUS_ORDER = [
+  'creating-rg',
   'checking',
   'creating-identity',
   'assigning-role',
@@ -32,6 +33,7 @@ const STATUS_ORDER = [
 
 function getStatusSteps(t: (key: string) => string) {
   return [
+    { key: 'creating-rg', label: t('Ensuring resource group exists...') },
     { key: 'checking', label: t('Checking for existing identity...') },
     { key: 'creating-identity', label: t('Creating managed identity...') },
     { key: 'assigning-role', label: t('Assigning AKS Cluster User Role...') },
@@ -54,14 +56,19 @@ function getStepStatus(step: string, currentStatus: string, lastActiveStatus: st
 export function WorkloadIdentitySetup({
   subscriptionId,
   resourceGroup,
-  namespace,
   repo,
   identitySetup,
+  projectName,
 }: WorkloadIdentitySetupProps) {
   const { status, error, setupWorkloadIdentity } = identitySetup;
   const { t } = useTranslation();
-  const identityName = getIdentityName(namespace);
+  const identityName = getIdentityName(projectName);
   const statusSteps = getStatusSteps(t);
+  const [identityRG, setIdentityRG] = useState(`rg-${projectName}`);
+
+  useEffect(() => {
+    setIdentityRG(`rg-${projectName}`);
+  }, [projectName]);
 
   // Track the last non-error status so StepIcon can show which step failed
   const lastActiveStatusRef = useRef(status);
@@ -75,7 +82,8 @@ export function WorkloadIdentitySetup({
     const config: WorkloadIdentitySetupConfig = {
       subscriptionId,
       resourceGroup,
-      namespace,
+      identityResourceGroup: identityRG.trim(),
+      projectName,
       repo,
     };
     setupWorkloadIdentity(config);
@@ -106,7 +114,7 @@ export function WorkloadIdentitySetup({
                   {t('Managed Identity')}
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  <code>{identityName}</code> {t('in resource group')} <code>{resourceGroup}</code>
+                  <code>{identityName}</code> {t('in resource group')} <code>{identityRG}</code>
                 </Typography>
               </Box>
             </Box>
@@ -145,11 +153,22 @@ export function WorkloadIdentitySetup({
             </Box>
           </Box>
 
+          <TextField
+            label={t('Identity Resource Group')}
+            size="small"
+            value={identityRG}
+            onChange={e => setIdentityRG(e.target.value)}
+            fullWidth
+            helperText={t('Resource group where the managed identity will be created')}
+            sx={{ mb: 3 }}
+          />
+
           <Button
             variant="contained"
             onClick={handleSetup}
             startIcon={<Icon icon="mdi:shield-check-outline" aria-hidden="true" />}
             sx={{ textTransform: 'none' }}
+            disabled={!identityRG.trim()}
           >
             {t('Continue')}
           </Button>
@@ -189,14 +208,26 @@ export function WorkloadIdentitySetup({
           )}
 
           {status === 'error' && (
-            <Button
-              variant="outlined"
-              onClick={handleSetup}
-              startIcon={<Icon icon="mdi:refresh" aria-hidden="true" />}
-              sx={{ textTransform: 'none' }}
-            >
-              {t('Retry')}
-            </Button>
+            <>
+              <TextField
+                label={t('Identity Resource Group')}
+                size="small"
+                value={identityRG}
+                onChange={e => setIdentityRG(e.target.value)}
+                fullWidth
+                helperText={t('Resource group where the managed identity will be created')}
+                sx={{ mb: 2 }}
+              />
+              <Button
+                variant="outlined"
+                onClick={handleSetup}
+                startIcon={<Icon icon="mdi:refresh" aria-hidden="true" />}
+                sx={{ textTransform: 'none' }}
+                disabled={!identityRG.trim()}
+              >
+                {t('Retry')}
+              </Button>
+            </>
           )}
 
           {status === 'done' && (

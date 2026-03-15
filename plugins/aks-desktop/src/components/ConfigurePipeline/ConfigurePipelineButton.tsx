@@ -86,6 +86,7 @@ function ConfigurePipelineButton({ project }: ConfigurePipelineButtonProps) {
               !startedOver && pipelineStatus.isConfigured ? pipelineStatus.repos[0] : undefined
             }
             mode="configure"
+            projectName={project.id}
           />
         ) : (
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>

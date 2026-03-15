@@ -818,6 +818,106 @@ export async function getResourceGroups(subscriptionId: string): Promise<any[]> 
   }
 }
 
+export async function getResourceGroupLocation(options: {
+  resourceGroupName: string;
+  subscriptionId: string;
+}): Promise<string> {
+  const { resourceGroupName, subscriptionId } = options;
+
+  if (!isValidGuid(subscriptionId)) {
+    throw new Error(`Invalid subscription ID format: '${subscriptionId}'`);
+  }
+  if (!isValidAzResourceName(resourceGroupName)) {
+    throw new Error(`Invalid resource group name: '${resourceGroupName}'`);
+  }
+
+  const result = await runAzCommand(
+    [
+      'group',
+      'show',
+      '--name',
+      resourceGroupName,
+      '--subscription',
+      subscriptionId,
+      '--query',
+      'location',
+      '-o',
+      'tsv',
+    ],
+    'Fetching resource group location:',
+    'get resource group location',
+    stdout => stdout.trim()
+  );
+
+  if (!result.success || !result.data) {
+    throw new Error(result.error ?? `Resource group '${resourceGroupName}' returned no location`);
+  }
+
+  return result.data;
+}
+
+export async function resourceGroupExists(options: {
+  resourceGroupName: string;
+  subscriptionId: string;
+}): Promise<{ exists: boolean; error?: string }> {
+  const { resourceGroupName, subscriptionId } = options;
+
+  if (!isValidGuid(subscriptionId)) {
+    return { exists: false, error: `Invalid subscription ID format: '${subscriptionId}'` };
+  }
+  if (!isValidAzResourceName(resourceGroupName)) {
+    return { exists: false, error: `Invalid resource group name: '${resourceGroupName}'` };
+  }
+
+  const result = await runAzCommand(
+    ['group', 'exists', '--name', resourceGroupName, '--subscription', subscriptionId],
+    'Checking resource group exists:',
+    'check resource group existence',
+    stdout => stdout.trim().toLowerCase() === 'true'
+  );
+
+  if (!result.success) {
+    return { exists: false, error: result.error ?? 'Failed to check resource group existence' };
+  }
+
+  return { exists: result.data === true };
+}
+
+export async function createResourceGroup(options: {
+  resourceGroupName: string;
+  location: string;
+  subscriptionId: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { resourceGroupName, location, subscriptionId } = options;
+
+  if (!isValidGuid(subscriptionId)) {
+    return { success: false, error: `Invalid subscription ID format: '${subscriptionId}'` };
+  }
+  if (!isValidAzResourceName(resourceGroupName)) {
+    return { success: false, error: `Invalid resource group name: '${resourceGroupName}'` };
+  }
+
+  const result = await runAzCommand(
+    [
+      'group',
+      'create',
+      '--name',
+      resourceGroupName,
+      '--location',
+      location,
+      '--subscription',
+      subscriptionId,
+      '--tags',
+      'purpose=GitHub Actions Identity',
+      'createdBy=AKS Desktop',
+    ],
+    'Creating resource group:',
+    'create resource group'
+  );
+
+  return { success: result.success, error: result.error };
+}
+
 export async function getLocations(subscriptionId: string): Promise<any[]> {
   debugLog('Fetching Azure locations for subscription:', subscriptionId);
   const { stdout, stderr } = await runCommandAsync('az', [

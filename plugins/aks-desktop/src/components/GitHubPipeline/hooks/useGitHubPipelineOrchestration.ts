@@ -62,6 +62,8 @@ interface UseGitHubPipelineOrchestrationProps {
    * Defaults to 'deploy' for backward compatibility.
    */
   mode?: 'configure' | 'deploy';
+  /** Project name — used for identity naming and resource group defaults. */
+  projectName?: string;
 }
 
 export interface UseGitHubPipelineOrchestrationResult {
@@ -83,6 +85,7 @@ export interface UseGitHubPipelineOrchestrationResult {
   workflowPolling: UseWorkflowPollingResult;
   deploymentHealth: UseDeploymentHealthResult;
   identitySetup: UseWorkloadIdentitySetupReturn;
+  projectName?: string;
 }
 
 /**
@@ -102,6 +105,7 @@ export const useGitHubPipelineOrchestration = ({
   initialRepo,
   containerConfig,
   mode = 'deploy',
+  projectName,
 }: UseGitHubPipelineOrchestrationProps): UseGitHubPipelineOrchestrationResult => {
   const agentTriggerInFlightRef = useRef(false);
   const checkRepoInFlightRef = useRef(false);
@@ -562,5 +566,6 @@ export const useGitHubPipelineOrchestration = ({
     workflowPolling,
     deploymentHealth,
     identitySetup,
+    projectName,
   };
 };
