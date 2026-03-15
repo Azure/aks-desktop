@@ -62,6 +62,8 @@ const AgentThinkingSteps: React.FC<AgentThinkingStepsProps> = React.memo(
     const successColor = theme.palette.success.main;
     const [collapsedPhases, setCollapsedPhases] = useState<Set<Phase>>(new Set());
     const prevPhaseCountRef = useRef<Record<Phase, number>>({ init: 0, planning: 0, executing: 0 });
+    const endRef = useRef<HTMLDivElement>(null);
+    const scrollParentRef = useRef<HTMLElement | null>(null);
 
     // Group steps by phase
     const grouped = useMemo(() => {
@@ -94,6 +96,51 @@ const AgentThinkingSteps: React.FC<AgentThinkingStepsProps> = React.memo(
         executing: grouped.executing.length,
       };
     }, [grouped]);
+
+    // Scroll the scroll container when new steps appear so the growing
+    // "Agent working…" box stays visible. Uses direct scrollTo on the
+    // scroll parent instead of scrollIntoView, which can target the wrong
+    // container when MUI Collapse wrappers have overflow:hidden.
+    useEffect(() => {
+      const el = endRef.current;
+      if (steps.length === 0 || !el) return;
+
+      // Cache the nearest scroll container (overflow-y: auto/scroll).
+      // Skips MUI Collapse wrappers which use overflow:hidden.
+      if (!scrollParentRef.current) {
+        let sp: HTMLElement | null = el.parentElement;
+        while (sp) {
+          const overflowY = getComputedStyle(sp).overflowY;
+          if (overflowY === 'auto' || overflowY === 'scroll') break;
+          sp = sp.parentElement;
+        }
+        scrollParentRef.current = sp;
+      }
+
+      // Delay to let MUI Collapse animations settle before measuring
+      const timer = setTimeout(() => {
+        const scrollParent = scrollParentRef.current;
+        if (!scrollParent) return;
+
+        // Only auto-scroll if user is near the bottom (matches TextStreamContainer pattern)
+        const distanceFromBottom =
+          scrollParent.scrollHeight - scrollParent.scrollTop - scrollParent.clientHeight;
+        if (distanceFromBottom > scrollParent.clientHeight) return;
+
+        // Respect prefers-reduced-motion (with SSR guard)
+        const reducedMotion =
+          typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+            ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            : false;
+
+        scrollParent.scrollTo({
+          top: scrollParent.scrollHeight - scrollParent.clientHeight,
+          behavior: reducedMotion ? 'auto' : 'smooth',
+        });
+      }, 350);
+
+      return () => clearTimeout(timer);
+    }, [steps.length]);
 
     if (steps.length === 0) return null;
 
@@ -276,6 +323,9 @@ const AgentThinkingSteps: React.FC<AgentThinkingStepsProps> = React.memo(
 
           {/* Phase sections */}
           {activePhases.map(renderPhaseSection)}
+
+          {/* Scroll sentinel: scrolled into view when new steps arrive */}
+          <div ref={endRef} />
         </Box>
 
         {/* Spinner keyframes (shared) */}

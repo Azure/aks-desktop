@@ -363,3 +363,199 @@ export const ManyStepsDark: StoryFn<typeof AgentThinkingSteps> = () => {
     </ThemeProvider>
   );
 };
+
+// ── Smart scroll demo ────────────────────────────────────────────────────────
+
+/** Demonstrates smart scroll: user question stays visible when thinking steps appear. */
+export const SmartScroll: StoryFn<typeof AgentThinkingSteps> = () => {
+  const [steps, setSteps] = React.useState<AgentThinkingStep[]>([]);
+
+  React.useEffect(() => {
+    // Simulate progressive step arrivals
+    const timers = [
+      setTimeout(
+        () =>
+          setSteps([
+            {
+              id: 1,
+              label: 'Connecting to cluster',
+              status: 'running',
+              phase: 'init',
+              timestamp: Date.now(),
+            },
+          ]),
+        1000
+      ),
+      setTimeout(
+        () =>
+          setSteps(prev => [
+            { ...prev[0], status: 'completed' as const },
+            {
+              id: 2,
+              label: 'Loading context',
+              status: 'running',
+              phase: 'init',
+              timestamp: Date.now(),
+            },
+          ]),
+        2000
+      ),
+      setTimeout(
+        () =>
+          setSteps(prev => [
+            ...prev.map(s => ({ ...s, status: 'completed' as const })),
+            {
+              id: 3,
+              label: 'Analyze pod health',
+              status: 'running',
+              phase: 'planning',
+              timestamp: Date.now(),
+            },
+            {
+              id: 4,
+              label: 'Check node resources',
+              status: 'pending',
+              phase: 'planning',
+              timestamp: Date.now(),
+            },
+          ]),
+        3000
+      ),
+      setTimeout(
+        () =>
+          setSteps(prev => [
+            ...prev.map(s => ({ ...s, status: 'completed' as const })),
+            {
+              id: 5,
+              label: 'Running kubectl get pods',
+              status: 'running',
+              phase: 'executing',
+              timestamp: Date.now(),
+            },
+          ]),
+        4000
+      ),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  return (
+    <div
+      style={{
+        height: 300,
+        overflow: 'auto',
+        border: '1px solid #ccc',
+        padding: 16,
+      }}
+    >
+      {/* Filler content to push thinking steps below the fold */}
+      {Array.from({ length: 8 }, (_, i) => (
+        <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid #eee' }}>
+          Previous conversation message {i + 1}
+        </div>
+      ))}
+      <div
+        style={{
+          padding: 12,
+          margin: '8px 0',
+          background: '#e3f2fd',
+          borderRadius: 4,
+        }}
+      >
+        <strong>You:</strong> Why are my pods crashing in the production namespace?
+      </div>
+      <AgentThinkingSteps steps={steps} isRunning={steps.length > 0} />
+    </div>
+  );
+};
+
+/**
+ * User scrolled away: scroll the container to the top before steps arrive.
+ * The component should NOT yank the viewport back down.
+ */
+export const ScrolledAway: StoryFn<typeof AgentThinkingSteps> = () => {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [steps, setSteps] = React.useState<AgentThinkingStep[]>([]);
+
+  React.useEffect(() => {
+    // Start scrolled to the top (simulating user scrolled away)
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0;
+    }
+
+    const timers = [
+      setTimeout(
+        () =>
+          setSteps([
+            {
+              id: 1,
+              label: 'Connecting to cluster',
+              status: 'running',
+              phase: 'init',
+              timestamp: Date.now(),
+            },
+          ]),
+        500
+      ),
+      setTimeout(
+        () =>
+          setSteps(prev => [
+            { ...prev[0], status: 'completed' as const },
+            {
+              id: 2,
+              label: 'Loading context',
+              status: 'running',
+              phase: 'init',
+              timestamp: Date.now(),
+            },
+          ]),
+        1500
+      ),
+      setTimeout(
+        () =>
+          setSteps(prev => [
+            ...prev.map(s => ({ ...s, status: 'completed' as const })),
+            {
+              id: 3,
+              label: 'Analyze pod health',
+              status: 'running',
+              phase: 'planning',
+              timestamp: Date.now(),
+            },
+          ]),
+        2500
+      ),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        height: 200,
+        overflow: 'auto',
+        border: '1px solid #ccc',
+        padding: 16,
+      }}
+    >
+      {/* Lots of filler to make the container scrollable */}
+      {Array.from({ length: 20 }, (_, i) => (
+        <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid #eee' }}>
+          Old message {i + 1}
+        </div>
+      ))}
+      <div
+        style={{
+          padding: 12,
+          margin: '8px 0',
+          background: '#e3f2fd',
+          borderRadius: 4,
+        }}
+      >
+        <strong>You:</strong> Why are my pods crashing?
+      </div>
+      <AgentThinkingSteps steps={steps} isRunning={steps.length > 0} />
+    </div>
+  );
+};
