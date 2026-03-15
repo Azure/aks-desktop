@@ -45,6 +45,27 @@
       "ignoreBinaries": [
         "prettier"
       ]
+    },
+    "plugins/ai-assistant": {
+      "entry": [
+        "src/index.tsx"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ],
+      "ignore": [
+        "dist/**",
+        "src/**/*.d.ts"
+      ],
+      "ignoreDependencies": [
+        "@iconify/react",
+        "@monaco-editor/react",
+        "@mui/material",
+        "react-router-dom"
+      ],
+      "ignoreBinaries": [
+        "prettier"
+      ]
     }
   },
   "ignoreDependencies": [

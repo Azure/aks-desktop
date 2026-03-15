@@ -35,47 +35,58 @@ if (!fs.existsSync(externalToolsDir)) {
   console.log(`To re-setup, remove: ${externalToolsDir}`);
 }
 
-// Go to the plugin directory
-const pluginDir = path.join(ROOT_DIR, 'plugins', 'aks-desktop');
-process.chdir(pluginDir);
-
 // Ensure we are in the repository with the headlamp directory
 if (!fs.existsSync(path.join(ROOT_DIR, 'headlamp'))) {
   console.log("Error: Headlamp repository directory 'headlamp' not found.");
-  console.log(`Current directory: ${process.cwd()}`);
   console.log(`Root directory: ${ROOT_DIR}`);
-  console.log(fs.readdirSync('.'));
+  console.log(fs.readdirSync(ROOT_DIR));
   process.exit(1);
 }
 
-// Get the current plugin name from package.json
-const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
-const pluginName = packageJson.name;
+// List of plugins to build and bundle
+const PLUGINS = ['aks-desktop', 'ai-assistant'];
 
-console.log(`Building plugin: ${pluginName}`);
+for (const plugin of PLUGINS) {
+  const pluginDir = path.join(ROOT_DIR, 'plugins', plugin);
 
-// Build the aks-plugin
-execSync('npm install && npm run build', { stdio: 'inherit' });
+  if (!fs.existsSync(pluginDir)) {
+    console.log(`Warning: Plugin directory not found: ${pluginDir}. Skipping.`);
+    continue;
+  }
 
-console.log(`Copying built files for plugin: ${pluginName}`);
-const targetDir = path.join(ROOT_DIR, 'headlamp', '.plugins', pluginName);
-fs.mkdirSync(targetDir, { recursive: true });
+  process.chdir(pluginDir);
 
-// Copy dist folder contents
-const distDir = path.join(pluginDir, 'dist');
-fs.readdirSync(distDir).forEach((file) => {
-  const src = path.join(distDir, file);
-  const dest = path.join(targetDir, file);
-  fs.cpSync(src, dest, { recursive: true });
-});
+  // Get the current plugin name from package.json
+  const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
+  const pluginName = packageJson.name;
 
-// Copy package.json
-fs.copyFileSync('./package.json', path.join(targetDir, 'package.json'));
+  console.log('==========================================');
+  console.log(`Building plugin: ${pluginName}`);
+  console.log('==========================================');
+
+  // Build the plugin
+  execSync('npm install && npm run build', { stdio: 'inherit' });
+
+  console.log(`Copying built files for plugin: ${pluginName}`);
+  const targetDir = path.join(ROOT_DIR, 'headlamp', '.plugins', pluginName);
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  // Copy dist folder contents
+  const distDir = path.join(pluginDir, 'dist');
+  fs.readdirSync(distDir).forEach((file) => {
+    const src = path.join(distDir, file);
+    const dest = path.join(targetDir, file);
+    fs.cpSync(src, dest, { recursive: true });
+  });
+
+  // Copy package.json
+  fs.copyFileSync('./package.json', path.join(targetDir, 'package.json'));
+
+  console.log(`Plugin ${pluginName} has been built and copied to ${targetDir}`);
+}
 
 // List the contents of the headlamp plugins directory
 console.log(
-  'Listing contents of headlamp .plugins directory after copying plugin'
+  'Listing contents of headlamp .plugins directory after copying plugins'
 );
 console.log(fs.readdirSync(path.join(ROOT_DIR, 'headlamp', '.plugins')));
-
-console.log(`Plugin ${pluginName} has been built and copied to ${targetDir}`);

@@ -23,11 +23,17 @@
     "plugin:test:all": "cd plugins/aks-desktop && npm run test:all",
     "plugin:format": "cd plugins/aks-desktop && npm run format",
     "plugin:package": "cd plugins/aks-desktop && npm run package",
+    "ai-assistant:install": "cd plugins/ai-assistant && npm install",
+    "ai-assistant:build": "cd plugins/ai-assistant && npm run build",
+    "ai-assistant:start": "cd plugins/ai-assistant && npm start",
+    "ai-assistant:test": "cd plugins/ai-assistant && npm test",
+    "ai-assistant:lint": "cd plugins/ai-assistant && npm run lint",
+    "ai-assistant:format": "cd plugins/ai-assistant && npm run format",
     "headlamp:install": "cd headlamp/frontend && npm install && cd ../app && npm install",
     "headlamp:build": "cd headlamp && make backend && make frontend",
-    "install:all": "npm run headlamp:install && npm run plugin:install",
-    "build:all": "npm run headlamp:build && npm run plugin:build",
-    "dev": "concurrently --kill-others --names \"PLUGIN,BACKEND,FRONTEND,APP\" -c \"cyan,green,yellow,magenta\" \"npm run plugin:start\" \"cd headlamp && make run-backend\" \"cd headlamp && make run-frontend\" \"cd headlamp && make run-only-app\"",
+    "install:all": "npm run headlamp:install && npm run plugin:install && npm run ai-assistant:install",
+    "build:all": "npm run headlamp:build && npm run plugin:build && npm run ai-assistant:build",
+    "dev": "concurrently --kill-others --names \"PLUGIN,AI-ASSISTANT,BACKEND,FRONTEND,APP\" -c \"cyan,blue,green,yellow,magenta\" \"npm run plugin:start\" \"npm run ai-assistant:start\" \"cd headlamp && make run-backend\" \"cd headlamp && make run-frontend\" \"cd headlamp && make run-only-app\"",
     "prepare": "husky",
     "knip": "knip",
     "i18n:collect": "node Localize/translation-manager.mjs collect",
@@ -73,6 +79,12 @@
     ],
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx,json,css,scss,md}": [
       "node .husky/format-plugin.js"
+    ],
+    "plugins/ai-assistant/**/*.{js,jsx,ts,tsx}": [
+      "node .husky/lint-ai-assistant.js"
+    ],
+    "plugins/ai-assistant/**/*.{js,jsx,ts,tsx,json,css,scss,md}": [
+      "node .husky/format-ai-assistant.js"
     ]
   },
   "repository": {
