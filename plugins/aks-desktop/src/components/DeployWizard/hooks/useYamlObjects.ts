@@ -56,5 +56,5 @@ export function useYamlObjects(
     } catch {
       return [];
     }
-  }, [sourceType, userPreviewYaml, yamlEditorValue, t]);
+  }, [sourceType, userPreviewYaml, yamlEditorValue]);
 }

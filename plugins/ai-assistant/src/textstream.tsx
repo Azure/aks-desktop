@@ -266,7 +266,7 @@ const TextStreamContainer = React.memo(function TextStreamContainer({
         handleYamlDetected(yaml, resourceType);
       }
     },
-    [onYamlAction, handleYamlDetected, t]
+    [onYamlAction, handleYamlDetected]
   );
 
   const renderMessage = useCallback(
@@ -349,7 +349,7 @@ const TextStreamContainer = React.memo(function TextStreamContainer({
         </Box>
       );
     },
-    [history.length, theme.palette, memoizedOnYamlDetected, t]
+    [history.length, theme.palette, memoizedOnYamlDetected]
   );
 
   return (

@@ -229,7 +229,7 @@ export const useDeploymentHealth = (
       isCancelled = true;
       cancelFns.forEach(fn => fn());
     };
-  }, [appName, namespace, cluster, enabled, t]);
+  }, [appName, namespace, cluster, enabled]);
 
   return { deploymentReady, podStatuses, serviceEndpoint, error };
 };

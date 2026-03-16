@@ -73,7 +73,7 @@ export const usePipelineRuns = (
       setRuns(allRuns.slice(0, 10));
       setLoading(false);
     },
-    [octokit, stableRepos, t]
+    [octokit, stableRepos]
   );
 
   useEffect(() => {

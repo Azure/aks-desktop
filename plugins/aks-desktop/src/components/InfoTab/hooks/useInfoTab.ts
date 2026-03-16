@@ -187,7 +187,7 @@ export const useInfoTab = (project: {
     return () => {
       isMounted = false;
     };
-  }, [clusterName, projectId, subscription, resourceGroup, t]);
+  }, [clusterName, projectId, subscription, resourceGroup]);
 
   // Pre-populate form when namespace details are fetched
   useEffect(() => {
@@ -278,7 +278,7 @@ export const useInfoTab = (project: {
     } finally {
       setUpdating(false);
     }
-  }, [resourceGroup, clusterName, projectId, formData, t]);
+  }, [resourceGroup, clusterName, projectId, formData]);
 
   return {
     loading,

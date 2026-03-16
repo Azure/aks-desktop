@@ -71,7 +71,7 @@ export const useAzureContext = (
     return () => {
       cancelled = true;
     };
-  }, [cluster, azureAuth.isLoggedIn, azureAuth.tenantId, t]);
+  }, [cluster, azureAuth.isLoggedIn, azureAuth.tenantId]);
 
   return { azureContext, error };
 };

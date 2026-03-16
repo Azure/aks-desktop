@@ -86,7 +86,7 @@ function CreateNamespaceContent() {
       errors.push(t('Namespace name must be 63 characters or fewer'));
     }
     return { isValid: errors.length === 0, errors };
-  }, [selectedCluster, namespaceName, t]);
+  }, [selectedCluster, namespaceName]);
 
   const handleSubmit = async () => {
     try {
