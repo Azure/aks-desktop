@@ -49,6 +49,7 @@ export default function PodDebugSettings(props: SettingsProps) {
     useTypedSelector(state => state.config?.defaultPodDebugImage) || DEFAULT_POD_DEBUG_IMAGE;
 
   const podDebugLabelID = 'pod-debug-enabled-label';
+  const debugImageLabelID = 'debug-image-label';
 
   const image = clusterSettings.podDebugTerminal?.debugImage ?? '';
   const isEnabled = clusterSettings.podDebugTerminal?.isEnabled ?? true;
@@ -82,7 +83,7 @@ export default function PodDebugSettings(props: SettingsProps) {
             ),
           },
           {
-            name: 'Debug Image',
+            name: <span id={debugImageLabelID}>{t('translation|Debug Image')}</span>,
             value: (
               <TextField
                 onChange={event => {
@@ -91,6 +92,9 @@ export default function PodDebugSettings(props: SettingsProps) {
                 }}
                 value={image}
                 placeholder={defaultPodDebugImage}
+                inputProps={{
+                  'aria-labelledby': debugImageLabelID,
+                }}
                 helperText={t(
                   'translation|The default image is used for creating ephemeral debug containers.'
                 )}
