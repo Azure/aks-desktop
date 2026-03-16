@@ -167,8 +167,7 @@ function distribute() {
         );
 
         const targetPath = path.join(source.localesDir, lang, `${ns}.json`);
-        const existing = readJson(targetPath) ?? {};
-        writeJson(targetPath, { ...existing, ...withoutComments });
+        writeJson(targetPath, withoutComments);
         updated++;
       }
     }
