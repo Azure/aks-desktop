@@ -4,6 +4,7 @@
 import {
   Headlamp,
   registerAddClusterProvider,
+  registerAppBarAction,
   registerAppLogo,
   registerAppTheme,
   registerCustomCreateProject,
@@ -15,6 +16,7 @@ import {
   registerProjectOverviewSection,
   registerRoute,
   registerSidebarEntry,
+  useTranslation,
 } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
 import { Redirect } from 'react-router-dom';
@@ -44,6 +46,148 @@ import ScalingTab from './components/Scaling/ScalingTab';
 import { getLoginStatus } from './utils/azure/az-cli';
 import { isAksProject } from './utils/shared/isAksProject';
 import { azureTheme } from './utils/shared/theme';
+
+/** Stores the latest t() for use outside React component scope (e.g. event handlers). */
+let tFunc: ((key: string) => string) | null = null;
+
+function TranslatedLabel({ children }: { children: string }) {
+  const { t } = useTranslation();
+  return <>{t(children)}</>;
+}
+
+/** Re-registers entries with translated strings when the UI language changes. */
+function TranslatedRegistrations() {
+  const { t, i18n } = useTranslation();
+
+  React.useEffect(() => {
+    tFunc = t;
+
+    Headlamp.setAppMenu(menus => {
+      const helpMenu = menus?.find(menu => menu.id === 'original-help');
+      if (helpMenu && helpMenu.submenu) {
+        const docIndex = helpMenu.submenu.findIndex(item => item.id === 'original-documentation');
+        if (docIndex !== -1) {
+          helpMenu.submenu[docIndex] = {
+            label: t('Documentation'),
+            id: 'aks-documentation',
+            url: 'https://aka.ms/aks/aks-desktop',
+          };
+        }
+        const issueIndex = helpMenu.submenu.findIndex(item => item.id === 'original-open-issue');
+        if (issueIndex !== -1) {
+          helpMenu.submenu[issueIndex] = {
+            label: t('Open an Issue'),
+            id: 'aks-open-issue',
+            url: 'https://github.com/Azure/aks-desktop/issues',
+          };
+        }
+      }
+      return menus;
+    });
+
+    registerRoute({
+      path: '/azure/login',
+      // @ts-ignore todo: fix component type
+      component: AzureLoginPage,
+      name: t('Azure Login'),
+      exact: true,
+      sidebar: { item: 'azure-profile', sidebar: 'HOME' },
+      noAuthRequired: true,
+      useClusterURL: false,
+    });
+
+    registerRoute({
+      path: '/azure/profile',
+      component: AzureProfilePage,
+      name: t('Azure Profile'),
+      sidebar: { sidebar: 'HOME', item: 'azure-profile' },
+      exact: true,
+      noAuthRequired: true,
+      useClusterURL: false,
+    });
+
+    registerRoute({
+      path: '/projects/create-aks-project',
+      component: CreateAKSProject,
+      name: t('Create a new AKS project'),
+      sidebar: { sidebar: 'HOME', item: 'projects' },
+      exact: true,
+      noAuthRequired: true,
+      useClusterURL: false,
+    });
+
+    registerRoute({
+      path: '/projects/import-aks-projects',
+      component: ImportAKSProjects,
+      name: t('Import AKS Projects'),
+      sidebar: { sidebar: 'HOME', item: 'projects' },
+      exact: true,
+      noAuthRequired: true,
+      useClusterURL: false,
+    });
+
+    registerCustomCreateProject({
+      id: 'use-existing-namespace',
+      name: t('Use Existing Namespace(s)'),
+      description: t('Select namespaces to use as a project'),
+      component: () => <Redirect to="/projects/import-aks-projects" />,
+      icon: 'mdi:import',
+    });
+
+    registerRoute({
+      path: '/projects/create-namespace',
+      component: CreateNamespace,
+      name: t('Create New Namespace'),
+      sidebar: { sidebar: 'HOME', item: 'projects' },
+      exact: true,
+      noAuthRequired: true,
+      useClusterURL: false,
+    });
+
+    registerCustomCreateProject({
+      id: 'create-namespace',
+      name: t('Create New Namespace'),
+      description: t('New namespace with resources as a project'),
+      component: () => <Redirect to="/projects/create-namespace" />,
+      icon: 'mdi:folder-add',
+    });
+
+    registerCustomCreateProject({
+      id: 'create-aks-managed-namespace',
+      name: t('Create New AKS Managed Namespace'),
+      description: t('Create new AKS managed namespace and use as a project'),
+      component: () => <Redirect to="/projects/create-aks-project" />,
+      icon: 'logos:microsoft-azure',
+    });
+
+    registerAddClusterProvider({
+      title: t('Azure Kubernetes Service'),
+      // @ts-ignore todo fix registerAddClusterProvider icon to take string
+      icon: 'logos:microsoft-azure',
+      description: t(
+        'Connect to an existing AKS (Azure Kubernetes Service) cluster from your Azure subscription. Requires Azure CLI authentication.'
+      ),
+      url: '/add-cluster-aks',
+    });
+
+    registerRoute({
+      path: '/add-cluster-aks',
+      component: RegisterAKSClusterPage,
+      name: t('Register AKS Cluster'),
+      sidebar: null,
+      exact: true,
+      useClusterURL: false,
+      noAuthRequired: true,
+    });
+
+    // Re-use the existing azure-auth-update event to trigger
+    // updateAzureAccountLabel, which will re-register the sidebar entry with
+    // the translated 'Azure Account' label (via tFunc) when not logged in.
+    window.dispatchEvent(new Event('azure-auth-update'));
+  }, [i18n.language, t]);
+
+  return null;
+}
 
 Headlamp.setAppMenu(menus => {
   // Find the Help menu
@@ -142,7 +286,7 @@ if (Headlamp.isRunningAsApp()) {
           url: '/azure/profile',
           icon: 'mdi:account-circle',
           parent: null,
-          label: 'Azure Account',
+          label: tFunc ? tFunc('Azure Account') : 'Azure Account',
           useClusterURL: false,
           sidebar: 'HOME',
         });
@@ -293,6 +437,9 @@ if (Headlamp.isRunningAsApp()) {
     useClusterURL: false,
     noAuthRequired: true,
   });
+
+  // Re-register translatable entries when UI language changes
+  registerAppBarAction(TranslatedRegistrations);
 }
 
 registerPluginSettings('aks-desktop', PreviewFeaturesSettings, false);
@@ -336,14 +483,14 @@ registerProjectOverviewSection({
 
 registerProjectDetailsTab({
   id: 'info',
-  label: 'Info',
+  label: <TranslatedLabel>Info</TranslatedLabel>,
   icon: 'mdi:information',
   component: ({ project }) => <InfoTab project={project} />,
 });
 
 registerProjectDetailsTab({
   id: 'deploy',
-  label: 'Deploy',
+  label: <TranslatedLabel>Deploy</TranslatedLabel>,
   icon: 'mdi:cloud-upload',
   isEnabled: isAksProject,
   component: ({ project }) => (
@@ -355,14 +502,14 @@ registerProjectDetailsTab({
 
 registerProjectDetailsTab({
   id: 'logs',
-  label: 'Logs',
+  label: <TranslatedLabel>Logs</TranslatedLabel>,
   icon: 'mdi:text-box-multiple-outline',
   component: LogsTab,
 });
 
 registerProjectDetailsTab({
   id: 'metrics',
-  label: 'Metrics',
+  label: <TranslatedLabel>Metrics</TranslatedLabel>,
   icon: 'mdi:chart-line',
   isEnabled: isAksProject,
   component: ({ project }) => <MetricsTab project={project} />,
@@ -370,7 +517,7 @@ registerProjectDetailsTab({
 
 registerProjectDetailsTab({
   id: 'scaling',
-  label: 'Scaling',
+  label: <TranslatedLabel>Scaling</TranslatedLabel>,
   icon: 'mdi:chart-timeline-variant',
   isEnabled: isAksProject,
   component: ({ project }) => <ScalingTab project={project} />,
