@@ -32,7 +32,7 @@ jobs:
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
           cache-dependency-path: plugins/${{ matrix.plugin }}/package-lock.json
 
       - name: Install dependencies
@@ -65,7 +65,7 @@ jobs:
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
           cache-dependency-path: plugins/${{ matrix.plugin }}/package-lock.json
 
       - name: Install dependencies
@@ -96,7 +96,7 @@ jobs:
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
           cache-dependency-path: plugins/${{ matrix.plugin }}/package-lock.json
 
       - name: Install dependencies
@@ -120,10 +120,6 @@ jobs:
   translations:
     name: Translations
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: plugins/aks-desktop
-
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -133,17 +129,36 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-          cache-dependency-path: plugins/aks-desktop/package-lock.json
+          cache-dependency-path: |
+            plugins/aks-desktop/package-lock.json
+            plugins/ai-assistant/package-lock.json
 
-      - name: Install dependencies
+      - name: Install dependencies (aks)
+        working-directory: plugins/aks-desktop
         run: npm ci
 
+      - name: Install dependencies (ai)
+        working-directory: plugins/ai-assistant
+        run: npm ci
+
+      - name: Generate English locale (aks)
+        working-directory: plugins/aks-desktop
+        run: npm run i18n
+
+      - name: Generate English locale (ai)
+        working-directory: plugins/ai-assistant
+        run: npm run i18n
+
+      - name: Collect translations
+        working-directory: .
+        run: npm run i18n:collect
+
       - name: Check translations are up to date
+        working-directory: .
         run: |
-          npm run i18n
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "::error::Translation files are out of date. Run 'npm run i18n' locally and commit the changes."
-            git diff --stat
+          if [ -n "$(git status --porcelain Localize/)" ]; then
+            echo "::error::Translation files are out of date. Run 'npm run i18n:collect' locally and commit the changes."
+            git diff Localize/
             exit 1
           fi
 

@@ -112,7 +112,10 @@ function collect() {
       if (!data) continue;
 
       const output = {};
-      for (const [key, value] of Object.entries(data)) {
+      const sortedEntries = Object.entries(data).sort(([a], [b]) =>
+        a.localeCompare(b),
+      );
+      for (const [key, value] of sortedEntries) {
         output[key] = value;
         const comment = lockedComment(String(value));
         if (comment) output[`_${key}.comment`] = comment;
