@@ -67,6 +67,8 @@ function restoreFetch() {
   global.fetch = originalFetch;
 }
 
+const TEST_REDIRECT_URI = 'test-app://oauth/callback';
+
 describe('handleOAuthCallback', () => {
   let mockMainWindow: ReturnType<typeof createMockMainWindow>;
 
@@ -86,8 +88,8 @@ describe('handleOAuthCallback', () => {
   it('rejects mismatched CSRF state', async () => {
     setPendingState('expected-state');
 
-    const url = new URL('headlamp://oauth/callback?code=test-code&state=wrong-state');
-    await handleOAuthCallback(url, mockMainWindow);
+    const url = new URL('test-app://oauth/callback?code=test-code&state=wrong-state');
+    await handleOAuthCallback(url, mockMainWindow, TEST_REDIRECT_URI);
 
     expect(mockMainWindow.webContents.send).toHaveBeenCalledWith(GITHUB_OAUTH_CALLBACK, {
       success: false,
@@ -99,8 +101,8 @@ describe('handleOAuthCallback', () => {
   it('rejects missing code parameter', async () => {
     setPendingState('some-state');
 
-    const url = new URL('headlamp://oauth/callback?state=some-state');
-    await handleOAuthCallback(url, mockMainWindow);
+    const url = new URL('test-app://oauth/callback?state=some-state');
+    await handleOAuthCallback(url, mockMainWindow, TEST_REDIRECT_URI);
 
     expect(mockMainWindow.webContents.send).toHaveBeenCalledWith(GITHUB_OAUTH_CALLBACK, {
       success: false,
@@ -111,8 +113,8 @@ describe('handleOAuthCallback', () => {
 
   it('rejects when no pending flow exists', async () => {
     // pendingState is null by default
-    const url = new URL('headlamp://oauth/callback?code=test-code&state=some-state');
-    await handleOAuthCallback(url, mockMainWindow);
+    const url = new URL('test-app://oauth/callback?code=test-code&state=some-state');
+    await handleOAuthCallback(url, mockMainWindow, TEST_REDIRECT_URI);
 
     expect(mockMainWindow.webContents.send).toHaveBeenCalledWith(GITHUB_OAUTH_CALLBACK, {
       success: false,
@@ -130,8 +132,8 @@ describe('handleOAuthCallback', () => {
       expires_in: 28800,
     });
 
-    const url = new URL('headlamp://oauth/callback?code=auth-code-123&state=valid-state');
-    await handleOAuthCallback(url, mockMainWindow);
+    const url = new URL('test-app://oauth/callback?code=auth-code-123&state=valid-state');
+    await handleOAuthCallback(url, mockMainWindow, TEST_REDIRECT_URI);
 
     const sendCall = mockMainWindow.webContents.send.mock.calls[0];
     expect(sendCall[0]).toBe(GITHUB_OAUTH_CALLBACK);
@@ -154,8 +156,8 @@ describe('handleOAuthCallback', () => {
       expires_in: 3600,
     });
 
-    const url = new URL('headlamp://oauth/callback?code=code-456&state=valid-state');
-    await handleOAuthCallback(url, mockMainWindow);
+    const url = new URL('test-app://oauth/callback?code=code-456&state=valid-state');
+    await handleOAuthCallback(url, mockMainWindow, TEST_REDIRECT_URI);
 
     expect(handleSecureStorageSave).toHaveBeenCalledWith(
       expect.stringContaining('secure-storage.json'),
@@ -172,8 +174,8 @@ describe('handleOAuthCallback', () => {
       error_description: 'The code passed is incorrect or expired.',
     });
 
-    const url = new URL('headlamp://oauth/callback?code=expired-code&state=valid-state');
-    await handleOAuthCallback(url, mockMainWindow);
+    const url = new URL('test-app://oauth/callback?code=expired-code&state=valid-state');
+    await handleOAuthCallback(url, mockMainWindow, TEST_REDIRECT_URI);
 
     expect(mockMainWindow.webContents.send).toHaveBeenCalledWith(GITHUB_OAUTH_CALLBACK, {
       success: false,
@@ -186,8 +188,8 @@ describe('handleOAuthCallback', () => {
 
     mockFetchResponse({}, false, 502);
 
-    const url = new URL('headlamp://oauth/callback?code=code-789&state=valid-state');
-    await handleOAuthCallback(url, mockMainWindow);
+    const url = new URL('test-app://oauth/callback?code=code-789&state=valid-state');
+    await handleOAuthCallback(url, mockMainWindow, TEST_REDIRECT_URI);
 
     expect(mockMainWindow.webContents.send).toHaveBeenCalledWith(GITHUB_OAUTH_CALLBACK, {
       success: false,

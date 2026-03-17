@@ -40,9 +40,9 @@
     "asar": false,
     "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
     "protocols": {
-      "name": "headlamp-protocol",
+      "name": "aks-desktop-protocol",
       "schemes": [
-        "headlamp"
+        "aks-desktop"
       ]
     },
     "nsis": {

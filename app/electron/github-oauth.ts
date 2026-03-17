@@ -19,7 +19,8 @@
 // aksd: GitHub OAuth web flow — handles auth start, deep-link callback, and token refresh
 // entirely in the Electron main process to avoid CORS issues and eliminate the backend proxy.
 //
-// In production the callback arrives via the `headlamp://oauth/callback` custom URL scheme.
+// In production the callback arrives via the app's custom URL scheme (e.g. `aks-desktop://oauth/callback`).
+// The scheme is passed in from the main process via setupGitHubOAuthHandlers({ protocolScheme }).
 // In dev mode (ELECTRON_DEV) we spin up a temporary localhost HTTP server instead, because
 // custom URL schemes are not registered during development (especially under WSL2).
 
@@ -38,7 +39,6 @@ export const CLIENT_ID = 'Iv23liWWbvrfIrA6WWj5';
 // native apps SHOULD NOT be treated as confidential. Security relies on the registered redirect
 // URI, not the secret. GitHub Desktop, VS Code, and other Electron apps follow this pattern.
 export const CLIENT_SECRET = '5a066cc6ca8d2c6f201c45f24f2f4e62905b5d95';
-export const REDIRECT_URI = 'headlamp://oauth/callback';
 export const DEV_CALLBACK_PORT = 48321;
 export const DEV_REDIRECT_URI = `http://localhost:${DEV_CALLBACK_PORT}/oauth/callback`;
 export const STORAGE_KEY = 'aks-desktop:github-auth';
@@ -154,10 +154,12 @@ function startDevCallbackServer(getMainWindow: () => BrowserWindow | null): void
 export function setupGitHubOAuthHandlers(options?: {
   isDev?: boolean;
   getMainWindow?: () => BrowserWindow | null;
+  protocolScheme?: string;
 }): void {
   const isDev = options?.isDev ?? false;
   const getMainWindow = options?.getMainWindow ?? (() => null);
-  const redirectUri = isDev ? DEV_REDIRECT_URI : REDIRECT_URI;
+  const prodRedirectUri = `${options?.protocolScheme ?? 'headlamp'}://oauth/callback`;
+  const redirectUri = isDev ? DEV_REDIRECT_URI : prodRedirectUri;
 
   ipcMain.handle(GITHUB_OAUTH_START, async () => {
     try {
@@ -249,7 +251,7 @@ export function setupGitHubOAuthHandlers(options?: {
 export async function handleOAuthCallback(
   url: URL,
   mainWindow: BrowserWindow,
-  redirectUri: string = REDIRECT_URI
+  redirectUri: string
 ): Promise<void> {
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
