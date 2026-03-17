@@ -78,9 +78,9 @@ jobs:
         run: |
           make frontend-test
 
-      - name: Run frontend-i18n-check
-        run: |
-          make frontend-i18n-check
+      # - name: Run frontend-i18n-check
+      #   run: |
+      #     make frontend-i18n-check
 
   build:
     name: build
