@@ -15,82 +15,55 @@ Please download the latest release for your platform from the [Releases](https:/
 
 ## Development
 
-To run AKS desktop locally, follow these steps:
+### Prerequisites
 
-1. Clone the repository:
+- [Node.js](https://nodejs.org/) 20+
+- [Go](https://go.dev/) 1.22+ (for the Headlamp backend)
+- [Git](https://git-scm.com/)
+- GNU Make — included on macOS/Linux; on Windows install via `winget install GnuWin32.Make` or [Chocolatey](https://community.chocolatey.org/packages/make) (`choco install make`)
 
-   ```bash
-   git clone --recurse-submodules https://github.com/Azure/aks-desktop.git
-   ```
+### Quick start
 
-2. Navigate to the project directory:
+```bash
+git clone --recurse-submodules https://github.com/Azure/aks-desktop.git
+cd aks-desktop
+npm run setup    # resets submodule, installs deps, builds backend
+npm run dev      # starts the app in development mode
+```
 
-   ```bash
-   cd aks-desktop
-   ```
+### Optional: use system Azure CLI
 
-3. Install the dependencies:
+If you already have [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) installed and want to skip the bundled download:
 
-   ```bash
-   ./scripts/headlamp-submodule.sh --reset
-   npm install
-   npm run install:all
-   ```
+```bash
+# Linux / macOS
+AKS_DESKTOP_SYSTEM_AZ=1 npm run setup
 
-4. Check for the resource folder:
+# Windows (cmd)
+set AKS_DESKTOP_SYSTEM_AZ=1 && npm run setup
 
-   Ensure that the `resources` folder exists in the `headlamp/app` directory.
-   If `headlamp/app/resources` does not exist, run the following command from the root directory.
+# Windows (PowerShell)
+$env:AKS_DESKTOP_SYSTEM_AZ="1"; npm run setup
+```
 
-   ```bash
-   npm run plugin:setup
-   ```
+### Manual steps (if you prefer)
 
-5. Build the Headlamp backend server:
-
-   Navigate to the `headlamp` directory and build the backend server
-
-   ```bash
-   cd headlamp
-   make backend
-   ```
-
-6. Start the application at the root directory:
-
-   Navigate back to the root directory and start the application in development mode:
-
-   ```bash
-   npm run dev
-   ```
+```bash
+node scripts/setup-submodule.mjs   # or: ./scripts/headlamp-submodule.sh --reset
+npm ci
+npm run install:all                # installs headlamp, plugin, and ai-assistant in parallel
+cd headlamp && make backend && cd ..
+npm run dev
+```
 
 ## How to Build
 
-To get started with AKS desktop, follow these steps:
-
-1. Clone the repository:
-
-   ```bash
-   git clone --recurse-submodules https://github.com/Azure/aks-desktop.git
-   ```
-
-2. Navigate to the project directory:
-
-   ```bash
-   cd aks-desktop
-   ```
-
-3. Install the dependencies:
-
-   ```bash
-   ./scripts/headlamp-submodule.sh --reset
-   npm install
-   npm run install:all
-   ```
-
-4. Build the project:
-   ```bash
-   npm run build
-   ```
+```bash
+git clone --recurse-submodules https://github.com/Azure/aks-desktop.git
+cd aks-desktop
+npm run setup
+npm run build
+```
 
 ## Documentation
 

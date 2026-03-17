@@ -35,19 +35,53 @@ const EXTERNAL_TOOLS_DIR = path.join(ROOT_DIR, 'headlamp', 'app', 'resources', '
 const EXTERNAL_TOOLS_BIN = path.join(EXTERNAL_TOOLS_DIR, 'bin');
 const AZ_CLI_DIR = path.join(EXTERNAL_TOOLS_DIR, 'az-cli', PLATFORM);
 
-// Download and install Azure CLI
+// Download and install Azure CLI (or use system az if AKS_DESKTOP_SYSTEM_AZ is set)
 console.log('==========================================');
 console.log('Installing Azure CLI...');
 console.log('==========================================');
 
-try {
-  execSync(`npx --yes tsx "${path.join(SCRIPT_DIR, 'download-az-cli.ts')}"`, {
-    stdio: 'inherit',
-    cwd: ROOT_DIR
-  });
-} catch (error) {
-  console.error('❌ ERROR: Failed to install Azure CLI');
-  process.exit(1);
+if (process.env.AKS_DESKTOP_SYSTEM_AZ) {
+  // Check if system az is available
+  try {
+    const azVersion = execSync('az version --output tsv', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    console.log('Using system Azure CLI installation:');
+    console.log(azVersion.trim());
+    console.log('');
+    console.log('Skipping bundled Azure CLI download (AKS_DESKTOP_SYSTEM_AZ is set).');
+
+    // Create the az-cli directory structure so the rest of the setup doesn't fail
+    const azCliBinDir = path.join(AZ_CLI_DIR, 'bin');
+    fs.mkdirSync(azCliBinDir, { recursive: true });
+
+    // Create a wrapper that delegates to the system az using its absolute path.
+    // This avoids infinite recursion since Electron prepends az-cli/bin to PATH at runtime.
+    if (PLATFORM === 'win32') {
+      const systemAzPath = execSync('where az', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim().split(/\r?\n/)[0];
+      fs.writeFileSync(path.join(azCliBinDir, 'az.cmd'), `@echo off\r\ncall "${systemAzPath}" %*\r\n`);
+    } else {
+      const systemAzPath = execSync('command -v az', { encoding: 'utf-8', shell: '/bin/sh', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+      fs.writeFileSync(path.join(azCliBinDir, 'az-wrapper'), `#!/bin/sh\nexec "${systemAzPath}" "$@"\n`, { mode: 0o755 });
+      const azSymlink = path.join(azCliBinDir, 'az');
+      if (fs.existsSync(azSymlink)) fs.unlinkSync(azSymlink);
+      fs.symlinkSync('az-wrapper', azSymlink);
+    }
+
+    console.log('✅ System Azure CLI wrapper created');
+  } catch {
+    console.error('❌ ERROR: AKS_DESKTOP_SYSTEM_AZ is set but "az" was not found on PATH.');
+    console.error('   Install Azure CLI or unset AKS_DESKTOP_SYSTEM_AZ to download it automatically.');
+    process.exit(1);
+  }
+} else {
+  try {
+    execSync(`npx --yes tsx "${path.join(SCRIPT_DIR, 'download-az-cli.ts')}"`, {
+      stdio: 'inherit',
+      cwd: ROOT_DIR
+    });
+  } catch (error) {
+    console.error('❌ ERROR: Failed to install Azure CLI');
+    process.exit(1);
+  }
 }
 
 console.log('');
