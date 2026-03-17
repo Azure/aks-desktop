@@ -2569,16 +2569,108 @@ export async function createManagedNamespace(options: {
   }
 }
 
+// Resolve an email address to an Azure AD object ID
+export async function resolveUserObjectId(
+  email: string
+): Promise<{ success: boolean; objectId?: string; error?: string }> {
+  try {
+    // Escape single quotes for OData filter syntax
+    const safeEmail = email.replace(/'/g, "''");
+
+    // Try matching by mail first
+    const mailArgs = [
+      'ad',
+      'user',
+      'list',
+      '--filter',
+      `mail eq '${safeEmail}'`,
+      '--query',
+      '[0].id',
+      '-o',
+      'tsv',
+    ];
+
+    debugLog('Looking up user by mail:', 'az', mailArgs.join(' '));
+    const { stdout: mailStdout, stderr: mailStderr } = await runCommandAsync('az', mailArgs);
+
+    if (mailStderr && needsRelogin(mailStderr)) {
+      return {
+        success: false,
+        error: 'Authentication required. Please log in to Azure CLI: az login',
+      };
+    }
+
+    if (mailStderr && (mailStderr.includes('ERROR') || mailStderr.includes('error'))) {
+      return {
+        success: false,
+        error: `Failed to look up user by mail: ${mailStderr}`,
+      };
+    }
+
+    const mailObjectId = mailStdout.trim();
+    if (mailObjectId && mailObjectId !== 'null' && mailObjectId !== 'None') {
+      return { success: true, objectId: mailObjectId };
+    }
+
+    // Fall back to matching by userPrincipalName
+    const upnArgs = [
+      'ad',
+      'user',
+      'list',
+      '--filter',
+      `userPrincipalName eq '${safeEmail}'`,
+      '--query',
+      '[0].id',
+      '-o',
+      'tsv',
+    ];
+
+    debugLog('Looking up user by UPN:', 'az', upnArgs.join(' '));
+    const { stdout: upnStdout, stderr: upnStderr } = await runCommandAsync('az', upnArgs);
+
+    if (upnStderr && needsRelogin(upnStderr)) {
+      return {
+        success: false,
+        error: 'Authentication required. Please log in to Azure CLI: az login',
+      };
+    }
+
+    if (upnStderr && (upnStderr.includes('ERROR') || upnStderr.includes('error'))) {
+      return {
+        success: false,
+        error: `Failed to look up user by UPN: ${upnStderr}`,
+      };
+    }
+
+    const upnObjectId = upnStdout.trim();
+    if (upnObjectId && upnObjectId !== 'null' && upnObjectId !== 'None') {
+      return { success: true, objectId: upnObjectId };
+    }
+
+    return {
+      success: false,
+      error: `User not found in Azure AD: ${email}`,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return {
+      success: false,
+      error: `Failed to look up user: ${errorMessage}`,
+    };
+  }
+}
+
 // Create a role assignment for a namespace
 export async function createNamespaceRoleAssignment(options: {
   clusterName: string;
   resourceGroup: string;
   namespaceName: string;
-  assignee: string;
+  assigneeObjectId: string;
   role: string;
   subscriptionId?: string;
 }): Promise<{ success: boolean; stdout: string; stderr: string; error?: string }> {
-  const { clusterName, resourceGroup, namespaceName, assignee, role, subscriptionId } = options;
+  const { clusterName, resourceGroup, namespaceName, assigneeObjectId, role, subscriptionId } =
+    options;
 
   // Strip quotes from role if present (they may have been added for Windows)
   // We'll handle platform-specific quoting below
@@ -2668,8 +2760,10 @@ export async function createNamespaceRoleAssignment(options: {
       'role',
       'assignment',
       'create',
-      '--assignee',
-      assignee,
+      '--assignee-object-id',
+      assigneeObjectId,
+      '--assignee-principal-type',
+      'User',
       '--role',
       finalRole,
       '--scope',
@@ -2725,7 +2819,7 @@ export async function verifyNamespaceAccess(options: {
   clusterName: string;
   resourceGroup: string;
   namespaceName: string;
-  assignee: string;
+  assigneeObjectId: string;
   subscriptionId?: string;
 }): Promise<{
   success: boolean;
@@ -2734,7 +2828,7 @@ export async function verifyNamespaceAccess(options: {
   stderr: string;
   error?: string;
 }> {
-  const { clusterName, resourceGroup, namespaceName, assignee, subscriptionId } = options;
+  const { clusterName, resourceGroup, namespaceName, assigneeObjectId, subscriptionId } = options;
 
   try {
     // First, get the resource ID of the managed namespace
@@ -2809,7 +2903,7 @@ export async function verifyNamespaceAccess(options: {
       'assignment',
       'list',
       '--assignee',
-      assignee,
+      assigneeObjectId,
       '--scope',
       namespaceResourceId,
       '--query',

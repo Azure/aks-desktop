@@ -33,6 +33,7 @@ vi.mock('../../../utils/azure/az-cli', () => ({
   checkNamespaceExists: vi.fn(),
   createManagedNamespace: vi.fn(),
   createNamespaceRoleAssignment: vi.fn(),
+  resolveUserObjectId: vi.fn().mockResolvedValue({ success: true, objectId: 'mock-object-id' }),
   verifyNamespaceAccess: vi.fn(),
 }));
 
@@ -114,6 +115,7 @@ import {
   checkNamespaceExists,
   createManagedNamespace,
   createNamespaceRoleAssignment,
+  resolveUserObjectId,
   verifyNamespaceAccess,
 } from '../../../utils/azure/az-cli';
 import { useCreateAKSProjectWizard } from './useCreateAKSProjectWizard';
@@ -141,6 +143,10 @@ describe('useCreateAKSProjectWizard', () => {
     // Individual tests that need to assert on console.error output create their
     // own spy on top and restore it themselves before this one is cleaned up.
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(resolveUserObjectId).mockResolvedValue({
+      success: true,
+      objectId: 'mock-object-id',
+    });
     vi.mocked(useFormData).mockReturnValue({
       formData: defaultFormData,
       updateFormData: vi.fn(),

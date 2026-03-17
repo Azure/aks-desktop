@@ -6,10 +6,12 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 // Mock az-cli functions
 const mockCreateNamespaceRoleAssignment = vi.fn();
 const mockVerifyNamespaceAccess = vi.fn();
+const mockResolveUserObjectId = vi.fn();
 
 vi.mock('../azure/az-cli', () => ({
   createNamespaceRoleAssignment: (...args: any[]) => mockCreateNamespaceRoleAssignment(...args),
   verifyNamespaceAccess: (...args: any[]) => mockVerifyNamespaceAccess(...args),
+  resolveUserObjectId: (...args: any[]) => mockResolveUserObjectId(...args),
 }));
 
 // Mock types
@@ -47,6 +49,11 @@ describe('assignRolesToNamespace', () => {
   beforeEach(() => {
     mockCreateNamespaceRoleAssignment.mockReset();
     mockVerifyNamespaceAccess.mockReset();
+    mockResolveUserObjectId.mockReset();
+    mockResolveUserObjectId.mockResolvedValue({
+      success: true,
+      objectId: 'mock-object-id-123',
+    });
   });
 
   test('returns success with empty results when no valid assignments', async () => {
@@ -74,19 +81,34 @@ describe('assignRolesToNamespace', () => {
     expect(result.results).toHaveLength(1);
     expect(result.errors).toHaveLength(0);
 
+    // Should resolve user object ID
+    expect(mockResolveUserObjectId).toHaveBeenCalledWith('user@example.com');
+
     // 3 roles: mapped Writer role + Namespace User + Namespace Contributor
     expect(mockCreateNamespaceRoleAssignment).toHaveBeenCalledTimes(3);
     expect(mockCreateNamespaceRoleAssignment).toHaveBeenCalledWith(
-      expect.objectContaining({ role: 'Azure Kubernetes Service RBAC Writer' })
+      expect.objectContaining({
+        assigneeObjectId: 'mock-object-id-123',
+        role: 'Azure Kubernetes Service RBAC Writer',
+      })
     );
     expect(mockCreateNamespaceRoleAssignment).toHaveBeenCalledWith(
-      expect.objectContaining({ role: 'Azure Kubernetes Service Namespace User' })
+      expect.objectContaining({
+        assigneeObjectId: 'mock-object-id-123',
+        role: 'Azure Kubernetes Service Namespace User',
+      })
     );
     expect(mockCreateNamespaceRoleAssignment).toHaveBeenCalledWith(
-      expect.objectContaining({ role: 'Azure Kubernetes Service Namespace Contributor' })
+      expect.objectContaining({
+        assigneeObjectId: 'mock-object-id-123',
+        role: 'Azure Kubernetes Service Namespace Contributor',
+      })
     );
 
     expect(mockVerifyNamespaceAccess).toHaveBeenCalledTimes(1);
+    expect(mockVerifyNamespaceAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ assigneeObjectId: 'mock-object-id-123' })
+    );
   });
 
   test('handles multiple users', async () => {
@@ -235,5 +257,66 @@ describe('assignRolesToNamespace', () => {
     const hasRawPlaceholder = progressMessages.some(msg => /\{\{/.test(msg));
     expect(hasRawPlaceholder).toBe(false);
     expect(progressMessages.some(msg => msg.includes('user@example.com'))).toBe(true);
+  });
+
+  test('reports error when user lookup fails', async () => {
+    mockResolveUserObjectId.mockResolvedValue({
+      success: false,
+      error: 'User not found in Azure AD: guest@external.com',
+    });
+
+    const result = await assignRolesToNamespace({
+      ...baseOptions,
+      assignments: [{ email: 'guest@external.com', role: 'Writer' }],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain('guest@external.com');
+    expect(result.errors[0]).toContain('User not found');
+    expect(mockCreateNamespaceRoleAssignment).not.toHaveBeenCalled();
+    expect(mockVerifyNamespaceAccess).not.toHaveBeenCalled();
+  });
+
+  test('resolves object ID once per user, not once per role', async () => {
+    mockCreateNamespaceRoleAssignment.mockResolvedValue({ success: true });
+    mockVerifyNamespaceAccess.mockResolvedValue({ success: true, hasAccess: true });
+
+    await assignRolesToNamespace({
+      ...baseOptions,
+      assignments: [{ email: 'user@example.com', role: 'Admin' }],
+    });
+
+    // resolveUserObjectId should be called once, not 3 times (once per role)
+    expect(mockResolveUserObjectId).toHaveBeenCalledTimes(1);
+    expect(mockResolveUserObjectId).toHaveBeenCalledWith('user@example.com');
+    // But role assignment should still be called 3 times
+    expect(mockCreateNamespaceRoleAssignment).toHaveBeenCalledTimes(3);
+  });
+
+  test('handles mixed lookup results across users', async () => {
+    mockResolveUserObjectId
+      .mockResolvedValueOnce({ success: true, objectId: 'object-id-user1' })
+      .mockResolvedValueOnce({ success: false, error: 'User not found in Azure AD' });
+    mockCreateNamespaceRoleAssignment.mockResolvedValue({ success: true });
+    mockVerifyNamespaceAccess.mockResolvedValue({ success: true, hasAccess: true });
+
+    const result = await assignRolesToNamespace({
+      ...baseOptions,
+      assignments: [
+        { email: 'user1@example.com', role: 'Writer' },
+        { email: 'unknown@example.com', role: 'Reader' },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.results).toHaveLength(1); // user1 succeeded
+    expect(result.errors).toHaveLength(1); // unknown user failed
+    expect(result.errors[0]).toContain('unknown@example.com');
+    // Only user1's roles should have been assigned (3 roles)
+    expect(mockCreateNamespaceRoleAssignment).toHaveBeenCalledTimes(3);
+    expect(mockCreateNamespaceRoleAssignment).toHaveBeenCalledWith(
+      expect.objectContaining({ assigneeObjectId: 'object-id-user1' })
+    );
   });
 });

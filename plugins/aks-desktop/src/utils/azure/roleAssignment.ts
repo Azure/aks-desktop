@@ -2,7 +2,11 @@
 // Licensed under the Apache 2.0.
 
 import { mapUIRoleToAzureRole, UserAssignment } from '../../components/CreateAKSProject/types';
-import { createNamespaceRoleAssignment, verifyNamespaceAccess } from './az-cli';
+import {
+  createNamespaceRoleAssignment,
+  resolveUserObjectId,
+  verifyNamespaceAccess,
+} from './az-cli';
 
 const AKS_NAMESPACE_USER_ROLE = 'Azure Kubernetes Service Namespace User';
 const AKS_NAMESPACE_CONTRIBUTOR_ROLE = 'Azure Kubernetes Service Namespace Contributor';
@@ -61,9 +65,21 @@ export async function assignRolesToNamespace(
   const assignmentErrors: string[] = [];
 
   for (const assignment of validAssignments) {
-    onProgress?.(translate('Adding user {{email}}', { email: assignment.email }) + '...');
-
     try {
+      onProgress?.(translate('Looking up user {{email}}', { email: assignment.email }) + '...');
+
+      const userLookup = await resolveUserObjectId(assignment.email);
+      if (!userLookup.success || !userLookup.objectId) {
+        assignmentErrors.push(
+          translate('Failed to resolve user {{email}}: {{message}}', {
+            email: assignment.email,
+            message: userLookup.error || translate('User not found'),
+          })
+        );
+        continue;
+      }
+
+      const assigneeObjectId = userLookup.objectId;
       const azureRole = mapUIRoleToAzureRole(assignment.role);
 
       const rolesToAssign = [azureRole, AKS_NAMESPACE_USER_ROLE, AKS_NAMESPACE_CONTRIBUTOR_ROLE];
@@ -84,7 +100,7 @@ export async function assignRolesToNamespace(
           clusterName,
           resourceGroup,
           namespaceName,
-          assignee: assignment.email,
+          assigneeObjectId,
           role,
           subscriptionId,
         });
@@ -126,7 +142,7 @@ export async function assignRolesToNamespace(
         clusterName,
         resourceGroup,
         namespaceName,
-        assignee: assignment.email,
+        assigneeObjectId,
         subscriptionId,
       });
 
