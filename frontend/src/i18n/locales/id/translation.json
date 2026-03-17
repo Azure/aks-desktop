@@ -154,6 +154,7 @@
   "Custom value": "Nilai kustom",
   "Pod Debug Settings": "Pengaturan Debug Pod",
   "Ephemeral debug containers cannot be removed via Kubernetes API. They will remain in the pod specification even after the terminal closes. To remove them, the pod must be recreated.": "Kontainer debug sementara tidak dapat dihapus melalui API Kubernetes. Hal tersebut akan tetap berada dalam spesifikasi pod bahkan setelah terminal ditutup. Untuk menghapusnya, pod harus dibuat ulang.",
+  "Debug Image": "",
   "The default image is used for creating ephemeral debug containers.": "Citra default digunakan untuk membuat kontainer debug sementara.",
   "General Settings": "Pengaturan Umum",
   "Version": "Versi",

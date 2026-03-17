@@ -154,6 +154,7 @@
   "Custom value": "Benutzerdefinierter Wert",
   "Pod Debug Settings": "Poddebugeinstellungen",
   "Ephemeral debug containers cannot be removed via Kubernetes API. They will remain in the pod specification even after the terminal closes. To remove them, the pod must be recreated.": "Kurzlebige Debugcontainer können nicht über die Kubernetes-API entfernt werden. Sie bleiben auch nach dem Schließen des Terminals in der Podspezifikation erhalten. Um sie zu entfernen, muss der Pod neu erstellt werden.",
+  "Debug Image": "",
   "The default image is used for creating ephemeral debug containers.": "Das Standardimage wird zum Erstellen kurzlebiger Debugcontainer verwendet.",
   "General Settings": "Allgemeine Einstellungen",
   "Version": "Version",

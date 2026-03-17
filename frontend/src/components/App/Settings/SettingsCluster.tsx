@@ -313,7 +313,7 @@ export default function SettingsCluster() {
                         size="small"
                         onClick={() => setColorPickerOpen(true)}
                         startIcon={<Icon icon="mdi:palette" />}
-                        aria-labelledby={`${appearanceLabelID} ${colorButtonID}`}
+                        aria-labelledby={`${appearanceLabelID} ${accentColorLabelID} ${colorButtonID}`}
                       >
                         {appearanceAccentColor
                           ? t('translation|Change Color')
@@ -349,7 +349,7 @@ export default function SettingsCluster() {
                         size="small"
                         onClick={() => setIconPickerOpen(true)}
                         startIcon={<Icon icon="mdi:emoticon-outline" />}
-                        aria-labelledby={`${appearanceLabelID} ${iconButtonID}`}
+                        aria-labelledby={`${appearanceLabelID} ${clusterIconLabelID} ${iconButtonID}`}
                       >
                         {appearanceIcon
                           ? t('translation|Change Icon')

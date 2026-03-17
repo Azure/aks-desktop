@@ -154,6 +154,7 @@
   "Custom value": "自定义值",
   "Pod Debug Settings": "Pod 调试设置",
   "Ephemeral debug containers cannot be removed via Kubernetes API. They will remain in the pod specification even after the terminal closes. To remove them, the pod must be recreated.": "无法通过 Kubernetes API 移除临时调试容器。即使终端关闭，它们仍保留在 Pod 规范中。要移除它们，必须重新创建 Pod。",
+  "Debug Image": "",
   "The default image is used for creating ephemeral debug containers.": "默认映像用于创建临时调试容器。",
   "General Settings": "常规设置",
   "Version": "版本",
