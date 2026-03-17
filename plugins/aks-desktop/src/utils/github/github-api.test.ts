@@ -681,7 +681,7 @@ describe('github-api', () => {
     it('should return installed: true when repo is found in installation', async () => {
       mockOctokit.apps.listInstallationsForAuthenticatedUser.mockResolvedValue({
         data: {
-          installations: [{ id: 1, account: { login: 'owner' }, app_slug: 'aks-desktop-preview' }],
+          installations: [{ id: 1, account: { login: 'owner' }, app_slug: 'aks-desktop' }],
         },
       });
       mockOctokit.paginate.mockResolvedValue([{ full_name: 'owner/repo' }]);
@@ -701,7 +701,7 @@ describe('github-api', () => {
       const result = await checkAppInstallation(mockOctokit as never, 'owner', 'repo');
       expect(result).toEqual({
         installed: false,
-        installUrl: 'https://github.com/apps/aks-desktop-preview/installations/new',
+        installUrl: 'https://github.com/apps/aks-desktop/installations/new',
       });
     });
 

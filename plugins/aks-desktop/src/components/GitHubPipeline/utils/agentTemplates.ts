@@ -275,8 +275,8 @@ Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\` with the following:
 - Convert kubeconfig to use kubelogin: \`kubelogin convert-kubeconfig -l workloadidentity\`${generateEnvVarWorkflowInstructions(
     config
   )}- Run: \`kubectl apply -f deploy/kubernetes/ -n \${{ inputs.namespace }}\`
-- After applying manifests, annotate each Deployment with the run URL:
-  \`kubectl annotate deployment --all -n \${{ inputs.namespace }} aks-project/pipeline-run-url=\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }} --overwrite\`
+- After applying manifests, annotate each Deployment with the run URL and workflow name:
+  \`kubectl annotate deployment --all -n \${{ inputs.namespace }} aks-project/pipeline-run-url=\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }} "aks-project/pipeline-workflow=\${{ github.workflow }}" --overwrite\`
 
 ## Naming Conventions
 - PR title: "[AKS Desktop] Add deployment pipeline for ${config.appName}"

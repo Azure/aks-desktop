@@ -7,7 +7,7 @@ import { secureStorageDelete, secureStorageLoad, secureStorageSave } from './sec
 const GITHUB_APP_SLUG =
   typeof process !== 'undefined' && process.env?.AKS_DESKTOP_GITHUB_APP_SLUG
     ? process.env.AKS_DESKTOP_GITHUB_APP_SLUG
-    : 'aks-desktop-preview';
+    : 'aks-desktop';
 export const GITHUB_APP_INSTALL_URL = `https://github.com/apps/${GITHUB_APP_SLUG}/installations/new`;
 
 const STORAGE_KEY = 'aks-desktop:github-auth';

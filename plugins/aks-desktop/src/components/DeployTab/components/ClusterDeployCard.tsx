@@ -59,6 +59,8 @@ function getProvenanceDisplay(
   switch (provenance) {
     case 'pipeline':
       return { label: t('Pipeline'), icon: 'mdi:rocket-launch', color: 'info' };
+    case 'vscode':
+      return { label: t('VS Code'), icon: 'mdi:microsoft-visual-studio-code', color: 'info' };
     case 'manual':
       return { label: t('Manual'), icon: 'mdi:cloud-upload', color: 'secondary' };
     case 'unknown':
@@ -227,23 +229,25 @@ export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: Clust
                               </IconButton>
                             </Tooltip>
                           )}
-                          {d.provenance === 'pipeline' && d.pipelineRunUrl && (
-                            <Tooltip title={t('View pipeline run')}>
-                              <IconButton
-                                size="small"
-                                onClick={() => openExternalUrl(d.pipelineRunUrl ?? '')}
-                              >
-                                <Icon icon="mdi:open-in-new" aria-hidden="true" />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                          {d.provenance === 'pipeline' && (
-                            <Tooltip title={t('Re-deploy via pipeline')}>
-                              <IconButton size="small" onClick={() => handleRedeployPipeline(d)}>
-                                <Icon icon="mdi:replay" aria-hidden="true" />
-                              </IconButton>
-                            </Tooltip>
-                          )}
+                          {(d.provenance === 'pipeline' || d.provenance === 'vscode') &&
+                            d.pipelineRunUrl && (
+                              <Tooltip title={t('View workflow run')}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => openExternalUrl(d.pipelineRunUrl ?? '')}
+                                >
+                                  <Icon icon="mdi:open-in-new" aria-hidden="true" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          {(d.provenance === 'pipeline' || d.provenance === 'vscode') &&
+                            d.pipelineRepo && (
+                              <Tooltip title={t('Re-deploy')}>
+                                <IconButton size="small" onClick={() => handleRedeployPipeline(d)}>
+                                  <Icon icon="mdi:replay" aria-hidden="true" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
                         </TableCell>
                       </TableRow>
                     );

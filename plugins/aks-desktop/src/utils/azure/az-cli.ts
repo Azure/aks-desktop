@@ -1886,12 +1886,31 @@ export async function getClusterInfo(clusterName?: string): Promise<{
 
   try {
     // First get the current subscription
-    const { stdout: accountStdout } = await runCommandAsync('az', [
+    const { stdout: accountStdout, stderr: accountStderr } = await runCommandAsync('az', [
       'account',
       'show',
       '--output',
       'json',
     ]);
+
+    if (accountStderr && !accountStdout) {
+      const isInteractionRequired =
+        accountStderr.includes('InteractionRequired') ||
+        accountStderr.includes('interaction_required') ||
+        accountStderr.includes('multi-factor authentication') ||
+        accountStderr.includes('AADSTS50076');
+      if (isInteractionRequired) {
+        throw new Error(
+          'Your Azure session requires re-authentication. Please run "az login" to sign in again.'
+        );
+      }
+      if (accountStderr.includes('No subscriptions found')) {
+        throw new Error(
+          'No Azure subscriptions found. Please run "az login" to sign in with an account that has active subscriptions.'
+        );
+      }
+    }
+
     if (accountStdout) {
       try {
         const account = JSON.parse(accountStdout);
@@ -2015,6 +2034,13 @@ export async function getClusterInfo(clusterName?: string): Promise<{
     return result;
   } catch (error) {
     console.error('Failed to get cluster info:', error);
+    if (
+      error instanceof Error &&
+      (error.message.includes('re-authentication') ||
+        error.message.includes('No Azure subscriptions'))
+    ) {
+      throw error;
+    }
     return result;
   }
 }

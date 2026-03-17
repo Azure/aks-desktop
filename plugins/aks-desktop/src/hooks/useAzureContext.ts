@@ -24,9 +24,14 @@ export const useAzureContext = (
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!cluster || !azureAuth.isLoggedIn) {
+    if (!cluster) {
       setAzureContext(null);
-      setError(null);
+      setError(t('No cluster is associated with this project.'));
+      return;
+    }
+    if (!azureAuth.isLoggedIn) {
+      setAzureContext(null);
+      setError(t('Please sign in to Azure to continue.'));
       return;
     }
     setAzureContext(null); // clear stale context during fetch

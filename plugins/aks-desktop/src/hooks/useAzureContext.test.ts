@@ -47,23 +47,23 @@ describe('useAzureContext', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns null when no cluster is provided', () => {
+  it('returns error when no cluster is provided', () => {
     mockAuth();
 
     const { result } = renderHook(() => useAzureContext(undefined));
 
     expect(result.current.azureContext).toBeNull();
-    expect(result.current.error).toBeNull();
+    expect(result.current.error).toBe('No cluster is associated with this project.');
     expect(mockGetClusterInfo).not.toHaveBeenCalled();
   });
 
-  it('returns null when user is not logged in', () => {
+  it('returns error when user is not logged in', () => {
     mockAuth({ isLoggedIn: false, tenantId: undefined });
 
     const { result } = renderHook(() => useAzureContext('my-cluster'));
 
     expect(result.current.azureContext).toBeNull();
-    expect(result.current.error).toBeNull();
+    expect(result.current.error).toBe('Please sign in to Azure to continue.');
     expect(mockGetClusterInfo).not.toHaveBeenCalled();
   });
 
@@ -134,6 +134,6 @@ describe('useAzureContext', () => {
     rerender({ cluster: undefined });
 
     expect(result.current.azureContext).toBeNull();
-    expect(result.current.error).toBeNull();
+    expect(result.current.error).toBe('No cluster is associated with this project.');
   });
 });
