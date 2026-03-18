@@ -27,12 +27,10 @@ export const Breadcrumb: React.FC<BreadcrumbProps> = ({ steps, activeStep, onSte
         alignItems: 'center',
         // @ts-ignore todo: fix this
         backgroundColor: theme.palette.background.muted,
+        flexWrap: 'wrap',
+        gap: 1,
         px: 3,
         py: 2,
-        overflowX: 'auto',
-        [theme.breakpoints.down('md')]: {
-          flexDirection: 'column',
-        },
       })}
     >
       {steps.map((label, index) => (
@@ -100,13 +98,17 @@ export const Breadcrumb: React.FC<BreadcrumbProps> = ({ steps, activeStep, onSte
             >
               {label}
             </Typography>
-          </Box>
 
-          {index < steps.length - 1 && (
-            <Typography variant="body1" sx={{ mx: 2, color: 'text.secondary' }}>
-              &gt;
-            </Typography>
-          )}
+            {index < steps.length - 1 && (
+              <Typography
+                variant="body1"
+                sx={{ ml: 1, color: 'text.secondary' }}
+                aria-hidden="true"
+              >
+                &gt;
+              </Typography>
+            )}
+          </Box>
         </React.Fragment>
       ))}
     </Box>

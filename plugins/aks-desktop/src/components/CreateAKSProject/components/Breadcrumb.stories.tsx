@@ -32,3 +32,10 @@ export const MiddleStep: StoryFn<BreadcrumbProps> = () => (
 export const LastStep: StoryFn<BreadcrumbProps> = () => (
   <Breadcrumb {...BASE_PROPS} activeStep={4} />
 );
+
+/** Narrow container — verifies wrap behavior at constrained widths (e.g., 200% zoom). */
+export const NarrowContainer: StoryFn<BreadcrumbProps> = () => (
+  <div style={{ width: 500, border: '1px dashed #ccc' }}>
+    <Breadcrumb {...BASE_PROPS} activeStep={4} />
+  </div>
+);
