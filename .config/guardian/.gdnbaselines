@@ -11,12 +11,12 @@
     }
   },
   "results": {
-    "e757073450d58933c523bbe65c9621933ad9851d20de8956a58b1c7b52d468cb": {
-      "signature": "e757073450d58933c523bbe65c9621933ad9851d20de8956a58b1c7b52d468cb",
+    "b117b0c13cf8c11e50b3a8b3df9cd1012447728bbbf119a9209b64d8688210dc": {
+      "signature": "b117b0c13cf8c11e50b3a8b3df9cd1012447728bbbf119a9209b64d8688210dc",
       "alternativeSignatures": [
         "09484848b5db84a7bad081ef7803ed2a91c61ff1270728a8dce1f1a81a086d6b"
       ],
-      "target": "file:///C:/a/_work/1/aks-desktop-exe-unsigned/aks-desktop-0.2.0-alpha-win-x64.exe",
+      "target": "file:///C:/a/_work/1/aks-desktop-exe-unsigned/aks-desktop-0.4.0-alpha-win-x64.exe",
       "memberOf": [
         "default"
       ],
