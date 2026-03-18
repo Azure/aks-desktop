@@ -3,7 +3,8 @@
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Box, Typography } from '@mui/material';
-import React from 'react';
+import { visuallyHidden } from '@mui/utils';
+import React, { useEffect, useState } from 'react';
 import { usePreviewFeatures } from '../../hooks/usePreviewFeatures';
 import type { ProjectDefinition } from '../../types/project';
 import { ClusterDeployCard } from './components/ClusterDeployCard';
@@ -17,6 +18,12 @@ function DeployTab({ project }: DeployTabProps) {
   const { t } = useTranslation();
   const { githubPipelines } = usePreviewFeatures();
   const { settings } = usePipelineSettings();
+  // Deferred flag: starts false so the live region mounts with empty text,
+  // then flips to true after the first paint so the text change is announced.
+  const [liveReady, setLiveReady] = useState(false);
+  useEffect(() => {
+    setLiveReady(true);
+  }, []);
 
   if (!githubPipelines) {
     return (
@@ -32,6 +39,10 @@ function DeployTab({ project }: DeployTabProps) {
     <Box sx={{ my: 3 }}>
       <Box sx={{ mb: 3 }}>
         <Typography variant="h5">{t('Workloads')}</Typography>
+      </Box>
+
+      <Box role="status" aria-live="polite" aria-atomic="true" sx={visuallyHidden}>
+        {liveReady && project.clusters?.length === 0 ? t('No clusters in this project.') : ''}
       </Box>
 
       {project.clusters?.length === 0 && (

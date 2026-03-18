@@ -12,6 +12,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import type { Octokit } from '@octokit/rest';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GitHubRepo } from '../../../types/github';
@@ -86,6 +87,14 @@ export function RepoSelector({ octokit, selectedRepo, onRepoSelect }: RepoSelect
           {error}
         </Alert>
       )}
+
+      <Box role="status" aria-live="polite" aria-atomic="true" sx={visuallyHidden}>
+        {!loading && !error && filtered.length === 0
+          ? filter
+            ? t('No repositories match your filter')
+            : t('No repositories found')
+          : ''}
+      </Box>
 
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>

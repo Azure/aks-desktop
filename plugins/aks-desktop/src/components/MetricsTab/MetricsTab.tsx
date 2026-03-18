@@ -20,6 +20,7 @@ import {
   TableRow,
   Typography,
 } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   CartesianGrid,
@@ -129,6 +130,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
   const [pods, setPods] = useState<PodInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [metricsLoading, setMetricsLoading] = useState<boolean>(false);
+  const [hasFetchedMetrics, setHasFetchedMetrics] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [memoryUnit, setMemoryUnit] = useState<MemoryUnit>('MB');
 
@@ -559,6 +561,7 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
       setError(errorMessage);
     } finally {
       setMetricsLoading(false);
+      setHasFetchedMetrics(true);
     }
   }, [namespace, cluster, selectedDeployment, subscription, resourceGroupLabel]);
 
@@ -617,6 +620,22 @@ const MetricsTab: React.FC<MetricsTabProps> = ({ project }) => {
           onDeploymentChange={setSelectedDeployment}
           sx={{ minWidth: 300 }}
         />
+      </Box>
+
+      {/* Always-mounted consolidated live region for empty chart announcements */}
+      <Box role="status" aria-live="polite" aria-atomic="true" sx={visuallyHidden}>
+        {selectedDeployment && !metricsLoading && hasFetchedMetrics
+          ? [
+              requestErrorData.length === 0 &&
+                `${t('Request & error rate')}: ${t('No data available')}`,
+              responseTimeData.length === 0 && `${t('Response Time')}: ${t('No data available')}`,
+              cpuData.length === 0 && `${t('CPU Usage')}: ${t('No data available')}`,
+              memoryData.length === 0 && `${t('Memory utilization')}: ${t('No data available')}`,
+              networkData.length === 0 && `${t('Network I/O')}: ${t('No data available')}`,
+            ]
+              .filter(Boolean)
+              .join('. ')
+          : ''}
       </Box>
 
       {deployments.length === 0 ? (

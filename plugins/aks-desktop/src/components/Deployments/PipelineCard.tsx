@@ -12,6 +12,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import React from 'react';
 import { usePreviewFeatures } from '../../hooks/usePreviewFeatures';
 import type { ProjectDefinition } from '../../types/project';
@@ -134,6 +135,10 @@ function PipelineCard({ project }: PipelineCardProps) {
               {error}
             </Typography>
           )}
+
+          <Box role="status" aria-live="polite" aria-atomic="true" sx={visuallyHidden}>
+            {!loading && !error && runs.length === 0 ? t('No pipeline runs yet.') : ''}
+          </Box>
 
           {!loading && !error && runs.length === 0 && (
             <Typography variant="body2" color="text.secondary">

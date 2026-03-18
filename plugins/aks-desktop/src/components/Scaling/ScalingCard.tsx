@@ -98,6 +98,7 @@ function ScalingCard({ project }: ScalingCardProps) {
           deployments={deployments}
           loading={loading}
           onDeploymentChange={setSelectedDeployment}
+          suppressLiveRegion
         />
       </Box>
 
