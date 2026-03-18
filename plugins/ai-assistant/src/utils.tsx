@@ -11,6 +11,8 @@ import type { SavedConfigurations, StoredProviderConfig } from './utils/Provider
 
 export const PLUGIN_NAME = 'ai-assistant';
 export const getSettingsURL = () => `/settings/plugins/${encodeURIComponent(PLUGIN_NAME)}`;
+export const AKS_AGENT_INSTALL_DOC_URL =
+  'https://learn.microsoft.com/en-us/azure/aks/agentic-cli-for-aks-install';
 
 //@todo: In index.tsx the setEvent uses things from event.data into the root of the event.
 //       Why does it do this? Maybe it can just use event.data as is?

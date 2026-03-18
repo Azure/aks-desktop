@@ -4,6 +4,7 @@ import {
   Box,
   CircularProgress,
   FormControl,
+  Link as MuiLink,
   MenuItem,
   Select,
   Tab,
@@ -12,6 +13,7 @@ import {
   Typography,
 } from '@mui/material';
 import React from 'react';
+import { AKS_AGENT_INSTALL_DOC_URL } from '../../utils';
 
 export type ChatMode = 'chat' | 'agent';
 
@@ -105,6 +107,16 @@ export const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
                 <Typography variant="caption" color="text.secondary">
                   {t('No clusters with AKS agent found')}
                 </Typography>
+                <MuiLink
+                  href={AKS_AGENT_INSTALL_DOC_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="caption"
+                  sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25 }}
+                >
+                  {t('Learn how to enable')}
+                  <Icon icon="mdi:open-in-new" width="12px" aria-hidden="true" focusable="false" />
+                </MuiLink>
               </Box>
             </Tooltip>
           ) : (

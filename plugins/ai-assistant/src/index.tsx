@@ -14,6 +14,7 @@ import {
   Divider,
   FormControlLabel,
   IconButton,
+  Link as MuiLink,
   Paper,
   Popper,
   Switch,
@@ -33,7 +34,14 @@ import { ModelSelector } from './components';
 import { getDefaultConfig } from './config/modelConfig';
 import { isTestModeCheck } from './helper';
 import AIPrompt from './modal';
-import { getSettingsURL, PLUGIN_NAME, pluginStore, useGlobalState, usePluginConfig } from './utils';
+import {
+  AKS_AGENT_INSTALL_DOC_URL,
+  getSettingsURL,
+  PLUGIN_NAME,
+  pluginStore,
+  useGlobalState,
+  usePluginConfig,
+} from './utils';
 import {
   getActiveConfig,
   getSavedConfigurations,
@@ -571,6 +579,23 @@ function Settings() {
                 />
               </Box>
             ))}
+          </Box>
+
+          {/* Documentation Section */}
+          <Divider sx={{ my: 3 }} />
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            {t('Documentation')}
+          </Typography>
+          <Box sx={{ ml: 2 }}>
+            <MuiLink
+              href={AKS_AGENT_INSTALL_DOC_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+            >
+              <Icon icon="mdi:open-in-new" width="16px" aria-hidden="true" focusable="false" />
+              {t('Learn how to enable the AKS agent CLI on a cluster')}
+            </MuiLink>
           </Box>
         </>
       )}
