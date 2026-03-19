@@ -334,7 +334,7 @@ function ProjectOverview({
       </Grid>
 
       {projectSections.map(section => (
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={4} sx={{ '&:has(.MuiCardContent-root:empty)': { display: 'none' } }}>
           <Card sx={{ height: '100%' }}>
             <CardContent>
               <section.component
