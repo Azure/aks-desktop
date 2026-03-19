@@ -339,6 +339,7 @@ registerProjectDetailsTab({
   id: 'info',
   label: 'Info',
   icon: 'mdi:information',
+  isEnabled: isAksProject,
   component: ({ project }) => <InfoTab project={project} />,
 });
 
