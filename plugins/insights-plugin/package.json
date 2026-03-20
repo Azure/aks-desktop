@@ -1,0 +1,16 @@
+{
+  "name": "insights-plugin",
+  "version": "0.2.3",
+  "description": "Downloads pre-built insights-plugin release artifacts for AKS Desktop",
+  "scripts": {
+    "build": "bash scripts/download-artifacts.sh",
+    "test": "bash scripts/validate-artifacts.sh",
+    "tsc": "echo 'no-op: no source code'",
+    "lint": "echo 'no-op: no source code'",
+    "format": "echo 'no-op: no source code'",
+    "package": "headlamp-plugin package"
+  },
+  "devDependencies": {
+    "@kinvolk/headlamp-plugin": "^0.13.1"
+  }
+}

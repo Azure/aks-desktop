@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        plugin: [aks-desktop, ai-assistant]
+        plugin: [aks-desktop, ai-assistant, insights-plugin]
     defaults:
       run:
         working-directory: plugins/${{ matrix.plugin }}
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        plugin: [aks-desktop, ai-assistant]
+        plugin: [aks-desktop, ai-assistant, insights-plugin]
     defaults:
       run:
         working-directory: plugins/${{ matrix.plugin }}
@@ -83,7 +83,7 @@ jobs:
     needs: [test, lint]
     strategy:
       matrix:
-        plugin: [aks-desktop, ai-assistant]
+        plugin: [aks-desktop, ai-assistant, insights-plugin]
     defaults:
       run:
         working-directory: plugins/${{ matrix.plugin }}
@@ -167,7 +167,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        plugin: [aks-desktop, ai-assistant]
+        plugin: [aks-desktop, ai-assistant, insights-plugin]
     defaults:
       run:
         working-directory: plugins/${{ matrix.plugin }}
