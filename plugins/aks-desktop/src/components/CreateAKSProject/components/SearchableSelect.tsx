@@ -49,6 +49,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const resolvedPlaceholder = placeholder ?? `${t('Select an option')}...`;
   const resolvedNoResults = noResultsText ?? t('No options');
   const [inputValue, setInputValue] = useState('');
+  const [open, setOpen] = useState(false);
 
   // Sort options alphabetically by label
   const sortedOptions = useMemo(() => {
@@ -59,7 +60,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
   // Replicate MUI's default filter to detect zero matches for screen reader announcement
   const noFilteredResults = useMemo(() => {
-    if (!inputValue) return false;
+    if (inputValue === '' && sortedOptions.length === 0) return true;
     const lower = inputValue.toLowerCase();
     return !sortedOptions.some(opt => opt.label.toLowerCase().includes(lower));
   }, [sortedOptions, inputValue]);
@@ -67,9 +68,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   return (
     <>
       <Box role="status" aria-live="polite" aria-atomic="true" sx={visuallyHidden}>
-        {noFilteredResults ? resolvedNoResults : ''}
+        {open && noFilteredResults ? resolvedNoResults : ''}
       </Box>
       <Autocomplete
+        open={open}
+        onOpen={() => setOpen(true)}
+        onClose={() => setOpen(false)}
         inputValue={inputValue}
         onInputChange={(_, newValue) => setInputValue(newValue)}
         options={sortedOptions}
