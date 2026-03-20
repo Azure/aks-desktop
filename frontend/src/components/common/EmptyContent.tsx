@@ -23,27 +23,18 @@ type EmptyProps = React.PropsWithChildren<{
 }>;
 
 export default function Empty({ color = 'textSecondary', children }: EmptyProps) {
-  // Render the live region container empty first, then inject children on the next frame.
-  // Screen readers only announce content that changes inside a live region, not content present on mount.
-  const [ready, setReady] = React.useState(false);
-  React.useEffect(() => {
-    const id = setTimeout(() => setReady(true), 0);
-    return () => clearTimeout(id);
-  }, []);
-
   return (
-    <Box padding={2} role="status" aria-live="polite" aria-atomic="true">
-      {ready &&
-        React.Children.map(children, child => {
-          if (typeof child === 'string') {
-            return (
-              <Typography color={color} align="center">
-                {child}
-              </Typography>
-            );
-          }
-          return child;
-        })}
+    <Box padding={2}>
+      {React.Children.map(children, child => {
+        if (typeof child === 'string') {
+          return (
+            <Typography color={color} align="center">
+              {child}
+            </Typography>
+          );
+        }
+        return child;
+      })}
     </Box>
   );
 }

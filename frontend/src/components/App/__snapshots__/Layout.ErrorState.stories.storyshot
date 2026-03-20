@@ -20,10 +20,7 @@
             class="MuiToolbar-root MuiToolbar-gutters MuiToolbar-regular css-1g5gxk7-MuiToolbar-root"
           >
             <div
-              aria-atomic="true"
-              aria-live="polite"
               class="MuiBox-root css-19midj6"
-              role="status"
             />
             <div
               class="MuiBox-root css-p8ekiu"

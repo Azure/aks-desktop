@@ -280,7 +280,7 @@
                 tabindex="0"
               >
                 <table
-                  class="MuiTable-root css-15jmevm-MuiTable-root"
+                  class="MuiTable-root css-1t02l4h-MuiTable-root"
                 >
                   <thead
                     class="MuiTableHead-root css-15wwp11-MuiTableHead-root"
@@ -439,7 +439,7 @@
                 tabindex="0"
               >
                 <table
-                  class="MuiTable-root css-1f5u0uu-MuiTable-root"
+                  class="MuiTable-root css-r7i92b-MuiTable-root"
                 >
                   <thead
                     class="MuiTableHead-root css-15wwp11-MuiTableHead-root"
@@ -563,7 +563,7 @@
                 tabindex="0"
               >
                 <table
-                  class="MuiTable-root css-1f5u0uu-MuiTable-root"
+                  class="MuiTable-root css-r7i92b-MuiTable-root"
                 >
                   <thead
                     class="MuiTableHead-root css-15wwp11-MuiTableHead-root"
@@ -715,10 +715,7 @@
                 class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded css-1guobrs-MuiPaper-root"
               >
                 <div
-                  aria-atomic="true"
-                  aria-live="polite"
                   class="MuiBox-root css-19midj6"
-                  role="status"
                 >
                   <p
                     class="MuiTypography-root MuiTypography-body1 MuiTypography-alignCenter css-18lkse1-MuiTypography-root"
