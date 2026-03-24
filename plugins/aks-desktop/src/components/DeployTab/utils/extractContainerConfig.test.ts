@@ -82,8 +82,8 @@ describe('extractContainerConfigFromDeployment', () => {
     expect(result.targetPort).toBe(8080);
 
     expect(result.envVars).toEqual([
-      { key: 'NODE_ENV', value: 'production' },
-      { key: 'PORT', value: '8080' },
+      { key: 'NODE_ENV', value: 'production', isSecret: false },
+      { key: 'PORT', value: '8080', isSecret: false },
     ]);
 
     expect(result.enableResources).toBe(true);
@@ -248,5 +248,75 @@ describe('extractContainerConfigFromDeployment', () => {
     const result = extractContainerConfigFromDeployment(deployment);
     expect(result.containerImage).toBe('first:v1');
     expect(result.targetPort).toBe(8080);
+  });
+
+  it('extracts secret env vars from secretKeyRef', () => {
+    const deployment = {
+      metadata: { name: 'my-app' },
+      spec: {
+        replicas: 1,
+        template: {
+          spec: {
+            containers: [
+              {
+                image: 'nginx:latest',
+                env: [
+                  { name: 'PLAIN_VAR', value: 'hello' },
+                  {
+                    name: 'SECRET_VAR',
+                    valueFrom: { secretKeyRef: { name: 'my-secret', key: 'SECRET_VAR' } },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    };
+    const result = extractContainerConfigFromDeployment(deployment);
+    expect(result.envVars).toEqual([
+      { key: 'PLAIN_VAR', value: 'hello', isSecret: false },
+      { key: 'SECRET_VAR', value: '', isSecret: true },
+    ]);
+  });
+
+  it('extracts workload identity config from pod labels and serviceAccountName', () => {
+    const deployment = {
+      metadata: { name: 'my-app' },
+      spec: {
+        replicas: 1,
+        template: {
+          metadata: {
+            labels: { app: 'my-app', 'azure.workload.identity/use': 'true' },
+          },
+          spec: {
+            containers: [{ image: 'nginx:latest' }],
+            serviceAccountName: 'my-app-sa',
+          },
+        },
+      },
+    };
+    const result = extractContainerConfigFromDeployment(deployment);
+    expect(result.enableWorkloadIdentity).toBe(true);
+    expect(result.workloadIdentityServiceAccount).toBe('my-app-sa');
+  });
+
+  it('does not enable workload identity when serviceAccountName is missing', () => {
+    const deployment = {
+      metadata: { name: 'my-app' },
+      spec: {
+        replicas: 1,
+        template: {
+          metadata: {
+            labels: { app: 'my-app', 'azure.workload.identity/use': 'true' },
+          },
+          spec: {
+            containers: [{ image: 'nginx:latest' }],
+          },
+        },
+      },
+    };
+    const result = extractContainerConfigFromDeployment(deployment);
+    expect(result.enableWorkloadIdentity).toBeUndefined();
   });
 });

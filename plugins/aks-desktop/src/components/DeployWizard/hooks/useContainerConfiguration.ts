@@ -3,25 +3,43 @@
 
 import { useEffect, useState } from 'react';
 
+/**
+ * Flat configuration state for the container deployment wizard.
+ * Organized by section: UI state, Basic, Networking, Resources,
+ * Environment variables, Health probes, HPA, Security,
+ * Workload Identity, and Scheduling.
+ */
 export interface ContainerConfig {
+  // -- UI state --
   containerStep: number;
+  showProbeConfigs: boolean;
+  containerPreviewYaml: string;
+
+  // -- Basic --
   appName: string;
   containerImage: string;
   replicas: number;
+
+  // -- Networking --
   targetPort: number;
   servicePort: number;
   useCustomServicePort: boolean;
   serviceType: 'ClusterIP' | 'LoadBalancer';
+
+  // -- Resources --
   enableResources: boolean;
   cpuRequest: string;
   cpuLimit: string;
   memoryRequest: string;
   memoryLimit: string;
-  envVars: Array<{ key: string; value: string }>;
+
+  // -- Environment variables --
+  envVars: Array<{ key: string; value: string; isSecret: boolean }>;
+
+  // -- Health probes --
   enableLivenessProbe: boolean;
   enableReadinessProbe: boolean;
   enableStartupProbe: boolean;
-  showProbeConfigs: boolean;
   livenessPath: string;
   readinessPath: string;
   startupPath: string;
@@ -40,17 +58,42 @@ export interface ContainerConfig {
   startupTimeout: number;
   startupFailure: number;
   startupSuccess: number;
+
+  // -- HPA --
   enableHpa: boolean;
   hpaMinReplicas: number;
   hpaMaxReplicas: number;
   hpaTargetCpu: number;
+
+  // -- Security --
   runAsNonRoot: boolean;
   readOnlyRootFilesystem: boolean;
   allowPrivilegeEscalation: boolean;
+
+  // -- Workload Identity --
+  /** Whether to enable Azure Workload Identity for this deployment. */
+  enableWorkloadIdentity: boolean;
+  /** The Azure AD client ID of the managed identity. */
+  workloadIdentityClientId: string;
+  /** The Kubernetes ServiceAccount name for workload identity binding. */
+  workloadIdentityServiceAccount: string;
+
+  // -- Scheduling --
   enablePodAntiAffinity: boolean;
   enableTopologySpreadConstraints: boolean;
-  containerPreviewYaml: string;
 }
+
+/** Named indices for the container configuration stepper. */
+export const CONTAINER_STEPS = {
+  BASICS: 0,
+  NETWORKING: 1,
+  HEALTHCHECKS: 2,
+  RESOURCES: 3,
+  ENV_VARS: 4,
+  HPA: 5,
+  WORKLOAD_IDENTITY: 6,
+  ADVANCED: 7,
+} as const;
 
 export function useContainerConfiguration(
   initialApplicationName?: string,
@@ -71,7 +114,7 @@ export function useContainerConfiguration(
       cpuLimit: '500m',
       memoryRequest: '128Mi',
       memoryLimit: '512Mi',
-      envVars: [{ key: '', value: '' }],
+      envVars: [{ key: '', value: '', isSecret: false }],
       enableLivenessProbe: true,
       enableReadinessProbe: true,
       enableStartupProbe: true,
@@ -101,6 +144,9 @@ export function useContainerConfiguration(
       runAsNonRoot: false,
       readOnlyRootFilesystem: false,
       allowPrivilegeEscalation: false,
+      enableWorkloadIdentity: false,
+      workloadIdentityClientId: '',
+      workloadIdentityServiceAccount: '',
       enablePodAntiAffinity: true,
       enableTopologySpreadConstraints: true,
       containerPreviewYaml: '',

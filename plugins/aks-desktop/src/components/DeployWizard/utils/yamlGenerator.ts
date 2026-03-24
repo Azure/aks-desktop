@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import YAML from 'yaml';
+import { normalizeK8sName } from '../../../utils/kubernetes/k8sNames';
+import { getServiceAccountName } from '../../../utils/kubernetes/serviceAccountNames';
 import { ContainerConfig } from '../hooks/useContainerConfiguration';
 
 /**
@@ -14,62 +17,58 @@ export type ContainerDeploymentConfig = Omit<
   namespace?: string;
 };
 
-/**
- * Type with only the fields needed for YAML generation from ContainerConfigurationState
- */
-export type ContainerConfigForYaml = Omit<ContainerDeploymentConfig, 'namespace'> & {
-  namespace?: string;
-};
-
-/**
- * Escapes a string for inclusion inside a YAML double-quoted scalar.
- * Handles backslashes first, then quotes and basic control characters.
- */
-function escapeYamlDoubleQuoted(input: string): string {
-  return input
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r')
-    .replace(/\t/g, '\\t');
+/** Helper to create a YAML Scalar with explicit double-quoting. */
+function quoted(value: string): YAML.Scalar {
+  const s = new YAML.Scalar(value);
+  s.type = YAML.Scalar.QUOTE_DOUBLE;
+  return s;
 }
 
 /**
  * Generates Kubernetes YAML for a container deployment
  * @param config - Configuration object containing all deployment settings
- * @returns Multi-document YAML string containing Deployment, Service, and optionally HPA
+ * @returns Multi-document YAML string containing optional Secret, optional ServiceAccount,
+ * Deployment, Service, and optionally HPA
  */
-export function generateYamlForContainer(config: ContainerConfigForYaml): string {
+export function generateYamlForContainer(config: ContainerDeploymentConfig): string {
   const ns = config.namespace || 'default';
   const name = config.appName || 'app';
   const image = config.containerImage || 'nginx:latest';
 
-  const envSection = config.envVars
-    .filter(e => e.key.trim().length > 0)
-    .map(
-      e =>
-        `            - name: ${e.key}
-              value: "${escapeYamlDoubleQuoted(e.value)}"`
-    )
-    .join('\n');
+  const activeEnvVars = config.envVars.filter(e => e.key.trim().length > 0);
+  const plainEnvVars = activeEnvVars.filter(e => !e.isSecret);
+  const secretEnvVars = activeEnvVars.filter(e => e.isSecret);
+  const secretName = normalizeK8sName(`${name}-env-secrets`);
 
-  const resources = config.enableResources
-    ? `\n          resources:\n            requests:\n              cpu: ${
-        config.cpuRequest || '100m'
-      }\n              memory: ${
-        config.memoryRequest || '128Mi'
-      }\n            limits:\n              cpu: ${
-        config.cpuLimit || '500m'
-      }\n              memory: ${config.memoryLimit || '512Mi'}`
-    : '';
+  // Pod-level WI config (label + serviceAccountName) should be preserved even without
+  // client ID — edit flows may not have it since it lives on the ServiceAccount annotation.
+  // The ServiceAccount manifest (below) is only emitted when client ID is available.
+  const wiPodConfigEnabled = !!config.enableWorkloadIdentity;
+  const wiFullEnabled = config.enableWorkloadIdentity && config.workloadIdentityClientId;
+  const saName = config.workloadIdentityServiceAccount || getServiceAccountName(name);
 
-  const envYaml = envSection ? `\n          env:\n${envSection}` : '';
+  // --- Build env entries ---
+  const envEntries: object[] = [
+    ...plainEnvVars.map(e => ({
+      name: e.key,
+      value: quoted(e.value),
+    })),
+    ...secretEnvVars.map(e => ({
+      name: e.key,
+      valueFrom: {
+        secretKeyRef: {
+          name: secretName,
+          key: quoted(e.key),
+        },
+      },
+    })),
+  ];
 
-  const probeBlock = (
+  // --- Build probe objects ---
+  function buildProbe(
     type: 'liveness' | 'readiness' | 'startup',
-    path: string | undefined,
-    targetPort: number
-  ) => {
+    path: string | undefined
+  ): object {
     const initialDelay =
       type === 'liveness'
         ? config.livenessInitialDelay ?? 10
@@ -101,118 +100,229 @@ export function generateYamlForContainer(config: ContainerConfigForYaml): string
         ? config.readinessSuccess ?? 1
         : config.startupSuccess ?? 1;
 
-    return `          ${type}Probe:
-            httpGet:
-              path: ${path || '/'}
-              port: ${targetPort}
-            initialDelaySeconds: ${initialDelay}
-            periodSeconds: ${period}
-            timeoutSeconds: ${timeout}
-            failureThreshold: ${failure}
-            successThreshold: ${success}`;
+    return {
+      httpGet: {
+        path: path || '/',
+        port: config.targetPort,
+      },
+      initialDelaySeconds: initialDelay,
+      periodSeconds: period,
+      timeoutSeconds: timeout,
+      failureThreshold: failure,
+      successThreshold: success,
+    };
+  }
+
+  // --- Build container object ---
+  const container: Record<string, unknown> = {
+    name,
+    image,
+    ports: [{ containerPort: config.targetPort }],
   };
 
-  const probeParts = [];
-  if (config.enableLivenessProbe)
-    probeParts.push(probeBlock('liveness', config.livenessPath, config.targetPort));
-  if (config.enableReadinessProbe)
-    probeParts.push(probeBlock('readiness', config.readinessPath, config.targetPort));
-  if (config.enableStartupProbe)
-    probeParts.push(probeBlock('startup', config.startupPath, config.targetPort));
-  const probesSection = probeParts.length ? `\n${probeParts.join('\n')}` : '';
+  if (config.enableLivenessProbe) {
+    container.livenessProbe = buildProbe('liveness', config.livenessPath);
+  }
+  if (config.enableReadinessProbe) {
+    container.readinessProbe = buildProbe('readiness', config.readinessPath);
+  }
+  if (config.enableStartupProbe) {
+    container.startupProbe = buildProbe('startup', config.startupPath);
+  }
 
-  const securityContextParts = [];
-  if (config.runAsNonRoot) securityContextParts.push('            runAsNonRoot: true');
-  if (config.readOnlyRootFilesystem)
-    securityContextParts.push('            readOnlyRootFilesystem: true');
-  // Always include allowPrivilegeEscalation (defaults to true in Kubernetes, so we set it explicitly)
-  securityContextParts.push(
-    `            allowPrivilegeEscalation: ${config.allowPrivilegeEscalation}`
-  );
+  if (config.enableResources) {
+    container.resources = {
+      requests: {
+        cpu: config.cpuRequest || '100m',
+        memory: config.memoryRequest || '128Mi',
+      },
+      limits: {
+        cpu: config.cpuLimit || '500m',
+        memory: config.memoryLimit || '512Mi',
+      },
+    };
+  }
+
+  if (envEntries.length > 0) {
+    container.env = envEntries;
+  }
+
   // Always include securityContext since we're setting allowPrivilegeEscalation explicitly
-  const securityContextYaml = `\n          securityContext:\n${securityContextParts.join('\n')}`;
+  const securityContext: Record<string, boolean> = {};
+  if (config.runAsNonRoot) securityContext.runAsNonRoot = true;
+  if (config.readOnlyRootFilesystem) securityContext.readOnlyRootFilesystem = true;
+  securityContext.allowPrivilegeEscalation = config.allowPrivilegeEscalation;
+  container.securityContext = securityContext;
 
-  const affinityYaml = config.enablePodAntiAffinity
-    ? `\n      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              topologyKey: kubernetes.io/hostname
-              labelSelector:
-                matchLabels:
-                  app: ${name}`
-    : '';
+  // --- Build pod template labels ---
+  const podLabels: Record<string, unknown> = { app: name };
+  if (wiPodConfigEnabled) {
+    podLabels['azure.workload.identity/use'] = quoted('true');
+  }
 
-  const topologySpreadConstraintsYaml = config.enableTopologySpreadConstraints
-    ? `\n      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
-          labelSelector:
-            matchLabels:
-              app: ${name}`
-    : '';
+  // --- Build pod spec ---
+  const podSpec: Record<string, unknown> = {};
 
-  const deployment = `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${name}
-  namespace: ${ns}
-  annotations:
-    aks-project/deployed-by: manual
-spec:
-  replicas: ${config.replicas}
-  selector:
-    matchLabels:
-      app: ${name}
-  template:
-    metadata:
-      labels:
-        app: ${name}
-    spec:${affinityYaml}${topologySpreadConstraintsYaml}
-      containers:
-        - name: ${name}
-          image: ${image}
-          ports:
-            - containerPort: ${config.targetPort}${probesSection}${resources}${envYaml}${securityContextYaml}`;
+  if (config.enablePodAntiAffinity) {
+    podSpec.affinity = {
+      podAntiAffinity: {
+        preferredDuringSchedulingIgnoredDuringExecution: [
+          {
+            weight: 100,
+            podAffinityTerm: {
+              topologyKey: 'kubernetes.io/hostname',
+              labelSelector: {
+                matchLabels: { app: name },
+              },
+            },
+          },
+        ],
+      },
+    };
+  }
 
-  const service = `apiVersion: v1
-kind: Service
-metadata:
-  name: ${name}
-  namespace: ${ns}
-spec:
-  type: ${config.serviceType}
-  selector:
-    app: ${name}
-  ports:
-    - port: ${config.servicePort}
-      targetPort: ${config.targetPort}`;
+  if (config.enableTopologySpreadConstraints) {
+    podSpec.topologySpreadConstraints = [
+      {
+        maxSkew: 1,
+        topologyKey: 'kubernetes.io/hostname',
+        whenUnsatisfiable: 'ScheduleAnyway',
+        labelSelector: {
+          matchLabels: { app: name },
+        },
+      },
+    ];
+  }
 
+  if (wiPodConfigEnabled) {
+    podSpec.serviceAccountName = saName;
+  }
+
+  podSpec.containers = [container];
+
+  // --- Build Deployment ---
+  const deployment = {
+    apiVersion: 'apps/v1',
+    kind: 'Deployment',
+    metadata: {
+      name,
+      namespace: ns,
+      annotations: {
+        'aks-project/deployed-by': 'manual',
+      },
+    },
+    spec: {
+      replicas: config.replicas,
+      selector: {
+        matchLabels: { app: name },
+      },
+      template: {
+        metadata: {
+          labels: podLabels,
+        },
+        spec: podSpec,
+      },
+    },
+  };
+
+  // --- Build Service ---
+  const service = {
+    apiVersion: 'v1',
+    kind: 'Service',
+    metadata: {
+      name,
+      namespace: ns,
+    },
+    spec: {
+      type: config.serviceType,
+      selector: { app: name },
+      ports: [
+        {
+          port: config.servicePort,
+          targetPort: config.targetPort,
+        },
+      ],
+    },
+  };
+
+  // --- Build HPA ---
   const hpa = config.enableHpa
-    ? `apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: ${name}
-  namespace: ${ns}
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: ${name}
-  minReplicas: ${config.hpaMinReplicas ?? 1}
-  maxReplicas: ${config.hpaMaxReplicas ?? 5}
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: ${config.hpaTargetCpu ?? 70}`
-    : '';
+    ? {
+        apiVersion: 'autoscaling/v2',
+        kind: 'HorizontalPodAutoscaler',
+        metadata: {
+          name,
+          namespace: ns,
+        },
+        spec: {
+          scaleTargetRef: {
+            apiVersion: 'apps/v1',
+            kind: 'Deployment',
+            name,
+          },
+          minReplicas: config.hpaMinReplicas ?? 1,
+          maxReplicas: config.hpaMaxReplicas ?? 5,
+          metrics: [
+            {
+              type: 'Resource',
+              resource: {
+                name: 'cpu',
+                target: {
+                  type: 'Utilization',
+                  averageUtilization: config.hpaTargetCpu ?? 70,
+                },
+              },
+            },
+          ],
+        },
+      }
+    : null;
 
-  const sections = [`# Deployment\n${deployment}`, `# Service\n${service}`];
-  if (hpa) sections.push(`# HPA\n${hpa}`);
+  // --- Assemble sections ---
+  const stringify = (obj: object) => YAML.stringify(obj).trim();
+  const sections: string[] = [];
+
+  // Emit a Secret manifest whenever there are any secret env vars, ensuring every
+  // secretKeyRef in the Deployment has a matching key in the Secret. For edit flows
+  // where values can't be read back, blank values are emitted as empty strings so the
+  // Secret still contains the key (avoiding broken references).
+  if (secretEnvVars.length > 0) {
+    const secret = {
+      apiVersion: 'v1',
+      kind: 'Secret',
+      metadata: {
+        name: secretName,
+        namespace: ns,
+      },
+      type: 'Opaque',
+      stringData: {} as Record<string, string>,
+    };
+    const doc = new YAML.Document(secret);
+    // Replace the stringData node with a YAMLMap that has double-quoted keys and values
+    const sdMap = new YAML.YAMLMap();
+    for (const e of secretEnvVars) {
+      sdMap.add(new YAML.Pair(quoted(e.key), quoted(e.value)));
+    }
+    doc.setIn(['stringData'], sdMap);
+    sections.push(`# Secret\n${doc.toString().trim()}`);
+  }
+
+  if (wiFullEnabled) {
+    const serviceAccount = {
+      apiVersion: 'v1',
+      kind: 'ServiceAccount',
+      metadata: {
+        name: saName,
+        namespace: ns,
+        annotations: {
+          'azure.workload.identity/client-id': quoted(config.workloadIdentityClientId),
+        },
+      },
+    };
+    sections.push(`# ServiceAccount\n${stringify(serviceAccount)}`);
+  }
+
+  sections.push(`# Deployment\n${stringify(deployment)}`, `# Service\n${stringify(service)}`);
+  if (hpa) sections.push(`# HPA\n${stringify(hpa)}`);
   return sections.join('\n---\n');
 }

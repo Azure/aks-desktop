@@ -1,28 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import type { KubeContainer as HeadlampKubeContainer } from '@kinvolk/headlamp-plugin/lib/lib/k8s/cluster';
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
-
-interface KubeContainer {
-  image?: string;
-  ports?: Array<{ containerPort?: number }>;
-  env?: Array<{ name?: string; value?: string }>;
-  resources?: {
-    requests?: { cpu?: string; memory?: string };
-    limits?: { cpu?: string; memory?: string };
-  };
-  securityContext?: {
-    runAsNonRoot?: boolean;
-    readOnlyRootFilesystem?: boolean;
-    allowPrivilegeEscalation?: boolean;
-  };
-  livenessProbe?: KubeProbe;
-  readinessProbe?: KubeProbe;
-  startupProbe?: KubeProbe;
-}
 
 interface KubeProbe {
   httpGet?: { path?: string };
+  exec?: { command?: string[] };
+  tcpSocket?: { port?: number };
   initialDelaySeconds?: number;
   periodSeconds?: number;
   timeoutSeconds?: number;
@@ -30,13 +15,28 @@ interface KubeProbe {
   successThreshold?: number;
 }
 
+type KubeContainer = Partial<Omit<HeadlampKubeContainer, 'livenessProbe' | 'readinessProbe'>> & {
+  livenessProbe?: KubeProbe;
+  readinessProbe?: KubeProbe;
+  startupProbe?: KubeProbe;
+  securityContext?: {
+    runAsNonRoot?: boolean;
+    readOnlyRootFilesystem?: boolean;
+    allowPrivilegeEscalation?: boolean;
+  };
+};
+
 interface KubeDeploymentInput {
   metadata?: { name?: string };
   spec?: {
     replicas?: number;
     template?: {
+      metadata?: {
+        labels?: Record<string, string>;
+      };
       spec?: {
         containers?: KubeContainer[];
+        serviceAccountName?: string;
         securityContext?: { runAsNonRoot?: boolean };
         affinity?: { podAntiAffinity?: unknown };
         topologySpreadConstraints?: unknown[];
@@ -82,7 +82,11 @@ export function extractContainerConfigFromDeployment(
   if (Array.isArray(container.env) && container.env.length > 0) {
     result.envVars = container.env
       .filter(e => e.name)
-      .map(e => ({ key: e.name!, value: e.value ?? '' }));
+      .map(e => ({
+        key: e.name!,
+        value: e.valueFrom?.secretKeyRef ? '' : e.value ?? '',
+        isSecret: !!e.valueFrom?.secretKeyRef,
+      }));
   }
 
   const resources = container.resources;
@@ -111,6 +115,12 @@ export function extractContainerConfigFromDeployment(
   const podSecCtx = templateSpec.securityContext;
   if (podSecCtx?.runAsNonRoot && !secCtx?.runAsNonRoot) {
     result.runAsNonRoot = true;
+  }
+
+  const podLabels = spec?.template?.metadata?.labels ?? {};
+  if (podLabels['azure.workload.identity/use'] === 'true' && templateSpec.serviceAccountName) {
+    result.enableWorkloadIdentity = true;
+    result.workloadIdentityServiceAccount = templateSpec.serviceAccountName;
   }
 
   result.enablePodAntiAffinity = !!templateSpec.affinity?.podAntiAffinity;
