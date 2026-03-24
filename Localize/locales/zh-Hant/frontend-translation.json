@@ -188,7 +188,7 @@
   "Custom value": "自訂值",
   "Data": "資料",
   "Date": "日期",
-  "Debug Image": "Debug Image",
+  "Debug Image": "針對映像進行偵錯",
   "Debug Pod": "偵錯 Pod",
   "Debug: {{ itemName }}": "偵錯: {{ itemName }}",
   "Decrement": "遞減",

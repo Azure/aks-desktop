@@ -188,7 +188,7 @@
   "Custom value": "Aangepaste waarde",
   "Data": "Gegevens",
   "Date": "Datum",
-  "Debug Image": "Debug Image",
+  "Debug Image": "Fouten opsporen in installatiekopie",
   "Debug Pod": "Foutopsporingspod",
   "Debug: {{ itemName }}": "Foutopsporing: {{ itemName }}",
   "Decrement": "Verlagen",
