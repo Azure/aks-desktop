@@ -3,6 +3,7 @@
 
 import React from 'react';
 import ConfigureContainer from './components/ConfigureContainer';
+import type { DeployAzureContext } from './components/configureContainerUtils';
 import ConfigureYAML from './components/ConfigureYAML';
 import Deploy from './components/Deploy';
 import DeployWizardPure from './components/DeployWizardPure';
@@ -21,6 +22,8 @@ type DeployWizardProps = {
   initialContainerConfig?: Partial<ContainerConfig>;
   /** Called when the user clicks "Close" after a deploy result. */
   onClose?: () => void;
+  /** Azure context for workload identity setup */
+  azureContext?: DeployAzureContext;
 };
 
 /**
@@ -64,7 +67,11 @@ export default function DeployWizard(props: DeployWizardProps) {
                 onYamlErrorChange={err => setYamlError(err)}
               />
             ) : (
-              <ConfigureContainer containerConfig={containerConfig} />
+              <ConfigureContainer
+                containerConfig={containerConfig}
+                azureContext={props.azureContext}
+                namespace={props.namespace}
+              />
             )}
           </React.Fragment>
         );

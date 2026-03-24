@@ -23,6 +23,7 @@ import {
 import { visuallyHidden } from '@mui/utils';
 import React, { useMemo, useState } from 'react';
 import { useAzureContext } from '../../../hooks/useAzureContext';
+import { useNamespaceCapabilities } from '../../../hooks/useNamespaceCapabilities';
 import type { GitHubRepo } from '../../../types/github';
 import { openExternalUrl } from '../../../utils/shared/openExternalUrl';
 import DeployWizard from '../../DeployWizard/DeployWizard';
@@ -92,6 +93,12 @@ export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: Clust
   const [manualDeployOpen, setManualDeployOpen] = useState(false);
   const [pipelineDeployRepo, setPipelineDeployRepo] = useState<GitHubRepo | null>(null);
   const [editingDeployment, setEditingDeployment] = useState<DeploymentStatus | null>(null);
+  const { isManagedNamespace, azureRbacEnabled } = useNamespaceCapabilities({
+    subscriptionId: azureContext?.subscriptionId,
+    resourceGroup: azureContext?.resourceGroup,
+    clusterName: cluster,
+    namespace,
+  });
 
   const editingContainerConfig: Partial<ContainerConfig> | undefined = useMemo(() => {
     if (!editingDeployment?.rawDeployment) return undefined;
@@ -279,6 +286,17 @@ export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: Clust
           initialApplicationName={editingDeployment?.name}
           initialContainerConfig={editingContainerConfig}
           onClose={handleCloseManualDeploy}
+          azureContext={
+            azureContext
+              ? {
+                  subscriptionId: azureContext.subscriptionId,
+                  resourceGroup: azureContext.resourceGroup,
+                  clusterName: cluster,
+                  isManagedNamespace,
+                  azureRbacEnabled,
+                }
+              : undefined
+          }
         />
       </Dialog>
 

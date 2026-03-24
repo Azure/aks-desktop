@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import YAML from 'yaml';
 import { dryRunApply } from '../utils/dryRunApply';
 import { applyNamespaceOverride } from '../utils/namespaceOverride';
-import { type ContainerConfigForYaml, generateYamlForContainer } from '../utils/yamlGenerator';
+import { type ContainerDeploymentConfig, generateYamlForContainer } from '../utils/yamlGenerator';
 import type { ContainerConfig } from './useContainerConfiguration';
 import { useContainerConfiguration } from './useContainerConfiguration';
 
@@ -24,7 +24,7 @@ function parseAndOverride(yaml: string, namespace?: string) {
 }
 
 /** Strips UI-only fields from a full ContainerConfig, returning only YAML-generation fields. */
-function toYamlConfig(config: ContainerConfig, namespace?: string): ContainerConfigForYaml {
+function toYamlConfig(config: ContainerConfig, namespace?: string): ContainerDeploymentConfig {
   // Destructure to exclude UI-only fields that generateYamlForContainer does not accept.
   /* eslint-disable no-unused-vars */
   const { containerStep, showProbeConfigs, containerPreviewYaml, useCustomServicePort, ...rest } =
