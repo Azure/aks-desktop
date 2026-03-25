@@ -304,6 +304,8 @@
   "Upload files": "Carica file",
   "Clear editor": "Cancella editor",
   "Review & Deploy": "Rivedi e distribuisci",
+  "Resource quota warning": "",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "Manifesti Kubernetes generati (spazio dei nomi: {{namespace}})",
   "Resources to be deployed ({{count}} object)_one": "Risorse da distribuire ({{count}} oggetto)",
   "Resources to be deployed ({{count}} object)_many": "",

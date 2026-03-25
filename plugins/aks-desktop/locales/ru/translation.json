@@ -307,6 +307,8 @@
   "Upload files": "Отправить файлы",
   "Clear editor": "Очистить редактор",
   "Review & Deploy": "Проверка и развертывание",
+  "Resource quota warning": "",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "Сгенерированные манифесты Kubernetes (пространство имен: {{namespace}})",
   "Resources to be deployed ({{count}} object)_one": "Ресурсы для развертывания ({{count}} объект)",
   "Resources to be deployed ({{count}} object)_few": "",

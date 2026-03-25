@@ -298,6 +298,8 @@
   "Upload files": "Unggah file",
   "Clear editor": "Bersihkan editor",
   "Review & Deploy": "Tinjau dan Sebarkan",
+  "Resource quota warning": "",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "Manifes Kubernetes yang dihasilkan (namespace: {{namespace}})",
   "Resources to be deployed ({{count}} object)_other": "Sumber daya yang akan disebarkan ({{count}} objek)",
   "namespace: {{namespace}}": "namespace: {{namespace}}",

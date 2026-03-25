@@ -301,6 +301,8 @@
   "Upload files": "Upload files",
   "Clear editor": "Clear editor",
   "Review & Deploy": "Review & Deploy",
+  "Resource quota warning": "Resource quota warning",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "Generated Kubernetes manifests (namespace: {{namespace}})",
   "Resources to be deployed ({{count}} object)_one": "Resources to be deployed ({{count}} object)",
   "Resources to be deployed ({{count}} object)_other": "Resources to be deployed ({{count}} object)",

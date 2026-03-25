@@ -298,6 +298,8 @@
   "Upload files": "파일 업로드",
   "Clear editor": "편집기 지우기",
   "Review & Deploy": "검토 및 배포",
+  "Resource quota warning": "",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "생성된 Kubernetes 매니페스트(네임스페이스: {{namespace}})",
   "Resources to be deployed ({{count}} object)_other": "배포할 리소스({{count}}개 개체)",
   "namespace: {{namespace}}": "네임스페이스: {{namespace}}",

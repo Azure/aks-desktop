@@ -301,6 +301,8 @@
   "Upload files": "Dosyaları karşıya yükle",
   "Clear editor": "Düzenleyiciyi temizle",
   "Review & Deploy": "Gözden Geçir ve Dağıt",
+  "Resource quota warning": "",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "Oluşturulan Kubernetes bildirimleri (ad alanı: {{namespace}})",
   "Resources to be deployed ({{count}} object)_one": "Dağıtılacak kaynaklar ({{count}} nesne)",
   "Resources to be deployed ({{count}} object)_other": "Dağıtılacak kaynaklar ({{count}} nesne)",

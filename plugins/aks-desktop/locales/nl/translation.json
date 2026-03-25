@@ -301,6 +301,8 @@
   "Upload files": "Bestanden uploaden",
   "Clear editor": "Editor wissen",
   "Review & Deploy": "Beoordelen en implementeren",
+  "Resource quota warning": "",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "Gegenereerde Kubernetes-manifesten (naamruimte: {{namespace}})",
   "Resources to be deployed ({{count}} object)_one": "Resources die moeten worden geïmplementeerd ({{count}} object)",
   "Resources to be deployed ({{count}} object)_other": "Resources die moeten worden geïmplementeerd ({{count}} object)",

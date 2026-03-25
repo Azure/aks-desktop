@@ -307,6 +307,8 @@
   "Upload files": "Nahrát soubory",
   "Clear editor": "Vymazat historii editoru",
   "Review & Deploy": "Zkontrolovat a nasadit",
+  "Resource quota warning": "",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "Vygenerovány manifesty Kubernetes (obor názvů: {{namespace}})",
   "Resources to be deployed ({{count}} object)_one": "Prostředky, které se mají nasadit ({{count}} objekt)",
   "Resources to be deployed ({{count}} object)_few": "",

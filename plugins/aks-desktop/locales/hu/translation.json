@@ -301,6 +301,8 @@
   "Upload files": "Fájlok feltöltése",
   "Clear editor": "Szerkesztő törlése",
   "Review & Deploy": "Áttekintés és üzembe helyezés",
+  "Resource quota warning": "",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "Kubernetes-jegyzékek létrehozva (névtér: {{namespace}})",
   "Resources to be deployed ({{count}} object)_one": "Üzembe helyezendő erőforrások ({{count}} objektum)",
   "Resources to be deployed ({{count}} object)_other": "Üzembe helyezendő erőforrások ({{count}} objektum)",

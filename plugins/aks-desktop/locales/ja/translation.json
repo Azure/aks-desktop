@@ -298,6 +298,8 @@
   "Upload files": "ファイルをアップロードする",
   "Clear editor": "エディターのクリア",
   "Review & Deploy": "レビューとデプロイ",
+  "Resource quota warning": "",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "生成された Kubernetes マニフェスト (名前空間: {{namespace}})",
   "Resources to be deployed ({{count}} object)_other": "デプロイするリソース ({{count}} 個のオブジェクト)",
   "namespace: {{namespace}}": "名前空間: {{namespace}}",

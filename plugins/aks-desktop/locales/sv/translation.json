@@ -301,6 +301,8 @@
   "Upload files": "Ladda upp filer",
   "Clear editor": "Rensa redigeraren",
   "Review & Deploy": "Granska och distribuera",
+  "Resource quota warning": "",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "Genererade Kubernetes-manifest (namnrymd: {{namespace}})",
   "Resources to be deployed ({{count}} object)_one": "Resurser som ska distribueras ({{count}} objekt)",
   "Resources to be deployed ({{count}} object)_other": "Resurser som ska distribueras ({{count}} objekt)",

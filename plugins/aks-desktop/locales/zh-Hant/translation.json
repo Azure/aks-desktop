@@ -298,6 +298,8 @@
   "Upload files": "上傳檔案",
   "Clear editor": "清除編輯器",
   "Review & Deploy": "檢閱與部署",
+  "Resource quota warning": "",
+  "{{resource}}: requesting {{requested}} but only {{remaining}} remains (limit: {{limit}})": "",
   "Generated Kubernetes manifests (namespace: {{namespace}})": "產生的 Kubernetes 資訊清單 (命名空間: {{namespace}})",
   "Resources to be deployed ({{count}} object)_other": "要部署的資源 ({{count}} 個物件)",
   "namespace: {{namespace}}": "命名空間: {{namespace}}",
