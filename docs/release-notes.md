@@ -1,4 +1,4 @@
-# Stable Release Notes Version 0.5.0 DRAFT
+# Stable Release Notes Version 0.5.0
 
 ## Key updates in the release:
 1. Accessibility, security, stability, localization and many minor fixes, documented in release notes.
@@ -9,7 +9,7 @@
 ## Alpha Preview features
 1. AI Assistant with Natural Language Support 
 2. Insights
-3. Automating app deployment from AKS desktop with a GitHub Actions Pipeline (docs inflight)
+3. Automating app deployment from AKS desktop with a GitHub Actions Pipeline (docs inflight, ETA 27th March)
 
 
 ## AI Assistant with Natural Language Support (Preview)
@@ -197,7 +197,8 @@ kubectl delete ns gadget
 - [IG Desktop GitHub](https://github.com/inspektor-gadget/ig-desktop)
 - [AKS Desktop Cluster Requirements](./cluster-requirements.md)
 
-
+## Automating app deployment from AKS desktop with a GitHub Actions Pipeline 
+Docs inflight ETA 27th March 2026
 
 ## Awareness / updates
 ## Opening the app for the first time
