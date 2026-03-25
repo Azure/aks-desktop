@@ -16,7 +16,11 @@ import {
   Typography,
 } from '@mui/material';
 import React, { useEffect, useState } from 'react';
-import { ACR_NAME_PATTERN, createContainerRegistry } from '../../../utils/azure/az-acr';
+import {
+  ACR_NAME_ERROR,
+  ACR_NAME_PATTERN,
+  createContainerRegistry,
+} from '../../../utils/azure/az-acr';
 import {
   type AcrInfo,
   type AcrSku,
@@ -72,6 +76,7 @@ export function AcrSelector({ subscriptionId, resourceGroup, onSelect, value }: 
         const result = await getContainerRegistries(subscriptionId);
         if (!cancelled) setRegistries(result);
       } catch (err) {
+        console.error('Failed to load container registries:', err);
         if (!cancelled)
           setError(err instanceof Error ? err.message : 'Failed to load container registries');
       } finally {
@@ -98,6 +103,9 @@ export function AcrSelector({ subscriptionId, resourceGroup, onSelect, value }: 
       const registry = registries.find(r => r.id === newValue);
       if (registry) {
         onSelect({ acrResourceId: registry.id, acrLoginServer: registry.loginServer });
+      } else {
+        console.warn(`Selected registry ${newValue} not found in loaded registries`);
+        onSelect(null);
       }
     }
   };
@@ -107,7 +115,7 @@ export function AcrSelector({ subscriptionId, resourceGroup, onSelect, value }: 
     if (!trimmed) return;
 
     if (!ACR_NAME_PATTERN.test(trimmed)) {
-      setCreateError(t('Registry name must be 5-50 alphanumeric characters.'));
+      setCreateError(t(ACR_NAME_ERROR));
       return;
     }
 
@@ -121,7 +129,7 @@ export function AcrSelector({ subscriptionId, resourceGroup, onSelect, value }: 
       });
 
       const result = await createContainerRegistry({
-        registryName: trimmed.toLowerCase(),
+        registryName: trimmed,
         resourceGroup,
         subscriptionId,
         location,
@@ -146,6 +154,7 @@ export function AcrSelector({ subscriptionId, resourceGroup, onSelect, value }: 
       setMode('selecting');
       onSelect({ acrResourceId: result.id, acrLoginServer: result.loginServer });
     } catch (err) {
+      console.error('Failed to create container registry:', err);
       setCreateError(err instanceof Error ? err.message : t('Failed to create container registry'));
     } finally {
       setCreating(false);
@@ -186,11 +195,7 @@ export function AcrSelector({ subscriptionId, resourceGroup, onSelect, value }: 
               value={selectedValue}
               onChange={e => handleSelectChange(e.target.value)}
               label={t('Container Registry')}
-              displayEmpty
             >
-              <MenuItem value="" disabled>
-                {t('Select a container registry...')}
-              </MenuItem>
               {registries.map(reg => (
                 <MenuItem key={reg.id} value={reg.id}>
                   {reg.name} ({reg.loginServer})

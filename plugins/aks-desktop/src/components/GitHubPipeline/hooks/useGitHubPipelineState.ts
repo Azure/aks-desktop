@@ -126,6 +126,7 @@ type PipelineAction =
   | { type: 'SET_APP_INSTALL_NEEDED' }
   | { type: 'SET_CHECKING_REPO' }
   | { type: 'SET_REPO_READINESS'; readiness: RepoReadiness }
+  | { type: 'SET_ACR_COMPLETED' }
   | { type: 'SET_IDENTITY_SETUP' }
   | { type: 'SET_IDENTITY_READY' }
   | { type: 'SET_CREATING_SETUP_PR' }
@@ -151,6 +152,7 @@ const VALID_TRANSITIONS: Record<
   SET_APP_INSTALL_NEEDED: new Set(['CheckingRepo', 'AppInstallationNeeded']),
   SET_CHECKING_REPO: new Set(['Configured', 'AppInstallationNeeded']),
   SET_REPO_READINESS: new Set(['CheckingRepo', 'AppInstallationNeeded']),
+  SET_ACR_COMPLETED: new Set(['AcrSelection']),
   SET_IDENTITY_SETUP: new Set(['CheckingRepo', 'ReadyForSetup']),
   SET_IDENTITY_READY: new Set(['WorkloadIdentitySetup']),
   SET_CREATING_SETUP_PR: new Set(['ReadyForSetup']),
@@ -250,11 +252,22 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
           };
           break;
         }
+        // Route to ACR selection before identity setup
+        next = {
+          ...state,
+          deploymentState: 'AcrSelection',
+          repoReadiness: readiness,
+          updatedAt: now(),
+        };
+        break;
+      }
+
+      case 'SET_ACR_COMPLETED': {
+        const hasIdentity = Boolean(state.config?.identityId?.trim());
         if (!hasIdentity) {
           next = {
             ...state,
             deploymentState: 'WorkloadIdentitySetup',
-            repoReadiness: readiness,
             updatedAt: now(),
           };
           break;
@@ -262,7 +275,6 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
         next = {
           ...state,
           deploymentState: 'ReadyForSetup',
-          repoReadiness: readiness,
           updatedAt: now(),
         };
         break;
@@ -377,6 +389,7 @@ export interface UseGitHubPipelineStateResult {
   setAppInstallNeeded: () => void;
   setCheckingRepo: () => void;
   setRepoReadiness: (readiness: RepoReadiness) => void;
+  setAcrCompleted: () => void;
   setIdentitySetup: () => void;
   setIdentityReady: () => void;
   setCreatingSetupPR: () => void;
@@ -455,6 +468,7 @@ export const useGitHubPipelineState = (repoKey: string | null): UseGitHubPipelin
       setCheckingRepo: () => dispatch({ type: 'SET_CHECKING_REPO' }),
       setRepoReadiness: (readiness: RepoReadiness) =>
         dispatch({ type: 'SET_REPO_READINESS', readiness }),
+      setAcrCompleted: () => dispatch({ type: 'SET_ACR_COMPLETED' }),
       setIdentitySetup: () => dispatch({ type: 'SET_IDENTITY_SETUP' }),
       setIdentityReady: () => dispatch({ type: 'SET_IDENTITY_READY' }),
       setCreatingSetupPR: () => dispatch({ type: 'SET_CREATING_SETUP_PR' }),

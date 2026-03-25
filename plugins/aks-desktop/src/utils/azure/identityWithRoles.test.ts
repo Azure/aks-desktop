@@ -46,6 +46,7 @@ const baseConfig: EnsureIdentityWithRolesConfig = {
   identityResourceGroup: 'identity-rg',
   identityName: 'id-my-app-workload',
   clusterName: 'my-cluster',
+  isManagedNamespace: false,
   onStatusChange: vi.fn(),
 };
 

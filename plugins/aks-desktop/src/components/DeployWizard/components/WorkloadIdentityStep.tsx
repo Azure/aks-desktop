@@ -45,11 +45,14 @@ export default function WorkloadIdentityStep({
   const { t } = useTranslation();
   const workloadIdentity = useDeployWorkloadIdentity();
   const [identityMode, setIdentityMode] = useState<'create' | 'existing'>('create');
-  const defaultIdentityRg = `rg-${containerConfig.config.appName || 'app'}`;
-  const [identityRg, setIdentityRg] = useState(defaultIdentityRg);
+  const derivedIdentityRg = `rg-${containerConfig.config.appName || 'app'}`;
+  const [identityRg, setIdentityRg] = useState(derivedIdentityRg);
+  const [identityRgTouched, setIdentityRgTouched] = useState(false);
   useEffect(() => {
-    setIdentityRg(`rg-${containerConfig.config.appName || 'app'}`);
-  }, [containerConfig.config.appName]);
+    if (!identityRgTouched) {
+      setIdentityRg(derivedIdentityRg);
+    }
+  }, [derivedIdentityRg, identityRgTouched]);
   const [existingIdentities, setExistingIdentities] = useState<
     Array<{ name: string; clientId: string; principalId: string; resourceGroup: string }>
   >([]);
@@ -145,6 +148,7 @@ export default function WorkloadIdentityStep({
                 value={identityRg}
                 onChange={e => {
                   setIdentityRg(e.target.value);
+                  setIdentityRgTouched(true);
                   setIdentityValidationError(null);
                 }}
                 helperText={t(
@@ -194,7 +198,7 @@ export default function WorkloadIdentityStep({
                     clusterName: azureContext.clusterName,
                     namespace: namespace || 'default',
                     appName,
-                    isManagedNamespace: azureContext.isManagedNamespace,
+                    isManagedNamespace: azureContext.isManagedNamespace ?? false,
                     azureRbacEnabled: azureContext.azureRbacEnabled,
                   });
                 }}

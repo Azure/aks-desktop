@@ -47,22 +47,7 @@ function transitionTo(
     return;
   }
 
-  if (target === 'WorkloadIdentitySetup') {
-    // Need config without identity to trigger WorkloadIdentitySetup
-    act(() => result.current.setAppInstallNeeded());
-    act(() => result.current.updateConfig({ identityId: '' }));
-    act(() => result.current.setCheckingRepo());
-    act(() =>
-      result.current.setRepoReadiness({
-        hasSetupWorkflow: false,
-        hasAgentConfig: false,
-        hasDeployWorkflow: false,
-      })
-    );
-    return;
-  }
-
-  // ReadyForSetup (files missing, config has identity)
+  // setRepoReadiness now always routes to AcrSelection first
   act(() =>
     result.current.setRepoReadiness({
       hasSetupWorkflow: false,
@@ -70,6 +55,17 @@ function transitionTo(
       hasDeployWorkflow: false,
     })
   );
+  if (target === 'AcrSelection') return;
+
+  if (target === 'WorkloadIdentitySetup') {
+    // Need config without identity to trigger WorkloadIdentitySetup
+    act(() => result.current.updateConfig({ identityId: '' }));
+    act(() => result.current.setAcrCompleted());
+    return;
+  }
+
+  // ReadyForSetup (config has identity, ACR step completed)
+  act(() => result.current.setAcrCompleted());
   if (target === 'ReadyForSetup') return;
 
   act(() => result.current.setCreatingSetupPR());
@@ -204,7 +200,7 @@ describe('useGitHubPipelineState', () => {
   });
 
   describe('setRepoReadiness', () => {
-    it('should transition to WorkloadIdentitySetup when files are missing and no identity', () => {
+    it('should transition to AcrSelection when files are missing and no identity', () => {
       const { result } = renderHook(() => useGitHubPipelineState(null));
 
       // Set config without identity
@@ -219,10 +215,27 @@ describe('useGitHubPipelineState', () => {
         });
       });
 
+      expect(result.current.state.deploymentState).toBe('AcrSelection');
+    });
+
+    it('should transition from AcrSelection to WorkloadIdentitySetup when no identity', () => {
+      const { result } = renderHook(() => useGitHubPipelineState(null));
+
+      act(() => result.current.setConfig({ ...validConfig, identityId: '' }));
+      act(() => result.current.setCheckingRepo());
+      act(() => {
+        result.current.setRepoReadiness({
+          hasSetupWorkflow: false,
+          hasAgentConfig: false,
+          hasDeployWorkflow: false,
+        });
+      });
+      act(() => result.current.setAcrCompleted());
+
       expect(result.current.state.deploymentState).toBe('WorkloadIdentitySetup');
     });
 
-    it('should transition to ReadyForSetup when files are missing and identity exists', () => {
+    it('should transition to AcrSelection when files are missing and identity exists', () => {
       const { result } = renderHook(() => useGitHubPipelineState(null));
 
       act(() => result.current.setConfig(validConfig));
@@ -235,6 +248,23 @@ describe('useGitHubPipelineState', () => {
           hasDeployWorkflow: false,
         });
       });
+
+      expect(result.current.state.deploymentState).toBe('AcrSelection');
+    });
+
+    it('should transition from AcrSelection to ReadyForSetup when identity exists', () => {
+      const { result } = renderHook(() => useGitHubPipelineState(null));
+
+      act(() => result.current.setConfig(validConfig));
+      act(() => result.current.setCheckingRepo());
+      act(() => {
+        result.current.setRepoReadiness({
+          hasSetupWorkflow: false,
+          hasAgentConfig: false,
+          hasDeployWorkflow: false,
+        });
+      });
+      act(() => result.current.setAcrCompleted());
 
       expect(result.current.state.deploymentState).toBe('ReadyForSetup');
     });
@@ -259,7 +289,7 @@ describe('useGitHubPipelineState', () => {
       expect(result.current.state.deploymentState).toBe('AgentTaskCreating');
     });
 
-    it('should transition to WorkloadIdentitySetup when repo is set up but identity is missing', () => {
+    it('should transition to AcrSelection when repo is set up but identity is missing', () => {
       const { result } = renderHook(() => useGitHubPipelineState(null));
       act(() => {
         result.current.setConfig({ ...validConfig, identityId: '', appName: '' });
@@ -275,10 +305,10 @@ describe('useGitHubPipelineState', () => {
         });
       });
 
-      expect(result.current.state.deploymentState).toBe('WorkloadIdentitySetup');
+      expect(result.current.state.deploymentState).toBe('AcrSelection');
     });
 
-    it('should transition to ReadyForSetup when repo is set up but appName is missing', () => {
+    it('should transition to AcrSelection when repo is set up but appName is missing', () => {
       const { result } = renderHook(() => useGitHubPipelineState(null));
 
       act(() => {
@@ -295,7 +325,7 @@ describe('useGitHubPipelineState', () => {
         });
       });
 
-      expect(result.current.state.deploymentState).toBe('ReadyForSetup');
+      expect(result.current.state.deploymentState).toBe('AcrSelection');
     });
   });
 
@@ -427,10 +457,9 @@ describe('useGitHubPipelineState', () => {
       expect(result.current.state.deploymentState).toBe('AgentTaskCreating');
     });
 
-    it('should retry to WorkloadIdentitySetup when failed during identity setup', () => {
+    it('should retry to AcrSelection when failed during ACR selection', () => {
       const { result } = renderHook(() => useGitHubPipelineState(null));
 
-      // Config without identity to trigger WorkloadIdentitySetup
       act(() => result.current.setConfig({ ...validConfig, identityId: '' }));
       act(() => result.current.setCheckingRepo());
       act(() =>
@@ -440,22 +469,20 @@ describe('useGitHubPipelineState', () => {
           hasDeployWorkflow: false,
         })
       );
-      // Without identity, this lands on WorkloadIdentitySetup (transient).
-      // Retry maps transient states to their parent (Configured).
-      expect(result.current.state.deploymentState).toBe('WorkloadIdentitySetup');
+      expect(result.current.state.deploymentState).toBe('AcrSelection');
       act(() => {
         result.current.setFailed('Error');
       });
       act(() => {
         result.current.retry();
       });
-      expect(result.current.state.deploymentState).toBe('Configured');
+      expect(result.current.state.deploymentState).toBe('AcrSelection');
     });
 
     it('should retry to ReadyForSetup when repo is already configured but appName missing', () => {
       const { result } = renderHook(() => useGitHubPipelineState(null));
 
-      // Config with identity but no appName
+      // Config with identity but no appName — go through ACR step
       act(() => result.current.setConfig({ ...validConfig, appName: '' }));
       act(() => result.current.setCheckingRepo());
       act(() =>
@@ -465,6 +492,7 @@ describe('useGitHubPipelineState', () => {
           hasDeployWorkflow: false,
         })
       );
+      act(() => result.current.setAcrCompleted());
       // With identity but no appName, this lands on ReadyForSetup.
       expect(result.current.state.deploymentState).toBe('ReadyForSetup');
       act(() => {

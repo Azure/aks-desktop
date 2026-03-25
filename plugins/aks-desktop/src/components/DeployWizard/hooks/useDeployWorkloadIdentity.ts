@@ -43,8 +43,8 @@ export interface DeployWorkloadIdentityConfig {
   appName: string;
   /** Full Azure resource ID of the ACR. Omit to skip ACR roles. */
   acrResourceId?: string;
-  /** Whether the target namespace is a managed namespace. */
-  isManagedNamespace?: boolean;
+  /** Whether the target namespace is a managed namespace. Must be resolved before calling. */
+  isManagedNamespace: boolean;
   /** Whether Azure RBAC for Kubernetes is enabled on the cluster. */
   azureRbacEnabled?: boolean;
 }
@@ -68,7 +68,7 @@ export const useDeployWorkloadIdentity = (): UseDeployWorkloadIdentityReturn => 
       namespace,
       appName,
       acrResourceId,
-      isManagedNamespace = false,
+      isManagedNamespace,
       azureRbacEnabled,
     } = config;
     const identityName = getDeployIdentityName(appName);

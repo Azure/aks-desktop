@@ -1,17 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Box,
   Button,
   FormControlLabel,
-  IconButton,
   InputAdornment,
   Switch,
   TextField,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import React from 'react';
@@ -104,30 +101,15 @@ export default function HpaStep({ containerConfig }: HpaStepProps) {
           </Box>
 
           <Box sx={{ mt: 3 }}>
-            <Box
-              component="label"
-              htmlFor="hpa-target-cpu-input"
-              sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}
-            >
-              <Typography variant="subtitle2">{t('Target CPU utilization')}</Typography>
-              <Tooltip
-                title={t(
-                  "The target average CPU utilization percentage across all pods. HPA will scale up when CPU usage exceeds this value and scale down when it's below."
-                )}
-                arrow
-              >
-                <IconButton aria-label={t('Information about target CPU utilization')}>
-                  <Icon
-                    icon="mdi:information-outline"
-                    width="16px"
-                    height="16px"
-                    aria-hidden="true"
-                  />
-                </IconButton>
-              </Tooltip>
-            </Box>
             <TextField
-              id="hpa-target-cpu-input"
+              label={
+                <LabelWithInfo
+                  label={t('Target CPU utilization')}
+                  infoText={t(
+                    "The target average CPU utilization percentage across all pods. HPA will scale up when CPU usage exceeds this value and scale down when it's below."
+                  )}
+                />
+              }
               type="number"
               value={containerConfig.config.hpaTargetCpu}
               inputProps={{ min: 10, max: 95, step: 5 }}

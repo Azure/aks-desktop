@@ -1,19 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import {
-  Box,
-  Button,
-  FormControlLabel,
-  IconButton,
-  InputAdornment,
-  Switch,
-  TextField,
-  Tooltip,
-  Typography,
-} from '@mui/material';
+import { Box, Button, FormControlLabel, InputAdornment, Switch, TextField } from '@mui/material';
 import React from 'react';
 import { CONTAINER_STEPS } from '../hooks/useContainerConfiguration';
 import { ContainerConfigProp, LabelWithInfo } from './configureContainerUtils';
@@ -54,32 +43,15 @@ export default function ResourcesStep({ containerConfig }: ResourcesStepProps) {
         }}
       >
         <Box>
-          <Box
-            component="label"
-            htmlFor="cpu-request-input"
-            sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}
-          >
-            <Typography variant="caption" color="text.secondary">
-              {t('CPU request')}
-            </Typography>
-            <Tooltip
-              title={t(
-                'The minimum amount of CPU guaranteed to the container. Kubernetes will schedule the pod on a node with at least this much CPU available.'
-              )}
-              arrow
-            >
-              <IconButton aria-label={t('Information about CPU request')}>
-                <Icon
-                  icon="mdi:information-outline"
-                  width="16px"
-                  height="16px"
-                  aria-hidden="true"
-                />
-              </IconButton>
-            </Tooltip>
-          </Box>
           <TextField
-            id="cpu-request-input"
+            label={
+              <LabelWithInfo
+                label={t('CPU request')}
+                infoText={t(
+                  'The minimum amount of CPU guaranteed to the container. Kubernetes will schedule the pod on a node with at least this much CPU available.'
+                )}
+              />
+            }
             type="number"
             inputProps={{ step: 50, min: 1 }}
             value={containerConfig.config.cpuRequest?.replace(/m$/, '')}
@@ -97,32 +69,15 @@ export default function ResourcesStep({ containerConfig }: ResourcesStepProps) {
         </Box>
 
         <Box>
-          <Box
-            component="label"
-            htmlFor="cpu-limit-input"
-            sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}
-          >
-            <Typography variant="caption" color="text.secondary">
-              {t('CPU limit')}
-            </Typography>
-            <Tooltip
-              title={t(
-                'The maximum amount of CPU the container can use. If exceeded, the container will be throttled.'
-              )}
-              arrow
-            >
-              <IconButton aria-label={t('Information about CPU limit')}>
-                <Icon
-                  icon="mdi:information-outline"
-                  width="16px"
-                  height="16px"
-                  aria-hidden="true"
-                />
-              </IconButton>
-            </Tooltip>
-          </Box>
           <TextField
-            id="cpu-limit-input"
+            label={
+              <LabelWithInfo
+                label={t('CPU limit')}
+                infoText={t(
+                  'The maximum amount of CPU the container can use. If exceeded, the container will be throttled.'
+                )}
+              />
+            }
             type="number"
             inputProps={{ step: 50, min: 1 }}
             value={containerConfig.config.cpuLimit?.replace(/m$/, '')}
@@ -139,32 +94,15 @@ export default function ResourcesStep({ containerConfig }: ResourcesStepProps) {
           />
         </Box>
         <Box>
-          <Box
-            component="label"
-            htmlFor="memory-request-input"
-            sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}
-          >
-            <Typography variant="caption" color="text.secondary">
-              {t('Memory request')}
-            </Typography>
-            <Tooltip
-              title={t(
-                'The minimum amount of memory guaranteed to the container. Kubernetes will schedule the pod on a node with at least this much memory available.'
-              )}
-              arrow
-            >
-              <IconButton aria-label={t('Information about memory request')}>
-                <Icon
-                  icon="mdi:information-outline"
-                  width="16px"
-                  height="16px"
-                  aria-hidden="true"
-                />
-              </IconButton>
-            </Tooltip>
-          </Box>
           <TextField
-            id="memory-request-input"
+            label={
+              <LabelWithInfo
+                label={t('Memory request')}
+                infoText={t(
+                  'The minimum amount of memory guaranteed to the container. Kubernetes will schedule the pod on a node with at least this much memory available.'
+                )}
+              />
+            }
             type="number"
             inputProps={{ step: 64, min: 1 }}
             value={containerConfig.config.memoryRequest?.replace(/Mi$/, '')}
@@ -182,32 +120,15 @@ export default function ResourcesStep({ containerConfig }: ResourcesStepProps) {
         </Box>
 
         <Box>
-          <Box
-            component="label"
-            htmlFor="memory-limit-input"
-            sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}
-          >
-            <Typography variant="caption" color="text.secondary">
-              {t('Memory limit')}
-            </Typography>
-            <Tooltip
-              title={t(
-                'The maximum amount of memory the container can use. If exceeded, the container will be terminated (OOMKilled).'
-              )}
-              arrow
-            >
-              <IconButton aria-label={t('Information about memory limit')}>
-                <Icon
-                  icon="mdi:information-outline"
-                  width="16px"
-                  height="16px"
-                  aria-hidden="true"
-                />
-              </IconButton>
-            </Tooltip>
-          </Box>
           <TextField
-            id="memory-limit-input"
+            label={
+              <LabelWithInfo
+                label={t('Memory limit')}
+                infoText={t(
+                  'The maximum amount of memory the container can use. If exceeded, the container will be terminated (OOMKilled).'
+                )}
+              />
+            }
             type="number"
             inputProps={{ step: 64, min: 1 }}
             value={containerConfig.config.memoryLimit?.replace(/Mi$/, '')}

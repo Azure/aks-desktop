@@ -61,6 +61,7 @@ const baseConfig: DeployWorkloadIdentityConfig = {
   clusterName: 'my-cluster',
   namespace: 'my-namespace',
   appName: 'my-app',
+  isManagedNamespace: false,
 };
 
 describe('getDeployIdentityName', () => {

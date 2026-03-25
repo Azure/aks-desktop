@@ -14,6 +14,7 @@ export const DEPLOYMENT_STATES = [
   'GitHubAuthorizationNeeded',
   'AppInstallationNeeded',
   'CheckingRepo', // (*)
+  'AcrSelection',
   'WorkloadIdentitySetup', // (*)
   'ReadyForSetup', // (*)
   'SetupPRCreating',

@@ -58,6 +58,7 @@ const baseConfig: WorkloadIdentitySetupConfig = {
   projectName: 'my-project',
   clusterName: 'my-cluster',
   repo: { owner: 'testuser', repo: 'my-repo', defaultBranch: 'main' },
+  isManagedNamespace: false,
 };
 
 describe('getIdentityName', () => {

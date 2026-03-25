@@ -19,8 +19,8 @@ export interface EnsureIdentityWithRolesConfig {
   clusterName: string;
   /** Full Azure resource ID of the ACR. Omit to skip ACR roles. */
   acrResourceId?: string;
-  /** Whether the target namespace is a managed namespace. */
-  isManagedNamespace?: boolean;
+  /** Whether the target namespace is a managed namespace. Must be resolved before calling. */
+  isManagedNamespace: boolean;
   /** Name of the managed namespace (required if isManagedNamespace is true). */
   namespaceName?: string;
   /** Whether Azure RBAC for Kubernetes is enabled on the cluster. */
@@ -45,7 +45,7 @@ export async function ensureIdentityWithRoles(
     identityName,
     clusterName,
     acrResourceId,
-    isManagedNamespace = false,
+    isManagedNamespace,
     namespaceName,
     azureRbacEnabled,
     onStatusChange,

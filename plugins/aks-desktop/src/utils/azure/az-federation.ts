@@ -11,6 +11,63 @@ import {
   runAzCommand,
 } from './az-cli';
 
+/** Shared helper: runs `az identity federated-credential create` with dedup handling. */
+async function runFederatedCredentialCreate(options: {
+  identityName: string;
+  resourceGroup: string;
+  subscriptionId: string;
+  credentialName: string;
+  issuer: string;
+  subject: string;
+  logPrefix: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const {
+    identityName,
+    resourceGroup,
+    subscriptionId,
+    credentialName,
+    issuer,
+    subject,
+    logPrefix,
+  } = options;
+
+  const result = await runAzCommand(
+    [
+      'identity',
+      'federated-credential',
+      'create',
+      '--identity-name',
+      identityName,
+      '--resource-group',
+      resourceGroup,
+      '--subscription',
+      subscriptionId,
+      '--name',
+      credentialName,
+      '--issuer',
+      issuer,
+      '--subject',
+      subject,
+      '--audiences',
+      'api://AzureADTokenExchange',
+      '--output',
+      'json',
+    ],
+    logPrefix,
+    `create federated credential (${credentialName})`,
+    undefined,
+    stderr => {
+      if (stderr.includes('FederatedIdentityCredentialAlreadyExists')) {
+        debugLog('Federated credential already exists, continuing.');
+        return { success: true };
+      }
+      return null;
+    }
+  );
+
+  return { success: result.success, error: result.error };
+}
+
 export async function createFederatedCredential(options: {
   identityName: string;
   resourceGroup: string;
@@ -32,48 +89,21 @@ export async function createFederatedCredential(options: {
   }
 
   const subject = `repo:${repoOwner}/${repoName}:ref:refs/heads/${branch}`;
-  // Sanitize dots in repoName (invalid in Azure resource names) and validate
   const sanitizedRepoName = repoName.replace(/\./g, '-');
   const credentialName = `GitHubActions-${sanitizedRepoName}`;
   if (!isValidAzResourceName(credentialName)) {
     return { success: false, error: 'Invalid federated credential name format' };
   }
-  const result = await runAzCommand(
-    [
-      'identity',
-      'federated-credential',
-      'create',
-      '--identity-name',
-      identityName,
-      '--resource-group',
-      resourceGroup,
-      '--subscription',
-      subscriptionId,
-      '--name',
-      credentialName,
-      '--issuer',
-      'https://token.actions.githubusercontent.com',
-      '--subject',
-      subject,
-      '--audiences',
-      'api://AzureADTokenExchange',
-      '--output',
-      'json',
-    ],
-    'Creating federated credential:',
-    'create federated credential',
-    undefined,
-    stderr => {
-      // Federated credential already exists — treat as success
-      if (stderr.includes('FederatedIdentityCredentialAlreadyExists')) {
-        debugLog('Federated credential already exists, continuing.');
-        return { success: true };
-      }
-      return null;
-    }
-  );
 
-  return { success: result.success, error: result.error };
+  return runFederatedCredentialCreate({
+    identityName,
+    resourceGroup,
+    subscriptionId,
+    credentialName,
+    issuer: 'https://token.actions.githubusercontent.com',
+    subject,
+    logPrefix: 'Creating federated credential:',
+  });
 }
 
 export async function getAksOidcIssuerUrl(options: {
@@ -205,40 +235,14 @@ export async function createK8sFederatedCredential(options: {
   if (!isValidAzResourceName(credentialName)) {
     return { success: false, error: 'Invalid federated credential name format' };
   }
-  const result = await runAzCommand(
-    [
-      'identity',
-      'federated-credential',
-      'create',
-      '--identity-name',
-      identityName,
-      '--resource-group',
-      resourceGroup,
-      '--subscription',
-      subscriptionId,
-      '--name',
-      credentialName,
-      '--issuer',
-      issuerUrl,
-      '--subject',
-      subject,
-      '--audiences',
-      'api://AzureADTokenExchange',
-      '--output',
-      'json',
-    ],
-    'Creating K8s federated credential:',
-    'create K8s federated credential',
-    undefined,
-    stderr => {
-      // Federated credential already exists — treat as success
-      if (stderr.includes('FederatedIdentityCredentialAlreadyExists')) {
-        debugLog('K8s federated credential already exists, continuing.');
-        return { success: true };
-      }
-      return null;
-    }
-  );
 
-  return { success: result.success, error: result.error };
+  return runFederatedCredentialCreate({
+    identityName,
+    resourceGroup,
+    subscriptionId,
+    credentialName,
+    issuer: issuerUrl,
+    subject,
+    logPrefix: 'Creating K8s federated credential:',
+  });
 }

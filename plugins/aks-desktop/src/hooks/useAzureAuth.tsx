@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { getLoginStatus } from '../utils/azure/az-cli';
 
@@ -27,11 +27,13 @@ export function useAzureAuth(redirectToLogin = false): AzureAuthStatus {
     isChecking: true,
   });
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
+  // Use refs so the event listener always reads current values
+  const locationRef = useRef(location);
+  locationRef.current = location;
+  const redirectToLoginRef = useRef(redirectToLogin);
+  redirectToLoginRef.current = redirectToLogin;
 
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       const status = await getLoginStatus();
 
@@ -49,12 +51,9 @@ export function useAzureAuth(redirectToLogin = false): AzureAuthStatus {
       // Expose auth status to window object for headlamp components
       (window as any).__azureAuthStatus = newAuthStatus;
 
-      // Redirect to login if not authenticated and redirectToLogin is true
-      if (!status.isLoggedIn && redirectToLogin) {
-        // Use location.pathname for the React Router path (not window.location)
-        const currentPath = location.pathname + location.search;
-        //?redirect=${encodeURIComponent(currentPath)}
-        // history.push(`/azure/login`);
+      if (!status.isLoggedIn && redirectToLoginRef.current) {
+        const loc = locationRef.current;
+        const currentPath = loc.pathname + loc.search;
         history.push({
           pathname: '/azure/login',
           search: `?redirect=${encodeURIComponent(currentPath)}`,
@@ -73,13 +72,21 @@ export function useAzureAuth(redirectToLogin = false): AzureAuthStatus {
       // Expose auth status to window object for headlamp components
       (window as any).__azureAuthStatus = errorAuthStatus;
 
-      if (redirectToLogin) {
-        // Use location.pathname for the React Router path (not window.location)
-        const currentPath = location.pathname + location.search;
+      if (redirectToLoginRef.current) {
+        const loc = locationRef.current;
+        const currentPath = loc.pathname + loc.search;
         history.push(`/azure/login?redirect=${encodeURIComponent(currentPath)}`);
       }
     }
-  };
+  }, [history]);
+
+  useEffect(() => {
+    checkAuth();
+
+    const handleAuthUpdate = () => checkAuth();
+    window.addEventListener('azure-auth-update', handleAuthUpdate);
+    return () => window.removeEventListener('azure-auth-update', handleAuthUpdate);
+  }, [checkAuth]);
 
   return authStatus;
 }

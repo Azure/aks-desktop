@@ -4,11 +4,11 @@
 
 import { isValidAzResourceName, isValidGuid, runAzCommand } from './az-cli';
 
-/** Azure Container Registry name: 5-50 alphanumeric characters. */
-export const ACR_NAME_PATTERN = /^[a-zA-Z0-9]{5,50}$/;
+/** Azure Container Registry name: 5-50 lowercase alphanumeric characters. */
+export const ACR_NAME_PATTERN = /^[a-z0-9]{5,50}$/;
 
 /** Shared validation error for invalid ACR names. */
-export const ACR_NAME_ERROR = 'Registry name must be 5-50 alphanumeric characters.';
+export const ACR_NAME_ERROR = 'Registry name must be 5-50 lowercase alphanumeric characters.';
 
 /**
  * Creates an Azure Container Registry.

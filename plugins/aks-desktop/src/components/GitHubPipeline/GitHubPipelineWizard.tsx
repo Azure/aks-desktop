@@ -10,6 +10,7 @@ import type { GitHubRepo } from '../../types/github';
 import { openExternalUrl } from '../../utils/shared/openExternalUrl';
 import type { ContainerConfig } from '../DeployWizard/hooks/useContainerConfiguration';
 import { useContainerConfiguration } from '../DeployWizard/hooks/useContainerConfiguration';
+import { type AcrSelection, AcrSelector } from './components/AcrSelector';
 import { AgentSetupReview } from './components/AgentSetupReview';
 import { ConnectSourceStep } from './components/ConnectSourceStep';
 import { ReviewAndMergeStep } from './components/ReviewAndMergeStep';
@@ -238,8 +239,39 @@ export function GitHubPipelineWizard({
       case 'CheckingRepo':
         return <LoadingSpinner message={t('Checking repository readiness...')} />;
 
+      case 'AcrSelection':
+        return (
+          <AcrSelector
+            subscriptionId={subscriptionId}
+            resourceGroup={resourceGroup}
+            onSelect={(selection: AcrSelection | null) => {
+              pipeline.updateConfig({
+                acrResourceId: selection?.acrResourceId,
+                acrLoginServer: selection?.acrLoginServer,
+              });
+            }}
+            value={
+              pipeline.state.config?.acrResourceId && pipeline.state.config?.acrLoginServer
+                ? {
+                    acrResourceId: pipeline.state.config.acrResourceId,
+                    acrLoginServer: pipeline.state.config.acrLoginServer,
+                  }
+                : null
+            }
+          />
+        );
+
       case 'WorkloadIdentitySetup': {
-        if (!selectedRepo) return <LoadingSpinner message={t('Loading...')} />;
+        if (!selectedRepo || isManagedNamespace === undefined)
+          return (
+            <LoadingSpinner
+              message={t(
+                isManagedNamespace === undefined
+                  ? 'Resolving namespace capabilities...'
+                  : 'Loading...'
+              )}
+            />
+          );
         return (
           <WorkloadIdentitySetup
             subscriptionId={subscriptionId}
@@ -355,6 +387,16 @@ export function GitHubPipelineWizard({
           </Button>
         );
       }
+      case 'AcrSelection':
+        return (
+          <Button
+            variant="contained"
+            onClick={() => pipeline.setAcrCompleted()}
+            sx={{ textTransform: 'none' }}
+          >
+            {t('Next')}
+          </Button>
+        );
       case 'ReadyForSetup': {
         const needsApp = !pipeline.state.config?.appName.trim() && !localAppName.trim();
         const readiness = pipeline.state.repoReadiness;
