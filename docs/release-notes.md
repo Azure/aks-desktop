@@ -231,10 +231,8 @@ Projects are detailed [here](https://learn.microsoft.com/azure/aks/aks-desktop-a
 
 ### Project Type updates
 Projects are built on namespaces, these are the options:
-1. Existing Namespace - you an bring a namespace into a project.
-2. 
+1. Existing Namespace - you can bring a namespace into a project.
 2. Create New AKS Managed Namespace (recommended) - this is built on [AKS Managed Namespace](https://learn.microsoft.com/en-us/azure/aks/concepts-managed-namespaces) which provides many benefits, e.g. resource quota, network policy etc.
-
 > Note! When you select 'New AKS Managed Namespace' we will check if the cluster meets the minimum requirements to create a project, requirements are documented [here](https://github.com/Azure/aks-desktop/blob/main/docs/cluster-requirements.md#aks-cluster-requirements-for-aks-desktop).
 
 ### Access
