@@ -42,8 +42,8 @@ There are two options for enabling this functionality:
 ### Enabling the feature
 1. Utilize the Azure AKS Agentic CLI Agent 
     * Go to AKS desktop settings > Plugins > Enable AI Assistant
-    * [Install the Agentic CLI Agent ](https://learn.microsoft.com/en-us/azure/aks/agentic-cli-for-aks-install?tabs=client-mode%2Cclient-cleanup)on your cluster and configure it to connect to a model.
-    * Ensure the cluster runnning the Agentic CLI Agent is a registered cluster in AKS desktop, i.e you see it in your cluster list.
+    * [Install the Agentic CLI Agent ](https://learn.microsoft.com/en-us/azure/aks/agentic-cli-for-aks-install?tabs=client-mode%2Cclient-cleanup) on your cluster and configure it to connect to a model.
+    * Ensure the cluster running the Agentic CLI Agent is a registered cluster in AKS desktop, i.e you see it in your cluster list.
 
 2. Enable in AKS desktop
     * Go to AKS desktop settings > Plugins > Enable AI Assistant
