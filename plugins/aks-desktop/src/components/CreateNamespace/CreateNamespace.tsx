@@ -118,12 +118,14 @@ function CreateNamespaceContent() {
       await createNamespaceAsProject(namespaceName, selectedCluster);
 
       setCreationProgress(`${t('Updating local settings')}...`);
+      // Only append to allowedNamespaces if it's already configured. Appending
+      // from scratch can potentially hide pre-existing projects a user can see.
       const settings = getClusterSettings(selectedCluster);
-      settings.allowedNamespaces ??= [];
-      if (!settings.allowedNamespaces.includes(namespaceName)) {
-        settings.allowedNamespaces.push(namespaceName);
+      const existing = settings.allowedNamespaces;
+      if (Array.isArray(existing) && existing.length > 0 && !existing.includes(namespaceName)) {
+        settings.allowedNamespaces = [...existing, namespaceName];
+        setClusterSettings(selectedCluster, settings);
       }
-      setClusterSettings(selectedCluster, settings);
 
       setCreationProgress(t('Namespace created successfully!'));
       setTimeout(() => {
