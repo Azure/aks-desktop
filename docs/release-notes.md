@@ -7,7 +7,7 @@
 4. Support for importing a managed namespace into a project even when the user does not have access to the cluster itself.
 
 ## Alpha Preview features
-For all these new features, please provide feedback in the GitHub issues, we want to learn from you and improve! As these are preview features only run on test clusters.
+For all these new features, please provide feedback in GitHub issues—we want to learn from you and improve. Because these are preview features, they should only be run on test clusters.
 1. **AI Assistant with Natural Language Support** - in context troubleshooting through asking with natural language!
 2. **Insights** - identify what DNS has done now, identify top resources consumers, find networking issues with network traces, all back with a powerful UI!
 3. **Automating app deployment** from AKS desktop with a GitHub Actions Pipeline - just a simple click through and edit what you need to!
