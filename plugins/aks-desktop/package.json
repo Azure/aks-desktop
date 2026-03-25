@@ -1,6 +1,6 @@
 {
   "name": "aks-desktop",
-  "version": "0.3.0-beta",
+  "version": "0.6.0",
   "description": "AKS Headlamp plugin",
   "scripts": {
     "start": "headlamp-plugin start",
