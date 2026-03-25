@@ -240,6 +240,6 @@ Note: at this point we grant the RBAC permissions to the underlying [AKS Managed
 
 
 ## Delete Project
-To delete a project select the 'Trash' icon, if also delete the namespace this can take a minute or so because it is an Azure request, deleting the AKS Managed Namespace.
+To delete a project, select the 'Trash' icon. If you also delete the namespace, this can take a minute or so because it is an Azure request that deletes the AKS Managed Namespace.
 ![alt text](image-4.png)
 
