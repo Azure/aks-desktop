@@ -168,7 +168,7 @@ export const useChartData = (
     } else {
       reset();
     }
-  }, [execute, reset, hasRequiredParams]);
+  }, [execute, reset, hasRequiredParams, asyncFn]);
 
   return { chartData: data ?? [], loading, error };
 };

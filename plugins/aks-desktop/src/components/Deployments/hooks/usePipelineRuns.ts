@@ -3,7 +3,8 @@
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import type { Octokit } from '@octokit/rest';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { useAsync } from '../../../hooks/useAsync';
 import type { GitHubRepo, WorkflowRunConclusion, WorkflowRunStatus } from '../../../types/github';
 import { listWorkflowRuns } from '../../../utils/github/github-api';
 import { PIPELINE_WORKFLOW_FILENAME } from '../../GitHubPipeline/constants';
@@ -32,57 +33,54 @@ export const usePipelineRuns = (
   repos: GitHubRepo[]
 ): UsePipelineRunsResult => {
   const { t } = useTranslation();
-  const [runs, setRuns] = useState<PipelineRun[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Stable repos reference — only changes when the repo list actually changes
   const repoKey = JSON.stringify(repos.map(r => [r.owner, r.repo]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stableRepos = useMemo(() => repos, [repoKey]);
 
-  const fetchRuns = useCallback(
-    async (signal: { cancelled: boolean }) => {
-      if (!octokit || stableRepos.length === 0) return;
+  const fetchRuns = useCallback(async (): Promise<PipelineRun[]> => {
+    if (!octokit) return [];
 
-      setLoading(true);
-      setError(null);
-      const results = await Promise.allSettled(
-        stableRepos.map(repo =>
-          listWorkflowRuns(octokit, repo.owner, repo.repo, {
-            workflowFileName: PIPELINE_WORKFLOW_FILENAME,
-            per_page: 5,
-          })
-        )
+    const results = await Promise.allSettled(
+      stableRepos.map(repo =>
+        listWorkflowRuns(octokit, repo.owner, repo.repo, {
+          workflowFileName: PIPELINE_WORKFLOW_FILENAME,
+          per_page: 5,
+        })
+      )
+    );
+
+    const allRuns: PipelineRun[] = [];
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        allRuns.push(...result.value);
+      }
+    }
+
+    const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failures.length === results.length && results.length > 0) {
+      throw new Error(t('Failed to load pipeline runs'));
+    } else if (failures.length > 0) {
+      console.warn(
+        `Pipeline runs: ${failures.length}/${results.length} repos failed to load`,
+        failures.map(f => f.reason)
       );
-      if (signal.cancelled) return;
-      const allRuns: PipelineRun[] = [];
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          allRuns.push(...result.value);
-        }
-      }
-      const failures = results.filter(r => r.status === 'rejected');
-      if (failures.length === results.length && results.length > 0) {
-        setError(t('Failed to load pipeline runs'));
-      } else if (failures.length > 0) {
-        console.warn(`Pipeline runs: ${failures.length}/${results.length} repos failed to load`);
-        setError(null); // Partial success — show what we have
-      }
-      allRuns.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setRuns(allRuns.slice(0, 10));
-      setLoading(false);
-    },
-    [octokit, stableRepos]
-  );
+    }
+
+    allRuns.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return allRuns.slice(0, 10);
+  }, [octokit, stableRepos, t]);
+
+  const { data, loading, error, execute, reset } = useAsync(fetchRuns, { immediate: false });
 
   useEffect(() => {
-    const signal = { cancelled: false };
-    fetchRuns(signal);
-    return () => {
-      signal.cancelled = true;
-    };
-  }, [fetchRuns]);
+    if (!octokit || stableRepos.length === 0) {
+      reset();
+      return;
+    }
+    execute();
+  }, [execute, reset, octokit, stableRepos, fetchRuns]);
 
-  return { runs, loading, error };
+  return { runs: data ?? [], loading, error };
 };

@@ -16,19 +16,16 @@ export interface UseAsyncResult<T, Args extends unknown[]> {
   reset: () => void;
 }
 
-// Overload: immediate mode (default) — only zero-arg async functions
 export function useAsync<T>(
   asyncFn: () => Promise<T>,
   options?: { immediate?: true }
 ): UseAsyncResult<T, []>;
 
-// Overload: deferred mode — any arg signature
 export function useAsync<T, Args extends unknown[]>(
   asyncFn: (...args: Args) => Promise<T>,
   options: { immediate: false }
 ): UseAsyncResult<T, Args>;
 
-// Implementation
 export function useAsync<T, Args extends unknown[] = []>(
   asyncFn: (...args: Args) => Promise<T>,
   options?: UseAsyncOptions
@@ -41,39 +38,39 @@ export function useAsync<T, Args extends unknown[] = []>(
 
   const requestIdRef = useRef(0);
   const mountedRef = useRef(false);
+  const asyncFnRef = useRef(asyncFn);
+  asyncFnRef.current = asyncFn;
 
-  const execute = useCallback(
-    async (...args: Args): Promise<T | null> => {
-      const currentRequestId = ++requestIdRef.current;
-      if (!mountedRef.current) return null;
-      setLoading(true);
-      setError(null);
+  const execute = useCallback(async (...args: Args): Promise<T | null> => {
+    const currentRequestId = ++requestIdRef.current;
+    if (!mountedRef.current) return null;
+    setLoading(true);
+    setError(null);
 
-      try {
-        const result = await asyncFn(...args);
-        if (mountedRef.current && requestIdRef.current === currentRequestId) {
-          setData(result);
-          setLoading(false);
-        }
-        return mountedRef.current && requestIdRef.current === currentRequestId ? result : null;
-      } catch (err) {
-        if (mountedRef.current && requestIdRef.current === currentRequestId) {
-          console.error('useAsync: async operation failed', err);
-          const message =
-            err instanceof Error
-              ? err.message
-              : typeof err === 'string'
-              ? err
-              : 'An unexpected error occurred';
-          setError(message);
-          setData(null);
-          setLoading(false);
-        }
-        return null;
+    try {
+      const result = await asyncFnRef.current(...args);
+      const isCurrent = mountedRef.current && requestIdRef.current === currentRequestId;
+      if (isCurrent) {
+        setData(result);
+        setLoading(false);
       }
-    },
-    [asyncFn]
-  );
+      return isCurrent ? result : null;
+    } catch (err) {
+      if (mountedRef.current && requestIdRef.current === currentRequestId) {
+        console.error('useAsync: async operation failed', err);
+        const message =
+          err instanceof Error
+            ? err.message
+            : typeof err === 'string'
+            ? err
+            : 'An unexpected error occurred';
+        setError(message);
+        setData(null);
+        setLoading(false);
+      }
+      return null;
+    }
+  }, []);
 
   const reset = useCallback(() => {
     requestIdRef.current++;
@@ -85,15 +82,13 @@ export function useAsync<T, Args extends unknown[] = []>(
   useEffect(() => {
     mountedRef.current = true;
     if (immediate) {
-      // Overload signatures enforce Args = [] when immediate is a literal true.
-      // Dynamic booleans bypass this — callers using variables should use immediate: false + manual execute().
       execute(...([] as unknown as Args));
     }
     return () => {
       mountedRef.current = false;
       requestIdRef.current++;
     };
-  }, [immediate, execute]);
+  }, [immediate]);
 
   return { data, loading, error, execute, reset };
 }
