@@ -2,8 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { TextField } from '@mui/material';
-import { Box, MenuItem, Typography } from '@mui/material';
+import { Box, Grid, MenuItem, TextField, Typography } from '@mui/material';
 import React from 'react';
 import type { NetworkingStepProps } from '../CreateAKSProject/types';
 
@@ -42,45 +41,50 @@ export const NetworkingStep: React.FC<NetworkingStepProps> = ({
           {t('Set security, communication and access rules for incoming and outgoing traffic')}
         </Typography>
       </Box>
-      <TextField
-        fullWidth
-        variant="outlined"
-        select
-        value={formData.ingress}
-        label="Ingress"
-        onChange={e => handleInputChange('ingress', e.target.value)}
-        disabled={loading}
-      >
-        {INGRESS_OPTIONS.map(option => (
-          <MenuItem key={option.value} value={option.value}>
-            {option.value === 'AllowSameNamespace'
-              ? t('Allow traffic within same namespace')
-              : option.value === 'AllowAll'
-              ? t('Allow all traffic')
-              : t('Deny all traffic')}
-          </MenuItem>
-        ))}
-      </TextField>
-
-      <TextField
-        fullWidth
-        variant="outlined"
-        select
-        value={formData.egress}
-        label="Egress"
-        onChange={e => handleInputChange('egress', e.target.value)}
-        disabled={loading}
-      >
-        {EGRESS_OPTIONS.map(option => (
-          <MenuItem key={option.value} value={option.value}>
-            {option.value === 'AllowAll'
-              ? t('Allow all traffic')
-              : option.value === 'AllowSameNamespace'
-              ? t('Allow traffic within same namespace')
-              : t('Deny all traffic')}
-          </MenuItem>
-        ))}
-      </TextField>
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={6}>
+          <TextField
+            fullWidth
+            variant="outlined"
+            select
+            value={formData.ingress}
+            label="Ingress"
+            onChange={e => handleInputChange('ingress', e.target.value)}
+            disabled={loading}
+          >
+            {INGRESS_OPTIONS.map(option => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.value === 'AllowSameNamespace'
+                  ? t('Allow traffic within same namespace')
+                  : option.value === 'AllowAll'
+                  ? t('Allow all traffic')
+                  : t('Deny all traffic')}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <TextField
+            fullWidth
+            variant="outlined"
+            select
+            value={formData.egress}
+            label="Egress"
+            onChange={e => handleInputChange('egress', e.target.value)}
+            disabled={loading}
+          >
+            {EGRESS_OPTIONS.map(option => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.value === 'AllowAll'
+                  ? t('Allow all traffic')
+                  : option.value === 'AllowSameNamespace'
+                  ? t('Allow traffic within same namespace')
+                  : t('Deny all traffic')}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Grid>
+      </Grid>
     </Box>
   );
 };
