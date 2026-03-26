@@ -271,7 +271,7 @@ describe('useChartData', () => {
     });
 
     expect(result.current.chartData).toHaveLength(0);
-    expect(result.current.error).toBe('Failed to fetch scaling data');
+    expect(result.current.error).toBe('string error');
   });
 
   test('handles null result from getClusterResourceIdAndGroup', async () => {
