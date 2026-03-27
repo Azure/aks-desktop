@@ -69,8 +69,9 @@ export const ScalingMetrics: React.FC<ScalingMetricsProps> = ({
           <Box display="flex" alignItems="center" gap={0.5}>
             <Icon
               icon={hpaInfo ? 'mdi:autorenew' : 'mdi:account'}
-              style={{ fontSize: 18, color: hpaInfo ? '#66BB6A' : '#42A5F5' }}
-            />
+              style={{ fontSize: 18, flexShrink: 0, color: hpaInfo ? '#66BB6A' : '#42A5F5' }}
+              aria-hidden="true"
+          />
             <Typography variant="body1" fontWeight="bold">
               {hpaInfo ? 'HPA' : t('Manual')}
             </Typography>
