@@ -193,6 +193,36 @@ export async function checkAppInstallation(
   }
 }
 
+/**
+ * Searches the repo tree for files named "Dockerfile" (case-insensitive).
+ * Returns an array of paths, e.g. ['Dockerfile', 'src/web/Dockerfile'].
+ */
+export async function findDockerfiles(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  ref: string
+): Promise<string[]> {
+  try {
+    const { data } = await octokit.git.getTree({
+      owner,
+      repo,
+      tree_sha: ref,
+      recursive: '1',
+    });
+    return data.tree
+      .filter(
+        entry =>
+          entry.type === 'blob' &&
+          entry.path !== undefined &&
+          entry.path.split('/').pop()?.toLowerCase() === 'dockerfile'
+      )
+      .map(entry => entry.path!);
+  } catch (err) {
+    throw apiError(`Failed to search repo tree for Dockerfiles`, err);
+  }
+}
+
 /** Returns the SHA of the tip commit on the given branch. */
 export async function getDefaultBranchSha(
   octokit: Octokit,

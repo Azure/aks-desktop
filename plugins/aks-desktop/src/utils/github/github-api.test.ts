@@ -38,6 +38,7 @@ const mockOctokit = {
   git: {
     getRef: vi.fn(),
     createRef: vi.fn(),
+    getTree: vi.fn(),
   },
   pulls: {
     create: vi.fn(),
@@ -80,6 +81,7 @@ import {
   createOrUpdateRepoSecret,
   createPullRequest,
   dispatchWorkflow,
+  findDockerfiles,
   findLinkedPullRequest,
   getCurrentUser,
   getDefaultBranchSha,
@@ -1042,6 +1044,61 @@ describe('github-api', () => {
           SECRET: 'value',
         })
       ).rejects.toThrow('Failed to get repo public key');
+    });
+  });
+
+  describe('findDockerfiles', () => {
+    it('should find Dockerfiles in repo tree', async () => {
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [
+            { path: 'Dockerfile', type: 'blob' },
+            { path: 'src/web/Dockerfile', type: 'blob' },
+            { path: 'README.md', type: 'blob' },
+            { path: 'src', type: 'tree' },
+          ],
+        },
+      });
+
+      const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual(['Dockerfile', 'src/web/Dockerfile']);
+    });
+
+    it('should return empty array when no Dockerfiles found', async () => {
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: { tree: [{ path: 'README.md', type: 'blob' }] },
+      });
+
+      const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual([]);
+    });
+
+    it('should match case-insensitively', async () => {
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [
+            { path: 'dockerfile', type: 'blob' },
+            { path: 'app/DOCKERFILE', type: 'blob' },
+          ],
+        },
+      });
+
+      const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual(['dockerfile', 'app/DOCKERFILE']);
+    });
+
+    it('should ignore directories named Dockerfile', async () => {
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [
+            { path: 'Dockerfile', type: 'tree' },
+            { path: 'src/Dockerfile', type: 'blob' },
+          ],
+        },
+      });
+
+      const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual(['src/Dockerfile']);
     });
   });
 });
