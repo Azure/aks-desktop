@@ -15,6 +15,8 @@ interface IdentityRoleContextBase {
   resourceGroup: string;
   clusterName: string;
   acrResourceId?: string;
+  /** When true, always includes AKS RBAC Writer (needed for annotation permissions). */
+  isPipeline?: boolean;
 }
 
 interface NormalNamespaceRoleContext extends IdentityRoleContextBase {
@@ -61,7 +63,7 @@ export function computeRequiredRoles(ctx: IdentityRoleContext): RoleAssignment[]
     roles.push({ role: AKS_NAMESPACE_USER, scope: ctx.managedNamespaceResourceId });
   } else {
     roles.push({ role: AKS_CLUSTER_USER, scope: clusterScope });
-    if (ctx.azureRbacEnabled) {
+    if (ctx.azureRbacEnabled || ctx.isPipeline) {
       roles.push({ role: AKS_RBAC_WRITER, scope: clusterScope });
     }
   }
