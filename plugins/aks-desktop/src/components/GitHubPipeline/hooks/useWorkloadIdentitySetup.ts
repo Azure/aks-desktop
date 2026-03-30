@@ -87,6 +87,7 @@ export const useWorkloadIdentitySetup = (): UseWorkloadIdentitySetupReturn => {
         isManagedNamespace,
         namespaceName,
         azureRbacEnabled,
+        isPipeline: true,
         purpose: 'GitHub Actions Identity',
         onStatusChange: setStatus,
       });

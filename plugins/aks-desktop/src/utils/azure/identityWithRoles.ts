@@ -25,6 +25,8 @@ export interface EnsureIdentityWithRolesConfig {
   namespaceName?: string;
   /** Whether Azure RBAC for Kubernetes is enabled on the cluster. */
   azureRbacEnabled?: boolean;
+  /** When true, always includes AKS RBAC Writer for annotation permissions. */
+  isPipeline?: boolean;
   /** Purpose label for the resource group tags (e.g. 'GitHub Actions Identity', 'Workload Identity'). */
   purpose?: string;
   onStatusChange: (status: RoleAssignmentStatus) => void;
@@ -50,6 +52,7 @@ export async function ensureIdentityWithRoles(
     isManagedNamespace,
     namespaceName,
     azureRbacEnabled,
+    isPipeline,
     purpose,
     onStatusChange,
   } = config;
@@ -90,6 +93,7 @@ export async function ensureIdentityWithRoles(
         acrResourceId,
         isManagedNamespace: true,
         managedNamespaceResourceId: nsResult.resourceId,
+        isPipeline,
       });
     }
     return computeRequiredRoles({
@@ -99,6 +103,7 @@ export async function ensureIdentityWithRoles(
       acrResourceId,
       isManagedNamespace: false,
       azureRbacEnabled,
+      isPipeline,
     });
   })();
 
