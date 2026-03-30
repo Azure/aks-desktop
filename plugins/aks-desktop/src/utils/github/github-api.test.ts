@@ -1139,5 +1139,13 @@ describe('github-api', () => {
       const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual(['src/Dockerfile']);
     });
+
+    it('should propagate errors', async () => {
+      mockOctokit.git.getTree.mockRejectedValue(new Error('Server Error'));
+
+      await expect(findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main')).rejects.toThrow(
+        'Failed to search repo tree for Dockerfiles in owner/repo'
+      );
+    });
   });
 });

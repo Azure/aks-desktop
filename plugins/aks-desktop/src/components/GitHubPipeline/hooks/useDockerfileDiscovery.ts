@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export interface DockerfileSelection {
   /** Full path in the repo, e.g. "src/web/Dockerfile" */
@@ -36,19 +36,30 @@ export interface UseDockerfileDiscoveryReturn {
  * Auto-selects if exactly one Dockerfile is found.
  */
 export function useDockerfileDiscovery(dockerfilePaths: string[]): UseDockerfileDiscoveryReturn {
-  const [selection, setSelection] = useState<DockerfileSelection | null>(() => {
-    if (dockerfilePaths.length === 1) {
-      return {
-        path: dockerfilePaths[0],
-        buildContext: deriveBuildContext(dockerfilePaths[0]),
-      };
-    }
-    return null;
-  });
+  const [selection, setSelection] = useState<DockerfileSelection | null>(null);
 
-  const select = useCallback((path: string) => {
-    setSelection({ path, buildContext: deriveBuildContext(path) });
-  }, []);
+  // Sync selection when dockerfilePaths changes (e.g. after async API fetch).
+  // Auto-selects when exactly one Dockerfile is found; clears stale selections.
+  useEffect(() => {
+    setSelection(prev => {
+      if (prev && dockerfilePaths.includes(prev.path)) return prev;
+      if (dockerfilePaths.length === 1) {
+        return {
+          path: dockerfilePaths[0],
+          buildContext: deriveBuildContext(dockerfilePaths[0]),
+        };
+      }
+      return null;
+    });
+  }, [dockerfilePaths]);
+
+  const select = useCallback(
+    (path: string) => {
+      if (!dockerfilePaths.includes(path)) return;
+      setSelection({ path, buildContext: deriveBuildContext(path) });
+    },
+    [dockerfilePaths]
+  );
 
   const setBuildContext = useCallback((buildContext: string) => {
     setSelection(prev => (prev ? { ...prev, buildContext } : null));

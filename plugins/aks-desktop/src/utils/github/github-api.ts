@@ -117,13 +117,18 @@ export async function checkRepoReadiness(
   defaultBranch?: string
 ): Promise<RepoReadiness> {
   try {
-    const ref = defaultBranch;
     const [hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow, dockerfilePaths] =
       await Promise.all([
-        fileExists(octokit, owner, repo, COPILOT_SETUP_STEPS_PATH, ref),
-        fileExists(octokit, owner, repo, AGENT_CONFIG_PATH, ref),
-        fileExists(octokit, owner, repo, `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`, ref),
-        ref ? findDockerfiles(octokit, owner, repo, ref) : Promise.resolve([]),
+        fileExists(octokit, owner, repo, COPILOT_SETUP_STEPS_PATH, defaultBranch),
+        fileExists(octokit, owner, repo, AGENT_CONFIG_PATH, defaultBranch),
+        fileExists(
+          octokit,
+          owner,
+          repo,
+          `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
+          defaultBranch
+        ),
+        defaultBranch ? findDockerfiles(octokit, owner, repo, defaultBranch) : Promise.resolve([]),
       ]);
 
     return { hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow, dockerfilePaths };
@@ -207,6 +212,11 @@ export async function findDockerfiles(
       tree_sha: ref,
       recursive: '1',
     });
+    if (data.truncated) {
+      console.warn(
+        `Repository tree for ${owner}/${repo} was truncated; Dockerfile list may be incomplete`
+      );
+    }
     return data.tree
       .filter(
         entry =>
@@ -216,7 +226,7 @@ export async function findDockerfiles(
       )
       .map(entry => entry.path!);
   } catch (err) {
-    throw apiError(`Failed to search repo tree for Dockerfiles`, err);
+    throw apiError(`Failed to search repo tree for Dockerfiles in ${owner}/${repo}`, err);
   }
 }
 
