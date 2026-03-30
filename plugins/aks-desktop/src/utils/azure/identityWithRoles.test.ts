@@ -12,6 +12,7 @@ const mockGetManagedIdentity = vi.fn();
 const mockCreateManagedIdentity = vi.fn();
 const mockAssignRolesToIdentity = vi.fn();
 const mockGetManagedNamespaceResourceId = vi.fn();
+const mockGetKubeletIdentityObjectId = vi.fn();
 
 vi.mock('./az-subscriptions', () => ({
   resourceGroupExists: (...args: any[]) => mockResourceGroupExists(...args),
@@ -24,6 +25,7 @@ vi.mock('./az-identity', () => ({
   createManagedIdentity: (...args: any[]) => mockCreateManagedIdentity(...args),
   assignRolesToIdentity: (...args: any[]) => mockAssignRolesToIdentity(...args),
   getManagedNamespaceResourceId: (...args: any[]) => mockGetManagedNamespaceResourceId(...args),
+  getKubeletIdentityObjectId: (...args: any[]) => mockGetKubeletIdentityObjectId(...args),
   buildClusterScope: (sub: string, rg: string, cluster: string) =>
     `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.ContainerService/managedClusters/${cluster}`,
 }));
@@ -205,5 +207,41 @@ describe('ensureIdentityWithRoles', () => {
     mockCreateResourceGroup.mockResolvedValue({ success: false, error: 'Permission denied' });
 
     await expect(ensureIdentityWithRoles(baseConfig)).rejects.toThrow('Permission denied');
+  });
+
+  it('should assign AcrPull to kubelet identity when ACR is provided', async () => {
+    setupHappyPath();
+    mockGetKubeletIdentityObjectId.mockResolvedValue({
+      success: true,
+      objectId: 'kubelet-principal-1',
+    });
+
+    await ensureIdentityWithRoles({
+      ...baseConfig,
+      subscriptionId: 'sub-1',
+      resourceGroup: 'rg-1',
+      identityResourceGroup: 'id-rg',
+      identityName: 'id-1',
+      clusterName: 'aks-1',
+      acrResourceId:
+        '/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/myacr',
+      isManagedNamespace: false,
+      isPipeline: true,
+      onStatusChange: vi.fn(),
+    });
+
+    // Second call to assignRolesToIdentity is for kubelet AcrPull
+    expect(mockAssignRolesToIdentity).toHaveBeenCalledTimes(2);
+    expect(mockAssignRolesToIdentity).toHaveBeenLastCalledWith({
+      principalId: 'kubelet-principal-1',
+      subscriptionId: 'sub-1',
+      roles: [
+        {
+          role: 'AcrPull',
+          scope:
+            '/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/myacr',
+        },
+      ],
+    });
   });
 });

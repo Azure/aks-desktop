@@ -1,7 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { assignRolesToIdentity, getManagedNamespaceResourceId } from './az-identity';
+import {
+  assignRolesToIdentity,
+  getKubeletIdentityObjectId,
+  getManagedNamespaceResourceId,
+} from './az-identity';
 import { computeRequiredRoles } from './identityRoles';
 import {
   ensureIdentityAndResourceGroup,
@@ -122,6 +126,28 @@ export async function ensureIdentityWithRoles(
       .map(r => `${r.role}: ${r.error}`)
       .join('; ');
     throw new Error(`Failed to assign roles: ${failedRoles}`);
+  }
+
+  // Assign AcrPull to the kubelet identity so nodes can pull images from ACR
+  if (acrResourceId && isPipeline) {
+    const kubeletResult = await getKubeletIdentityObjectId({
+      subscriptionId,
+      resourceGroup,
+      clusterName,
+    });
+    if (kubeletResult.success && kubeletResult.objectId) {
+      const kubeletRoleResult = await assignRolesToIdentity({
+        principalId: kubeletResult.objectId,
+        subscriptionId,
+        roles: [{ role: 'AcrPull', scope: acrResourceId }],
+      });
+      if (!kubeletRoleResult.success) {
+        console.warn('Failed to assign AcrPull to kubelet identity:', kubeletRoleResult.error);
+        // Non-fatal: the user may have already configured ACR integration
+      }
+    } else {
+      console.warn('Could not resolve kubelet identity:', kubeletResult.error);
+    }
   }
 
   return identity;
