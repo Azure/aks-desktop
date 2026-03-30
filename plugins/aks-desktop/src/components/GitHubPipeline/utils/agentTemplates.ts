@@ -5,6 +5,7 @@ import { getServiceAccountName } from '../../../utils/kubernetes/serviceAccountN
 import {
   CONTAINERIZATION_MCP_VERSION,
   DEFAULT_IMAGE_TAG,
+  KUBELOGIN_VERSION,
   PIPELINE_WORKFLOW_FILENAME,
 } from '../constants';
 import type { PipelineConfig } from '../types';
@@ -305,7 +306,9 @@ Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\` with the following:
 - Do NOT add a \`push\` trigger — deployment is always triggered explicitly
 - Use \`azure/login@v2\` with OIDC (\`secrets.AZURE_CLIENT_ID\`, \`secrets.AZURE_TENANT_ID\`, \`secrets.AZURE_SUBSCRIPTION_ID\`)
 - Use \`azure/aks-set-context@v4\` with cluster \`\${{ inputs.cluster-name }}\` and resource group \`\${{ inputs.resource-group }}\`
-- Install kubelogin (required for AAD-enabled AKS clusters): \`azure/use-kubelogin@v1\` with \`skip-cache: true\`
+- The deploy job MUST include \`actions: read\` in its permissions block (required for GITHUB_TOKEN access)
+- Split the workflow into two jobs: a \`buildImage\` job (build + push to ACR) and a \`deploy\` job (apply manifests) with \`needs: [buildImage]\`
+- Install kubelogin (required for AAD-enabled AKS clusters): \`azure/use-kubelogin@v1\` with \`kubelogin-version: '${KUBELOGIN_VERSION}'\`
 - Convert kubeconfig to use kubelogin: \`kubelogin convert-kubeconfig -l workloadidentity\`${
     config.acrLoginServer
       ? `\n- Build and push the container image using ACR Tasks: \`az acr build --registry \${{ secrets.AZURE_ACR_NAME }} --image ${config.appName}:\${{ github.sha }} .\`\n- Update the container image reference in manifests to use \`${config.acrLoginServer}/${config.appName}:\${{ github.sha }}\``
