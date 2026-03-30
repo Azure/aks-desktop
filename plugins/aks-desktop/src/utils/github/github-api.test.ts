@@ -151,12 +151,14 @@ describe('github-api', () => {
   describe('checkRepoReadiness', () => {
     it('should detect all files present', async () => {
       mockOctokit.repos.getContent.mockResolvedValue({ data: {} });
+      mockOctokit.git.getTree.mockResolvedValue({ data: { tree: [] } });
 
       const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual({
         hasSetupWorkflow: true,
         hasAgentConfig: true,
         hasDeployWorkflow: true,
+        dockerfilePaths: [],
       });
     });
 
@@ -164,12 +166,14 @@ describe('github-api', () => {
       const notFoundError = new Error('Not Found');
       Object.assign(notFoundError, { status: 404 });
       mockOctokit.repos.getContent.mockRejectedValue(notFoundError);
+      mockOctokit.git.getTree.mockResolvedValue({ data: { tree: [] } });
 
       const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual({
         hasSetupWorkflow: false,
         hasAgentConfig: false,
         hasDeployWorkflow: false,
+        dockerfilePaths: [],
       });
     });
 
@@ -181,13 +185,48 @@ describe('github-api', () => {
         .mockResolvedValueOnce({ data: {} }) // setup workflow exists
         .mockRejectedValueOnce(notFoundError) // agent config missing
         .mockRejectedValueOnce(notFoundError); // deploy workflow missing
+      mockOctokit.git.getTree.mockResolvedValue({ data: { tree: [] } });
 
       const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual({
         hasSetupWorkflow: true,
         hasAgentConfig: false,
         hasDeployWorkflow: false,
+        dockerfilePaths: [],
       });
+    });
+
+    it('should include dockerfilePaths when Dockerfiles are found', async () => {
+      mockOctokit.repos.getContent.mockResolvedValue({ data: {} });
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [
+            { path: 'Dockerfile', type: 'blob' },
+            { path: 'src/api/Dockerfile', type: 'blob' },
+          ],
+        },
+      });
+
+      const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual({
+        hasSetupWorkflow: true,
+        hasAgentConfig: true,
+        hasDeployWorkflow: true,
+        dockerfilePaths: ['Dockerfile', 'src/api/Dockerfile'],
+      });
+    });
+
+    it('should return empty dockerfilePaths when no defaultBranch provided', async () => {
+      mockOctokit.repos.getContent.mockResolvedValue({ data: {} });
+
+      const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo');
+      expect(result).toEqual({
+        hasSetupWorkflow: true,
+        hasAgentConfig: true,
+        hasDeployWorkflow: true,
+        dockerfilePaths: [],
+      });
+      expect(mockOctokit.git.getTree).not.toHaveBeenCalled();
     });
 
     it('should propagate non-404 errors', async () => {

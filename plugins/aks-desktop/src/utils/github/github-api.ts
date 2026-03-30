@@ -117,19 +117,16 @@ export async function checkRepoReadiness(
   defaultBranch?: string
 ): Promise<RepoReadiness> {
   try {
-    const [hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow] = await Promise.all([
-      fileExists(octokit, owner, repo, COPILOT_SETUP_STEPS_PATH, defaultBranch),
-      fileExists(octokit, owner, repo, AGENT_CONFIG_PATH, defaultBranch),
-      fileExists(
-        octokit,
-        owner,
-        repo,
-        `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
-        defaultBranch
-      ),
-    ]);
+    const ref = defaultBranch;
+    const [hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow, dockerfilePaths] =
+      await Promise.all([
+        fileExists(octokit, owner, repo, COPILOT_SETUP_STEPS_PATH, ref),
+        fileExists(octokit, owner, repo, AGENT_CONFIG_PATH, ref),
+        fileExists(octokit, owner, repo, `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`, ref),
+        ref ? findDockerfiles(octokit, owner, repo, ref) : Promise.resolve([]),
+      ]);
 
-    return { hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow };
+    return { hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow, dockerfilePaths };
   } catch (error) {
     throw apiError(`Failed to check repo readiness for ${owner}/${repo}`, error);
   }

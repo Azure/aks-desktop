@@ -25,6 +25,8 @@ export interface RepoReadiness {
   hasAgentConfig: boolean;
   /** Whether deploy-to-aks.yml exists on the default branch. */
   hasDeployWorkflow: boolean;
+  /** Paths to Dockerfiles found in the repo (empty if none). */
+  dockerfilePaths: string[];
 }
 
 /**
