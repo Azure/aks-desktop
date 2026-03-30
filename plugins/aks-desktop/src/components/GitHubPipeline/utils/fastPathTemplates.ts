@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
+import { getProbeConfigs } from './probeHelpers';
+
 export interface WorkflowConfig {
   appName: string;
   clusterName: string;
@@ -114,5 +117,155 @@ jobs:
             aks-project/pipeline-run-url=\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }} \\
             "aks-project/pipeline-workflow=\${{ github.workflow }}" \\
             --overwrite
+`;
+}
+
+export interface ManifestConfig {
+  appName: string;
+  namespace: string;
+  acrName: string;
+  repoOwner: string;
+  repoName: string;
+}
+
+function indent(text: string, spaces: number): string {
+  const pad = ' '.repeat(spaces);
+  return text
+    .split('\n')
+    .map(line => (line.trim() ? pad + line : line))
+    .join('\n');
+}
+
+function generateProbeYaml(
+  type: string,
+  path: string,
+  port: number,
+  initialDelay: number,
+  period: number,
+  timeout: number,
+  failure: number,
+  success: number
+): string {
+  return `${type}:
+          httpGet:
+            path: ${path}
+            port: ${port}
+          initialDelaySeconds: ${initialDelay}
+          periodSeconds: ${period}
+          timeoutSeconds: ${timeout}
+          failureThreshold: ${failure}
+          successThreshold: ${success}`;
+}
+
+/**
+ * Generates a Kubernetes Deployment manifest from container config.
+ */
+export function generateDeploymentManifest(config: ManifestConfig, cc: ContainerConfig): string {
+  const probes = getProbeConfigs(cc)
+    .filter(p => p.enabled)
+    .map(p => {
+      const tag = p.name.charAt(0).toLowerCase() + p.name.slice(1) + 'Probe';
+      return generateProbeYaml(
+        tag,
+        p.path,
+        cc.targetPort,
+        p.initialDelay,
+        p.period,
+        p.timeout,
+        p.failure,
+        p.success
+      );
+    });
+
+  const probesBlock = probes.length > 0 ? '\n' + indent(probes.join('\n'), 8) : '';
+
+  const resourcesBlock = cc.enableResources
+    ? `
+        resources:
+          requests:
+            cpu: ${cc.cpuRequest}
+            memory: ${cc.memoryRequest}
+          limits:
+            cpu: ${cc.cpuLimit}
+            memory: ${cc.memoryLimit}`
+    : '';
+
+  const securityLines: string[] = [];
+  if (cc.allowPrivilegeEscalation === false) securityLines.push('allowPrivilegeEscalation: false');
+  if (cc.runAsNonRoot) securityLines.push('runAsNonRoot: true');
+  if (cc.readOnlyRootFilesystem) securityLines.push('readOnlyRootFilesystem: true');
+  const securityBlock =
+    securityLines.length > 0
+      ? `\n        securityContext:\n${securityLines.map(l => `          ${l}`).join('\n')}`
+      : '';
+
+  const antiAffinityBlock = cc.enablePodAntiAffinity
+    ? `
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: ${config.appName}
+              topologyKey: kubernetes.io/hostname`
+    : '';
+
+  const topologyBlock = cc.enableTopologySpreadConstraints
+    ? `
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: ${config.appName}`
+    : '';
+
+  return `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${config.appName}
+  namespace: ${config.namespace}
+  annotations:
+    aks-project/deployed-by: pipeline
+    aks-project/pipeline-repo: ${config.repoOwner}/${config.repoName}
+spec:
+  replicas: ${cc.replicas}
+  selector:
+    matchLabels:
+      app: ${config.appName}
+  template:
+    metadata:
+      labels:
+        app: ${config.appName}
+    spec:${antiAffinityBlock}${topologyBlock}
+      containers:
+      - name: ${config.appName}
+        image: ${config.acrName}.azurecr.io/${config.appName}:latest
+        ports:
+        - containerPort: ${cc.targetPort}${resourcesBlock}${probesBlock}${securityBlock}
+`;
+}
+
+/**
+ * Generates a Kubernetes Service manifest from container config.
+ */
+export function generateServiceManifest(config: ManifestConfig, cc: ContainerConfig): string {
+  const servicePort = cc.useCustomServicePort ? cc.servicePort : cc.targetPort;
+  return `apiVersion: v1
+kind: Service
+metadata:
+  name: ${config.appName}
+  namespace: ${config.namespace}
+spec:
+  type: ${cc.serviceType}
+  ports:
+  - port: ${servicePort}
+    targetPort: ${cc.targetPort}
+    protocol: TCP
+  selector:
+    app: ${config.appName}
 `;
 }

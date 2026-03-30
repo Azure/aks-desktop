@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { generateDeployWorkflow } from './fastPathTemplates';
+import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
+import {
+  generateDeploymentManifest,
+  generateDeployWorkflow,
+  generateServiceManifest,
+} from './fastPathTemplates';
 
 const baseConfig = {
   appName: 'contoso-air',
@@ -71,5 +76,104 @@ describe('generateDeployWorkflow', () => {
     const yaml = generateDeployWorkflow(baseConfig);
     expect(yaml).toContain('branches: [main]');
     expect(yaml).toContain('workflow_dispatch');
+  });
+});
+
+const baseManifestConfig = {
+  appName: 'contoso-air',
+  namespace: 'demo',
+  acrName: 'acrprod',
+  repoOwner: 'pauldotyu',
+  repoName: 'contoso-air',
+};
+
+const baseContainerConfig: Partial<ContainerConfig> = {
+  replicas: 1,
+  targetPort: 3000,
+  servicePort: 80,
+  useCustomServicePort: true,
+  serviceType: 'ClusterIP',
+  enableResources: true,
+  cpuRequest: '100m',
+  cpuLimit: '500m',
+  memoryRequest: '128Mi',
+  memoryLimit: '512Mi',
+  enableLivenessProbe: true,
+  livenessPath: '/',
+  livenessInitialDelay: 15,
+  livenessPeriod: 20,
+  livenessTimeout: 5,
+  livenessFailure: 3,
+  livenessSuccess: 1,
+  enableReadinessProbe: false,
+  enableStartupProbe: false,
+  allowPrivilegeEscalation: false,
+  runAsNonRoot: false,
+  readOnlyRootFilesystem: false,
+  enablePodAntiAffinity: false,
+  enableTopologySpreadConstraints: false,
+};
+
+describe('generateDeploymentManifest', () => {
+  it('should generate a valid deployment YAML', () => {
+    const yaml = generateDeploymentManifest(
+      baseManifestConfig,
+      baseContainerConfig as ContainerConfig
+    );
+    expect(yaml).toContain('kind: Deployment');
+    expect(yaml).toContain('name: contoso-air');
+    expect(yaml).toContain('namespace: demo');
+    expect(yaml).toContain('containerPort: 3000');
+    expect(yaml).toContain('replicas: 1');
+  });
+
+  it('should include pipeline annotations', () => {
+    const yaml = generateDeploymentManifest(
+      baseManifestConfig,
+      baseContainerConfig as ContainerConfig
+    );
+    expect(yaml).toContain('aks-project/deployed-by: pipeline');
+    expect(yaml).toContain('aks-project/pipeline-repo: pauldotyu/contoso-air');
+  });
+
+  it('should include resource limits when enabled', () => {
+    const yaml = generateDeploymentManifest(
+      baseManifestConfig,
+      baseContainerConfig as ContainerConfig
+    );
+    expect(yaml).toContain('cpu: 100m');
+    expect(yaml).toContain('memory: 128Mi');
+  });
+
+  it('should include liveness probe when enabled', () => {
+    const yaml = generateDeploymentManifest(
+      baseManifestConfig,
+      baseContainerConfig as ContainerConfig
+    );
+    expect(yaml).toContain('livenessProbe:');
+    expect(yaml).toContain('path: /');
+    expect(yaml).not.toContain('readinessProbe:');
+    expect(yaml).not.toContain('startupProbe:');
+  });
+
+  it('should omit resources when not enabled', () => {
+    const yaml = generateDeploymentManifest(baseManifestConfig, {
+      ...baseContainerConfig,
+      enableResources: false,
+    } as ContainerConfig);
+    expect(yaml).not.toContain('resources:');
+  });
+});
+
+describe('generateServiceManifest', () => {
+  it('should generate a valid service YAML', () => {
+    const yaml = generateServiceManifest(
+      baseManifestConfig,
+      baseContainerConfig as ContainerConfig
+    );
+    expect(yaml).toContain('kind: Service');
+    expect(yaml).toContain('type: ClusterIP');
+    expect(yaml).toContain('port: 80');
+    expect(yaml).toContain('targetPort: 3000');
   });
 });
