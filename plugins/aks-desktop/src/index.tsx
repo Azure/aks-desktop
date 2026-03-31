@@ -18,6 +18,7 @@ import {
 } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
 import { Redirect } from 'react-router-dom';
+import AccessTab from './components/AccessTab/AccessTab';
 import RegisterAKSClusterPage from './components/AKS/RegisterAKSClusterPage';
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
@@ -402,6 +403,15 @@ registerProjectHeaderAction({
       <ConfigurePipelineButton project={props.project} setSelectedTab={props.setSelectedTab} />
     </GitHubAuthProvider>
   ),
+});
+
+// Override built-in Access tab with Azure role assignments for ARM-managed projects
+registerProjectDetailsTab({
+  id: 'headlamp-projects.tabs.access',
+  label: 'Access',
+  icon: 'mdi:account-lock',
+  isEnabled: isArmManagedProject,
+  component: ({ project }) => <AccessTab project={project} />,
 });
 
 // Register custom delete button for AKS Desktop + ARM-managed projects only

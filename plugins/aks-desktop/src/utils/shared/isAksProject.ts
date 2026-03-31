@@ -21,10 +21,10 @@ export const isAksProject = ({
       project.namespaces[0],
       ns => {
         resolve(ns.metadata?.labels?.[PROJECT_MANAGED_BY_LABEL] === PROJECT_MANAGED_BY_VALUE);
-        cancelFn.then(it => it());
+        void cancelFn.then(cancel => cancel()).catch(() => {});
       },
       () => {
-        cancelFn.then(it => it());
+        void cancelFn.then(cancel => cancel()).catch(() => {});
         resolve(false);
       },
       {},
@@ -46,10 +46,10 @@ export const isArmManagedProject = ({
           ns.metadata?.labels?.[PROJECT_MANAGED_BY_LABEL] === PROJECT_MANAGED_BY_VALUE &&
             ns.metadata?.labels?.[MANAGED_BY_ARM_LABEL] === 'true'
         );
-        cancelFn.then(it => it());
+        void cancelFn.then(cancel => cancel()).catch(() => {});
       },
       () => {
-        cancelFn.then(it => it());
+        void cancelFn.then(cancel => cancel()).catch(() => {});
         resolve(false);
       },
       {},
