@@ -188,6 +188,7 @@
   "Custom value": "Valor personalizado",
   "Data": "Datos",
   "Date": "Fecha",
+  "Debug Image": "Depurar imagen",
   "Debug Pod": "Depurar pod",
   "Debug: {{ itemName }}": "Depuración: {{ itemName }}",
   "Decrement": "Disminución",
