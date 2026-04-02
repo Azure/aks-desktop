@@ -8,7 +8,11 @@ import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfi
 import { PIPELINE_WORKFLOW_FILENAME } from '../constants';
 import { useGitHubAuthContext } from '../GitHubAuthContext';
 import type { PipelineConfig } from '../types';
-import { createFastPathPR, type FastPathPRConfig } from '../utils/fastPathOrchestration';
+import {
+  createFastPathPR,
+  type FastPathPRConfig,
+  triggerAsyncAgentReview,
+} from '../utils/fastPathOrchestration';
 import { createPipelineSecrets } from '../utils/pipelineOrchestration';
 import type { UseDeploymentHealthResult } from './useDeploymentHealth';
 import { useDeploymentHealth } from './useDeploymentHealth';
@@ -38,10 +42,16 @@ export interface UseFastPathOrchestrationProps {
   identityId: string;
 }
 
+export interface HandleDeployOptions {
+  selection: DockerfileSelection;
+  /** When true, includes agent config files and triggers async review after deploy. */
+  withAsyncAgent?: boolean;
+}
+
 export interface UseFastPathOrchestrationResult {
   pipeline: UseFastPathPipelineStateResult;
   /** Kicks off fast-path generation + PR creation + workflow dispatch. */
-  handleDeploy: (selection: DockerfileSelection) => Promise<void>;
+  handleDeploy: (options: HandleDeployOptions) => Promise<void>;
   /** Re-dispatches the deploy workflow (for redeploy from Deployed state). */
   handleRedeploy: () => Promise<void>;
   fastPathPrPolling: UsePRPollingResult;
@@ -67,6 +77,8 @@ export const useFastPathOrchestration = ({
 }: UseFastPathOrchestrationProps): UseFastPathOrchestrationResult => {
   const deployInFlightRef = useRef(false);
   const dispatchInFlightRef = useRef(false);
+  const asyncAgentInFlightRef = useRef(false);
+  const withAsyncAgentRef = useRef(false);
   const deploymentStateRef = useRef<FastPathDeploymentState>('Configured');
 
   const gitHubAuth = useGitHubAuthContext();
@@ -106,10 +118,11 @@ export const useFastPathOrchestration = ({
    * and transitions through the fast-path states.
    */
   const handleDeploy = useCallback(
-    async (selection: DockerfileSelection) => {
+    async ({ selection, withAsyncAgent }: HandleDeployOptions) => {
       if (!gitHubAuth.octokit || !selectedRepo) return;
       if (deployInFlightRef.current) return;
       deployInFlightRef.current = true;
+      withAsyncAgentRef.current = !!withAsyncAgent;
 
       const config: PipelineConfig = {
         tenantId,
@@ -140,6 +153,7 @@ export const useFastPathOrchestration = ({
           dockerfilePath: selection.path,
           buildContextPath: selection.buildContext,
           containerConfig,
+          withAsyncAgent,
         };
 
         pipeline.setPRCreating();
@@ -224,6 +238,46 @@ export const useFastPathOrchestration = ({
       }
     })();
   }, [pipeline.state.deploymentState, gitHubAuth.octokit, selectedRepo, pipeline.setFailed]);
+
+  // Fire-and-forget: trigger async agent review after successful deploy
+  useEffect(() => {
+    if (pipeline.state.deploymentState !== 'Deployed') return;
+    if (!withAsyncAgentRef.current) return;
+    if (asyncAgentInFlightRef.current) return;
+    if (!gitHubAuth.octokit || !selectedRepo || !pipeline.state.config) return;
+
+    asyncAgentInFlightRef.current = true;
+    const config = pipeline.state.config;
+    const dockerfilePath = pipeline.state.dockerfilePaths[0] ?? './Dockerfile';
+
+    (async () => {
+      try {
+        const issueUrl = await triggerAsyncAgentReview(gitHubAuth.octokit!, {
+          owner: selectedRepo.owner,
+          repo: selectedRepo.repo,
+          defaultBranch: selectedRepo.defaultBranch,
+          appName: config.appName,
+          namespace: config.namespace,
+          clusterName: config.clusterName,
+          dockerfilePath,
+          manifestsPath: './deploy/kubernetes/',
+        });
+        pipeline.setAsyncAgentTriggered(issueUrl);
+      } catch (err) {
+        // Fire-and-forget: don't fail the deploy because the async agent failed
+        console.warn('Failed to trigger async agent review:', err);
+      } finally {
+        asyncAgentInFlightRef.current = false;
+      }
+    })();
+  }, [
+    pipeline.state.deploymentState,
+    pipeline.state.config,
+    pipeline.state.dockerfilePaths,
+    gitHubAuth.octokit,
+    selectedRepo,
+    pipeline.setAsyncAgentTriggered,
+  ]);
 
   const handleRedeploy = useCallback(async () => {
     if (!gitHubAuth.octokit || !selectedRepo) return;

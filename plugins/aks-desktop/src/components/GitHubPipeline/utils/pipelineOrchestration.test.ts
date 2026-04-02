@@ -13,16 +13,14 @@ const {
   mockCreateBranch,
   mockCreateOrUpdateFile,
   mockCreatePullRequest,
-  mockCreateIssue,
-  mockAssignIssueToCopilot,
+  mockCreateCopilotAssignedIssue,
   mockSetRepoSecrets,
 } = vi.hoisted(() => ({
   mockGetDefaultBranchSha: vi.fn(),
   mockCreateBranch: vi.fn(),
   mockCreateOrUpdateFile: vi.fn(),
   mockCreatePullRequest: vi.fn(),
-  mockCreateIssue: vi.fn(),
-  mockAssignIssueToCopilot: vi.fn(),
+  mockCreateCopilotAssignedIssue: vi.fn(),
   mockSetRepoSecrets: vi.fn(),
 }));
 
@@ -31,8 +29,7 @@ vi.mock('../../../utils/github/github-api', () => ({
   createBranch: mockCreateBranch,
   createOrUpdateFile: mockCreateOrUpdateFile,
   createPullRequest: mockCreatePullRequest,
-  createIssue: mockCreateIssue,
-  assignIssueToCopilot: mockAssignIssueToCopilot,
+  createCopilotAssignedIssue: mockCreateCopilotAssignedIssue,
   setRepoSecrets: mockSetRepoSecrets,
 }));
 
@@ -154,11 +151,10 @@ describe('pipelineOrchestration', () => {
 
   describe('triggerCopilotAgent', () => {
     it('should create issue then assign to copilot-swe-agent[bot]', async () => {
-      mockCreateIssue.mockResolvedValue({
+      mockCreateCopilotAssignedIssue.mockResolvedValue({
         number: 10,
         url: 'https://github.com/testuser/my-repo/issues/10',
       });
-      mockAssignIssueToCopilot.mockResolvedValue(undefined);
 
       const result = await triggerCopilotAgent(mockOctokit, validConfig);
 
@@ -167,26 +163,16 @@ describe('pipelineOrchestration', () => {
         number: 10,
       });
 
-      // Step 1: Issue created without assignees
-      expect(mockCreateIssue).toHaveBeenCalledWith(
+      expect(mockCreateCopilotAssignedIssue).toHaveBeenCalledWith(
         mockOctokit,
         'testuser',
         'my-repo',
         'Generate AKS deployment pipeline',
         expect.stringContaining('```yaml'),
-        []
-      );
-
-      // Step 2: Copilot agent assigned via dedicated endpoint
-      expect(mockAssignIssueToCopilot).toHaveBeenCalledWith(
-        mockOctokit,
-        'testuser',
-        'my-repo',
-        10,
         'main'
       );
 
-      const issueBody = mockCreateIssue.mock.calls[0][4] as string;
+      const issueBody = mockCreateCopilotAssignedIssue.mock.calls[0][4] as string;
       expect(issueBody).toContain('cluster: "my-cluster"');
       expect(issueBody).toContain('namespace: "production"');
       expect(issueBody).toContain('appName: "my-app"');
@@ -202,8 +188,10 @@ describe('pipelineOrchestration', () => {
     });
 
     it('should include optional fields in payload when provided', async () => {
-      mockCreateIssue.mockResolvedValue({ number: 11, url: 'https://example.com/issues/11' });
-      mockAssignIssueToCopilot.mockResolvedValue(undefined);
+      mockCreateCopilotAssignedIssue.mockResolvedValue({
+        number: 11,
+        url: 'https://example.com/issues/11',
+      });
 
       const config: PipelineConfig = {
         ...validConfig,
@@ -213,7 +201,7 @@ describe('pipelineOrchestration', () => {
       };
       await triggerCopilotAgent(mockOctokit, config);
 
-      const issueBody = mockCreateIssue.mock.calls[0][4] as string;
+      const issueBody = mockCreateCopilotAssignedIssue.mock.calls[0][4] as string;
       expect(issueBody).toContain('ingressEnabled: true');
       expect(issueBody).toContain('ingressHost: "myapp.example.com"');
       expect(issueBody).toContain('port: 8080');
@@ -225,45 +213,29 @@ describe('pipelineOrchestration', () => {
       await expect(triggerCopilotAgent(mockOctokit, config)).rejects.toThrow(
         'Invalid pipeline config'
       );
-      expect(mockCreateIssue).not.toHaveBeenCalled();
-      expect(mockAssignIssueToCopilot).not.toHaveBeenCalled();
+      expect(mockCreateCopilotAssignedIssue).not.toHaveBeenCalled();
     });
 
-    it('should propagate errors from createIssue', async () => {
-      mockCreateIssue.mockRejectedValue(new Error('Failed to create issue'));
+    it('should propagate errors from createCopilotAssignedIssue', async () => {
+      mockCreateCopilotAssignedIssue.mockRejectedValue(new Error('Failed to create issue'));
 
       await expect(triggerCopilotAgent(mockOctokit, validConfig)).rejects.toThrow(
         'Failed to create issue'
       );
-      expect(mockCreateIssue).toHaveBeenCalledTimes(1);
-      expect(mockAssignIssueToCopilot).not.toHaveBeenCalled();
-    });
-
-    it('should propagate errors from assignIssueToCopilot', async () => {
-      mockCreateIssue.mockResolvedValue({
-        number: 10,
-        url: 'https://github.com/testuser/my-repo/issues/10',
-      });
-      mockAssignIssueToCopilot.mockRejectedValue(
-        new Error('Failed to assign Copilot agent to issue #10')
-      );
-
-      await expect(triggerCopilotAgent(mockOctokit, validConfig)).rejects.toThrow(
-        'Failed to assign Copilot agent'
-      );
-      expect(mockCreateIssue).toHaveBeenCalledTimes(1);
-      expect(mockAssignIssueToCopilot).toHaveBeenCalledTimes(1);
+      expect(mockCreateCopilotAssignedIssue).toHaveBeenCalledTimes(1);
     });
 
     it('should include container configuration in issue body when provided', async () => {
-      mockCreateIssue.mockResolvedValue({ number: 12, url: 'https://example.com/issues/12' });
-      mockAssignIssueToCopilot.mockResolvedValue(undefined);
+      mockCreateCopilotAssignedIssue.mockResolvedValue({
+        number: 12,
+        url: 'https://example.com/issues/12',
+      });
 
       const cc = createContainerConfig();
       const config: PipelineConfig = { ...validConfig, containerConfig: cc };
       await triggerCopilotAgent(mockOctokit, config);
 
-      const issueBody = mockCreateIssue.mock.calls[0][4] as string;
+      const issueBody = mockCreateCopilotAssignedIssue.mock.calls[0][4] as string;
       expect(issueBody).toContain('containerImage: "nginx:1.25"');
       expect(issueBody).toContain('replicas: 3');
       expect(issueBody).toContain('targetPort: 8080');
@@ -280,11 +252,10 @@ describe('pipelineOrchestration', () => {
     });
 
     it('should escape YAML-breaking characters in config values', async () => {
-      mockCreateIssue.mockResolvedValue({
+      mockCreateCopilotAssignedIssue.mockResolvedValue({
         number: 20,
         url: 'https://github.com/testuser/my-repo/issues/20',
       });
-      mockAssignIssueToCopilot.mockResolvedValue(undefined);
 
       // Use values that pass validation but contain YAML injection attempts.
       // namespace has strict regex validation, so we only inject in other fields.
@@ -296,7 +267,7 @@ describe('pipelineOrchestration', () => {
 
       await triggerCopilotAgent(mockOctokit, maliciousConfig);
 
-      const issueBody = mockCreateIssue.mock.calls[0][4] as string;
+      const issueBody = mockCreateCopilotAssignedIssue.mock.calls[0][4] as string;
       // Verify that newlines within YAML values are escaped
       expect(issueBody).toContain('appName: "my-app\\"\\nmalicious: true"');
       expect(issueBody).toContain('cluster: "cluster\\ninjection: yes"');

@@ -3,9 +3,8 @@
 
 import type { Octokit } from '@octokit/rest';
 import {
-  assignIssueToCopilot,
   createBranch,
-  createIssue,
+  createCopilotAssignedIssue,
   createOrUpdateFile,
   createPullRequest,
   getDefaultBranchSha,
@@ -271,16 +270,14 @@ export const triggerCopilotAgent = async (
     .filter(line => line !== null)
     .join('\n');
 
-  const issue = await createIssue(
+  const issue = await createCopilotAssignedIssue(
     octokit,
     owner,
     repo,
     'Generate AKS deployment pipeline',
     issueBody,
-    []
+    defaultBranch
   );
-
-  await assignIssueToCopilot(octokit, owner, repo, issue.number, defaultBranch);
 
   return { url: issue.url, number: issue.number };
 };

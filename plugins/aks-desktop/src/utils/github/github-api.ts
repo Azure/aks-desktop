@@ -511,6 +511,23 @@ export async function assignIssueToCopilot(
   }
 }
 
+/**
+ * Creates an issue and assigns it to the Copilot Coding Agent in one step.
+ * Combines createIssue + assignIssueToCopilot for callers that always pair them.
+ */
+export async function createCopilotAssignedIssue(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  title: string,
+  body: string,
+  baseBranch: string
+): Promise<{ number: number; url: string }> {
+  const issue = await createIssue(octokit, owner, repo, title, body, []);
+  await assignIssueToCopilot(octokit, owner, repo, issue.number, baseBranch);
+  return issue;
+}
+
 /** Fetches an issue's current state by number. */
 export async function getIssue(
   octokit: Octokit,

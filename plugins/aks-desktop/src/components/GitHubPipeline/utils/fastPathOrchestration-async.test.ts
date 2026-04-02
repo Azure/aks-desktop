@@ -4,14 +4,12 @@
 import type { Octokit } from '@octokit/rest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockCreateIssue, mockAssignIssueToCopilot } = vi.hoisted(() => ({
-  mockCreateIssue: vi.fn(),
-  mockAssignIssueToCopilot: vi.fn(),
+const { mockCreateCopilotAssignedIssue } = vi.hoisted(() => ({
+  mockCreateCopilotAssignedIssue: vi.fn(),
 }));
 
 vi.mock('../../../utils/github/github-api', () => ({
-  createIssue: mockCreateIssue,
-  assignIssueToCopilot: mockAssignIssueToCopilot,
+  createCopilotAssignedIssue: mockCreateCopilotAssignedIssue,
 }));
 
 import { triggerAsyncAgentReview } from './fastPathOrchestration';
@@ -21,11 +19,10 @@ const mockOctokit = {} as unknown as Octokit;
 describe('triggerAsyncAgentReview', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateIssue.mockResolvedValue({
+    mockCreateCopilotAssignedIssue.mockResolvedValue({
       number: 42,
       url: 'https://github.com/test/repo/issues/42',
     });
-    mockAssignIssueToCopilot.mockResolvedValue(undefined);
   });
 
   it('should create an issue and assign to Copilot', async () => {
@@ -40,19 +37,12 @@ describe('triggerAsyncAgentReview', () => {
       manifestsPath: './deploy/kubernetes/',
     });
 
-    expect(mockCreateIssue).toHaveBeenCalledWith(
+    expect(mockCreateCopilotAssignedIssue).toHaveBeenCalledWith(
       mockOctokit,
       'test',
       'my-repo',
       expect.stringContaining('Review and improve'),
       expect.any(String),
-      []
-    );
-    expect(mockAssignIssueToCopilot).toHaveBeenCalledWith(
-      mockOctokit,
-      'test',
-      'my-repo',
-      42,
       'main'
     );
     expect(result).toBe('https://github.com/test/repo/issues/42');
@@ -70,7 +60,7 @@ describe('triggerAsyncAgentReview', () => {
       manifestsPath: './deploy/kubernetes/',
     });
 
-    const issueBody = mockCreateIssue.mock.calls[0][4];
+    const issueBody = mockCreateCopilotAssignedIssue.mock.calls[0][4];
     expect(issueBody).toContain('./src/Dockerfile');
     expect(issueBody).toContain('./deploy/kubernetes/');
     expect(issueBody).toContain('Do NOT modify the GitHub Actions workflow');
@@ -88,7 +78,7 @@ describe('triggerAsyncAgentReview', () => {
       manifestsPath: './deploy/kubernetes/',
     });
 
-    const issueBody = mockCreateIssue.mock.calls[0][4];
+    const issueBody = mockCreateCopilotAssignedIssue.mock.calls[0][4];
     expect(issueBody).toContain('contoso-air');
     expect(issueBody).toContain('demo');
     expect(issueBody).toContain('aks-prod');

@@ -3,9 +3,8 @@
 
 import type { Octokit } from '@octokit/rest';
 import {
-  assignIssueToCopilot,
   createBranch,
-  createIssue,
+  createCopilotAssignedIssue,
   createOrUpdateFile,
   createPullRequest,
   getDefaultBranchSha,
@@ -104,7 +103,6 @@ export async function createFastPathPR(
       ),
     ]);
 
-    // When user opted for AI suggestions, also push agent config files
     if (withAsyncAgent) {
       const agentConfig = generateAgentConfig(pipelineConfig);
       await Promise.all([
@@ -214,7 +212,7 @@ export async function triggerAsyncAgentReview(
     '# Current deployment state',
     `dockerfilePath: "${config.dockerfilePath}"`,
     `manifestsPath: "${config.manifestsPath}"`,
-    `workflowPath: ".github/workflows/deploy-to-aks.yml"`,
+    `workflowPath: ".github/workflows/${PIPELINE_WORKFLOW_FILENAME}"`,
     '',
     '# App info',
     `appName: "${config.appName}"`,
@@ -236,16 +234,14 @@ export async function triggerAsyncAgentReview(
     '5. Include clear explanations for each change in the PR description',
   ].join('\n');
 
-  const issue = await createIssue(
+  const issue = await createCopilotAssignedIssue(
     octokit,
     owner,
     repo,
     `Review and improve deployment configuration for ${config.appName}`,
     issueBody,
-    []
+    defaultBranch
   );
-
-  await assignIssueToCopilot(octokit, owner, repo, issue.number, defaultBranch);
 
   return issue.url;
 }

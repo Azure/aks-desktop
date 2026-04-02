@@ -200,8 +200,11 @@ export function GitHubPipelineWizard({
 
   const handleFastPathDeploy = useCallback(() => {
     if (!dockerfileDiscovery.selection) return;
-    fastPath.handleDeploy(dockerfileDiscovery.selection);
-  }, [dockerfileDiscovery.selection, fastPath.handleDeploy]);
+    fastPath.handleDeploy({
+      selection: dockerfileDiscovery.selection,
+      withAsyncAgent: pathChoice === 'fast-with-ai',
+    });
+  }, [dockerfileDiscovery.selection, fastPath.handleDeploy, pathChoice]);
 
   const deploymentState = pipeline.state.deploymentState;
   const fastPathDeploymentState = fastPath.pipeline.state.deploymentState;
