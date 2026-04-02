@@ -130,6 +130,8 @@ export const useFastPathOrchestration = ({
       pipeline.setConfig(config);
       pipeline.setDockerfileDetected([selection.path]);
       pipeline.setGenerating();
+      // Sync ref eagerly — useLayoutEffect won't run until after this callback yields
+      deploymentStateRef.current = 'FastPathGenerating';
 
       try {
         // Create secrets first (needed for the workflow to authenticate)
@@ -144,6 +146,7 @@ export const useFastPathOrchestration = ({
         };
 
         pipeline.setPRCreating();
+        deploymentStateRef.current = 'FastPathPRCreating';
         const pr = await createFastPathPR(gitHubAuth.octokit, fastPathConfig);
         if (currentState(deploymentStateRef) !== 'FastPathPRCreating') return;
 
