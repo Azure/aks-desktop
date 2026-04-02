@@ -16,6 +16,7 @@ type DeployWorkloadIdentityStatus =
   | 'checking'
   | 'creating-identity'
   | 'assigning-roles'
+  | 'warning-kubelet-acr-pull'
   | 'fetching-issuer'
   | 'creating-credential'
   | 'done'

@@ -105,6 +105,12 @@ describe('computeRequiredRoles', () => {
       managedNamespaceResourceId,
     };
 
+    it('should not be affected by isPipeline flag', () => {
+      const rolesWithout = computeRequiredRoles(managedCtx);
+      const rolesWith = computeRequiredRoles({ ...managedCtx, isPipeline: true });
+      expect(rolesWith).toEqual(rolesWithout);
+    });
+
     it('assigns AKS RBAC Writer and Namespace User at MNS scope', () => {
       const roles = computeRequiredRoles(managedCtx);
 

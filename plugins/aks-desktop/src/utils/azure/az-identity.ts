@@ -256,6 +256,13 @@ export async function getKubeletIdentityObjectId(options: {
 }): Promise<{ success: boolean; objectId?: string; error?: string }> {
   const { subscriptionId, resourceGroup, clusterName } = options;
 
+  if (!isValidGuid(subscriptionId)) {
+    return { success: false, error: 'Invalid subscription ID format' };
+  }
+  if (!isValidAzResourceName(resourceGroup) || !isValidAzResourceName(clusterName)) {
+    return { success: false, error: 'Invalid resource group or cluster name format' };
+  }
+
   const result = await runAzCommand(
     [
       'aks',
@@ -268,7 +275,7 @@ export async function getKubeletIdentityObjectId(options: {
       subscriptionId,
       '--query',
       'identityProfile.kubeletidentity.objectId',
-      '-o',
+      '--output',
       'json',
     ],
     `getKubeletIdentity(${clusterName})`,

@@ -13,7 +13,10 @@ import {
   type IdentitySetupStatus,
 } from './identitySetup';
 
-export type RoleAssignmentStatus = IdentitySetupStatus | 'assigning-roles';
+export type RoleAssignmentStatus =
+  | IdentitySetupStatus
+  | 'assigning-roles'
+  | 'warning-kubelet-acr-pull';
 
 export interface EnsureIdentityWithRolesConfig {
   subscriptionId: string;
@@ -90,6 +93,7 @@ export async function ensureIdentityWithRoles(
       if (!nsResult.success || !nsResult.resourceId) {
         throw new Error(nsResult.error ?? 'Failed to get managed namespace resource ID');
       }
+      // isPipeline is not passed here — it only affects the normal namespace branch
       return computeRequiredRoles({
         subscriptionId,
         resourceGroup,
@@ -97,7 +101,6 @@ export async function ensureIdentityWithRoles(
         acrResourceId,
         isManagedNamespace: true,
         managedNamespaceResourceId: nsResult.resourceId,
-        isPipeline,
       });
     }
     return computeRequiredRoles({
@@ -142,11 +145,10 @@ export async function ensureIdentityWithRoles(
         roles: [{ role: 'AcrPull', scope: acrResourceId }],
       });
       if (!kubeletRoleResult.success) {
-        console.warn('Failed to assign AcrPull to kubelet identity:', kubeletRoleResult.error);
-        // Non-fatal: the user may have already configured ACR integration
+        onStatusChange('warning-kubelet-acr-pull');
       }
     } else {
-      console.warn('Could not resolve kubelet identity:', kubeletResult.error);
+      onStatusChange('warning-kubelet-acr-pull');
     }
   }
 

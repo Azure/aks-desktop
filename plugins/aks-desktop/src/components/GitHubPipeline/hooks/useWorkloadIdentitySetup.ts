@@ -12,6 +12,7 @@ export type WorkloadIdentitySetupStatus =
   | 'checking'
   | 'creating-identity'
   | 'assigning-roles'
+  | 'warning-kubelet-acr-pull'
   | 'creating-credential'
   | 'done'
   | 'error';

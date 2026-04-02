@@ -244,4 +244,80 @@ describe('ensureIdentityWithRoles', () => {
       ],
     });
   });
+
+  it('should still return identity when getKubeletIdentityObjectId fails', async () => {
+    setupHappyPath();
+    mockGetKubeletIdentityObjectId.mockResolvedValue({
+      success: false,
+      error: 'Cluster not found',
+    });
+    const onStatusChange = vi.fn();
+
+    const result = await ensureIdentityWithRoles({
+      ...baseConfig,
+      acrResourceId:
+        '/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/myacr',
+      isPipeline: true,
+      onStatusChange,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.clientId).toBe('cid');
+    // Should emit warning status
+    expect(onStatusChange).toHaveBeenCalledWith('warning-kubelet-acr-pull');
+    // Should not attempt kubelet role assignment
+    expect(mockAssignRolesToIdentity).toHaveBeenCalledTimes(1);
+  });
+
+  it('should still return identity when kubelet AcrPull assignment fails', async () => {
+    setupHappyPath();
+    mockGetKubeletIdentityObjectId.mockResolvedValue({
+      success: true,
+      objectId: 'kubelet-principal-1',
+    });
+    // First call succeeds (identity roles), second call fails (kubelet AcrPull)
+    mockAssignRolesToIdentity
+      .mockResolvedValueOnce({ success: true, results: [] })
+      .mockResolvedValueOnce({ success: false, error: 'Forbidden' });
+    const onStatusChange = vi.fn();
+
+    const result = await ensureIdentityWithRoles({
+      ...baseConfig,
+      acrResourceId:
+        '/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/myacr',
+      isPipeline: true,
+      onStatusChange,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.clientId).toBe('cid');
+    expect(onStatusChange).toHaveBeenCalledWith('warning-kubelet-acr-pull');
+  });
+
+  it('should skip kubelet AcrPull when isPipeline is true but acrResourceId is missing', async () => {
+    setupHappyPath();
+
+    await ensureIdentityWithRoles({
+      ...baseConfig,
+      isPipeline: true,
+    });
+
+    expect(mockGetKubeletIdentityObjectId).not.toHaveBeenCalled();
+    // Only the identity role assignment call
+    expect(mockAssignRolesToIdentity).toHaveBeenCalledTimes(1);
+  });
+
+  it('should skip kubelet AcrPull when acrResourceId is set but isPipeline is false', async () => {
+    setupHappyPath();
+
+    await ensureIdentityWithRoles({
+      ...baseConfig,
+      acrResourceId:
+        '/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/myacr',
+      isPipeline: false,
+    });
+
+    expect(mockGetKubeletIdentityObjectId).not.toHaveBeenCalled();
+    expect(mockAssignRolesToIdentity).toHaveBeenCalledTimes(1);
+  });
 });
