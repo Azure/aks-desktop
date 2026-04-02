@@ -1,0 +1,253 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the Apache 2.0.
+
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import type { GitHubRepo } from '../../../types/github';
+import { dispatchWorkflow } from '../../../utils/github/github-api';
+import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
+import { PIPELINE_WORKFLOW_FILENAME } from '../constants';
+import { useGitHubAuthContext } from '../GitHubAuthContext';
+import type { PipelineConfig } from '../types';
+import { createFastPathPR, type FastPathPRConfig } from '../utils/fastPathOrchestration';
+import { createPipelineSecrets } from '../utils/pipelineOrchestration';
+import type { UseDeploymentHealthResult } from './useDeploymentHealth';
+import { useDeploymentHealth } from './useDeploymentHealth';
+import type { DockerfileSelection } from './useDockerfileDiscovery';
+import type { FastPathDeploymentState } from './useFastPathPipelineState';
+import type { UseFastPathPipelineStateResult } from './useFastPathPipelineState';
+import { useFastPathPipelineState } from './useFastPathPipelineState';
+import type { UsePRPollingResult } from './usePRPolling';
+import { usePRPolling } from './usePRPolling';
+import type { UseWorkflowPollingResult } from './useWorkflowPolling';
+import { useWorkflowPolling } from './useWorkflowPolling';
+
+/** Reads the current deployment state from a ref without triggering TS narrowing. */
+function currentState(ref: React.RefObject<FastPathDeploymentState>): FastPathDeploymentState {
+  return ref.current;
+}
+
+export interface UseFastPathOrchestrationProps {
+  clusterName: string;
+  namespace: string;
+  appName: string;
+  subscriptionId: string;
+  resourceGroup: string;
+  tenantId: string;
+  selectedRepo: GitHubRepo | null;
+  containerConfig: ContainerConfig;
+  identityId: string;
+}
+
+export interface UseFastPathOrchestrationResult {
+  pipeline: UseFastPathPipelineStateResult;
+  /** Kicks off fast-path generation + PR creation + workflow dispatch. */
+  handleDeploy: (selection: DockerfileSelection) => Promise<void>;
+  /** Re-dispatches the deploy workflow (for redeploy from Deployed state). */
+  handleRedeploy: () => Promise<void>;
+  fastPathPrPolling: UsePRPollingResult;
+  workflowPolling: UseWorkflowPollingResult;
+  deploymentHealth: UseDeploymentHealthResult;
+}
+
+/**
+ * Orchestrates the fast-path pipeline: deterministic generation → single PR →
+ * auto-dispatch → monitor deployment. Parallel to useGitHubPipelineOrchestration
+ * but with fewer states and no Copilot agent interaction.
+ */
+export const useFastPathOrchestration = ({
+  clusterName,
+  namespace,
+  appName,
+  subscriptionId,
+  resourceGroup,
+  tenantId,
+  selectedRepo,
+  containerConfig,
+  identityId,
+}: UseFastPathOrchestrationProps): UseFastPathOrchestrationResult => {
+  const deployInFlightRef = useRef(false);
+  const dispatchInFlightRef = useRef(false);
+  const deploymentStateRef = useRef<FastPathDeploymentState>('Configured');
+
+  const gitHubAuth = useGitHubAuthContext();
+  const repoKey = selectedRepo ? `${selectedRepo.owner}/${selectedRepo.repo}` : null;
+  const pipeline = useFastPathPipelineState(repoKey);
+
+  useLayoutEffect(() => {
+    deploymentStateRef.current = pipeline.state.deploymentState;
+  }, [pipeline.state.deploymentState]);
+
+  // PR polling — active when waiting for the fast-path PR to be merged
+  const fastPathPrPolling = usePRPolling(
+    gitHubAuth.octokit,
+    selectedRepo?.owner ?? '',
+    selectedRepo?.repo ?? '',
+    pipeline.state.fastPathPr.number,
+    pipeline.state.deploymentState === 'FastPathPRAwaitingMerge'
+  );
+
+  // Workflow polling — active after PR merge triggers the deploy workflow
+  const workflowPolling = useWorkflowPolling(
+    gitHubAuth.octokit,
+    selectedRepo?.owner ?? '',
+    selectedRepo?.repo ?? '',
+    selectedRepo?.defaultBranch ?? null,
+    pipeline.state.deploymentState === 'PipelineRunning'
+  );
+
+  // Deployment health — monitors pods/services after workflow dispatched
+  const deploymentHealth = useDeploymentHealth(
+    appName,
+    namespace,
+    clusterName,
+    pipeline.state.deploymentState === 'PipelineRunning' ||
+      pipeline.state.deploymentState === 'Deployed'
+  );
+
+  /**
+   * Main deploy action: generates templates, creates PR, sets up secrets,
+   * and transitions through the fast-path states.
+   */
+  const handleDeploy = useCallback(
+    async (selection: DockerfileSelection) => {
+      if (!gitHubAuth.octokit || !selectedRepo) return;
+      if (deployInFlightRef.current) return;
+      deployInFlightRef.current = true;
+
+      const config: PipelineConfig = {
+        tenantId,
+        identityId,
+        subscriptionId,
+        clusterName,
+        resourceGroup,
+        namespace,
+        appName,
+        serviceType: containerConfig.serviceType,
+        containerConfig,
+        repo: selectedRepo,
+      };
+
+      pipeline.setConfig(config);
+      pipeline.setDockerfileDetected([selection.path]);
+      pipeline.setGenerating();
+
+      try {
+        // Create secrets first (needed for the workflow to authenticate)
+        await createPipelineSecrets(gitHubAuth.octokit, config);
+        if (currentState(deploymentStateRef) !== 'FastPathGenerating') return;
+
+        const fastPathConfig: FastPathPRConfig = {
+          pipelineConfig: config,
+          dockerfilePath: selection.path,
+          buildContextPath: selection.buildContext,
+          containerConfig,
+        };
+
+        pipeline.setPRCreating();
+        const pr = await createFastPathPR(gitHubAuth.octokit, fastPathConfig);
+        if (currentState(deploymentStateRef) !== 'FastPathPRCreating') return;
+
+        pipeline.setPRCreated(pr);
+      } catch (err) {
+        if (currentState(deploymentStateRef) === 'Failed') return;
+        pipeline.setFailed(err instanceof Error ? err.message : 'Failed to create fast-path PR');
+      } finally {
+        deployInFlightRef.current = false;
+      }
+    },
+    [
+      gitHubAuth.octokit,
+      selectedRepo,
+      tenantId,
+      identityId,
+      subscriptionId,
+      clusterName,
+      resourceGroup,
+      namespace,
+      appName,
+      containerConfig,
+      pipeline.setConfig,
+      pipeline.setDockerfileDetected,
+      pipeline.setGenerating,
+      pipeline.setPRCreating,
+      pipeline.setPRCreated,
+      pipeline.setFailed,
+    ]
+  );
+
+  // State-driven orchestration: reacts to polling results
+  useEffect(() => {
+    switch (pipeline.state.deploymentState) {
+      case 'FastPathPRAwaitingMerge':
+        if (fastPathPrPolling.isMerged) {
+          pipeline.setPRMerged();
+        }
+        break;
+
+      case 'PipelineRunning':
+        if (workflowPolling.runConclusion === 'success') {
+          pipeline.setDeployed(deploymentHealth.serviceEndpoint ?? undefined);
+        } else if (workflowPolling.runConclusion === 'failure') {
+          pipeline.setFailed('GitHub Actions workflow failed');
+        }
+        break;
+    }
+  }, [
+    pipeline.state.deploymentState,
+    fastPathPrPolling.isMerged,
+    workflowPolling.runConclusion,
+    deploymentHealth.serviceEndpoint,
+    pipeline.setPRMerged,
+    pipeline.setDeployed,
+    pipeline.setFailed,
+  ]);
+
+  // Auto-dispatch workflow after PR merge
+  useEffect(() => {
+    if (pipeline.state.deploymentState !== 'PipelineRunning') return;
+    if (dispatchInFlightRef.current) return;
+    if (!gitHubAuth.octokit || !selectedRepo) return;
+
+    dispatchInFlightRef.current = true;
+    (async () => {
+      try {
+        await dispatchWorkflow(
+          gitHubAuth.octokit!,
+          selectedRepo.owner,
+          selectedRepo.repo,
+          PIPELINE_WORKFLOW_FILENAME,
+          selectedRepo.defaultBranch
+        );
+      } catch (err) {
+        if (currentState(deploymentStateRef) !== 'PipelineRunning') return;
+        pipeline.setFailed(err instanceof Error ? err.message : 'Failed to dispatch workflow');
+      } finally {
+        dispatchInFlightRef.current = false;
+      }
+    })();
+  }, [pipeline.state.deploymentState, gitHubAuth.octokit, selectedRepo, pipeline.setFailed]);
+
+  const handleRedeploy = useCallback(async () => {
+    if (!gitHubAuth.octokit || !selectedRepo) return;
+    try {
+      await dispatchWorkflow(
+        gitHubAuth.octokit,
+        selectedRepo.owner,
+        selectedRepo.repo,
+        PIPELINE_WORKFLOW_FILENAME,
+        selectedRepo.defaultBranch
+      );
+    } catch (err) {
+      pipeline.setFailed(err instanceof Error ? err.message : 'Failed to redeploy');
+    }
+  }, [gitHubAuth.octokit, selectedRepo, pipeline.setFailed]);
+
+  return {
+    pipeline,
+    handleDeploy,
+    handleRedeploy,
+    fastPathPrPolling,
+    workflowPolling,
+    deploymentHealth,
+  };
+};
