@@ -26,6 +26,11 @@ function currentState(ref: React.RefObject<FastPathDeploymentState>): FastPathDe
   return ref.current;
 }
 
+/** Extracts a human-readable message from an unknown caught value. */
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
 export interface UseFastPathOrchestrationProps {
   clusterName: string;
   namespace: string;
@@ -130,6 +135,8 @@ export const useFastPathOrchestration = ({
       pipeline.setConfig(config);
       pipeline.setDockerfileDetected([selection.path]);
       pipeline.setGenerating();
+      // Sync ref eagerly — useLayoutEffect won't run until after this callback yields
+      deploymentStateRef.current = 'FastPathGenerating';
 
       try {
         // Create secrets first (needed for the workflow to authenticate)
@@ -144,13 +151,14 @@ export const useFastPathOrchestration = ({
         };
 
         pipeline.setPRCreating();
+        deploymentStateRef.current = 'FastPathPRCreating';
         const pr = await createFastPathPR(gitHubAuth.octokit, fastPathConfig);
         if (currentState(deploymentStateRef) !== 'FastPathPRCreating') return;
 
         pipeline.setPRCreated(pr);
       } catch (err) {
         if (currentState(deploymentStateRef) === 'Failed') return;
-        pipeline.setFailed(err instanceof Error ? err.message : 'Failed to create fast-path PR');
+        pipeline.setFailed(errorMessage(err, 'Failed to create fast-path PR'));
       } finally {
         deployInFlightRef.current = false;
       }
@@ -220,7 +228,7 @@ export const useFastPathOrchestration = ({
         );
       } catch (err) {
         if (currentState(deploymentStateRef) !== 'PipelineRunning') return;
-        pipeline.setFailed(err instanceof Error ? err.message : 'Failed to dispatch workflow');
+        pipeline.setFailed(errorMessage(err, 'Failed to dispatch workflow'));
       } finally {
         dispatchInFlightRef.current = false;
       }
@@ -238,7 +246,7 @@ export const useFastPathOrchestration = ({
         selectedRepo.defaultBranch
       );
     } catch (err) {
-      pipeline.setFailed(err instanceof Error ? err.message : 'Failed to redeploy');
+      pipeline.setFailed(errorMessage(err, 'Failed to redeploy'));
     }
   }, [gitHubAuth.octokit, selectedRepo, pipeline.setFailed]);
 

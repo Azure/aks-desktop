@@ -67,7 +67,7 @@ const NON_RESUMABLE_STATES: ReadonlySet<FastPathDeploymentState> = new Set([
   'Failed',
 ]);
 
-const VALID_DEPLOYMENT_STATES: ReadonlySet<string> = new Set<string>(FAST_PATH_DEPLOYMENT_STATES);
+const VALID_DEPLOYMENT_STATES = new Set<string>(FAST_PATH_DEPLOYMENT_STATES);
 
 /** Terminal states that don't need persistence — nothing to resume. */
 const TERMINAL_STATES: ReadonlySet<FastPathDeploymentState> = new Set([
@@ -118,31 +118,25 @@ const loadPersistedState = (repoKey: string): FastPathState | null => {
   try {
     const stored = localStorage.getItem(FAST_PATH_STORAGE_PREFIX + repoKey);
     if (!stored) return null;
+
     const parsed: unknown = JSON.parse(stored);
     if (typeof parsed !== 'object' || parsed === null) return null;
-    if (
-      !('__schemaVersion' in parsed) ||
-      (parsed as Record<string, unknown>).__schemaVersion !== FAST_PATH_SCHEMA_VERSION
-    ) {
-      return null;
-    }
-    if (
-      !('deploymentState' in parsed) ||
-      typeof (parsed as Record<string, unknown>).deploymentState !== 'string'
-    ) {
-      return null;
-    }
-    const deploymentState = (parsed as Record<string, unknown>).deploymentState as string;
-    if (!VALID_DEPLOYMENT_STATES.has(deploymentState)) return null;
-    if (TERMINAL_STATES.has(deploymentState as FastPathDeploymentState)) {
+
+    const data = parsed as Record<string, unknown>;
+    if (data.__schemaVersion !== FAST_PATH_SCHEMA_VERSION) return null;
+    if (typeof data.deploymentState !== 'string') return null;
+    if (!VALID_DEPLOYMENT_STATES.has(data.deploymentState)) return null;
+
+    const deploymentState = data.deploymentState as FastPathDeploymentState;
+    if (TERMINAL_STATES.has(deploymentState)) {
       localStorage.removeItem(FAST_PATH_STORAGE_PREFIX + repoKey);
       return null;
     }
-    const data = parsed as Record<string, unknown>;
+
     return {
       ...INITIAL_STATE,
       ...data,
-      deploymentState: deploymentState as FastPathDeploymentState,
+      deploymentState,
       fastPathPr: {
         ...INITIAL_STATE.fastPathPr,
         ...(typeof data.fastPathPr === 'object' && data.fastPathPr !== null
