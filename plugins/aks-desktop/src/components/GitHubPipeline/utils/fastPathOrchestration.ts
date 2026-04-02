@@ -7,6 +7,7 @@ import {
   createCopilotAssignedIssue,
   createOrUpdateFile,
   createPullRequest,
+  deleteBranch,
   getDefaultBranchSha,
 } from '../../../utils/github/github-api';
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
@@ -163,13 +164,8 @@ export async function createFastPathPR(
 
     return { url: pr.url, number: pr.number, merged: false };
   } catch (err) {
-    // Best-effort cleanup: delete the branch to avoid dangling refs
     try {
-      await octokit.request('DELETE /repos/{owner}/{repo}/git/refs/{ref}', {
-        owner,
-        repo,
-        ref: `heads/${branchName}`,
-      });
+      await deleteBranch(octokit, owner, repo, branchName);
     } catch (cleanupErr) {
       console.warn(`Failed to clean up branch ${branchName}:`, cleanupErr);
     }

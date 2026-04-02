@@ -80,6 +80,7 @@ import {
   createOrUpdateFile,
   createOrUpdateRepoSecret,
   createPullRequest,
+  deleteBranch,
   dispatchWorkflow,
   findDockerfiles,
   findLinkedPullRequest,
@@ -273,6 +274,23 @@ describe('github-api', () => {
       await expect(
         createBranch(mockOctokit as never, 'owner', 'repo', 'feature-branch', 'abc123')
       ).rejects.toThrow('Failed to create branch feature-branch in owner/repo');
+    });
+  });
+
+  describe('deleteBranch', () => {
+    it('should delete a branch ref', async () => {
+      mockOctokit.request.mockResolvedValue({});
+      await deleteBranch(mockOctokit as unknown as Octokit, 'owner', 'repo', 'my-branch');
+      expect(mockOctokit.request).toHaveBeenCalledWith(
+        'DELETE /repos/{owner}/{repo}/git/refs/{ref}',
+        { owner: 'owner', repo: 'repo', ref: 'heads/my-branch' }
+      );
+    });
+    it('should throw on failure', async () => {
+      mockOctokit.request.mockRejectedValue(new Error('Not Found'));
+      await expect(
+        deleteBranch(mockOctokit as unknown as Octokit, 'owner', 'repo', 'bad-branch')
+      ).rejects.toThrow('Failed to delete branch');
     });
   });
 

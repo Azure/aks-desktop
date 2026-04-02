@@ -269,6 +269,24 @@ export async function createBranch(
   }
 }
 
+/** Deletes a branch from the repository. */
+export async function deleteBranch(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  branchName: string
+): Promise<void> {
+  try {
+    await octokit.request('DELETE /repos/{owner}/{repo}/git/refs/{ref}', {
+      owner,
+      repo,
+      ref: `heads/${branchName}`,
+    });
+  } catch (error) {
+    throw apiError(`Failed to delete branch ${branchName} in ${owner}/${repo}`, error);
+  }
+}
+
 /**
  * Creates or updates a file in a repository.
  * If `sha` is provided, the file is updated (required for existing files).

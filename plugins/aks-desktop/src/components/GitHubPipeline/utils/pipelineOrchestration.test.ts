@@ -15,6 +15,7 @@ const {
   mockCreatePullRequest,
   mockCreateCopilotAssignedIssue,
   mockSetRepoSecrets,
+  mockDeleteBranch,
 } = vi.hoisted(() => ({
   mockGetDefaultBranchSha: vi.fn(),
   mockCreateBranch: vi.fn(),
@@ -22,6 +23,7 @@ const {
   mockCreatePullRequest: vi.fn(),
   mockCreateCopilotAssignedIssue: vi.fn(),
   mockSetRepoSecrets: vi.fn(),
+  mockDeleteBranch: vi.fn(),
 }));
 
 vi.mock('../../../utils/github/github-api', () => ({
@@ -31,6 +33,7 @@ vi.mock('../../../utils/github/github-api', () => ({
   createPullRequest: mockCreatePullRequest,
   createCopilotAssignedIssue: mockCreateCopilotAssignedIssue,
   setRepoSecrets: mockSetRepoSecrets,
+  deleteBranch: mockDeleteBranch,
 }));
 
 vi.mock('./agentTemplates', async () => {
@@ -50,8 +53,7 @@ import {
 
 const validConfig = createValidConfig();
 
-const mockRequest = vi.fn();
-const mockOctokit = { request: mockRequest } as unknown as Octokit;
+const mockOctokit = {} as unknown as Octokit;
 
 describe('pipelineOrchestration', () => {
   beforeEach(() => {
@@ -133,18 +135,14 @@ describe('pipelineOrchestration', () => {
       mockCreateBranch.mockResolvedValue(undefined);
       mockCreateOrUpdateFile.mockResolvedValue(undefined);
       mockCreatePullRequest.mockRejectedValue(new Error('PR creation failed'));
-      mockRequest.mockResolvedValue(undefined);
 
       await expect(createSetupPR(mockOctokit, validConfig)).rejects.toThrow('PR creation failed');
 
-      // Verify cleanup attempted: DELETE the branch ref
-      expect(mockRequest).toHaveBeenCalledWith(
-        'DELETE /repos/{owner}/{repo}/git/refs/{ref}',
-        expect.objectContaining({
-          owner: 'testuser',
-          repo: 'my-repo',
-          ref: 'heads/aks-project/setup-my-app-1700000000000',
-        })
+      expect(mockDeleteBranch).toHaveBeenCalledWith(
+        mockOctokit,
+        'testuser',
+        'my-repo',
+        'aks-project/setup-my-app-1700000000000'
       );
     });
   });
