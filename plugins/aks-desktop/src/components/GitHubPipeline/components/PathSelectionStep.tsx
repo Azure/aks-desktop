@@ -58,7 +58,7 @@ export function PathSelectionStep({ dockerfilePath, selected, onSelect }: PathSe
   ];
 
   return (
-    <Box>
+    <>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
         <Icon icon="mdi:source-branch-check" width={28} height={28} />
         <Typography variant="h5" sx={{ fontWeight: 600 }}>
@@ -126,6 +126,6 @@ export function PathSelectionStep({ dockerfilePath, selected, onSelect }: PathSe
           );
         })}
       </Box>
-    </Box>
+    </>
   );
 }

@@ -11,6 +11,7 @@ import {
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
 import { PIPELINE_WORKFLOW_FILENAME } from '../constants';
 import type { PipelineConfig, PRTracking } from '../types';
+import { deriveAcrName } from './deriveAcrName';
 import {
   generateDeploymentManifest,
   generateDeployWorkflow,
@@ -22,28 +23,6 @@ export interface FastPathPRConfig {
   dockerfilePath: string;
   buildContextPath: string;
   containerConfig: ContainerConfig;
-}
-
-/**
- * Derives the ACR short name from PipelineConfig.
- * Tries acrLoginServer first ("myacr.azurecr.io" → "myacr"),
- * falls back to acrResourceId (".../registries/myacr" → "myacr").
- */
-function deriveAcrName(config: PipelineConfig): string {
-  if (config.acrLoginServer) {
-    const name = config.acrLoginServer.split('.')[0];
-    if (name) return name;
-  }
-  if (config.acrResourceId) {
-    const segments = config.acrResourceId.split('/');
-    const idx = segments.findIndex(s => s.toLowerCase() === 'registries');
-    if (idx !== -1 && idx + 1 < segments.length && segments[idx + 1]) {
-      return segments[idx + 1];
-    }
-  }
-  throw new Error(
-    'Cannot derive ACR name: neither acrLoginServer nor acrResourceId is set on PipelineConfig'
-  );
 }
 
 /**
@@ -85,35 +64,35 @@ export async function createFastPathPR(
     const deploymentYaml = generateDeploymentManifest(manifestConfig, containerConfig);
     const serviceYaml = generateServiceManifest(manifestConfig, containerConfig);
 
-    await createOrUpdateFile(
-      octokit,
-      owner,
-      repo,
-      `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
-      workflowYaml,
-      `Add AKS deploy workflow for ${pipelineConfig.appName}`,
-      branchName
-    );
-
-    await createOrUpdateFile(
-      octokit,
-      owner,
-      repo,
-      'deploy/kubernetes/deployment.yaml',
-      deploymentYaml,
-      `Add Kubernetes deployment manifest for ${pipelineConfig.appName}`,
-      branchName
-    );
-
-    await createOrUpdateFile(
-      octokit,
-      owner,
-      repo,
-      'deploy/kubernetes/service.yaml',
-      serviceYaml,
-      `Add Kubernetes service manifest for ${pipelineConfig.appName}`,
-      branchName
-    );
+    await Promise.all([
+      createOrUpdateFile(
+        octokit,
+        owner,
+        repo,
+        `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
+        workflowYaml,
+        `Add AKS deploy workflow for ${pipelineConfig.appName}`,
+        branchName
+      ),
+      createOrUpdateFile(
+        octokit,
+        owner,
+        repo,
+        'deploy/kubernetes/deployment.yaml',
+        deploymentYaml,
+        `Add Kubernetes deployment manifest for ${pipelineConfig.appName}`,
+        branchName
+      ),
+      createOrUpdateFile(
+        octokit,
+        owner,
+        repo,
+        'deploy/kubernetes/service.yaml',
+        serviceYaml,
+        `Add Kubernetes service manifest for ${pipelineConfig.appName}`,
+        branchName
+      ),
+    ]);
 
     const pr = await createPullRequest(
       octokit,
