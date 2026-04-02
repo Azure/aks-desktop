@@ -3,7 +3,9 @@
 
 import type { Octokit } from '@octokit/rest';
 import {
+  assignIssueToCopilot,
   createBranch,
+  createIssue,
   createOrUpdateFile,
   createPullRequest,
   getDefaultBranchSha,
@@ -136,4 +138,75 @@ export async function createFastPathPR(
     }
     throw err;
   }
+}
+
+export interface AsyncAgentReviewConfig {
+  owner: string;
+  repo: string;
+  defaultBranch: string;
+  appName: string;
+  namespace: string;
+  clusterName: string;
+  dockerfilePath: string;
+  manifestsPath: string;
+}
+
+/**
+ * Creates a GitHub issue asking Copilot to review and improve the Dockerfile
+ * and K8s manifests. Scoped to Dockerfile + manifests only — explicitly
+ * excludes the workflow file.
+ *
+ * Returns the issue URL for display in the post-deploy banner.
+ */
+export async function triggerAsyncAgentReview(
+  octokit: Octokit,
+  config: AsyncAgentReviewConfig
+): Promise<string> {
+  const { owner, repo, defaultBranch } = config;
+
+  const issueBody = [
+    '## Context',
+    '',
+    `This application (**${config.appName}**) has been deployed to AKS using an auto-generated pipeline.`,
+    `The Dockerfile, K8s manifests, and GitHub Actions workflow are functional but were generated from templates.`,
+    'Please review and suggest improvements.',
+    '',
+    '```yaml',
+    '# Current deployment state',
+    `dockerfilePath: "${config.dockerfilePath}"`,
+    `manifestsPath: "${config.manifestsPath}"`,
+    `workflowPath: ".github/workflows/deploy-to-aks.yml"`,
+    '',
+    '# App info',
+    `appName: "${config.appName}"`,
+    `namespace: "${config.namespace}"`,
+    `cluster: "${config.clusterName}"`,
+    '',
+    '# What to review',
+    'reviewScope:',
+    '  - dockerfile   # multi-stage optimization, caching, security',
+    '  - manifests    # resource sizing, probe paths, security context',
+    '```',
+    '',
+    '## Instructions',
+    '',
+    '1. Analyze the existing Dockerfile for optimization opportunities',
+    '2. Review K8s manifests for best practices',
+    '3. **Do NOT modify the GitHub Actions workflow**',
+    '4. Open a single PR with all suggested improvements',
+    '5. Include clear explanations for each change in the PR description',
+  ].join('\n');
+
+  const issue = await createIssue(
+    octokit,
+    owner,
+    repo,
+    `Review and improve deployment configuration for ${config.appName}`,
+    issueBody,
+    []
+  );
+
+  await assignIssueToCopilot(octokit, owner, repo, issue.number, defaultBranch);
+
+  return issue.url;
 }
