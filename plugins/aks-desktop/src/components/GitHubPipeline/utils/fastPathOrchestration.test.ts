@@ -214,5 +214,37 @@ describe('fastPathOrchestration', () => {
         })
       ).rejects.toThrow('ACR');
     });
+
+    it('should push 3 files without agent config when withAsyncAgent is false', async () => {
+      await createFastPathPR(mockOctokit, baseFastPathConfig);
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(3);
+    });
+
+    it('should push 5 files with agent config when withAsyncAgent is true', async () => {
+      await createFastPathPR(mockOctokit, {
+        ...baseFastPathConfig,
+        withAsyncAgent: true,
+      });
+      // 3 core files + 2 agent config files
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(5);
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+        mockOctokit,
+        'testuser',
+        'my-repo',
+        '.github/workflows/copilot-setup-steps.yml',
+        expect.any(String),
+        expect.any(String),
+        expect.any(String)
+      );
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+        mockOctokit,
+        'testuser',
+        'my-repo',
+        '.github/agents/containerization.agent.md',
+        expect.any(String),
+        expect.any(String),
+        expect.any(String)
+      );
+    });
   });
 });

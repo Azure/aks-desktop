@@ -11,8 +11,13 @@ import {
   getDefaultBranchSha,
 } from '../../../utils/github/github-api';
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
-import { PIPELINE_WORKFLOW_FILENAME } from '../constants';
+import {
+  AGENT_CONFIG_PATH,
+  COPILOT_SETUP_STEPS_PATH,
+  PIPELINE_WORKFLOW_FILENAME,
+} from '../constants';
 import type { PipelineConfig, PRTracking } from '../types';
+import { generateAgentConfig, SETUP_WORKFLOW_CONTENT } from './agentTemplates';
 import { deriveAcrName } from './deriveAcrName';
 import {
   generateDeploymentManifest,
@@ -25,6 +30,8 @@ export interface FastPathPRConfig {
   dockerfilePath: string;
   buildContextPath: string;
   containerConfig: ContainerConfig;
+  /** When true, also pushes Copilot agent config files for async review. */
+  withAsyncAgent?: boolean;
 }
 
 /**
@@ -35,7 +42,8 @@ export async function createFastPathPR(
   octokit: Octokit,
   config: FastPathPRConfig
 ): Promise<PRTracking> {
-  const { pipelineConfig, dockerfilePath, buildContextPath, containerConfig } = config;
+  const { pipelineConfig, dockerfilePath, buildContextPath, containerConfig, withAsyncAgent } =
+    config;
   const { owner, repo, defaultBranch } = pipelineConfig.repo;
   const branchName = `aks-project/fast-path-${pipelineConfig.appName}-${Date.now()}`;
   const acrName = deriveAcrName(pipelineConfig);
@@ -96,6 +104,31 @@ export async function createFastPathPR(
       ),
     ]);
 
+    // When user opted for AI suggestions, also push agent config files
+    if (withAsyncAgent) {
+      const agentConfig = generateAgentConfig(pipelineConfig);
+      await Promise.all([
+        createOrUpdateFile(
+          octokit,
+          owner,
+          repo,
+          COPILOT_SETUP_STEPS_PATH,
+          SETUP_WORKFLOW_CONTENT,
+          'Add Copilot setup workflow for async review',
+          branchName
+        ),
+        createOrUpdateFile(
+          octokit,
+          owner,
+          repo,
+          AGENT_CONFIG_PATH,
+          agentConfig,
+          `Add containerization agent config for ${pipelineConfig.appName}`,
+          branchName
+        ),
+      ]);
+    }
+
     const pr = await createPullRequest(
       octokit,
       owner,
@@ -110,6 +143,12 @@ export async function createFastPathPR(
         `- \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\` — Build + deploy workflow`,
         '- `deploy/kubernetes/deployment.yaml` — Kubernetes Deployment manifest',
         '- `deploy/kubernetes/service.yaml` — Kubernetes Service manifest',
+        ...(withAsyncAgent
+          ? [
+              `- \`${COPILOT_SETUP_STEPS_PATH}\` — Agent environment setup`,
+              `- \`${AGENT_CONFIG_PATH}\` — Agent instructions for improvement review`,
+            ]
+          : []),
         '',
         '### AKS Configuration',
         `- **Cluster**: ${pipelineConfig.clusterName}`,
