@@ -12,6 +12,7 @@ export type WorkloadIdentitySetupStatus =
   | 'checking'
   | 'creating-identity'
   | 'assigning-roles'
+  | 'warning-kubelet-acr-pull'
   | 'creating-credential'
   | 'done'
   | 'error';
@@ -87,6 +88,7 @@ export const useWorkloadIdentitySetup = (): UseWorkloadIdentitySetupReturn => {
         isManagedNamespace,
         namespaceName,
         azureRbacEnabled,
+        isPipeline: true,
         purpose: 'GitHub Actions Identity',
         onStatusChange: setStatus,
       });

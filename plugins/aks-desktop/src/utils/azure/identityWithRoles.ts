@@ -1,7 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { assignRolesToIdentity, getManagedNamespaceResourceId } from './az-identity';
+import {
+  assignRolesToIdentity,
+  getKubeletIdentityObjectId,
+  getManagedNamespaceResourceId,
+} from './az-identity';
 import { computeRequiredRoles } from './identityRoles';
 import {
   ensureIdentityAndResourceGroup,
@@ -9,7 +13,10 @@ import {
   type IdentitySetupStatus,
 } from './identitySetup';
 
-export type RoleAssignmentStatus = IdentitySetupStatus | 'assigning-roles';
+export type RoleAssignmentStatus =
+  | IdentitySetupStatus
+  | 'assigning-roles'
+  | 'warning-kubelet-acr-pull';
 
 export interface EnsureIdentityWithRolesConfig {
   subscriptionId: string;
@@ -25,6 +32,8 @@ export interface EnsureIdentityWithRolesConfig {
   namespaceName?: string;
   /** Whether Azure RBAC for Kubernetes is enabled on the cluster. */
   azureRbacEnabled?: boolean;
+  /** When true, always includes AKS RBAC Writer for annotation permissions. */
+  isPipeline?: boolean;
   /** Purpose label for the resource group tags (e.g. 'GitHub Actions Identity', 'Workload Identity'). */
   purpose?: string;
   onStatusChange: (status: RoleAssignmentStatus) => void;
@@ -50,6 +59,7 @@ export async function ensureIdentityWithRoles(
     isManagedNamespace,
     namespaceName,
     azureRbacEnabled,
+    isPipeline,
     purpose,
     onStatusChange,
   } = config;
@@ -83,6 +93,7 @@ export async function ensureIdentityWithRoles(
       if (!nsResult.success || !nsResult.resourceId) {
         throw new Error(nsResult.error ?? 'Failed to get managed namespace resource ID');
       }
+      // isPipeline is not passed here — it only affects the normal namespace branch
       return computeRequiredRoles({
         subscriptionId,
         resourceGroup,
@@ -99,6 +110,7 @@ export async function ensureIdentityWithRoles(
       acrResourceId,
       isManagedNamespace: false,
       azureRbacEnabled,
+      isPipeline,
     });
   })();
 
@@ -117,6 +129,27 @@ export async function ensureIdentityWithRoles(
       .map(r => `${r.role}: ${r.error}`)
       .join('; ');
     throw new Error(`Failed to assign roles: ${failedRoles}`);
+  }
+
+  // Assign AcrPull to the kubelet identity so nodes can pull images from ACR
+  if (acrResourceId && isPipeline) {
+    const kubeletResult = await getKubeletIdentityObjectId({
+      subscriptionId,
+      resourceGroup,
+      clusterName,
+    });
+    if (kubeletResult.success && kubeletResult.objectId) {
+      const kubeletRoleResult = await assignRolesToIdentity({
+        principalId: kubeletResult.objectId,
+        subscriptionId,
+        roles: [{ role: 'AcrPull', scope: acrResourceId }],
+      });
+      if (!kubeletRoleResult.success) {
+        onStatusChange('warning-kubelet-acr-pull');
+      }
+    } else {
+      onStatusChange('warning-kubelet-acr-pull');
+    }
   }
 
   return identity;

@@ -75,6 +75,27 @@ describe('computeRequiredRoles', () => {
       const roleNames = roles.map(r => r.role);
       expect(roleNames).not.toContain('Azure Kubernetes Service RBAC Writer');
     });
+
+    it('should include AKS RBAC Writer for pipeline identity even without azureRbacEnabled', () => {
+      const roles = computeRequiredRoles({
+        ...baseContext,
+        isManagedNamespace: false,
+        isPipeline: true,
+      });
+      const roleNames = roles.map(r => r.role);
+      expect(roleNames).toContain('Azure Kubernetes Service RBAC Writer');
+      expect(roleNames).toContain('Azure Kubernetes Service Cluster User Role');
+    });
+
+    it('should include AKS RBAC Writer for pipeline identity with ACR', () => {
+      const roles = computeRequiredRoles({
+        ...baseContext,
+        isManagedNamespace: false,
+        isPipeline: true,
+        acrResourceId,
+      });
+      expect(roles).toHaveLength(4); // AcrPush + AcrTasksContributor + ClusterUser + RBACWriter
+    });
   });
 
   describe('Managed Namespace', () => {
@@ -83,6 +104,12 @@ describe('computeRequiredRoles', () => {
       isManagedNamespace: true,
       managedNamespaceResourceId,
     };
+
+    it('should not be affected by isPipeline flag', () => {
+      const rolesWithout = computeRequiredRoles(managedCtx);
+      const rolesWith = computeRequiredRoles({ ...managedCtx, isPipeline: true });
+      expect(rolesWith).toEqual(rolesWithout);
+    });
 
     it('assigns AKS RBAC Writer and Namespace User at MNS scope', () => {
       const roles = computeRequiredRoles(managedCtx);

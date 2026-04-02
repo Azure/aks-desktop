@@ -53,6 +53,7 @@ function transitionTo(
       hasSetupWorkflow: false,
       hasAgentConfig: false,
       hasDeployWorkflow: false,
+      dockerfilePaths: [],
     })
   );
   if (target === 'AcrSelection') return;
@@ -212,6 +213,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: false,
           hasAgentConfig: false,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
 
@@ -228,6 +230,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: false,
           hasAgentConfig: false,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
       act(() => result.current.setAcrCompleted());
@@ -246,6 +249,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: false,
           hasAgentConfig: false,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
 
@@ -262,6 +266,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: false,
           hasAgentConfig: false,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
       act(() => result.current.setAcrCompleted());
@@ -283,6 +288,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: true,
           hasAgentConfig: true,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
 
@@ -302,6 +308,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: true,
           hasAgentConfig: true,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
 
@@ -322,6 +329,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: true,
           hasAgentConfig: true,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
 
@@ -467,6 +475,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: true,
           hasAgentConfig: true,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         })
       );
       expect(result.current.state.deploymentState).toBe('AcrSelection');
@@ -490,6 +499,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: true,
           hasAgentConfig: true,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         })
       );
       act(() => result.current.setAcrCompleted());

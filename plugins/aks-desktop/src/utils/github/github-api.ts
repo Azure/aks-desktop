@@ -117,19 +117,21 @@ export async function checkRepoReadiness(
   defaultBranch?: string
 ): Promise<RepoReadiness> {
   try {
-    const [hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow] = await Promise.all([
-      fileExists(octokit, owner, repo, COPILOT_SETUP_STEPS_PATH, defaultBranch),
-      fileExists(octokit, owner, repo, AGENT_CONFIG_PATH, defaultBranch),
-      fileExists(
-        octokit,
-        owner,
-        repo,
-        `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
-        defaultBranch
-      ),
-    ]);
+    const [hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow, dockerfilePaths] =
+      await Promise.all([
+        fileExists(octokit, owner, repo, COPILOT_SETUP_STEPS_PATH, defaultBranch),
+        fileExists(octokit, owner, repo, AGENT_CONFIG_PATH, defaultBranch),
+        fileExists(
+          octokit,
+          owner,
+          repo,
+          `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
+          defaultBranch
+        ),
+        defaultBranch ? findDockerfiles(octokit, owner, repo, defaultBranch) : Promise.resolve([]),
+      ]);
 
-    return { hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow };
+    return { hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow, dockerfilePaths };
   } catch (error) {
     throw apiError(`Failed to check repo readiness for ${owner}/${repo}`, error);
   }
@@ -190,6 +192,41 @@ export async function checkAppInstallation(
     return { installed: false, installUrl: GITHUB_APP_INSTALL_URL };
   } catch (error) {
     throw apiError(`Failed to check app installation for ${owner}/${repo}`, error);
+  }
+}
+
+/**
+ * Searches the repo tree for files named "Dockerfile" (case-insensitive).
+ * Returns an array of paths, e.g. ['Dockerfile', 'src/web/Dockerfile'].
+ */
+export async function findDockerfiles(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  ref: string
+): Promise<string[]> {
+  try {
+    const { data } = await octokit.git.getTree({
+      owner,
+      repo,
+      tree_sha: ref,
+      recursive: '1',
+    });
+    if (data.truncated) {
+      console.warn(
+        `Repository tree for ${owner}/${repo} was truncated; Dockerfile list may be incomplete`
+      );
+    }
+    return data.tree
+      .filter(
+        entry =>
+          entry.type === 'blob' &&
+          entry.path !== undefined &&
+          entry.path.split('/').pop()?.toLowerCase() === 'dockerfile'
+      )
+      .map(entry => entry.path!);
+  } catch (err) {
+    throw apiError(`Failed to search repo tree for Dockerfiles in ${owner}/${repo}`, err);
   }
 }
 
