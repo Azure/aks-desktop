@@ -106,4 +106,4 @@ kubectl delete ns gadget
 - [Inspektor Gadget GitHub](https://github.com/inspektor-gadget/inspektor-gadget)
 - [Insights Plugin GitHub](https://github.com/inspektor-gadget/insights-plugin)
 - [IG Desktop GitHub](https://github.com/inspektor-gadget/ig-desktop)
-- [AKS Desktop Cluster Requirements](./cluster-requirements.md)
+- [AKS Desktop Cluster Requirements](/docs/cluster-requirements.md)
