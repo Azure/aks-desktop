@@ -78,7 +78,6 @@ export const useFastPathOrchestration = ({
   const deployInFlightRef = useRef(false);
   const dispatchInFlightRef = useRef(false);
   const asyncAgentInFlightRef = useRef(false);
-  const withAsyncAgentRef = useRef(false);
   const deploymentStateRef = useRef<FastPathDeploymentState>('Configured');
 
   const gitHubAuth = useGitHubAuthContext();
@@ -122,7 +121,6 @@ export const useFastPathOrchestration = ({
       if (!gitHubAuth.octokit || !selectedRepo) return;
       if (deployInFlightRef.current) return;
       deployInFlightRef.current = true;
-      withAsyncAgentRef.current = !!withAsyncAgent;
 
       const config: PipelineConfig = {
         tenantId,
@@ -137,7 +135,7 @@ export const useFastPathOrchestration = ({
         repo: selectedRepo,
       };
 
-      pipeline.setConfig(config);
+      pipeline.setConfig(config, withAsyncAgent);
       pipeline.setDockerfileDetected([selection.path]);
       pipeline.setGenerating();
       // Sync ref eagerly — useLayoutEffect won't run until after this callback yields
@@ -242,7 +240,7 @@ export const useFastPathOrchestration = ({
   // Fire-and-forget: trigger async agent review after successful deploy
   useEffect(() => {
     if (pipeline.state.deploymentState !== 'Deployed') return;
-    if (!withAsyncAgentRef.current) return;
+    if (!pipeline.state.withAsyncAgent) return;
     if (asyncAgentInFlightRef.current) return;
     if (!gitHubAuth.octokit || !selectedRepo || !pipeline.state.config) return;
 
@@ -272,6 +270,7 @@ export const useFastPathOrchestration = ({
     })();
   }, [
     pipeline.state.deploymentState,
+    pipeline.state.withAsyncAgent,
     pipeline.state.config,
     pipeline.state.dockerfilePaths,
     gitHubAuth.octokit,

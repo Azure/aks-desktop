@@ -30,6 +30,8 @@ export interface FastPathState {
   dockerfilePaths: string[];
   fastPathPr: PRTracking;
   asyncAgentIssueUrl: string | null;
+  /** Whether the user opted for async agent review on this deploy. */
+  withAsyncAgent: boolean;
   serviceEndpoint: string | null;
   lastSuccessfulState: FastPathDeploymentState | null;
   error: string | null;
@@ -38,7 +40,7 @@ export interface FastPathState {
 }
 
 type FastPathAction =
-  | { type: 'SET_CONFIG'; config: PipelineConfig }
+  | { type: 'SET_CONFIG'; config: PipelineConfig; withAsyncAgent?: boolean }
   | { type: 'UPDATE_CONFIG'; partial: Partial<PipelineConfig> }
   | { type: 'SET_DOCKERFILE_DETECTED'; paths: string[] }
   | { type: 'SET_GENERATING' }
@@ -81,6 +83,7 @@ const INITIAL_STATE: FastPathState = {
   dockerfilePaths: [],
   fastPathPr: { url: null, number: null, merged: false },
   asyncAgentIssueUrl: null,
+  withAsyncAgent: false,
   serviceEndpoint: null,
   lastSuccessfulState: null,
   error: null,
@@ -189,6 +192,7 @@ function fastPathReducer(state: FastPathState, action: FastPathAction): FastPath
           ...state,
           deploymentState: 'Configured',
           config: action.config,
+          withAsyncAgent: action.withAsyncAgent ?? false,
           createdAt: state.createdAt ?? now(),
           updatedAt: now(),
         };
@@ -290,7 +294,7 @@ function fastPathReducer(state: FastPathState, action: FastPathAction): FastPath
 
 export interface UseFastPathPipelineStateResult {
   state: FastPathState;
-  setConfig: (config: PipelineConfig) => void;
+  setConfig: (config: PipelineConfig, withAsyncAgent?: boolean) => void;
   updateConfig: (config: Partial<PipelineConfig>) => void;
   setDockerfileDetected: (paths: string[]) => void;
   setGenerating: () => void;
@@ -358,7 +362,8 @@ export const useFastPathPipelineState = (
 
   const actions = useMemo(
     () => ({
-      setConfig: (config: PipelineConfig) => dispatch({ type: 'SET_CONFIG', config }),
+      setConfig: (config: PipelineConfig, withAsyncAgent?: boolean) =>
+        dispatch({ type: 'SET_CONFIG', config, withAsyncAgent }),
       updateConfig: (partial: Partial<PipelineConfig>) =>
         dispatch({ type: 'UPDATE_CONFIG', partial }),
       setDockerfileDetected: (paths: string[]) =>
