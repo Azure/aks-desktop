@@ -1,9 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import type { Octokit } from '@octokit/rest';
+import { createOrUpdateFile } from '../../../utils/github/github-api';
 import { getServiceAccountName } from '../../../utils/kubernetes/serviceAccountNames';
 import {
+  AGENT_CONFIG_PATH,
   CONTAINERIZATION_MCP_VERSION,
+  COPILOT_SETUP_STEPS_PATH,
   DEFAULT_IMAGE_TAG,
   PIPELINE_WORKFLOW_FILENAME,
 } from '../constants';
@@ -336,6 +340,40 @@ Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\` with the following:
 - Checklist is complete
 `;
 };
+
+/**
+ * Pushes both agent config files (copilot-setup-steps.yml and containerization.agent.md)
+ * to the given branch. Used by both the standard setup flow and the fast-path async review.
+ */
+export async function pushAgentConfigFiles(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  branchName: string,
+  config: PipelineConfig
+): Promise<void> {
+  const agentConfig = generateAgentConfig(config);
+  await Promise.all([
+    createOrUpdateFile(
+      octokit,
+      owner,
+      repo,
+      COPILOT_SETUP_STEPS_PATH,
+      SETUP_WORKFLOW_CONTENT,
+      'Add Copilot setup workflow',
+      branchName
+    ),
+    createOrUpdateFile(
+      octokit,
+      owner,
+      repo,
+      AGENT_CONFIG_PATH,
+      agentConfig,
+      `Add containerization agent config for ${config.appName}`,
+      branchName
+    ),
+  ]);
+}
 
 /**
  * Generates a branch name for the setup PR.

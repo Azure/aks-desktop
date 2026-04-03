@@ -5,7 +5,6 @@ import type { Octokit } from '@octokit/rest';
 import {
   createBranch,
   createCopilotAssignedIssue,
-  createOrUpdateFile,
   createPullRequest,
   deleteBranch,
   getDefaultBranchSha,
@@ -18,10 +17,9 @@ import {
 } from '../constants';
 import type { IssueTracking, PipelineConfig, PRTracking } from '../types';
 import {
-  generateAgentConfig,
   generateBranchName,
   getActiveEnvVars,
-  SETUP_WORKFLOW_CONTENT,
+  pushAgentConfigFiles,
   validatePipelineConfig,
 } from './agentTemplates';
 import { deriveAcrName } from './deriveAcrName';
@@ -45,27 +43,7 @@ export const createSetupPR = async (
   await createBranch(octokit, owner, repo, branchName, sha);
 
   try {
-    const agentConfig = generateAgentConfig(config);
-
-    await createOrUpdateFile(
-      octokit,
-      owner,
-      repo,
-      COPILOT_SETUP_STEPS_PATH,
-      SETUP_WORKFLOW_CONTENT,
-      'Add Copilot setup workflow for containerization agent',
-      branchName
-    );
-
-    await createOrUpdateFile(
-      octokit,
-      owner,
-      repo,
-      AGENT_CONFIG_PATH,
-      agentConfig,
-      `Add containerization agent config for ${config.appName}`,
-      branchName
-    );
+    await pushAgentConfigFiles(octokit, owner, repo, branchName, config);
 
     const pr = await createPullRequest(
       octokit,

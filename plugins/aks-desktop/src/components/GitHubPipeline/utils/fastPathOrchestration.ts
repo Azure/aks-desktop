@@ -17,7 +17,7 @@ import {
   PIPELINE_WORKFLOW_FILENAME,
 } from '../constants';
 import type { PipelineConfig, PRTracking } from '../types';
-import { generateAgentConfig, SETUP_WORKFLOW_CONTENT } from './agentTemplates';
+import { pushAgentConfigFiles } from './agentTemplates';
 import { deriveAcrName } from './deriveAcrName';
 import {
   generateDeploymentManifest,
@@ -105,27 +105,7 @@ export async function createFastPathPR(
     ]);
 
     if (withAsyncAgent) {
-      const agentConfig = generateAgentConfig(pipelineConfig);
-      await Promise.all([
-        createOrUpdateFile(
-          octokit,
-          owner,
-          repo,
-          COPILOT_SETUP_STEPS_PATH,
-          SETUP_WORKFLOW_CONTENT,
-          'Add Copilot setup workflow for async review',
-          branchName
-        ),
-        createOrUpdateFile(
-          octokit,
-          owner,
-          repo,
-          AGENT_CONFIG_PATH,
-          agentConfig,
-          `Add containerization agent config for ${pipelineConfig.appName}`,
-          branchName
-        ),
-      ]);
+      await pushAgentConfigFiles(octokit, owner, repo, branchName, pipelineConfig);
     }
 
     const pr = await createPullRequest(

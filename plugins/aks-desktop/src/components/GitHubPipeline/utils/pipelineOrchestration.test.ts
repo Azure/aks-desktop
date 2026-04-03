@@ -4,7 +4,6 @@
 import type { Octokit } from '@octokit/rest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createContainerConfig, createValidConfig } from '../__fixtures__/pipelineConfig';
-import { AGENT_CONFIG_PATH, COPILOT_SETUP_STEPS_PATH } from '../constants';
 import type { PipelineConfig } from '../types';
 
 // Mock github-api module — vi.hoisted ensures mocks are available when vi.mock is hoisted
@@ -36,11 +35,16 @@ vi.mock('../../../utils/github/github-api', () => ({
   deleteBranch: mockDeleteBranch,
 }));
 
+const { mockPushAgentConfigFiles } = vi.hoisted(() => ({
+  mockPushAgentConfigFiles: vi.fn(),
+}));
+
 vi.mock('./agentTemplates', async () => {
   const actual = await vi.importActual('./agentTemplates');
   return {
     ...actual,
     generateBranchName: vi.fn(() => 'aks-project/setup-my-app-1700000000000'),
+    pushAgentConfigFiles: mockPushAgentConfigFiles,
   };
 });
 
@@ -58,6 +62,7 @@ const mockOctokit = {} as unknown as Octokit;
 describe('pipelineOrchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPushAgentConfigFiles.mockResolvedValue(undefined);
   });
 
   describe('createSetupPR', () => {
@@ -92,25 +97,12 @@ describe('pipelineOrchestration', () => {
         'abc123'
       );
 
-      // Verify two files pushed (workflow + agent config)
-      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(2);
-      expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+      expect(mockPushAgentConfigFiles).toHaveBeenCalledWith(
         mockOctokit,
         'testuser',
         'my-repo',
-        COPILOT_SETUP_STEPS_PATH,
-        expect.any(String),
-        expect.stringContaining('Copilot setup workflow'),
-        'aks-project/setup-my-app-1700000000000'
-      );
-      expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
-        mockOctokit,
-        'testuser',
-        'my-repo',
-        AGENT_CONFIG_PATH,
-        expect.any(String),
-        expect.stringContaining('containerization agent config'),
-        'aks-project/setup-my-app-1700000000000'
+        'aks-project/setup-my-app-1700000000000',
+        validConfig
       );
 
       expect(mockCreatePullRequest).toHaveBeenCalledWith(

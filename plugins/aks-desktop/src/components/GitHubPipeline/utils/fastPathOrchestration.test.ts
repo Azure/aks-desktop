@@ -40,6 +40,13 @@ vi.mock('./fastPathTemplates', () => ({
   generateServiceManifest: mockGenerateServiceManifest,
 }));
 
+const { mockPushAgentConfigFiles } = vi.hoisted(() => ({
+  mockPushAgentConfigFiles: vi.fn(),
+}));
+vi.mock('./agentTemplates', () => ({
+  pushAgentConfigFiles: mockPushAgentConfigFiles,
+}));
+
 import { createFastPathPR, type FastPathPRConfig } from './fastPathOrchestration';
 
 const mockOctokit = {} as unknown as Octokit;
@@ -61,6 +68,7 @@ describe('fastPathOrchestration', () => {
     mockGetDefaultBranchSha.mockResolvedValue('sha123');
     mockCreateBranch.mockResolvedValue(undefined);
     mockCreateOrUpdateFile.mockResolvedValue(undefined);
+    mockPushAgentConfigFiles.mockResolvedValue(undefined);
     mockCreatePullRequest.mockResolvedValue({
       number: 10,
       url: 'https://github.com/testuser/my-repo/pull/10',
@@ -220,32 +228,17 @@ describe('fastPathOrchestration', () => {
     it('should push 3 files without agent config when withAsyncAgent is false', async () => {
       await createFastPathPR(mockOctokit, baseFastPathConfig);
       expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(3);
+      expect(mockPushAgentConfigFiles).not.toHaveBeenCalled();
     });
-
-    it('should push 5 files with agent config when withAsyncAgent is true', async () => {
-      await createFastPathPR(mockOctokit, {
-        ...baseFastPathConfig,
-        withAsyncAgent: true,
-      });
-      // 3 core files + 2 agent config files
-      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(5);
-      expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+    it('should call pushAgentConfigFiles when withAsyncAgent is true', async () => {
+      await createFastPathPR(mockOctokit, { ...baseFastPathConfig, withAsyncAgent: true });
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(3);
+      expect(mockPushAgentConfigFiles).toHaveBeenCalledWith(
         mockOctokit,
         'testuser',
         'my-repo',
-        '.github/workflows/copilot-setup-steps.yml',
-        expect.any(String),
-        expect.any(String),
-        expect.any(String)
-      );
-      expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
-        mockOctokit,
-        'testuser',
-        'my-repo',
-        '.github/agents/containerization.agent.md',
-        expect.any(String),
-        expect.any(String),
-        expect.any(String)
+        expect.stringContaining('aks-project/fast-path-my-app-'),
+        baseFastPathConfig.pipelineConfig
       );
     });
   });
