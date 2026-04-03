@@ -14,6 +14,7 @@ import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfi
 import {
   AGENT_CONFIG_PATH,
   COPILOT_SETUP_STEPS_PATH,
+  MANIFESTS_DIR,
   PIPELINE_WORKFLOW_FILENAME,
 } from '../constants';
 import type { PipelineConfig, PRTracking } from '../types';
@@ -88,7 +89,7 @@ export async function createFastPathPR(
         octokit,
         owner,
         repo,
-        'deploy/kubernetes/deployment.yaml',
+        `${MANIFESTS_DIR}/deployment.yaml`,
         deploymentYaml,
         `Add Kubernetes deployment manifest for ${pipelineConfig.appName}`,
         branchName
@@ -97,7 +98,7 @@ export async function createFastPathPR(
         octokit,
         owner,
         repo,
-        'deploy/kubernetes/service.yaml',
+        `${MANIFESTS_DIR}/service.yaml`,
         serviceYaml,
         `Add Kubernetes service manifest for ${pipelineConfig.appName}`,
         branchName

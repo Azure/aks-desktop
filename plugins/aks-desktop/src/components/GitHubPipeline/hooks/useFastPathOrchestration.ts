@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import type { GitHubRepo } from '../../../types/github';
 import { dispatchWorkflow } from '../../../utils/github/github-api';
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
-import { PIPELINE_WORKFLOW_FILENAME } from '../constants';
+import { DEFAULT_DOCKERFILE_PATH, MANIFESTS_DIR, PIPELINE_WORKFLOW_FILENAME } from '../constants';
 import { useGitHubAuthContext } from '../GitHubAuthContext';
 import type { PipelineConfig } from '../types';
 import {
@@ -248,7 +248,7 @@ export const useFastPathOrchestration = ({
 
     asyncAgentInFlightRef.current = true;
     const config = pipeline.state.config;
-    const dockerfilePath = pipeline.state.dockerfilePaths[0] ?? './Dockerfile';
+    const dockerfilePath = pipeline.state.dockerfilePaths[0] ?? DEFAULT_DOCKERFILE_PATH;
 
     (async () => {
       try {
@@ -260,7 +260,7 @@ export const useFastPathOrchestration = ({
           namespace: config.namespace,
           clusterName: config.clusterName,
           dockerfilePath,
-          manifestsPath: './deploy/kubernetes/',
+          manifestsPath: `${MANIFESTS_DIR}/`,
         });
         pipeline.setAsyncAgentTriggered(issueUrl);
       } catch (err) {
