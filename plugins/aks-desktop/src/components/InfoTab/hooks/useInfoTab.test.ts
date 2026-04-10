@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // --- Mocks (vi.hoisted ensures variables are available when vi.mock is hoisted) ---
 
 const mockUseGet = vi.hoisted(() => vi.fn());
-const mockGetManagedNamespaces = vi.hoisted(() => vi.fn());
 const mockGetManagedNamespaceDetails = vi.hoisted(() => vi.fn());
 const mockUpdateManagedNamespace = vi.hoisted(() => vi.fn());
 const mockT = vi.hoisted(() => (key: string) => key);
@@ -24,12 +23,16 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
 }));
 
 vi.mock('../../../utils/azure/az-namespaces', () => ({
-  getManagedNamespaces: mockGetManagedNamespaces,
   getManagedNamespaceDetails: mockGetManagedNamespaceDetails,
   updateManagedNamespace: mockUpdateManagedNamespace,
 }));
 
-import { useInfoTab } from './useInfoTab';
+import {
+  clearDetailsCacheForTests,
+  getDetailsCacheForTests,
+  setDetailsCacheForTests,
+  useInfoTab,
+} from './useInfoTab';
 
 /** A minimal project fixture used across tests. */
 const defaultProject = {
@@ -82,15 +85,13 @@ function createNamespaceDetails(
 
 describe('useInfoTab', () => {
   beforeEach(() => {
-    // Default: namespace labels present
     mockUseGet.mockReturnValue([createNamespaceInstance()]);
-    // Default: managed namespaces available with details
-    mockGetManagedNamespaces.mockResolvedValue(['my-project']);
     mockGetManagedNamespaceDetails.mockResolvedValue(createNamespaceDetails());
   });
 
   afterEach(() => {
     vi.resetAllMocks();
+    clearDetailsCacheForTests();
   });
 
   // --- Initial loading state ---
@@ -115,25 +116,12 @@ describe('useInfoTab', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(mockGetManagedNamespaces).not.toHaveBeenCalled();
+    expect(mockGetManagedNamespaceDetails).not.toHaveBeenCalled();
     expect(result.current.namespaceDetails).toBeNull();
   });
 
   test('sets namespaceDetails to null and skips fetch when resourceGroup label is absent', async () => {
     mockUseGet.mockReturnValue([{ jsonData: { metadata: { labels: {} } } }]);
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(mockGetManagedNamespaces).not.toHaveBeenCalled();
-    expect(result.current.namespaceDetails).toBeNull();
-  });
-
-  // --- Managed namespace list empty ---
-
-  test('sets namespaceDetails to null when no managed namespaces exist for the cluster', async () => {
-    mockGetManagedNamespaces.mockResolvedValue([]);
 
     const { result } = renderHook(() => useInfoTab(defaultProject));
 
@@ -145,17 +133,6 @@ describe('useInfoTab', () => {
 
   // --- Error handling ---
 
-  test('sets error and clears namespaceDetails when getManagedNamespaces throws', async () => {
-    mockGetManagedNamespaces.mockRejectedValue(new Error('network error'));
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(result.current.error).toBe('Failed to fetch managed namespaces');
-    expect(result.current.namespaceDetails).toBeNull();
-  });
-
   test('sets error and clears namespaceDetails when getManagedNamespaceDetails throws', async () => {
     mockGetManagedNamespaceDetails.mockRejectedValue(new Error('details error'));
 
@@ -165,6 +142,116 @@ describe('useInfoTab', () => {
 
     expect(result.current.error).toBe('Failed to fetch managed namespace details');
     expect(result.current.namespaceDetails).toBeNull();
+  });
+
+  test('does not surface error when fetch fails but cached data exists', async () => {
+    const cached = createNamespaceDetails();
+    setDetailsCacheForTests('sub-123/rg-prod/my-cluster/my-project', cached);
+    mockGetManagedNamespaceDetails.mockRejectedValue(new Error('network error'));
+
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+
+    await waitFor(() => expect(result.current.revalidating).toBe(false));
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.namespaceDetails).toEqual(cached);
+  });
+
+  // --- Stale-while-revalidate ---
+
+  test('shows cached data immediately without a loading spinner on subsequent opens', () => {
+    setDetailsCacheForTests('sub-123/rg-prod/my-cluster/my-project', createNamespaceDetails());
+
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.namespaceDetails).not.toBeNull();
+  });
+
+  test('revalidating is true during background fetch when cached data exists', async () => {
+    setDetailsCacheForTests('sub-123/rg-prod/my-cluster/my-project', createNamespaceDetails());
+
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+
+    expect(result.current.revalidating).toBe(true);
+    expect(result.current.loading).toBe(false);
+
+    await waitFor(() => expect(result.current.revalidating).toBe(false));
+  });
+
+  test('updates namespaceDetails when background revalidation completes', async () => {
+    const stale = createNamespaceDetails({ ingress: 'AllowAll' });
+    const fresh = createNamespaceDetails({ ingress: 'DenyAll' });
+    setDetailsCacheForTests('sub-123/rg-prod/my-cluster/my-project', stale);
+    mockGetManagedNamespaceDetails.mockResolvedValue(fresh);
+
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+
+    expect(result.current.namespaceDetails).toEqual(stale);
+
+    await waitFor(() => expect(result.current.revalidating).toBe(false));
+
+    expect(result.current.namespaceDetails).toEqual(fresh);
+  });
+
+  test('does not clobber unsaved form edits when background revalidation completes', async () => {
+    const stale = createNamespaceDetails({ ingress: 'AllowAll' });
+    const fresh = createNamespaceDetails({ ingress: 'DenyAll' });
+    setDetailsCacheForTests('sub-123/rg-prod/my-cluster/my-project', stale);
+
+    let resolveFetch!: () => void;
+    const fetchPromise = new Promise<void>(resolve => {
+      resolveFetch = resolve;
+    });
+    mockGetManagedNamespaceDetails.mockReturnValueOnce(fetchPromise.then(() => fresh));
+
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+
+    // Cached data shown immediately while revalidation is in progress.
+    expect(result.current.loading).toBe(false);
+    expect(result.current.revalidating).toBe(true);
+
+    await waitFor(() => expect(result.current.namespaceDetails).toEqual(stale));
+
+    // User edits the form while revalidation is in progress.
+    act(() => {
+      result.current.handleFormDataChange({ ingress: 'AllowSameNamespace' });
+    });
+
+    expect(result.current.formData.ingress).toBe('AllowSameNamespace');
+    expect(result.current.hasChanges).toBe(true);
+
+    // Background revalidation completes with new namespaceDetails.
+    act(() => {
+      resolveFetch();
+    });
+
+    await waitFor(() => expect(result.current.revalidating).toBe(false));
+
+    // namespaceDetails should update, but user edits must be preserved.
+    expect(result.current.namespaceDetails).toEqual(fresh);
+    expect(result.current.formData.ingress).toBe('AllowSameNamespace');
+    expect(result.current.hasChanges).toBe(true);
+  });
+
+  // --- handleRefresh ---
+
+  test('handleRefresh triggers a revalidation fetch without clearing the cache', async () => {
+    setDetailsCacheForTests('sub-123/rg-prod/my-cluster/my-project', createNamespaceDetails());
+
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+
+    await waitFor(() => expect(result.current.revalidating).toBe(false));
+
+    expect(mockGetManagedNamespaceDetails).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleRefresh();
+    });
+
+    await waitFor(() => expect(result.current.revalidating).toBe(false));
+
+    expect(mockGetManagedNamespaceDetails).toHaveBeenCalledTimes(2);
   });
 
   // --- Form population from namespace details ---
@@ -324,11 +411,60 @@ describe('useInfoTab', () => {
         clusterName: 'my-cluster',
         resourceGroup: 'rg-prod',
         namespaceName: 'my-project',
+        subscriptionId: 'sub-123',
         ingressPolicy: 'DenyAll',
       })
     );
-    // Baseline advances so hasChanges resets
     expect(result.current.hasChanges).toBe(false);
+  });
+
+  test('handleSave invalidates the cache on success', async () => {
+    mockUpdateManagedNamespace.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(getDetailsCacheForTests().has('sub-123/rg-prod/my-cluster/my-project')).toBe(true);
+
+    act(() => {
+      result.current.handleFormDataChange({ ingress: 'DenyAll' });
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(getDetailsCacheForTests().has('sub-123/rg-prod/my-cluster/my-project')).toBe(false);
+  });
+
+  test('handleRefresh after save runs as revalidation not a cold-start load', async () => {
+    mockUpdateManagedNamespace.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      result.current.handleFormDataChange({ ingress: 'DenyAll' });
+    });
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    // Cache is now empty after save, but namespaceDetails state still exists.
+    expect(getDetailsCacheForTests().has('sub-123/rg-prod/my-cluster/my-project')).toBe(false);
+
+    act(() => {
+      result.current.handleRefresh();
+    });
+
+    // Should revalidate in background, not show a blocking loading spinner.
+    expect(result.current.loading).toBe(false);
+    expect(result.current.revalidating).toBe(true);
+
+    await waitFor(() => expect(result.current.revalidating).toBe(false));
   });
 
   test('handleSave sets error and leaves updating false when updateManagedNamespace throws', async () => {

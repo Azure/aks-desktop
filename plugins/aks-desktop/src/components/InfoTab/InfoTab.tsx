@@ -9,6 +9,7 @@ import {
   CardContent,
   CircularProgress,
   Divider,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import React from 'react';
@@ -43,6 +44,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
   const { t } = useTranslation();
   const {
     loading,
+    revalidating,
     updating,
     error,
     namespaceDetails,
@@ -51,6 +53,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
     hasChanges,
     handleFormDataChange,
     handleSave,
+    handleRefresh,
   } = useInfoTab(project);
 
   return (
@@ -88,7 +91,27 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
                 validation={validation}
               />
             </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: 1,
+                mt: 3,
+              }}
+            >
+              {revalidating && (
+                <Tooltip title={t('Refreshing data in background')}>
+                  <CircularProgress size={16} />
+                </Tooltip>
+              )}
+              <Button
+                variant="outlined"
+                onClick={handleRefresh}
+                disabled={revalidating || updating}
+              >
+                {t('Refresh')}
+              </Button>
               <Button
                 variant="contained"
                 color="primary"
