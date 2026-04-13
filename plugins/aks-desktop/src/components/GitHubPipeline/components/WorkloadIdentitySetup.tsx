@@ -92,7 +92,7 @@ export function WorkloadIdentitySetup({
   const { status, error, result, setupWorkloadIdentity } = identitySetup;
   const { t } = useTranslation();
   const identityName = getIdentityName(projectName);
-  const needsRoleBinding = !azureRbacEnabled;
+  const needsRoleBinding = azureRbacEnabled === false;
   const statusOrder = getStatusOrder(needsRoleBinding);
   const statusSteps = getStatusSteps(t, needsRoleBinding);
   const [identityRG, setIdentityRG] = useState(`rg-${projectName}`);

@@ -286,20 +286,34 @@ export async function getKubeletIdentityObjectId(options: {
       '--subscription',
       subscriptionId,
       '--query',
-      'identityProfile.kubeletidentity.objectId',
+      'identityProfile.kubeletidentity',
       '--output',
       'json',
     ],
     `getKubeletIdentity(${clusterName})`,
     `Failed to get kubelet identity for cluster ${clusterName}`,
-    (stdout: string) => JSON.parse(stdout)
+    (stdout: string) => {
+      const parsed = JSON.parse(stdout);
+      return parsed;
+    }
   );
 
   if (!result.success) {
     return { success: false, error: result.error ?? 'Failed to get cluster details' };
   }
 
-  const objectId = result.data;
+  const kubeletIdentity = result.data;
+  if (!kubeletIdentity || typeof kubeletIdentity !== 'object') {
+    return {
+      success: false,
+      error:
+        `Cluster ${clusterName} does not have a kubelet identity configured. ` +
+        'Ensure the cluster uses managed identity (not service principal). ' +
+        'See: https://learn.microsoft.com/azure/aks/use-managed-identity',
+    };
+  }
+
+  const objectId = (kubeletIdentity as Record<string, unknown>).objectId;
   if (!objectId || typeof objectId !== 'string') {
     return {
       success: false,

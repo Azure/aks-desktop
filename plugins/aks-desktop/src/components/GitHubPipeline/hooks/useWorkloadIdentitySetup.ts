@@ -119,7 +119,7 @@ export const useWorkloadIdentitySetup = (): UseWorkloadIdentitySetupReturn => {
       // Azure RBAC roles (like AKS RBAC Writer) have no effect when the cluster
       // uses Kubernetes-native RBAC.
       const warnings = [...identityResult.warnings];
-      if (!azureRbacEnabled && namespaceName) {
+      if (azureRbacEnabled === false && namespaceName) {
         setStatus('creating-rolebinding');
         try {
           await ensurePipelineRoleBinding({
@@ -210,10 +210,12 @@ async function ensurePipelineRoleBinding(params: {
   } catch (err: any) {
     const status = err?.status ?? err?.response?.status;
     if (status === 409) {
-      await clusterRequest(`${path}/${bindingName}`, {
-        method: 'PUT',
+      // RoleBinding already exists — use server-side apply to update without requiring
+      // a prior GET for the current resourceVersion (avoids 422 on plain PUT).
+      await clusterRequest(`${path}/${bindingName}?fieldManager=aks-desktop&force=true`, {
+        method: 'PATCH',
         body: JSON.stringify(roleBinding),
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/apply-patch+yaml' },
         cluster: clusterName,
       });
     } else {

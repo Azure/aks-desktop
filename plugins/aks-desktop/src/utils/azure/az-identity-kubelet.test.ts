@@ -25,7 +25,7 @@ describe('getKubeletIdentityObjectId', () => {
   it('should return the kubelet identity objectId from az aks show', async () => {
     mockRunAzCommand.mockResolvedValue({
       success: true,
-      data: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      data: { objectId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', clientId: 'some-client' },
     });
 
     const result = await getKubeletIdentityObjectId({
@@ -39,7 +39,7 @@ describe('getKubeletIdentityObjectId', () => {
     });
   });
 
-  it('should return error when identityProfile is missing', async () => {
+  it('should return error when identityProfile is missing (data is null)', async () => {
     mockRunAzCommand.mockResolvedValue({
       success: true,
       data: null,
@@ -54,7 +54,7 @@ describe('getKubeletIdentityObjectId', () => {
     expect(result.error).toContain('kubelet identity');
   });
 
-  it('should return error when data is a non-string type', async () => {
+  it('should return error when data is a non-object type (number)', async () => {
     mockRunAzCommand.mockResolvedValue({
       success: true,
       data: 12345,
@@ -69,7 +69,7 @@ describe('getKubeletIdentityObjectId', () => {
     expect(result.error).toContain('kubelet identity');
   });
 
-  it('should return error when data is an object', async () => {
+  it('should return error when data is an object without objectId field', async () => {
     mockRunAzCommand.mockResolvedValue({
       success: true,
       data: { nested: 'value' },
@@ -134,7 +134,7 @@ describe('getKubeletIdentityObjectId', () => {
   it('should return error when objectId is not a valid GUID', async () => {
     mockRunAzCommand.mockResolvedValue({
       success: true,
-      data: 'not-a-guid-format',
+      data: { objectId: 'not-a-guid-format' },
     });
 
     const result = await getKubeletIdentityObjectId({

@@ -20,7 +20,11 @@ interface IdentityRoleContextBase {
 interface NormalNamespaceRoleContext extends IdentityRoleContextBase {
   isManagedNamespace: false;
   azureRbacEnabled?: boolean;
-  /** When true, signals that the identity is used by a CI/CD pipeline (gates kubelet AcrPull assignment). */
+  /**
+   * When true, signals this identity is used by a CI/CD pipeline.
+   * NOTE: Does NOT affect which Azure roles are assigned here (see `computeRequiredRoles`).
+   * Used downstream in `identityWithRoles.ts` to gate kubelet AcrPull assignment.
+   */
   isPipeline?: boolean;
 }
 
@@ -34,6 +38,9 @@ export type IdentityRoleContext = NormalNamespaceRoleContext | ManagedNamespaceR
 /**
  * Computes the set of Azure RBAC role assignments required for a workload identity,
  * based on whether the target is a normal or managed namespace and whether an ACR is involved.
+ *
+ * Note: `isPipeline` on `NormalNamespaceRoleContext` is NOT used here; it only affects
+ * kubelet AcrPull assignment in `identityWithRoles.ts`.
  *
  * Normal Namespace (NS):
  *   - AcrPush → ACR scope (if ACR provided)
