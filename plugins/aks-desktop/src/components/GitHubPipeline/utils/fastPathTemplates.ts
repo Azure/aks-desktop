@@ -44,7 +44,7 @@ on:
 
 concurrency:
   group: \${{ github.workflow }}-\${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   AZURE_CONTAINER_REGISTRY: "${esc(config.acrName)}"
@@ -63,12 +63,10 @@ jobs:
       id-token: write
     runs-on: ubuntu-latest
     steps:
-      # Note: using floating major-version tags for maintainability (consistent with agentTemplates.ts).
-      # For higher-security environments, pin to specific commit SHAs.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Azure login
-        uses: azure/login@v2
+        uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0
         with:
           client-id: \${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: \${{ secrets.AZURE_TENANT_ID }}
@@ -90,24 +88,22 @@ jobs:
     runs-on: ubuntu-latest
     needs: [buildImage]
     steps:
-      # Note: using floating major-version tags for maintainability (consistent with agentTemplates.ts).
-      # For higher-security environments, pin to specific commit SHAs.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Azure login
-        uses: azure/login@v2
+        uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0
         with:
           client-id: \${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: \${{ secrets.AZURE_TENANT_ID }}
           subscription-id: \${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set up kubelogin
-        uses: azure/use-kubelogin@v1
+        uses: azure/use-kubelogin@0ce7c36141aa27d4934872cf00b0120804c98a29 # v1.3
         with:
           kubelogin-version: 'v0.1.6'
 
       - name: Get K8s context
-        uses: azure/aks-set-context@v4
+        uses: azure/aks-set-context@c7eb093e5a5d47caa333f64974d5fd1cd4bf069d # v4.0.3
         with:
           resource-group: \${{ env.CLUSTER_RESOURCE_GROUP }}
           cluster-name: \${{ env.CLUSTER_NAME }}
@@ -115,7 +111,7 @@ jobs:
           use-kubelogin: 'true'
 
       - name: Deploy application
-        uses: Azure/k8s-deploy@v5
+        uses: Azure/k8s-deploy@c8cfec839dc09896b3b8cc40cd13d04792680771 # v5.1.0
         with:
           action: deploy
           manifests: \${{ env.DEPLOYMENT_MANIFEST_PATH }}
@@ -126,7 +122,7 @@ jobs:
       - name: Annotate namespace
         continue-on-error: true
         run: |
-          kubectl annotate namespace \${{ env.NAMESPACE }} \\
+          kubectl annotate namespace "\${{ env.NAMESPACE }}" \\
             "aks-project/pipeline-repo=\${{ github.repository }}" \\
             --overwrite
 

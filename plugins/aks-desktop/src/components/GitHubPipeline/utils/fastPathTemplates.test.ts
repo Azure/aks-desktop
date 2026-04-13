@@ -43,7 +43,7 @@ describe('generateDeployWorkflow', () => {
 
   it('should use Azure/k8s-deploy@v5 for deployment', () => {
     const output = generateDeployWorkflow(baseConfig);
-    expect(output).toContain('Azure/k8s-deploy@v5');
+    expect(output).toContain('Azure/k8s-deploy@c8cfec839dc09896b3b8cc40cd13d04792680771'); // v5.1.0
     expect(output).not.toContain('kubectl apply');
   });
 
@@ -114,11 +114,11 @@ describe('generateDeployWorkflow', () => {
     expect(output).toContain('${{ secrets.AZURE_CLIENT_ID }}');
   });
 
-  it('should include concurrency block to cancel in-progress runs', () => {
+  it('should include concurrency block that queues rather than cancels in-progress runs', () => {
     const output = generateDeployWorkflow(baseConfig);
     const parsed = YAML.parse(output);
     expect(parsed.concurrency.group).toContain('github.workflow');
-    expect(parsed.concurrency['cancel-in-progress']).toBe(true);
+    expect(parsed.concurrency['cancel-in-progress']).toBe(false);
   });
 
   it('should annotate specific deployment, not all deployments in namespace', () => {
