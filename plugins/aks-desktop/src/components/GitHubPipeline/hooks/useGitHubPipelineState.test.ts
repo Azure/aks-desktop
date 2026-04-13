@@ -830,8 +830,9 @@ describe('useGitHubPipelineState', () => {
       expect(result.current.state.deploymentState).toBe('Configured');
     });
 
-    it('should migrate repoReadiness without dockerfilePaths to use empty array', () => {
-      // Simulates state persisted before dockerfilePaths was added to RepoReadiness
+    it('should migrate repoReadiness without dockerfilePaths to null', () => {
+      // Simulates state persisted before dockerfilePaths was added to RepoReadiness.
+      // null signals "not yet fetched" so the UI knows to re-run discovery.
       const legacyState = {
         __schemaVersion: 1,
         deploymentState: 'AcrSelection',
@@ -860,7 +861,7 @@ describe('useGitHubPipelineState', () => {
 
       expect(result.current.state.deploymentState).toBe('AcrSelection');
       expect(result.current.state.repoReadiness).not.toBeNull();
-      expect(result.current.state.repoReadiness?.dockerfilePaths).toEqual([]);
+      expect(result.current.state.repoReadiness?.dockerfilePaths).toBeNull();
     });
   });
 });

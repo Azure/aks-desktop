@@ -89,10 +89,15 @@ const loadPersistedState = (repoKey: string): PipelineState | null => {
           hasSetupWorkflow: Boolean(rawReadiness.hasSetupWorkflow),
           hasAgentConfig: Boolean(rawReadiness.hasAgentConfig),
           hasDeployWorkflow: Boolean(rawReadiness.hasDeployWorkflow),
-          // Migrate: default to [] for state persisted before dockerfilePaths was added
+          // Migrate: legacy state omits dockerfilePaths (use null = "not yet fetched").
+          // Filter elements to strings to guard against corrupted localStorage data.
           dockerfilePaths: Array.isArray(rawReadiness.dockerfilePaths)
-            ? (rawReadiness.dockerfilePaths as string[])
-            : [],
+            ? rawReadiness.dockerfilePaths.filter((p): p is string => typeof p === 'string')
+            : null,
+          ...(rawReadiness.dockerfilesError === 'failed' ||
+          rawReadiness.dockerfilesError === 'truncated'
+            ? { dockerfilesError: rawReadiness.dockerfilesError as 'failed' | 'truncated' }
+            : {}),
         }
       : null;
     return {

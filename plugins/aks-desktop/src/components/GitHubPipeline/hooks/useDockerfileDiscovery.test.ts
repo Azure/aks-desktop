@@ -39,10 +39,16 @@ describe('useDockerfileDiscovery', () => {
     expect(result.current.selection).toBeNull();
   });
 
+  it('should not auto-select when paths is null (not yet fetched)', () => {
+    const { result } = renderHook(() => useDockerfileDiscovery(null));
+    expect(result.current.selection).toBeNull();
+  });
+
   it('should auto-select when dockerfilePaths changes from empty to single', () => {
-    const { result, rerender } = renderHook((paths: string[]) => useDockerfileDiscovery(paths), {
-      initialProps: [],
-    });
+    const { result, rerender } = renderHook(
+      (paths: string[] | null) => useDockerfileDiscovery(paths),
+      { initialProps: [] as string[] | null }
+    );
     expect(result.current.selection).toBeNull();
 
     rerender(['src/web/Dockerfile']);
@@ -52,10 +58,25 @@ describe('useDockerfileDiscovery', () => {
     });
   });
 
-  it('should clear stale selection when dockerfilePaths changes', () => {
-    const { result, rerender } = renderHook((paths: string[]) => useDockerfileDiscovery(paths), {
-      initialProps: ['Dockerfile'],
+  it('should auto-select when dockerfilePaths changes from null to single', () => {
+    const { result, rerender } = renderHook(
+      (paths: string[] | null) => useDockerfileDiscovery(paths),
+      { initialProps: null as string[] | null }
+    );
+    expect(result.current.selection).toBeNull();
+
+    rerender(['Dockerfile']);
+    expect(result.current.selection).toEqual({
+      path: 'Dockerfile',
+      buildContext: '.',
     });
+  });
+
+  it('should clear stale selection when dockerfilePaths changes', () => {
+    const { result, rerender } = renderHook(
+      (paths: string[] | null) => useDockerfileDiscovery(paths),
+      { initialProps: ['Dockerfile'] as string[] | null }
+    );
     expect(result.current.selection?.path).toBe('Dockerfile');
 
     rerender(['src/api/Dockerfile']);
@@ -66,10 +87,11 @@ describe('useDockerfileDiscovery', () => {
   });
 
   it('should preserve selection when path is still in the list', () => {
-    const { result, rerender } = renderHook((paths: string[]) => useDockerfileDiscovery(paths), {
-      initialProps: ['Dockerfile', 'src/Dockerfile'],
-    });
-    act(() => result.current.select('src/Dockerfile'));
+    const { result, rerender } = renderHook(
+      (paths: string[] | null) => useDockerfileDiscovery(paths),
+      { initialProps: ['Dockerfile', 'src/Dockerfile'] as string[] | null }
+    );
+    act(() => result.current.setSelectedPath('src/Dockerfile'));
     expect(result.current.selection?.path).toBe('src/Dockerfile');
 
     rerender(['Dockerfile', 'src/Dockerfile', 'app/Dockerfile']);
@@ -81,17 +103,17 @@ describe('useDockerfileDiscovery', () => {
       useDockerfileDiscovery(['Dockerfile', 'src/web/Dockerfile'])
     );
 
-    act(() => result.current.select('src/web/Dockerfile'));
+    act(() => result.current.setSelectedPath('src/web/Dockerfile'));
     expect(result.current.selection).toEqual({
       path: 'src/web/Dockerfile',
       buildContext: './src/web',
     });
   });
 
-  it('should ignore select calls with paths not in the list', () => {
+  it('should ignore setSelectedPath calls with paths not in the list', () => {
     const { result } = renderHook(() => useDockerfileDiscovery(['Dockerfile']));
 
-    act(() => result.current.select('nonexistent/Dockerfile'));
+    act(() => result.current.setSelectedPath('nonexistent/Dockerfile'));
     // Auto-selected 'Dockerfile' should remain unchanged
     expect(result.current.selection?.path).toBe('Dockerfile');
   });
@@ -107,9 +129,9 @@ describe('useDockerfileDiscovery', () => {
     });
   });
 
-  it('should pass through dockerfilePaths in return value', () => {
+  it('should not expose dockerfilePaths in return value', () => {
     const paths = ['Dockerfile', 'src/Dockerfile'];
     const { result } = renderHook(() => useDockerfileDiscovery(paths));
-    expect(result.current.dockerfilePaths).toBe(paths);
+    expect('dockerfilePaths' in result.current).toBe(false);
   });
 });

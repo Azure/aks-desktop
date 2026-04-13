@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export interface DockerfileSelection {
   /** Full path in the repo, e.g. "src/web/Dockerfile" */
@@ -21,13 +21,11 @@ export function deriveBuildContext(dockerfilePath: string): string {
 }
 
 export interface UseDockerfileDiscoveryReturn {
-  /** All Dockerfile paths found in the repo. */
-  dockerfilePaths: string[];
   /** The user's selected Dockerfile (null if not yet selected). */
   selection: DockerfileSelection | null;
-  /** Select a Dockerfile by path. */
-  select: (path: string) => void;
-  /** Override the build context for the selected Dockerfile. */
+  /** Select a Dockerfile by path. No-op if the path is not in dockerfilePaths. */
+  setSelectedPath: (path: string) => void;
+  /** Override the build context for the selected Dockerfile. No-op if nothing is selected. */
   setBuildContext: (buildContext: string) => void;
 }
 
@@ -35,38 +33,53 @@ export interface UseDockerfileDiscoveryReturn {
  * Manages Dockerfile selection state after discovery.
  * Auto-selects if exactly one Dockerfile is found.
  *
- * @param dockerfilePaths - Must be a referentially stable array (e.g., from state or useMemo).
- *   Passing a new array reference on each render will cause unnecessary effect executions.
+ * Robust to reference-unstable `dockerfilePaths` arrays (e.g. `?? []` inline expressions):
+ * selection is synced by comparing array contents, not object identity.
+ *
+ * @param dockerfilePaths - The list of discovered Dockerfile paths. Pass `null` or an empty
+ *   array to indicate no Dockerfiles found / not yet fetched.
  */
-export function useDockerfileDiscovery(dockerfilePaths: string[]): UseDockerfileDiscoveryReturn {
+export function useDockerfileDiscovery(
+  dockerfilePaths: string[] | null
+): UseDockerfileDiscoveryReturn {
   const [selection, setSelection] = useState<DockerfileSelection | null>(null);
 
-  // Sync selection when dockerfilePaths changes (e.g. after async API fetch).
+  // Stable key derived from array contents — avoids infinite effect loops when
+  // callers pass a new array reference on each render (e.g. `?? []`).
+  const pathsKey = useMemo(
+    () => (dockerfilePaths ? dockerfilePaths.join('\0') : ''),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dockerfilePaths ? dockerfilePaths.join('\0') : '']
+  );
+  const pathsRef = useRef<string[] | null>(dockerfilePaths);
+  pathsRef.current = dockerfilePaths;
+
+  // Sync selection when the set of available Dockerfiles changes.
   // Auto-selects when exactly one Dockerfile is found; clears stale selections.
   useEffect(() => {
+    const paths = pathsRef.current;
     setSelection(prev => {
-      if (prev && dockerfilePaths.includes(prev.path)) return prev;
-      if (dockerfilePaths.length === 1) {
-        return {
-          path: dockerfilePaths[0],
-          buildContext: deriveBuildContext(dockerfilePaths[0]),
-        };
+      if (prev && paths?.includes(prev.path)) return prev;
+      if (paths?.length === 1) {
+        return { path: paths[0], buildContext: deriveBuildContext(paths[0]) };
       }
       return null;
     });
-  }, [dockerfilePaths]);
+    // pathsKey is the stable proxy for paths array contents
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathsKey]);
 
-  const select = useCallback(
+  const setSelectedPath = useCallback(
     (path: string) => {
-      if (!dockerfilePaths.includes(path)) return;
+      if (!pathsRef.current?.includes(path)) return;
       setSelection({ path, buildContext: deriveBuildContext(path) });
     },
-    [dockerfilePaths]
+    [] // stable: reads from ref, no closure over paths
   );
 
   const setBuildContext = useCallback((buildContext: string) => {
     setSelection(prev => (prev ? { ...prev, buildContext } : null));
   }, []);
 
-  return { dockerfilePaths, selection, select, setBuildContext };
+  return { selection, setSelectedPath, setBuildContext };
 }

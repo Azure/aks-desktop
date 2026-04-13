@@ -13,26 +13,28 @@ import {
   Typography,
 } from '@mui/material';
 import React from 'react';
-import type { DockerfileSelection } from '../hooks/useDockerfileDiscovery';
+import type { UseDockerfileDiscoveryReturn } from '../hooks/useDockerfileDiscovery';
 
 interface DockerfileConfirmationProps {
   /**
    * Repo-relative paths to Dockerfiles found in the repository tree,
-   * e.g. ['Dockerfile', 'src/web/Dockerfile']. When empty, the component renders nothing.
+   * e.g. ['Dockerfile', 'src/web/Dockerfile']. When empty or null, the component renders nothing.
    */
   dockerfilePaths: string[];
-  selection: DockerfileSelection | null;
-  onSelect: (path: string) => void;
-  onBuildContextChange: (buildContext: string) => void;
+  /**
+   * Selection state from `useDockerfileDiscovery`. The hook guarantees that
+   * `selection.path` is always a member of the `dockerfilePaths` that was
+   * passed to the hook, so these two props must come from the same source.
+   */
+  discovery: UseDockerfileDiscoveryReturn;
 }
 
 export function DockerfileConfirmation({
   dockerfilePaths,
-  selection,
-  onSelect,
-  onBuildContextChange,
+  discovery,
 }: DockerfileConfirmationProps) {
   const { t } = useTranslation();
+  const { selection, setSelectedPath, setBuildContext } = discovery;
 
   if (dockerfilePaths.length === 0) return null;
 
@@ -52,7 +54,7 @@ export function DockerfileConfirmation({
             id="dockerfile-select"
             value={selection?.path ?? ''}
             label={t('Dockerfile')}
-            onChange={e => onSelect(e.target.value)}
+            onChange={e => setSelectedPath(e.target.value)}
             displayEmpty
           >
             <MenuItem value="" disabled aria-hidden="true">
@@ -75,7 +77,7 @@ export function DockerfileConfirmation({
           label={t('Build context')}
           size="small"
           value={selection.buildContext}
-          onChange={e => onBuildContextChange(e.target.value)}
+          onChange={e => setBuildContext(e.target.value)}
           helperText={t('Directory used as the Docker build context')}
           FormHelperTextProps={{ id: 'docker-build-context-help' }}
           inputProps={{ 'aria-describedby': 'docker-build-context-help' }}
