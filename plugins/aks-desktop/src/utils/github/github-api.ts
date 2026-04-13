@@ -128,7 +128,12 @@ export async function checkRepoReadiness(
           `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
           defaultBranch
         ),
-        defaultBranch ? findDockerfiles(octokit, owner, repo, defaultBranch) : Promise.resolve([]),
+        defaultBranch
+          ? findDockerfiles(octokit, owner, repo, defaultBranch).catch(err => {
+              console.warn('Dockerfile discovery failed, continuing without:', err);
+              return [] as string[];
+            })
+          : Promise.resolve([]),
       ]);
 
     return { hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow, dockerfilePaths };
@@ -196,7 +201,19 @@ export async function checkAppInstallation(
 }
 
 /**
- * Searches the repo tree for files named "Dockerfile" (case-insensitive).
+ * Returns true if the filename matches any standard Dockerfile naming convention:
+ * - `Dockerfile` (exact, case-insensitive)
+ * - `*.Dockerfile` — e.g. dev.Dockerfile, test.Dockerfile
+ * - `Dockerfile.*` — e.g. Dockerfile.build, Dockerfile.prod
+ */
+function isDockerfileName(filename: string): boolean {
+  const lower = filename.toLowerCase();
+  return lower === 'dockerfile' || lower.endsWith('.dockerfile') || lower.startsWith('dockerfile.');
+}
+
+/**
+ * Searches the repo tree for files named "Dockerfile" (case-insensitive),
+ * including variant names like dev.Dockerfile and Dockerfile.prod.
  * Returns an array of paths, e.g. ['Dockerfile', 'src/web/Dockerfile'].
  */
 export async function findDockerfiles(
@@ -213,6 +230,8 @@ export async function findDockerfiles(
       recursive: '1',
     });
     if (data.truncated) {
+      // TODO(#557): Surface truncation to the UI so users know results may be incomplete.
+      // For very large repos (>100k files), the Git Trees API truncates results.
       console.warn(
         `Repository tree for ${owner}/${repo} was truncated; Dockerfile list may be incomplete`
       );
@@ -222,9 +241,10 @@ export async function findDockerfiles(
         entry =>
           entry.type === 'blob' &&
           entry.path !== undefined &&
-          entry.path.split('/').pop()?.toLowerCase() === 'dockerfile'
+          isDockerfileName(entry.path.split('/').pop() ?? '')
       )
-      .map(entry => entry.path!);
+      .map(entry => entry.path!)
+      .sort((a, b) => a.localeCompare(b));
   } catch (err) {
     throw apiError(`Failed to search repo tree for Dockerfiles in ${owner}/${repo}`, err);
   }

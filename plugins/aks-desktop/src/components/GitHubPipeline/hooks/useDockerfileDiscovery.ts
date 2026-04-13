@@ -34,6 +34,9 @@ export interface UseDockerfileDiscoveryReturn {
 /**
  * Manages Dockerfile selection state after discovery.
  * Auto-selects if exactly one Dockerfile is found.
+ *
+ * @param dockerfilePaths - Must be a referentially stable array (e.g., from state or useMemo).
+ *   Passing a new array reference on each render will cause unnecessary effect executions.
  */
 export function useDockerfileDiscovery(dockerfilePaths: string[]): UseDockerfileDiscoveryReturn {
   const [selection, setSelection] = useState<DockerfileSelection | null>(null);

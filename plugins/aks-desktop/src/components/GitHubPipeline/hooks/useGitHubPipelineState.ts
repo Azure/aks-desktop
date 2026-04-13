@@ -83,10 +83,23 @@ const loadPersistedState = (repoKey: string): PipelineState | null => {
       return null;
     }
     const data = parsed as Record<string, unknown>;
+    const rawReadiness = safeRecord(data.repoReadiness);
+    const repoReadiness: RepoReadiness | null = rawReadiness
+      ? {
+          hasSetupWorkflow: Boolean(rawReadiness.hasSetupWorkflow),
+          hasAgentConfig: Boolean(rawReadiness.hasAgentConfig),
+          hasDeployWorkflow: Boolean(rawReadiness.hasDeployWorkflow),
+          // Migrate: default to [] for state persisted before dockerfilePaths was added
+          dockerfilePaths: Array.isArray(rawReadiness.dockerfilePaths)
+            ? (rawReadiness.dockerfilePaths as string[])
+            : [],
+        }
+      : null;
     return {
       ...INITIAL_STATE,
       ...data,
       deploymentState: deploymentState as PipelineDeploymentState,
+      repoReadiness,
       setupPr: { ...INITIAL_STATE.setupPr, ...safeRecord(data.setupPr) },
       triggerIssue: { ...INITIAL_STATE.triggerIssue, ...safeRecord(data.triggerIssue) },
       generatedPr: { ...INITIAL_STATE.generatedPr, ...safeRecord(data.generatedPr) },
