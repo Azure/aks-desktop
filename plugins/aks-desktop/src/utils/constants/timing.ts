@@ -7,10 +7,10 @@ export const AZURE_ACCOUNT_POLL_INTERVAL_MS = 30_000;
 /** How often to refresh Prometheus metrics (ms). */
 export const METRICS_REFRESH_INTERVAL_MS = 30_000;
 
-/** Default Prometheus query range (seconds). */
+/** Default Prometheus query range for overview cards (seconds — 5 min). */
 export const PROMETHEUS_QUERY_RANGE_SECONDS = 300;
 
-/** Extended Prometheus query range for chart views (seconds, 2 hours). */
+/** Extended Prometheus query range for detailed chart views (seconds — 2 hours). */
 export const PROMETHEUS_CHART_RANGE_SECONDS = 7_200;
 
 /** Default Prometheus query step (seconds). */

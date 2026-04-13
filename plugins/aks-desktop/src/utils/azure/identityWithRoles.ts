@@ -1,7 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { assignRolesToIdentity, getManagedNamespaceResourceId } from './az-identity';
+import {
+  assignRolesToIdentity,
+  getKubeletIdentityObjectId,
+  getManagedNamespaceResourceId,
+} from './az-identity';
 import { computeRequiredRoles } from './identityRoles';
 import {
   ensureIdentityAndResourceGroup,
@@ -10,6 +14,11 @@ import {
 } from './identitySetup';
 
 export type RoleAssignmentStatus = IdentitySetupStatus | 'assigning-roles';
+
+export interface EnsureIdentityWithRolesResult extends IdentitySetupResult {
+  /** Non-fatal warnings encountered during setup (e.g. kubelet AcrPull assignment failures). */
+  warnings: string[];
+}
 
 export interface EnsureIdentityWithRolesConfig {
   subscriptionId: string;
@@ -25,6 +34,8 @@ export interface EnsureIdentityWithRolesConfig {
   namespaceName?: string;
   /** Whether Azure RBAC for Kubernetes is enabled on the cluster. */
   azureRbacEnabled?: boolean;
+  /** When true, assigns AcrPull to the kubelet identity for node-level image pulling. */
+  isPipeline?: boolean;
   /** Purpose label for the resource group tags (e.g. 'GitHub Actions Identity', 'Workload Identity'). */
   purpose?: string;
   onStatusChange: (status: RoleAssignmentStatus) => void;
@@ -39,7 +50,7 @@ export interface EnsureIdentityWithRolesConfig {
  */
 export async function ensureIdentityWithRoles(
   config: EnsureIdentityWithRolesConfig
-): Promise<IdentitySetupResult> {
+): Promise<EnsureIdentityWithRolesResult> {
   const {
     subscriptionId,
     resourceGroup,
@@ -50,6 +61,7 @@ export async function ensureIdentityWithRoles(
     isManagedNamespace,
     namespaceName,
     azureRbacEnabled,
+    isPipeline,
     purpose,
     onStatusChange,
   } = config;
@@ -59,7 +71,6 @@ export async function ensureIdentityWithRoles(
     throw new Error('namespaceName is required when isManagedNamespace is true');
   }
 
-  // Steps 1-3: Ensure RG + identity
   const identity = await ensureIdentityAndResourceGroup({
     subscriptionId,
     resourceGroup,
@@ -69,7 +80,7 @@ export async function ensureIdentityWithRoles(
     onStatusChange,
   });
 
-  // Step 4: Compute and assign required roles
+  // Compute and assign required roles
   onStatusChange('assigning-roles');
 
   const roles = await (async () => {
@@ -83,6 +94,8 @@ export async function ensureIdentityWithRoles(
       if (!nsResult.success || !nsResult.resourceId) {
         throw new Error(nsResult.error ?? 'Failed to get managed namespace resource ID');
       }
+      // isPipeline is only relevant for kubelet AcrPull assignment (below),
+      // not for computing Azure RBAC roles.
       return computeRequiredRoles({
         subscriptionId,
         resourceGroup,
@@ -119,5 +132,42 @@ export async function ensureIdentityWithRoles(
     throw new Error(`Failed to assign roles: ${failedRoles}`);
   }
 
-  return identity;
+  // Assign AcrPull to the kubelet identity so nodes can pull images from ACR
+  const warnings: string[] = [];
+  if (acrResourceId && isPipeline) {
+    // Use the subscription from the ACR resource ID to support cross-subscription ACR scenarios
+    const acrSubscriptionId = acrResourceId.split('/')[2] ?? subscriptionId;
+    const kubeletResult = await getKubeletIdentityObjectId({
+      subscriptionId,
+      resourceGroup,
+      clusterName,
+    });
+    if (kubeletResult.success && kubeletResult.objectId) {
+      const kubeletRoleResult = await assignRolesToIdentity({
+        principalId: kubeletResult.objectId,
+        subscriptionId: acrSubscriptionId,
+        roles: [{ role: 'AcrPull', scope: acrResourceId }],
+      });
+      if (!kubeletRoleResult.success) {
+        const detail =
+          (kubeletRoleResult.error ??
+            kubeletRoleResult.results
+              .filter(r => !r.success)
+              .map(r => `${r.role}: ${r.error}`)
+              .join('; ')) ||
+          'unknown error';
+        warnings.push(
+          `Failed to assign AcrPull to kubelet identity: ${detail}. Nodes may not be able to pull images from ACR.`
+        );
+      }
+    } else {
+      warnings.push(
+        `Could not resolve kubelet identity: ${
+          kubeletResult.error ?? 'unknown error'
+        }. Nodes may not be able to pull images from ACR.`
+      );
+    }
+  }
+
+  return { ...identity, warnings };
 }

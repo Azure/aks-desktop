@@ -74,7 +74,7 @@ export function WorkloadIdentitySetup({
   namespaceName,
   azureRbacEnabled,
 }: WorkloadIdentitySetupProps) {
-  const { status, error, setupWorkloadIdentity } = identitySetup;
+  const { status, error, result, setupWorkloadIdentity } = identitySetup;
   const { t } = useTranslation();
   const identityName = getIdentityName(projectName);
   const statusSteps = getStatusSteps(t);
@@ -252,9 +252,16 @@ export function WorkloadIdentitySetup({
           )}
 
           {status === 'done' && (
-            <Alert severity="success" sx={{ mb: 2 }}>
-              {t('Workload identity configured successfully.')}
-            </Alert>
+            <>
+              <Alert severity="success" sx={{ mb: 2 }}>
+                {t('Workload identity configured successfully.')}
+              </Alert>
+              {(result?.warnings ?? []).map((warning, i) => (
+                <Alert key={i} severity="warning" sx={{ mb: 1 }}>
+                  {warning}
+                </Alert>
+              ))}
+            </>
           )}
         </>
       )}

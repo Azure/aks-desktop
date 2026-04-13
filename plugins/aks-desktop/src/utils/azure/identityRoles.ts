@@ -15,6 +15,8 @@ interface IdentityRoleContextBase {
   resourceGroup: string;
   clusterName: string;
   acrResourceId?: string;
+  /** When true, always includes AKS RBAC Writer (needed for annotation permissions). */
+  isPipeline?: boolean;
 }
 
 interface NormalNamespaceRoleContext extends IdentityRoleContextBase {
@@ -37,7 +39,8 @@ export type IdentityRoleContext = NormalNamespaceRoleContext | ManagedNamespaceR
  *   - AcrPush → ACR scope (if ACR provided)
  *   - Container Registry Tasks Contributor → ACR scope (if ACR provided)
  *   - AKS Cluster User Role → cluster scope
- *   - AKS RBAC Writer → cluster scope (only if Azure RBAC enabled)
+ *   - AKS RBAC Writer → cluster scope (if Azure RBAC enabled or isPipeline is true;
+ *     required for pipeline annotation writes regardless of cluster RBAC mode)
  *
  * Managed Namespace (MNS):
  *   - AcrPush → ACR scope (if ACR provided)
@@ -61,7 +64,15 @@ export function computeRequiredRoles(ctx: IdentityRoleContext): RoleAssignment[]
     roles.push({ role: AKS_NAMESPACE_USER, scope: ctx.managedNamespaceResourceId });
   } else {
     roles.push({ role: AKS_CLUSTER_USER, scope: clusterScope });
-    if (ctx.azureRbacEnabled) {
+    if (ctx.azureRbacEnabled || ctx.isPipeline) {
+      // AKS RBAC Writer is required for two reasons:
+      //   1. When azureRbacEnabled is true: Kubernetes RBAC is enforced via Azure RBAC,
+      //      so standard resource access (e.g. reading deployments) requires this role.
+      //   2. When isPipeline is true: The pipeline annotates namespace and deployment
+      //      objects (to record pipeline run metadata). Annotation writes require Writer
+      //      even when azureRbacEnabled is false, because Azure Kubernetes Service treats
+      //      annotation writes as a privileged operation when the cluster uses Azure AD.
+      //      See: https://learn.microsoft.com/azure/aks/manage-azure-rbac
       roles.push({ role: AKS_RBAC_WRITER, scope: clusterScope });
     }
   }

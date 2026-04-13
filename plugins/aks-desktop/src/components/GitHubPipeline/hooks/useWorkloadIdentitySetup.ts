@@ -22,6 +22,8 @@ export interface WorkloadIdentitySetupResult {
   principalId: string;
   identityName: string;
   isExisting: boolean;
+  /** Non-fatal warnings from identity setup (e.g. kubelet AcrPull assignment failure). */
+  warnings: string[];
 }
 
 export interface UseWorkloadIdentitySetupReturn {
@@ -77,7 +79,7 @@ export const useWorkloadIdentitySetup = (): UseWorkloadIdentitySetupReturn => {
 
     try {
       // Steps 1-4: Ensure RG + identity + roles via shared utility
-      const identity = await ensureIdentityWithRoles({
+      const identityResult = await ensureIdentityWithRoles({
         subscriptionId,
         resourceGroup,
         identityResourceGroup,
@@ -87,9 +89,14 @@ export const useWorkloadIdentitySetup = (): UseWorkloadIdentitySetupReturn => {
         isManagedNamespace,
         namespaceName,
         azureRbacEnabled,
+        isPipeline: true,
         purpose: 'GitHub Actions Identity',
         onStatusChange: setStatus,
       });
+
+      if (identityResult.warnings.length > 0) {
+        console.warn('[WorkloadIdentitySetup] Non-fatal warnings during identity setup');
+      }
 
       // Step 5: Create federated credential
       setStatus('creating-credential');
@@ -106,11 +113,12 @@ export const useWorkloadIdentitySetup = (): UseWorkloadIdentitySetupReturn => {
       }
 
       const setupResult: WorkloadIdentitySetupResult = {
-        clientId: identity.clientId,
-        tenantId: identity.tenantId,
-        principalId: identity.principalId,
+        clientId: identityResult.clientId,
+        tenantId: identityResult.tenantId,
+        principalId: identityResult.principalId,
         identityName,
-        isExisting: identity.isExisting,
+        isExisting: identityResult.isExisting,
+        warnings: identityResult.warnings,
       };
       setResult(setupResult);
       setStatus('done');
