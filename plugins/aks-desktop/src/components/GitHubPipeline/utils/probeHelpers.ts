@@ -4,8 +4,10 @@
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
 import { escapeYamlValue } from './yamlUtils';
 
+export type ProbeName = 'Liveness' | 'Readiness' | 'Startup';
+
 interface ProbeRenderConfig {
-  name: string;
+  name: ProbeName;
   enabled: boolean;
   path: string;
   showConfigs: boolean;
@@ -20,7 +22,7 @@ interface ProbeRenderConfig {
  * Returns the Kubernetes probe field name for a given probe name.
  * E.g. 'Liveness' → 'livenessProbe', 'Readiness' → 'readinessProbe'.
  */
-export function probeFieldName(name: string): string {
+export function probeFieldName(name: ProbeName): string {
   return name.charAt(0).toLowerCase() + name.slice(1) + 'Probe';
 }
 

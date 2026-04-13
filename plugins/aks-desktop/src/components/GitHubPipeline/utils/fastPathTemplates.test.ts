@@ -291,6 +291,49 @@ describe('generateDeploymentManifest', () => {
     expect(constraints[0].maxSkew).toBe(1);
     expect(constraints[0].whenUnsatisfiable).toBe('ScheduleAnyway');
   });
+
+  it('should omit successThreshold for liveness probe (K8s requires it to be 1, the default)', () => {
+    const output = generateDeploymentManifest(
+      baseManifestConfig,
+      createContainerConfig({
+        ...baseContainerConfig,
+        enableLivenessProbe: true,
+        livenessSuccess: 5, // user set > 1, but K8s forbids this for liveness
+      })
+    );
+    const parsed = YAML.parse(output);
+    const container = parsed.spec.template.spec.containers[0];
+    // successThreshold is omitted (K8s defaults to 1); emitting > 1 would be rejected by the API
+    expect(container.livenessProbe.successThreshold).toBeUndefined();
+  });
+
+  it('should omit successThreshold for startup probe (K8s requires it to be 1, the default)', () => {
+    const output = generateDeploymentManifest(
+      baseManifestConfig,
+      createContainerConfig({
+        ...baseContainerConfig,
+        enableStartupProbe: true,
+        startupSuccess: 3,
+      })
+    );
+    const parsed = YAML.parse(output);
+    const container = parsed.spec.template.spec.containers[0];
+    expect(container.startupProbe.successThreshold).toBeUndefined();
+  });
+
+  it('should emit successThreshold for readiness probe when > 1', () => {
+    const output = generateDeploymentManifest(
+      baseManifestConfig,
+      createContainerConfig({
+        ...baseContainerConfig,
+        enableReadinessProbe: true,
+        readinessSuccess: 2,
+      })
+    );
+    const parsed = YAML.parse(output);
+    const container = parsed.spec.template.spec.containers[0];
+    expect(container.readinessProbe.successThreshold).toBe(2);
+  });
 });
 
 describe('generateServiceManifest', () => {

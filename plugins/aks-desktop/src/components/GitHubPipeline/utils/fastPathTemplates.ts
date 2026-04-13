@@ -184,14 +184,19 @@ export function generateDeploymentManifest(config: ManifestConfig, cc: Container
   }
 
   for (const probe of getProbeConfigs(cc).filter(p => p.enabled)) {
-    container[probeFieldName(probe.name)] = {
+    const probeSpec: Record<string, unknown> = {
       httpGet: { path: probe.path, port: cc.targetPort },
       initialDelaySeconds: probe.initialDelay,
       periodSeconds: probe.period,
       timeoutSeconds: probe.timeout,
       failureThreshold: probe.failure,
-      successThreshold: probe.success,
     };
+    // Kubernetes requires successThreshold === 1 for liveness and startup probes (K8s API constraint).
+    // Only readiness probes may have successThreshold > 1, so we only emit the field for readiness.
+    if (probe.name === 'Readiness') {
+      probeSpec.successThreshold = probe.success;
+    }
+    container[probeFieldName(probe.name)] = probeSpec;
   }
 
   // Security context: always-on hardening defaults (capabilities drop ALL, seccomp RuntimeDefault).
