@@ -1222,7 +1222,7 @@ describe('github-api', () => {
 
       const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual({
-        paths: ['app/Dockerfile.prod', 'Dockerfile.build'],
+        paths: ['Dockerfile.build', 'app/Dockerfile.prod'],
         truncated: false,
       });
     });
