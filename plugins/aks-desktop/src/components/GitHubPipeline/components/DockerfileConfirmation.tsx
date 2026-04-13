@@ -1,11 +1,25 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { Alert, Box, FormControl, InputLabel, MenuItem, Select, TextField } from '@mui/material';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
+import {
+  Alert,
+  Box,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  TextField,
+  Typography,
+} from '@mui/material';
 import React from 'react';
 import type { DockerfileSelection } from '../hooks/useDockerfileDiscovery';
 
 interface DockerfileConfirmationProps {
+  /**
+   * Repo-relative paths to Dockerfiles found in the repository tree,
+   * e.g. ['Dockerfile', 'src/web/Dockerfile']. When empty, the component renders nothing.
+   */
   dockerfilePaths: string[];
   selection: DockerfileSelection | null;
   onSelect: (path: string) => void;
@@ -18,27 +32,33 @@ export function DockerfileConfirmation({
   onSelect,
   onBuildContextChange,
 }: DockerfileConfirmationProps) {
+  const { t } = useTranslation();
+
   if (dockerfilePaths.length === 0) return null;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Alert severity="success" variant="outlined">
+      <Alert severity="success" variant="outlined" role="status" aria-live="polite">
         {dockerfilePaths.length === 1
-          ? `Dockerfile found at ${dockerfilePaths[0]}`
-          : `${dockerfilePaths.length} Dockerfiles found — select one below`}
+          ? t('Dockerfile found at {{path}}', { path: dockerfilePaths[0] })
+          : t('{{count}} Dockerfiles found — select one below', { count: dockerfilePaths.length })}
       </Alert>
 
       {dockerfilePaths.length > 1 && (
         <FormControl fullWidth size="small">
-          <InputLabel>Dockerfile</InputLabel>
+          <InputLabel id="dockerfile-select-label">{t('Dockerfile')}</InputLabel>
           <Select
+            labelId="dockerfile-select-label"
+            id="dockerfile-select"
             value={selection?.path ?? ''}
-            label="Dockerfile"
+            label={t('Dockerfile')}
             onChange={e => onSelect(e.target.value)}
             displayEmpty
           >
-            <MenuItem value="" disabled>
-              <em>Select a Dockerfile</em>
+            <MenuItem value="" disabled aria-hidden="true">
+              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                {t('Select a Dockerfile')}
+              </Typography>
             </MenuItem>
             {dockerfilePaths.map(path => (
               <MenuItem key={path} value={path}>
@@ -51,11 +71,14 @@ export function DockerfileConfirmation({
 
       {selection && (
         <TextField
-          label="Build context"
+          id="docker-build-context"
+          label={t('Build context')}
           size="small"
           value={selection.buildContext}
           onChange={e => onBuildContextChange(e.target.value)}
-          helperText="Directory used as the Docker build context"
+          helperText={t('Directory used as the Docker build context')}
+          FormHelperTextProps={{ id: 'docker-build-context-help' }}
+          inputProps={{ 'aria-describedby': 'docker-build-context-help' }}
         />
       )}
     </Box>
