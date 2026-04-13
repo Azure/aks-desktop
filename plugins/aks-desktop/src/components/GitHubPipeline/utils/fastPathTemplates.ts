@@ -1,11 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import YAML from 'yaml';
+import YAML, { Scalar } from 'yaml';
 import { normalizeK8sName } from '../../../utils/kubernetes/k8sNames';
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
 import { getProbeConfigs, probeFieldName } from './probeHelpers';
-import { escapeYamlValue } from './yamlUtils';
 
 export interface WorkflowConfig {
   /** App name used for the ACR image name and the `CONTAINER_NAME` env var. Must be a valid DNS-1123 label. */
@@ -32,11 +31,20 @@ export interface WorkflowConfig {
 }
 
 /**
+ * Creates a YAML scalar with single-quote style.
+ */
+function singleQuoted(value: string): Scalar {
+  const scalar = new Scalar(value);
+  scalar.type = 'QUOTE_SINGLE';
+  return scalar;
+}
+
+/**
  * Generates a deterministic deploy-to-aks.yml workflow.
+ * Builds a plain JS object and serializes via YAML.stringify.
  * Based on the proven aks-devhub workflow with all known bug fixes applied.
  */
 export function generateDeployWorkflow(config: WorkflowConfig): string {
-  const esc = escapeYamlValue;
   // Normalize to a valid DNS-1123 label so CONTAINER_NAME matches the K8s resource name
   // used in the generated manifests, preventing a silent mismatch during k8s-deploy image substitution.
   const appName = normalizeK8sName(config.appName);
@@ -47,106 +55,120 @@ export function generateDeployWorkflow(config: WorkflowConfig): string {
       `appName "${config.appName}" contains no alphanumeric characters and cannot produce a valid K8s resource name.`
     );
   }
-  return `name: Deploy to AKS
 
-on:
-  push:
-    branches: ["${esc(config.defaultBranch)}"]
-  workflow_dispatch:
+  const workflow: Record<string, unknown> = {
+    name: 'Deploy to AKS',
+    on: {
+      push: {
+        branches: [config.defaultBranch],
+      },
+      workflow_dispatch: null,
+    },
+    concurrency: {
+      group: '${{ github.workflow }}-${{ github.ref }}',
+      'cancel-in-progress': false,
+    },
+    env: {
+      AZURE_CONTAINER_REGISTRY: config.acrName,
+      CONTAINER_NAME: appName,
+      CLUSTER_NAME: config.clusterName,
+      CLUSTER_RESOURCE_GROUP: config.resourceGroup,
+      DEPLOYMENT_MANIFEST_PATH: './deploy/kubernetes',
+      DOCKER_FILE: config.dockerfilePath,
+      BUILD_CONTEXT_PATH: config.buildContextPath,
+      NAMESPACE: config.namespace,
+    },
+    jobs: {
+      buildImage: {
+        permissions: {
+          contents: 'read',
+          'id-token': 'write',
+        },
+        'runs-on': 'ubuntu-latest',
+        steps: [
+          {
+            uses: 'actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1',
+          },
+          {
+            name: 'Azure login',
+            uses: 'azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0',
+            with: {
+              'client-id': '${{ secrets.AZURE_CLIENT_ID }}',
+              'tenant-id': '${{ secrets.AZURE_TENANT_ID }}',
+              'subscription-id': '${{ secrets.AZURE_SUBSCRIPTION_ID }}',
+            },
+          },
+          {
+            name: 'Build and push image to ACR',
+            run: 'az acr build \\\n  --registry "${{ env.AZURE_CONTAINER_REGISTRY }}" \\\n  -f "${{ env.DOCKER_FILE }}" \\\n  --image "${{ env.CONTAINER_NAME }}:${{ github.sha }}" \\\n  "${{ env.BUILD_CONTEXT_PATH }}"\n',
+          },
+        ],
+      },
+      deploy: {
+        permissions: {
+          actions: 'read',
+          contents: 'read',
+          'id-token': 'write',
+        },
+        'runs-on': 'ubuntu-latest',
+        needs: ['buildImage'],
+        steps: [
+          {
+            uses: 'actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1',
+          },
+          {
+            name: 'Azure login',
+            uses: 'azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0',
+            with: {
+              'client-id': '${{ secrets.AZURE_CLIENT_ID }}',
+              'tenant-id': '${{ secrets.AZURE_TENANT_ID }}',
+              'subscription-id': '${{ secrets.AZURE_SUBSCRIPTION_ID }}',
+            },
+          },
+          {
+            name: 'Set up kubelogin',
+            uses: 'azure/use-kubelogin@0ce7c36141aa27d4934872cf00b0120804c98a29 # v1.3',
+            with: {
+              'kubelogin-version': singleQuoted('v0.1.6'),
+            },
+          },
+          {
+            name: 'Get K8s context',
+            uses: 'azure/aks-set-context@c7eb093e5a5d47caa333f64974d5fd1cd4bf069d # v4.0.3',
+            with: {
+              'resource-group': '${{ env.CLUSTER_RESOURCE_GROUP }}',
+              'cluster-name': '${{ env.CLUSTER_NAME }}',
+              admin: singleQuoted('false'),
+              'use-kubelogin': singleQuoted('true'),
+            },
+          },
+          {
+            name: 'Deploy application',
+            uses: 'Azure/k8s-deploy@c8cfec839dc09896b3b8cc40cd13d04792680771 # v5.1.0',
+            with: {
+              action: 'deploy',
+              manifests: '${{ env.DEPLOYMENT_MANIFEST_PATH }}',
+              images:
+                '${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/${{ env.CONTAINER_NAME }}:${{ github.sha }}\n',
+              namespace: '${{ env.NAMESPACE }}',
+            },
+          },
+          {
+            name: 'Annotate namespace',
+            'continue-on-error': true,
+            run: 'kubectl annotate namespace "${{ env.NAMESPACE }}" \\\n  "aks-project/pipeline-repo=${{ github.repository }}" \\\n  --overwrite\n',
+          },
+          {
+            name: 'Annotate deployment',
+            'continue-on-error': true,
+            run: 'kubectl annotate deployment "${{ env.CONTAINER_NAME }}" \\\n  -n "${{ env.NAMESPACE }}" \\\n  aks-project/pipeline-run-url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} \\\n  "aks-project/pipeline-workflow=${{ github.workflow }}" \\\n  --overwrite\n',
+          },
+        ],
+      },
+    },
+  };
 
-concurrency:
-  group: \${{ github.workflow }}-\${{ github.ref }}
-  cancel-in-progress: false
-
-env:
-  AZURE_CONTAINER_REGISTRY: "${esc(config.acrName)}"
-  CONTAINER_NAME: "${esc(appName)}"
-  CLUSTER_NAME: "${esc(config.clusterName)}"
-  CLUSTER_RESOURCE_GROUP: "${esc(config.resourceGroup)}"
-  DEPLOYMENT_MANIFEST_PATH: ./deploy/kubernetes
-  DOCKER_FILE: "${esc(config.dockerfilePath)}"
-  BUILD_CONTEXT_PATH: "${esc(config.buildContextPath)}"
-  NAMESPACE: "${esc(config.namespace)}"
-
-jobs:
-  buildImage:
-    permissions:
-      contents: read
-      id-token: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Azure login
-        uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0
-        with:
-          client-id: \${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: \${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: \${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Build and push image to ACR
-        run: |
-          az acr build \\
-            --registry "\${{ env.AZURE_CONTAINER_REGISTRY }}" \\
-            -f "\${{ env.DOCKER_FILE }}" \\
-            --image "\${{ env.CONTAINER_NAME }}:\${{ github.sha }}" \\
-            "\${{ env.BUILD_CONTEXT_PATH }}"
-
-  deploy:
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-    runs-on: ubuntu-latest
-    needs: [buildImage]
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Azure login
-        uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0
-        with:
-          client-id: \${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: \${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: \${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Set up kubelogin
-        uses: azure/use-kubelogin@0ce7c36141aa27d4934872cf00b0120804c98a29 # v1.3
-        with:
-          kubelogin-version: 'v0.1.6'
-
-      - name: Get K8s context
-        uses: azure/aks-set-context@c7eb093e5a5d47caa333f64974d5fd1cd4bf069d # v4.0.3
-        with:
-          resource-group: \${{ env.CLUSTER_RESOURCE_GROUP }}
-          cluster-name: \${{ env.CLUSTER_NAME }}
-          admin: 'false'
-          use-kubelogin: 'true'
-
-      - name: Deploy application
-        uses: Azure/k8s-deploy@c8cfec839dc09896b3b8cc40cd13d04792680771 # v5.1.0
-        with:
-          action: deploy
-          manifests: \${{ env.DEPLOYMENT_MANIFEST_PATH }}
-          images: |
-            \${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/\${{ env.CONTAINER_NAME }}:\${{ github.sha }}
-          namespace: \${{ env.NAMESPACE }}
-
-      - name: Annotate namespace
-        continue-on-error: true
-        run: |
-          kubectl annotate namespace "\${{ env.NAMESPACE }}" \\
-            "aks-project/pipeline-repo=\${{ github.repository }}" \\
-            --overwrite
-
-      - name: Annotate deployment
-        continue-on-error: true
-        run: |
-          kubectl annotate deployment "\${{ env.CONTAINER_NAME }}" \\
-            -n "\${{ env.NAMESPACE }}" \\
-            aks-project/pipeline-run-url=\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }} \\
-            "aks-project/pipeline-workflow=\${{ github.workflow }}" \\
-            --overwrite
-`;
+  return YAML.stringify(workflow, { lineWidth: 0 });
 }
 
 export interface ManifestConfig {
