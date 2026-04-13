@@ -17,6 +17,14 @@ interface ProbeRenderConfig {
 }
 
 /**
+ * Returns the Kubernetes probe field name for a given probe name.
+ * E.g. 'Liveness' → 'livenessProbe', 'Readiness' → 'readinessProbe'.
+ */
+export function probeFieldName(name: string): string {
+  return name.charAt(0).toLowerCase() + name.slice(1) + 'Probe';
+}
+
+/**
  * Renders a probe as a single Markdown bullet line for the agent config.
  * - Enabled:  `- {name} Probe: enabled (path: {path}, initialDelay: …)`
  * - Disabled: `- {name} Probe: disabled`
@@ -35,7 +43,7 @@ export function renderProbeMarkdown(probe: ProbeRenderConfig): string {
  * the probe is enabled and `showConfigs` is true.
  */
 export function renderProbeYaml(probe: ProbeRenderConfig): string[] {
-  const tag = probe.name.charAt(0).toLowerCase() + probe.name.slice(1) + 'Probe';
+  const tag = probeFieldName(probe.name);
   const lines: string[] = [
     `${tag}:`,
     `  enabled: ${probe.enabled}`,
