@@ -137,6 +137,24 @@ describe('generateDeployWorkflow', () => {
     const output = generateDeployWorkflow(baseConfig);
     expect(output).toContain('"aks-project/pipeline-repo=${{ github.repository }}"');
   });
+
+  it('should throw when appName contains no alphanumeric characters', () => {
+    expect(() => generateDeployWorkflow({ ...baseConfig, appName: '???' })).toThrow(
+      /no alphanumeric characters/
+    );
+  });
+
+  it('should throw when appName is empty string', () => {
+    expect(() => generateDeployWorkflow({ ...baseConfig, appName: '' })).toThrow(
+      /no alphanumeric characters/
+    );
+  });
+
+  it('should throw when appName contains only special characters', () => {
+    expect(() => generateDeployWorkflow({ ...baseConfig, appName: '___###' })).toThrow(
+      /no alphanumeric characters/
+    );
+  });
 });
 
 const baseManifestConfig = {
@@ -334,6 +352,24 @@ describe('generateDeploymentManifest', () => {
     const container = parsed.spec.template.spec.containers[0];
     expect(container.readinessProbe.successThreshold).toBe(2);
   });
+
+  it('should throw when appName contains no alphanumeric characters', () => {
+    expect(() =>
+      generateDeploymentManifest({ ...baseManifestConfig, appName: '???' }, baseContainerConfig)
+    ).toThrow(/no alphanumeric characters/);
+  });
+
+  it('should throw when appName is empty string', () => {
+    expect(() =>
+      generateDeploymentManifest({ ...baseManifestConfig, appName: '' }, baseContainerConfig)
+    ).toThrow(/no alphanumeric characters/);
+  });
+
+  it('should throw when appName contains only special characters', () => {
+    expect(() =>
+      generateDeploymentManifest({ ...baseManifestConfig, appName: '___###' }, baseContainerConfig)
+    ).toThrow(/no alphanumeric characters/);
+  });
 });
 
 describe('generateServiceManifest', () => {
@@ -370,5 +406,23 @@ describe('generateServiceManifest', () => {
     const parsed = YAML.parse(output);
     expect(parsed.spec.ports[0].port).toBe(3000);
     expect(parsed.spec.ports[0].targetPort).toBe(3000);
+  });
+
+  it('should throw when appName contains no alphanumeric characters', () => {
+    expect(() =>
+      generateServiceManifest({ ...baseManifestConfig, appName: '???' }, baseContainerConfig)
+    ).toThrow(/no alphanumeric characters/);
+  });
+
+  it('should throw when appName is empty string', () => {
+    expect(() =>
+      generateServiceManifest({ ...baseManifestConfig, appName: '' }, baseContainerConfig)
+    ).toThrow(/no alphanumeric characters/);
+  });
+
+  it('should throw when appName contains only special characters', () => {
+    expect(() =>
+      generateServiceManifest({ ...baseManifestConfig, appName: '___###' }, baseContainerConfig)
+    ).toThrow(/no alphanumeric characters/);
   });
 });

@@ -16,7 +16,12 @@ export interface WorkflowConfig {
   resourceGroup: string;
   /** Kubernetes namespace for deployment and annotation steps. */
   namespace: string;
-  /** Azure Container Registry name (without `.azurecr.io`), written to `AZURE_CONTAINER_REGISTRY`. */
+  /**
+   * Azure Container Registry name (without `.azurecr.io`), written to `AZURE_CONTAINER_REGISTRY`.
+   * **Must match `ManifestConfig.acrName` exactly** — Azure/k8s-deploy substitutes the manifest
+   * image at deploy time by matching on the registry+name prefix. Mismatched values cause
+   * k8s-deploy to silently skip substitution and deploy the `:latest` tag instead.
+   */
   acrName: string;
   /** Path to the Dockerfile, relative to repo root (e.g., `./Dockerfile` or `./src/web/Dockerfile`). */
   dockerfilePath: string;
@@ -35,6 +40,13 @@ export function generateDeployWorkflow(config: WorkflowConfig): string {
   // Normalize to a valid DNS-1123 label so CONTAINER_NAME matches the K8s resource name
   // used in the generated manifests, preventing a silent mismatch during k8s-deploy image substitution.
   const appName = normalizeK8sName(config.appName);
+  // Guard: if the name normalized to the fallback sentinel, reject rather than silently
+  // deploying to a resource named "app".
+  if (!/[a-z0-9]/i.test(config.appName)) {
+    throw new Error(
+      `appName "${config.appName}" contains no alphanumeric characters and cannot produce a valid K8s resource name.`
+    );
+  }
   return `name: Deploy to AKS
 
 on:
@@ -142,7 +154,12 @@ export interface ManifestConfig {
   appName: string;
   /** Kubernetes namespace for the generated Deployment and Service manifests. */
   namespace: string;
-  /** Azure Container Registry name (without `.azurecr.io`) used to construct the container image reference. */
+  /**
+   * Azure Container Registry name (without `.azurecr.io`) used to construct the container image reference.
+   * **Must match `WorkflowConfig.acrName` exactly** — Azure/k8s-deploy substitutes the manifest
+   * image at deploy time by matching on the registry+name prefix. Mismatched values cause
+   * k8s-deploy to silently skip substitution and deploy the `:latest` tag instead.
+   */
   acrName: string;
   /** GitHub repository owner and name, used in the `aks-project/pipeline-repo` annotation. */
   repo: { owner: string; name: string };
@@ -163,11 +180,20 @@ export function generateDeploymentManifest(config: ManifestConfig, cc: Container
   // Normalize to a valid DNS-1123 label so the manifest is accepted by Kubernetes even if
   // the caller passes an app name with uppercase, underscores, or other invalid characters.
   const appName = normalizeK8sName(config.appName);
+  // Guard: if the name normalized to the fallback sentinel, reject rather than silently
+  // deploying to a resource named "app".
+  if (!/[a-z0-9]/i.test(config.appName)) {
+    throw new Error(
+      `appName "${config.appName}" contains no alphanumeric characters and cannot produce a valid K8s resource name.`
+    );
+  }
 
   const container: Record<string, unknown> = {
     name: appName,
-    // Note: Azure/k8s-deploy@v5 substitutes this with the actual built image+SHA at deploy time.
-    // The ':latest' here is a placeholder that will be replaced by the workflow's build SHA.
+    // Note: ':latest' is a placeholder tag. Azure/k8s-deploy substitutes it at deploy time with
+    // the actual image+SHA built by the workflow (e.g., myapp:abc1234). The manifest file on disk
+    // shows ':latest', but the running container always uses the SHA-pinned image.
+    // This substitution requires WorkflowConfig.acrName and ManifestConfig.acrName to match exactly.
     image: `${config.acrName}.azurecr.io/${appName}:latest`,
     ports: [{ containerPort: cc.targetPort }],
   };
@@ -195,7 +221,11 @@ export function generateDeploymentManifest(config: ManifestConfig, cc: Container
     container[probeFieldName(probe.name)] = probeSpec;
   }
 
-  // Security context: always-on hardening defaults (capabilities drop ALL, seccomp RuntimeDefault).
+  // Security context: always-on baseline hardening (capabilities drop ALL, seccomp RuntimeDefault).
+  // These two settings are universally supported and have no functional impact on most workloads.
+  // The three conditional fields below reflect the user's wizard choices (configurable in the
+  // DeployWizard UI) and default to opt-in. Users wanting stricter defaults can enable them
+  // in the wizard: allowPrivilegeEscalation=false, runAsNonRoot=true, readOnlyRootFilesystem=true.
   const securityContext: Record<string, unknown> = {
     capabilities: { drop: ['ALL'] },
     seccompProfile: { type: 'RuntimeDefault' },
@@ -267,6 +297,13 @@ export function generateDeploymentManifest(config: ManifestConfig, cc: Container
 export function generateServiceManifest(config: ManifestConfig, cc: ContainerConfig): string {
   const servicePort = cc.useCustomServicePort ? cc.servicePort : cc.targetPort;
   const appName = normalizeK8sName(config.appName);
+  // Guard: if the name normalized to the fallback sentinel, reject rather than silently
+  // deploying to a resource named "app".
+  if (!/[a-z0-9]/i.test(config.appName)) {
+    throw new Error(
+      `appName "${config.appName}" contains no alphanumeric characters and cannot produce a valid K8s resource name.`
+    );
+  }
 
   const service = {
     apiVersion: 'v1',
