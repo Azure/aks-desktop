@@ -17,7 +17,7 @@ vi.mock('../../utils/azure/az-extensions', () => ({
 }));
 
 import { runCommandWithOutput } from '../../utils/kubernetes/cli-runner';
-import { getPrometheusEndpoint } from './getPrometheusEndpoint';
+import { getPrometheusEndpoint } from '../../utils/prometheus/getPrometheusEndpoint';
 
 const mockRunCommandWithOutput = vi.mocked(runCommandWithOutput);
 

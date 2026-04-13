@@ -4,11 +4,11 @@
 import React from 'react';
 import { useHistory } from 'react-router-dom';
 import AzureAuthGuard from '../AzureAuth/AzureAuthGuard';
+import { ComputeStep } from '../shared/ComputeStep';
+import { NetworkingStep } from '../shared/NetworkingStep';
 import { AccessStep } from './components/AccessStep';
 import { BasicsStep } from './components/BasicsStep';
-import { ComputeStep } from './components/ComputeStep';
 import CreateAKSProjectPure from './components/CreateAKSProjectPure';
-import { NetworkingStep } from './components/NetworkingStep';
 import { ReviewStep } from './components/ReviewStep';
 import { useCreateAKSProjectWizard } from './hooks/useCreateAKSProjectWizard';
 

@@ -188,6 +188,7 @@
   "Custom value": "Benutzerdefinierter Wert",
   "Data": "Daten",
   "Date": "Datum",
+  "Debug Image": "Bild debuggen",
   "Debug Pod": "Pod debuggen",
   "Debug: {{ itemName }}": "Debuggen: {{ itemName }}",
   "Decrement": "Verringern",

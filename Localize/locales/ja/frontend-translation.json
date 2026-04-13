@@ -188,6 +188,7 @@
   "Custom value": "カスタム値",
   "Data": "データ",
   "Date": "日付",
+  "Debug Image": "イメージのデバッグ",
   "Debug Pod": "ポッドのデバッグ",
   "Debug: {{ itemName }}": "デバッグ: {{ itemName }}",
   "Decrement": "減分",

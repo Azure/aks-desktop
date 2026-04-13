@@ -3,8 +3,8 @@
 
 import { Meta, StoryFn } from '@storybook/react';
 import React from 'react';
+import { NetworkingStep } from '../../shared/NetworkingStep';
 import type { NetworkingStepProps } from '../types';
-import { NetworkingStep } from './NetworkingStep';
 
 const BASE_FORM_DATA = {
   projectName: 'azure-microservices-demo',

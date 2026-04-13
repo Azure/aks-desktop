@@ -188,6 +188,7 @@
   "Custom value": "Настраиваемое значение",
   "Data": "Данные",
   "Date": "Дата",
+  "Debug Image": "Отладка образа",
   "Debug Pod": "Отлаживать pod",
   "Debug: {{ itemName }}": "Отладка: {{ itemName }}",
   "Decrement": "Уменьшение",

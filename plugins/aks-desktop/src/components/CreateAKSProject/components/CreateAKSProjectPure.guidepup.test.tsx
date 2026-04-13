@@ -115,21 +115,21 @@ vi.mock('@iconify/react', () => ({
   Icon: ({ icon, ...props }: any) => <span data-icon={icon} {...props} />,
 }));
 
+import { ComputeStep } from '../../shared/ComputeStep';
+import type { FormFieldProps } from '../../shared/FormField';
+import { FormField } from '../../shared/FormField';
+import { NetworkingStep } from '../../shared/NetworkingStep';
 import type {
   BreadcrumbProps,
   ComputeStepProps,
-  FormFieldProps,
   NetworkingStepProps,
   ReviewStepProps,
 } from '../types';
 import { STEPS } from '../types';
 import { AccessStep } from './AccessStep';
 import { Breadcrumb } from './Breadcrumb';
-import { ComputeStep } from './ComputeStep';
 import type { CreateAKSProjectPureProps } from './CreateAKSProjectPure';
 import CreateAKSProjectPure from './CreateAKSProjectPure';
-import { FormField } from './FormField';
-import { NetworkingStep } from './NetworkingStep';
 import { ReviewStep } from './ReviewStep';
 import type { SearchableSelectProps } from './SearchableSelect';
 import { SearchableSelect } from './SearchableSelect';

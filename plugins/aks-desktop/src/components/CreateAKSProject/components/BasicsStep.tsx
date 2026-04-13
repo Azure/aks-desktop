@@ -16,9 +16,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAzureAuth } from '../../../hooks/useAzureAuth';
 import type { ClusterCapabilities } from '../../../types/ClusterCapabilities';
 import { registerAKSCluster } from '../../../utils/azure/aks';
+import { FormField } from '../../shared/FormField';
 import type { BasicsStepProps } from '../types';
 import { ClusterConfigurePanel } from './ClusterConfigurePanel';
-import { FormField } from './FormField';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
 import { ValidationAlert } from './ValidationAlert';
 

@@ -12,17 +12,17 @@ vi.mock('../../../utils/azure/az-clusters', () => ({
   getClusterResourceIdAndGroup: vi.fn(),
 }));
 
-vi.mock('../../MetricsTab/getPrometheusEndpoint', () => ({
+vi.mock('../../../utils/prometheus/getPrometheusEndpoint', () => ({
   getPrometheusEndpoint: vi.fn(),
 }));
 
-vi.mock('../../MetricsTab/queryPrometheus', () => ({
+vi.mock('../../../utils/prometheus/queryPrometheus', () => ({
   queryPrometheus: vi.fn(),
 }));
 
 import { getClusterResourceIdAndGroup } from '../../../utils/azure/az-clusters';
-import { getPrometheusEndpoint } from '../../MetricsTab/getPrometheusEndpoint';
-import { queryPrometheus } from '../../MetricsTab/queryPrometheus';
+import { getPrometheusEndpoint } from '../../../utils/prometheus/getPrometheusEndpoint';
+import { queryPrometheus } from '../../../utils/prometheus/queryPrometheus';
 
 const mockGetClusterResourceIdAndGroup = vi.mocked(getClusterResourceIdAndGroup);
 const mockGetPrometheusEndpoint = vi.mocked(getPrometheusEndpoint);

@@ -10,6 +10,9 @@ export const METRICS_REFRESH_INTERVAL_MS = 30_000;
 /** Default Prometheus query range (seconds). */
 export const PROMETHEUS_QUERY_RANGE_SECONDS = 300;
 
+/** Extended Prometheus query range for chart views (seconds, 2 hours). */
+export const PROMETHEUS_CHART_RANGE_SECONDS = 7_200;
+
 /** Default Prometheus query step (seconds). */
 export const PROMETHEUS_STEP_SECONDS = 60;
 

@@ -1,10 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { configureAzureCliExtensions } from '../../utils/azure/az-extensions';
-import { runCommandWithOutput } from '../../utils/kubernetes/cli-runner';
+import { configureAzureCliExtensions } from '../azure/az-extensions';
+import { runCommandWithOutput } from '../kubernetes/cli-runner';
 
-// Helper to get Prometheus endpoint
+/**
+ * Fetches Prometheus endpoint for a given cluster
+ *
+ * @param resourceGroup - Resource group containing the cluster.
+ * @param clusterName - Name of target cluster.
+ * @param subscription - Azure subscription ID.
+ * @returns The Prometheus query endpoint URL.
+ */
 export async function getPrometheusEndpoint(
   resourceGroup: string,
   clusterName: string,

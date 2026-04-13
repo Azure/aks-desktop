@@ -5,7 +5,7 @@ import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Box, Grid, Typography } from '@mui/material';
 import React from 'react';
-import type { ComputeStepProps } from '../types';
+import type { ComputeStepProps } from '../CreateAKSProject/types';
 import { FormField } from './FormField';
 import { ResourceCard } from './ResourceCard';
 

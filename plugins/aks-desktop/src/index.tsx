@@ -36,7 +36,7 @@ import InfoTab from './components/InfoTab/InfoTab';
 import AzureLogo from './components/Logo/Logo';
 import LogsTab from './components/LogsTab/LogsTab';
 import MetricsCard from './components/Metrics/MetricsCard';
-import MetricsTab from './components/MetricsTab/MetricsTab';
+import MetricsTab from './components/Metrics/MetricsTab';
 import PreviewFeaturesSettings from './components/PluginSettings/PreviewFeaturesSettings';
 import { previewFeaturesStore } from './components/PluginSettings/previewFeaturesStore';
 import ScalingCard from './components/Scaling/ScalingCard';
@@ -44,7 +44,7 @@ import ScalingTab from './components/Scaling/ScalingTab';
 import type { ProjectDefinition } from './types/project';
 import { getLoginStatus } from './utils/azure/az-auth';
 import { AZURE_ACCOUNT_POLL_INTERVAL_MS } from './utils/constants/timing';
-import { isAksProject } from './utils/shared/isAksProject';
+import { isAksProject, isArmManagedProject } from './utils/shared/isAksProject';
 import { azureTheme } from './utils/shared/theme';
 
 Headlamp.setAppMenu(menus => {
@@ -404,8 +404,8 @@ registerProjectHeaderAction({
   ),
 });
 
-// Register custom delete button for AKS projects only
+// Register custom delete button for AKS Desktop + ARM-managed projects only
 registerProjectDeleteButton({
-  isEnabled: isAksProject,
+  isEnabled: isArmManagedProject,
   component: ({ project }) => <AKSProjectDeleteButton project={project} />,
 });

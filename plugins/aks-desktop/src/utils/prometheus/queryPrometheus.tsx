@@ -1,9 +1,19 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { runCommandWithOutput } from '../../utils/kubernetes/cli-runner';
+import { runCommandWithOutput } from '../kubernetes/cli-runner';
 
-// Helper to query Prometheus
+/**
+ * Executes PromQL query against the given Prometheus endpoint.
+ *
+ * @param endpoint - Prometheus query endpoint URL.
+ * @param query - PromQL query string.
+ * @param start - Range start (Unix epoch seconds).
+ * @param end - Range end (Unix epoch seconds).
+ * @param step - Query resolution step in seconds.
+ * @param subscription - Azure subscription ID used to acquire the access token.
+ * @returns Array of Prometheus result objects, or an empty array on failure.
+ */
 export async function queryPrometheus(
   endpoint: string,
   query: string,
@@ -13,6 +23,7 @@ export async function queryPrometheus(
   subscription: string
 ): Promise<any[]> {
   try {
+    // Acquire access token for Prometheus
     const { stdout: tokenStdout } = await runCommandWithOutput('az', [
       'account',
       'get-access-token',
@@ -34,7 +45,7 @@ export async function queryPrometheus(
     formData.append('start', start.toString());
     formData.append('end', end.toString());
     formData.append('step', step.toString());
-
+    // Fetch & acquire the Prometheus query results
     const response = await fetch(rangeUrl, {
       method: 'POST',
       headers: {

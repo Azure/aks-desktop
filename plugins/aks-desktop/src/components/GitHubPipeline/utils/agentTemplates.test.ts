@@ -3,6 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createContainerConfig, createValidConfig } from '../__fixtures__/pipelineConfig';
+import { KUBELOGIN_VERSION } from '../constants';
 import type { PipelineConfig } from '../types';
 import {
   generateAgentConfig,
@@ -82,6 +83,23 @@ describe('agentTemplates', () => {
       // Subscription ID comes from secrets, not workflow inputs
       expect(result).toContain('secrets.AZURE_SUBSCRIPTION_ID');
       expect(result).not.toContain('Trigger on push to main');
+    });
+
+    it('should instruct agent to pin kubelogin version instead of skip-cache', () => {
+      const result = generateAgentConfig(validConfig);
+      expect(result).toContain(`kubelogin-version: '${KUBELOGIN_VERSION}'`);
+      expect(result).not.toContain('skip-cache: true');
+    });
+
+    it('should instruct agent to include actions: read permission', () => {
+      const result = generateAgentConfig(validConfig);
+      expect(result).toContain('actions: read');
+    });
+
+    it('should instruct agent to split workflow into two jobs', () => {
+      const result = generateAgentConfig(validConfig);
+      expect(result).toContain('buildImage');
+      expect(result).toContain('needs: [buildImage]');
     });
 
     it('should include optional fields when provided', () => {

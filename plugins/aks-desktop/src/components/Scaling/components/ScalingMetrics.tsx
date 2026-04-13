@@ -3,7 +3,7 @@
 
 import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { Box, Grid, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import React from 'react';
 import type { DeploymentInfo } from '../hooks/useDeployments';
 import type { HPAInfo } from '../hooks/useHPAInfo';
@@ -19,14 +19,14 @@ interface ScalingMetricsProps {
 
 function MetricTile({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <Grid item xs={2.4}>
+    <Box sx={{ minWidth: '5rem', flex: '1 1 5rem' }}>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
         {label}
       </Typography>
       <Typography variant="body1" fontWeight="bold">
         {value}
       </Typography>
-    </Grid>
+    </Box>
   );
 }
 
@@ -59,38 +59,37 @@ export const ScalingMetrics: React.FC<ScalingMetricsProps> = ({
     : currentDeployment?.availableReplicas ?? 'N/A';
 
   return (
-    <Box sx={{ mb: 2 }}>
-      <Grid container spacing={2}>
-        {/* Scaling Mode */}
-        <Grid item xs={2.4}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-            {t('Scaling Mode')}
+    <Box sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+      {/* Scaling Mode */}
+      <Box sx={{ minWidth: '5rem', flex: '1 1 5rem' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          {t('Scaling Mode')}
+        </Typography>
+        <Box display="flex" alignItems="center" gap={0.5}>
+          <Icon
+            icon={hpaInfo ? 'mdi:autorenew' : 'mdi:account'}
+            style={{ fontSize: 18, flexShrink: 0, color: hpaInfo ? '#66BB6A' : '#42A5F5' }}
+            aria-hidden="true"
+          />
+          <Typography variant="body1" fontWeight="bold">
+            {hpaInfo ? 'HPA' : t('Manual')}
           </Typography>
-          <Box display="flex" alignItems="center" gap={0.5}>
-            <Icon
-              icon={hpaInfo ? 'mdi:autorenew' : 'mdi:account'}
-              style={{ fontSize: 18, color: hpaInfo ? '#66BB6A' : '#42A5F5' }}
-            />
-            <Typography variant="body1" fontWeight="bold">
-              {hpaInfo ? 'HPA' : t('Manual')}
-            </Typography>
-          </Box>
-        </Grid>
+        </Box>
+      </Box>
 
-        <MetricTile
-          label={t('Current Replicas')}
-          value={hpaInfo?.currentReplicas ?? currentDeployment?.readyReplicas ?? 'N/A'}
-        />
-        <MetricTile
-          label={hpaInfo ? t('Desired Replicas') : t('Configured Replicas')}
-          value={hpaInfo?.desiredReplicas ?? currentDeployment?.replicas ?? 'N/A'}
-        />
-        <MetricTile
-          label={hpaInfo ? t('Replica Bounds') : t('Available Replicas')}
-          value={boundsValue}
-        />
-        <MetricTile label={hpaInfo ? t('CPU Usage / Target') : t('CPU Usage')} value={cpuValue} />
-      </Grid>
+      <MetricTile
+        label={t('Current Replicas')}
+        value={hpaInfo?.currentReplicas ?? currentDeployment?.readyReplicas ?? 'N/A'}
+      />
+      <MetricTile
+        label={hpaInfo ? t('Desired Replicas') : t('Configured Replicas')}
+        value={hpaInfo?.desiredReplicas ?? currentDeployment?.replicas ?? 'N/A'}
+      />
+      <MetricTile
+        label={hpaInfo ? t('Replica Bounds') : t('Available Replicas')}
+        value={boundsValue}
+      />
+      <MetricTile label={hpaInfo ? t('CPU Usage / Target') : t('CPU Usage')} value={cpuValue} />
     </Box>
   );
 };

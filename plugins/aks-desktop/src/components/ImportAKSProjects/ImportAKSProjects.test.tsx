@@ -70,8 +70,12 @@ vi.mock('../../hooks/useRegisteredClusters', () => ({
 }));
 
 const mockRegisterAKSCluster = vi.fn();
+const mockGetSubscriptions = vi
+  .fn()
+  .mockResolvedValue({ success: true, message: '', subscriptions: [] });
 vi.mock('../../utils/azure/aks', () => ({
   registerAKSCluster: (...args: any[]) => mockRegisterAKSCluster(...args),
+  getSubscriptions: (...args: any[]) => mockGetSubscriptions(...args),
 }));
 
 const mockApplyProjectLabels = vi.fn();
@@ -131,6 +135,9 @@ describe('ImportAKSProjects', () => {
     mockPush.mockReset();
     mockReplace.mockReset();
     mockRegisterAKSCluster.mockReset();
+    mockGetSubscriptions
+      .mockReset()
+      .mockResolvedValue({ success: true, message: '', subscriptions: [] });
     mockApplyProjectLabels.mockReset();
     mockSetClusterSettings.mockReset();
     mockUseRegisteredClusters.mockReturnValue(new Set());

@@ -3,8 +3,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getClusterResourceIdAndGroup } from '../../../utils/azure/az-clusters';
-import { getPrometheusEndpoint } from '../../MetricsTab/getPrometheusEndpoint';
-import { queryPrometheus } from '../../MetricsTab/queryPrometheus';
+import { getPrometheusEndpoint } from '../../../utils/prometheus/getPrometheusEndpoint';
+import { queryPrometheus } from '../../../utils/prometheus/queryPrometheus';
 
 /**
  * A single data point for the scaling chart.

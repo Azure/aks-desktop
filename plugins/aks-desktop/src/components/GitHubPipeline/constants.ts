@@ -31,6 +31,9 @@ export const SCHEMA_VERSION = 1;
 /** Version of the containerization-assist-mcp used in agent setup steps. */
 export const CONTAINERIZATION_MCP_VERSION = '1.3.2';
 
+/** Pinned kubelogin version for AAD-enabled AKS clusters. */
+export const KUBELOGIN_VERSION = 'v0.1.6';
+
 /** Default polling interval for GitHub API checks (5 seconds). */
 export const POLLING_INTERVAL_MS = 5_000;
 

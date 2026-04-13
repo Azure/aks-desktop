@@ -20,11 +20,11 @@ import { useHistory } from 'react-router-dom';
 import { createNamespaceAsProject } from '../../utils/kubernetes/namespaceUtils';
 import { getClusterSettings, setClusterSettings } from '../../utils/shared/clusterSettings';
 import { Breadcrumb } from '../CreateAKSProject/components/Breadcrumb';
-import { FormField } from '../CreateAKSProject/components/FormField';
 import {
   SearchableSelect,
   SearchableSelectOption,
 } from '../CreateAKSProject/components/SearchableSelect';
+import { FormField } from '../shared/FormField';
 
 const STEPS = ['Basics', 'Review'] as const;
 

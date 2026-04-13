@@ -15,3 +15,6 @@ export const SUBSCRIPTION_LABEL = 'aks-desktop/project-subscription';
 
 /** Kubernetes label key: the Azure resource group associated with the project. */
 export const RESOURCE_GROUP_LABEL = 'aks-desktop/project-resource-group';
+
+/** Kubernetes label key: whether the namespace is managed by ARM. */
+export const MANAGED_BY_ARM_LABEL = 'kubernetes.azure.com/managedByArm';

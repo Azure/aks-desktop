@@ -2,18 +2,10 @@
 // Licensed under the Apache 2.0.
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Divider,
-  Typography,
-} from '@mui/material';
+import { Box, Button, CircularProgress, Divider, Typography } from '@mui/material';
 import React from 'react';
-import { ComputeStep } from '../CreateAKSProject/components/ComputeStep';
-import { NetworkingStep } from '../CreateAKSProject/components/NetworkingStep';
+import { ComputeStep } from '../shared/ComputeStep';
+import { NetworkingStep } from '../shared/NetworkingStep';
 import { useInfoTab } from './hooks/useInfoTab';
 
 /**
@@ -54,54 +46,52 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
   } = useInfoTab(project);
 
   return (
-    <Card>
-      <CardContent sx={{ minHeight: loading ? '100vh' : 'auto' }}>
-        {loading && (
-          <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              py: 4,
-              height: '100%',
-            }}
-          >
-            <CircularProgress />
-          </Box>
-        )}
-        {!loading && error && <Typography color="error">{error}</Typography>}
+    <Box sx={{ minHeight: loading ? '100vh' : 'auto', p: 3 }}>
+      {loading && (
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            py: 4,
+            height: '100%',
+          }}
+        >
+          <CircularProgress />
+        </Box>
+      )}
+      {!loading && error && <Typography color="error">{error}</Typography>}
 
-        {!loading && !error && namespaceDetails && (
-          <Box>
-            <Box sx={{ mb: 3 }}>
-              <NetworkingStep
-                formData={formData}
-                onFormDataChange={handleFormDataChange}
-                validation={validation}
-              />
-            </Box>
-            <Divider sx={{ my: 2 }} />
-            <Box>
-              <ComputeStep
-                formData={formData}
-                onFormDataChange={handleFormDataChange}
-                validation={validation}
-              />
-            </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
-              <Button
-                variant="contained"
-                color="primary"
-                disabled={!project.id || !hasChanges || !validation.isValid || updating}
-                onClick={handleSave}
-              >
-                {updating ? `${t('Updating')}...` : t('Update')}
-              </Button>
-            </Box>
+      {!loading && !error && namespaceDetails && (
+        <Box>
+          <Box sx={{ mb: 3 }}>
+            <NetworkingStep
+              formData={formData}
+              onFormDataChange={handleFormDataChange}
+              validation={validation}
+            />
           </Box>
-        )}
-      </CardContent>
-    </Card>
+          <Divider sx={{ my: 2 }} />
+          <Box>
+            <ComputeStep
+              formData={formData}
+              onFormDataChange={handleFormDataChange}
+              validation={validation}
+            />
+          </Box>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
+            <Button
+              variant="contained"
+              color="primary"
+              disabled={!project.id || !hasChanges || !validation.isValid || updating}
+              onClick={handleSave}
+            >
+              {updating ? `${t('Updating')}...` : t('Update')}
+            </Button>
+          </Box>
+        </Box>
+      )}
+    </Box>
   );
 };
 

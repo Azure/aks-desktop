@@ -3,8 +3,8 @@
 
 import { Meta, StoryFn } from '@storybook/react';
 import React from 'react';
+import { ComputeStep } from '../../shared/ComputeStep';
 import type { ComputeStepProps } from '../types';
-import { ComputeStep } from './ComputeStep';
 
 const BASE_FORM_DATA = {
   projectName: 'azure-microservices-demo',

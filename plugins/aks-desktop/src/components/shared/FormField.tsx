@@ -4,7 +4,24 @@
 import { InputAdornment, TextField } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import React from 'react';
-import type { FormFieldProps } from '../types';
+
+export interface FormFieldProps {
+  label: string;
+  value: string | number;
+  onChange: (value: string | number) => void;
+  type?: 'text' | 'email' | 'number' | 'textarea';
+  multiline?: boolean;
+  rows?: number;
+  placeholder?: string;
+  error?: boolean;
+  helperText?: string;
+  disabled?: boolean;
+  required?: boolean;
+  startAdornment?: React.ReactNode;
+  endAdornment?: React.ReactNode;
+  /** Ref for the input element of this field */
+  inputRef?: React.Ref<HTMLInputElement>;
+}
 
 /**
  * Reusable form field component with consistent styling

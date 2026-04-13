@@ -188,6 +188,7 @@
   "Custom value": "Wartość niestandardowa",
   "Data": "Dane",
   "Date": "Data",
+  "Debug Image": "Obraz debugowania",
   "Debug Pod": "Zasobnik debugowania",
   "Debug: {{ itemName }}": "Debuguj: {{ itemName }}",
   "Decrement": "Redukcja",

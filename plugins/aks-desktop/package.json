@@ -73,7 +73,7 @@
     "@octokit/rest": "^22.0.0",
     "libsodium-wrappers": "^0.8.2",
     "recharts": "^3.1.2",
-    "yaml": "^2.8.1"
+    "yaml": "^2.8.3"
   },
   "headlamp": {
     "i18n": [

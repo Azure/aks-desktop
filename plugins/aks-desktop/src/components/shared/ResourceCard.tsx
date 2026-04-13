@@ -4,7 +4,13 @@
 import { Icon } from '@iconify/react';
 import { Box, Typography } from '@mui/material';
 import React from 'react';
-import type { ResourceCardProps } from '../types';
+
+export interface ResourceCardProps {
+  title: string;
+  icon: string;
+  iconColor: string;
+  children: React.ReactNode;
+}
 
 /**
  * Resource card component for displaying CPU/Memory configuration
