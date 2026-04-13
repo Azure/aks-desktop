@@ -117,6 +117,19 @@ export async function checkRepoReadiness(
   defaultBranch?: string
 ): Promise<RepoReadiness> {
   try {
+    const dockerfileDiscovery = defaultBranch
+      ? findDockerfiles(octokit, owner, repo, defaultBranch).then(
+          ({ paths, truncated }) => ({
+            paths,
+            error: truncated ? ('truncated' as const) : undefined,
+          }),
+          err => {
+            console.warn('Dockerfile discovery failed, continuing without:', err);
+            return { paths: [] as string[], error: 'failed' as const };
+          }
+        )
+      : Promise.resolve({ paths: null as string[] | null, error: undefined });
+
     const [hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow, dockerfileResult] =
       await Promise.all([
         fileExists(octokit, owner, repo, COPILOT_SETUP_STEPS_PATH, defaultBranch),
@@ -128,18 +141,7 @@ export async function checkRepoReadiness(
           `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
           defaultBranch
         ),
-        defaultBranch
-          ? findDockerfiles(octokit, owner, repo, defaultBranch).then(
-              ({ paths, truncated }) => ({
-                paths,
-                error: truncated ? ('truncated' as const) : undefined,
-              }),
-              err => {
-                console.warn('Dockerfile discovery failed, continuing without:', err);
-                return { paths: [] as string[], error: 'failed' as const };
-              }
-            )
-          : Promise.resolve({ paths: null as string[] | null, error: undefined }),
+        dockerfileDiscovery,
       ]);
 
     return {
@@ -264,7 +266,7 @@ export async function findDockerfiles(
           isDockerfileName(entry.path.split('/').pop() ?? '')
       )
       .map(entry => entry.path as string)
-      .sort((a, b) => a.localeCompare(b));
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     return { paths, truncated: data.truncated ?? false };
   } catch (err) {
     throw apiError(`Failed to search repo tree for Dockerfiles in ${owner}/${repo}`, err);

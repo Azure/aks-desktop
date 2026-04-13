@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export interface DockerfileSelection {
   /** Full path in the repo, e.g. "src/web/Dockerfile" */
@@ -46,11 +46,7 @@ export function useDockerfileDiscovery(
 
   // Stable key derived from array contents — avoids infinite effect loops when
   // callers pass a new array reference on each render (e.g. `?? []`).
-  const pathsKey = useMemo(
-    () => (dockerfilePaths ? dockerfilePaths.join('\0') : ''),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dockerfilePaths ? dockerfilePaths.join('\0') : '']
-  );
+  const pathsKey = dockerfilePaths ? dockerfilePaths.join('\0') : '';
   const pathsRef = useRef<string[] | null>(dockerfilePaths);
   pathsRef.current = dockerfilePaths;
 

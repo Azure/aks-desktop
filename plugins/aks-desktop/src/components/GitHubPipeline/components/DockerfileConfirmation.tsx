@@ -18,7 +18,10 @@ import type { UseDockerfileDiscoveryReturn } from '../hooks/useDockerfileDiscove
 interface DockerfileConfirmationProps {
   /**
    * Repo-relative paths to Dockerfiles found in the repository tree,
-   * e.g. ['Dockerfile', 'src/web/Dockerfile']. When empty or null, the component renders nothing.
+   * e.g. `['Dockerfile', 'src/web/Dockerfile']`. Pass `RepoReadiness.dockerfilePaths ?? []`
+   * to coerce the nullable readiness value — an empty array causes the component to render nothing.
+   * Must come from the same discovery run as `discovery` so that `selection.path` is
+   * always a member of this array.
    */
   dockerfilePaths: string[];
   /**
