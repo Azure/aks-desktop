@@ -31,30 +31,45 @@ interface WorkloadIdentitySetupProps {
   azureRbacEnabled?: boolean;
 }
 
-const STATUS_ORDER = [
+const BASE_STATUS_ORDER = [
   'creating-rg',
   'checking',
   'creating-identity',
   'assigning-roles',
   'creating-credential',
-  'done',
 ] as const;
 
-function getStatusSteps(t: (key: string) => string) {
-  return [
+function getStatusOrder(includeRoleBinding: boolean): string[] {
+  if (includeRoleBinding) {
+    return [...BASE_STATUS_ORDER, 'creating-rolebinding', 'done'];
+  }
+  return [...BASE_STATUS_ORDER, 'done'];
+}
+
+function getStatusSteps(t: (key: string) => string, includeRoleBinding: boolean) {
+  const steps = [
     { key: 'creating-rg', label: t('Ensuring resource group exists...') },
     { key: 'checking', label: t('Checking for existing identity...') },
     { key: 'creating-identity', label: t('Creating managed identity...') },
     { key: 'assigning-roles', label: t('Assigning required Azure RBAC roles...') },
     { key: 'creating-credential', label: t('Configuring federated credential...') },
-    { key: 'done', label: t('Workload identity configured') },
-  ] as const;
+  ];
+  if (includeRoleBinding) {
+    steps.push({ key: 'creating-rolebinding', label: t('Creating Kubernetes RBAC binding...') });
+  }
+  steps.push({ key: 'done', label: t('Workload identity configured') });
+  return steps;
 }
 
-function getStepStatus(step: string, currentStatus: string, lastActiveStatus: string): StepStatus {
+function getStepStatus(
+  step: string,
+  currentStatus: string,
+  lastActiveStatus: string,
+  statusOrder: readonly string[]
+): StepStatus {
   const effectiveStatus = currentStatus === 'error' ? lastActiveStatus : currentStatus;
-  const effectiveIdx = STATUS_ORDER.indexOf(effectiveStatus as (typeof STATUS_ORDER)[number]);
-  const stepIdx = STATUS_ORDER.indexOf(step as (typeof STATUS_ORDER)[number]);
+  const effectiveIdx = statusOrder.indexOf(effectiveStatus);
+  const stepIdx = statusOrder.indexOf(step);
 
   if (stepIdx < effectiveIdx || effectiveStatus === 'done') return 'done';
   if (stepIdx === effectiveIdx && currentStatus === 'error') return 'error';
@@ -77,7 +92,9 @@ export function WorkloadIdentitySetup({
   const { status, error, result, setupWorkloadIdentity } = identitySetup;
   const { t } = useTranslation();
   const identityName = getIdentityName(projectName);
-  const statusSteps = getStatusSteps(t);
+  const needsRoleBinding = !azureRbacEnabled;
+  const statusOrder = getStatusOrder(needsRoleBinding);
+  const statusSteps = getStatusSteps(t, needsRoleBinding);
   const [identityRG, setIdentityRG] = useState(`rg-${projectName}`);
 
   useEffect(() => {
@@ -200,18 +217,14 @@ export function WorkloadIdentitySetup({
             {statusSteps.map(step => (
               <Box key={step.key} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
                 <StepStatusIcon
-                  status={getStepStatus(step.key, status, lastActiveStatusRef.current)}
+                  status={getStepStatus(step.key, status, lastActiveStatusRef.current, statusOrder)}
                 />
                 <Typography
                   variant="body2"
                   sx={{
                     color:
-                      STATUS_ORDER.indexOf(step.key) <=
-                      STATUS_ORDER.indexOf(
-                        (status === 'error'
-                          ? lastActiveStatusRef.current
-                          : status) as (typeof STATUS_ORDER)[number]
-                      )
+                      statusOrder.indexOf(step.key) <=
+                      statusOrder.indexOf(status === 'error' ? lastActiveStatusRef.current : status)
                         ? 'text.primary'
                         : 'text.disabled',
                   }}

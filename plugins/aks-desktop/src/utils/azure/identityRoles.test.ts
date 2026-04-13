@@ -76,22 +76,23 @@ describe('computeRequiredRoles', () => {
       expect(roleNames).not.toContain('Azure Kubernetes Service RBAC Writer');
     });
 
-    it('should include AKS RBAC Writer for pipeline identity even without azureRbacEnabled', () => {
+    it('should NOT include AKS RBAC Writer for pipeline identity when azureRbacEnabled is false', () => {
       const roles = computeRequiredRoles({
         ...baseContext,
         isManagedNamespace: false,
         isPipeline: true,
       });
       const roleNames = roles.map(r => r.role);
-      expect(roleNames).toContain('Azure Kubernetes Service RBAC Writer');
+      expect(roleNames).not.toContain('Azure Kubernetes Service RBAC Writer');
       expect(roleNames).toContain('Azure Kubernetes Service Cluster User Role');
     });
 
-    it('should include AKS RBAC Writer for pipeline identity with ACR', () => {
+    it('should include AKS RBAC Writer for pipeline identity when azureRbacEnabled is true', () => {
       const roles = computeRequiredRoles({
         ...baseContext,
         isManagedNamespace: false,
         isPipeline: true,
+        azureRbacEnabled: true,
         acrResourceId,
       });
       expect(roles).toHaveLength(4); // AcrPush + AcrTasksContributor + ClusterUser + RBACWriter
@@ -105,10 +106,11 @@ describe('computeRequiredRoles', () => {
       managedNamespaceResourceId,
     };
 
-    it('should not be affected by isPipeline flag', () => {
-      const rolesWithout = computeRequiredRoles(managedCtx);
-      const rolesWith = computeRequiredRoles({ ...managedCtx, isPipeline: true });
-      expect(rolesWith).toEqual(rolesWithout);
+    it('should not accept isPipeline (type-enforced on NormalNamespaceRoleContext only)', () => {
+      // isPipeline is defined on NormalNamespaceRoleContext, not ManagedNamespaceRoleContext.
+      // This is enforced at compile time — this test just verifies the runtime roles are stable.
+      const roles = computeRequiredRoles(managedCtx);
+      expect(roles).toHaveLength(2);
     });
 
     it('assigns AKS RBAC Writer and Namespace User at MNS scope', () => {
