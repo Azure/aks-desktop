@@ -190,6 +190,8 @@
   "Creates a LoadBalancer to expose the application to the internet.": "Creates a LoadBalancer to expose the application to the internet.",
   "_Creates a LoadBalancer to expose the application to the internet..comment": "{Locked=\"LoadBalancer\"}",
   "Creating federated credential...": "Creating federated credential...",
+  "Creating Kubernetes RBAC binding...": "Creating Kubernetes RBAC binding...",
+  "_Creating Kubernetes RBAC binding....comment": "{Locked=\"Kubernetes\"}",
   "Creating managed identity...": "Creating managed identity...",
   "Creating namespace": "Creating namespace",
   "Creating Namespace": "Creating Namespace",
