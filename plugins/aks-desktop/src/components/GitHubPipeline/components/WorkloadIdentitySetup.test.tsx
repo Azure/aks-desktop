@@ -37,6 +37,7 @@ const defaultProps = {
   clusterName: 'my-cluster',
   repo: mockRepo,
   projectName: 'my-project',
+  isManagedNamespace: false as const,
 };
 
 describe('WorkloadIdentitySetup', () => {
@@ -197,6 +198,30 @@ describe('WorkloadIdentitySetup', () => {
     );
 
     expect(screen.getByText('Workload identity configured successfully.')).toBeInTheDocument();
+  });
+
+  it('shows warning alerts alongside success when result has warnings', () => {
+    render(
+      <WorkloadIdentitySetup
+        {...defaultProps}
+        identitySetup={makeIdentitySetup({
+          status: 'done',
+          result: {
+            clientId: 'client-id',
+            tenantId: 'tenant-id',
+            principalId: 'principal-id',
+            identityName: 'id-my-project-github',
+            isExisting: false,
+            warnings: ['Failed to assign AcrPull to kubelet identity: Forbidden'],
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText('Workload identity configured successfully.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Failed to assign AcrPull to kubelet identity: Forbidden')
+    ).toBeInTheDocument();
   });
 
   it('displays identity name based on projectName', () => {

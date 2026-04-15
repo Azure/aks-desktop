@@ -75,6 +75,43 @@ describe('computeRequiredRoles', () => {
       const roleNames = roles.map(r => r.role);
       expect(roleNames).not.toContain('Azure Kubernetes Service RBAC Writer');
     });
+
+    it('isPipeline flag does NOT affect Azure role assignment (K8s RoleBinding handles non-Azure-RBAC case)', () => {
+      // isPipeline is only used downstream in identityWithRoles.ts to gate kubelet AcrPull.
+      // computeRequiredRoles ignores it — Azure RBAC Writer is gated solely by azureRbacEnabled.
+      const withPipeline = computeRequiredRoles({
+        ...baseContext,
+        isManagedNamespace: false,
+        isPipeline: true,
+      });
+      const withoutPipeline = computeRequiredRoles({
+        ...baseContext,
+        isManagedNamespace: false,
+      });
+      expect(withPipeline).toEqual(withoutPipeline);
+      const roleNames = withPipeline.map(r => r.role);
+      expect(roleNames).not.toContain('Azure Kubernetes Service RBAC Writer');
+      expect(roleNames).toContain('Azure Kubernetes Service Cluster User Role');
+    });
+
+    it('includes AKS RBAC Writer for pipeline identity when azureRbacEnabled is true (same as non-pipeline)', () => {
+      const roles = computeRequiredRoles({
+        ...baseContext,
+        isManagedNamespace: false,
+        isPipeline: true,
+        azureRbacEnabled: true,
+        acrResourceId,
+      });
+      expect(roles).toHaveLength(4); // AcrPush + AcrTasksContributor + ClusterUser + RBACWriter
+      // Verify isPipeline alone doesn't change the count vs non-pipeline with same azureRbacEnabled
+      const rolesWithoutPipeline = computeRequiredRoles({
+        ...baseContext,
+        isManagedNamespace: false,
+        azureRbacEnabled: true,
+        acrResourceId,
+      });
+      expect(roles).toEqual(rolesWithoutPipeline);
+    });
   });
 
   describe('Managed Namespace', () => {
@@ -83,6 +120,13 @@ describe('computeRequiredRoles', () => {
       isManagedNamespace: true,
       managedNamespaceResourceId,
     };
+
+    it('should not accept isPipeline (type-enforced on NormalNamespaceRoleContext only)', () => {
+      // isPipeline is defined on NormalNamespaceRoleContext, not ManagedNamespaceRoleContext.
+      // This is enforced at compile time — this test just verifies the runtime roles are stable.
+      const roles = computeRequiredRoles(managedCtx);
+      expect(roles).toHaveLength(2);
+    });
 
     it('assigns AKS RBAC Writer and Namespace User at MNS scope', () => {
       const roles = computeRequiredRoles(managedCtx);

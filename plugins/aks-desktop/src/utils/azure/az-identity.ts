@@ -245,6 +245,92 @@ export async function getManagedNamespaceResourceId(options: {
   return { success: true, resourceId: result.data };
 }
 
+/**
+ * Gets the kubelet identity's objectId for an AKS cluster.
+ *
+ * The **kubelet identity** is the managed identity used by the AKS node pool's
+ * kubelet process to pull container images and interact with Azure services at
+ * runtime. It is distinct from the control-plane identity.
+ * Docs: https://learn.microsoft.com/azure/aks/use-managed-identity#summary-of-managed-identities
+ *
+ * **AcrPull** is a built-in Azure RBAC role that grants read (pull) access to a
+ * container registry. Assigning it to the kubelet identity on an ACR scope
+ * allows AKS nodes to pull images from that registry without additional credentials.
+ * Docs: https://learn.microsoft.com/azure/container-registry/container-registry-roles
+ *
+ * This function resolves the objectId via:
+ *   `az aks show --query identityProfile.kubeletidentity.objectId`
+ */
+export async function getKubeletIdentityObjectId(options: {
+  subscriptionId: string;
+  resourceGroup: string;
+  clusterName: string;
+}): Promise<{ success: boolean; objectId?: string; error?: string }> {
+  const { subscriptionId, resourceGroup, clusterName } = options;
+
+  if (!isValidGuid(subscriptionId)) {
+    return { success: false, error: 'Invalid subscription ID format' };
+  }
+  if (!isValidAzResourceName(resourceGroup) || !isValidAzResourceName(clusterName)) {
+    return { success: false, error: 'Invalid resource group or cluster name format' };
+  }
+
+  const result = await runAzCommand(
+    [
+      'aks',
+      'show',
+      '--name',
+      clusterName,
+      '--resource-group',
+      resourceGroup,
+      '--subscription',
+      subscriptionId,
+      '--query',
+      'identityProfile.kubeletidentity',
+      '--output',
+      'json',
+    ],
+    `getKubeletIdentity(${clusterName})`,
+    `Failed to get kubelet identity for cluster ${clusterName}`,
+    (stdout: string) => {
+      const parsed = JSON.parse(stdout);
+      return parsed;
+    }
+  );
+
+  if (!result.success) {
+    return { success: false, error: result.error ?? 'Failed to get cluster details' };
+  }
+
+  const kubeletIdentity = result.data;
+  if (!kubeletIdentity || typeof kubeletIdentity !== 'object') {
+    return {
+      success: false,
+      error:
+        `Cluster ${clusterName} does not have a kubelet identity configured. ` +
+        'Ensure the cluster uses managed identity (not service principal). ' +
+        'See: https://learn.microsoft.com/azure/aks/use-managed-identity',
+    };
+  }
+
+  // Validate that identityProfile.kubeletidentity.objectId exists
+  const objectId = (kubeletIdentity as Record<string, unknown>).objectId;
+  if (!objectId || typeof objectId !== 'string') {
+    return {
+      success: false,
+      error: `Cluster ${clusterName} does not have a valid kubelet identity objectId configured`,
+    };
+  }
+  if (!isValidGuid(objectId)) {
+    return {
+      success: false,
+      error: `Cluster ${clusterName} returned an unexpected kubelet identity format: ${objectId}`,
+    };
+  }
+
+  return { success: true, objectId };
+}
+
 export async function listManagedIdentities(options: {
   resourceGroup: string;
   subscriptionId: string;

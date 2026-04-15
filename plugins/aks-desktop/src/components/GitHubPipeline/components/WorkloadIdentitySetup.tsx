@@ -14,7 +14,11 @@ import { getIdentityName } from '../hooks/useWorkloadIdentitySetup';
 import type { StepStatus } from './StepStatusIcon';
 import { StepStatusIcon } from './StepStatusIcon';
 
-interface WorkloadIdentitySetupProps {
+type NamespaceContext =
+  | { isManagedNamespace: true; namespaceName: string }
+  | { isManagedNamespace: false; namespaceName?: string };
+
+type WorkloadIdentitySetupProps = {
   subscriptionId: string;
   resourceGroup: string;
   clusterName: string;
@@ -23,38 +27,63 @@ interface WorkloadIdentitySetupProps {
   projectName: string;
   /** Full Azure resource ID of the ACR. Omit to skip ACR roles. */
   acrResourceId?: string;
-  /** Whether the target namespace is a managed namespace. */
-  isManagedNamespace?: boolean;
-  /** Name of the managed namespace (required if isManagedNamespace is true). */
-  namespaceName?: string;
   /** Whether Azure RBAC for Kubernetes is enabled on the cluster. */
   azureRbacEnabled?: boolean;
-}
+} & NamespaceContext;
 
-const STATUS_ORDER = [
+const BASE_STATUS_ORDER = [
   'creating-rg',
   'checking',
   'creating-identity',
   'assigning-roles',
   'creating-credential',
-  'done',
 ] as const;
 
-function getStatusSteps(t: (key: string) => string) {
-  return [
+/**
+ * Returns the ordered list of status keys that the setup flow will walk through.
+ * The optional `creating-rolebinding` step is only inserted when we'll be creating
+ * a Kubernetes RoleBinding (non-Azure-RBAC clusters with a managed namespace).
+ */
+function getStatusOrder(includeRoleBinding: boolean): string[] {
+  if (includeRoleBinding) {
+    return [...BASE_STATUS_ORDER, 'creating-rolebinding', 'done'];
+  }
+  return [...BASE_STATUS_ORDER, 'done'];
+}
+
+/**
+ * Returns the rendered step list — same order as {@link getStatusOrder} but paired
+ * with translated labels. Must stay in sync with that function.
+ */
+function getStatusSteps(t: (key: string) => string, includeRoleBinding: boolean) {
+  const steps = [
     { key: 'creating-rg', label: t('Ensuring resource group exists...') },
     { key: 'checking', label: t('Checking for existing identity...') },
     { key: 'creating-identity', label: t('Creating managed identity...') },
     { key: 'assigning-roles', label: t('Assigning required Azure RBAC roles...') },
     { key: 'creating-credential', label: t('Configuring federated credential...') },
-    { key: 'done', label: t('Workload identity configured') },
-  ] as const;
+  ];
+  if (includeRoleBinding) {
+    steps.push({ key: 'creating-rolebinding', label: t('Creating Kubernetes RBAC binding...') });
+  }
+  steps.push({ key: 'done', label: t('Workload identity configured') });
+  return steps;
 }
 
-function getStepStatus(step: string, currentStatus: string, lastActiveStatus: string): StepStatus {
+/**
+ * Resolves the display state for a single step given the current flow status.
+ * When the flow has hit an error, the step the error occurred on is marked 'error'
+ * and earlier steps retain 'done'; that way the user can see which step failed.
+ */
+function getStepStatus(
+  step: string,
+  currentStatus: string,
+  lastActiveStatus: string,
+  statusOrder: readonly string[]
+): StepStatus {
   const effectiveStatus = currentStatus === 'error' ? lastActiveStatus : currentStatus;
-  const effectiveIdx = STATUS_ORDER.indexOf(effectiveStatus as (typeof STATUS_ORDER)[number]);
-  const stepIdx = STATUS_ORDER.indexOf(step as (typeof STATUS_ORDER)[number]);
+  const effectiveIdx = statusOrder.indexOf(effectiveStatus);
+  const stepIdx = statusOrder.indexOf(step);
 
   if (stepIdx < effectiveIdx || effectiveStatus === 'done') return 'done';
   if (stepIdx === effectiveIdx && currentStatus === 'error') return 'error';
@@ -74,10 +103,12 @@ export function WorkloadIdentitySetup({
   namespaceName,
   azureRbacEnabled,
 }: WorkloadIdentitySetupProps) {
-  const { status, error, setupWorkloadIdentity } = identitySetup;
+  const { status, error, result, setupWorkloadIdentity } = identitySetup;
   const { t } = useTranslation();
   const identityName = getIdentityName(projectName);
-  const statusSteps = getStatusSteps(t);
+  const needsRoleBinding = azureRbacEnabled === false && isManagedNamespace === true;
+  const statusOrder = getStatusOrder(needsRoleBinding);
+  const statusSteps = getStatusSteps(t, needsRoleBinding);
   const [identityRG, setIdentityRG] = useState(`rg-${projectName}`);
 
   useEffect(() => {
@@ -93,7 +124,7 @@ export function WorkloadIdentitySetup({
   }, [status]);
 
   const handleSetup = () => {
-    const config: WorkloadIdentitySetupConfig = {
+    const base = {
       subscriptionId,
       resourceGroup,
       identityResourceGroup: identityRG.trim(),
@@ -101,10 +132,11 @@ export function WorkloadIdentitySetup({
       clusterName,
       repo,
       acrResourceId,
-      isManagedNamespace,
-      namespaceName,
       azureRbacEnabled,
     };
+    const config: WorkloadIdentitySetupConfig = isManagedNamespace
+      ? { ...base, isManagedNamespace: true, namespaceName }
+      : { ...base, isManagedNamespace: false, namespaceName };
     setupWorkloadIdentity(config);
   };
 
@@ -200,18 +232,14 @@ export function WorkloadIdentitySetup({
             {statusSteps.map(step => (
               <Box key={step.key} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
                 <StepStatusIcon
-                  status={getStepStatus(step.key, status, lastActiveStatusRef.current)}
+                  status={getStepStatus(step.key, status, lastActiveStatusRef.current, statusOrder)}
                 />
                 <Typography
                   variant="body2"
                   sx={{
                     color:
-                      STATUS_ORDER.indexOf(step.key) <=
-                      STATUS_ORDER.indexOf(
-                        (status === 'error'
-                          ? lastActiveStatusRef.current
-                          : status) as (typeof STATUS_ORDER)[number]
-                      )
+                      statusOrder.indexOf(step.key) <=
+                      statusOrder.indexOf(status === 'error' ? lastActiveStatusRef.current : status)
                         ? 'text.primary'
                         : 'text.disabled',
                   }}
@@ -252,9 +280,16 @@ export function WorkloadIdentitySetup({
           )}
 
           {status === 'done' && (
-            <Alert severity="success" sx={{ mb: 2 }}>
-              {t('Workload identity configured successfully.')}
-            </Alert>
+            <>
+              <Alert severity="success" sx={{ mb: 2 }}>
+                {t('Workload identity configured successfully.')}
+              </Alert>
+              {(result?.warnings ?? []).map((warning, i) => (
+                <Alert key={i} severity="warning" sx={{ mb: 1 }}>
+                  {warning}
+                </Alert>
+              ))}
+            </>
           )}
         </>
       )}
