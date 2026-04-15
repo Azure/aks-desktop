@@ -83,10 +83,28 @@ const loadPersistedState = (repoKey: string): PipelineState | null => {
       return null;
     }
     const data = parsed as Record<string, unknown>;
+    const rawReadiness = safeRecord(data.repoReadiness);
+    const repoReadiness: RepoReadiness | null = rawReadiness
+      ? {
+          hasSetupWorkflow: Boolean(rawReadiness.hasSetupWorkflow),
+          hasAgentConfig: Boolean(rawReadiness.hasAgentConfig),
+          hasDeployWorkflow: Boolean(rawReadiness.hasDeployWorkflow),
+          // Migrate: legacy state omits dockerfilePaths (use null = "not yet fetched").
+          // Filter elements to strings to guard against corrupted localStorage data.
+          dockerfilePaths: Array.isArray(rawReadiness.dockerfilePaths)
+            ? rawReadiness.dockerfilePaths.filter((p): p is string => typeof p === 'string')
+            : null,
+          ...(rawReadiness.dockerfilesError === 'failed' ||
+          rawReadiness.dockerfilesError === 'truncated'
+            ? { dockerfilesError: rawReadiness.dockerfilesError as 'failed' | 'truncated' }
+            : {}),
+        }
+      : null;
     return {
       ...INITIAL_STATE,
       ...data,
       deploymentState: deploymentState as PipelineDeploymentState,
+      repoReadiness,
       setupPr: { ...INITIAL_STATE.setupPr, ...safeRecord(data.setupPr) },
       triggerIssue: { ...INITIAL_STATE.triggerIssue, ...safeRecord(data.triggerIssue) },
       generatedPr: { ...INITIAL_STATE.generatedPr, ...safeRecord(data.generatedPr) },

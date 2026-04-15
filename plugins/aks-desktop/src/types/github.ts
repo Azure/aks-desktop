@@ -25,6 +25,18 @@ export interface RepoReadiness {
   hasAgentConfig: boolean;
   /** Whether deploy-to-aks.yml exists on the default branch. */
   hasDeployWorkflow: boolean;
+  /**
+   * Dockerfile paths found in the repo, or `null` when discovery was not attempted
+   * (e.g. no `defaultBranch` provided). An empty array means discovery ran but found
+   * nothing. A non-null value with `dockerfilesError` set means results may be incomplete.
+   */
+  dockerfilePaths: string[] | null;
+  /**
+   * Set when Dockerfile discovery failed or returned incomplete results.
+   * `'failed'` — the API call errored (permissions, network, etc.).
+   * `'truncated'` — the repo tree was too large; results are partial.
+   */
+  dockerfilesError?: 'failed' | 'truncated';
 }
 
 /**

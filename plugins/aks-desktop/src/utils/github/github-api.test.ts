@@ -38,6 +38,7 @@ const mockOctokit = {
   git: {
     getRef: vi.fn(),
     createRef: vi.fn(),
+    getTree: vi.fn(),
   },
   pulls: {
     create: vi.fn(),
@@ -80,6 +81,7 @@ import {
   createOrUpdateRepoSecret,
   createPullRequest,
   dispatchWorkflow,
+  findDockerfiles,
   findLinkedPullRequest,
   getCurrentUser,
   getDefaultBranchSha,
@@ -149,12 +151,14 @@ describe('github-api', () => {
   describe('checkRepoReadiness', () => {
     it('should detect all files present', async () => {
       mockOctokit.repos.getContent.mockResolvedValue({ data: {} });
+      mockOctokit.git.getTree.mockResolvedValue({ data: { tree: [], truncated: false } });
 
       const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual({
         hasSetupWorkflow: true,
         hasAgentConfig: true,
         hasDeployWorkflow: true,
+        dockerfilePaths: [],
       });
     });
 
@@ -162,12 +166,14 @@ describe('github-api', () => {
       const notFoundError = new Error('Not Found');
       Object.assign(notFoundError, { status: 404 });
       mockOctokit.repos.getContent.mockRejectedValue(notFoundError);
+      mockOctokit.git.getTree.mockResolvedValue({ data: { tree: [], truncated: false } });
 
       const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual({
         hasSetupWorkflow: false,
         hasAgentConfig: false,
         hasDeployWorkflow: false,
+        dockerfilePaths: [],
       });
     });
 
@@ -179,13 +185,87 @@ describe('github-api', () => {
         .mockResolvedValueOnce({ data: {} }) // setup workflow exists
         .mockRejectedValueOnce(notFoundError) // agent config missing
         .mockRejectedValueOnce(notFoundError); // deploy workflow missing
+      mockOctokit.git.getTree.mockResolvedValue({ data: { tree: [], truncated: false } });
 
       const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual({
         hasSetupWorkflow: true,
         hasAgentConfig: false,
         hasDeployWorkflow: false,
+        dockerfilePaths: [],
       });
+    });
+
+    it('should include dockerfilePaths when Dockerfiles are found', async () => {
+      mockOctokit.repos.getContent.mockResolvedValue({ data: {} });
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [
+            { path: 'Dockerfile', type: 'blob' },
+            { path: 'src/api/Dockerfile', type: 'blob' },
+          ],
+          truncated: false,
+        },
+      });
+
+      const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual({
+        hasSetupWorkflow: true,
+        hasAgentConfig: true,
+        hasDeployWorkflow: true,
+        dockerfilePaths: ['Dockerfile', 'src/api/Dockerfile'],
+      });
+    });
+
+    it('should return null dockerfilePaths when no defaultBranch provided', async () => {
+      mockOctokit.repos.getContent.mockResolvedValue({ data: {} });
+
+      const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo');
+      expect(result).toEqual({
+        hasSetupWorkflow: true,
+        hasAgentConfig: true,
+        hasDeployWorkflow: true,
+        dockerfilePaths: null,
+      });
+      expect(mockOctokit.git.getTree).not.toHaveBeenCalled();
+    });
+
+    it('should gracefully degrade when Dockerfile discovery fails', async () => {
+      mockOctokit.repos.getContent.mockResolvedValue({ data: {} });
+      mockOctokit.git.getTree.mockRejectedValue(new Error('Forbidden'));
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
+        expect(result).toEqual({
+          hasSetupWorkflow: true,
+          hasAgentConfig: true,
+          hasDeployWorkflow: true,
+          dockerfilePaths: [],
+          dockerfilesError: 'failed',
+        });
+        expect(warnSpy).toHaveBeenCalledOnce();
+        expect(warnSpy).toHaveBeenCalledWith(
+          'Dockerfile discovery failed, continuing without:',
+          expect.any(Error)
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('should set dockerfilesError to truncated when tree is truncated', async () => {
+      mockOctokit.repos.getContent.mockResolvedValue({ data: {} });
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [{ path: 'Dockerfile', type: 'blob' }],
+          truncated: true,
+        },
+      });
+
+      const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result.dockerfilePaths).toEqual(['Dockerfile']);
+      expect(result.dockerfilesError).toBe('truncated');
     });
 
     it('should propagate non-404 errors', async () => {
@@ -1042,6 +1122,121 @@ describe('github-api', () => {
           SECRET: 'value',
         })
       ).rejects.toThrow('Failed to get repo public key');
+    });
+  });
+
+  describe('findDockerfiles', () => {
+    it('should find Dockerfiles in repo tree', async () => {
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [
+            { path: 'Dockerfile', type: 'blob' },
+            { path: 'src/web/Dockerfile', type: 'blob' },
+            { path: 'README.md', type: 'blob' },
+            { path: 'src', type: 'tree' },
+          ],
+          truncated: false,
+        },
+      });
+
+      const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual({ paths: ['Dockerfile', 'src/web/Dockerfile'], truncated: false });
+    });
+
+    it('should return empty paths when no Dockerfiles found', async () => {
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: { tree: [{ path: 'README.md', type: 'blob' }], truncated: false },
+      });
+
+      const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual({ paths: [], truncated: false });
+    });
+
+    it('should match case-insensitively', async () => {
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [
+            { path: 'dockerfile', type: 'blob' },
+            { path: 'app/DOCKERFILE', type: 'blob' },
+          ],
+          truncated: false,
+        },
+      });
+
+      const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual({ paths: ['app/DOCKERFILE', 'dockerfile'], truncated: false });
+    });
+
+    it('should ignore directories named Dockerfile', async () => {
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [
+            { path: 'Dockerfile', type: 'tree' },
+            { path: 'src/Dockerfile', type: 'blob' },
+          ],
+          truncated: false,
+        },
+      });
+
+      const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual({ paths: ['src/Dockerfile'], truncated: false });
+    });
+
+    it('should propagate errors', async () => {
+      mockOctokit.git.getTree.mockRejectedValue(new Error('Server Error'));
+
+      await expect(findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main')).rejects.toThrow(
+        'Failed to search repo tree for Dockerfiles in owner/repo'
+      );
+    });
+
+    it('should match *.Dockerfile suffix filenames', async () => {
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [
+            { path: 'dev.Dockerfile', type: 'blob' },
+            { path: 'src/test.Dockerfile', type: 'blob' },
+            { path: 'README.md', type: 'blob' },
+          ],
+          truncated: false,
+        },
+      });
+
+      const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual({
+        paths: ['dev.Dockerfile', 'src/test.Dockerfile'],
+        truncated: false,
+      });
+    });
+
+    it('should match Dockerfile.* prefix filenames', async () => {
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [
+            { path: 'Dockerfile.build', type: 'blob' },
+            { path: 'app/Dockerfile.prod', type: 'blob' },
+          ],
+          truncated: false,
+        },
+      });
+
+      const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual({
+        paths: ['Dockerfile.build', 'app/Dockerfile.prod'],
+        truncated: false,
+      });
+    });
+
+    it('should return truncated: true when tree response is truncated', async () => {
+      mockOctokit.git.getTree.mockResolvedValue({
+        data: {
+          tree: [{ path: 'Dockerfile', type: 'blob' }],
+          truncated: true,
+        },
+      });
+
+      const result = await findDockerfiles(mockOctokit as never, 'owner', 'repo', 'main');
+      expect(result).toEqual({ paths: ['Dockerfile'], truncated: true });
     });
   });
 });
