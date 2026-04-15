@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-// @vitest-environment jsdom
 /**
  * Screen reader tests using {@link https://www.guidepup.dev/docs/virtual
  * @guidepup/virtual-screen-reader}.

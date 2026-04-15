@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-// @vitest-environment jsdom
 /**
  * Virtual screen-reader tests for {@link DeployWizardPure}.
  *

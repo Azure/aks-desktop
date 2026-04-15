@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-// @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';

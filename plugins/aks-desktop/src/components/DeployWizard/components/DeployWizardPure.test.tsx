@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-// @vitest-environment jsdom
 /**
  * Interaction tests for {@link DeployWizardPure}.
  *
