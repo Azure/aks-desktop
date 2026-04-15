@@ -1,13 +1,22 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import type { Octokit } from '@octokit/rest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { mockCreateOrUpdateFile } = vi.hoisted(() => ({
+  mockCreateOrUpdateFile: vi.fn(),
+}));
+vi.mock('../../../utils/github/github-api', () => ({
+  createOrUpdateFile: mockCreateOrUpdateFile,
+}));
 import { createContainerConfig, createValidConfig } from '../__fixtures__/pipelineConfig';
 import { KUBELOGIN_VERSION } from '../constants';
 import type { PipelineConfig } from '../types';
 import {
   generateAgentConfig,
   generateBranchName,
+  pushAgentConfigFiles,
   SETUP_WORKFLOW_CONTENT,
   validatePipelineConfig,
 } from './agentTemplates';
@@ -187,6 +196,41 @@ describe('agentTemplates', () => {
     it('should fallback to "app" for empty or all-special-char names', () => {
       const result = generateBranchName('!!!');
       expect(result).toBe('aks-project/setup-app-1700000000000');
+    });
+  });
+
+  describe('pushAgentConfigFiles', () => {
+    const mockOctokit = {} as unknown as Octokit;
+    beforeEach(() => {
+      mockCreateOrUpdateFile.mockResolvedValue(undefined);
+    });
+    it('should push both agent config files to the branch', async () => {
+      await pushAgentConfigFiles(mockOctokit, 'owner', 'repo', 'my-branch', validConfig);
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(2);
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+        mockOctokit,
+        'owner',
+        'repo',
+        '.github/workflows/copilot-setup-steps.yml',
+        SETUP_WORKFLOW_CONTENT,
+        'Add Copilot setup workflow',
+        'my-branch'
+      );
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+        mockOctokit,
+        'owner',
+        'repo',
+        '.github/agents/containerization.agent.md',
+        expect.stringContaining('containerize-and-deploy'),
+        expect.stringContaining(validConfig.appName),
+        'my-branch'
+      );
+    });
+    it('should propagate errors from createOrUpdateFile', async () => {
+      mockCreateOrUpdateFile.mockRejectedValueOnce(new Error('push failed'));
+      await expect(
+        pushAgentConfigFiles(mockOctokit, 'owner', 'repo', 'my-branch', validConfig)
+      ).rejects.toThrow('push failed');
     });
   });
 

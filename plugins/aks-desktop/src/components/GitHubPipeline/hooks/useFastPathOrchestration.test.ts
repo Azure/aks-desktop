@@ -101,7 +101,7 @@ describe('useFastPathOrchestration', () => {
       const { result } = renderHook(() => useFastPathOrchestration(defaultProps));
 
       await act(async () => {
-        await result.current.handleDeploy(dockerfileSelection);
+        await result.current.handleDeploy({ selection: dockerfileSelection });
       });
 
       expect(mockCreatePipelineSecrets).toHaveBeenCalled();
@@ -116,7 +116,7 @@ describe('useFastPathOrchestration', () => {
       const { result } = renderHook(() => useFastPathOrchestration(defaultProps));
 
       await act(async () => {
-        await result.current.handleDeploy(dockerfileSelection);
+        await result.current.handleDeploy({ selection: dockerfileSelection });
       });
 
       expect(result.current.pipeline.state.deploymentState).toBe('Failed');
@@ -129,7 +129,7 @@ describe('useFastPathOrchestration', () => {
       const { result } = renderHook(() => useFastPathOrchestration(defaultProps));
 
       await act(async () => {
-        await result.current.handleDeploy(dockerfileSelection);
+        await result.current.handleDeploy({ selection: dockerfileSelection });
       });
 
       expect(result.current.pipeline.state.deploymentState).toBe('Failed');
@@ -141,12 +141,12 @@ describe('useFastPathOrchestration', () => {
 
       // Start first deploy
       const promise1 = act(async () => {
-        await result.current.handleDeploy(dockerfileSelection);
+        await result.current.handleDeploy({ selection: dockerfileSelection });
       });
 
       // Try second deploy while first is in flight — should be no-op
       const promise2 = act(async () => {
-        await result.current.handleDeploy(dockerfileSelection);
+        await result.current.handleDeploy({ selection: dockerfileSelection });
       });
 
       await Promise.all([promise1, promise2]);
@@ -161,7 +161,7 @@ describe('useFastPathOrchestration', () => {
 
       // Get to FastPathPRAwaitingMerge
       await act(async () => {
-        await result.current.handleDeploy(dockerfileSelection);
+        await result.current.handleDeploy({ selection: dockerfileSelection });
       });
       expect(result.current.pipeline.state.deploymentState).toBe('FastPathPRAwaitingMerge');
 

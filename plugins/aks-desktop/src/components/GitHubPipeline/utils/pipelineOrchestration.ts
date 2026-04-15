@@ -3,11 +3,10 @@
 
 import type { Octokit } from '@octokit/rest';
 import {
-  assignIssueToCopilot,
   createBranch,
-  createIssue,
-  createOrUpdateFile,
+  createCopilotAssignedIssue,
   createPullRequest,
+  deleteBranch,
   getDefaultBranchSha,
   setRepoSecrets,
 } from '../../../utils/github/github-api';
@@ -18,10 +17,9 @@ import {
 } from '../constants';
 import type { IssueTracking, PipelineConfig, PRTracking } from '../types';
 import {
-  generateAgentConfig,
   generateBranchName,
   getActiveEnvVars,
-  SETUP_WORKFLOW_CONTENT,
+  pushAgentConfigFiles,
   validatePipelineConfig,
 } from './agentTemplates';
 import { deriveAcrName } from './deriveAcrName';
@@ -45,27 +43,7 @@ export const createSetupPR = async (
   await createBranch(octokit, owner, repo, branchName, sha);
 
   try {
-    const agentConfig = generateAgentConfig(config);
-
-    await createOrUpdateFile(
-      octokit,
-      owner,
-      repo,
-      COPILOT_SETUP_STEPS_PATH,
-      SETUP_WORKFLOW_CONTENT,
-      'Add Copilot setup workflow for containerization agent',
-      branchName
-    );
-
-    await createOrUpdateFile(
-      octokit,
-      owner,
-      repo,
-      AGENT_CONFIG_PATH,
-      agentConfig,
-      `Add containerization agent config for ${config.appName}`,
-      branchName
-    );
+    await pushAgentConfigFiles(octokit, owner, repo, branchName, config);
 
     const pr = await createPullRequest(
       octokit,
@@ -102,13 +80,8 @@ export const createSetupPR = async (
 
     return { url: pr.url, number: pr.number, merged: false };
   } catch (err) {
-    // Best-effort cleanup: delete the branch we just created to avoid dangling refs
     try {
-      await octokit.request('DELETE /repos/{owner}/{repo}/git/refs/{ref}', {
-        owner,
-        repo,
-        ref: `heads/${branchName}`,
-      });
+      await deleteBranch(octokit, owner, repo, branchName);
     } catch (cleanupErr) {
       console.warn(`Failed to clean up branch ${branchName}:`, cleanupErr);
     }
@@ -271,16 +244,14 @@ export const triggerCopilotAgent = async (
     .filter(line => line !== null)
     .join('\n');
 
-  const issue = await createIssue(
+  const issue = await createCopilotAssignedIssue(
     octokit,
     owner,
     repo,
     'Generate AKS deployment pipeline',
     issueBody,
-    []
+    defaultBranch
   );
-
-  await assignIssueToCopilot(octokit, owner, repo, issue.number, defaultBranch);
 
   return { url: issue.url, number: issue.number };
 };

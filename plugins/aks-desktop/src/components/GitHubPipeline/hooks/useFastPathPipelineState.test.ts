@@ -226,6 +226,18 @@ describe('useFastPathPipelineState', () => {
       expect(result.current.state.deploymentState).toBe('Configured');
     });
 
+    it('should store withAsyncAgent flag when set via setConfig', () => {
+      const { result } = renderHook(() => useFastPathPipelineState(repoKey));
+      act(() => result.current.setConfig(validConfig, true));
+      expect(result.current.state.withAsyncAgent).toBe(true);
+    });
+
+    it('should default withAsyncAgent to false', () => {
+      const { result } = renderHook(() => useFastPathPipelineState(repoKey));
+      act(() => result.current.setConfig(validConfig));
+      expect(result.current.state.withAsyncAgent).toBe(false);
+    });
+
     it('should update config partially', () => {
       const { result } = renderHook(() => useFastPathPipelineState(repoKey));
 
@@ -299,6 +311,7 @@ describe('useFastPathPipelineState', () => {
           merged: false,
         },
         asyncAgentIssueUrl: null,
+        withAsyncAgent: false,
         serviceEndpoint: null,
         lastSuccessfulState: 'FastPathPRAwaitingMerge',
         error: null,

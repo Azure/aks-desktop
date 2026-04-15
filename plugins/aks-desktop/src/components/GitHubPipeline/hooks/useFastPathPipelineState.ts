@@ -25,20 +25,32 @@ export const FAST_PATH_DEPLOYMENT_STATES = [
 export type FastPathDeploymentState = (typeof FAST_PATH_DEPLOYMENT_STATES)[number];
 
 export interface FastPathState {
+  /** Current state in the fast-path deploy flow. */
   deploymentState: FastPathDeploymentState;
+  /** Full pipeline config (cluster, namespace, ACR, etc.). `null` until `SET_CONFIG`. */
   config: PipelineConfig | null;
+  /** Discovered Dockerfile repo-relative paths, populated by `SET_DOCKERFILE_DETECTED`. */
   dockerfilePaths: string[];
+  /** Tracking metadata for the generated deploy PR. */
   fastPathPr: PRTracking;
+  /** URL of the Copilot-assigned async review issue, once triggered. */
   asyncAgentIssueUrl: string | null;
+  /** Whether the user opted for async agent review on this deploy. */
+  withAsyncAgent: boolean;
+  /** Public URL of the deployed Service, when available (e.g. LoadBalancer ingress). */
   serviceEndpoint: string | null;
+  /** Last state the reducer successfully transitioned to; used as the target of RETRY. */
   lastSuccessfulState: FastPathDeploymentState | null;
+  /** Error message displayed alongside the Failed state. */
   error: string | null;
+  /** ISO timestamp of the first SET_CONFIG for this repo; preserved across transitions. */
   createdAt: string | null;
+  /** ISO timestamp of the most recent state transition. */
   updatedAt: string | null;
 }
 
 type FastPathAction =
-  | { type: 'SET_CONFIG'; config: PipelineConfig }
+  | { type: 'SET_CONFIG'; config: PipelineConfig; withAsyncAgent?: boolean }
   | { type: 'UPDATE_CONFIG'; partial: Partial<PipelineConfig> }
   | { type: 'SET_DOCKERFILE_DETECTED'; paths: string[] }
   | { type: 'SET_GENERATING' }
@@ -81,6 +93,7 @@ const INITIAL_STATE: FastPathState = {
   dockerfilePaths: [],
   fastPathPr: { url: null, number: null, merged: false },
   asyncAgentIssueUrl: null,
+  withAsyncAgent: false,
   serviceEndpoint: null,
   lastSuccessfulState: null,
   error: null,
@@ -203,6 +216,7 @@ function fastPathReducer(state: FastPathState, action: FastPathAction): FastPath
           ...state,
           deploymentState: 'Configured',
           config: action.config,
+          withAsyncAgent: action.withAsyncAgent ?? false,
           createdAt: state.createdAt ?? now(),
           updatedAt: now(),
         };
@@ -302,19 +316,36 @@ function fastPathReducer(state: FastPathState, action: FastPathAction): FastPath
   return next;
 }
 
+/**
+ * Return shape of `useFastPathPipelineState`: the current state plus every action
+ * exposed by the reducer, wrapped in stable dispatch callbacks.
+ */
 export interface UseFastPathPipelineStateResult {
+  /** The current FastPathState, updated on every valid reducer transition. */
   state: FastPathState;
-  setConfig: (config: PipelineConfig) => void;
+  /** Initializes pipeline config and moves to `Configured`. */
+  setConfig: (config: PipelineConfig, withAsyncAgent?: boolean) => void;
+  /** Shallow-merges partial config without changing `deploymentState`. */
   updateConfig: (config: Partial<PipelineConfig>) => void;
+  /** Records discovered Dockerfiles and transitions to `DockerfileDetected`. */
   setDockerfileDetected: (paths: string[]) => void;
+  /** Transitions to `FastPathGenerating`. */
   setGenerating: () => void;
+  /** Transitions to `FastPathPRCreating`. */
   setPRCreating: () => void;
+  /** Stores PR tracking info and transitions to `FastPathPRAwaitingMerge`. */
   setPRCreated: (pr: PRTracking) => void;
+  /** Marks the PR as merged and transitions to `PipelineRunning`. */
   setPRMerged: () => void;
+  /** Terminal success: records the service endpoint and transitions to `Deployed`. */
   setDeployed: (serviceEndpoint?: string) => void;
+  /** Terminal success (AI variant): records the async-review issue URL. */
   setAsyncAgentTriggered: (issueUrl: string) => void;
+  /** Transitions to `Failed` with a displayable error message. */
   setFailed: (error: string) => void;
+  /** Attempts to resume from `lastSuccessfulState`, clearing error. */
   retry: () => void;
+  /** Replaces state wholesale (used when the persisted key switches repos). */
   loadState: (state: FastPathState) => void;
 }
 
@@ -372,7 +403,8 @@ export const useFastPathPipelineState = (
 
   const actions = useMemo(
     () => ({
-      setConfig: (config: PipelineConfig) => dispatch({ type: 'SET_CONFIG', config }),
+      setConfig: (config: PipelineConfig, withAsyncAgent?: boolean) =>
+        dispatch({ type: 'SET_CONFIG', config, withAsyncAgent }),
       updateConfig: (partial: Partial<PipelineConfig>) =>
         dispatch({ type: 'UPDATE_CONFIG', partial }),
       setDockerfileDetected: (paths: string[]) =>

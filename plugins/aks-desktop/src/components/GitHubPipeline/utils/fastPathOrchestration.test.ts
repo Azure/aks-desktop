@@ -5,19 +5,26 @@ import type { Octokit } from '@octokit/rest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createContainerConfig, createValidConfig } from '../__fixtures__/pipelineConfig';
 
-const { mockGetDefaultBranchSha, mockCreateBranch, mockCreateOrUpdateFile, mockCreatePullRequest } =
-  vi.hoisted(() => ({
-    mockGetDefaultBranchSha: vi.fn(),
-    mockCreateBranch: vi.fn(),
-    mockCreateOrUpdateFile: vi.fn(),
-    mockCreatePullRequest: vi.fn(),
-  }));
+const {
+  mockGetDefaultBranchSha,
+  mockCreateBranch,
+  mockCreateOrUpdateFile,
+  mockCreatePullRequest,
+  mockDeleteBranch,
+} = vi.hoisted(() => ({
+  mockGetDefaultBranchSha: vi.fn(),
+  mockCreateBranch: vi.fn(),
+  mockCreateOrUpdateFile: vi.fn(),
+  mockCreatePullRequest: vi.fn(),
+  mockDeleteBranch: vi.fn(),
+}));
 
 vi.mock('../../../utils/github/github-api', () => ({
   getDefaultBranchSha: mockGetDefaultBranchSha,
   createBranch: mockCreateBranch,
   createOrUpdateFile: mockCreateOrUpdateFile,
   createPullRequest: mockCreatePullRequest,
+  deleteBranch: mockDeleteBranch,
 }));
 
 const { mockGenerateDeployWorkflow, mockGenerateDeploymentManifest, mockGenerateServiceManifest } =
@@ -33,10 +40,16 @@ vi.mock('./fastPathTemplates', () => ({
   generateServiceManifest: mockGenerateServiceManifest,
 }));
 
+const { mockPushAgentConfigFiles } = vi.hoisted(() => ({
+  mockPushAgentConfigFiles: vi.fn(),
+}));
+vi.mock('./agentTemplates', () => ({
+  pushAgentConfigFiles: mockPushAgentConfigFiles,
+}));
+
 import { createFastPathPR, type FastPathPRConfig } from './fastPathOrchestration';
 
-const mockRequest = vi.fn();
-const mockOctokit = { request: mockRequest } as unknown as Octokit;
+const mockOctokit = {} as unknown as Octokit;
 
 const validConfig = createValidConfig({
   acrLoginServer: 'acrprod.azurecr.io',
@@ -55,6 +68,7 @@ describe('fastPathOrchestration', () => {
     mockGetDefaultBranchSha.mockResolvedValue('sha123');
     mockCreateBranch.mockResolvedValue(undefined);
     mockCreateOrUpdateFile.mockResolvedValue(undefined);
+    mockPushAgentConfigFiles.mockResolvedValue(undefined);
     mockCreatePullRequest.mockResolvedValue({
       number: 10,
       url: 'https://github.com/testuser/my-repo/pull/10',
@@ -161,18 +175,14 @@ describe('fastPathOrchestration', () => {
 
     it('should clean up branch on failure', async () => {
       mockCreateOrUpdateFile.mockRejectedValueOnce(new Error('push failed'));
-
       await expect(createFastPathPR(mockOctokit, baseFastPathConfig)).rejects.toThrow(
         'push failed'
       );
-
-      expect(mockRequest).toHaveBeenCalledWith(
-        'DELETE /repos/{owner}/{repo}/git/refs/{ref}',
-        expect.objectContaining({
-          owner: 'testuser',
-          repo: 'my-repo',
-          ref: expect.stringContaining('heads/aks-project/fast-path-my-app-'),
-        })
+      expect(mockDeleteBranch).toHaveBeenCalledWith(
+        mockOctokit,
+        'testuser',
+        'my-repo',
+        expect.stringContaining('aks-project/fast-path-my-app-')
       );
     });
 
@@ -213,6 +223,23 @@ describe('fastPathOrchestration', () => {
           pipelineConfig: configNoAcr,
         })
       ).rejects.toThrow('ACR');
+    });
+
+    it('should push 3 files without agent config when withAsyncAgent is false', async () => {
+      await createFastPathPR(mockOctokit, baseFastPathConfig);
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(3);
+      expect(mockPushAgentConfigFiles).not.toHaveBeenCalled();
+    });
+    it('should call pushAgentConfigFiles when withAsyncAgent is true', async () => {
+      await createFastPathPR(mockOctokit, { ...baseFastPathConfig, withAsyncAgent: true });
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(3);
+      expect(mockPushAgentConfigFiles).toHaveBeenCalledWith(
+        mockOctokit,
+        'testuser',
+        'my-repo',
+        expect.stringContaining('aks-project/fast-path-my-app-'),
+        baseFastPathConfig.pipelineConfig
+      );
     });
   });
 });

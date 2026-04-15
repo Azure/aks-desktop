@@ -4,13 +4,21 @@
 import type { Octokit } from '@octokit/rest';
 import {
   createBranch,
+  createCopilotAssignedIssue,
   createOrUpdateFile,
   createPullRequest,
+  deleteBranch,
   getDefaultBranchSha,
 } from '../../../utils/github/github-api';
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
-import { PIPELINE_WORKFLOW_FILENAME } from '../constants';
+import {
+  AGENT_CONFIG_PATH,
+  COPILOT_SETUP_STEPS_PATH,
+  MANIFESTS_DIR,
+  PIPELINE_WORKFLOW_FILENAME,
+} from '../constants';
 import type { PipelineConfig, PRTracking } from '../types';
+import { pushAgentConfigFiles } from './agentTemplates';
 import { deriveAcrName } from './deriveAcrName';
 import {
   generateDeploymentManifest,
@@ -27,6 +35,8 @@ export interface FastPathPRConfig {
   buildContextPath: string;
   /** Container-level resource/probe/security settings the generated manifests inherit. */
   containerConfig: ContainerConfig;
+  /** When true, also pushes Copilot agent config files for async review. */
+  withAsyncAgent?: boolean;
 }
 
 /**
@@ -37,7 +47,8 @@ export async function createFastPathPR(
   octokit: Octokit,
   config: FastPathPRConfig
 ): Promise<PRTracking> {
-  const { pipelineConfig, dockerfilePath, buildContextPath, containerConfig } = config;
+  const { pipelineConfig, dockerfilePath, buildContextPath, containerConfig, withAsyncAgent } =
+    config;
   const { owner, repo, defaultBranch } = pipelineConfig.repo;
   const branchName = `aks-project/fast-path-${pipelineConfig.appName}-${Date.now()}`;
   const acrName = deriveAcrName(pipelineConfig);
@@ -82,7 +93,7 @@ export async function createFastPathPR(
         octokit,
         owner,
         repo,
-        'deploy/kubernetes/deployment.yaml',
+        `${MANIFESTS_DIR}/deployment.yaml`,
         deploymentYaml,
         `Add Kubernetes deployment manifest for ${pipelineConfig.appName}`,
         branchName
@@ -91,12 +102,16 @@ export async function createFastPathPR(
         octokit,
         owner,
         repo,
-        'deploy/kubernetes/service.yaml',
+        `${MANIFESTS_DIR}/service.yaml`,
         serviceYaml,
         `Add Kubernetes service manifest for ${pipelineConfig.appName}`,
         branchName
       ),
     ]);
+
+    if (withAsyncAgent) {
+      await pushAgentConfigFiles(octokit, owner, repo, branchName, pipelineConfig);
+    }
 
     const pr = await createPullRequest(
       octokit,
@@ -112,6 +127,12 @@ export async function createFastPathPR(
         `- \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\` — Build + deploy workflow`,
         '- `deploy/kubernetes/deployment.yaml` — Kubernetes Deployment manifest',
         '- `deploy/kubernetes/service.yaml` — Kubernetes Service manifest',
+        ...(withAsyncAgent
+          ? [
+              `- \`${COPILOT_SETUP_STEPS_PATH}\` — Agent environment setup`,
+              `- \`${AGENT_CONFIG_PATH}\` — Agent instructions for improvement review`,
+            ]
+          : []),
         '',
         '### AKS Configuration',
         `- **Cluster**: ${pipelineConfig.clusterName}`,
@@ -128,16 +149,88 @@ export async function createFastPathPR(
 
     return { url: pr.url, number: pr.number, merged: false };
   } catch (err) {
-    // Best-effort cleanup: delete the branch to avoid dangling refs
     try {
-      await octokit.request('DELETE /repos/{owner}/{repo}/git/refs/{ref}', {
-        owner,
-        repo,
-        ref: `heads/${branchName}`,
-      });
+      await deleteBranch(octokit, owner, repo, branchName);
     } catch (cleanupErr) {
       console.warn(`Failed to clean up branch ${branchName}:`, cleanupErr);
     }
     throw err;
   }
+}
+
+export interface AsyncAgentReviewConfig {
+  /** GitHub repo owner. */
+  owner: string;
+  /** GitHub repo name. */
+  repo: string;
+  /** Default branch the generated PR merged into (context for the issue body). */
+  defaultBranch: string;
+  /** Deployed app name — used in the issue title and body. */
+  appName: string;
+  /** Kubernetes namespace the app was deployed to. */
+  namespace: string;
+  /** AKS cluster name — displayed in the issue body for reviewer context. */
+  clusterName: string;
+  /** Repo-relative Dockerfile path to include in the "what to review" section. */
+  dockerfilePath: string;
+  /** Repo-relative manifests directory to include in the "what to review" section. */
+  manifestsPath: string;
+}
+
+/**
+ * Creates a GitHub issue asking Copilot to review and improve the Dockerfile
+ * and K8s manifests. Scoped to Dockerfile + manifests only — explicitly
+ * excludes the workflow file.
+ *
+ * Returns the issue URL for display in the post-deploy banner.
+ */
+export async function triggerAsyncAgentReview(
+  octokit: Octokit,
+  config: AsyncAgentReviewConfig
+): Promise<string> {
+  const { owner, repo, defaultBranch } = config;
+
+  const issueBody = [
+    '## Context',
+    '',
+    `This application (**${config.appName}**) has been deployed to AKS using an auto-generated pipeline.`,
+    `The Dockerfile, K8s manifests, and GitHub Actions workflow are functional but were generated from templates.`,
+    'Please review and suggest improvements.',
+    '',
+    '```yaml',
+    '# Current deployment state',
+    `dockerfilePath: "${config.dockerfilePath}"`,
+    `manifestsPath: "${config.manifestsPath}"`,
+    `workflowPath: ".github/workflows/${PIPELINE_WORKFLOW_FILENAME}"`,
+    '',
+    '# App info',
+    `appName: "${config.appName}"`,
+    `namespace: "${config.namespace}"`,
+    `cluster: "${config.clusterName}"`,
+    '',
+    '# What to review',
+    'reviewScope:',
+    '  - dockerfile   # multi-stage optimization, caching, security',
+    '  - manifests    # resource sizing, probe paths, security context',
+    '```',
+    '',
+    '## Instructions',
+    '',
+    '1. Analyze the existing Dockerfile for optimization opportunities',
+    '2. Review K8s manifests for best practices',
+    '3. **Do NOT modify the GitHub Actions workflow**',
+    '4. Open a single PR with all suggested improvements',
+    '5. Include clear explanations for each change in the PR description',
+  ].join('\n');
+
+  const issue = await createCopilotAssignedIssue(
+    octokit,
+    owner,
+    repo,
+    `Review and improve deployment configuration for ${config.appName}`,
+    issueBody,
+    defaultBranch
+  );
+
+  return issue.url;
 }
