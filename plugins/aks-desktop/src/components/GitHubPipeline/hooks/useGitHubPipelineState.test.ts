@@ -51,6 +51,7 @@ function transitionTo(
       hasSetupWorkflow: false,
       hasAgentConfig: false,
       hasDeployWorkflow: false,
+      dockerfilePaths: [],
     })
   );
   if (target === 'AcrSelection') return;
@@ -210,6 +211,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: false,
           hasAgentConfig: false,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
 
@@ -226,6 +228,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: false,
           hasAgentConfig: false,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
       act(() => result.current.setAcrCompleted());
@@ -244,6 +247,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: false,
           hasAgentConfig: false,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
 
@@ -260,6 +264,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: false,
           hasAgentConfig: false,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
       act(() => result.current.setAcrCompleted());
@@ -281,6 +286,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: true,
           hasAgentConfig: true,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
 
@@ -300,6 +306,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: true,
           hasAgentConfig: true,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
 
@@ -320,6 +327,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: true,
           hasAgentConfig: true,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         });
       });
 
@@ -465,6 +473,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: true,
           hasAgentConfig: true,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         })
       );
       expect(result.current.state.deploymentState).toBe('AcrSelection');
@@ -488,6 +497,7 @@ describe('useGitHubPipelineState', () => {
           hasSetupWorkflow: true,
           hasAgentConfig: true,
           hasDeployWorkflow: false,
+          dockerfilePaths: [],
         })
       );
       act(() => result.current.setAcrCompleted());
@@ -816,6 +826,40 @@ describe('useGitHubPipelineState', () => {
       );
       const { result } = renderHook(() => useGitHubPipelineState('test-owner/test-repo'));
       expect(result.current.state.deploymentState).toBe('Configured');
+    });
+
+    it('should migrate repoReadiness without dockerfilePaths to null', () => {
+      // Simulates state persisted before dockerfilePaths was added to RepoReadiness.
+      // null signals "not yet fetched" so the UI knows to re-run discovery.
+      const legacyState = {
+        __schemaVersion: 1,
+        deploymentState: 'AcrSelection',
+        config: validConfig,
+        repoReadiness: {
+          hasSetupWorkflow: false,
+          hasAgentConfig: false,
+          hasDeployWorkflow: false,
+          // dockerfilePaths intentionally omitted — legacy format
+        },
+        setupPr: { url: null, number: null, merged: false },
+        triggerIssue: { url: null, number: null },
+        generatedPr: { url: null, number: null, merged: false },
+        serviceEndpoint: null,
+        lastSuccessfulState: null,
+        error: null,
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+      localStorage.setItem(
+        'aks-desktop:pipeline-state:testuser/my-repo',
+        JSON.stringify(legacyState)
+      );
+
+      const { result } = renderHook(() => useGitHubPipelineState('testuser/my-repo'));
+
+      expect(result.current.state.deploymentState).toBe('AcrSelection');
+      expect(result.current.state.repoReadiness).not.toBeNull();
+      expect(result.current.state.repoReadiness?.dockerfilePaths).toBeNull();
     });
   });
 });
