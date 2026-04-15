@@ -91,7 +91,6 @@ export const useFastPathOrchestration = ({
     deploymentStateRef.current = pipeline.state.deploymentState;
   }, [pipeline.state.deploymentState]);
 
-  // PR polling — active when waiting for the fast-path PR to be merged
   const fastPathPrPolling = usePRPolling(
     gitHubAuth.octokit,
     selectedRepo?.owner ?? '',
@@ -100,7 +99,6 @@ export const useFastPathOrchestration = ({
     pipeline.state.deploymentState === 'FastPathPRAwaitingMerge'
   );
 
-  // Workflow polling — active after PR merge triggers the deploy workflow
   const workflowPolling = useWorkflowPolling(
     gitHubAuth.octokit,
     selectedRepo?.owner ?? '',
@@ -109,7 +107,6 @@ export const useFastPathOrchestration = ({
     pipeline.state.deploymentState === 'PipelineRunning'
   );
 
-  // Deployment health — monitors pods/services after workflow dispatched
   const deploymentHealth = useDeploymentHealth(
     appName,
     namespace,
@@ -192,7 +189,6 @@ export const useFastPathOrchestration = ({
     ]
   );
 
-  // State-driven orchestration: reacts to polling results
   useEffect(() => {
     switch (pipeline.state.deploymentState) {
       case 'FastPathPRAwaitingMerge':
@@ -219,7 +215,6 @@ export const useFastPathOrchestration = ({
     pipeline.setFailed,
   ]);
 
-  // Auto-dispatch workflow after PR merge
   useEffect(() => {
     if (pipeline.state.deploymentState !== 'PipelineRunning') return;
     if (dispatchInFlightRef.current) return;

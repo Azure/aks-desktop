@@ -7,11 +7,13 @@ import { Alert, Box, Button, IconButton, Typography } from '@mui/material';
 import React, { useState } from 'react';
 
 interface WizardShellProps {
-  activeStep: 0 | 1 | 2;
+  activeStep: number;
   onClose: () => void;
   onCancel?: () => void;
   children: React.ReactNode;
   footerActions?: React.ReactNode;
+  /** Step labels. Defaults to the standard agent-path labels. */
+  steps?: string[];
 }
 
 function StepIndicator({
@@ -57,16 +59,20 @@ function StepIndicator({
   );
 }
 
+export const AGENT_PATH_STEPS = ['Connect Source', 'Set up Copilot Agent', 'Review & Merge'];
+export const FAST_PATH_STEPS = ['Connect Source', 'Configure', 'Deploy'];
+
 export function WizardShell({
   activeStep,
   onClose,
   onCancel,
   children,
   footerActions,
+  steps: stepsProp,
 }: WizardShellProps) {
   const { t } = useTranslation();
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const steps = [t('Connect Source'), t('Set up Copilot Agent'), t('Review & Merge')];
+  const steps = (stepsProp ?? AGENT_PATH_STEPS).map(s => t(s));
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>

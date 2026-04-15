@@ -681,5 +681,14 @@
   "{{minutes}} min ago": "{{minutes}} min ago",
   "{{hours}}h ago": "{{hours}}h ago",
   "{{days}}d ago": "{{days}}d ago",
-  "{{weeks}}w ago": "{{weeks}}w ago"
+  "{{weeks}}w ago": "{{weeks}}w ago",
+  "Choose deployment path": "Choose deployment path",
+  "Deploy now": "Deploy now",
+  "Deploy now + AI suggestions": "Deploy now + AI suggestions",
+  "Dockerfile found at": "Dockerfile found at",
+  "Full AI generation": "Full AI generation",
+  "Recommended": "Recommended",
+  "~15-40 min": "~15-40 min",
+  "~3-5 min": "~3-5 min",
+  "~3-5 min deploy + async suggestions": "~3-5 min deploy + async suggestions"
 }
