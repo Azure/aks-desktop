@@ -135,7 +135,7 @@ export default function SourceStep({ sourceType, onSourceTypeChange }: SourceSte
                       icon={iconName}
                       width={36}
                       height={36}
-                      color="contrastText"
+                      color={theme.palette.primary[selected ? 'contrastText' : 'main']}
                       aria-hidden="true"
                     />
                   </Box>
