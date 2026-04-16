@@ -96,7 +96,7 @@ To get started with AKS desktop, follow these steps:
 
 - [Cluster Requirements](docs/cluster-requirements.md) — What your AKS cluster needs for the best AKS desktop experience
 - [AKS Desktop Documentation](https://aka.ms/aks/aks-desktop)
-- [AKS Managed Namespaces](https://learn.microsoft.com/en-us/azure/aks/manage-namespaces)
+- [AKS Managed Namespaces](https://learn.microsoft.com/en-us/azure/aks/managed-namespaces)
 
 ## Contributing
 
