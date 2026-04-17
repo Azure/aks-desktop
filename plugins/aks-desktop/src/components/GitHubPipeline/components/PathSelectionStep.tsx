@@ -3,7 +3,7 @@
 
 import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { Box, Chip, Paper, Typography } from '@mui/material';
+import { Box, ButtonBase, Chip, Paper, Typography } from '@mui/material';
 import React from 'react';
 
 export type DeployPathChoice = 'fast' | 'fast-with-ai' | 'agent';
@@ -88,10 +88,13 @@ export function PathSelectionStep({ dockerfilePath, selected, onSelect }: PathSe
             <Paper
               key={opt.id}
               variant="outlined"
+              component={ButtonBase}
               onClick={() => onSelect(opt.id)}
+              aria-pressed={isSelected}
               sx={{
+                width: '100%',
+                textAlign: 'left',
                 p: 2,
-                cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: 2,
@@ -101,6 +104,10 @@ export function PathSelectionStep({ dockerfilePath, selected, onSelect }: PathSe
                 '&:hover': {
                   borderColor: 'primary.main',
                   bgcolor: 'action.hover',
+                },
+                '&:focus-visible': {
+                  outline: theme => `2px solid ${theme.palette.primary.main}`,
+                  outlineOffset: 2,
                 },
                 transition: 'all 0.15s',
               }}

@@ -18,13 +18,34 @@ import {
   PIPELINE_WORKFLOW_FILENAME,
 } from '../constants';
 import type { PipelineConfig, PRTracking } from '../types';
-import { pushAgentConfigFiles } from './agentTemplates';
+import { pushAgentConfigFiles, sanitizeAppNameForBranch } from './agentTemplates';
 import { deriveAcrName } from './deriveAcrName';
 import {
   generateDeploymentManifest,
   generateDeployWorkflow,
   generateServiceManifest,
+  type ManifestConfig,
 } from './fastPathTemplates';
+
+const GH_OWNER_REPO_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const GH_BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+
+/**
+ * Guards against path-traversal / shell-special input ever reaching git refs
+ * or file paths. Owner/repo allow GitHub-legal characters only; branch allows
+ * the same plus `/`. Rejects values containing `..`, leading dashes, or whitespace.
+ */
+function assertSafeRepoRef(owner: string, repo: string, defaultBranch: string): void {
+  if (!GH_OWNER_REPO_RE.test(owner) || owner.includes('..')) {
+    throw new Error(`Invalid repo owner: ${owner}`);
+  }
+  if (!GH_OWNER_REPO_RE.test(repo) || repo.includes('..')) {
+    throw new Error(`Invalid repo name: ${repo}`);
+  }
+  if (!GH_BRANCH_RE.test(defaultBranch) || defaultBranch.includes('..')) {
+    throw new Error(`Invalid default branch: ${defaultBranch}`);
+  }
+}
 
 export interface FastPathPRConfig {
   /** Validated cluster, namespace, ACR, and GitHub repo metadata for the target app. */
@@ -50,7 +71,10 @@ export async function createFastPathPR(
   const { pipelineConfig, dockerfilePath, buildContextPath, containerConfig, withAsyncAgent } =
     config;
   const { owner, repo, defaultBranch } = pipelineConfig.repo;
-  const branchName = `aks-project/fast-path-${pipelineConfig.appName}-${Date.now()}`;
+  assertSafeRepoRef(owner, repo, defaultBranch);
+  const branchName = `aks-project/fast-path-${sanitizeAppNameForBranch(
+    pipelineConfig.appName
+  )}-${Date.now()}`;
   const acrName = deriveAcrName(pipelineConfig);
 
   const sha = await getDefaultBranchSha(octokit, owner, repo, defaultBranch);
@@ -68,12 +92,11 @@ export async function createFastPathPR(
       defaultBranch,
     });
 
-    const manifestConfig = {
+    const manifestConfig: ManifestConfig = {
       appName: pipelineConfig.appName,
       namespace: pipelineConfig.namespace,
       acrName,
-      repoOwner: owner,
-      repoName: repo,
+      repo: { owner, name: repo },
     };
 
     const deploymentYaml = generateDeploymentManifest(manifestConfig, containerConfig);

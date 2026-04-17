@@ -17,6 +17,7 @@ import {
   generateAgentConfig,
   generateBranchName,
   pushAgentConfigFiles,
+  sanitizeAppNameForBranch,
   SETUP_WORKFLOW_CONTENT,
   validatePipelineConfig,
 } from './agentTemplates';
@@ -196,6 +197,30 @@ describe('agentTemplates', () => {
     it('should fallback to "app" for empty or all-special-char names', () => {
       const result = generateBranchName('!!!');
       expect(result).toBe('aks-project/setup-app-1700000000000');
+    });
+  });
+
+  describe('sanitizeAppNameForBranch', () => {
+    it('passes through clean names', () => {
+      expect(sanitizeAppNameForBranch('my-app')).toBe('my-app');
+    });
+
+    it('lowercases and replaces special chars with dashes', () => {
+      expect(sanitizeAppNameForBranch('My App!@#$')).toBe('my-app');
+    });
+
+    it('rejects path-traversal attempts by collapsing them to safe slugs', () => {
+      expect(sanitizeAppNameForBranch('../evil')).toBe('evil');
+      expect(sanitizeAppNameForBranch('foo/../bar')).toBe('foo-bar');
+    });
+
+    it('collapses consecutive dashes', () => {
+      expect(sanitizeAppNameForBranch('my---app')).toBe('my-app');
+    });
+
+    it('falls back to "app" for empty input', () => {
+      expect(sanitizeAppNameForBranch('!!!')).toBe('app');
+      expect(sanitizeAppNameForBranch('')).toBe('app');
     });
   });
 

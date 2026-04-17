@@ -379,18 +379,29 @@ export async function pushAgentConfigFiles(
 }
 
 /**
- * Generates a branch name for the setup PR.
- * Sanitizes appName to produce a valid git branch name.
+ * Sanitizes an app name into a branch-name-safe slug: lowercases, replaces any
+ * non-`[a-z0-9-]` character with `-`, collapses repeated dashes, and trims leading/trailing
+ * dashes. Returns `'app'` if the input collapses to an empty string.
+ *
+ * Shared by both the agent-path setup branch and fast-path deploy branch so there is a
+ * single definition of "what makes appName safe in a git ref".
  */
-export const generateBranchName = (appName: string): string => {
-  const sanitized = appName
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-  const timestamp = Date.now();
-  return `aks-project/setup-${sanitized || 'app'}-${timestamp}`;
-};
+export function sanitizeAppNameForBranch(appName: string): string {
+  return (
+    appName
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'app'
+  );
+}
+
+/**
+ * Generates a branch name for the setup PR.
+ * Sanitizes appName via {@link sanitizeAppNameForBranch} to produce a valid git branch name.
+ */
+export const generateBranchName = (appName: string): string =>
+  `aks-project/setup-${sanitizeAppNameForBranch(appName)}-${Date.now()}`;
 
 const NAMESPACE_REGEX = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 

@@ -26,6 +26,7 @@ function makeIdentitySetup(
     status: 'idle',
     error: null,
     result: null,
+    warnings: [],
     setupWorkloadIdentity: vi.fn(),
     ...overrides,
   };

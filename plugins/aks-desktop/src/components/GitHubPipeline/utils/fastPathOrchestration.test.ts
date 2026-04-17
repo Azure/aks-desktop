@@ -45,6 +45,13 @@ const { mockPushAgentConfigFiles } = vi.hoisted(() => ({
 }));
 vi.mock('./agentTemplates', () => ({
   pushAgentConfigFiles: mockPushAgentConfigFiles,
+  // Keep sanitization real so branch-name validation tests exercise it.
+  sanitizeAppNameForBranch: (name: string) =>
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'app',
 }));
 
 import { createFastPathPR, type FastPathPRConfig } from './fastPathOrchestration';
@@ -147,8 +154,7 @@ describe('fastPathOrchestration', () => {
           appName: 'my-app',
           namespace: 'production',
           acrName: 'acrprod',
-          repoOwner: 'testuser',
-          repoName: 'my-repo',
+          repo: { owner: 'testuser', name: 'my-repo' },
         }),
         baseFastPathConfig.containerConfig
       );
@@ -240,6 +246,52 @@ describe('fastPathOrchestration', () => {
         expect.stringContaining('aks-project/fast-path-my-app-'),
         baseFastPathConfig.pipelineConfig
       );
+    });
+
+    it('sanitizes appName when embedding it in the branch ref', async () => {
+      const configWithMessyName = createValidConfig({
+        appName: 'My App!@#$',
+        acrLoginServer: 'acrprod.azurecr.io',
+      });
+      await createFastPathPR(mockOctokit, {
+        ...baseFastPathConfig,
+        pipelineConfig: configWithMessyName,
+      });
+      expect(mockCreateBranch).toHaveBeenCalledWith(
+        mockOctokit,
+        'testuser',
+        'my-repo',
+        expect.stringMatching(/^aks-project\/fast-path-my-app-\d+$/),
+        'sha123'
+      );
+    });
+
+    it('rejects repo refs with path-traversal characters', async () => {
+      const configBadOwner = createValidConfig({
+        acrLoginServer: 'acrprod.azurecr.io',
+        repo: { owner: '../evil', repo: 'my-repo', defaultBranch: 'main' },
+      });
+      await expect(
+        createFastPathPR(mockOctokit, {
+          ...baseFastPathConfig,
+          pipelineConfig: configBadOwner,
+        })
+      ).rejects.toThrow(/Invalid repo owner/);
+      expect(mockCreateBranch).not.toHaveBeenCalled();
+    });
+
+    it('rejects branch names with path-traversal characters', async () => {
+      const configBadBranch = createValidConfig({
+        acrLoginServer: 'acrprod.azurecr.io',
+        repo: { owner: 'testuser', repo: 'my-repo', defaultBranch: '../main' },
+      });
+      await expect(
+        createFastPathPR(mockOctokit, {
+          ...baseFastPathConfig,
+          pipelineConfig: configBadBranch,
+        })
+      ).rejects.toThrow(/Invalid default branch/);
+      expect(mockCreateBranch).not.toHaveBeenCalled();
     });
   });
 });

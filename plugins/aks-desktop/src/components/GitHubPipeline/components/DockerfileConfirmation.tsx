@@ -52,7 +52,7 @@ export function DockerfileConfirmation({
       {dockerfilePaths.length > 1 && (
         <FormControl fullWidth size="small">
           <InputLabel id="dockerfile-select-label">{t('Dockerfile')}</InputLabel>
-          <Select
+          <Select<string>
             labelId="dockerfile-select-label"
             id="dockerfile-select"
             value={selection?.path ?? ''}

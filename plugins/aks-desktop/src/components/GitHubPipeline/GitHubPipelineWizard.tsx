@@ -439,9 +439,7 @@ export function GitHubPipelineWizard({
           return (
             <DockerfileConfirmation
               dockerfilePaths={dockerfilePaths}
-              selection={dockerfileDiscovery.selection}
-              onSelect={dockerfileDiscovery.select}
-              onBuildContextChange={dockerfileDiscovery.setBuildContext}
+              discovery={dockerfileDiscovery}
             />
           );
         }
