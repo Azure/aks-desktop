@@ -71,7 +71,7 @@
     "knip": "^6.4.1",
     "lint-staged": "^16.3.2",
     "tsx": "^4.21.0",
-    "typescript": "^5.3.0"
+    "typescript": "^6.0.3"
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
