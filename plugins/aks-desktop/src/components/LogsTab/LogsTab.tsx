@@ -1,15 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 // @ts-ignore todo: LogsViewer is not importing
 import { LogsViewer } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { type KubeObject } from '@kinvolk/headlamp-plugin/lib/lib/k8s/cluster';
-import { Box, Card, Typography } from '@mui/material';
+import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import React from 'react';
 import { DeploymentSelector } from '../shared/DeploymentSelector';
+import { EmptyStateCard } from '../shared/EmptyStateCard';
 import { useLogsTab } from './hooks/useLogsTab';
 
 /**
@@ -47,29 +47,15 @@ const LogsTab = ({ projectResources }: LogsTabProps) => {
       </Box>
 
       {!deployments.length ? (
-        <Card sx={{ p: 4, textAlign: 'center', mt: 2 }}>
-          <Box
-            display="flex"
-            flexDirection="column"
-            alignItems="center"
-            justifyContent="center"
-            sx={{ color: 'text.secondary' }}
-          >
-            <Icon
-              icon="mdi:chart-box-outline"
-              style={{ marginBottom: 16, fontSize: 64, color: 'currentColor' }}
-            />
-            <Typography variant="h6" color="textSecondary" gutterBottom>
-              {t('No Deployments Found')}
-            </Typography>
-            <Typography color="textSecondary" variant="body2">
-              {t('There are no deployments in this project namespace yet.')}
-            </Typography>
-            <Typography color="textSecondary" variant="body2">
-              {t('Deploy an application to view logs.')}
-            </Typography>
-          </Box>
-        </Card>
+        <Box sx={{ mt: 2 }}>
+          <EmptyStateCard
+            message={t('No Deployments Found')}
+            subMessages={[
+              t('There are no deployments in this project namespace yet.'),
+              t('Deploy an application to view logs.'),
+            ]}
+          />
+        </Box>
       ) : (
         <>
           {deployments.length > 1 && (
