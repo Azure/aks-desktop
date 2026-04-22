@@ -5,6 +5,7 @@ import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Box, Button, Card, CircularProgress, Container, Typography } from '@mui/material';
 import React from 'react';
+import { CopyButton } from '../shared/CopyButton';
 import { useAzureProfilePage } from './hooks/useAzureProfilePage';
 
 const pageSx = { minHeight: '100vh', backgroundColor: 'background.default', pt: 2 } as const;
@@ -20,9 +21,12 @@ const infoBoxSx = {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <Box sx={infoBoxSx}>
-      <Typography variant="caption" sx={{ fontWeight: 600, mb: 0.5, color: 'text.secondary' }}>
-        {label}
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+          {label}
+        </Typography>
+        <CopyButton text={value} />
+      </Box>
       <Typography variant="body2" sx={{ fontSize: '1rem', wordBreak: 'break-all' }}>
         {value}
       </Typography>
