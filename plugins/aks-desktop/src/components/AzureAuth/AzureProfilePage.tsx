@@ -1,20 +1,34 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { Icon, InlineIcon } from '@iconify/react';
+import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CircularProgress,
-  Container,
-  Typography,
-} from '@mui/material';
-import { useTheme } from '@mui/material/styles';
+import { Box, Button, Card, CircularProgress, Container, Typography } from '@mui/material';
 import React from 'react';
 import { useAzureProfilePage } from './hooks/useAzureProfilePage';
+
+const pageSx = { minHeight: '100vh', backgroundColor: 'background.default', pt: 2 } as const;
+const infoBoxSx = {
+  mb: 3,
+  p: 2,
+  border: 1,
+  borderColor: 'divider',
+  borderRadius: 1,
+  textAlign: 'left',
+} as const;
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <Box sx={infoBoxSx}>
+      <Typography variant="caption" sx={{ fontWeight: 600, mb: 0.5, color: 'text.secondary' }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" sx={{ fontSize: '1rem', wordBreak: 'break-all' }}>
+        {value}
+      </Typography>
+    </Box>
+  );
+}
 
 /**
  * Azure Profile page.
@@ -28,7 +42,6 @@ import { useAzureProfilePage } from './hooks/useAzureProfilePage';
  */
 export default function AzureProfilePage() {
   const { t } = useTranslation();
-  const theme = useTheme();
   const {
     isChecking,
     isLoggedIn,
@@ -43,13 +56,7 @@ export default function AzureProfilePage() {
 
   if (isChecking) {
     return (
-      <Box
-        sx={{
-          minHeight: '100vh',
-          backgroundColor: theme.palette.background.default,
-          pt: 2,
-        }}
-      >
+      <Box sx={pageSx}>
         <Container maxWidth="sm">
           <Box
             sx={{
@@ -76,134 +83,77 @@ export default function AzureProfilePage() {
   }
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        backgroundColor: theme.palette.background.default,
-        pt: 2,
-      }}
-    >
+    <Box sx={pageSx}>
       <Container maxWidth="sm">
-        {/* Back Button */}
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <Box
-            onClick={handleBack}
-            role="button"
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              cursor: 'pointer',
-              color: theme.palette.text.secondary,
-              '&:hover': {
-                color: theme.palette.primary.main,
-              },
-            }}
-          >
-            <Box pt={0.5}>
-              <InlineIcon icon="mdi:chevron-left" height={20} width={20} />
-            </Box>
-            <Box fontSize={14} sx={{ textTransform: 'uppercase' }}>
-              {t('Back')}
-            </Box>
-          </Box>
-        </Box>
+        <Button
+          variant="text"
+          onClick={handleBack}
+          startIcon={<Icon icon="mdi:chevron-left" height={20} width={20} aria-hidden="true" />}
+          sx={{
+            mb: 3,
+            color: 'text.secondary',
+            textTransform: 'uppercase',
+            fontSize: 14,
+            '&:hover': { color: 'primary.main' },
+          }}
+        >
+          {t('Back')}
+        </Button>
 
         <Card sx={{ textAlign: 'center', p: 4 }}>
-          <CardContent>
-            <Box
-              component={Icon}
-              icon="logos:microsoft-azure"
-              sx={{
-                fontSize: 64,
-                color: 'primary.main',
-                mb: 2,
-                display: 'inline-block',
-              }}
-            />
+          <Box
+            component={Icon}
+            icon="logos:microsoft-azure"
+            aria-hidden="true"
+            sx={{
+              fontSize: 64,
+              color: 'primary.main',
+              mb: 2,
+              display: 'block',
+              mx: 'auto',
+            }}
+          />
 
-            <Typography variant="h4" sx={{ mb: 1, fontWeight: 600 }}>
-              {t('Azure Account')}
-            </Typography>
+          <Typography variant="h4" sx={{ mb: 1, fontWeight: 600 }}>
+            {t('Azure Account')}
+          </Typography>
 
-            <Typography variant="body1" sx={{ mb: 3, color: theme.palette.text.secondary }}>
-              {t('Logged in as')} <strong>{username}</strong>
-            </Typography>
+          <Typography variant="body1" sx={{ mb: 3, color: 'text.secondary' }}>
+            {t('Logged in as')} <strong>{username}</strong>
+          </Typography>
 
-            {tenantId && (
-              <Box
-                sx={{
-                  mb: 3,
-                  p: 2,
-                  backgroundColor: theme.palette.action.hover,
-                  borderRadius: theme.shape.borderRadius,
-                  textAlign: 'left',
-                }}
-              >
-                <Typography
-                  variant="caption"
-                  sx={{
-                    fontWeight: 600,
-                    mb: 0.5,
-                    color: theme.palette.text.secondary,
-                  }}
-                >
-                  Tenant ID
-                </Typography>
-                <Typography variant="body2" sx={{ fontSize: '1rem', wordBreak: 'break-all' }}>
-                  {tenantId}
-                </Typography>
-              </Box>
-            )}
+          {tenantId && <InfoRow label="Tenant ID" value={tenantId} />}
 
-            {subscriptionId && (
-              <Box
-                sx={{
-                  mb: 3,
-                  p: 2,
-                  backgroundColor: theme.palette.action.hover,
-                  borderRadius: theme.shape.borderRadius,
-                  textAlign: 'left',
-                }}
-              >
-                <Typography
-                  variant="caption"
-                  sx={{
-                    fontWeight: 600,
-                    mb: 0.5,
-                    color: theme.palette.text.secondary,
-                  }}
-                >
-                  Default Subscription ID
-                </Typography>
-                <Typography variant="body2" sx={{ fontSize: '1rem', wordBreak: 'break-all' }}>
-                  {subscriptionId}
-                </Typography>
-              </Box>
-            )}
+          {subscriptionId && <InfoRow label="Default Subscription ID" value={subscriptionId} />}
 
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 3 }}>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleAddCluster}
-                startIcon={<Icon icon="mdi:cloud-plus" />}
-                sx={{ p: 1.5, textTransform: 'none', fontSize: 16 }}
-              >
-                {t('Add Cluster from Azure')}
-              </Button>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 3 }}>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleAddCluster}
+              startIcon={<Icon icon="mdi:cloud-plus" aria-hidden="true" />}
+              sx={{ p: 1.5, textTransform: 'none', fontSize: 16 }}
+            >
+              {t('Add Cluster from Azure')}
+            </Button>
 
-              <Button
-                variant="outlined"
-                color="primary"
-                onClick={handleLogout}
-                disabled={loggingOut}
-                startIcon={loggingOut ? <CircularProgress size={20} /> : <Icon icon="mdi:logout" />}
-                sx={{ p: 1.5, textTransform: 'none', fontSize: 16 }}
-              >
-                {loggingOut ? `${t('Logging out')}...` : t('Log out')}
-              </Button>
-            </Box>
-          </CardContent>
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={handleLogout}
+              disabled={loggingOut}
+              startIcon={
+                loggingOut ? (
+                  <CircularProgress size={20} aria-hidden="true" />
+                ) : (
+                  <Icon icon="mdi:logout" aria-hidden="true" />
+                )
+              }
+              sx={{ p: 1.5, textTransform: 'none', fontSize: 16 }}
+            >
+              {loggingOut ? `${t('Logging out')}...` : t('Log out')}
+            </Button>
+          </Box>
         </Card>
       </Container>
     </Box>
