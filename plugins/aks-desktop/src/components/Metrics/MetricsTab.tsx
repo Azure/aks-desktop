@@ -6,7 +6,7 @@ import { Alert, AlertTitle, Box, CircularProgress, Typography } from '@mui/mater
 import { visuallyHidden } from '@mui/utils';
 import React from 'react';
 import { DeploymentSelector } from '../shared/DeploymentSelector';
-import { EmptyStateCard } from './components/EmptyStateCard';
+import { EmptyStateCard } from '../shared/EmptyStateCard';
 import { MetricsChartsGrid } from './components/MetricsChartsGrid';
 import { MetricsLoadingSkeleton } from './components/MetricsLoadingSkeleton';
 import { MetricsSummaryBar } from './components/MetricsSummaryBar';
