@@ -608,6 +608,56 @@ export async function getIssue(
   }
 }
 
+/**
+ * Fetches the most recent `perPage` comments on an issue. Reads the issue's
+ * `comments` count via `issues.get` to compute the last page index, then
+ * requests that page directly (and the previous page when `perPage` exceeds a
+ * single API page). This guarantees we see the genuine tail of the thread —
+ * where runtime messages like the Copilot evaluator's token-limit failure are
+ * posted — rather than the oldest comments.
+ *
+ * Returns chronological order: oldest of the slice first, most recent last.
+ */
+export async function listIssueComments(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  perPage = 30
+): Promise<Array<{ body: string; user: string | null }>> {
+  const PAGE_SIZE = 100;
+  try {
+    const { data: issue } = await octokit.issues.get({
+      owner,
+      repo,
+      issue_number: issueNumber,
+    });
+    const total = issue.comments ?? 0;
+    if (total === 0) return [];
+
+    const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const pagesToFetch =
+      perPage > PAGE_SIZE && lastPage > 1 ? [lastPage - 1, lastPage] : [lastPage];
+
+    const collected: Array<{ body: string; user: string | null }> = [];
+    for (const page of pagesToFetch) {
+      const { data } = await octokit.issues.listComments({
+        owner,
+        repo,
+        issue_number: issueNumber,
+        per_page: PAGE_SIZE,
+        page,
+      });
+      for (const c of data) {
+        collected.push({ body: c.body ?? '', user: c.user?.login ?? null });
+      }
+    }
+    return collected.slice(-perPage);
+  } catch (error) {
+    throw apiError(`Failed to list comments on issue #${issueNumber} in ${owner}/${repo}`, error);
+  }
+}
+
 /** Shape of a cross-reference event from the issue timeline API. */
 interface TimelineCrossReference {
   event: 'cross-referenced';

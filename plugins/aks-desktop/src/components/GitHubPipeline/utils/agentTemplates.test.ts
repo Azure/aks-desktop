@@ -112,6 +112,27 @@ describe('agentTemplates', () => {
       expect(result).toContain('needs: [buildImage]');
     });
 
+    it('caps build retries to bound trajectory size', () => {
+      const result = generateAgentConfig(validConfig);
+      // The unbounded "Repeat until successful" instruction must be gone.
+      expect(result).not.toMatch(/Repeat until successful/i);
+      // Replaced with an explicit cap so failed builds do not balloon trajectory tokens.
+      expect(result).toMatch(/retry up to \*\*2 more times\*\*/i);
+      expect(result).toMatch(/3 total attempts/i);
+    });
+
+    it('instructs agent to summarize large tool outputs instead of echoing them', () => {
+      const result = generateAgentConfig(validConfig);
+      expect(result).toMatch(/Do not echo large tool outputs/i);
+    });
+
+    it('updates the checklist per step, not per tool call', () => {
+      const result = generateAgentConfig(validConfig);
+      expect(result).toMatch(/once per numbered step/i);
+      // The old per-tool-call instruction must be gone.
+      expect(result).not.toMatch(/After \*\*each\*\* tool call/i);
+    });
+
     it('should include optional fields when provided', () => {
       const config: PipelineConfig = {
         ...validConfig,

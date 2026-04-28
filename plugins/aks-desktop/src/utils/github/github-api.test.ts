@@ -45,7 +45,7 @@ const mockOctokit = {
     get: vi.fn(),
     list: vi.fn(),
   },
-  issues: { create: vi.fn(), get: vi.fn() },
+  issues: { create: vi.fn(), get: vi.fn(), listComments: vi.fn() },
   apps: {
     listInstallationsForAuthenticatedUser: vi.fn(),
     listInstallationReposForAuthenticatedUser: vi.fn(),
@@ -92,6 +92,7 @@ import {
   getRepoPublicKey,
   getStatusChecks,
   getWorkflowRun,
+  listIssueComments,
   listPullRequests,
   listUserRepos,
   listWorkflowRunJobs,
@@ -553,6 +554,103 @@ describe('github-api', () => {
       await expect(getIssue(mockOctokit as never, 'owner', 'repo', 5)).rejects.toThrow(
         'Failed to get issue #5 in owner/repo: Not Found'
       );
+    });
+  });
+
+  describe('listIssueComments', () => {
+    it('returns [] when the issue has no comments', async () => {
+      mockOctokit.issues.get.mockResolvedValue({ data: { comments: 0 } });
+
+      const result = await listIssueComments(mockOctokit as never, 'owner', 'repo', 5);
+
+      expect(result).toEqual([]);
+      expect(mockOctokit.issues.listComments).not.toHaveBeenCalled();
+    });
+
+    it('fetches page 1 for a single-page thread and returns all comments in order', async () => {
+      const comments = Array.from({ length: 12 }, (_, i) => ({
+        body: `c${i}`,
+        user: { login: 'u' },
+      }));
+      mockOctokit.issues.get.mockResolvedValue({ data: { comments: 12 } });
+      mockOctokit.issues.listComments.mockResolvedValue({ data: comments });
+
+      const result = await listIssueComments(mockOctokit as never, 'owner', 'repo', 5, 30);
+
+      expect(mockOctokit.issues.listComments).toHaveBeenCalledTimes(1);
+      expect(mockOctokit.issues.listComments).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 1, per_page: 100 })
+      );
+      expect(result).toHaveLength(12);
+      expect(result[0].body).toBe('c0');
+      expect(result[result.length - 1].body).toBe('c11');
+    });
+
+    it('targets the last page only for long threads (tail semantics)', async () => {
+      const lastPage = Array.from({ length: 50 }, (_, i) => ({
+        body: `c${200 + i}`,
+        user: { login: 'u' },
+      }));
+      mockOctokit.issues.get.mockResolvedValue({ data: { comments: 250 } });
+      mockOctokit.issues.listComments.mockResolvedValue({ data: lastPage });
+
+      const result = await listIssueComments(mockOctokit as never, 'owner', 'repo', 5, 30);
+
+      expect(mockOctokit.issues.listComments).toHaveBeenCalledTimes(1);
+      expect(mockOctokit.issues.listComments).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 3, per_page: 100 })
+      );
+      expect(result).toHaveLength(30);
+      // Most-recent comment must be last in the returned slice.
+      expect(result[result.length - 1].body).toBe('c249');
+    });
+
+    it('fetches the previous page as well when perPage exceeds a single API page', async () => {
+      const page2 = Array.from({ length: 100 }, (_, i) => ({
+        body: `c${100 + i}`,
+        user: { login: 'u' },
+      }));
+      const page3 = Array.from({ length: 50 }, (_, i) => ({
+        body: `c${200 + i}`,
+        user: { login: 'u' },
+      }));
+      mockOctokit.issues.get.mockResolvedValue({ data: { comments: 250 } });
+      mockOctokit.issues.listComments
+        .mockResolvedValueOnce({ data: page2 })
+        .mockResolvedValueOnce({ data: page3 });
+
+      const result = await listIssueComments(mockOctokit as never, 'owner', 'repo', 5, 150);
+
+      expect(mockOctokit.issues.listComments).toHaveBeenCalledTimes(2);
+      expect(mockOctokit.issues.listComments).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ page: 2 })
+      );
+      expect(mockOctokit.issues.listComments).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ page: 3 })
+      );
+      expect(result).toHaveLength(150);
+      expect(result[0].body).toBe('c100');
+      expect(result[result.length - 1].body).toBe('c249');
+    });
+
+    it('wraps errors from issues.get with apiError', async () => {
+      mockOctokit.issues.get.mockRejectedValue(new Error('boom'));
+
+      await expect(listIssueComments(mockOctokit as never, 'owner', 'repo', 42)).rejects.toThrow(
+        'Failed to list comments on issue #42 in owner/repo: boom'
+      );
+    });
+
+    it('maps a missing user to null', async () => {
+      mockOctokit.issues.get.mockResolvedValue({ data: { comments: 1 } });
+      mockOctokit.issues.listComments.mockResolvedValue({
+        data: [{ body: 'hi', user: null }],
+      });
+
+      const result = await listIssueComments(mockOctokit as never, 'owner', 'repo', 5);
+      expect(result).toEqual([{ body: 'hi', user: null }]);
     });
   });
 
