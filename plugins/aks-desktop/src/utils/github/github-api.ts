@@ -608,6 +608,27 @@ export async function getIssue(
   }
 }
 
+/** Fetches an issue's comments (most recent last). Returns up to `perPage` comments. */
+export async function listIssueComments(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  perPage = 30
+): Promise<Array<{ body: string; user: string | null }>> {
+  try {
+    const { data } = await octokit.issues.listComments({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      per_page: perPage,
+    });
+    return data.map(c => ({ body: c.body ?? '', user: c.user?.login ?? null }));
+  } catch (error) {
+    throw apiError(`Failed to list comments on issue #${issueNumber} in ${owner}/${repo}`, error);
+  }
+}
+
 /** Shape of a cross-reference event from the issue timeline API. */
 interface TimelineCrossReference {
   event: 'cross-referenced';

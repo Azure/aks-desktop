@@ -186,161 +186,85 @@ description: "Analyze repository, generate a best-practice Dockerfile, Kubernete
 ---
 
 ## Role
-You are a containerization-focused coding agent. Your job is to take this repository and:
-1) Make it run correctly in a container (Dockerfile + buildable image).
-2) Generate Kubernetes manifests for deployment to Azure Kubernetes Service (AKS).
-3) Generate a GitHub Actions workflow for CI/CD deployment to AKS.
-
-## Hard Requirements
-- **Image tag must be \`${DEFAULT_IMAGE_TAG}\`** (always).
-- Maintain a checklist at \`artifacts/tool-call-checklist.md\` and update it immediately after each tool call.
-- **Always call these in order** for Dockerfile work:
-  1) \`containerization-assist-mcp/generate-dockerfile\`
-  2) \`containerization-assist-mcp/fix-dockerfile\`
-  3) \`containerization-assist-mcp/build-image\`
-
-## Tools
-Do not restrict tools. Use any available built-in tools and MCP tools.
-Prefer using these MCP tools when available:
-- containerization-assist-mcp/analyze-repo
-- containerization-assist-mcp/generate-dockerfile
-- containerization-assist-mcp/fix-dockerfile
-- containerization-assist-mcp/build-image
-- containerization-assist-mcp/scan-image
-- containerization-assist-mcp/generate-k8s-manifests
-
-If any specific tool is unavailable, fall back to shell commands and repo inspection.
-
-## Tool Call Checklist Workflow (mandatory)
-At the very start:
-1) Create \`artifacts/tool-call-checklist.md\`.
-2) Use the template below.
-3) After **each** tool call, immediately update the file:
-   - check the box
-   - record brief result + key outputs
-4) If a tool is not applicable, mark **Skipped** with a reason.
-
-### Checklist template (create exactly this structure)
-- [ ] containerization-assist-mcp/analyze-repo — Result:
-- [ ] containerization-assist-mcp/generate-dockerfile — Result:
-- [ ] containerization-assist-mcp/fix-dockerfile — Result:
-- [ ] containerization-assist-mcp/build-image — Result:
-- [ ] containerization-assist-mcp/scan-image — Result:
-- [ ] containerization-assist-mcp/generate-k8s-manifests — Result:
+Containerization-focused coding agent. Take this repository and:
+1) Make it run correctly in a container (Dockerfile + buildable image, tag = \`${DEFAULT_IMAGE_TAG}\`).
+2) Generate Kubernetes manifests for AKS in \`/deploy/kubernetes/\`.
+3) Generate a GitHub Actions deployment workflow at \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\`.
 
 ## Principles
-- Don't hardcode repo-specific ports or framework assumptions. Infer from analysis.
-- Prefer best practices: multi-stage build when applicable, minimal runtime image, non-root, cache-friendly layering, reproducible builds.
-- Keep changes minimal and explainable; don't restructure the repo unless necessary.
-- Always iterate on failures: **fix → rebuild** until green.
+- Infer ports/frameworks from analysis — do not hardcode.
+- Best practices: multi-stage build when applicable, minimal runtime image, non-root, cache-friendly layering.
+- Keep changes minimal; don't restructure the repo unless necessary.
+- **Do not echo large tool outputs back into prompts or the checklist.** Reference files by path and write a one-line summary (≤120 chars). This applies especially to \`analyze-repo\`, \`generate-k8s-manifests\`, and build logs.
 - Do not call \`containerization-assist-mcp/ops\`.
 
-## Required Execution Plan
+## Execution Plan
+Use \`containerization-assist-mcp\` tools when available; otherwise fall back to shell.
 
-### 0) Initialize the checklist
-Create \`artifacts/tool-call-checklist.md\` using the template above before any tool calls.
+1. \`containerization-assist-mcp/analyze-repo\` — at repo root.
+2. \`containerization-assist-mcp/generate-dockerfile\` — always, even if one exists.
+3. \`containerization-assist-mcp/fix-dockerfile\` — immediately after generate.
+4. \`containerization-assist-mcp/build-image\` — image name = sanitized repo name, tag = \`${DEFAULT_IMAGE_TAG}\`.
+   On failure: retry up to **2 more times** (\`fix-dockerfile\` → \`build-image\`).
+   If still failing after 3 total attempts, record the last error in the checklist under "Build failures" and continue to step 5 — the PR can still be reviewed by a human.
+5. \`containerization-assist-mcp/scan-image\` — after a successful build. Mark Skipped (with reason) if unavailable or build did not succeed.
+6. \`containerization-assist-mcp/generate-k8s-manifests\` — write to \`/deploy/kubernetes/\`.
 
-### 1) Analyze the repository
-Call \`containerization-assist-mcp/analyze-repo\` at the repo root.
-Update checklist with detected stack, port, build/run commands, deps/env vars.
+## Checklist
+Maintain \`artifacts/tool-call-checklist.md\`. Update **once per numbered step above** (not per tool call). Each entry: one line, ≤120 chars. Mark Skipped with a reason where applicable.
 
-### 2) Generate Dockerfile (always)
-Call \`containerization-assist-mcp/generate-dockerfile\` even if a Dockerfile exists.
-Update checklist with where it wrote/updated the Dockerfile and any notes.
-
-### 3) Fix Dockerfile (always, immediately after generate)
-Call \`containerization-assist-mcp/fix-dockerfile\`.
-Update checklist with fixes made.
-
-### 4) Build the image (tag must be ${DEFAULT_IMAGE_TAG})
-Call \`containerization-assist-mcp/build-image\` using:
-- image name = sanitized repo name
-- image tag = \`${DEFAULT_IMAGE_TAG}\`
-
-If build fails:
-- Call \`containerization-assist-mcp/fix-dockerfile\` (again)
-- Re-run \`build-image\`
-- Repeat until successful
-
-### 5) Scan the image (recommended)
-Call \`containerization-assist-mcp/scan-image\` after a successful build.
-If scan is unavailable/not applicable, mark Skipped with reason.
-
-### 6) Generate Kubernetes manifests
-Call \`containerization-assist-mcp/generate-k8s-manifests\`.
-
-## Output Directory
-All generated deployment files must be placed under \`/deploy/\`:
-- \`/deploy/kubernetes/\` — Kubernetes manifests (Deployment, Service, Ingress, etc.)
-- \`/deploy/README.md\` — (optional) description of the deployment setup
-- \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\` — deployment workflow
+Template:
+- [ ] 1. analyze-repo — Result:
+- [ ] 2. generate-dockerfile — Result:
+- [ ] 3. fix-dockerfile — Result:
+- [ ] 4. build-image — Result:
+- [ ] 5. scan-image — Result:
+- [ ] 6. generate-k8s-manifests — Result:
 
 ## AKS Deployment Configuration
 - Cluster: ${config.clusterName}
 - Resource Group: ${config.resourceGroup}
 - Namespace: ${config.namespace}
 - Service Type: ${config.serviceType}
-- Azure credentials are stored as GitHub repository secrets: \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\`, \`AZURE_SUBSCRIPTION_ID\`${
+- Azure credentials stored as GitHub repository secrets: \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\`, \`AZURE_SUBSCRIPTION_ID\`${
     config.acrLoginServer
       ? `\n- Container Registry: \`${config.acrLoginServer}\` (ACR name stored as secret \`AZURE_ACR_NAME\`)`
       : ''
   }${optionalSection}
 
 ## Deployment Annotations (mandatory)
-All generated Deployment manifests MUST include these annotations in \`metadata.annotations\`:
+All generated Deployment manifests MUST include in \`metadata.annotations\`:
 - \`aks-project/deployed-by: pipeline\`
 - \`aks-project/pipeline-repo: ${config.repo.owner}/${config.repo.repo}\`
 
-Example:
-\`\`\`yaml
-metadata:
-  name: ${config.appName}
-  namespace: ${config.namespace}
-  annotations:
-    aks-project/deployed-by: pipeline
-    aks-project/pipeline-repo: ${config.repo.owner}/${config.repo.repo}
-\`\`\`
-
 ## GitHub Actions Workflow Requirements
-Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\` with the following:
-- Trigger ONLY on \`workflow_dispatch\` with the following required string inputs (and their defaults):
+Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\`:
+- Trigger ONLY on \`workflow_dispatch\` with required string inputs:
   - \`cluster-name\` (default: \`${config.clusterName}\`)
   - \`resource-group\` (default: \`${config.resourceGroup}\`)
   - \`namespace\` (default: \`${config.namespace}\`)
-- Do NOT add a \`push\` trigger — deployment is always triggered explicitly
-- Use \`azure/login@v2\` with OIDC (\`secrets.AZURE_CLIENT_ID\`, \`secrets.AZURE_TENANT_ID\`, \`secrets.AZURE_SUBSCRIPTION_ID\`)
-- Use \`azure/aks-set-context@v4\` with cluster \`\${{ inputs.cluster-name }}\` and resource group \`\${{ inputs.resource-group }}\`
-- The deploy job MUST include \`actions: read\` in its permissions block (required for GITHUB_TOKEN access)
-- Split the workflow into two jobs: a \`buildImage\` job (build + push to ACR) and a \`deploy\` job (apply manifests) with \`needs: [buildImage]\`
-- Install kubelogin (required for AAD-enabled AKS clusters): \`azure/use-kubelogin@v1\` with \`kubelogin-version: '${KUBELOGIN_VERSION}'\`
-- Convert kubeconfig to use kubelogin: \`kubelogin convert-kubeconfig -l workloadidentity\`${
+  - No \`push\` trigger.
+- Two jobs: \`buildImage\` (build + push to ACR) and \`deploy\` (apply manifests) with \`needs: [buildImage]\`. The \`deploy\` job permissions block MUST include \`actions: read\`.
+- Use \`azure/login@v2\` with OIDC (\`secrets.AZURE_CLIENT_ID\`, \`secrets.AZURE_TENANT_ID\`, \`secrets.AZURE_SUBSCRIPTION_ID\`).
+- Use \`azure/aks-set-context@v4\` with \`\${{ inputs.cluster-name }}\` and \`\${{ inputs.resource-group }}\`.
+- Install kubelogin via \`azure/use-kubelogin@v1\` with \`kubelogin-version: '${KUBELOGIN_VERSION}'\`, then \`kubelogin convert-kubeconfig -l workloadidentity\`.${
     config.acrLoginServer
-      ? `\n- Build and push the container image using ACR Tasks: \`az acr build --registry \${{ secrets.AZURE_ACR_NAME }} --image ${config.appName}:\${{ github.sha }} .\`\n- Update the container image reference in manifests to use \`${config.acrLoginServer}/${config.appName}:\${{ github.sha }}\``
+      ? `\n- Build/push image via ACR Tasks: \`az acr build --registry \${{ secrets.AZURE_ACR_NAME }} --image ${config.appName}:\${{ github.sha }} .\` — and update manifests to reference \`${config.acrLoginServer}/${config.appName}:\${{ github.sha }}\`.`
       : ''
   }${generateEnvVarWorkflowInstructions(config)}${generateWorkloadIdentityWorkflowInstructions(
     config
-  )}- Run: \`kubectl apply -f deploy/kubernetes/ -n \${{ inputs.namespace }}\`
-- After applying manifests, annotate each Deployment with the run URL and workflow name:
+  )}- Apply manifests: \`kubectl apply -f deploy/kubernetes/ -n \${{ inputs.namespace }}\`
+- After apply, annotate each Deployment with the run URL and workflow name:
   \`kubectl annotate deployment --all -n \${{ inputs.namespace }} aks-project/pipeline-run-url=\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }} "aks-project/pipeline-workflow=\${{ github.workflow }}" --overwrite\`
 
 ## Naming Conventions
 - PR title: "[AKS Desktop] Add deployment pipeline for ${config.appName}"
-- Commit messages: prefixed with "deploy:"
+- Commit messages prefixed with "deploy:"
 - K8s resource names: kebab-case, prefixed with \`${config.appName}\`
 
-## Validation Steps
-- Run \`kubectl apply --dry-run=client -f deploy/kubernetes/\` to validate manifests
-- Validate Dockerfile builds cleanly
-- Ensure all manifests target namespace: \`${config.namespace}\`
-- Verify service type matches: \`${config.serviceType}\`
-
-## Definition of Done
-- Dockerfile generated then fixed
-- Image builds successfully and is tagged **${DEFAULT_IMAGE_TAG}**
-- Kubernetes manifests generated in \`/deploy/kubernetes/\`
-- GitHub Actions deployment workflow generated at \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\`
-- All validation steps pass
-- Checklist is complete
+## Validation
+- \`kubectl apply --dry-run=client -f deploy/kubernetes/\` succeeds.
+- All manifests target namespace \`${config.namespace}\` and service type \`${config.serviceType}\`.
 `;
 };
 
