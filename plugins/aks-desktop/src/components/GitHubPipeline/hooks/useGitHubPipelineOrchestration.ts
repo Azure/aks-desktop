@@ -369,9 +369,18 @@ export const useGitHubPipelineOrchestration = ({
         if (agentPrDiscovery.prUrl && agentPrDiscovery.prNumber) {
           pipeline.setGeneratedPRCreated(agentPrDiscovery.prUrl, agentPrDiscovery.prNumber);
         } else if (agentPrDiscovery.issueClosed) {
-          pipeline.setFailed(
-            'Copilot agent completed but no deployment PR was found. Check the GitHub issue for details.'
-          );
+          if (agentPrDiscovery.failureReason === 'token-limit') {
+            pipeline.setFailed(
+              "The Copilot agent's evaluator hit its 64k input token limit before finishing. " +
+                'This typically happens on large repos or when the build retried many times. ' +
+                'Runs are non-deterministic, so trying again often succeeds. ' +
+                'Check the trigger issue for details.'
+            );
+          } else {
+            pipeline.setFailed(
+              'Copilot agent completed but no deployment PR was found. Check the GitHub issue for details.'
+            );
+          }
         } else if (agentPrDiscovery.isTimedOut) {
           pipeline.setFailed('Timed out waiting for Copilot agent to create PR');
         }
@@ -404,6 +413,7 @@ export const useGitHubPipelineOrchestration = ({
     agentPrDiscovery.prUrl,
     agentPrDiscovery.prNumber,
     agentPrDiscovery.issueClosed,
+    agentPrDiscovery.failureReason,
     agentPrDiscovery.isTimedOut,
     generatedPrPolling.isMerged,
     workflowPolling.runConclusion,

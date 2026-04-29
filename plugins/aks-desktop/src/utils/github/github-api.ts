@@ -608,6 +608,40 @@ export async function getIssue(
   }
 }
 
+/**
+ * Fetches an issue's comments in chronological order (oldest first, most recent last).
+ * Paginates fully so callers scanning for a recent runtime message (e.g. the
+ * Copilot evaluator's token-limit failure) reliably see the tail of the thread,
+ * then returns the last `perPage` entries. Bounded at 1000 comments to cap API usage.
+ */
+export async function listIssueComments(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  perPage = 30
+): Promise<Array<{ body: string; user: string | null }>> {
+  const PAGE_SIZE = 100;
+  const MAX_COMMENTS = 1000;
+  try {
+    const all: Array<{ body: string; user: string | null }> = [];
+    for await (const { data } of octokit.paginate.iterator(octokit.issues.listComments, {
+      owner,
+      repo,
+      issue_number: issueNumber,
+      per_page: PAGE_SIZE,
+    })) {
+      for (const c of data) {
+        all.push({ body: c.body ?? '', user: c.user?.login ?? null });
+      }
+      if (all.length >= MAX_COMMENTS) break;
+    }
+    return all.slice(-perPage);
+  } catch (error) {
+    throw apiError(`Failed to list comments on issue #${issueNumber} in ${owner}/${repo}`, error);
+  }
+}
+
 /** Shape of a cross-reference event from the issue timeline API. */
 interface TimelineCrossReference {
   event: 'cross-referenced';
