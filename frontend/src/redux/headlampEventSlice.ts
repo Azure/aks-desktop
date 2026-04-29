@@ -345,13 +345,53 @@ const initialState: {
 
 export const eventAction = createAction<HeadlampEvent>('headlamp/event');
 
+/**
+ * Event types that may be forwarded to App Insights. Any dispatched event
+ * whose type is not in this set is dropped before reaching trackEvent.
+ *
+ * This is an allowlist (not a denylist) by design: a new event type must be
+ * explicitly opted in to telemetry, and a future enum addition that
+ * accidentally encodes user data in its name (e.g. `cluster:my-prod`) cannot
+ * leak.
+ *
+ * `'exception'` is the synthetic type emitted from ErrorBoundary; it is not
+ * a HeadlampEventType because it is not dispatched through the redux event
+ * action — it is a direct trackEvent call. It is allowlisted here for
+ * symmetry and to document the full set of names that may reach the wire.
+ */
+export const TELEMETRY_EVENT_ALLOWLIST: ReadonlySet<string> = new Set<string>([
+  HeadlampEventType.ERROR_BOUNDARY,
+  HeadlampEventType.DELETE_RESOURCE,
+  HeadlampEventType.DELETE_RESOURCES,
+  HeadlampEventType.CREATE_RESOURCE,
+  HeadlampEventType.EDIT_RESOURCE,
+  HeadlampEventType.SCALE_RESOURCE,
+  HeadlampEventType.RESTART_RESOURCE,
+  HeadlampEventType.RESTART_RESOURCES,
+  HeadlampEventType.ROLLBACK_RESOURCE,
+  HeadlampEventType.LOGS,
+  HeadlampEventType.TERMINAL,
+  HeadlampEventType.POD_ATTACH,
+  HeadlampEventType.PLUGIN_LOADING_ERROR,
+  HeadlampEventType.PLUGINS_LOADED,
+  HeadlampEventType.DETAILS_VIEW,
+  HeadlampEventType.LIST_VIEW,
+  HeadlampEventType.OBJECT_EVENTS,
+  'exception',
+]);
+
 export const listenerMiddleware =
   createListenerMiddleware<Pick<RootState, 'eventCallbackReducer'>>();
 listenerMiddleware.startListening({
   actionCreator: eventAction,
   effect: async (action, listernerApi) => {
     const trackerFuncs = listernerApi.getState()?.eventCallbackReducer?.trackerFuncs;
-    trackEvent(action.payload.type);
+    // Forward only the event type — never action.payload.data, which can
+    // contain KubeObjects, resource names/namespaces, errors, or plugin
+    // metadata. The allowlist drops any type-string we have not vetted.
+    if (TELEMETRY_EVENT_ALLOWLIST.has(action.payload.type)) {
+      trackEvent(action.payload.type);
+    }
     for (const trackerFunc of trackerFuncs) {
       try {
         trackerFunc(action.payload);

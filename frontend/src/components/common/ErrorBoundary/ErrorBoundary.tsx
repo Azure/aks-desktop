@@ -15,7 +15,7 @@
  */
 
 import { Component, ComponentType, isValidElement, ReactElement, ReactNode } from 'react';
-import { trackException } from '../../../lib/analytics';
+import { trackEvent } from '../../../lib/analytics';
 import { eventAction, HeadlampEventType } from '../../../redux/headlampEventSlice';
 import store from '../../../redux/stores/store';
 
@@ -60,7 +60,10 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, State> 
   }
 
   componentDidCatch(error: Error) {
-    trackException(error);
+    // Send only the constructor name (e.g. "TypeError", "KubeApiError"),
+    // never the message or stack — error messages routinely contain
+    // identifiers (namespaces, resource names, URLs, YAML fragments).
+    trackEvent('exception', { errorName: error.name });
   }
 
   componentDidUpdate(prevProps: ErrorBoundaryProps, prevState: State) {

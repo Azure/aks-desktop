@@ -92,12 +92,12 @@ describe('eventsSlice', () => {
 
       store.dispatch(
         eventAction({
-          type: 'test-event-type',
+          type: 'headlamp.list-view',
           data: {},
         })
       );
 
-      expect(trackEventSpy).toHaveBeenCalledWith('test-event-type');
+      expect(trackEventSpy).toHaveBeenCalledWith('headlamp.list-view');
 
       delete window.appInsights;
       trackEventSpy.mockRestore();
@@ -111,15 +111,51 @@ describe('eventsSlice', () => {
 
       store.dispatch(
         eventAction({
-          type: 'test-event-type',
+          type: 'headlamp.list-view',
           data: {},
         })
       );
 
-      expect(trackEventSpy).toHaveBeenCalledWith('test-event-type');
+      expect(trackEventSpy).toHaveBeenCalledWith('headlamp.list-view');
       expect(window.appInsights).toBeUndefined();
 
       window.appInsights = originalAppInsights;
+      trackEventSpy.mockRestore();
+    });
+
+    it('does not call trackEvent for an event type outside the allowlist', () => {
+      const trackEventSpy = vi.spyOn(analytics, 'trackEvent');
+
+      store.dispatch(
+        eventAction({
+          type: 'not-on-allowlist',
+          data: {},
+        })
+      );
+
+      expect(trackEventSpy).not.toHaveBeenCalled();
+
+      trackEventSpy.mockRestore();
+    });
+
+    it('calls trackEvent with only the type for an allowlisted event with a populated data field', () => {
+      const trackEventSpy = vi.spyOn(analytics, 'trackEvent');
+
+      store.dispatch(
+        eventAction({
+          type: 'headlamp.delete-resource',
+          data: {
+            resource: { metadata: { name: 'secret-loader', namespace: 'payments' } },
+            status: 'confirmed',
+          } as any,
+        })
+      );
+
+      expect(trackEventSpy).toHaveBeenCalledTimes(1);
+      expect(trackEventSpy).toHaveBeenCalledWith('headlamp.delete-resource');
+      // Crucially, it must not have been called with the data payload.
+      expect(trackEventSpy).not.toHaveBeenCalledWith('headlamp.delete-resource', expect.anything());
+
       trackEventSpy.mockRestore();
     });
   });

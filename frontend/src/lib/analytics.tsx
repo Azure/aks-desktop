@@ -38,20 +38,3 @@ export const trackEvent = (name: string, properties?: Record<string, string>) =>
     console.error('Failed to track event', e);
   }
 };
-
-/**
- * Track error. Only works if app insights is initialized
- *
- * @param error - Error object
- * @param properties - any custom properties
- * @returns
- */
-export const trackException = (error: Error, properties?: Record<string, string>) => {
-  const appInsights = window.appInsights;
-  if (!appInsights) return;
-  try {
-    appInsights.trackException({ exception: error, properties });
-  } catch (e) {
-    console.error('Failed to track exception', e);
-  }
-};
