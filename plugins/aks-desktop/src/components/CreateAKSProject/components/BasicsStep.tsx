@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
+import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Alert,
   AlertTitle,
@@ -12,188 +12,157 @@ import {
   FormControl,
   Typography,
 } from '@mui/material';
-import React, { useEffect, useRef, useState } from 'react';
-import { useAzureAuth } from '../../../hooks/useAzureAuth';
+import React from 'react';
 import type { ClusterCapabilities } from '../../../types/ClusterCapabilities';
-import { registerAKSCluster } from '../../../utils/azure/aks';
 import { FormField } from '../../shared/FormField';
+import { useBasicsStep } from '../hooks/useBasicsStep';
+import { useRegisterCluster } from '../hooks/useRegisterCluster';
 import type { BasicsStepProps } from '../types';
 import { ClusterConfigurePanel } from './ClusterConfigurePanel';
-import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
+import { SearchableSelect } from './SearchableSelect';
 import { ValidationAlert } from './ValidationAlert';
 
-/** Set to `true` locally to enable verbose debug logging. Never enable in production. */
-const DEBUG = false;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-// Helper to check if there are addons that can be enabled post-creation
+/** Returns `true` when there are addons that can still be enabled post-creation. */
 const hasConfigurableAddons = (cap: ClusterCapabilities | null): boolean => {
   if (!cap) return false;
   return cap.prometheusEnabled !== true || cap.kedaEnabled !== true || cap.vpaEnabled !== true;
 };
 
-function getClusterHelperText(
-  t: (key: string, options?: Record<string, unknown>) => string,
-  loadingClusters: boolean,
-  clusterCount: number,
-  totalClusterCount: number | null
-): string {
-  if (loadingClusters) {
-    return t('Only clusters with Azure Entra ID authentication are shown.');
-  }
-  const hiddenCount =
-    totalClusterCount !== null && totalClusterCount > clusterCount
-      ? totalClusterCount - clusterCount
-      : 0;
-  const hiddenSuffix =
-    hiddenCount > 0
-      ? ` (${t('{{count}} cluster(s) hidden — no Azure Entra ID', { count: hiddenCount })})`
-      : '';
-  if (clusterCount === 0) {
-    return `${t('No eligible clusters found in this subscription.')}${hiddenSuffix}`;
-  }
-  return `${t('{{count}} eligible cluster(s) found.', { count: clusterCount })}${hiddenSuffix}`;
+// ---------------------------------------------------------------------------
+// RegisterCluster sub-component (pure presentation)
+// ---------------------------------------------------------------------------
+
+/**
+ * Props for {@link RegisterCluster}.
+ */
+interface RegisterClusterProps {
+  cluster: string;
+  resourceGroup: string;
+  subscription: string;
+  tenantId?: string;
 }
 
 /**
- * Basics step component for project details and Azure resource selection
+ * Presentational component that prompts the user to register a cluster that
+ * is selected in the form but absent from the headlamp kubeconfig.
+ *
+ * All async logic lives in {@link useRegisterCluster}.
  */
-export const BasicsStep: React.FC<BasicsStepProps> = ({
-  formData,
-  onFormDataChange,
-  validation,
-  loading = false,
-  error = null,
-  subscriptions,
-  clusters,
-  loadingClusters,
-  clusterError,
-  extensionStatus,
-  featureStatus,
-  namespaceStatus,
-  totalClusterCount,
-  clusterCapabilities,
-  capabilitiesLoading,
-  onInstallExtension,
-  onRegisterFeature,
-  onRetrySubscriptions,
-  onRetryClusters,
-  onRefreshCapabilities,
-}) => {
+function RegisterCluster({ cluster, resourceGroup, subscription, tenantId }: RegisterClusterProps) {
   const { t } = useTranslation();
-  const headlampClusters = K8s.useClustersConf();
-  const authStatus = useAzureAuth();
+  const { loading, error, success, handleRegister, clearError, clearSuccess } = useRegisterCluster(
+    cluster,
+    resourceGroup,
+    subscription,
+    tenantId
+  );
 
-  // Focus the Project Name input on mount (the wizard-level focus effect
-  // misses the initial render because AzureAuthGuard delays mounting).
-  // Only steal focus when nothing else is focused (activeElement is <body>).
-  const projectNameRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (document.activeElement?.tagName === 'BODY') {
-      projectNameRef.current?.focus();
-    }
-  }, []);
+  return (
+    <Box display="flex" flexDirection="column" gap={2}>
+      {/* Missing-cluster notice — hidden once registration succeeds */}
+      {!success && (
+        <Alert severity="error">
+          <AlertTitle>
+            {t('Selected cluster is missing from the kubeconfig. Register it before proceeding.')}
+          </AlertTitle>
+        </Alert>
+      )}
 
-  // Auto select default subscription
-  const autoSelected = useRef(false);
-  useEffect(() => {
-    if (
-      autoSelected.current === false &&
-      authStatus?.subscriptionId &&
-      !formData.subscription &&
-      subscriptions &&
-      subscriptions.find(it => it.id === authStatus.subscriptionId)
-    ) {
-      autoSelected.current = true;
-      onFormDataChange({ subscription: authStatus.subscriptionId });
-    }
-  }, [formData.subscription, authStatus?.subscriptionId, subscriptions]);
+      {/* Registration error */}
+      {error && (
+        <Alert severity="error" onClose={clearError}>
+          {error}
+        </Alert>
+      )}
 
-  const handleInputChange = (field: string, value: any) => {
-    onFormDataChange({ [field]: value });
-  };
+      {/* Registration success */}
+      {success && (
+        <Alert severity="success" onClose={clearSuccess}>
+          {success}
+        </Alert>
+      )}
 
-  const handleClusterChange = (clusterName: string) => {
-    const selectedCluster = clusters.find(c => c.name === clusterName);
-    if (selectedCluster) {
-      onFormDataChange({
-        cluster: clusterName,
-        resourceGroup: selectedCluster.resourceGroup,
-      });
-    }
-  };
+      {/* Register button — hidden once registration succeeds */}
+      {!success && (
+        <Button
+          onClick={handleRegister}
+          variant="contained"
+          startIcon={
+            loading ? (
+              <CircularProgress aria-hidden="true" />
+            ) : (
+              <Icon icon="mdi:plus" aria-hidden="true" />
+            )
+          }
+          disabled={loading}
+          aria-busy={loading || undefined}
+        >
+          {loading ? `${t('Registering cluster')}...` : t('Register Cluster')}
+        </Button>
+      )}
+    </Box>
+  );
+}
 
-  // helper to check for readiness
-  const isClusterNonReady = (cluster: any): boolean => {
-    const provisioningState = cluster.status?.toLowerCase() || '';
-    const powerState = cluster.powerState?.toLowerCase() || '';
+// ---------------------------------------------------------------------------
+// BasicsStep component (pure presentation)
+// ---------------------------------------------------------------------------
 
-    const nonReadyProvisioningStates = ['updating', 'upgrading', 'deleting', 'creating', 'failed'];
-    const nonReadyPowerStates = ['stopping', 'stopped', 'deallocating', 'deallocated'];
+/**
+ * Basics step of the Create AKS Project wizard.
+ *
+ * Collects the project name, description, Azure subscription, and AKS cluster.
+ * Also surfaces pre-flight warnings and errors for the AKS Preview extension,
+ * the ManagedNamespacePreview feature flag, cluster readiness, cluster
+ * capabilities, and namespace name availability.
+ *
+ * All stateful logic (focus management, auto-select, option mapping, cluster
+ * state derivation) lives in {@link useBasicsStep}. The `RegisterCluster`
+ * sub-component's async flow lives in {@link useRegisterCluster}.
+ */
+export const BasicsStep: React.FC<BasicsStepProps> = props => {
+  const { t } = useTranslation();
+  const {
+    formData,
+    validation,
+    loading = false,
+    error = null,
+    loadingClusters,
+    clusterError,
+    extensionStatus,
+    featureStatus,
+    namespaceStatus,
+    clusterCapabilities,
+    capabilitiesLoading,
+    onInstallExtension,
+    onRegisterFeature,
+    onRetrySubscriptions,
+    onRetryClusters,
+    onRefreshCapabilities,
+  } = props;
 
-    return (
-      nonReadyProvisioningStates.includes(provisioningState) ||
-      nonReadyPowerStates.includes(powerState)
-    );
-  };
-
-  // helper function to get cluster state message
-  const getClusterStateMessage = (cluster: any): string => {
-    const provisioningState = cluster.status?.toLowerCase() || '';
-    const powerState = cluster.powerState?.toLowerCase() || '';
-
-    if (provisioningState === 'updating' || provisioningState === 'upgrading') {
-      return t('Cluster is currently updating. Deployment may fail.');
-    }
-    if (provisioningState === 'deleting') {
-      return t('Cluster is being deleted. Cannot deploy to this cluster.');
-    }
-    if (provisioningState === 'creating') {
-      return t('Cluster is still being created. Please wait until creation completes.');
-    }
-    if (provisioningState === 'failed') {
-      return t('Cluster is in a failed state. Please check Azure portal.');
-    }
-    if (powerState === 'stopped' || powerState === 'stopping') {
-      return t('Cluster is stopped. Please start the cluster before deploying.');
-    }
-    if (powerState === 'deallocated' || powerState === 'deallocating') {
-      return t('Cluster is deallocated. Please start the cluster before deploying.');
-    }
-    return '';
-  };
-
-  // Convert subscriptions to SearchableSelectOption format
-  const subscriptionOptions: SearchableSelectOption[] = subscriptions.map(sub => ({
-    value: sub.id,
-    label: sub.name,
-    subtitle: `Tenant: ${sub.tenantName} - (${sub.tenant}) • Status: ${sub.status}`,
-  }));
-
-  // Convert clusters to SearchableSelectOption format
-  const clusterOptions: SearchableSelectOption[] = clusters.map(cluster => ({
-    value: cluster.name,
-    label: cluster.name,
-    subtitle: `${cluster.location} • ${cluster.version} • ${cluster.nodeCount} nodes • ${cluster.status}`,
-  }));
-
-  const selectedCluster =
-    formData.cluster && clusters.find(cluster => cluster.name === formData.cluster);
-
-  const isClusterMissing =
-    selectedCluster &&
-    Object.values(headlampClusters).find((it: any) => it.name === selectedCluster.name) ===
-      undefined;
+  const {
+    projectNameRef,
+    subscriptionOptions,
+    clusterOptions,
+    clusterHelperText,
+    selectedSubscription,
+    selectedCluster,
+    isClusterMissing,
+    nonReadyCluster,
+    handleInputChange,
+    handleClusterChange,
+  } = useBasicsStep(props);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      {error && (
-        <ValidationAlert
-          type="error"
-          message={error}
-          onClose={() => {}} // Will be handled by parent
-        />
-      )}
-      {/* AKS Preview Extension Check */}
+      {error && <ValidationAlert type="error" message={error} onClose={() => {}} />}
+
+      {/* AKS Preview Extension check */}
       {extensionStatus.installed === false && (
         <ValidationAlert
           type="warning"
@@ -237,13 +206,15 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
           }
         />
       )}
+
       {extensionStatus.showSuccess && (
         <ValidationAlert
           type="success"
           message={'✓ ' + t('AKS Preview Extension installed successfully!')}
         />
       )}
-      {/* ManagedNamespacePreview Feature Check */}
+
+      {/* ManagedNamespacePreview feature flag check */}
       {featureStatus.registered === false && (
         <ValidationAlert
           type="error"
@@ -289,12 +260,14 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
           }
         />
       )}
+
       {featureStatus.showSuccess && (
         <ValidationAlert
           type="success"
           message={'✓ ' + t('ManagedNamespacePreview feature registered successfully!')}
         />
       )}
+
       <Box sx={{ display: 'flex', gap: 3, flexDirection: 'column' }}>
         {/* Project Name */}
         <FormControl fullWidth variant="outlined">
@@ -372,7 +345,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
         <SearchableSelect
           label={t('Cluster')}
           value={formData.cluster}
-          onChange={value => handleClusterChange(value)}
+          onChange={handleClusterChange}
           options={clusterOptions}
           loading={loadingClusters}
           error={!!clusterError}
@@ -389,61 +362,52 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
             'No clusters with Azure Entra ID authentication found for this subscription'
           )}
           showSearch
-          helperText={getClusterHelperText(t, loadingClusters, clusters.length, totalClusterCount)}
+          helperText={clusterHelperText}
         />
 
+        {/* Register cluster if it's missing from the kubeconfig */}
         {formData.subscription && selectedCluster && isClusterMissing && (
           <RegisterCluster
             cluster={selectedCluster.name}
             resourceGroup={selectedCluster.resourceGroup}
             subscription={formData.subscription}
-            tenantId={subscriptions.find(s => s.id === formData.subscription)?.tenant}
+            tenantId={selectedSubscription?.tenant}
           />
         )}
 
-        {/* This shows a warning if the cluster isn't in a ready state*/}
-        {formData.cluster &&
-          clusters.length > 0 &&
-          (() => {
-            const selectedCluster = clusters.find(c => c.name === formData.cluster);
-            if (selectedCluster && isClusterNonReady(selectedCluster)) {
-              const stateMessage = getClusterStateMessage(selectedCluster);
-              return (
-                <Box mt={1}>
-                  <ValidationAlert
-                    type="warning"
-                    message={
-                      <Box>
-                        <Typography variant="body2">
-                          <strong>{t('Cluster Not Ready')}:</strong> {stateMessage}
-                        </Typography>
-                      </Box>
-                    }
-                    // refresh button to reload clusters
-                    action={
-                      <Button
-                        color="inherit"
-                        size="small"
-                        onClick={onRetryClusters}
-                        disabled={loadingClusters}
-                        aria-busy={loadingClusters || undefined}
-                      >
-                        {loadingClusters ? (
-                          <Box display="flex" alignItems="center" gap={1}>
-                            <CircularProgress size={16} color="inherit" aria-hidden="true" />
-                            {t('Refreshing')}...
-                          </Box>
-                        ) : (
-                          t('Refresh')
-                        )}
-                      </Button>
-                    }
-                  />
+        {/* Cluster readiness warning */}
+        {nonReadyCluster && (
+          <Box mt={1}>
+            <ValidationAlert
+              type="warning"
+              message={
+                <Box>
+                  <Typography variant="body2">
+                    <strong>{t('Cluster Not Ready')}:</strong> {nonReadyCluster.message}
+                  </Typography>
                 </Box>
-              );
-            }
-            return null;
-          })()}
+              }
+              action={
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={onRetryClusters}
+                  disabled={loadingClusters}
+                  aria-busy={loadingClusters || undefined}
+                >
+                  {loadingClusters ? (
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <CircularProgress size={16} color="inherit" aria-hidden="true" />
+                      {t('Refreshing')}...
+                    </Box>
+                  ) : (
+                    t('Refresh')
+                  )}
+                </Button>
+              }
+            />
+          </Box>
+        )}
 
         {/* Cluster capability warnings */}
         {validation.warnings.length > 0 && (
@@ -455,7 +419,8 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
             ))}
           </>
         )}
-        {/* Cluster configure panel for enabling missing addons */}
+
+        {/* Configure panel for enabling missing addons */}
         {formData.cluster && clusterCapabilities && hasConfigurableAddons(clusterCapabilities) && (
           <Box mt={2}>
             <ClusterConfigurePanel
@@ -463,14 +428,12 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
               subscriptionId={formData.subscription}
               resourceGroup={formData.resourceGroup}
               clusterName={formData.cluster}
-              onConfigured={() => {
-                if (onRefreshCapabilities) {
-                  onRefreshCapabilities();
-                }
-              }}
+              onConfigured={() => onRefreshCapabilities?.()}
             />
           </Box>
         )}
+
+        {/* Capabilities loading indicator */}
         {capabilitiesLoading && formData.cluster && (
           <Box mt={1}>
             <Typography variant="body2" color="text.secondary">
@@ -479,6 +442,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
           </Box>
         )}
 
+        {/* Cluster fetch error */}
         {clusterError && (
           <Box mt={1}>
             <ValidationAlert
@@ -496,106 +460,3 @@ export const BasicsStep: React.FC<BasicsStepProps> = ({
     </Box>
   );
 };
-
-function RegisterCluster({
-  cluster,
-  resourceGroup,
-  subscription,
-  tenantId,
-}: {
-  cluster: string;
-  resourceGroup: string;
-  subscription: string;
-  tenantId?: string;
-}) {
-  const { t } = useTranslation();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>();
-  const [success, setSuccess] = useState<string>();
-
-  const handleRegister = async () => {
-    if (!cluster || !subscription) {
-      return;
-    }
-
-    setLoading(true);
-    setError(undefined);
-    setSuccess(undefined);
-
-    try {
-      // Register the cluster by running az aks get-credentials and setting up kubeconfig
-      if (DEBUG) console.debug('[AKS] Registering cluster...');
-      const result = await registerAKSCluster(
-        subscription,
-        resourceGroup,
-        cluster,
-        undefined,
-        tenantId
-      );
-      if (DEBUG) console.debug('[AKS] Register cluster result:', result.success);
-      if (!result.success) {
-        setError(result.message);
-        setLoading(false);
-        return;
-      }
-
-      if (DEBUG) console.debug('[AKS] Cluster registered successfully.', result.message);
-      setSuccess(t("Cluster '{{cluster}}' successfully merged in kubeconfig", { cluster }));
-      setLoading(false);
-    } catch (err) {
-      console.error('Error registering AKS cluster:', err);
-      setError(
-        t('Failed to register cluster: {{message}}', {
-          message: err instanceof Error ? err.message : t('Unknown error'),
-        })
-      );
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Box display="flex" flexDirection="column" gap={2}>
-      {/* Show error alert for missing cluster when no success */}
-      {!success && (
-        <Alert severity="error">
-          <AlertTitle>
-            {t('Selected cluster is missing from the kubeconfig. Register it before proceeding.')}
-          </AlertTitle>
-        </Alert>
-      )}
-
-      {/* Show registration error if any */}
-      {error && (
-        <Alert severity="error" onClose={() => setError(undefined)}>
-          {error}
-        </Alert>
-      )}
-
-      {/* Show success message */}
-      {success && (
-        <Alert severity="success" onClose={() => setSuccess(undefined)}>
-          {success}
-        </Alert>
-      )}
-
-      {/* Hide button when success is shown */}
-      {!success && (
-        <Button
-          onClick={handleRegister}
-          variant="contained"
-          startIcon={
-            loading ? (
-              <CircularProgress aria-hidden="true" />
-            ) : (
-              <Icon icon="mdi:plus" aria-hidden="true" />
-            )
-          }
-          disabled={loading}
-          aria-busy={loading || undefined}
-        >
-          {loading ? `${t('Registering cluster')}...` : t('Register Cluster')}
-        </Button>
-      )}
-    </Box>
-  );
-}
