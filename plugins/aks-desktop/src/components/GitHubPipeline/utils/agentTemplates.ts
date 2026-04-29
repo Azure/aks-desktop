@@ -206,7 +206,7 @@ Use \`containerization-assist-mcp\` tools when available; otherwise fall back to
 3. \`containerization-assist-mcp/fix-dockerfile\` — immediately after generate.
 4. \`containerization-assist-mcp/build-image\` — image name = sanitized repo name, tag = \`${DEFAULT_IMAGE_TAG}\`.
    On failure: retry up to **2 more times** (\`fix-dockerfile\` → \`build-image\`).
-   If still failing after 3 total attempts, record the last error in the checklist under "Build failures" and continue to step 5 — the PR can still be reviewed by a human.
+   If still failing after 3 total attempts, record the last error on the Step 4 (\`build-image\`) checklist line (≤120 chars) and continue to step 5 — the PR can still be reviewed by a human.
 5. \`containerization-assist-mcp/scan-image\` — after a successful build. Mark Skipped (with reason) if unavailable or build did not succeed.
 6. \`containerization-assist-mcp/generate-k8s-manifests\` — write to \`/deploy/kubernetes/\`.
 
@@ -233,7 +233,7 @@ Template:
   }${optionalSection}
 
 ## Deployment Annotations (mandatory)
-All generated Deployment manifests MUST include in \`metadata.annotations\`:
+All generated Deployment manifests MUST include these annotations in \`metadata.annotations\`:
 - \`aks-project/deployed-by: pipeline\`
 - \`aks-project/pipeline-repo: ${config.repo.owner}/${config.repo.repo}\`
 
@@ -243,7 +243,7 @@ Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\`:
   - \`cluster-name\` (default: \`${config.clusterName}\`)
   - \`resource-group\` (default: \`${config.resourceGroup}\`)
   - \`namespace\` (default: \`${config.namespace}\`)
-  - No \`push\` trigger.
+- No \`push\` trigger.
 - Two jobs: \`buildImage\` (build + push to ACR) and \`deploy\` (apply manifests) with \`needs: [buildImage]\`. The \`deploy\` job permissions block MUST include \`actions: read\`.
 - Use \`azure/login@v2\` with OIDC (\`secrets.AZURE_CLIENT_ID\`, \`secrets.AZURE_TENANT_ID\`, \`secrets.AZURE_SUBSCRIPTION_ID\`).
 - Use \`azure/aks-set-context@v4\` with \`\${{ inputs.cluster-name }}\` and \`\${{ inputs.resource-group }}\`.
