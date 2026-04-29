@@ -11,15 +11,85 @@ permissions:
 
 env:
   NODE_VERSION: "20"
-  CACHE_KEY_PREFIX: "node-modules"
 
 jobs:
+  find_changed_plugins:
+    name: Find changed plugins
+    runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.detect.outputs.plugins }}
+      has_translation_plugins: ${{ steps.detect.outputs.has_translation_plugins }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch origin main
+
+      - name: Detect changed plugins
+        id: detect
+        run: |
+          changed_files=$(git diff --name-only origin/main...HEAD)
+          echo "Changed files:"
+          printf '%s\n' "$changed_files"
+
+          if [ -z "$changed_files" ]; then
+            echo "No changed files detected."
+            changed_plugins=""
+          # If any changed file is outside plugins/ or Localize/, run all plugins.
+          # This includes .github/ and shared root-level files such as package.json,
+          # lockfiles, common scripts, and repo-wide config.
+          elif printf '%s\n' "$changed_files" | grep -qvE '^(plugins/|Localize/)'; then
+            echo "Global-impact changes detected outside plugins/ or Localize/, running all plugins."
+            changed_plugins=$(grep -lR 'headlamp-plugin' ./plugins/*/package.json | xargs -n1 dirname | xargs -n1 basename | sort -u)
+          else
+            # Extract changed plugin names (second path segment under plugins/)
+            changed_plugins=$(printf '%s\n' "$changed_files" | grep '^plugins/' | awk -F/ '{print $2}' | sort -u)
+          fi
+
+          TRANSLATION_PLUGINS=(aks-desktop ai-assistant)
+          plugin_dirs=()
+          has_translation_plugins=false
+
+          for dir in $changed_plugins; do
+            pkg="plugins/$dir/package.json"
+            if [ -f "$pkg" ] && grep -q 'headlamp-plugin' "$pkg"; then
+              plugin_dirs+=("$dir")
+              for tp in "${TRANSLATION_PLUGINS[@]}"; do
+                if [ "$dir" = "$tp" ]; then
+                  has_translation_plugins=true
+                fi
+              done
+            fi
+          done
+
+          # Also trigger translations if Localize/ changed directly
+          if printf '%s\n' "$changed_files" | grep -q '^Localize/'; then
+            has_translation_plugins=true
+          fi
+
+          if [ ${#plugin_dirs[@]} -eq 0 ]; then
+            echo "No changed plugins found."
+            final_json="[]"
+          else
+            echo "Changed plugins: ${plugin_dirs[*]}"
+            final_json=$(printf '%s\n' "${plugin_dirs[@]}" | jq --raw-input --slurp --compact-output 'split("\n")[:-1]')
+          fi
+
+          echo "plugins=$final_json" >> "$GITHUB_OUTPUT"
+          echo "has_translation_plugins=$has_translation_plugins" >> "$GITHUB_OUTPUT"
+
   test:
-    name: Test
+    name: Test (${{ matrix.plugin }})
+    needs: find_changed_plugins
+    if: needs.find_changed_plugins.outputs.plugins != '[]'
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        plugin: [aks-desktop, ai-assistant, insights-plugin]
+        plugin: ${{ fromJson(needs.find_changed_plugins.outputs.plugins) }}
     defaults:
       run:
         working-directory: plugins/${{ matrix.plugin }}
@@ -48,11 +118,14 @@ jobs:
         run: npm test
 
   lint:
-    name: Lint & Format
+    name: Lint & Format (${{ matrix.plugin }})
+    needs: find_changed_plugins
+    if: needs.find_changed_plugins.outputs.plugins != '[]'
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        plugin: [aks-desktop, ai-assistant, insights-plugin]
+        plugin: ${{ fromJson(needs.find_changed_plugins.outputs.plugins) }}
     defaults:
       run:
         working-directory: plugins/${{ matrix.plugin }}
@@ -78,12 +151,14 @@ jobs:
         run: npm run format -- --check
 
   build:
-    name: Build
+    name: Build (${{ matrix.plugin }})
+    needs: [find_changed_plugins, test, lint]
+    if: needs.find_changed_plugins.outputs.plugins != '[]'
     runs-on: ubuntu-latest
-    needs: [test, lint]
     strategy:
+      fail-fast: false
       matrix:
-        plugin: [aks-desktop, ai-assistant, insights-plugin]
+        plugin: ${{ fromJson(needs.find_changed_plugins.outputs.plugins) }}
     defaults:
       run:
         working-directory: plugins/${{ matrix.plugin }}
@@ -119,7 +194,10 @@ jobs:
 
   translations:
     name: Translations
+    needs: find_changed_plugins
+    if: needs.find_changed_plugins.outputs.has_translation_plugins == 'true'
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -133,28 +211,26 @@ jobs:
             plugins/aks-desktop/package-lock.json
             plugins/ai-assistant/package-lock.json
 
-      - name: Install dependencies (aks)
+      - name: Install dependencies (aks-desktop)
         working-directory: plugins/aks-desktop
         run: npm ci
 
-      - name: Install dependencies (ai)
+      - name: Install dependencies (ai-assistant)
         working-directory: plugins/ai-assistant
         run: npm ci
 
-      - name: Generate English locale (aks)
+      - name: Generate English locale (aks-desktop)
         working-directory: plugins/aks-desktop
         run: npm run i18n
 
-      - name: Generate English locale (ai)
+      - name: Generate English locale (ai-assistant)
         working-directory: plugins/ai-assistant
         run: npm run i18n
 
       - name: Collect translations
-        working-directory: .
         run: npm run i18n:collect
 
       - name: Check translations are up to date
-        working-directory: .
         run: |
           if [ -n "$(git status --porcelain Localize/)" ]; then
             echo "::error::Translation files are out of date. Run 'npm run i18n:collect' locally and commit the changes."
@@ -163,11 +239,14 @@ jobs:
           fi
 
   security:
-    name: Security Scan
+    name: Security Scan (${{ matrix.plugin }})
+    needs: find_changed_plugins
+    if: needs.find_changed_plugins.outputs.plugins != '[]'
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        plugin: [aks-desktop, ai-assistant, insights-plugin]
+        plugin: ${{ fromJson(needs.find_changed_plugins.outputs.plugins) }}
     defaults:
       run:
         working-directory: plugins/${{ matrix.plugin }}
@@ -175,6 +254,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: plugins/${{ matrix.plugin }}/package-lock.json
 
       - name: Run npm audit
         run: npm audit --audit-level=moderate
