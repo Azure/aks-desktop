@@ -16,7 +16,7 @@
 
 import type { ITelemetryItem } from '@microsoft/applicationinsights-web';
 import { describe, expect, it } from 'vitest';
-import { privacyTelemetryInitializer } from '../analyticsSetup';
+import { privacyTelemetryInitializer } from './analyticsPrivacy';
 
 function makeEnvelope(overrides: Partial<ITelemetryItem> = {}): ITelemetryItem {
   return {

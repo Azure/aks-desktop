@@ -15,32 +15,8 @@
  */
 
 import { ReactPlugin } from '@microsoft/applicationinsights-react-js';
-import { ApplicationInsights, ITelemetryItem } from '@microsoft/applicationinsights-web';
-
-/**
- * Strip identifying tags and URL fields from every outgoing telemetry envelope.
- *
- * This runs on the SDK's send pipeline and is the catch-all that protects us
- * if a future SDK upgrade re-enables auto-collection or if a new call site
- * forgets the "no identifiers" rule. It is intentionally aggressive.
- *
- * Exported for unit testing.
- */
-export function privacyTelemetryInitializer(envelope: ITelemetryItem): void {
-  envelope.tags = envelope.tags ?? {};
-  delete envelope.tags['ai.user.id'];
-  delete envelope.tags['ai.user.authUserId'];
-  delete envelope.tags['ai.user.accountId'];
-  delete envelope.tags['ai.session.id'];
-  delete envelope.tags['ai.location.ip'];
-
-  const baseData = envelope.data?.baseData as Record<string, unknown> | undefined;
-  if (baseData) {
-    if ('uri' in baseData) baseData.uri = '';
-    if ('refUri' in baseData) baseData.refUri = '';
-    if ('url' in baseData) baseData.url = '';
-  }
-}
+import { ApplicationInsights } from '@microsoft/applicationinsights-web';
+import { privacyTelemetryInitializer } from './lib/analyticsPrivacy';
 
 if (import.meta.env.REACT_APP_APPINSIGHTS_CONNECTION_STRING) {
   const reactPlugin = new ReactPlugin();
