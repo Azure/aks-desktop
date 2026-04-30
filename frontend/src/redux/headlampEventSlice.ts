@@ -358,8 +358,11 @@ export const eventAction = createAction<HeadlampEvent>('headlamp/event');
  * a HeadlampEventType because it is not dispatched through the redux event
  * action — it is a direct trackEvent call. It is allowlisted here for
  * symmetry and to document the full set of names that may reach the wire.
+ *
+ * The set is module-private and only reachable through
+ * `isTelemetryEventAllowlisted` so it cannot be mutated at runtime.
  */
-export const TELEMETRY_EVENT_ALLOWLIST: ReadonlySet<string> = new Set<string>([
+const TELEMETRY_EVENT_ALLOWLIST: ReadonlySet<string> = new Set<string>([
   HeadlampEventType.ERROR_BOUNDARY,
   HeadlampEventType.DELETE_RESOURCE,
   HeadlampEventType.DELETE_RESOURCES,
@@ -380,6 +383,14 @@ export const TELEMETRY_EVENT_ALLOWLIST: ReadonlySet<string> = new Set<string>([
   'exception',
 ]);
 
+/**
+ * Whether a given event type is allowed to be forwarded to App Insights.
+ * Exposed as a predicate so the underlying set cannot be mutated.
+ */
+export function isTelemetryEventAllowlisted(type: string): boolean {
+  return TELEMETRY_EVENT_ALLOWLIST.has(type);
+}
+
 export const listenerMiddleware =
   createListenerMiddleware<Pick<RootState, 'eventCallbackReducer'>>();
 listenerMiddleware.startListening({
@@ -389,7 +400,7 @@ listenerMiddleware.startListening({
     // Forward only the event type — never action.payload.data, which can
     // contain KubeObjects, resource names/namespaces, errors, or plugin
     // metadata. The allowlist drops any type-string we have not vetted.
-    if (TELEMETRY_EVENT_ALLOWLIST.has(action.payload.type)) {
+    if (isTelemetryEventAllowlisted(action.payload.type)) {
       trackEvent(action.payload.type);
     }
     for (const trackerFunc of trackerFuncs) {
