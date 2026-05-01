@@ -37,8 +37,10 @@ if (import.meta.env.REACT_APP_APPINSIGHTS_CONNECTION_STRING) {
       isStorageUseDisabled: true,
     },
   });
-  window.appInsights.loadAppInsights();
+  // Register the privacy scrubber BEFORE loadAppInsights() so any envelope
+  // the SDK emits or queues during initialization passes through it.
   window.appInsights.addTelemetryInitializer(privacyTelemetryInitializer);
+  window.appInsights.loadAppInsights();
   // trackPageView() intentionally not called — the page URL contains
   // cluster/namespace/resource names. LIST_VIEW / DETAILS_VIEW events from
   // the redux middleware give us per-resource-kind visibility without URLs.
