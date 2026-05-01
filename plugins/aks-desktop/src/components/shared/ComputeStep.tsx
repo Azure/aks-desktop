@@ -47,7 +47,7 @@ export const ComputeStep: React.FC<ComputeStepProps> = ({
               label={t('CPU Requests')}
               type="number"
               value={formData.cpuRequest}
-              onChange={value => handleInputChange('cpuRequest', value as number)}
+              onChange={value => handleInputChange('cpuRequest', Number(value))}
               disabled={loading}
               helperText={
                 getFieldError('cpuRequest') || t('Minimum CPU guaranteed (1000m = 1 CPU core)')
@@ -80,7 +80,7 @@ export const ComputeStep: React.FC<ComputeStepProps> = ({
               label={t('CPU Limits')}
               type="number"
               value={formData.cpuLimit}
-              onChange={value => handleInputChange('cpuLimit', value as number)}
+              onChange={value => handleInputChange('cpuLimit', Number(value))}
               disabled={loading}
               helperText={
                 getFieldError('cpuLimit') || t('Maximum CPU allowed (1000m = 1 CPU core)')
@@ -116,7 +116,7 @@ export const ComputeStep: React.FC<ComputeStepProps> = ({
               label={t('Memory Requests')}
               type="number"
               value={formData.memoryRequest}
-              onChange={value => handleInputChange('memoryRequest', value as number)}
+              onChange={value => handleInputChange('memoryRequest', Number(value))}
               disabled={loading}
               helperText={
                 getFieldError('memoryRequest') || t('Minimum memory guaranteed (1024 MiB = 1 GiB)')
@@ -147,7 +147,7 @@ export const ComputeStep: React.FC<ComputeStepProps> = ({
               label={t('Memory Limits')}
               type="number"
               value={formData.memoryLimit}
-              onChange={value => handleInputChange('memoryLimit', value as number)}
+              onChange={value => handleInputChange('memoryLimit', Number(value))}
               disabled={loading}
               helperText={
                 getFieldError('memoryLimit') || t('Maximum memory allowed (1024 MiB = 1 GiB)')
