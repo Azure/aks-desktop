@@ -359,8 +359,10 @@ export const eventAction = createAction<HeadlampEvent>('headlamp/event');
  * action — it is a direct trackEvent call. It is allowlisted here for
  * symmetry and to document the full set of names that may reach the wire.
  *
- * The set is module-private and only reachable through
- * `isTelemetryEventAllowlisted` so it cannot be mutated at runtime.
+ * The set is module-private — only the `isTelemetryEventAllowlisted`
+ * predicate is exported — so external callers cannot add or remove entries.
+ * (The `Set` itself remains mutable from inside this module; treat it as
+ * read-only.)
  */
 const TELEMETRY_EVENT_ALLOWLIST: ReadonlySet<string> = new Set<string>([
   HeadlampEventType.ERROR_BOUNDARY,
