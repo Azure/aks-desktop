@@ -38,3 +38,26 @@ export const trackEvent = (name: string, properties?: Record<string, string>) =>
     console.error('Failed to track event', e);
   }
 };
+
+/**
+ * Track an exception. Forwards only the constructor name (e.g. `TypeError`,
+ * `KubeApiError`) — never the message, stack, or `Error` object itself.
+ *
+ * @deprecated Prefer `trackEvent('exception', { errorName: error.name })`.
+ * Retained as a backwards-compatible wrapper for plugins that consume
+ * `window.pluginLib.analytics.trackException`.
+ *
+ * @param error - the error to record
+ */
+export const trackException = (error: Error) => {
+  const appInsights = window.appInsights;
+  if (!appInsights) return;
+  try {
+    appInsights.trackEvent({
+      name: 'exception',
+      properties: { errorName: error?.name || 'Error' },
+    });
+  } catch (e) {
+    console.error('Failed to track exception', e);
+  }
+};
