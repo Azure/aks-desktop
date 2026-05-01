@@ -3,9 +3,16 @@
 
 import { Octokit } from '@octokit/rest';
 import { useCallback } from 'react';
-import { findLinkedPullRequest, getIssue } from '../../../utils/github/github-api';
+import {
+  findLinkedPullRequest,
+  getIssue,
+  listIssueComments,
+} from '../../../utils/github/github-api';
 import { AGENT_DISCOVERY_MAX_POLLS, POLLING_INTERVAL_MS } from '../constants';
 import { usePolling } from './usePolling';
+
+/** Reason classification for an agent run that closed without producing a PR. */
+export type AgentFailureReason = 'token-limit' | 'unknown';
 
 interface UseAgentPRDiscoveryResult {
   prUrl: string | null;
@@ -14,6 +21,8 @@ interface UseAgentPRDiscoveryResult {
   /** PR number of a draft PR the agent is still working on. */
   draftPrNumber: number | null;
   issueClosed: boolean;
+  /** Set when issueClosed is true and we could classify the failure from issue comments. */
+  failureReason: AgentFailureReason | null;
   isTimedOut: boolean;
   error: string | null;
   stopPolling: () => void;
@@ -26,6 +35,21 @@ interface AgentPRPollData {
   merged: boolean;
   draftPrNumber: number | null;
   issueClosed: boolean;
+  failureReason: AgentFailureReason | null;
+}
+
+/**
+ * Detects the Copilot evaluator's prompt-token-limit error in issue comments.
+ * The runtime posts a failure message containing the literal API error string,
+ * e.g. `prompt token count of 70921 exceeds the limit of 64000`.
+ */
+const TOKEN_LIMIT_PATTERN = /prompt token count of \d+ exceeds the limit/i;
+
+function classifyFailureFromComments(comments: Array<{ body: string }>): AgentFailureReason {
+  for (const c of comments) {
+    if (TOKEN_LIMIT_PATTERN.test(c.body)) return 'token-limit';
+  }
+  return 'unknown';
 }
 
 /**
@@ -36,7 +60,9 @@ interface AgentPRPollData {
  *    cross-referenced PRs. This is deterministic — the agent's PR references
  *    the trigger issue, creating a timeline event.
  * 2. **Issue status** (termination signal): If no linked PR is found and the
- *    issue is closed, the agent completed without creating a PR.
+ *    issue is closed, the agent completed without creating a PR. In that
+ *    case we also fetch issue comments to classify the failure (e.g. the
+ *    Copilot evaluator hitting its 64k token cap).
  *
  * @param octokit - Authenticated Octokit client. Pass null to disable.
  * @param owner - Repository owner.
@@ -66,6 +92,7 @@ export const useAgentPRDiscovery = (
             merged: linked.merged,
             draftPrNumber: null,
             issueClosed: false,
+            failureReason: null,
           };
         }
         return {
@@ -74,6 +101,7 @@ export const useAgentPRDiscovery = (
           merged: false,
           draftPrNumber: linked.number,
           issueClosed: false,
+          failureReason: null,
         };
       }
     } catch (err) {
@@ -83,12 +111,21 @@ export const useAgentPRDiscovery = (
     try {
       const issue = await getIssue(octokit, owner, repo, issueNumber);
       if (issue.state === 'closed') {
+        let failureReason: AgentFailureReason = 'unknown';
+        try {
+          const comments = await listIssueComments(octokit, owner, repo, issueNumber);
+          failureReason = classifyFailureFromComments(comments);
+        } catch (err) {
+          // Comment fetch is best-effort; default to 'unknown'.
+          console.warn('Failed to fetch issue comments for failure classification:', err);
+        }
         return {
           prUrl: null,
           prNumber: null,
           merged: false,
           draftPrNumber: null,
           issueClosed: true,
+          failureReason,
         };
       }
     } catch (err) {
@@ -116,6 +153,7 @@ export const useAgentPRDiscovery = (
   const prMerged = data?.merged ?? false;
   const draftPrNumber = data?.draftPrNumber ?? null;
   const issueClosed = data?.issueClosed ?? false;
+  const failureReason = data?.failureReason ?? null;
 
   return {
     prUrl,
@@ -123,6 +161,7 @@ export const useAgentPRDiscovery = (
     prMerged,
     draftPrNumber,
     issueClosed,
+    failureReason,
     isTimedOut,
     error,
     stopPolling,
