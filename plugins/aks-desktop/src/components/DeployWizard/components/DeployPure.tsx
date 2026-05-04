@@ -161,10 +161,13 @@ export default function DeployPure({
               borderColor: 'divider',
               borderRadius: 1,
               overflow: 'hidden',
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
             }}
           >
             <MonacoEditor
-              height="60vh"
+              height="100%"
               language="yaml"
               value={containerPreviewYaml}
               onChange={() => {}}
