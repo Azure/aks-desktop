@@ -22,8 +22,9 @@ interface ConfigureContainerProps {
   };
   /** When false, containerImage is not required to proceed past the Basics step. Default: true. */
   requireContainerImage?: boolean;
-  /** Azure context needed for workload identity setup */
   azureContext?: DeployAzureContext;
+  /** Error message from resolving the Azure context, if any. */
+  azureContextError?: string;
   /** Target namespace for workload identity setup */
   namespace?: string;
 }
@@ -32,6 +33,7 @@ export default function ConfigureContainer({
   containerConfig,
   requireContainerImage = true,
   azureContext,
+  azureContextError,
   namespace,
 }: ConfigureContainerProps) {
   const { t } = useTranslation();
@@ -93,6 +95,7 @@ export default function ConfigureContainer({
             <WorkloadIdentityStep
               containerConfig={containerConfig}
               azureContext={azureContext}
+              azureContextError={azureContextError}
               namespace={namespace}
             />
           </StepContent>

@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const telemetryMocks = vi.hoisted(() => ({ trackFeature: vi.fn() }));
 const dialogMocks = vi.hoisted(() => ({
+  open: false,
+  initialApplicationName: undefined as string | undefined,
   openDialog: vi.fn(),
   closeDialog: vi.fn(),
 }));
@@ -16,13 +18,27 @@ const deployUrlState = vi.hoisted(() => ({
   initialApplicationName: undefined as string | undefined,
   clearUrlTrigger: vi.fn(),
 }));
+const azureHookMocks = vi.hoisted(() => ({
+  useAzureContext: vi.fn(),
+  useNamespaceCapabilities: vi.fn(),
+}));
+const deployWizardMocks = vi.hoisted(() => ({ render: vi.fn() }));
 
 vi.mock('../../telemetry', () => telemetryMocks);
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
+vi.mock('../../hooks/useAzureContext', () => ({
+  useAzureContext: azureHookMocks.useAzureContext,
+}));
+vi.mock('../../hooks/useNamespaceCapabilities', () => ({
+  useNamespaceCapabilities: azureHookMocks.useNamespaceCapabilities,
+}));
 vi.mock('../DeployWizard/DeployWizard', () => ({
-  default: () => <div>Deploy wizard</div>,
+  default: (props: Record<string, unknown>) => {
+    deployWizardMocks.render(props);
+    return <div>Deploy wizard</div>;
+  },
 }));
 vi.mock('./hooks/useDeployUrlParams', () => ({
   useDeployUrlParams: () => ({
@@ -33,8 +49,8 @@ vi.mock('./hooks/useDeployUrlParams', () => ({
 }));
 vi.mock('./hooks/useDialogState', () => ({
   useDialogState: () => ({
-    open: false,
-    initialApplicationName: undefined,
+    open: dialogMocks.open,
+    initialApplicationName: dialogMocks.initialApplicationName,
     openDialog: dialogMocks.openDialog,
     closeDialog: dialogMocks.closeDialog,
   }),
@@ -47,9 +63,23 @@ describe('DeployButton telemetry', () => {
     vi.clearAllMocks();
     deployUrlState.shouldOpenDialog = false;
     deployUrlState.initialApplicationName = undefined;
+    dialogMocks.open = false;
+    dialogMocks.initialApplicationName = undefined;
+    azureHookMocks.useAzureContext.mockReturnValue({ azureContext: null, error: null });
+    azureHookMocks.useNamespaceCapabilities.mockReturnValue({
+      isManagedNamespace: false,
+      azureRbacEnabled: false,
+    });
   });
 
   afterEach(() => cleanup());
+
+  it('does not resolve Azure context while the deploy dialog is closed', () => {
+    render(<DeployButton project={{ id: 'project', clusters: ['cluster-1'], namespaces: [] }} />);
+
+    expect(azureHookMocks.useAzureContext).not.toHaveBeenCalled();
+    expect(azureHookMocks.useNamespaceCapabilities).not.toHaveBeenCalled();
+  });
 
   it('reports the deploy workflow opening from the user action', () => {
     render(<DeployButton project={{ id: 'project', clusters: [], namespaces: [] }} />);
@@ -91,5 +121,44 @@ describe('DeployButton telemetry', () => {
     expect(telemetryMocks.trackFeature).toHaveBeenCalledTimes(1);
     expect(dialogMocks.openDialog).toHaveBeenCalledTimes(1);
     expect(deployUrlState.clearUrlTrigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards Azure context and default namespace capabilities to the deploy wizard', () => {
+    dialogMocks.open = true;
+    azureHookMocks.useAzureContext.mockReturnValue({
+      azureContext: {
+        subscriptionId: 'subscription-1',
+        resourceGroup: 'resource-group-1',
+        tenantId: 'tenant-1',
+      },
+      error: 'Azure context warning',
+    });
+    azureHookMocks.useNamespaceCapabilities.mockReturnValue({
+      isManagedNamespace: true,
+      azureRbacEnabled: true,
+    });
+
+    render(<DeployButton project={{ id: 'project', clusters: ['cluster-1'], namespaces: [] }} />);
+
+    expect(azureHookMocks.useAzureContext).toHaveBeenCalledWith('cluster-1');
+    expect(azureHookMocks.useNamespaceCapabilities).toHaveBeenCalledWith({
+      subscriptionId: 'subscription-1',
+      resourceGroup: 'resource-group-1',
+      clusterName: 'cluster-1',
+      namespace: 'default',
+    });
+    expect(deployWizardMocks.render).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cluster: 'cluster-1',
+        azureContext: {
+          subscriptionId: 'subscription-1',
+          resourceGroup: 'resource-group-1',
+          clusterName: 'cluster-1',
+          isManagedNamespace: true,
+          azureRbacEnabled: true,
+        },
+        azureContextError: 'Azure context warning',
+      })
+    );
   });
 });
