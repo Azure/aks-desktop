@@ -24,6 +24,8 @@ type DeployWizardProps = {
   onClose?: () => void;
   /** Azure context for workload identity setup */
   azureContext?: DeployAzureContext;
+  /** Error message from resolving the Azure context, if any. */
+  azureContextError?: string;
 };
 
 /**
@@ -71,6 +73,7 @@ export default function DeployWizard(props: DeployWizardProps) {
               <ConfigureContainer
                 containerConfig={containerConfig}
                 azureContext={props.azureContext}
+                azureContextError={props.azureContextError}
                 namespace={props.namespace}
               />
             )}

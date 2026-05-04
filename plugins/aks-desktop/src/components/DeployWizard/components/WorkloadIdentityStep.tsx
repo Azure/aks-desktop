@@ -34,12 +34,15 @@ import {
 interface WorkloadIdentityStepProps {
   containerConfig: ContainerConfigProp;
   azureContext?: DeployAzureContext;
+  /** Error message from resolving the Azure context, if any. */
+  azureContextError?: string;
   namespace?: string;
 }
 
 export default function WorkloadIdentityStep({
   containerConfig,
   azureContext,
+  azureContextError,
   namespace,
 }: WorkloadIdentityStepProps) {
   const { t } = useTranslation();
@@ -116,7 +119,7 @@ export default function WorkloadIdentityStep({
       />
       {!azureContext && (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 5 }}>
-          {t('Azure sign-in is required to configure workload identity.')}
+          {azureContextError ?? t('Azure sign-in is required to configure workload identity.')}
         </Typography>
       )}
       {containerConfig.config.enableWorkloadIdentity && azureContext && (

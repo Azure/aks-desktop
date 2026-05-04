@@ -5,6 +5,8 @@ import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Button, Dialog } from '@mui/material';
 import React, { useEffect } from 'react';
+import { useAzureContext } from '../../hooks/useAzureContext';
+import { useNamespaceCapabilities } from '../../hooks/useNamespaceCapabilities';
 import DeployWizard from '../DeployWizard/DeployWizard';
 import { useDeployUrlParams } from './hooks/useDeployUrlParams';
 import { useDialogState } from './hooks/useDialogState';
@@ -41,6 +43,15 @@ function DeployButton({ project }: DeployButtonProps) {
   const { t } = useTranslation();
   const urlParams = useDeployUrlParams();
   const dialogState = useDialogState();
+  const cluster = project.clusters?.[0] || undefined;
+  const namespace = project.namespaces?.[0] || undefined;
+  const { azureContext, error: azureContextError } = useAzureContext(cluster);
+  const { isManagedNamespace, azureRbacEnabled } = useNamespaceCapabilities({
+    subscriptionId: azureContext?.subscriptionId,
+    resourceGroup: azureContext?.resourceGroup,
+    clusterName: cluster,
+    namespace: namespace ?? '',
+  });
 
   // Open dialog when URL parameters indicate we should
   useEffect(() => {
@@ -91,10 +102,22 @@ function DeployButton({ project }: DeployButtonProps) {
         }}
       >
         <DeployWizard
-          cluster={project.clusters?.[0] || undefined}
-          namespace={project.namespaces?.[0] || undefined}
+          cluster={cluster}
+          namespace={namespace}
           initialApplicationName={dialogState.initialApplicationName}
           onClose={handleClose}
+          azureContext={
+            azureContext && cluster
+              ? {
+                  subscriptionId: azureContext.subscriptionId,
+                  resourceGroup: azureContext.resourceGroup,
+                  clusterName: cluster,
+                  isManagedNamespace,
+                  azureRbacEnabled,
+                }
+              : undefined
+          }
+          azureContextError={azureContextError ?? undefined}
         />
       </Dialog>
     </>
