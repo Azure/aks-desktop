@@ -713,5 +713,8 @@
   "{{minutes}} min ago": "{{minutes}} minuto/i fa",
   "{{hours}}h ago": "{{hours}} ora/e fa",
   "{{days}}d ago": "{{days}} giorno/i fa",
-  "{{weeks}}w ago": "{{weeks}} settimana/e fa"
+  "{{weeks}}w ago": "{{weeks}} settimana/e fa",
+  "Tenant": "Tenant",
+  "{{count}} nodes_one": "{{count}} node",
+  "{{count}} nodes_other": "{{count}} nodes"
 }

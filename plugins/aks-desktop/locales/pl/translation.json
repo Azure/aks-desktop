@@ -725,5 +725,8 @@
   "{{minutes}} min ago": "{{minutes}} min temu",
   "{{hours}}h ago": "{{hours}} godz. temu",
   "{{days}}d ago": "{{days}} dni temu",
-  "{{weeks}}w ago": "{{weeks}} tyg. temu"
+  "{{weeks}}w ago": "{{weeks}} tyg. temu",
+  "Tenant": "Tenant",
+  "{{count}} nodes_one": "{{count}} node",
+  "{{count}} nodes_other": "{{count}} nodes"
 }

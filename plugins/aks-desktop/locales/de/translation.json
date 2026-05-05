@@ -701,5 +701,8 @@
   "{{minutes}} min ago": "Vor {{minutes}} Min.",
   "{{hours}}h ago": "Vor {{hours}} Stunde(n)",
   "{{days}}d ago": "Vor {{days}} Tag(en)",
-  "{{weeks}}w ago": "Vor {{weeks}} Woche(n)"
+  "{{weeks}}w ago": "Vor {{weeks}} Woche(n)",
+  "Tenant": "Tenant",
+  "{{count}} nodes_one": "{{count}} node",
+  "{{count}} nodes_other": "{{count}} nodes"
 }

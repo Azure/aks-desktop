@@ -107,7 +107,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           />
         )}
         loading={loading}
-        onChange={(e, newValue) => onChange(newValue?.value)}
+        onChange={(e, newValue) => onChange(newValue?.value ?? '')}
         renderOption={(props, option) => {
           const { key, ...optionProps } = props;
           return (

@@ -164,7 +164,7 @@ function CreateNamespaceContent() {
               <FormField
                 label={t('Namespace Name')}
                 value={namespaceName}
-                onChange={value => setNamespaceName(String(value).toLowerCase())}
+                onChange={value => setNamespaceName(value.toLowerCase())}
                 error={namespaceName.length > 0 && !NAMESPACE_NAME_REGEX.test(namespaceName)}
                 helperText={
                   namespaceName.length > 0 && !NAMESPACE_NAME_REGEX.test(namespaceName)

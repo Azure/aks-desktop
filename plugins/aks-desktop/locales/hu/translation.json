@@ -701,5 +701,8 @@
   "{{minutes}} min ago": "{{minutes}} perce",
   "{{hours}}h ago": "{{hours}} órája",
   "{{days}}d ago": "{{days}} napja",
-  "{{weeks}}w ago": "{{weeks}} hete"
+  "{{weeks}}w ago": "{{weeks}} hete",
+  "Tenant": "Tenant",
+  "{{count}} nodes_one": "{{count}} node",
+  "{{count}} nodes_other": "{{count}} nodes"
 }

@@ -8,7 +8,7 @@ import React from 'react';
 export interface FormFieldProps {
   label: string;
   value: string | number;
-  onChange: (value: string | number) => void;
+  onChange: (value: string) => void;
   type?: 'text' | 'email' | 'number' | 'textarea';
   multiline?: boolean;
   rows?: number;
@@ -49,7 +49,7 @@ export const FormField: React.FC<FormFieldProps> = ({
       const numValue = parseFloat(event.target.value) || 0;
       // Prevent negative values for number inputs
       const validValue = Math.max(0, numValue);
-      onChange(validValue);
+      onChange(String(validValue));
     } else {
       onChange(event.target.value);
     }

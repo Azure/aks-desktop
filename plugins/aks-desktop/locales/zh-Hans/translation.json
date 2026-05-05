@@ -700,5 +700,8 @@
   "Merging cluster {{clusterName}} ({{count}} namespace(s))_one": "合并群集“{{clusterName}}”({{count}} 个命名空间)",
   "Resources to be deployed ({{count}} object)_one": "要部署的资源({{count}} 个对象)",
   "Successfully merged {{count}} cluster(s)_one": "已成功合并 {{count}} 个群集",
-  "with {{count}} project(s)_one": "具有 {{count}} 个项目"
+  "with {{count}} project(s)_one": "具有 {{count}} 个项目",
+  "Tenant": "Tenant",
+  "{{count}} nodes_one": "{{count}} node",
+  "{{count}} nodes_other": "{{count}} nodes"
 }

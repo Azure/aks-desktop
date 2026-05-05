@@ -700,5 +700,8 @@
   "Merging cluster {{clusterName}} ({{count}} namespace(s))_one": "{{clusterName}} 클러스터 병합(네임스페이스 {{count}}개)",
   "Resources to be deployed ({{count}} object)_one": "배포할 리소스({{count}}개 개체)",
   "Successfully merged {{count}} cluster(s)_one": "클러스터를 {{count}}개를 병합함",
-  "with {{count}} project(s)_one": "프로젝트 {{count}}개 포함"
+  "with {{count}} project(s)_one": "프로젝트 {{count}}개 포함",
+  "Tenant": "Tenant",
+  "{{count}} nodes_one": "{{count}} node",
+  "{{count}} nodes_other": "{{count}} nodes"
 }

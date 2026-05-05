@@ -700,5 +700,8 @@
   "Merging cluster {{clusterName}} ({{count}} namespace(s))_one": "正在合併叢集 {{clusterName}} ({{count}} 個命名空間)",
   "Resources to be deployed ({{count}} object)_one": "要部署的資源 ({{count}} 個物件)",
   "Successfully merged {{count}} cluster(s)_one": "已成功合併 {{count}} 個叢集",
-  "with {{count}} project(s)_one": "具有 {{count}} 個專案"
+  "with {{count}} project(s)_one": "具有 {{count}} 個專案",
+  "Tenant": "Tenant",
+  "{{count}} nodes_one": "{{count}} node",
+  "{{count}} nodes_other": "{{count}} nodes"
 }

@@ -713,5 +713,8 @@
   "{{minutes}} min ago": "Il y a {{minutes}}\u00a0min",
   "{{hours}}h ago": "Il y a {{hours}}\u00a0heures",
   "{{days}}d ago": "Il y a {{days}}\u00a0jours",
-  "{{weeks}}w ago": "Il y a {{weeks}}\u00a0semaines"
+  "{{weeks}}w ago": "Il y a {{weeks}}\u00a0semaines",
+  "Tenant": "Tenant",
+  "{{count}} nodes_one": "{{count}} node",
+  "{{count}} nodes_other": "{{count}} nodes"
 }

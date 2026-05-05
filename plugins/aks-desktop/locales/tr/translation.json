@@ -701,5 +701,8 @@
   "{{minutes}} min ago": "{{minutes}} dakika önce",
   "{{hours}}h ago": "{{hours}} saat önce",
   "{{days}}d ago": "{{days}} gün önce",
-  "{{weeks}}w ago": "{{weeks}} hafta önce"
+  "{{weeks}}w ago": "{{weeks}} hafta önce",
+  "Tenant": "Tenant",
+  "{{count}} nodes_one": "{{count}} node",
+  "{{count}} nodes_other": "{{count}} nodes"
 }
