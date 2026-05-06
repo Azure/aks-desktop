@@ -16,6 +16,7 @@
 
 import { ReactPlugin } from '@microsoft/applicationinsights-react-js';
 import { ApplicationInsights } from '@microsoft/applicationinsights-web';
+import { privacyTelemetryInitializer } from './lib/analyticsPrivacy';
 
 if (import.meta.env.REACT_APP_APPINSIGHTS_CONNECTION_STRING) {
   const reactPlugin = new ReactPlugin();
@@ -23,8 +24,24 @@ if (import.meta.env.REACT_APP_APPINSIGHTS_CONNECTION_STRING) {
     config: {
       connectionString: import.meta.env.REACT_APP_APPINSIGHTS_CONNECTION_STRING,
       extensions: [reactPlugin],
+
+      // Don't auto-collect anything that carries identifiers.
+      disableAjaxTracking: true, // K8s API URLs contain ns/resource names
+      disableFetchTracking: true, // Azure ARM URLs likewise
+      disableExceptionTracking: true, // we route exceptions ourselves, scrubbed
+      enableAutoRouteTracking: false, // don't auto-fire pageviews on URL change
+      autoTrackPageVisitTime: false,
+
+      // Drop user/session correlation.
+      disableCookiesUsage: true,
+      isStorageUseDisabled: true,
     },
   });
+  // Register the privacy scrubber BEFORE loadAppInsights() so any envelope
+  // the SDK emits or queues during initialization passes through it.
+  window.appInsights.addTelemetryInitializer(privacyTelemetryInitializer);
   window.appInsights.loadAppInsights();
-  window.appInsights.trackPageView();
+  // trackPageView() intentionally not called — the page URL contains
+  // cluster/namespace/resource names. LIST_VIEW / DETAILS_VIEW events from
+  // the redux middleware give us per-resource-kind visibility without URLs.
 }
