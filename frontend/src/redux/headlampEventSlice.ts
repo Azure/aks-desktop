@@ -360,9 +360,10 @@ export const eventAction = createAction<HeadlampEvent>('headlamp/event');
  * symmetry and to document the full set of names that may reach the wire.
  *
  * The set is module-private — only the `isTelemetryEventAllowlisted`
- * predicate is exported — so external callers cannot add or remove entries.
- * (The `Set` itself remains mutable from inside this module; treat it as
- * read-only.)
+ * predicate is exported — and typed as `ReadonlySet<string>`, so neither
+ * external callers nor code inside this module can add or remove entries
+ * at runtime. New event types must be opted into telemetry explicitly by
+ * editing this list.
  */
 const TELEMETRY_EVENT_ALLOWLIST: ReadonlySet<string> = new Set<string>([
   HeadlampEventType.ERROR_BOUNDARY,

@@ -23,8 +23,11 @@ import type { ITelemetryItem } from '@microsoft/applicationinsights-web';
  * if a future SDK upgrade re-enables auto-collection or if a new call site
  * forgets the "no identifiers" rule. It is intentionally aggressive.
  *
- * Pure function — kept in a side-effect-free module so it can be unit-tested
- * without dragging the AppInsights bootstrap into the test's module graph.
+ * Mutates the provided `envelope` in place (as required by the
+ * `ITelemetryItem` initializer contract). Deterministic and free of external
+ * side effects — it touches only the envelope it is given, so it can be
+ * unit-tested without dragging the AppInsights bootstrap into the test's
+ * module graph.
  */
 export function privacyTelemetryInitializer(envelope: ITelemetryItem): void {
   envelope.tags = envelope.tags ?? {};
