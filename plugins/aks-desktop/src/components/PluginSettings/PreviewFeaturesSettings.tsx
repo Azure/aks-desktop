@@ -41,6 +41,26 @@ export default function PreviewFeaturesSettings() {
         }
         sx={{ alignItems: 'flex-start', ml: 0, mt: 1 }}
       />
+
+      <FormControlLabel
+        control={
+          <Switch
+            checked={config.bareMetalEnvironment}
+            onChange={(_e, checked) => handleToggle('bareMetalEnvironment', checked)}
+          />
+        }
+        label={
+          <Box>
+            <Typography variant="body1">{t('BareMetal Test Environment')}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {t(
+                'Enable setup and teardown of AKS BareMetal test environments using the aksArc jumpstart scripts.'
+              )}
+            </Typography>
+          </Box>
+        }
+        sx={{ alignItems: 'flex-start', ml: 0, mt: 1 }}
+      />
     </Box>
   );
 }

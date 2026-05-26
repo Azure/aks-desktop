@@ -18,6 +18,8 @@ import {
 } from '@mui/material';
 import React from 'react';
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
+import BareMetalProxyPanel from '../BareMetal/BareMetalProxyPanel';
+import type { BareMetalProxyStatus } from '../BareMetal/proxy';
 import { ClusterConfigurePanel } from '../CreateAKSProject/components/ClusterConfigurePanel';
 
 export interface Subscription {
@@ -33,6 +35,7 @@ export interface AKSCluster {
   location: string;
   kubernetesVersion: string;
   provisioningState: string;
+  clusterType?: 'aks' | 'aksarc';
 }
 
 export interface RegisterAKSClusterDialogPureProps {
@@ -63,6 +66,15 @@ export interface RegisterAKSClusterDialogPureProps {
   onDismissError: () => void;
   onDismissSuccess: () => void;
   onConfigured?: () => void;
+  proxyStatus: BareMetalProxyStatus | null;
+  proxyActionLoading: boolean;
+  proxyUiError: string;
+  proxyDropped: boolean;
+  onProxyRefresh: () => void;
+  onProxyStart: () => void;
+  onProxyStop: () => void;
+  onProxyRestart: () => void;
+  onDismissProxyDropped: () => void;
 }
 
 export default function RegisterAKSClusterDialogPure({
@@ -93,8 +105,23 @@ export default function RegisterAKSClusterDialogPure({
   onDismissError,
   onDismissSuccess,
   onConfigured,
+  proxyStatus,
+  proxyActionLoading,
+  proxyUiError,
+  proxyDropped,
+  onProxyRefresh,
+  onProxyStart,
+  onProxyStop,
+  onProxyRestart,
+  onDismissProxyDropped,
 }: RegisterAKSClusterDialogPureProps) {
   const { t } = useTranslation();
+  const isBareMetalCluster = (selectedCluster?.clusterType || 'aks') === 'aksarc';
+  const handleOpenProxyControls = () => {
+    const panel = document.getElementById('baremetal-proxy-controls');
+    panel?.scrollIntoView({ behavior: 'smooth' });
+    panel?.focus();
+  };
 
   return (
     <Dialog
@@ -124,6 +151,27 @@ export default function RegisterAKSClusterDialogPure({
           {success && (
             <Alert severity="success" onClose={onDismissSuccess}>
               {success}
+            </Alert>
+          )}
+
+          {proxyUiError && <Alert severity="error">{proxyUiError}</Alert>}
+
+          {proxyDropped && isBareMetalCluster && (
+            <Alert
+              severity="warning"
+              onClose={onDismissProxyDropped}
+              action={
+                <Box display="flex" gap={1}>
+                  <Button color="inherit" size="small" onClick={onProxyRestart}>
+                    {t('Restart Proxy')}
+                  </Button>
+                  <Button color="inherit" size="small" onClick={handleOpenProxyControls}>
+                    {t('Open Proxy Controls')}
+                  </Button>
+                </Box>
+              }
+            >
+              {t('BareMetal proxy disconnected')}
             </Alert>
           )}
 
@@ -254,13 +302,13 @@ export default function RegisterAKSClusterDialogPure({
                 <Box display="flex" alignItems="center" gap={1}>
                   <CircularProgress size={20} aria-hidden="true" />
                   <Typography variant="body2" color="textSecondary">
-                    {t('Loading AKS clusters')}...
+                    {t('Loading AKS/BareMetal clusters')}...
                   </Typography>
                 </Box>
               )}
 
               {!loadingClusters && selectedSubscription && clusters.length === 0 && (
-                <Alert severity="info">{t('No AKS clusters found in this subscription.')}</Alert>
+                <Alert severity="info">{t('No clusters found in this subscription.')}</Alert>
               )}
 
               {!loadingClusters && selectedSubscription && clusters.length > 0 && (
@@ -280,8 +328,8 @@ export default function RegisterAKSClusterDialogPure({
                   renderInput={params => (
                     <TextField
                       {...params}
-                      label={t('AKS Cluster')}
-                      placeholder={t('Select an AKS cluster')}
+                      label={t('Cluster')}
+                      placeholder={t('Select a cluster')}
                     />
                   )}
                   renderOption={(props, option) => (
@@ -289,7 +337,8 @@ export default function RegisterAKSClusterDialogPure({
                       <Box width="100%">
                         <Typography variant="body1">{option.name}</Typography>
                         <Typography variant="caption" color="textSecondary">
-                          {option.location} • v{option.kubernetesVersion} •{' '}
+                          {(option.clusterType || 'aks').toUpperCase()} • {option.location} •{' '}
+                          {option.kubernetesVersion ? `v${option.kubernetesVersion} • ` : ''}
                           {option.provisioningState}
                         </Typography>
                       </Box>
@@ -306,9 +355,11 @@ export default function RegisterAKSClusterDialogPure({
                   role="region"
                   aria-label={t('Selected Cluster Details')}
                 >
-                  <Typography variant="subtitle2" component="p" gutterBottom>
-                    {t('Selected Cluster Details')}
-                  </Typography>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                    <Typography variant="subtitle2" component="p">
+                      {t('Selected Cluster Details')}
+                    </Typography>
+                  </Box>
                   <Typography variant="body2">
                     <strong>{t('Name')}:</strong> {selectedCluster.name}
                   </Typography>
@@ -323,6 +374,21 @@ export default function RegisterAKSClusterDialogPure({
                   </Typography>
                 </Box>
               )}
+
+              {selectedCluster &&
+                clusterInputValue === selectedCluster.name &&
+                isBareMetalCluster && (
+                  <BareMetalProxyPanel
+                    panelId="baremetal-proxy-controls"
+                    proxyStatus={proxyStatus}
+                    proxyActionLoading={proxyActionLoading}
+                    disabled={!selectedSubscription}
+                    onProxyStart={onProxyStart}
+                    onProxyStop={onProxyStop}
+                    onProxyRestart={onProxyRestart}
+                    onProxyRefresh={onProxyRefresh}
+                  />
+                )}
             </>
           )}
           {/* Persistent live region for loading status announcements.
@@ -349,7 +415,7 @@ export default function RegisterAKSClusterDialogPure({
               : loadingSubscriptions
               ? `${t('Loading subscriptions')}...`
               : loadingClusters
-              ? `${t('Loading AKS clusters')}...`
+              ? `${t('Loading clusters')}...`
               : capabilitiesLoading
               ? 'Checking cluster capabilities...'
               : ''}

@@ -95,8 +95,19 @@ To get started with AKS desktop, follow these steps:
 ## Documentation
 
 - [Cluster Requirements](docs/cluster-requirements.md) — What your AKS cluster needs for the best AKS desktop experience
+- [BareMetal Testing](docs/baremetal-testing.md) — How to set up and tear down an AKS BareMetal test environment
+- [BareMetal Support](docs/baremetal-support.md) — AKS Desktop UI experience for BareMetal clusters
 - [AKS Desktop Documentation](https://aka.ms/aks/aks-desktop)
 - [AKS Managed Namespaces](https://learn.microsoft.com/en-us/azure/aks/managed-namespaces)
+
+### Additional Scripts
+
+| Script | Description |
+| --- | --- |
+| `npm run setupBareMetalEnv` | Provision an AKS BareMetal test environment (VM + Hyper-V) in Azure |
+| `npm run teardownBareMetalEnv` | Delete the BareMetal test environment resource group |
+
+See [BareMetal Testing](docs/baremetal-testing.md) for full usage and options.
 
 ## Contributing
 

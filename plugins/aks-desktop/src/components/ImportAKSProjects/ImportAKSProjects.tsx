@@ -9,7 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { DiscoveredNamespace, useNamespaceDiscovery } from '../../hooks/useNamespaceDiscovery';
 import { useRegisteredClusters } from '../../hooks/useRegisteredClusters';
-import { getSubscriptions, registerAKSCluster } from '../../utils/azure/aks';
+import { registerAKSCluster } from '../../utils/azure/aks';
 import { applyProjectLabels } from '../../utils/kubernetes/namespaceUtils';
 import { getClusterSettings, setClusterSettings } from '../../utils/shared/clusterSettings';
 import AzureAuthGuard from '../AzureAuth/AzureAuthGuard';
@@ -122,21 +122,6 @@ function ImportAKSProjectsContent() {
       message: string;
     }> = [];
 
-    // Build a subscription -> tenant lookup for multi-tenant token support
-    const tenantBySubscription = new Map<string, string>();
-    try {
-      const subsResult = await getSubscriptions();
-      if (subsResult.success && subsResult.subscriptions) {
-        for (const sub of subsResult.subscriptions) {
-          tenantBySubscription.set(sub.id, sub.tenantId);
-        }
-      } else if (!subsResult.success) {
-        console.warn('Failed to fetch subscriptions for tenant lookup:', subsResult.message);
-      }
-    } catch (err) {
-      console.warn('Failed to fetch subscriptions for tenant lookup', err);
-    }
-
     // Build a lookup of cluster -> Azure metadata from ALL discovered namespaces
     // (not just selected). This ensures we have Azure metadata for clusters even
     // when the user only selects namespaces that were discovered via K8s API.
@@ -222,8 +207,7 @@ function ImportAKSProjectsContent() {
             subscriptionId,
             resourceGroup,
             clusterName,
-            undefined, // managedNamespace
-            tenantBySubscription.get(subscriptionId)
+            undefined // managedNamespace
           );
 
           if (!registerResult.success) {

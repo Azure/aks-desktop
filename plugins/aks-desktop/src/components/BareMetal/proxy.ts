@@ -1,0 +1,373 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the Apache 2.0.
+
+import { K8s } from '@kinvolk/headlamp-plugin/lib';
+
+declare const pluginRunCommand: (
+  command: string,
+  args: string[],
+  options: Record<string, unknown>
+) => ReturnType<typeof import('@kinvolk/headlamp-plugin/lib').runCommand>;
+
+/** Status snapshot returned by BareMetal proxy lifecycle functions. */
+export interface BareMetalProxyStatus {
+  /** Whether the operation itself succeeded. */
+  success: boolean;
+  /** Current proxy state. */
+  status: 'stopped' | 'starting' | 'running' | 'error';
+  /** Most recent error message, if any. */
+  lastError?: string;
+  /** OS process ID of the running proxy, when available. */
+  pid?: number;
+}
+
+/** Internal bookkeeping for a running `az connectedk8s proxy` process. */
+interface BareMetalProxySession {
+  /** The child-process handle; `undefined` after the process exits. */
+  cmd?: ReturnType<typeof import('@kinvolk/headlamp-plugin/lib').runCommand>;
+  /** Mirrors {@link BareMetalProxyStatus.status}. */
+  status: BareMetalProxyStatus['status'];
+  /** Most recent error message, if any. */
+  lastError?: string;
+  /** OS process ID, when available. */
+  pid?: number;
+}
+
+/** In-memory map of active BareMetal proxy sessions, keyed by `subscription/resourceGroup/cluster`. */
+const bareMetalProxySessions = new Map<string, BareMetalProxySession>();
+
+/**
+ * Probes whether a cluster is reachable by listing its Kubernetes namespaces.
+ *
+ * @param clusterName - The cluster name to probe.
+ * @returns A result indicating reachability plus any error detail.
+ */
+export function checkClusterReachable(
+  clusterName: string
+): Promise<{ success: boolean; error?: string }> {
+  return new Promise(resolve => {
+    let settled = false;
+    let cancel: (() => void) | undefined;
+
+    const finish = (result: { success: boolean; error?: string }) => {
+      if (!settled) {
+        settled = true;
+        if (cancel) {
+          cancel();
+        }
+        resolve(result);
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      finish({ success: false, error: 'Timed out checking cluster reachability' });
+    }, 5000);
+
+    try {
+      cancel = K8s.ResourceClasses.Namespace.apiList(
+        () => {
+          clearTimeout(timeout);
+          finish({ success: true });
+        },
+        (error: unknown) => {
+          clearTimeout(timeout);
+          finish({ success: false, error: error instanceof Error ? error.message : String(error) });
+        },
+        { cluster: clusterName }
+      );
+    } catch (error) {
+      clearTimeout(timeout);
+      finish({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+}
+
+/**
+ * Reconciles the in-memory proxy session with actual cluster reachability.
+ *
+ * After a page reload the process handle is lost, so this function probes
+ * the cluster and updates the session map accordingly.
+ *
+ * @param subscriptionId - Azure subscription GUID.
+ * @param resourceGroup - Resource group containing the cluster.
+ * @param clusterName - Name of the BareMetal cluster.
+ * @returns The reconciled proxy status.
+ */
+async function reconcileBareMetalProxyStatus(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string
+): Promise<BareMetalProxyStatus> {
+  const key = bareMetalProxyKey(subscriptionId, resourceGroup, clusterName);
+
+  const probe = await checkClusterReachable(clusterName);
+
+  if (probe.success) {
+    const reconciled: BareMetalProxySession = {
+      status: 'running',
+      lastError: undefined,
+      pid: undefined,
+    };
+    bareMetalProxySessions.set(key, reconciled);
+    return {
+      success: true,
+      status: 'running',
+    };
+  }
+
+  const previous = bareMetalProxySessions.get(key);
+  const stopped: BareMetalProxySession = {
+    status: 'stopped',
+    lastError: probe.error || previous?.lastError,
+    pid: undefined,
+  };
+  bareMetalProxySessions.set(key, stopped);
+  return {
+    success: true,
+    status: 'stopped',
+    lastError: stopped.lastError,
+  };
+}
+
+/** Builds the composite map key for an BareMetal proxy session. */
+export function bareMetalProxyKey(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string
+): string {
+  return `${subscriptionId}/${resourceGroup}/${clusterName}`;
+}
+
+/**
+ * Returns the current status of an BareMetal proxy session.
+ *
+ * If no in-memory session exists (e.g. after a page reload), the cluster is
+ * probed for reachability and the status is reconciled automatically.
+ *
+ * @param subscriptionId - Azure subscription GUID.
+ * @param resourceGroup - Resource group containing the cluster.
+ * @param clusterName - Name of the BareMetal cluster.
+ */
+export async function getBareMetalProxyStatus(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string
+): Promise<BareMetalProxyStatus> {
+  const key = bareMetalProxyKey(subscriptionId, resourceGroup, clusterName);
+  const session = bareMetalProxySessions.get(key);
+
+  // Reconcile after reload/restart where in-memory process handle may be gone.
+  if (!session || !session.cmd) {
+    return reconcileBareMetalProxyStatus(subscriptionId, resourceGroup, clusterName);
+  }
+
+  return {
+    success: true,
+    status: session.status,
+    lastError: session.lastError,
+    pid: session.pid,
+  };
+}
+
+/**
+ * Starts an `az connectedk8s proxy` process for the given BareMetal cluster.
+ *
+ * If a proxy is already running (or the cluster is already reachable after a
+ * page reload), the existing status is returned without spawning a duplicate.
+ *
+ * @param subscriptionId - Azure subscription GUID.
+ * @param resourceGroup - Resource group containing the cluster.
+ * @param clusterName - Name of the BareMetal cluster.
+ */
+export async function startBareMetalProxy(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string
+): Promise<BareMetalProxyStatus> {
+  if (typeof pluginRunCommand === 'undefined') {
+    return {
+      success: false,
+      status: 'error',
+      lastError: 'pluginRunCommand is not available.',
+    };
+  }
+
+  const key = bareMetalProxyKey(subscriptionId, resourceGroup, clusterName);
+  const existing = bareMetalProxySessions.get(key);
+
+  // If process handle is gone (after reload), reconcile first so we don't start duplicates.
+  if (!existing || !existing.cmd) {
+    const reconciled = await reconcileBareMetalProxyStatus(
+      subscriptionId,
+      resourceGroup,
+      clusterName
+    );
+    if (reconciled.status === 'running') {
+      return reconciled;
+    }
+  }
+
+  if (existing && (existing.status === 'running' || existing.status === 'starting')) {
+    return {
+      success: true,
+      status: existing.status,
+      lastError: existing.lastError,
+      pid: existing.pid,
+    };
+  }
+
+  try {
+    const cmd = pluginRunCommand(
+      'az',
+      [
+        'connectedk8s',
+        'proxy',
+        '--subscription',
+        subscriptionId,
+        '--resource-group',
+        resourceGroup,
+        '--name',
+        clusterName,
+      ],
+      {}
+    );
+
+    const session: BareMetalProxySession = {
+      cmd,
+      status: 'starting',
+      pid: (cmd as any).pid,
+    };
+    bareMetalProxySessions.set(key, session);
+
+    cmd.stdout.on('data', () => {
+      const latest = bareMetalProxySessions.get(key);
+      if (latest) {
+        latest.status = 'running';
+        latest.lastError = undefined;
+        bareMetalProxySessions.set(key, latest);
+      }
+    });
+
+    cmd.stderr.on('data', (data: string) => {
+      const latest = bareMetalProxySessions.get(key);
+      if (latest) {
+        const msg = data.toString().trim();
+        // Azure CLI frequently writes warnings/progress to stderr even when healthy.
+        // Only escalate to an error state when the process is not yet running and the
+        // message looks like a genuine error (not a warning or informational line).
+        const isWarning =
+          /^\s*(WARNING|warn(ing)?)\b/i.test(msg) || /^\s*\[.*\]\s*(WARNING|Info)/i.test(msg);
+        if (!isWarning) {
+          latest.lastError = msg;
+          if (latest.status !== 'running') {
+            latest.status = 'error';
+          }
+        }
+        bareMetalProxySessions.set(key, latest);
+      }
+    });
+
+    cmd.on('exit', (code: number | null) => {
+      const latest = bareMetalProxySessions.get(key);
+      if (!latest) {
+        return;
+      }
+      latest.status = code === 0 ? 'stopped' : 'error';
+      if (code !== 0 && !latest.lastError) {
+        latest.lastError = `Proxy exited with code ${code}`;
+      }
+      latest.cmd = undefined;
+      bareMetalProxySessions.set(key, latest);
+    });
+
+    cmd.on('error', (errOrCode: unknown) => {
+      const latest = bareMetalProxySessions.get(key);
+      if (!latest) {
+        return;
+      }
+      latest.status = 'error';
+      latest.cmd = undefined;
+      latest.lastError =
+        errOrCode instanceof Error ? errOrCode.message : `Proxy failed: ${String(errOrCode)}`;
+      bareMetalProxySessions.set(key, latest);
+    });
+
+    return {
+      success: true,
+      status: 'starting',
+      pid: session.pid,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      status: 'error',
+      lastError: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Stops a running `az connectedk8s proxy` process for the given BareMetal cluster.
+ *
+ * If no proxy session exists the call is a no-op and returns `'stopped'`.
+ *
+ * @param subscriptionId - Azure subscription GUID.
+ * @param resourceGroup - Resource group containing the cluster.
+ * @param clusterName - Name of the BareMetal cluster.
+ */
+export async function stopBareMetalProxy(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string
+): Promise<BareMetalProxyStatus> {
+  const key = bareMetalProxyKey(subscriptionId, resourceGroup, clusterName);
+  const session = bareMetalProxySessions.get(key);
+
+  if (!session || !session.cmd) {
+    return {
+      success: true,
+      status: 'stopped',
+    };
+  }
+
+  try {
+    if (typeof (session.cmd as any).kill === 'function') {
+      (session.cmd as any).kill();
+    }
+    session.status = 'stopped';
+    session.cmd = undefined;
+    bareMetalProxySessions.set(key, session);
+    return {
+      success: true,
+      status: 'stopped',
+      lastError: session.lastError,
+      pid: session.pid,
+    };
+  } catch (error) {
+    session.status = 'error';
+    session.lastError = error instanceof Error ? error.message : 'Unknown error';
+    bareMetalProxySessions.set(key, session);
+    return {
+      success: false,
+      status: 'error',
+      lastError: session.lastError,
+      pid: session.pid,
+    };
+  }
+}
+
+/**
+ * Restarts the BareMetal proxy by stopping and then starting it again.
+ *
+ * @param subscriptionId - Azure subscription GUID.
+ * @param resourceGroup - Resource group containing the cluster.
+ * @param clusterName - Name of the BareMetal cluster.
+ */
+export async function restartBareMetalProxy(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string
+): Promise<BareMetalProxyStatus> {
+  await stopBareMetalProxy(subscriptionId, resourceGroup, clusterName);
+  return startBareMetalProxy(subscriptionId, resourceGroup, clusterName);
+}

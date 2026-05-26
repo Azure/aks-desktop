@@ -22,6 +22,7 @@ const SAMPLE_CLUSTERS = [
     location: 'eastus',
     kubernetesVersion: '1.28.5',
     provisioningState: 'Succeeded',
+    clusterType: 'aks' as const,
   },
   {
     name: 'dev-aks-cluster',
@@ -29,8 +30,18 @@ const SAMPLE_CLUSTERS = [
     location: 'westus2',
     kubernetesVersion: '1.29.0',
     provisioningState: 'Succeeded',
+    clusterType: 'aks' as const,
   },
 ];
+
+const SAMPLE_BAREMETAL_CLUSTER = {
+  name: 'edge-arc-cluster',
+  resourceGroup: 'edge-rg',
+  location: 'westus3',
+  kubernetesVersion: '',
+  provisioningState: 'Connected',
+  clusterType: 'aksarc' as const,
+};
 
 const baseArgs: RegisterAKSClusterDialogPureProps = {
   open: true,
@@ -60,6 +71,15 @@ const baseArgs: RegisterAKSClusterDialogPureProps = {
   onDismissError: noOp,
   onDismissSuccess: noOp,
   onConfigured: noOp,
+  proxyStatus: { success: true, status: 'stopped' },
+  proxyActionLoading: false,
+  proxyUiError: '',
+  proxyDropped: false,
+  onProxyRefresh: noOp,
+  onProxyStart: noOp,
+  onProxyStop: noOp,
+  onProxyRestart: noOp,
+  onDismissProxyDropped: noOp,
 };
 
 export default {
@@ -134,6 +154,51 @@ ClusterSelected.args = {
   filteredClusters: SAMPLE_CLUSTERS,
   selectedCluster: SAMPLE_CLUSTERS[0],
   clusterInputValue: SAMPLE_CLUSTERS[0].name,
+};
+
+/** BareMetal cluster selected — proxy controls visible with stopped status. */
+export const BareMetalProxyStopped = Template.bind({});
+BareMetalProxyStopped.args = {
+  ...baseArgs,
+  selectedSubscription: SAMPLE_SUBSCRIPTIONS[0],
+  clusters: [...SAMPLE_CLUSTERS, SAMPLE_BAREMETAL_CLUSTER],
+  filteredClusters: [...SAMPLE_CLUSTERS, SAMPLE_BAREMETAL_CLUSTER],
+  selectedCluster: SAMPLE_BAREMETAL_CLUSTER,
+  clusterInputValue: SAMPLE_BAREMETAL_CLUSTER.name,
+  proxyStatus: { success: true, status: 'stopped' },
+};
+
+/** BareMetal cluster selected — proxy is running and shows process metadata. */
+export const BareMetalProxyRunning = Template.bind({});
+BareMetalProxyRunning.args = {
+  ...BareMetalProxyStopped.args,
+  proxyStatus: { success: true, status: 'running', pid: 4242 },
+};
+
+/** BareMetal cluster selected — proxy failed and last error is visible. */
+export const BareMetalProxyError = Template.bind({});
+BareMetalProxyError.args = {
+  ...BareMetalProxyStopped.args,
+  proxyStatus: {
+    success: true,
+    status: 'error',
+    lastError: 'Unable to reach BareMetal proxy endpoint. Start the proxy and try again.',
+  },
+};
+
+/** BareMetal cluster selected — proxy action buttons disabled while action runs. */
+export const BareMetalProxyActionLoading = Template.bind({});
+BareMetalProxyActionLoading.args = {
+  ...BareMetalProxyStopped.args,
+  proxyActionLoading: true,
+};
+
+/** BareMetal cluster selected — proxy dropped warning with recovery actions. */
+export const BareMetalProxyDropped = Template.bind({});
+BareMetalProxyDropped.args = {
+  ...BareMetalProxyStopped.args,
+  proxyDropped: true,
+  proxyStatus: { success: true, status: 'stopped', lastError: 'Proxy disconnected unexpectedly.' },
 };
 
 /** Registration in progress — Register button shows spinner and "Registering...". */
