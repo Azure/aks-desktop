@@ -27,7 +27,7 @@ import (
 
 var (
 	Version = "unknown"
-	AppName = "Headlamp"
+	AppName = "AKS-desktop"
 )
 
 // userAgentRoundTripper wraps an http.RoundTripper and adds a Headlamp User-Agent header.
