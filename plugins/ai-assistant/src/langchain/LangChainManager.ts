@@ -114,6 +114,20 @@ export default class LangChainManager extends AIManager {
       model: sanitizeString(config.model),
     };
 
+    const normalizeCopilotModel = (model: string): string => {
+      const trimmed = model.trim();
+      if (!trimmed) {
+        return trimmed;
+      }
+      // The Copilot models catalog can return qualified IDs like "openai/gpt-4.1".
+      // The chat completions endpoint expects the bare model ID, so strip any leading "provider/" prefix.
+      const slashIndex = trimmed.indexOf('/');
+      if (slashIndex > -1 && slashIndex < trimmed.length - 1) {
+        return trimmed.slice(slashIndex + 1);
+      }
+      return trimmed;
+    };
+
     try {
       switch (providerId) {
         case 'openai':
@@ -168,6 +182,21 @@ export default class LangChainManager extends AIManager {
             apiKey: sanitizedConfig.apiKey,
             model: sanitizedConfig.model,
             verbose: true,
+          });
+        }
+        case 'copilot': {
+          if (!sanitizedConfig.apiKey) {
+            throw new Error(
+              'GitHub token is required for GitHub Copilot. Use a PAT or log in with `gh auth login`.'
+            );
+          }
+          return new ChatOpenAI({
+            apiKey: sanitizedConfig.apiKey,
+            modelName: normalizeCopilotModel(sanitizedConfig.model),
+            verbose: true,
+            configuration: {
+              baseURL: 'https://api.githubcopilot.com',
+            },
           });
         }
         case 'local': {

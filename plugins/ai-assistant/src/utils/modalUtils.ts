@@ -123,6 +123,15 @@ export function getProviderModelsForChat(
 }
 
 export function getModelDisplayName(model: string): string {
-  // You can customize this if you want more user-friendly names
-  return model;
+  const value = String(model || '').trim();
+  if (!value) {
+    return value;
+  }
+
+  const slashIndex = value.indexOf('/');
+  if (slashIndex > -1 && slashIndex < value.length - 1) {
+    return value.slice(slashIndex + 1);
+  }
+
+  return value;
 }

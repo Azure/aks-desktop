@@ -31,6 +31,8 @@ import {
   getClustersFromHeadlampConfig,
 } from './agent/aksAgentManager';
 import { ModelSelector } from './components';
+import DetectedProvidersDialog from './components/settings/DetectedProvidersDialog';
+import TermsDialog from './components/settings/TermsDialog';
 import { getDefaultConfig } from './config/modelConfig';
 import { isTestModeCheck } from './helper';
 import AIPrompt from './modal';
@@ -42,10 +44,14 @@ import {
   useGlobalState,
   usePluginConfig,
 } from './utils';
+import type { DetectedProvider } from './utils/providerAutoDetect';
+import { detectProviders, dismissalKey } from './utils/providerAutoDetect';
 import {
   getActiveConfig,
   getSavedConfigurations,
   SavedConfigurations,
+  saveProviderConfig,
+  saveTermsAcceptance,
 } from './utils/ProviderConfigManager';
 import { getAllAvailableTools, isToolEnabled, toggleTool } from './utils/ToolConfigManager';
 
@@ -150,14 +156,114 @@ function HeadlampAIPrompt() {
   const [showPopover, setShowPopover] = React.useState(false);
   const theme = useTheme();
 
+  // Auto-detection state
+  const [detectedProviders, setDetectedProviders] = React.useState<DetectedProvider[]>([]);
+  const [showDetectedDialog, setShowDetectedDialog] = React.useState(false);
+  const [showTermsForAutoDetect, setShowTermsForAutoDetect] = React.useState(false);
+  const [hasRunAutoDetect, setHasRunAutoDetect] = React.useState(false);
+
   const previewEnabled = savedConfigs?.previewEnabled ?? false;
   const hasShownPopover = savedConfigs?.configPopoverShown || false;
+  const dismissedKeys: string[] = savedConfigs?.autoDetectDismissedProviders || [];
+  const hasAcceptedTerms = savedConfigs?.termsAccepted || false;
 
   const savedConfigData = React.useMemo(() => {
     return getSavedConfigurations(savedConfigs);
   }, [savedConfigs]);
 
   const hasAnyValidConfig = savedConfigData.providers && savedConfigData.providers.length > 0;
+
+  // Auto-detect AI providers when preview is enabled.
+  // Runs once per app session. `detectProviders` skips provider types
+  // that are already configured, and we further filter out providers
+  // the user has explicitly dismissed in a previous session.
+  React.useEffect(() => {
+    if (hasRunAutoDetect || !previewEnabled) {
+      console.debug(
+        `[ai-assistant auto-detect] useEffect skipped: hasRunAutoDetect=${hasRunAutoDetect}, previewEnabled=${previewEnabled}`
+      );
+      return;
+    }
+    console.debug(
+      `[ai-assistant auto-detect] starting auto-detection (${savedConfigData.providers.length} existing providers, ${dismissedKeys.length} dismissed)`
+    );
+    setHasRunAutoDetect(true);
+
+    // Pass dismissedKeys so detectProviders can suppress CLI side-effects
+    // (gh auth token, az ... keys list, etc.) before they run, rather than
+    // discarding results after the fact.
+    detectProviders(savedConfigData.providers, dismissedKeys).then(newProviders => {
+      console.debug(
+        `[ai-assistant auto-detect] ${
+          newProviders.length
+        } new provider(s) after pre-filtering dismissed keys: ${dismissedKeys.join(', ') || 'none'}`
+      );
+      if (newProviders.length > 0) {
+        setDetectedProviders(newProviders);
+        if (!hasAcceptedTerms) {
+          // Must accept terms before we can save any provider.
+          // Show terms first; the detection dialog follows on acceptance.
+          setShowTermsForAutoDetect(true);
+        } else {
+          setShowDetectedDialog(true);
+        }
+      }
+    });
+  }, [hasRunAutoDetect, previewEnabled, savedConfigData.providers, dismissedKeys]);
+
+  /** Merges `newKeys` into the persisted dismissed-key list and saves configs if provided. */
+  const persistDismissed = (newKeys: string[], extraConfigs?: SavedConfigurations) => {
+    const allDismissed = [...new Set([...dismissedKeys, ...newKeys])];
+    const currentConf = pluginStore.get() || {};
+    pluginStore.update({
+      ...currentConf,
+      ...(extraConfigs ?? {}),
+      autoDetectDismissedProviders: allDismissed,
+    });
+  };
+
+  const handleTermsAcceptForAutoDetect = () => {
+    setShowTermsForAutoDetect(false);
+    const currentConf = pluginStore.get() || {};
+    pluginStore.update({
+      ...currentConf,
+      ...saveTermsAcceptance(getSavedConfigurations(savedConfigs)),
+    });
+    setShowDetectedDialog(true);
+  };
+
+  const handleDetectedConfirm = (selected: DetectedProvider[]) => {
+    setShowDetectedDialog(false);
+    let configs: SavedConfigurations = getSavedConfigurations(savedConfigs);
+    // Ensure terms are recorded as accepted (covers the case where termsAccepted
+    // was set just before this dialog in handleTermsAcceptForAutoDetect but the
+    // store hasn't re-rendered yet).
+    configs = saveTermsAcceptance(configs);
+    for (const provider of selected) {
+      configs = saveProviderConfig(
+        configs,
+        provider.providerId,
+        provider.config,
+        configs.providers.length === 0,
+        provider.displayName
+      );
+    }
+    // Use per-config keys so that declining one Azure account does not suppress
+    // other Azure accounts that were offered at the same time.
+    const selectedKeySet = new Set(selected.map(dismissalKey));
+    const newlyDismissed = detectedProviders
+      .filter(p => !selectedKeySet.has(dismissalKey(p)))
+      .map(dismissalKey);
+    persistDismissed(newlyDismissed, configs);
+  };
+
+  const handleDetectedDismiss = () => {
+    setShowDetectedDialog(false);
+    // Record all currently-offered providers as dismissed so they
+    // aren't re-offered next session. Newly available providers will
+    // still be shown because their IDs aren't in this list.
+    persistDismissed(detectedProviders.map(dismissalKey));
+  };
 
   // Run AKS cluster check once on mount so results are ready before the panel opens
   React.useEffect(() => {
@@ -309,6 +415,23 @@ function HeadlampAIPrompt() {
           </Button>
         </Paper>
       </Popper>
+
+      <DetectedProvidersDialog
+        open={showDetectedDialog}
+        detectedProviders={detectedProviders}
+        onConfirm={handleDetectedConfirm}
+        onDismiss={handleDetectedDismiss}
+      />
+
+      <TermsDialog
+        open={showTermsForAutoDetect}
+        onClose={() => {
+          // User dismissed terms — treat as declining all detected providers.
+          setShowTermsForAutoDetect(false);
+          persistDismissed(detectedProviders.map(dismissalKey));
+        }}
+        onAccept={handleTermsAcceptForAutoDetect}
+      />
     </Box>
   );
 }
@@ -381,6 +504,57 @@ registerAppBarAction(() => {
 function Settings() {
   const savedConfigs = usePluginConfig();
   const { t } = useTranslation();
+
+  // Auto-detect dialog state (for "Auto Detect All" button in ModelSelector)
+  const [detectedForDialog, setDetectedForDialog] = React.useState<
+    import('./utils/providerAutoDetect').DetectedProvider[]
+  >([]);
+  const [showAutoDetectDialog, setShowAutoDetectDialog] = React.useState(false);
+  const [showTermsForDetect, setShowTermsForDetect] = React.useState(false);
+
+  const handleAutoDetectResults = (
+    providers: import('./utils/providerAutoDetect').DetectedProvider[]
+  ) => {
+    if (providers.length === 0) return;
+    setDetectedForDialog(providers);
+    if (!savedConfigs?.termsAccepted) {
+      setShowTermsForDetect(true);
+    } else {
+      setShowAutoDetectDialog(true);
+    }
+  };
+
+  const handleAutoDetectConfirm = (
+    selected: import('./utils/providerAutoDetect').DetectedProvider[]
+  ) => {
+    setShowAutoDetectDialog(false);
+    if (selected.length === 0) return;
+    let configs = getSavedConfigurations(savedConfigs);
+    configs = saveTermsAcceptance(configs);
+    for (const p of selected) {
+      configs = saveProviderConfig(
+        configs,
+        p.providerId,
+        p.config,
+        !configs.providers?.length,
+        p.displayName
+      );
+    }
+
+    pluginStore.update({
+      ...(pluginStore.get() || {}),
+      ...configs,
+    });
+
+    const active = getActiveConfig(configs);
+    if (active) {
+      setActiveConfiguration({
+        providerId: active.providerId,
+        config: { ...active.config },
+        displayName: active.displayName || '',
+      });
+    }
+  };
 
   // Track the active configuration in a single state object
   const [activeConfiguration, setActiveConfiguration] = React.useState<{
@@ -551,6 +725,7 @@ function Settings() {
             onTermsAccept={updatedConfigs => {
               pluginStore.update(updatedConfigs);
             }}
+            onAutoDetectResults={handleAutoDetectResults}
           />
           {/* AI Tools Section */}
           <Divider sx={{ my: 3 }} />
@@ -599,6 +774,25 @@ function Settings() {
           </Box>
         </>
       )}
+
+      <DetectedProvidersDialog
+        open={showAutoDetectDialog}
+        detectedProviders={detectedForDialog}
+        onConfirm={handleAutoDetectConfirm}
+        onDismiss={() => setShowAutoDetectDialog(false)}
+      />
+      <TermsDialog
+        open={showTermsForDetect}
+        onClose={() => setShowTermsForDetect(false)}
+        onAccept={() => {
+          setShowTermsForDetect(false);
+          pluginStore.update({
+            ...(pluginStore.get() || {}),
+            ...saveTermsAcceptance(getSavedConfigurations(savedConfigs)),
+          });
+          setShowAutoDetectDialog(true);
+        }}
+      />
     </Box>
   );
 }
