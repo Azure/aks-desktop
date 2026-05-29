@@ -30,6 +30,22 @@ var (
 	AppName = "Headlamp"
 )
 
+// applyAppNameOverride returns the configured app name, honoring the
+// HEADLAMP_APP_NAME environment variable when set to a non-empty value.
+// It is exported via export_test.go for unit testing; production callers
+// should use the package-level AppName variable which is set in init().
+func applyAppNameOverride(getenv func(string) string) string {
+	if v := getenv("HEADLAMP_APP_NAME"); v != "" {
+		return v
+	}
+
+	return "Headlamp"
+}
+
+func init() {
+	AppName = applyAppNameOverride(os.Getenv)
+}
+
 // userAgentRoundTripper wraps an http.RoundTripper and adds a Headlamp User-Agent header.
 type userAgentRoundTripper struct {
 	base      http.RoundTripper

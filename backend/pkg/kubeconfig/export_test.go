@@ -8,6 +8,9 @@ import "net/http"
 // BuildUserAgent is exported for testing.
 var BuildUserAgent = buildUserAgent
 
+// ApplyAppNameOverride is exported for testing.
+var ApplyAppNameOverride = applyAppNameOverride
+
 // UserAgentRoundTripper is exported for testing.
 type UserAgentRoundTripper struct {
 	Base      roundTripperInterface
