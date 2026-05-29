@@ -143,6 +143,7 @@ const COMMANDS_WITH_CONSENT = {
     'kubectl config',
   ],
   headlamp_ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
+  ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
 };
 
 /**
@@ -168,17 +169,22 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
     commands = COMMANDS_WITH_CONSENT.headlamp_minikube;
   }
 
-  const pluginIsAiAssistant =
+  const pluginIsHeadlampAiAssistant =
     pluginInfo.name === 'headlamp_ai-assistant' ||
     pluginInfo.name === 'headlamp_ai-assistantprerelease' ||
     (process.env.NODE_ENV === 'development' && pluginInfo.name === 'ai-assistant');
-  if (pluginIsAiAssistant) {
+  if (pluginIsHeadlampAiAssistant) {
     commands = COMMANDS_WITH_CONSENT.headlamp_ai_assistant;
   }
 
   const pluginIsAksDesktop = pluginInfo.name === 'aks-desktop';
   if (pluginIsAksDesktop) {
     commands = COMMANDS_WITH_CONSENT.aks_desktop;
+  }
+
+  const pluginIsAiAssistant = pluginInfo.name === 'ai-assistant';
+  if (pluginIsAiAssistant) {
+    commands = COMMANDS_WITH_CONSENT.ai_assistant;
   }
 
   for (const command of commands) {
@@ -206,6 +212,9 @@ export function removeRunCmdConsent(pluginName: string): void {
     pluginName === '@headlamp-k8s/minikube'
   ) {
     commands = COMMANDS_WITH_CONSENT.headlamp_minikube;
+  }
+  if (pluginName === 'ai-assistant') {
+    commands = COMMANDS_WITH_CONSENT.ai_assistant;
   }
   if (
     pluginName === '@headlamp-k8s/ai-assistant' ||
@@ -480,6 +489,7 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
     'runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js': cryptoRandom(),
     'runCmd-az': cryptoRandom(),
     'runCmd-kubectl': cryptoRandom(),
+    'runCmd-gh': cryptoRandom(),
   };
 
   ipcMain.on('request-plugin-permission-secrets', function giveSecrets() {
@@ -544,6 +554,7 @@ export function validateCommandData(eventData: CommandDataPartial): [boolean, st
     'scriptjs',
     'gh',
     'kubelogin',
+    'gh',
     'register-aks-cluster.js',
   ];
 
