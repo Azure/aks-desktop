@@ -1482,6 +1482,7 @@ async function startElectron() {
   console.info('App starting...');
   // add run cmd consent for aks-desktop to avoid consent dialogs for the aks-desktop plugin
   addRunCmdConsent({ name: 'aks-desktop' });
+  addRunCmdConsent({ name: 'ai-assistant' });
 
   // Increase max listeners to prevent false positive warnings
   // The app legitimately needs multiple IPC listeners (currently 11)

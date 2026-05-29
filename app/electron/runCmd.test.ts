@@ -215,6 +215,17 @@ describe('validateCommandData', () => {
     ).toBe(true);
   });
 
+  it('returns true for valid gh command', () => {
+    expect(
+      validateCommandData({
+        command: 'gh',
+        args: ['auth', 'token'],
+        options: {},
+        permissionSecrets: {},
+      })[0]
+    ).toBe(true);
+  });
+
   it('returns true for valid scriptjs command', () => {
     expect(
       validateCommandData({
