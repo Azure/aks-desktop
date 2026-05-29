@@ -867,7 +867,7 @@ async function startServer(flags: string[] = []): Promise<ChildProcessWithoutNul
   // Identify this client to the Kubernetes API server as aks-desktop.
   // The backend reads HEADLAMP_APP_NAME at startup and uses it in the
   // User-Agent for all proxied k8s requests. See
-  // headlamp/backend/pkg/kubeconfig/kubeconfig.go (applyAppNameOverride).
+  // backend/pkg/kubeconfig/kubeconfig.go (applyAppNameOverride).
   process.env.HEADLAMP_APP_NAME = 'aks-desktop';
 
   // Set the bundled plugins in addition to the the user's plugins.
