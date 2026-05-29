@@ -15,19 +15,19 @@ func TestApplyAppNameOverride(t *testing.T) {
 		want     string
 	}{
 		{
-			name:     "env unset keeps default",
+			name:     "env unset returns empty string",
 			envValue: "",
 			envSet:   false,
-			want:     "Headlamp",
+			want:     "",
 		},
 		{
-			name:     "env empty string keeps default",
+			name:     "env empty string returns empty string",
 			envValue: "",
 			envSet:   true,
-			want:     "Headlamp",
+			want:     "",
 		},
 		{
-			name:     "env set overrides",
+			name:     "env set returns the value",
 			envValue: "aks-desktop",
 			envSet:   true,
 			want:     "aks-desktop",
