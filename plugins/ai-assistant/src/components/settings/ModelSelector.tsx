@@ -2,6 +2,7 @@ import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { ConfirmDialog } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import {
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -21,7 +22,6 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { Autocomplete } from '@mui/material';
 import { useEffect, useState } from 'react';
 import {
   getDefaultConfig,
@@ -29,6 +29,17 @@ import {
   getProviderFields,
   modelProviders,
 } from '../../config/modelConfig';
+import { getModelDisplayName } from '../../utils/modalUtils';
+import {
+  detectAzureOpenAIProvider,
+  detectCopilotChatModels,
+  detectCopilotProvider,
+  type DetectedProvider,
+  detectOllamaProvider,
+  detectProviders,
+  GH_CLI_AUTH_SENTINEL,
+  refreshGitHubToken,
+} from '../../utils/providerAutoDetect';
 import {
   deleteProviderConfig,
   getActiveConfig,
@@ -43,12 +54,18 @@ interface ProviderSelectionDialogProps {
   open: boolean;
   onClose: () => void;
   onSelectProvider: (providerId: string) => void;
+  onDetectAll?: () => void;
+  isDetectingAll?: boolean;
+  detectAllStatus?: { kind: 'success' | 'error'; text: string } | null;
 }
 
 function ProviderSelectionDialog({
   open,
   onClose,
   onSelectProvider,
+  onDetectAll,
+  isDetectingAll = false,
+  detectAllStatus,
 }: ProviderSelectionDialogProps) {
   const { t } = useTranslation();
   return (
@@ -63,6 +80,18 @@ function ProviderSelectionDialog({
         <Typography variant="body2" sx={{ mb: 3, color: 'text.secondary' }}>
           {t('Select a provider to add a new configuration')}
         </Typography>
+        {detectAllStatus && (
+          <Typography
+            variant="caption"
+            sx={{
+              mb: 2,
+              display: 'block',
+              color: detectAllStatus.kind === 'success' ? 'success.main' : 'error.main',
+            }}
+          >
+            {detectAllStatus.text}
+          </Typography>
+        )}
         <Grid container spacing={2}>
           {modelProviders.map(provider => (
             <Grid item key={provider.id} xs={6} md={3}>
@@ -95,6 +124,16 @@ function ProviderSelectionDialog({
         </Grid>
       </DialogContent>
       <DialogActions>
+        {onDetectAll && (
+          <Button
+            variant="outlined"
+            startIcon={<Icon icon="mdi:magnify" />}
+            onClick={onDetectAll}
+            disabled={isDetectingAll}
+          >
+            {isDetectingAll ? t('Auto Detecting...') : t('Auto Detect All')}
+          </Button>
+        )}
         <Button onClick={onClose}>{t('Cancel')}</Button>
       </DialogActions>
     </Dialog>
@@ -111,6 +150,7 @@ interface ConfigurationDialogProps {
   configName: string;
   onConfigNameChange?: (name: string) => void;
   onSave?: (makeDefault: boolean) => void;
+  onDetectProvider?: (providerId: string) => Promise<DetectedProvider | null>;
 }
 
 function ConfigurationDialog({
@@ -122,11 +162,54 @@ function ConfigurationDialog({
   configName,
   onConfigNameChange,
   onSave,
+  onDetectProvider,
 }: ConfigurationDialogProps) {
   const provider = getProviderById(providerId);
   const fields = getProviderFields(providerId);
   const [initialRender, setInitialRender] = useState(true);
+  const [isDetectingProvider, setIsDetectingProvider] = useState(false);
+  const [detectStatus, setDetectStatus] = useState<{
+    kind: 'success' | 'error';
+    text: string;
+  } | null>(null);
+  const [liveModelOptions, setLiveModelOptions] = useState<string[]>([]);
   const { t } = useTranslation();
+
+  const isDetectSupported =
+    providerId === 'copilot' || providerId === 'azure' || providerId === 'local';
+
+  // For Copilot, fetch live model list when dialog opens and a token is available.
+  useEffect(() => {
+    if (!open || providerId !== 'copilot') {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        // Use the stored token if it's real, otherwise refresh from gh CLI.
+        const storedKey = config.apiKey;
+        const token =
+          storedKey && storedKey !== GH_CLI_AUTH_SENTINEL ? storedKey : await refreshGitHubToken();
+        if (!token || cancelled) return;
+        const models = await detectCopilotChatModels(token);
+        if (!cancelled && models !== null && models.length > 0) {
+          setLiveModelOptions(models);
+        }
+      } catch {
+        // CORS or auth failure — silently keep static options
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, providerId, config.apiKey]);
+
+  const formatModelLabel = (value: string) => {
+    if (providerId === 'copilot') {
+      return getModelDisplayName(value);
+    }
+    return value;
+  };
 
   const handleFieldChange = (fieldName: string, value: any) => {
     // Update the config with the new field value
@@ -151,9 +234,43 @@ function ConfigurationDialog({
     }
   }, [providerId, configName, onConfigNameChange, provider, initialRender]);
 
+  useEffect(() => {
+    setDetectStatus(null);
+    setIsDetectingProvider(false);
+    setLiveModelOptions([]);
+  }, [open, providerId]);
+
   const isValid = provider?.fields.every(
     field => !field.required || (config[field.name] && config[field.name] !== '')
   );
+
+  const handleDetectProvider = async () => {
+    if (!onDetectProvider || !isDetectSupported) {
+      return;
+    }
+
+    setIsDetectingProvider(true);
+    setDetectStatus(null);
+
+    const detected = await onDetectProvider(providerId);
+    if (detected) {
+      onConfigChange({ ...config, ...detected.config });
+      if (
+        onConfigNameChange &&
+        (!configName || configName === provider?.name || configName === providerId)
+      ) {
+        onConfigNameChange(detected.displayName || provider?.name || providerId);
+      }
+      setDetectStatus({ kind: 'success', text: t('Detected and applied provider settings.') });
+    } else {
+      setDetectStatus({
+        kind: 'error',
+        text: t('No detectable settings found for this provider in your environment.'),
+      });
+    }
+
+    setIsDetectingProvider(false);
+  };
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -173,6 +290,19 @@ function ConfigurationDialog({
             <Typography variant="body2" sx={{ mb: 3, color: 'text.secondary' }}>
               {t(provider.description)}
             </Typography>
+
+            {detectStatus && (
+              <Typography
+                variant="caption"
+                sx={{
+                  mb: 2,
+                  display: 'block',
+                  color: detectStatus.kind === 'success' ? 'success.main' : 'error.main',
+                }}
+              >
+                {detectStatus.text}
+              </Typography>
+            )}
 
             {onConfigNameChange && (
               <Box sx={{ mb: 3 }}>
@@ -208,7 +338,15 @@ function ConfigurationDialog({
                       </Typography>
                       <Autocomplete
                         freeSolo
-                        options={field.options || []}
+                        options={(() => {
+                          const effectiveOptions =
+                            liveModelOptions.length > 0 ? liveModelOptions : field.options ?? [];
+                          const current = config[field.name];
+                          return current && !effectiveOptions.includes(current)
+                            ? [current, ...effectiveOptions]
+                            : effectiveOptions;
+                        })()}
+                        getOptionLabel={option => formatModelLabel(String(option || ''))}
                         value={config[field.name] || ''}
                         onChange={(_, newValue) => {
                           handleFieldChange(field.name, newValue || '');
@@ -224,20 +362,31 @@ function ConfigurationDialog({
                             placeholder={t(
                               'Enter or select model name (e.g., gpt-4, claude-3-opus, custom-model)'
                             )}
-                            helperText={
-                              config[field.name]
-                                ? field.options?.includes(config[field.name])
-                                  ? t('Using model: {{model}}', { model: config[field.name] })
-                                  : t('Using custom model: {{model}}', {
-                                      model: config[field.name],
-                                    })
-                                : t('Enter a model name or select from the dropdown')
-                            }
+                            helperText={(() => {
+                              const effectiveOptions =
+                                liveModelOptions.length > 0
+                                  ? liveModelOptions
+                                  : field.options ?? [];
+                              if (!config[field.name]) {
+                                return t('Enter a model name or select from the dropdown');
+                              }
+                              return effectiveOptions.includes(config[field.name])
+                                ? t('Using model: {{model}}', {
+                                    model: formatModelLabel(String(config[field.name])),
+                                  })
+                                : t('Using custom model: {{model}}', {
+                                    model: formatModelLabel(String(config[field.name])),
+                                  });
+                            })()}
                             InputProps={{
                               ...params.InputProps,
                               startAdornment:
                                 config[field.name] &&
-                                !field.options?.includes(config[field.name]) ? (
+                                !(
+                                  liveModelOptions.length > 0
+                                    ? liveModelOptions
+                                    : field.options ?? []
+                                ).includes(config[field.name]) ? (
                                   <Box sx={{ mr: 1 }}>
                                     <Chip
                                       label={t('Custom')}
@@ -289,7 +438,7 @@ function ConfigurationDialog({
                         </MenuItem>
                         {field.options?.map(option => (
                           <MenuItem key={option} value={option}>
-                            {option}
+                            {formatModelLabel(option)}
                           </MenuItem>
                         ))}
                       </Select>
@@ -392,6 +541,16 @@ function ConfigurationDialog({
             {isValid ? t('Configuration is valid.') : t('Please fill in all required fields.')}
           </Typography>
         </Box>
+        {onDetectProvider && isDetectSupported && (
+          <Button
+            variant="outlined"
+            startIcon={<Icon icon="mdi:magnify" />}
+            onClick={handleDetectProvider}
+            disabled={isDetectingProvider}
+          >
+            {isDetectingProvider ? t('Auto Detecting...') : t('Auto Detect')}
+          </Button>
+        )}
         <Button onClick={onClose}>{t('Cancel')}</Button>
         {onSave && (
           <Button
@@ -444,6 +603,11 @@ export default function ModelSelector({
 
   // State for terms dialog
   const [termsDialogOpen, setTermsDialogOpen] = useState(false);
+  const [isDetectingAllProviders, setIsDetectingAllProviders] = useState(false);
+  const [detectAllStatus, setDetectAllStatus] = useState<{
+    kind: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   // State for the 3-dot menu
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -639,6 +803,7 @@ export default function ModelSelector({
     if (isFirstProvider && !hasAcceptedTerms()) {
       setTermsDialogOpen(true);
     } else {
+      setDetectAllStatus(null);
       setProviderSelectionOpen(true);
     }
   };
@@ -646,6 +811,7 @@ export default function ModelSelector({
   const handleTermsAccept = () => {
     acceptTerms();
     setTermsDialogOpen(false);
+    setDetectAllStatus(null);
     setProviderSelectionOpen(true);
   };
 
@@ -655,6 +821,85 @@ export default function ModelSelector({
 
   const handleCloseMenu = () => {
     setAnchorEl(null);
+  };
+
+  /**
+   * Runs auto-detection for a single provider by ID.
+   *
+   * Delegates to the appropriate provider-specific detector:
+   * - `'copilot'` → {@link detectCopilotProvider}
+   * - `'azure'` → {@link detectAzureOpenAIProvider}
+   * - `'local'` → {@link detectOllamaProvider}
+   *
+   * @param providerId - The provider ID to detect.
+   * @returns The detected provider config, or `null` if detection failed or
+   *   the provider ID is not supported.
+   */
+  const handleDetectSingleProvider = async (
+    providerId: string
+  ): Promise<DetectedProvider | null> => {
+    if (providerId === 'copilot') {
+      return detectCopilotProvider();
+    }
+    if (providerId === 'azure') {
+      return detectAzureOpenAIProvider();
+    }
+    if (providerId === 'local') {
+      return detectOllamaProvider();
+    }
+    return null;
+  };
+
+  /**
+   * Runs auto-detection for all supported providers (Copilot, Azure OpenAI, Ollama)
+   * that are not already configured. Any newly detected providers are saved and the
+   * active config is updated to the highest-priority detected provider.
+   *
+   * Sets {@link isDetectingAllProviders} while running and writes a success/error
+   * summary to {@link detectAllStatus} when complete.
+   */
+  const handleDetectAllProviders = async () => {
+    setIsDetectingAllProviders(true);
+    setDetectAllStatus(null);
+
+    const detected = await detectProviders(savedConfigs?.providers || []);
+    if (detected.length > 0) {
+      let updatedConfigs = savedConfigs;
+      for (const provider of detected) {
+        updatedConfigs = saveProviderConfig(
+          updatedConfigs,
+          provider.providerId,
+          provider.config,
+          !updatedConfigs?.providers?.length,
+          provider.displayName
+        );
+      }
+
+      if (onChange) {
+        const active = getActiveConfig(updatedConfigs);
+        onChange({
+          providerId: active?.providerId || selectedProvider,
+          config: active?.config || config,
+          displayName: active?.displayName || configName,
+          savedConfigs: {
+            ...(savedConfigs as SavedConfigurations & Record<string, any>),
+            ...updatedConfigs,
+          },
+        });
+      }
+      setDetectAllStatus({
+        kind: 'success',
+        text: t('Detected and added {{count}} provider(s).', { count: detected.length }),
+      });
+      setProviderSelectionOpen(false);
+    } else {
+      setDetectAllStatus({
+        kind: 'error',
+        text: t('No new providers were detected in your environment.'),
+      });
+    }
+
+    setIsDetectingAllProviders(false);
   };
 
   // Menu handling
@@ -900,7 +1145,9 @@ export default function ModelSelector({
                     <Typography variant="caption" color="text.secondary" align="center">
                       {savedConfig.config.model || savedConfig.config.deploymentName ? (
                         <Box>
-                          {savedConfig.config.model || savedConfig.config.deploymentName}
+                          {savedConfig.config.model
+                            ? getModelDisplayName(savedConfig.config.model)
+                            : savedConfig.config.deploymentName}
                           {savedConfig.config.showOnlyThisModel && (
                             <Box
                               component="span"
@@ -1004,6 +1251,9 @@ export default function ModelSelector({
         open={providerSelectionOpen}
         onClose={() => setProviderSelectionOpen(false)}
         onSelectProvider={handleProviderSelection}
+        onDetectAll={handleDetectAllProviders}
+        isDetectingAll={isDetectingAllProviders}
+        detectAllStatus={detectAllStatus}
       />
 
       {/* Configuration Dialog */}
@@ -1016,6 +1266,7 @@ export default function ModelSelector({
         configName={dialogConfigName}
         onConfigNameChange={handleDialogConfigNameChange}
         onSave={handleSaveDialog}
+        onDetectProvider={handleDetectSingleProvider}
       />
 
       <ConfirmDialog

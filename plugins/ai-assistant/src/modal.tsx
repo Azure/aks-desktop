@@ -31,6 +31,18 @@ import { getSettingsURL, useGlobalState } from './utils';
 import { generateContextDescription } from './utils/contextGenerator';
 import { getProviderModels, parseSuggestionsFromResponse } from './utils/modalUtils';
 import { useDynamicPrompts } from './utils/promptGenerator';
+import {
+  AZ_CLI_AUTH_SENTINEL,
+  GH_CLI_AUTH_SENTINEL,
+  refreshAzureOpenAIKey,
+  refreshGitHubToken,
+} from './utils/providerAutoDetect';
+import {
+  getActiveConfig,
+  getSavedConfigurations,
+  StoredProviderConfig,
+} from './utils/ProviderConfigManager';
+import { getEnabledToolIds } from './utils/ToolConfigManager';
 
 // Operation type constants for translation
 const OPERATION_TYPES = {
@@ -39,12 +51,6 @@ const OPERATION_TYPES = {
   DELETION: 'deletion',
   GENERIC: 'operation',
 } as const;
-import {
-  getActiveConfig,
-  getSavedConfigurations,
-  StoredProviderConfig,
-} from './utils/ProviderConfigManager';
-import { getEnabledToolIds } from './utils/ToolConfigManager';
 
 export default function AIPrompt(props: {
   openPopup: boolean;
@@ -92,7 +98,6 @@ export default function AIPrompt(props: {
   const [enabledTools, setEnabledTools] = React.useState<string[]>(
     getEnabledToolIds(pluginSettings)
   );
-
   // Test mode detection
   const isTestMode = isTestModeCheck();
 
@@ -303,24 +308,99 @@ export default function AIPrompt(props: {
   React.useEffect(() => {
     // Recreate the manager whenever pluginSettings change (including tool settings)
     // or when activeConfig/selectedModel changes
-    if (activeConfig) {
+    if (!activeConfig) return;
+
+    let isCurrent = true;
+    const canUpdateState = () => isCurrent;
+
+    const initManager = async () => {
       try {
         // Create config with selected model
-        const configWithModel = {
+        const configWithModel: Record<string, any> = {
           ...activeConfig.config,
           model: selectedModel,
         };
+
+        // If the copilot provider was auto-detected via `gh` CLI, the persisted
+        // config holds a sentinel instead of the real token. Resolve it once
+        // from `gh auth token` — the token stays in memory only.
+        if (
+          activeConfig.providerId === 'copilot' &&
+          configWithModel.apiKey === GH_CLI_AUTH_SENTINEL
+        ) {
+          const freshToken = await refreshGitHubToken();
+          if (!canUpdateState()) {
+            return;
+          }
+          if (!freshToken) {
+            if (canUpdateState()) {
+              setAiManager(null);
+              setApiError(
+                'GitHub CLI token could not be retrieved. Run `gh auth login` or set a PAT in settings.'
+              );
+            }
+            return;
+          }
+          configWithModel.apiKey = freshToken;
+        }
+
+        // If the Azure provider was auto-detected via `az` CLI, the persisted
+        // config holds a sentinel instead of the real API key. Resolve it once
+        // from `az cognitiveservices account keys list` — the key stays in memory only.
+        if (
+          activeConfig.providerId === 'azure' &&
+          configWithModel.apiKey === AZ_CLI_AUTH_SENTINEL
+        ) {
+          const resourceGroup = configWithModel.azResourceGroup;
+          const accountName = configWithModel.azAccountName;
+          if (!resourceGroup || !accountName) {
+            if (canUpdateState()) {
+              setApiError(
+                'Azure OpenAI resource metadata missing. Re-run auto-detection or configure manually.'
+              );
+            }
+            return;
+          }
+          const freshKey = await refreshAzureOpenAIKey(resourceGroup, accountName);
+          if (!canUpdateState()) {
+            return;
+          }
+          if (!freshKey) {
+            if (canUpdateState()) {
+              setAiManager(null);
+              setApiError(
+                'Azure OpenAI API key could not be retrieved. Run `az login` or set the key in settings.'
+              );
+            }
+            return;
+          }
+          configWithModel.apiKey = freshKey;
+        }
+
+        if (!canUpdateState()) {
+          return;
+        }
+
         const newManager = new LangChainManager(
           activeConfig.providerId,
           configWithModel,
           enabledTools
         );
-        setAiManager(newManager);
-        return;
-      } catch (error) {
-        setApiError(`Failed to initialize AI model: ${error.message}`);
+        if (canUpdateState()) {
+          setAiManager(newManager);
+        }
+      } catch (error: any) {
+        if (canUpdateState()) {
+          setApiError(`Failed to initialize AI model: ${error.message}`);
+        }
       }
-    }
+    };
+
+    initManager();
+
+    return () => {
+      isCurrent = false;
+    };
   }, [enabledTools, activeConfig, selectedModel]);
 
   React.useEffect(() => {

@@ -142,6 +142,12 @@ interface PluginConfig extends SavedConfigurations {
   event?: HeadlampEventPayload | null; //@todo: should this be HeadlampEventPayload?
   /** Is the AI Assistant preview enabled? Disabled by default. */
   previewEnabled?: boolean;
+  /**
+   * Provider IDs the user has explicitly dismissed during auto-detection.
+   * Detection still runs each session but skips these provider types so
+   * the dialog only surfaces genuinely new providers.
+   */
+  autoDetectDismissedProviders?: string[];
 }
 
 export const pluginStore = new ConfigStore<PluginConfig>(PLUGIN_NAME);
