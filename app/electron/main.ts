@@ -1957,6 +1957,7 @@ async function startElectron() {
           clusterName: string;
           isAzureRBACEnabled: boolean;
           managedNamespace?: string;
+          clusterType?: 'aks' | 'aksarc';
         }
       ) => {
         const { registerAKSCluster } = await import('./aks-cluster');
@@ -1970,7 +1971,8 @@ async function startElectron() {
           data.isAzureRBACEnabled,
           isDev,
           resourcesDir,
-          data.managedNamespace
+          data.managedNamespace,
+          data.clusterType === 'aksarc' ? 'aksarc' : 'aks'
         );
       }
     );

@@ -127,6 +127,8 @@ const COMMANDS_WITH_CONSENT = {
     'az logout',
     'az config',
     'az aks',
+    'az connectedk8s',
+    'az aksarc',
     'az extension',
     'az feature',
     'az provider',
