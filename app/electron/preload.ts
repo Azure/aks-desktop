@@ -84,7 +84,8 @@ contextBridge.exposeInMainWorld('desktopApi', {
     resourceGroup: string,
     clusterName: string,
     isAzureRBACEnabled: boolean,
-    managedNamespace?: string
+    managedNamespace?: string,
+    clusterType?: 'aks' | 'aksarc'
   ): Promise<{ success: boolean; message: string }> => {
     return ipcRenderer.invoke('register-aks-cluster', {
       subscriptionId,
@@ -92,6 +93,7 @@ contextBridge.exposeInMainWorld('desktopApi', {
       clusterName,
       isAzureRBACEnabled,
       managedNamespace,
+      clusterType,
     });
   },
 
