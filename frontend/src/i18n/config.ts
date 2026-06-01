@@ -17,7 +17,7 @@
 // Portions (c) Microsoft Corp.
 
 import i18next from 'i18next';
-// import LanguageDetector from 'i18next-browser-languagedetector';
+import LanguageDetector from 'i18next-browser-languagedetector';
 import { initReactI18next } from 'react-i18next';
 import sharedConfig from './i18nextSharedConfig.mjs';
 
@@ -48,8 +48,7 @@ export const supportedLanguages: { [langCode: string]: string } = {
 };
 
 i18next
-  // Language detection disabled - forcing English only
-  // .use(LanguageDetector)
+  .use(LanguageDetector)
   .use(initReactI18next)
   // Use dynamic imports (webpack code splitting) to load javascript bundles.
   // @see https://www.i18next.com/misc/creating-own-plugins#backend
@@ -76,7 +75,6 @@ i18next
     ns: sharedConfig.namespaces,
     defaultNS: sharedConfig.defaultNamespace,
     fallbackLng: 'en',
-    lng: 'en', // Force English language
     contextSeparator: sharedConfig.contextSeparator,
     supportedLngs: Object.keys(supportedLanguages),
     // nonExplicitSupportedLngs: true,
