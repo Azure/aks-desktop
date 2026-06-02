@@ -150,6 +150,8 @@ const COMMANDS_WITH_CONSENT = {
     'az logout',
     'az config',
     'az aks',
+    'az connectedk8s',
+    'az aksarc',
     'az extension',
     'az feature',
     'az provider',
@@ -425,6 +427,11 @@ export async function handleRunCommand(
 
   child.stderr.on('data', (data: string | Buffer) => {
     event.sender.send('command-stderr', commandData.id, data.toString());
+  });
+
+  child.on('error', (err: Error) => {
+    event.sender.send('command-stderr', commandData.id, err.message);
+    event.sender.send('command-exit', commandData.id, -1);
   });
 
   child.on('close', (code: number | null) => {

@@ -228,11 +228,11 @@ function mergeKubeconfig(existingConfig: string, newConfig: string): KubeConfig 
 }
 
 /**
- * Register an AKS cluster by running az aks get-credentials and configuring authentication.
+ * Register an AKS or Arc cluster by running the appropriate az get-credentials command and configuring authentication.
  *
  * @param subscriptionId - Azure subscription ID
  * @param resourceGroup - Azure resource group name
- * @param clusterName - AKS cluster name
+ * @param clusterName - AKS or Arc cluster name
  * @param isDev - Whether running in development mode
  * @param resourcesPath - Path to resources directory
  * @param managedNamespace - Optional managed namespace name to use for scoped credentials
@@ -242,19 +242,33 @@ export async function registerAKSCluster(
   subscriptionId: string,
   resourceGroup: string,
   clusterName: string,
-  isAzureRBACEnabled: boolean,
+  _isAzureRBACEnabled: boolean,
   isDev: boolean,
   resourcesPath: string,
-  managedNamespace?: string
+  managedNamespace?: string,
+  clusterType: 'aks' | 'aksarc' = 'aks'
 ): Promise<RegisterAKSClusterResult> {
   const tempKubeconfigPath = path.join(os.tmpdir(), `kubeconfig-${Date.now()}.yaml`);
 
   try {
     // Step 1: Get the kubeconfig to a temporary file
-    // Use namespace get-credentials if a managed namespace is provided
-    const args: string[] = ['aks'];
+    const args: string[] = [];
 
-    if (managedNamespace) {
+    if (clusterType === 'aksarc') {
+      console.log('[AKS ARC] Getting credentials for cluster:', clusterName);
+      args.push(
+        'aksarc',
+        'get-credentials',
+        '--subscription',
+        subscriptionId,
+        '--resource-group',
+        resourceGroup,
+        '--name',
+        clusterName
+      );
+    } else if (managedNamespace) {
+      // Use namespace get-credentials if a managed namespace is provided
+      args.push('aks');
       console.log(
         '[AKS] Getting namespace credentials for cluster:',
         clusterName,
@@ -275,6 +289,7 @@ export async function registerAKSCluster(
       );
     } else {
       console.log('[AKS] Getting credentials for cluster:', clusterName);
+      args.push('aks');
       args.push(
         'get-credentials',
         '--subscription',
