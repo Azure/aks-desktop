@@ -333,7 +333,11 @@ describe('runPlugin', () => {
 describe('identifyPackages', () => {
   test('should identify package by path and name in production mode', () => {
     const result = identifyPackages('plugins/headlamp_minikube', '@headlamp-k8s/minikube', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': true,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should identify package by prerelease path and name in production mode', () => {
@@ -342,7 +346,11 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikubeprerelease',
       false
     );
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': true,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should identify package by static-plugins path and name in production mode', () => {
@@ -351,7 +359,11 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube',
       false
     );
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': true,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should identify package by static-plugins prerelease path and name in production mode', () => {
@@ -360,37 +372,65 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikubeprerelease',
       false
     );
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': true,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should not identify package if path does not match', () => {
     const result = identifyPackages('plugins/other_plugin', '@headlamp-k8s/minikube', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should not identify package if name does not match', () => {
     const result = identifyPackages('plugins/headlamp_minikube', '@other/package', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should identify package by dev path in development mode', () => {
     const result = identifyPackages('plugins/minikube', '@headlamp-k8s/minikube', true);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': true,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should not identify package by dev path if not in development mode', () => {
     const result = identifyPackages('plugins/minikube', '@headlamp-k8s/minikube', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should not identify package if neither path nor name match', () => {
     const result = identifyPackages('plugins/unknown', '@unknown', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should handle windows paths correctly', () => {
     const result = identifyPackages('plugins\\headlamp_minikube', '@headlamp-k8s/minikube', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': true,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should handle windows paths with prerelease', () => {
@@ -399,7 +439,11 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikubeprerelease',
       false
     );
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': true,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should handle windows paths for static-plugins', () => {
@@ -408,53 +452,157 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube',
       false
     );
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': true,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should handle windows paths in development mode', () => {
     const result = identifyPackages('plugins\\minikube', '@headlamp-k8s/minikube', true);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': true, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': true,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should handle windows paths not in development mode', () => {
     const result = identifyPackages('plugins\\minikube', '@headlamp-k8s/minikube', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   // Tests for aks-desktop package
   test('should identify aks-desktop package by path and name in production mode', () => {
     const result = identifyPackages('plugins/aks-desktop', 'aks-desktop', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': true });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': true,
+      'ai-assistant': false,
+    });
   });
 
   test('should identify aks-desktop package by static path and name in production mode', () => {
     const result = identifyPackages('static-plugins/aks-desktop', 'aks-desktop', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': true });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': true,
+      'ai-assistant': false,
+    });
   });
 
   test('should identify aks-desktop package by dev path in development mode', () => {
     const result = identifyPackages('plugins/aks-desktop', 'aks-desktop', true);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': true });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': true,
+      'ai-assistant': false,
+    });
   });
 
   test('should not identify aks-desktop package if path does not match', () => {
     const result = identifyPackages('plugins/other_plugin', 'aks-desktop', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should not identify aks-desktop package if name does not match', () => {
     const result = identifyPackages('plugins/aks-desktop', '@other/package', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': false });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
   });
 
   test('should handle windows paths for aks-desktop correctly', () => {
     const result = identifyPackages('plugins\\aks-desktop', 'aks-desktop', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': true });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': true,
+      'ai-assistant': false,
+    });
   });
 
   test('should handle windows static paths for aks-desktop correctly', () => {
     const result = identifyPackages('static-plugins\\aks-desktop', 'aks-desktop', false);
-    expect(result).toEqual({ '@headlamp-k8s/minikube': false, 'aks-desktop': true });
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': true,
+      'ai-assistant': false,
+    });
+  });
+
+  // Tests for ai-assistant package
+  test('should identify ai-assistant package by path and name in production mode', () => {
+    const result = identifyPackages('plugins/ai-assistant', 'ai-assistant', false);
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': true,
+    });
+  });
+
+  test('should identify ai-assistant package by static path and name in production mode', () => {
+    const result = identifyPackages('static-plugins/ai-assistant', 'ai-assistant', false);
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': true,
+    });
+  });
+
+  test('should identify ai-assistant package by dev path in development mode', () => {
+    const result = identifyPackages('plugins/ai-assistant', 'ai-assistant', true);
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': true,
+    });
+  });
+
+  test('should not identify ai-assistant package if path does not match', () => {
+    const result = identifyPackages('plugins/other_plugin', 'ai-assistant', false);
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
+  });
+
+  test('should not identify ai-assistant package if name does not match', () => {
+    const result = identifyPackages('plugins/ai-assistant', '@other/package', false);
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': false,
+    });
+  });
+
+  test('should handle windows paths for ai-assistant correctly', () => {
+    const result = identifyPackages('plugins\\ai-assistant', 'ai-assistant', false);
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': true,
+    });
+  });
+
+  test('should handle windows static paths for ai-assistant correctly', () => {
+    const result = identifyPackages('static-plugins\\ai-assistant', 'ai-assistant', false);
+    expect(result).toEqual({
+      '@headlamp-k8s/minikube': false,
+      'aks-desktop': false,
+      'ai-assistant': true,
+    });
   });
 });
 

@@ -165,6 +165,7 @@ const COMMANDS_WITH_CONSENT = {
     'kubectl top',
     'kubectl config',
   ],
+  ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
 };
 
 /**
@@ -195,6 +196,11 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
     commands = COMMANDS_WITH_CONSENT.aks_desktop;
   }
 
+  const pluginIsAiAssistant = pluginInfo.name === 'ai-assistant';
+  if (pluginIsAiAssistant) {
+    commands = COMMANDS_WITH_CONSENT.ai_assistant;
+  }
+
   for (const command of commands) {
     if (!settings.confirmedCommands[command]) {
       settings.confirmedCommands[command] = true;
@@ -220,6 +226,9 @@ export function removeRunCmdConsent(pluginName: string): void {
     pluginName === '@headlamp-k8s/minikube'
   ) {
     commands = COMMANDS_WITH_CONSENT.headlamp_minikube;
+  }
+  if (pluginName === 'ai-assistant') {
+    commands = COMMANDS_WITH_CONSENT.ai_assistant;
   }
   for (const command of commands) {
     delete settings.confirmedCommands[command];
@@ -483,6 +492,7 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
     'runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js': cryptoRandom(),
     'runCmd-az': cryptoRandom(),
     'runCmd-kubectl': cryptoRandom(),
+    'runCmd-gh': cryptoRandom(),
   };
 
   ipcMain.on('request-plugin-permission-secrets', function giveSecrets() {
@@ -540,7 +550,7 @@ export function validateCommandData(eventData: CommandDataPartial): [boolean, st
   }
 
   // Added 'kubectl' for AKS desktop downstream integration (aks-desktop patch)
-  const validCommands = ['minikube', 'az', 'kubectl', 'scriptjs', 'kubelogin'];
+  const validCommands = ['minikube', 'az', 'kubectl', 'scriptjs', 'kubelogin', 'gh'];
 
   if (!validCommands.includes(eventData.command)) {
     return [

@@ -246,16 +246,19 @@ export function identifyPackages(
       'static-plugins/headlamp_minikubeprerelease',
     ],
     'aks-desktop': ['plugins/aks-desktop', 'static-plugins/aks-desktop'],
+    'ai-assistant': ['plugins/ai-assistant', 'static-plugins/ai-assistant'],
   };
 
   if (isDevelopmentMode) {
     pluginPaths['@headlamp-k8s/minikube'][pluginPaths['@headlamp-k8s/minikube'].length] =
       'plugins/minikube';
     pluginPaths['aks-desktop'][pluginPaths['aks-desktop'].length] = 'plugins/aks-desktop';
+    pluginPaths['ai-assistant'][pluginPaths['ai-assistant'].length] = 'plugins/ai-assistant';
   }
   const pluginPackageNames: Record<string, string[]> = {
     '@headlamp-k8s/minikube': ['@headlamp-k8s/minikube', '@headlamp-k8s/minikubeprerelease'],
     'aks-desktop': ['aks-desktop'],
+    'ai-assistant': ['ai-assistant'],
   };
   const isPackage: Record<string, boolean> = {};
   for (const key in pluginPaths) {
