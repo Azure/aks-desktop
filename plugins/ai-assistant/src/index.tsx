@@ -165,7 +165,6 @@ function HeadlampAIPrompt() {
   const previewEnabled = savedConfigs?.previewEnabled ?? false;
   const hasShownPopover = savedConfigs?.configPopoverShown || false;
   const dismissedKeys: string[] = savedConfigs?.autoDetectDismissedProviders || [];
-  const hasAcceptedTerms = savedConfigs?.termsAccepted || false;
 
   const savedConfigData = React.useMemo(() => {
     return getSavedConfigurations(savedConfigs);
@@ -200,7 +199,11 @@ function HeadlampAIPrompt() {
       );
       if (newProviders.length > 0) {
         setDetectedProviders(newProviders);
-        if (!hasAcceptedTerms) {
+        // Read termsAccepted from the store directly to avoid stale closure values.
+        // The user may have accepted terms in Settings/ModelSelector while this
+        // async detection was in flight.
+        const latestTermsAccepted = pluginStore.get()?.termsAccepted || false;
+        if (!latestTermsAccepted) {
           // Must accept terms before we can save any provider.
           // Show terms first; the detection dialog follows on acceptance.
           setShowTermsForAutoDetect(true);
@@ -517,7 +520,11 @@ function Settings() {
   ) => {
     if (providers.length === 0) return;
     setDetectedForDialog(providers);
-    if (!savedConfigs?.termsAccepted) {
+    // Read termsAccepted from the store directly to avoid stale closure values.
+    // The user may have just accepted terms in ModelSelector before triggering
+    // auto-detect, and the hook value may not have propagated yet.
+    const latestTermsAccepted = pluginStore.get()?.termsAccepted || false;
+    if (!latestTermsAccepted) {
       setShowTermsForDetect(true);
     } else {
       setShowAutoDetectDialog(true);
