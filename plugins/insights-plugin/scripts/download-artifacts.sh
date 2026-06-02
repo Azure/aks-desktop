@@ -10,11 +10,13 @@ rm -rf dist
 mkdir -p dist
 curl --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 10 --max-time 120 -fLo artifacts.tar.gz "$URL"
 
-# We know exactly the three files we want to extract, so we name them here to skip any fancy filename sanity checks
+# We know exactly the files we want to extract, so we name them here to skip any fancy filename sanity checks
 tar --no-same-owner --no-same-permissions -xzf artifacts.tar.gz \
   --strip-components=1 -C dist \
   insights-plugin/main.js \
   insights-plugin/main.wasm.gz \
-  insights-plugin/package.json
+  insights-plugin/package.json \
+  insights-plugin/locales/en/translation.json \
+  insights-plugin/locales/de/translation.json
 rm artifacts.tar.gz
 echo "Done."
