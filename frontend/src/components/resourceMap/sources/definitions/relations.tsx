@@ -69,6 +69,15 @@ const makeRelation = <From extends KubeObjectClass, To extends KubeObjectClass>(
     const fromObject = fromNode.kubeObject as InstanceType<From>;
     const toObject = toNode.kubeObject as InstanceType<To>;
 
+    // If both resources are namespace-scoped, they must be in the same namespace
+    if (
+      fromObject.isNamespaced &&
+      toObject.isNamespaced &&
+      fromObject.getNamespace() !== toObject.getNamespace()
+    ) {
+      return false;
+    }
+
     return fromObject.cluster === toObject.cluster && Boolean(selector(fromObject, toObject));
   },
 });
