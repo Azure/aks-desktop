@@ -80,6 +80,12 @@ export function parseSuggestionsFromResponse(content: string | any): {
 export function getProviderModels(providerConfig: StoredProviderConfig): string[] {
   const providerInfo = getProviderById(providerConfig.providerId);
 
+  // Azure OpenAI deployments are tied to a specific model, so only show the
+  // configured model rather than the full list of possible Azure models.
+  if (providerConfig.providerId === 'azure' && providerConfig.config?.model) {
+    return [providerConfig.config.model];
+  }
+
   // First try to use the models field, then fall back to options from the model field
   let models: string[] = [];
   if (providerInfo?.models && providerInfo.models.length > 0) {
