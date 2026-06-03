@@ -40,6 +40,7 @@ import MetricsCard from './components/Metrics/MetricsCard';
 import MetricsTab from './components/Metrics/MetricsTab';
 import PreviewFeaturesSettings from './components/PluginSettings/PreviewFeaturesSettings';
 import { previewFeaturesStore } from './components/PluginSettings/previewFeaturesStore';
+import TelemetrySettings from './components/PluginSettings/TelemetrySettings';
 import ScalingCard from './components/Scaling/ScalingCard';
 import ScalingTab from './components/Scaling/ScalingTab';
 import type { ProjectDefinition } from './types/project';
@@ -303,6 +304,7 @@ if (Headlamp.isRunningAsApp()) {
 }
 
 registerPluginSettings('aks-desktop', PreviewFeaturesSettings, false);
+registerPluginSettings('aks-desktop-telemetry', TelemetrySettings, false);
 
 registerProjectOverviewSection({
   id: 'cluster-capabilities',
