@@ -3,7 +3,9 @@
   "version": "0.3.0-beta",
   "description": "AKS Headlamp plugin",
   "scripts": {
+    "prestart": "node make-telemetry-env.js",
     "start": "headlamp-plugin start",
+    "prebuild": "node make-telemetry-env.js",
     "build": "headlamp-plugin build",
     "format": "headlamp-plugin format",
     "lint": "headlamp-plugin lint",
