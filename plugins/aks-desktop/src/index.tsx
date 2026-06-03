@@ -4,6 +4,7 @@
 import {
   Headlamp,
   registerAddClusterProvider,
+  registerAppBarAction,
   registerAppLogo,
   registerAppTheme,
   registerCustomCreateProject,
@@ -43,6 +44,7 @@ import { previewFeaturesStore } from './components/PluginSettings/previewFeature
 import TelemetrySettings from './components/PluginSettings/TelemetrySettings';
 import ScalingCard from './components/Scaling/ScalingCard';
 import ScalingTab from './components/Scaling/ScalingTab';
+import TelemetryBoot from './components/TelemetryBoot';
 import type { ProjectDefinition } from './types/project';
 import { getLoginStatus } from './utils/azure/az-auth';
 import { AZURE_ACCOUNT_POLL_INTERVAL_MS } from './utils/constants/timing';
@@ -84,6 +86,9 @@ Headlamp.setAppMenu(menus => {
 
 // add azure related components only if running as app
 if (Headlamp.isRunningAsApp()) {
+  // boot App Insights telemetry once on first render
+  registerAppBarAction(() => <TelemetryBoot />);
+
   // register azure logo
   registerAppLogo(AzureLogo);
 
