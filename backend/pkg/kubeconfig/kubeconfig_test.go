@@ -113,6 +113,16 @@ func TestLoadContextsFromKubeConfigFile(t *testing.T) {
 		require.Equal(t, 1, len(contexts), "Expected 1 contexts from the partially valid file")
 		require.Equal(t, "valid-context", contexts[0].Name, "Expected context name to be 'valid-context'")
 	})
+
+	t.Run("null_clusters_with_contexts_no_panic", func(t *testing.T) {
+		kubeConfigFile := "./test_data/kubeconfig_null_clusters"
+
+		contexts, contextErrors, err := kubeconfig.LoadContextsFromFile(kubeConfigFile, kubeconfig.KubeConfig)
+		require.NoError(t, err, "Expected no file-level error")
+		require.NotEmpty(t, contextErrors, "Expected context errors when clusters is null")
+		require.ErrorContains(t, contextErrors[0].Error, "clusters")
+		require.Empty(t, contexts, "Expected no valid contexts when clusters is null")
+	})
 }
 
 // TestLoadContextFromFile validates the behavior of the LoadContextsFromFile function.
