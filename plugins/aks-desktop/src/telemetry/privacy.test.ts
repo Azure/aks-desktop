@@ -8,7 +8,7 @@ import { makePrivacyInitializer } from './privacy';
 const VALID_INSTALL_ID = '11111111-1111-4111-8111-111111111111';
 
 function envelope(overrides: Partial<ITelemetryItem> = {}): ITelemetryItem {
-  return { name: 'x', ...overrides } as ITelemetryItem;
+  return { name: 'headlamp.feature', ...overrides } as ITelemetryItem;
 }
 
 describe('privacy initializer', () => {
@@ -99,8 +99,31 @@ describe('privacy initializer', () => {
 
   it('is a no-op when envelope has neither tags nor baseData', () => {
     const init = makePrivacyInitializer(VALID_INSTALL_ID);
-    const e: ITelemetryItem = { name: 'x' } as ITelemetryItem;
+    const e: ITelemetryItem = { name: 'headlamp.feature' } as ITelemetryItem;
     expect(() => init(e)).not.toThrow();
     expect(e.tags?.['ai.user.id']).toBe(VALID_INSTALL_ID);
+  });
+
+  it('keeps envelope name when it is in KNOWN_EVENT_NAMES', () => {
+    const init = makePrivacyInitializer(VALID_INSTALL_ID);
+    for (const name of [
+      'headlamp.session-start',
+      'headlamp.cluster-shape',
+      'headlamp.feature',
+      'headlamp.exception',
+      'headlamp.plugins-loaded',
+      'exception',
+    ]) {
+      const e: ITelemetryItem = { name } as ITelemetryItem;
+      init(e);
+      expect(e.name).toBe(name);
+    }
+  });
+
+  it('replaces envelope name with "unknown" when not in KNOWN_EVENT_NAMES', () => {
+    const init = makePrivacyInitializer(VALID_INSTALL_ID);
+    const e: ITelemetryItem = { name: 'leak:secret-value' } as ITelemetryItem;
+    init(e);
+    expect(e.name).toBe('unknown');
   });
 });

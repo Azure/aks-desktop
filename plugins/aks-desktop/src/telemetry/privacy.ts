@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import type { ITelemetryItem } from '@microsoft/applicationinsights-web';
-import { KNOWN_PROPERTY_KEYS } from './schema';
+import { KNOWN_EVENT_NAMES, KNOWN_PROPERTY_KEYS } from './schema';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -18,11 +18,17 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  *      current value doesn't match; strip it entirely if we don't.
  *   3. Clear URL fields on baseData.
  *   4. Drop any property key not in KNOWN_PROPERTY_KEYS.
+ *   5. Replace the envelope name with `'unknown'` if it isn't in
+ *      KNOWN_EVENT_NAMES. Prevents a caller bypassing the typed helpers
+ *      from smuggling data through the event name itself.
  *
  * Mutates `envelope` in place (initializer contract).
  */
 export function makePrivacyInitializer(installId: string | undefined) {
   return function privacyTelemetryInitializer(envelope: ITelemetryItem): void {
+    if (typeof envelope.name !== 'string' || !KNOWN_EVENT_NAMES.has(envelope.name)) {
+      envelope.name = 'unknown';
+    }
     envelope.tags = envelope.tags ?? {};
     delete envelope.tags['ai.user.authUserId'];
     delete envelope.tags['ai.user.accountId'];

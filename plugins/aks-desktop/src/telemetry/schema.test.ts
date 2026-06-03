@@ -7,6 +7,7 @@ import {
   bucketNodeCount,
   BUILTIN_K8S_KINDS,
   KNOWN_ERROR_NAMES,
+  KNOWN_EVENT_NAMES,
   KNOWN_PROPERTY_KEYS,
   kubernetesMinor,
   localeLanguage,
@@ -139,6 +140,18 @@ describe('vocabulary sets', () => {
   it('KNOWN_ERROR_NAMES contains expected staples', () => {
     expect(KNOWN_ERROR_NAMES.has('TypeError')).toBe(true);
     expect(KNOWN_ERROR_NAMES.has('KubeApiError')).toBe(true);
+  });
+  it('KNOWN_EVENT_NAMES contains the five headlamp.* names plus the "exception" shim', () => {
+    expect(new Set(KNOWN_EVENT_NAMES)).toEqual(
+      new Set([
+        'headlamp.session-start',
+        'headlamp.cluster-shape',
+        'headlamp.feature',
+        'headlamp.exception',
+        'headlamp.plugins-loaded',
+        'exception',
+      ])
+    );
   });
   it('KNOWN_PROPERTY_KEYS is the exact union of event property keys', () => {
     // This is the drift guardrail. If you add a property to any helper,

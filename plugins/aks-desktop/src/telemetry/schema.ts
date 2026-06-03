@@ -141,6 +141,24 @@ export const AZURE_REGIONS: ReadonlySet<string> = new Set([
   'mexicocentral',
 ]);
 
+/**
+ * Event names allowed to leave the renderer. The privacy initializer
+ * replaces the envelope `name` field with `'unknown'` for anything not in
+ * this set, so a caller that bypasses the typed helpers (e.g. by calling
+ * `window.appInsights.trackEvent` directly) cannot smuggle data through
+ * the event name itself.
+ */
+export const KNOWN_EVENT_NAMES: ReadonlySet<string> = new Set([
+  'headlamp.session-start',
+  'headlamp.cluster-shape',
+  'headlamp.feature',
+  'headlamp.exception',
+  'headlamp.plugins-loaded',
+  // ErrorBoundary in the fork still calls trackEvent('exception', ...);
+  // allowlist its bare name so the existing path keeps working.
+  'exception',
+]);
+
 export const KNOWN_PROPERTY_KEYS: ReadonlySet<string> = new Set([
   // session-start
   'installId',
