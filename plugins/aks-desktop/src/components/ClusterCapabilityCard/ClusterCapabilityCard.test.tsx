@@ -8,11 +8,21 @@ import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 
 // Mock K8s.ResourceClasses.Namespace.useGet
 const mockUseGet = vi.fn();
+const mockNodeUseList = vi.fn(function nodeList(): any {
+  return [null, null];
+});
+const mockNamespaceUseList = vi.fn(function nsList(): any {
+  return [null, null];
+});
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   K8s: {
     ResourceClasses: {
       Namespace: {
         useGet: (...args: any[]) => mockUseGet(...args),
+        useList: () => mockNamespaceUseList(),
+      },
+      Node: {
+        useList: () => mockNodeUseList(),
       },
     },
   },
@@ -45,6 +55,9 @@ function makeCapabilities(overrides: Partial<ClusterCapabilities> = {}): Cluster
     containerInsightsEnabled: true,
     kedaEnabled: true,
     vpaEnabled: true,
+    location: 'eastus',
+    tier: 'Standard',
+    kubernetesVersion: '1.29.4',
     ...overrides,
   };
 }

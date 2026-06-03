@@ -99,6 +99,9 @@ describe('getClusterCapabilities', () => {
       containerInsightsEnabled: true,
       kedaEnabled: true,
       vpaEnabled: true,
+      location: null,
+      tier: null,
+      kubernetesVersion: null,
     });
   });
 

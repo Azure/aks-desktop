@@ -185,7 +185,7 @@ export async function getClusterCapabilities(options: {
     '--name',
     clusterName,
     '--query',
-    '{sku:sku.name,aadProfile:aadProfile,azureRbacEnabled:aadProfile.enableAzureRbac,networkPolicy:networkProfile.networkPolicy,networkPlugin:networkProfile.networkPlugin,prometheusEnabled:azureMonitorProfile.metrics.enabled,containerInsightsEnabled:addonProfiles.omsagent.enabled,kedaEnabled:workloadAutoScalerProfile.keda.enabled,vpaEnabled:workloadAutoScalerProfile.verticalPodAutoscaler.enabled}',
+    '{sku:sku.name,tier:sku.tier,location:location,kubernetesVersion:kubernetesVersion,aadProfile:aadProfile,azureRbacEnabled:aadProfile.enableAzureRbac,networkPolicy:networkProfile.networkPolicy,networkPlugin:networkProfile.networkPlugin,prometheusEnabled:azureMonitorProfile.metrics.enabled,containerInsightsEnabled:addonProfiles.omsagent.enabled,kedaEnabled:workloadAutoScalerProfile.keda.enabled,vpaEnabled:workloadAutoScalerProfile.verticalPodAutoscaler.enabled}',
     '--output',
     'json',
   ];
@@ -213,6 +213,9 @@ export async function getClusterCapabilities(options: {
       containerInsightsEnabled: result.containerInsightsEnabled ?? null,
       kedaEnabled: result.kedaEnabled ?? null,
       vpaEnabled: result.vpaEnabled ?? null,
+      location: (result.location as string) ?? null,
+      tier: (result.tier as string) ?? null,
+      kubernetesVersion: (result.kubernetesVersion as string) ?? null,
     };
   } catch (error) {
     console.error('Failed to parse cluster capabilities response:', error);

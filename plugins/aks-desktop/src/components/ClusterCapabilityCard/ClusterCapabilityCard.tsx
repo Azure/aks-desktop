@@ -4,9 +4,15 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Box, Typography } from '@mui/material';
 import React, { useEffect } from 'react';
+import { emitClusterShapeIfReady } from '../../telemetry/clusterShape';
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { ClusterConfigurePanel } from '../CreateAKSProject/components/ClusterConfigurePanel';
 import { useClusterCapabilities } from '../CreateAKSProject/hooks/useClusterCapabilities';
+
+// Dedupe `headlamp.cluster-shape` emission per Azure resource ID so
+// re-renders/refetches do not re-emit. The key is the AKS resource id —
+// an Azure-generated path string, not customer data.
+const emittedShapeFor = new Set<string>();
 
 interface ClusterCapabilityCardProps {
   project: {
@@ -47,6 +53,27 @@ function ClusterCapabilityCard({ project }: ClusterCapabilityCardProps) {
       fetchCapabilities(subscription, resourceGroup, cluster);
     }
   }, [subscription, resourceGroup, cluster]);
+
+  // Fetch live k8s counts so we can fire `headlamp.cluster-shape` with
+  // a fully-populated envelope. We never ship half-populated events.
+  const [nodes] = K8s.ResourceClasses.Node.useList({ cluster });
+  const [namespaces] = K8s.ResourceClasses.Namespace.useList({ cluster });
+
+  useEffect(() => {
+    if (!capabilities || !subscription || !resourceGroup || !cluster) return;
+    if (!nodes || !namespaces) return;
+    // Azure resource ID is the canonical dedupe key — Azure-generated string.
+    const azureResourceId = `/subscriptions/${subscription}/resourceGroups/${resourceGroup}/providers/Microsoft.ContainerService/managedClusters/${cluster}`;
+    if (emittedShapeFor.has(azureResourceId)) return;
+    const fired = emitClusterShapeIfReady({
+      kubernetesVersion: capabilities.kubernetesVersion ?? undefined,
+      nodeCount: nodes.length,
+      namespaceCount: namespaces.length,
+      region: capabilities.location ?? undefined,
+      aksTier: capabilities.tier ?? undefined,
+    });
+    if (fired) emittedShapeFor.add(azureResourceId);
+  }, [capabilities, nodes, namespaces, subscription, resourceGroup, cluster]);
 
   // Don't show anything while loading or if we don't have data yet
   if (loading) return null;
