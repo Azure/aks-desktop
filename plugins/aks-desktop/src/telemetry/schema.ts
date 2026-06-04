@@ -4,8 +4,6 @@
 /**
  * Vocabularies and sanitizers gating every value before it reaches a
  * telemetry envelope. No runtime side effects.
- *
- * See: docs/superpowers/specs/2026-06-02-app-insights-usage-telemetry-design.md
  */
 
 export const BUILTIN_K8S_KINDS: ReadonlySet<string> = new Set([
@@ -158,6 +156,49 @@ export const KNOWN_EVENT_NAMES: ReadonlySet<string> = new Set([
   // allowlist its bare name so the existing path keeps working.
   'exception',
 ]);
+
+/**
+ * The set of HeadlampEventType string values that we forward into the
+ * `feature` property of `headlamp.feature` envelopes. We allowlist this
+ * (rather than passing `event.type` through) so a future upstream change
+ * that encodes data in an event type string (e.g. `cluster:my-prod`)
+ * cannot leak through the `feature` property.
+ *
+ * Includes the string literal `'headlamp.rollback-resource'` because
+ * the corresponding `HeadlampEventType.ROLLBACK_RESOURCE` is missing
+ * from the installed `@kinvolk/headlamp-plugin` typedef even though the
+ * fork dispatches it at runtime.
+ */
+export const KNOWN_FEATURE_TYPES: ReadonlySet<string> = new Set([
+  'headlamp.delete-resource',
+  'headlamp.delete-resources',
+  'headlamp.create-resource',
+  'headlamp.edit-resource',
+  'headlamp.scale-resource',
+  'headlamp.restart-resource',
+  'headlamp.restart-resources',
+  'headlamp.rollback-resource',
+  'headlamp.logs',
+  'headlamp.terminal',
+  'headlamp.pod-attach',
+  'headlamp.plugin-loading-error',
+  'headlamp.details-view',
+  'headlamp.list-view',
+  'headlamp.object-events',
+  // PLUGINS_LOADED and ERROR_BOUNDARY are intentionally omitted:
+  // PLUGINS_LOADED routes to trackPluginsLoaded (not a feature event);
+  // ERROR_BOUNDARY is handled by the fork's existing trackEvent('exception',…)
+  // path.
+]);
+
+/**
+ * Sanitize an arbitrary feature-name string against KNOWN_FEATURE_TYPES.
+ * Returns the input verbatim if allowlisted, else `undefined` so the
+ * caller can decide whether to drop the event entirely.
+ */
+export function sanitizeFeatureType(type: string | undefined): string | undefined {
+  return type && KNOWN_FEATURE_TYPES.has(type) ? type : undefined;
+}
 
 export const KNOWN_PROPERTY_KEYS: ReadonlySet<string> = new Set([
   // session-start

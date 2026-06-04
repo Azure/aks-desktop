@@ -2,12 +2,16 @@
 // Licensed under the Apache 2.0.
 
 import type { ApplicationInsights } from '@microsoft/applicationinsights-web';
+import type { AppInfo } from './appInfo';
 import {
   KNOWN_PLUGIN_IDS,
   KNOWN_PROPERTY_KEYS,
   localeLanguage,
+  type NamespaceCountBucket,
+  type NodeCountBucket,
   osMajor as sanitizeOsMajor,
   sanitizeErrorName,
+  sanitizeFeatureType,
   sanitizeKind,
 } from './schema';
 
@@ -40,14 +44,10 @@ function emit(name: string, properties: Record<string, string | undefined>): voi
   }
 }
 
-export interface SessionStartProps {
+export interface SessionStartProps extends AppInfo {
   installId: string;
   appVersion: string;
   headlampVersion: string;
-  electronVersion: string;
-  os: 'win32' | 'darwin' | 'linux';
-  osMajor: string;
-  arch: 'x64' | 'arm64' | 'ia32';
   locale: string;
 }
 
@@ -67,16 +67,13 @@ export function trackSessionStart(p: SessionStartProps): void {
 export interface ClusterShapeProps {
   provider: 'AKS';
   kubernetesMinor: string;
-  nodeCountBucket: '1-5' | '6-20' | '21-100' | '100+';
-  namespaceCountBucket: '1-10' | '11-50' | '51-200' | '200+';
+  nodeCountBucket: NodeCountBucket;
+  namespaceCountBucket: NamespaceCountBucket;
   region: string;
   aksTier: 'Free' | 'Standard' | 'Premium' | 'Unknown';
 }
 
 export function trackClusterShape(p: ClusterShapeProps): void {
-  // Region/kubernetesMinor were sanitized at the call site (the only place
-  // that has the raw values). We still pass them through KNOWN_PROPERTY_KEYS
-  // filter via emit().
   emit('headlamp.cluster-shape', {
     provider: p.provider,
     kubernetesMinor: p.kubernetesMinor,
@@ -94,8 +91,14 @@ export interface FeatureProps {
 }
 
 export function trackFeature(p: FeatureProps): void {
+  // Drop events whose `feature` string isn't in our allowlist. Prevents a
+  // future upstream change that encodes data in an event type (e.g.
+  // `cluster:my-prod`) from leaking that string through the `feature`
+  // property even if the envelope name is rewritten to `unknown`.
+  const safeFeature = sanitizeFeatureType(p.feature);
+  if (safeFeature === undefined) return;
   emit('headlamp.feature', {
-    feature: p.feature,
+    feature: safeFeature,
     status: p.status,
     resourceKind: p.resourceKind === undefined ? undefined : sanitizeKind(p.resourceKind),
   });
@@ -119,8 +122,6 @@ export interface PluginsLoadedProps {
 }
 
 export function trackPluginsLoaded(p: PluginsLoadedProps): void {
-  // Filter knownEnabledIds against the allowlist defensively, even though
-  // the caller is supposed to do it already.
   const knownOnly = p.knownEnabledIds.filter(id => KNOWN_PLUGIN_IDS.has(id));
   emit('headlamp.plugins-loaded', {
     totalCount: String(p.totalCount),

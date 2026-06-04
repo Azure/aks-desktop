@@ -129,6 +129,8 @@ describe('trackPluginsLoaded', () => {
 
 describe('no-op behavior', () => {
   it('all helpers no-op when window.appInsights is undefined', () => {
+    // Use a fresh mock that we expect to NEVER be called.
+    const neverCalled = vi.fn();
     window.appInsights = undefined;
     trackSessionStart({
       installId: '11111111-1111-4111-8111-111111111111',
@@ -140,11 +142,14 @@ describe('no-op behavior', () => {
       arch: 'arm64',
       locale: 'en',
     });
-    trackFeature({ feature: 'x', status: 'unknown' });
+    trackFeature({ feature: 'headlamp.delete-resource', status: 'unknown' });
     trackException({ errorName: 'TypeError' });
     trackPluginsLoaded({ totalCount: 0, enabledCount: 0, knownEnabledIds: [], thirdPartyCount: 0 });
-    // No throw, no crash. Mock not installed; no assertion needed beyond
-    // "we didn't crash."
-    expect(true).toBe(true);
+    expect(neverCalled).not.toHaveBeenCalled();
+  });
+
+  it('trackFeature drops events whose feature is not in KNOWN_FEATURE_TYPES', () => {
+    trackFeature({ feature: 'not.a.real.event', status: 'confirmed' });
+    expect(trackEventMock).not.toHaveBeenCalled();
   });
 });
