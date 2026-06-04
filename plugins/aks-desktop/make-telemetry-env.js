@@ -5,12 +5,10 @@
 // substitutes REACT_APP_* vars as `import.meta.env.*` in the plugin
 // bundle. Runs as a prebuild/prestart hook from package.json.
 //
-// REACT_APP_APPINSIGHTS_CONNECTION_STRING defaults to the public AKS
-// Desktop production App Insights instance. The connection string is
-// not a credential (App Insights connection strings are addresses, not
-// auth tokens) and was previously hardcoded in
-// headlamp/frontend/make-env.js. To send to a different instance (e.g.
-// the dev App Insights), set the env var before running the build.
+// The default REACT_APP_APPINSIGHTS_CONNECTION_STRING points at the AKS
+// Desktop production App Insights instance. Connection strings are
+// addresses (not credentials). Set the env var before running the build
+// to send to a different instance (e.g. a dev App Insights).
 
 const fs = require('fs');
 const path = require('path');

@@ -2,6 +2,10 @@
 // Licensed under the Apache 2.0.
 
 import { registerHeadlampEventCallback } from '@kinvolk/headlamp-plugin/lib';
+import type {
+  HeadlampEvent,
+  HeadlampEventCallback,
+} from '@kinvolk/headlamp-plugin/lib/redux/headlampEventSlice';
 import { ApplicationInsights } from '@microsoft/applicationinsights-web';
 import { extractKindFromPayload } from './extractKind';
 import { makePrivacyInitializer } from './privacy';
@@ -25,7 +29,7 @@ export interface EnableTelemetryOptions {
    * to the public plugin API `registerHeadlampEventCallback`. Tests can
    * pass a spy.
    */
-  registerEventCallback?: (cb: (event: { type: string; data?: unknown }) => void) => void;
+  registerEventCallback?: (cb: HeadlampEventCallback) => void;
 }
 
 /**
@@ -44,7 +48,8 @@ export function enableTelemetry(opts: EnableTelemetryOptions): void {
   const ai = new ApplicationInsights({
     config: {
       connectionString: opts.connectionString,
-      // Defense in depth: mirror PR #626's lockdown of auto-collection.
+      // Lock down auto-collection so nothing fires without going through
+      // the typed helpers.
       disableFetchTracking: true,
       disableAjaxTracking: true,
       disableExceptionTracking: true,
@@ -62,12 +67,8 @@ export function enableTelemetry(opts: EnableTelemetryOptions): void {
   trackSessionStart(opts.sessionProps);
 
   // Forward redux events as telemetry.
-  const register =
-    opts.registerEventCallback ??
-    (registerHeadlampEventCallback as unknown as (
-      cb: (event: { type: string; data?: unknown }) => void
-    ) => void);
-  register(event => {
+  const register = opts.registerEventCallback ?? registerHeadlampEventCallback;
+  register((event: HeadlampEvent) => {
     try {
       if (event.type === 'headlamp.plugins-loaded') {
         const plugins =
@@ -87,7 +88,7 @@ export function enableTelemetry(opts: EnableTelemetryOptions): void {
       trackFeature({
         feature: event.type,
         status: (event.data as { status?: string } | undefined)?.status ?? 'unknown',
-        resourceKind: extractKindFromPayload(event),
+        resourceKind: extractKindFromPayload({ type: event.type, data: event.data }),
       });
     } catch (e) {
       // Never let telemetry break the app.

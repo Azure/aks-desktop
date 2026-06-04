@@ -63,11 +63,13 @@ describe('emitClusterShapeIfReady', () => {
 
   it('sanitizes unknown region to Other', () => {
     emitClusterShapeIfReady({ ...full, region: 'madeup' });
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
     expect(trackEventMock.mock.calls[0][0].properties.region).toBe('Other');
   });
 
   it('sanitizes unknown aksTier to Unknown', () => {
     emitClusterShapeIfReady({ ...full, aksTier: 'NewTierName' });
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
     expect(trackEventMock.mock.calls[0][0].properties.aksTier).toBe('Unknown');
   });
 });

@@ -11,8 +11,14 @@ import { useClusterCapabilities } from '../CreateAKSProject/hooks/useClusterCapa
 
 // Dedupe `headlamp.cluster-shape` emission per Azure resource ID so
 // re-renders/refetches do not re-emit. The key is the AKS resource id —
-// an Azure-generated path string, not customer data.
+// not customer data because the value is never sent in any envelope,
+// only used as an in-memory dedupe key for the current page load.
 const emittedShapeFor = new Set<string>();
+
+/** Test-only: reset the per-page dedupe set so suites don't leak state. */
+export function __resetEmittedShapeForTests(): void {
+  emittedShapeFor.clear();
+}
 
 interface ClusterCapabilityCardProps {
   project: {
@@ -52,17 +58,17 @@ function ClusterCapabilityCard({ project }: ClusterCapabilityCardProps) {
     if (subscription && resourceGroup && cluster) {
       fetchCapabilities(subscription, resourceGroup, cluster);
     }
-  }, [subscription, resourceGroup, cluster]);
+  }, [subscription, resourceGroup, cluster, fetchCapabilities]);
 
-  // Fetch live k8s counts so we can fire `headlamp.cluster-shape` with
-  // a fully-populated envelope. We never ship half-populated events.
+  // Live k8s counts so we can fire `headlamp.cluster-shape` with a
+  // fully-populated envelope; the gate against half-populated emission
+  // lives in emitClusterShapeIfReady.
   const [nodes] = K8s.ResourceClasses.Node.useList({ cluster });
   const [namespaces] = K8s.ResourceClasses.Namespace.useList({ cluster });
 
   useEffect(() => {
     if (!capabilities || !subscription || !resourceGroup || !cluster) return;
     if (!nodes || !namespaces) return;
-    // Azure resource ID is the canonical dedupe key — Azure-generated string.
     const azureResourceId = `/subscriptions/${subscription}/resourceGroups/${resourceGroup}/providers/Microsoft.ContainerService/managedClusters/${cluster}`;
     if (emittedShapeFor.has(azureResourceId)) return;
     const fired = emitClusterShapeIfReady({

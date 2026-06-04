@@ -8,15 +8,14 @@ interface DesktopApi {
 }
 
 /**
- * Fetch the per-install UUID over IPC. Returns `undefined` on web mode,
- * when the bridge isn't available, when the IPC fails, or when the value
- * returned doesn't look like a v4 UUID.
- *
- * Telemetry initialization treats `undefined` as "do not initialize" — we
- * never fall back to a session ID or device-derived value.
+ * Fetch the per-install UUID over the Electron preload bridge. Returns
+ * `undefined` on web mode, when the bridge is absent, when the IPC fails,
+ * or when the returned value doesn't match the UUID shape. Telemetry
+ * initialization treats `undefined` as "do not initialize" — we never
+ * fall back to a session ID or device-derived value.
  */
 export async function getInstallId(): Promise<string | undefined> {
-  const desktopApi = (window as unknown as { desktopApi?: DesktopApi }).desktopApi;
+  const desktopApi = (window as { desktopApi?: DesktopApi }).desktopApi;
   if (!desktopApi?.getInstallId) return undefined;
   try {
     const id = await desktopApi.getInstallId();

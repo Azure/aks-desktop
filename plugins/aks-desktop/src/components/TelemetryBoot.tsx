@@ -31,25 +31,34 @@ export default function TelemetryBoot(): React.ReactElement | null {
     if (!CONNECTION_STRING) return;
 
     (async () => {
-      const [installId, appInfo] = await Promise.all([getInstallId(), getAppInfo()]);
-      if (!installId || !appInfo) return;
+      try {
+        const [installId, appInfo] = await Promise.all([getInstallId(), getAppInfo()]);
+        if (!installId || !appInfo) return;
 
-      enableTelemetry({
-        connectionString: CONNECTION_STRING,
-        installId,
-        sessionProps: {
+        enableTelemetry({
+          connectionString: CONNECTION_STRING,
           installId,
-          appVersion:
-            (import.meta.env.REACT_APP_AKS_DESKTOP_VERSION as string | undefined) ?? 'unknown',
-          headlampVersion:
-            (import.meta.env.REACT_APP_HEADLAMP_VERSION as string | undefined) ?? 'unknown',
-          electronVersion: appInfo.electronVersion,
-          os: appInfo.os,
-          osMajor: appInfo.osMajor,
-          arch: appInfo.arch,
-          locale: navigator.language || 'unknown',
-        },
-      });
+          sessionProps: {
+            installId,
+            appVersion:
+              (import.meta.env.REACT_APP_AKS_DESKTOP_VERSION as string | undefined) ?? 'unknown',
+            headlampVersion:
+              (import.meta.env.REACT_APP_HEADLAMP_VERSION as string | undefined) ?? 'unknown',
+            electronVersion: appInfo.electronVersion,
+            os: appInfo.os,
+            osMajor: appInfo.osMajor,
+            arch: appInfo.arch,
+            locale: navigator.language || 'unknown',
+          },
+        });
+      } catch (e) {
+        // ApplicationInsights init can throw synchronously on a malformed
+        // connection string. Swallow so a bad operator override doesn't
+        // surface as an unhandled rejection, but log so the failure is
+        // diagnosable.
+        // eslint-disable-next-line no-console
+        console.error('Telemetry init failed', e);
+      }
     })();
   }, []);
 

@@ -11,16 +11,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * (or `undefined` if telemetry is configured without one — e.g. web
  * fallback).
  *
- * For every outgoing envelope, this is the LAST line of defense:
+ * For every outgoing envelope, this is the last line of defense:
  *
- *   1. Strip the unconditional fields (auth/account/session/IP).
- *   2. Replace `ai.user.id` with the install UUID if we have one and the
- *      current value doesn't match; strip it entirely if we don't.
- *   3. Clear URL fields on baseData.
- *   4. Drop any property key not in KNOWN_PROPERTY_KEYS.
- *   5. Replace the envelope name with `'unknown'` if it isn't in
+ *   1. Replace the envelope name with `'unknown'` if it isn't in
  *      KNOWN_EVENT_NAMES. Prevents a caller bypassing the typed helpers
  *      from smuggling data through the event name itself.
+ *   2. Strip the unconditional identity tags (auth/account/session/IP).
+ *   3. Replace `ai.user.id` with the install UUID if we have one and the
+ *      current value doesn't match; strip it entirely if we don't.
+ *   4. Clear URL fields on baseData.
+ *   5. Drop any property key not in KNOWN_PROPERTY_KEYS.
  *
  * Mutates `envelope` in place (initializer contract).
  */
