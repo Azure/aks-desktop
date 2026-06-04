@@ -13,22 +13,23 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  *
  * For every outgoing envelope, this is the last line of defense:
  *
- *   1. Replace the envelope name with `'unknown'` if it isn't in
- *      KNOWN_EVENT_NAMES. Prevents a caller bypassing the typed helpers
- *      from smuggling data through the event name itself.
- *   2. Strip the unconditional identity tags (auth/account/session/IP).
- *   3. Replace `ai.user.id` with the install UUID if we have one and the
+ *   1. Strip the unconditional identity tags (auth/account/session/IP).
+ *   2. Replace `ai.user.id` with the install UUID if we have one and the
  *      current value doesn't match; strip it entirely if we don't.
- *   4. Clear URL fields on baseData.
+ *   3. Clear URL fields on baseData.
+ *   4. Replace `baseData.name` (the custom event name passed to
+ *      `trackEvent({ name })`) with `'unknown'` if it isn't in
+ *      KNOWN_EVENT_NAMES. Prevents a caller bypassing the typed helpers
+ *      from smuggling data through the event name itself. (Note:
+ *      `envelope.name` itself is the SDK-internal envelope-type string
+ *      such as `Microsoft.ApplicationInsights.{ikey}.Event`, NOT the
+ *      caller-controlled custom name.)
  *   5. Drop any property key not in KNOWN_PROPERTY_KEYS.
  *
  * Mutates `envelope` in place (initializer contract).
  */
 export function makePrivacyInitializer(installId: string | undefined) {
   return function privacyTelemetryInitializer(envelope: ITelemetryItem): void {
-    if (typeof envelope.name !== 'string' || !KNOWN_EVENT_NAMES.has(envelope.name)) {
-      envelope.name = 'unknown';
-    }
     envelope.tags = envelope.tags ?? {};
     delete envelope.tags['ai.user.authUserId'];
     delete envelope.tags['ai.user.accountId'];
@@ -49,6 +50,11 @@ export function makePrivacyInitializer(installId: string | undefined) {
       if ('uri' in baseData) baseData.uri = '';
       if ('refUri' in baseData) baseData.refUri = '';
       if ('url' in baseData) baseData.url = '';
+
+      const customName = baseData.name;
+      if (typeof customName !== 'string' || !KNOWN_EVENT_NAMES.has(customName)) {
+        baseData.name = 'unknown';
+      }
 
       const props = baseData.properties as Record<string, unknown> | undefined;
       if (props) {

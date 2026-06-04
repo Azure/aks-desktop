@@ -715,5 +715,8 @@
   "{{weeks}}w ago": "{{weeks}}w ago",
   "Tenant": "Tenant",
   "{{count}} nodes_one": "{{count}} node",
-  "{{count}} nodes_other": "{{count}} nodes"
+  "{{count}} nodes_other": "{{count}} nodes",
+  "Telemetry": "Telemetry",
+  "AKS Desktop sends anonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.": "AKS Desktop sends anonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.",
+  "Send anonymous usage data": "Send anonymous usage data"
 }
