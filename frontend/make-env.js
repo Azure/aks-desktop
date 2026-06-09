@@ -62,8 +62,6 @@ const envContents = {
   REACT_APP_AKS_DESKTOP_VERSION: aksDesktopVersion,
   REACT_APP_ENABLE_REACT_QUERY_DEVTOOLS: 'false',
   REACT_APP_HEADLAMP_SIDEBAR_DEFAULT_OPEN: 'true',
-  REACT_APP_APPINSIGHTS_CONNECTION_STRING:
-    'InstrumentationKey=5f8e9ae9-1e90-4ab7-8aeb-429b5a3bf73b;IngestionEndpoint=https://eastus-8.in.applicationinsights.azure.com/;LiveEndpoint=https://eastus.livediagnostics.monitor.azure.com/;ApplicationId=e50d3436-371c-4165-bd66-c17b1f551dfe',
 };
 
 function createEnvText() {
