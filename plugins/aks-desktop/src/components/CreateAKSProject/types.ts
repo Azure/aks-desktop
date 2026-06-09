@@ -188,16 +188,6 @@ export const AVAILABLE_ROLES = ['Admin', 'Writer', 'Reader'] as const;
 
 export type RoleType = (typeof AVAILABLE_ROLES)[number];
 
-// Role descriptions
-export const ROLE_DESCRIPTIONS: Record<RoleType, string> = {
-  Reader:
-    'Read-only access to most objects in a namespace. Cannot view roles, role bindings, or Secrets.',
-  Writer:
-    'Read/write access to most objects in a namespace. Cannot view or modify roles or role bindings. Can access Secrets and run Pods as any ServiceAccount in the namespace.',
-  Admin:
-    'Read/write access to most resources in a namespace. Can create roles and role bindings within the namespace. Cannot write to resource quota or the namespace itself.',
-};
-
 // Map UI role names to Azure RBAC role names
 export function mapUIRoleToAzureRole(uiRole: string): string {
   const roleMap: Record<string, string> = {

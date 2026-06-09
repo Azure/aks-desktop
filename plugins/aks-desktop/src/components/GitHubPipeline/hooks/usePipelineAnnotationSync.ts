@@ -8,7 +8,7 @@ import type { PipelineDeploymentState } from '../types';
 
 export const ANNOTATION_PIPELINE_REPOS = 'aks-project/pipeline-repos';
 export const ANNOTATION_WORKLOAD_IDENTITY = 'aks-project/workload-identity-id';
-export const ANNOTATION_WORKLOAD_TENANT = 'aks-project/workload-identity-tenant';
+const ANNOTATION_WORKLOAD_TENANT = 'aks-project/workload-identity-tenant';
 
 const MERGE_PATCH_HEADERS = {
   Accept: 'application/json',

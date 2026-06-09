@@ -22,7 +22,7 @@ export const isValidObjectId = (objectId: string): boolean => {
 /**
  * Validates project name
  */
-export const validateProjectName = (projectName: string): ValidationResult => {
+const validateProjectName = (projectName: string): ValidationResult => {
   const trimmed = projectName.trim();
   const errors: string[] = [];
 
@@ -53,7 +53,7 @@ export const validateProjectName = (projectName: string): ValidationResult => {
 /**
  * Validates user assignments
  */
-export const validateAssignments = (assignments: UserAssignment[]): ValidationResult => {
+const validateAssignments = (assignments: UserAssignment[]): ValidationResult => {
   const errors: string[] = [];
 
   if (!Array.isArray(assignments)) {
@@ -256,7 +256,7 @@ export const validateBasicsStep = (
 /**
  * Validates the access step
  */
-export const validateAccessStep = (assignments: UserAssignment[]): ValidationResult => {
+const validateAccessStep = (assignments: UserAssignment[]): ValidationResult => {
   return validateAssignments(assignments);
 };
 
