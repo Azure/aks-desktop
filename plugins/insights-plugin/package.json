@@ -1,6 +1,6 @@
 {
   "name": "insights-plugin",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Insights plugin for eBPF-based Observability (based on Inspektor Gadget) (Preview)",
   "scripts": {
     "build": "bash scripts/download-artifacts.sh",
