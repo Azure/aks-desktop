@@ -87,6 +87,15 @@ const DEFAULT_TABS: Record<string, ProjectDetailsTab> = {
   },
 };
 
+function getProjectKey(project: ProjectDefinition, routeName?: string) {
+  return JSON.stringify({
+    routeName: routeName ?? project.id,
+    id: project.id,
+    clusters: [...project.clusters].sort(),
+    namespaces: [...project.namespaces].sort(),
+  });
+}
+
 export default function ProjectDetails() {
   const { t } = useTranslation();
   const { name } = useParams<ProjectDetailsParams>();
@@ -95,8 +104,9 @@ export default function ProjectDetails() {
   if (isProjectLoading || !project || !name) {
     return <Loader title={t('Loading')} />;
   }
-  // Key is provided to make sure we remount this component
-  return <ProjectDetailsContent key={name} project={project} />;
+  // Remount when the route or resolved project identity changes.
+  const projectKey = getProjectKey(project, name);
+  return <ProjectDetailsContent key={projectKey} project={project} projectKey={projectKey} />;
 }
 
 function ProjectOverview({
@@ -408,7 +418,13 @@ const ProjectDetailsContext = createContext<
 /**
  * Project Details page
  */
-function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
+function ProjectDetailsContent({
+  project,
+  projectKey,
+}: {
+  project: ProjectDefinition;
+  projectKey: string;
+}) {
   const { t } = useTranslation();
   const registeredTabs = useTypedSelector(state => state.projects.detailsTabs);
   const customDeleteButton = useTypedSelector(state => state.projects.projectDeleteButton);
@@ -494,9 +510,17 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
 
   const { items, isLoading } = useProjectItems(project);
 
-  const [allTabs, setAllTabs] = useState<Record<string, ProjectDetailsTab>>(DEFAULT_TABS);
+  const [customTabs, setCustomTabs] = useState<{
+    projectKey: string;
+    tabs: Record<string, ProjectDetailsTab>;
+  }>({ projectKey, tabs: {} });
 
   useEffect(() => {
+    let isCurrent = true;
+
+    // Clear project-specific plugin tabs while their eligibility reloads.
+    setCustomTabs({ projectKey, tabs: {} });
+
     async function loadTabs() {
       const registeredTabsList = Object.values(registeredTabs);
       // Get a list of enabled Tabs
@@ -519,28 +543,39 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
         )
       ).filter(Boolean) as ProjectDetailsTab[];
 
+      if (!isCurrent) return;
+
       const enabledTabsById = Object.fromEntries(enabledTabs.map(tab => [tab.id, tab]));
-
-      // Merge default tabs with custom tabs
-      const allTabs: Record<string, ProjectDetailsTab> = {
-        ...DEFAULT_TABS,
-        ...enabledTabsById,
-      };
-
-      setAllTabs(allTabs);
+      setCustomTabs({ projectKey, tabs: enabledTabsById });
     }
 
     loadTabs();
-  }, [registeredTabs, project]);
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [registeredTabs, project, projectKey]);
+
+  const allTabs = useMemo(
+    () => ({
+      ...DEFAULT_TABS,
+      ...(customTabs.projectKey === projectKey ? customTabs.tabs : {}),
+    }),
+    [customTabs, projectKey]
+  );
 
   // Set initial selected tab to the first available tab
-  const tabIds = Object.keys(allTabs);
-  if (tabIds.length > 0 && !selectedTab) {
-    setSelectedTab(tabIds[0]);
-  }
+  const firstTabId = Object.keys(allTabs)[0];
+
+  useEffect(() => {
+    if (firstTabId && (!selectedTab || !allTabs[selectedTab])) {
+      setSelectedTab(firstTabId);
+    }
+  }, [allTabs, firstTabId, selectedTab]);
 
   // Get the definition for the currently selected tab
-  const selectedTabData = selectedTab ? allTabs[selectedTab] : undefined;
+  const activeTab = selectedTab && allTabs[selectedTab] ? selectedTab : firstTabId;
+  const selectedTabData = activeTab ? allTabs[activeTab] : undefined;
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
     setSelectedTab(newValue);
@@ -593,7 +628,7 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
         >
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tabs
-              value={selectedTab}
+              value={activeTab}
               onChange={handleTabChange}
               variant="scrollable"
               scrollButtons="auto"
