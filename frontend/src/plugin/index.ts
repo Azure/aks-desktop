@@ -45,7 +45,6 @@ import { addBackstageAuthHeaders } from '../helpers/addBackstageAuthHeaders';
 import { getAppUrl } from '../helpers/getAppUrl';
 import { isElectron } from '../helpers/isElectron';
 import i18next from '../i18n/config';
-import * as analytics from '../lib/analytics';
 import * as K8s from '../lib/k8s';
 import * as ApiProxy from '../lib/k8s/apiProxy';
 import * as Crd from '../lib/k8s/crd';
@@ -103,7 +102,6 @@ window.pluginLib = {
   Headlamp,
   Plugin,
   useTranslation,
-  analytics,
   ...registryToExport,
   Activity,
 };

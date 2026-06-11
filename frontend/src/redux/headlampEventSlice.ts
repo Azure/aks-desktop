@@ -17,7 +17,6 @@
 import type { PayloadAction } from '@reduxjs/toolkit';
 import { createAction, createListenerMiddleware, createSlice } from '@reduxjs/toolkit';
 import { useDispatch } from 'react-redux';
-import { trackEvent } from '../lib/analytics';
 import type Event from '../lib/k8s/event';
 import type { KubeObject } from '../lib/k8s/KubeObject';
 import type Pod from '../lib/k8s/pod';
@@ -345,69 +344,12 @@ const initialState: {
 
 export const eventAction = createAction<HeadlampEvent>('headlamp/event');
 
-/**
- * Event types that may be forwarded to App Insights. Any dispatched event
- * whose type is not in this set is dropped before reaching trackEvent.
- *
- * This is an allowlist (not a denylist) by design: a new event type must be
- * explicitly opted in to telemetry, and a future enum addition that
- * accidentally encodes user data in its name (e.g. `cluster:my-prod`) cannot
- * leak.
- *
- * `'exception'` is the synthetic type emitted from ErrorBoundary; it is not
- * a HeadlampEventType because it is not dispatched through the redux event
- * action — it is a direct trackEvent call. It is allowlisted here for
- * symmetry and to document the full set of names that may reach the wire.
- *
- * The set is module-private — only the `isTelemetryEventAllowlisted`
- * predicate is exported — and typed as `ReadonlySet<string>`, so neither
- * external callers nor code inside this module can add or remove entries
- * at runtime. New event types must be opted into telemetry explicitly by
- * editing this list.
- */
-const TELEMETRY_EVENT_ALLOWLIST: ReadonlySet<string> = new Set<string>([
-  // ERROR_BOUNDARY is intentionally omitted: ErrorBoundary.componentDidCatch
-  // calls trackEvent('exception', { errorName }) directly, so allowlisting
-  // the redux event here would emit a duplicate envelope on each error.
-  HeadlampEventType.DELETE_RESOURCE,
-  HeadlampEventType.DELETE_RESOURCES,
-  HeadlampEventType.CREATE_RESOURCE,
-  HeadlampEventType.EDIT_RESOURCE,
-  HeadlampEventType.SCALE_RESOURCE,
-  HeadlampEventType.RESTART_RESOURCE,
-  HeadlampEventType.RESTART_RESOURCES,
-  HeadlampEventType.ROLLBACK_RESOURCE,
-  HeadlampEventType.LOGS,
-  HeadlampEventType.TERMINAL,
-  HeadlampEventType.POD_ATTACH,
-  HeadlampEventType.PLUGIN_LOADING_ERROR,
-  HeadlampEventType.PLUGINS_LOADED,
-  HeadlampEventType.DETAILS_VIEW,
-  HeadlampEventType.LIST_VIEW,
-  HeadlampEventType.OBJECT_EVENTS,
-  'exception',
-]);
-
-/**
- * Whether a given event type is allowed to be forwarded to App Insights.
- * Exposed as a predicate so the underlying set cannot be mutated.
- */
-export function isTelemetryEventAllowlisted(type: string): boolean {
-  return TELEMETRY_EVENT_ALLOWLIST.has(type);
-}
-
 export const listenerMiddleware =
   createListenerMiddleware<Pick<RootState, 'eventCallbackReducer'>>();
 listenerMiddleware.startListening({
   actionCreator: eventAction,
   effect: async (action, listernerApi) => {
     const trackerFuncs = listernerApi.getState()?.eventCallbackReducer?.trackerFuncs;
-    // Forward only the event type — never action.payload.data, which can
-    // contain KubeObjects, resource names/namespaces, errors, or plugin
-    // metadata. The allowlist drops any type-string we have not vetted.
-    if (isTelemetryEventAllowlisted(action.payload.type)) {
-      trackEvent(action.payload.type);
-    }
     for (const trackerFunc of trackerFuncs) {
       try {
         trackerFunc(action.payload);
