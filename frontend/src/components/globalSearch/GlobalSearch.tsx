@@ -63,6 +63,7 @@ export function GlobalSearch({ isIconButton }: { isIconButton?: boolean }) {
   const iconSize = isIconButton ? 24 : 18;
   const textFieldPlaceholder = smallBreakpoint ? (
     <IconButton
+      color="inherit"
       size="medium"
       sx={
         isIconButton
