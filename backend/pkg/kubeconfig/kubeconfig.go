@@ -851,7 +851,10 @@ func toStringKeyMap(m map[interface{}]interface{}) map[interface{}]interface{} {
 
 // getCluster gets the cluster details from the kubeconfig.
 func getCluster(kubeconfig map[string]interface{}, clusterName string) (map[interface{}]interface{}, error) {
-	clusters := kubeconfig["clusters"].([]interface{})
+	clusters, ok := kubeconfig["clusters"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid or missing clusters in kubeconfig")
+	}
 
 	for _, cluster := range clusters {
 		clusterMap, ok := cluster.(map[interface{}]interface{})
