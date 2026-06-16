@@ -99,7 +99,38 @@ describe('getClusterCapabilities', () => {
       containerInsightsEnabled: true,
       kedaEnabled: true,
       vpaEnabled: true,
+      location: null,
+      tier: null,
+      kubernetesVersion: null,
     });
+  });
+
+  test('parses location, tier, and kubernetesVersion when present in az aks show output', async () => {
+    // The --query projection in getClusterCapabilities flattens sku.name to
+    // `sku`, sku.tier to `tier`, and surfaces `location`/`kubernetesVersion`
+    // at the top level. This test pins the parser to that contract so a
+    // shape regression in az-clusters.ts surfaces here.
+    const response = JSON.stringify({
+      sku: 'Base',
+      tier: 'Standard',
+      location: 'eastus2',
+      kubernetesVersion: '1.29.4',
+      networkPolicy: 'azure',
+      networkPlugin: 'azure',
+      prometheusEnabled: false,
+      containerInsightsEnabled: false,
+      kedaEnabled: false,
+      vpaEnabled: false,
+    });
+
+    const mockProcess = createMockChildProcess(response);
+    mockPluginRunCommand.mockReturnValue(mockProcess);
+
+    const result = await getClusterCapabilities(defaultOptions);
+
+    expect(result.location).toBe('eastus2');
+    expect(result.tier).toBe('Standard');
+    expect(result.kubernetesVersion).toBe('1.29.4');
   });
 
   test('returns "none" for missing/null networkPolicy', async () => {

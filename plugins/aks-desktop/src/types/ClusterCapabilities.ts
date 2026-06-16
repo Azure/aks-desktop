@@ -20,4 +20,10 @@ export interface ClusterCapabilities {
   kedaEnabled: boolean | null;
   /** Whether VPA addon is enabled */
   vpaEnabled: boolean | null;
+  /** Azure region (e.g. "eastus") */
+  location?: string | null;
+  /** AKS cluster tier (e.g. "Free", "Standard", "Premium") */
+  tier?: string | null;
+  /** Kubernetes version (e.g. "1.29.4") */
+  kubernetesVersion?: string | null;
 }
