@@ -74,6 +74,7 @@
     "@azure/arm-resourcegraph": "^4.2.1",
     "@azure/arm-subscriptions": "^5.1.0",
     "@azure/identity": "^4.12.0",
+    "@microsoft/applicationinsights-web": "^3.4.1",
     "@octokit/rest": "^22.0.0",
     "libsodium-wrappers": "^0.8.2",
     "recharts": "^3.1.2",
