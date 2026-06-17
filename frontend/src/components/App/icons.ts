@@ -513,6 +513,15 @@ const mdiIcons = {
     'timer-sand': {
       body: '<path fill="currentColor" d="M6 2h12v6l-4 4l4 4v6H6v-6l4-4l-4-4zm10 14.5l-4-4l-4 4V20h8zm-4-5l4-4V4H8v3.5zM10 6h4v.75l-2 2l-2-2z"/>',
     },
+    login: {
+      body: '<path fill="currentColor" d="M11 7L9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5zm9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8z"/>',
+    },
+    'microsoft-azure': {
+      body: '<path fill="currentColor" d="M13.05 4.24L6.56 18.05L2 18l5.09-8.76zm.7 1.09L22 19.76H6.74l9.3-1.66l-4.87-5.79z"/>',
+    },
+    'chevron-up': {
+      body: '<path fill="currentColor" d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6l-6 6z"/>',
+    },
   },
   aliases: {
     'more-vert': {
