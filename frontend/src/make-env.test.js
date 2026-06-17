@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import DialogContent from '@mui/material/DialogContent';
 import { useTranslation } from 'react-i18next';
 import { useDispatch } from 'react-redux';

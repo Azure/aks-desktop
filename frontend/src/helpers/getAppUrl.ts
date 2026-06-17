@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { getBaseUrl } from './getBaseUrl';
 import { isDevMode } from './isDevMode';
 import { isDockerDesktop } from './isDockerDesktop';

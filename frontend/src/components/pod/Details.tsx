@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { Icon } from '@iconify/react';
 import Checkbox from '@mui/material/Checkbox';
 import FormControl from '@mui/material/FormControl';

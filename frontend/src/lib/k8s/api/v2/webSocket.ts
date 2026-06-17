@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { useEffect } from 'react';
 import { getAppUrl } from '../../../../helpers/getAppUrl';
 import { findKubeconfigByClusterName } from '../../../../stateless/findKubeconfigByClusterName';

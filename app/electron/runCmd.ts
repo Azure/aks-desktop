@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import { BrowserWindow, dialog } from 'electron';
 import { IpcMainEvent } from 'electron/main';

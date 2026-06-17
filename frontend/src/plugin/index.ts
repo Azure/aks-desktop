@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 /**
  * The index.ts should have the functions that Headlamp itself needs for
  * loading the plugins.

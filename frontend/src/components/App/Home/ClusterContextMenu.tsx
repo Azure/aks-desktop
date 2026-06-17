@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { Icon } from '@iconify/react';
 import { Box, DialogContentText } from '@mui/material';
 import IconButton from '@mui/material/IconButton';

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 export * from './ActionButton';
 export { default as ActionButton } from './ActionButton';
 export * from './BackLink';

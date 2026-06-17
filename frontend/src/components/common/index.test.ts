@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import fs from 'fs';
 import * as AllComps from '.';
 

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import React, { ReactElement } from 'react';
 

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { getInfoForRunningPlugins, identifyPackages, runPlugin, runPluginProps } from './runPlugin';
 
 function runPluginInner(info: runPluginProps) {

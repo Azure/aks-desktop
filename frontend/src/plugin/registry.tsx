@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { has } from 'lodash';
 import React, { ReactNode } from 'react';
 import { AppLogoProps, AppLogoType } from '../components/App/AppLogo';

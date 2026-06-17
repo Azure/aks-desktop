@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 'use strict';
 // Creates the .env file
 import { execSync } from 'child_process';

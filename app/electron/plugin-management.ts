@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 /**
  * plugin-management-utils.js has the core logic for managing plugins in Headlamp.
  *

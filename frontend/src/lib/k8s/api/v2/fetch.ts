@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { addBackstageAuthHeaders } from '../../../../helpers/addBackstageAuthHeaders';
 import { getAppUrl } from '../../../../helpers/getAppUrl';
 import { findKubeconfigByClusterName } from '../../../../stateless/findKubeconfigByClusterName';

@@ -1,3 +1,5 @@
+// Portions (c) Microsoft Corp.
+
 'use strict';
 
 const child_process = require('node:child_process');

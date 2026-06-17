@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { green, grey, orange, pink, red } from '@mui/material/colors';
 import { createTheme, getContrastRatio, useTheme } from '@mui/material/styles';
 import React from 'react';

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { Icon } from '@iconify/react';
 import { Box, Typography } from '@mui/material';
 import React, { useMemo } from 'react';

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { getAppUrl } from '../../../../helpers/getAppUrl';
 
 // @deprecated BASE_HTTP_URL is deprecated for Electron apps with custom ports.

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { Theme } from '@mui/material/styles';
 
 declare module '@mui/private-theming' {

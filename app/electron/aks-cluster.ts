@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import fs from 'fs';
 import os from 'os';
 import path from 'path';

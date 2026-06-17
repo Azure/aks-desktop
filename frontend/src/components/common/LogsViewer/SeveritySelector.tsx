@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 import { Icon } from '@iconify/react';
 import { Button, Divider, Menu, MenuItem } from '@mui/material';
 import { Dispatch, SetStateAction, useMemo, useState } from 'react';

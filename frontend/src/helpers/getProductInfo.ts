@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// Portions (c) Microsoft Corp.
+
 /**
  * @returns the 'VERSION' of the app and the 'GIT_VERSION' of the app.
  */
