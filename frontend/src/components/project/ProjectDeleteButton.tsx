@@ -30,7 +30,20 @@ interface ProjectDeleteButtonProps {
 export function ProjectDeleteButton({ project, buttonStyle }: ProjectDeleteButtonProps) {
   const { t } = useTranslation();
   const [openDialog, setOpenDialog] = useState(false);
-  const [namespaces] = Namespace.useList({ clusters: project.clusters });
+  const [authResolved, setAuthResolved] = useState(false);
+  const [namespaces, error] = Namespace.useList({ clusters: project.clusters });
+
+  // While namespaces are loading, show a placeholder to avoid layout shift mid-load
+  if (!namespaces && !error) {
+    return (
+      <ActionButton
+        description={t('Delete project')}
+        buttonStyle={buttonStyle}
+        onClick={() => {}}
+        icon="mdi:delete"
+      />
+    );
+  }
 
   const projectNamespaces =
     namespaces?.filter(ns => project.namespaces.includes(ns.metadata.name)) ?? [];
@@ -41,19 +54,38 @@ export function ProjectDeleteButton({ project, buttonStyle }: ProjectDeleteButto
   }
 
   return (
-    <AuthVisible item={projectNamespaces[0]} authVerb="update">
-      <ActionButton
-        description={t('Delete project')}
-        buttonStyle={buttonStyle}
-        onClick={() => setOpenDialog(true)}
-        icon="mdi:delete"
-      />
-      <ProjectDeleteDialog
-        open={openDialog}
-        project={project}
-        onClose={() => setOpenDialog(false)}
-        namespaces={projectNamespaces}
-      />
-    </AuthVisible>
+    <>
+      {!authResolved && (
+        <ActionButton
+          description={t('Delete project')}
+          buttonStyle={buttonStyle}
+          onClick={() => {}}
+          icon="mdi:delete"
+        />
+      )}
+      <AuthVisible
+        item={projectNamespaces[0]}
+        authVerb="update"
+        onAuthResult={() => setAuthResolved(true)}
+        onError={() => setAuthResolved(true)}
+      >
+        {authResolved && (
+          <>
+            <ActionButton
+              description={t('Delete project')}
+              buttonStyle={buttonStyle}
+              onClick={() => setOpenDialog(true)}
+              icon="mdi:delete"
+            />
+            <ProjectDeleteDialog
+              open={openDialog}
+              project={project}
+              onClose={() => setOpenDialog(false)}
+              namespaces={projectNamespaces}
+            />
+          </>
+        )}
+      </AuthVisible>
+    </>
   );
 }
