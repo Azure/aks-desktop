@@ -420,6 +420,24 @@ func (c *Context) SetupProxy() error {
 
 	proxy := httputil.NewSingleHostReverseProxy(URL)
 
+	// Strip CORS headers from upstream responses. Some upstreams (notably the
+	// K8s API server behind `az connectedk8s proxy` / arcProxy, which sets
+	// `Access-Control-Allow-Origin: *`) attach their own CORS headers. In dev
+	// mode Headlamp wraps the router in handlers.CORS, which would then emit a
+	// second `Access-Control-Allow-Origin` value and the app rejects the
+	// response.
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		resp.Header.Del("Access-Control-Allow-Origin")
+		resp.Header.Del("Access-Control-Allow-Credentials")
+		resp.Header.Del("Access-Control-Allow-Headers")
+		resp.Header.Del("Access-Control-Allow-Methods")
+		resp.Header.Del("Access-Control-Expose-Headers")
+		resp.Header.Del("Access-Control-Max-Age")
+		resp.Header.Del("Vary")
+
+		return nil
+	}
+
 	restConf, err := c.RESTConfig()
 	if err == nil {
 		roundTripper, err := makeTransportFor(restConf)
