@@ -6,6 +6,7 @@ import {
   registerAddClusterProvider,
   registerAppLogo,
   registerAppTheme,
+  registerClusterProviderMenuItem,
   registerCustomCreateProject,
   registerPluginSettings,
   registerProjectDeleteButton,
@@ -16,12 +17,20 @@ import {
   registerRoute,
   registerSidebarEntry,
 } from '@kinvolk/headlamp-plugin/lib';
+import { ListItemText, MenuItem } from '@mui/material';
 import React from 'react';
-import { Redirect } from 'react-router-dom';
+import { Redirect, useHistory } from 'react-router-dom';
 import AccessTab from './components/AccessTab/AccessTab';
 import RegisterAKSClusterPage from './components/AKS/RegisterAKSClusterPage';
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
+import BareMetalEnvironmentPage from './components/BareMetal/BareMetalEnvironmentPage';
+import BareMetalProxySettingsPage from './components/BareMetal/BareMetalProxySettingsPage';
+import {
+  restartBareMetalProxy,
+  startBareMetalProxy,
+  stopBareMetalProxy,
+} from './components/BareMetal/proxy';
 import ClusterCapabilityCard from './components/ClusterCapabilityCard/ClusterCapabilityCard';
 import ConfigurePipelineButton from './components/ConfigurePipeline/ConfigurePipelineButton';
 import CreateAKSProject from './components/CreateAKSProject/CreateAKSProject';
@@ -45,12 +54,37 @@ import ScalingTab from './components/Scaling/ScalingTab';
 import type { ProjectDefinition } from './types/project';
 import { getLoginStatus } from './utils/azure/az-auth';
 import { AZURE_ACCOUNT_POLL_INTERVAL_MS } from './utils/constants/timing';
+import { getClusterSettings } from './utils/shared/clusterSettings';
 import {
   isAksProject,
   isAksProjectWithResourceGroup,
   isArmManagedProject,
 } from './utils/shared/isAksProject';
 import { azureTheme } from './utils/shared/theme';
+
+/** Menu item shown in the cluster overview action menu for BareMetal (aksarc) clusters.
+ *  Navigates to the BareMetal Proxy Settings page. */
+function BareMetalProxySettingsMenuItem({
+  cluster,
+  handleMenuClose,
+}: {
+  cluster: any;
+  handleMenuClose: () => void;
+}) {
+  const history = useHistory();
+  const settings = getClusterSettings(cluster.name);
+  if (settings.clusterType !== 'aksarc') return null;
+  return (
+    <MenuItem
+      onClick={() => {
+        handleMenuClose();
+        history.push('/azure/baremetal-proxy');
+      }}
+    >
+      <ListItemText>BareMetal Proxy Settings</ListItemText>
+    </MenuItem>
+  );
+}
 
 Headlamp.setAppMenu(menus => {
   // Find the Help menu
@@ -213,6 +247,29 @@ if (Headlamp.isRunningAsApp()) {
     useClusterURL: false,
   });
 
+  registerSidebarEntry({
+    name: 'azure-baremetal-proxy',
+    url: '/azure/baremetal-proxy',
+    icon: 'mdi:lan-connect',
+    parent: 'azure-profile',
+    label: 'BareMetal Proxy',
+    useClusterURL: false,
+    sidebar: 'HOME',
+  });
+
+  registerRoute({
+    path: '/azure/baremetal-proxy',
+    component: BareMetalProxySettingsPage,
+    name: 'BareMetal Proxy',
+    sidebar: {
+      sidebar: 'HOME',
+      item: 'azure-baremetal-proxy',
+    },
+    exact: true,
+    noAuthRequired: true,
+    useClusterURL: false,
+  });
+
   registerRoute({
     path: '/projects/create-aks-project',
     component: CreateAKSProject,
@@ -300,6 +357,72 @@ if (Headlamp.isRunningAsApp()) {
     useClusterURL: false,
     noAuthRequired: true,
   });
+
+  // BareMetal Test Environment — gated by preview feature flag
+  if (previewFeaturesStore.get()?.bareMetalEnvironment) {
+    registerAddClusterProvider({
+      title: 'BareMetal Test Environment',
+      // @ts-ignore todo fix registerAddClusterProvider icon to take string
+      icon: 'logos:microsoft-azure',
+      description:
+        'Set up or tear down an AKS BareMetal test environment for development. Creates a VM with nested Hyper-V and AKS BareMetal components.',
+      url: '/add-cluster-baremetal-env',
+    });
+
+    registerRoute({
+      path: '/add-cluster-baremetal-env',
+      component: BareMetalEnvironmentPage,
+      name: 'BareMetal Test Environment',
+      sidebar: null,
+      exact: true,
+      useClusterURL: false,
+      noAuthRequired: true,
+    });
+  }
+
+  // BareMetal proxy actions on the cluster overview page.
+  // Each registered cluster stores its clusterType/subscriptionId/resourceGroup in localStorage at
+  // registration time. Menu items are filtered to BareMetal (aksarc) clusters only.
+  const bareMetalProxyActions = [
+    {
+      label: 'Start BareMetal Proxy',
+      action: startBareMetalProxy,
+    },
+    {
+      label: 'Stop BareMetal Proxy',
+      action: stopBareMetalProxy,
+    },
+    {
+      label: 'Restart BareMetal Proxy',
+      action: restartBareMetalProxy,
+    },
+  ] as const;
+
+  for (const cmd of bareMetalProxyActions) {
+    registerClusterProviderMenuItem(({ cluster, handleMenuClose }) => {
+      const settings = getClusterSettings(cluster.name);
+      if (settings.clusterType !== 'aksarc') return null;
+      // Hide the action when required Azure metadata is missing or corrupt
+      if (!settings.subscriptionId || !settings.resourceGroup) return null;
+
+      return (
+        <MenuItem
+          onClick={() => {
+            handleMenuClose();
+            cmd
+              .action(settings.subscriptionId!, settings.resourceGroup!, cluster.name)
+              .catch((err: unknown) =>
+                console.error(`[AKS] BareMetal proxy action "${cmd.label}" failed:`, err)
+              );
+          }}
+        >
+          <ListItemText>{cmd.label}</ListItemText>
+        </MenuItem>
+      );
+    });
+  }
+
+  registerClusterProviderMenuItem(BareMetalProxySettingsMenuItem);
 }
 
 registerPluginSettings('aks-desktop', PreviewFeaturesSettings, false);

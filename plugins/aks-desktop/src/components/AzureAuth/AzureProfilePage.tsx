@@ -55,12 +55,13 @@ export default function AzureProfilePage() {
     loggingOut,
     handleBack,
     handleAddCluster,
+    handleBareMetalProxy,
     handleLogout,
   } = useAzureProfilePage();
 
   if (isChecking) {
     return (
-      <Box sx={pageSx}>
+      <Box component="main" sx={pageSx}>
         <Container maxWidth="sm">
           <Box
             sx={{
@@ -71,7 +72,7 @@ export default function AzureProfilePage() {
               minHeight: '50vh',
             }}
           >
-            <CircularProgress />
+            <CircularProgress aria-hidden="true" />
             <Typography variant="body1" sx={{ mt: 2 }}>
               {t('Loading Azure account information')}...
             </Typography>
@@ -87,7 +88,7 @@ export default function AzureProfilePage() {
   }
 
   return (
-    <Box sx={pageSx}>
+    <Box component="main" sx={pageSx}>
       <Container maxWidth="sm">
         <Button
           variant="text"
@@ -118,7 +119,7 @@ export default function AzureProfilePage() {
             }}
           />
 
-          <Typography variant="h4" sx={{ mb: 1, fontWeight: 600 }}>
+          <Typography variant="h4" component="h1" sx={{ mb: 1, fontWeight: 600 }}>
             {t('Azure Account')}
           </Typography>
 
@@ -139,6 +140,16 @@ export default function AzureProfilePage() {
               sx={{ p: 1.5, textTransform: 'none', fontSize: 16 }}
             >
               {t('Add Cluster from Azure')}
+            </Button>
+
+            <Button
+              variant="outlined"
+              color="primary"
+              onClick={handleBareMetalProxy}
+              startIcon={<Icon icon="mdi:lan-connect" aria-hidden="true" />}
+              sx={{ p: 1.5, textTransform: 'none', fontSize: 16 }}
+            >
+              {t('BareMetal Proxy')}
             </Button>
 
             <Button

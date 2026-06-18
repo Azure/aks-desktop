@@ -34,14 +34,22 @@ export function needsRelogin(error: string): boolean {
 
 export function runCommandAsync(
   command: string,
-  args: string[]
+  args: string[],
+  options?: {
+    redactedArgs?: string[];
+  }
 ): Promise<{ stdout: string; stderr: string }> {
   let actualCommand = command;
   if (command === 'az') {
     actualCommand = getAzCommand();
     debugLog('[AZ-CLI] Command resolution:', command, '→', actualCommand);
   }
-  debugLog('[AZ-CLI] Executing command:', actualCommand, 'with args:', args);
+  debugLog(
+    '[AZ-CLI] Executing command:',
+    actualCommand,
+    'with args:',
+    options?.redactedArgs ?? args
+  );
   return execCommand(actualCommand, args);
 }
 

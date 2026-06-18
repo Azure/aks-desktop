@@ -106,6 +106,12 @@ describe('useAzureProfilePage', () => {
     expect(mockPush).toHaveBeenCalledWith('/add-cluster-aks');
   });
 
+  test('handleBareMetalProxy navigates to /azure/baremetal-proxy', () => {
+    const { result } = renderHook(() => useAzureProfilePage());
+    act(() => result.current.handleBareMetalProxy());
+    expect(mockPush).toHaveBeenCalledWith('/azure/baremetal-proxy');
+  });
+
   test('handleLogout dispatches azure-auth-update and redirects on success', async () => {
     mockRunCommandAsync.mockResolvedValue({ stderr: '' });
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent');

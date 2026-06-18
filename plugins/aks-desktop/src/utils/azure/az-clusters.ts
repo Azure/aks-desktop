@@ -46,7 +46,21 @@ export async function getClusters(subscriptionId?: string, query?: string): Prom
       // If it's just warnings, continue processing stdout
     }
     if (stdout) {
-      const parsed = JSON.parse(stdout);
+      let parsed: any[];
+      try {
+        parsed = JSON.parse(stdout);
+      } catch (error) {
+        throw new Error(
+          `Failed to parse az aks list response: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+
+      if (!Array.isArray(parsed)) {
+        throw new Error('Failed to parse az aks list response: expected a JSON array');
+      }
+
       parsed.forEach((cluster: any) => {
         clusters.push({
           name: cluster.name,
@@ -79,7 +93,21 @@ export async function getClusters(subscriptionId?: string, query?: string): Prom
       ]);
       if (stdout) {
         try {
-          const parsed = JSON.parse(stdout);
+          let parsed: any[];
+          try {
+            parsed = JSON.parse(stdout);
+          } catch (error) {
+            throw new Error(
+              `Failed to parse az aks list response: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            );
+          }
+
+          if (!Array.isArray(parsed)) {
+            throw new Error('Failed to parse az aks list response: expected a JSON array');
+          }
+
           parsed.forEach((cluster: any) => {
             clusters.push({
               id: cluster.id,
@@ -104,6 +132,85 @@ export async function getClusters(subscriptionId?: string, query?: string): Prom
       }
     }
   }
+  return clusters;
+}
+
+/**
+ * Discovers Azure BareMetal Kubernetes clusters in the given subscription.
+ *
+ * Uses `az connectedk8s list` to enumerate clusters. If the `connectedk8s`
+ * CLI extension is not installed, the function gracefully returns an empty
+ * list instead of throwing.
+ *
+ * Each returned cluster object includes a `clusterType: 'aksarc'` discriminator
+ * so callers can distinguish BareMetal clusters from standard AKS managed clusters.
+ *
+ * @param subscriptionId - Azure subscription GUID to query.
+ * @returns An array of cluster objects, or an empty array when the extension is unavailable.
+ */
+export async function getConnectedClusters(subscriptionId: string): Promise<any[]> {
+  const clusters: any[] = [];
+
+  const args = ['connectedk8s', 'list', '--subscription', subscriptionId, '-o', 'json'];
+  const { stdout, stderr } = await runCommandAsync('az', args);
+
+  if (stderr) {
+    // If the extension is unavailable, fall back to returning no BareMetal clusters.
+    const commandNotFound =
+      stderr.includes("'connectedk8s'") ||
+      stderr.includes('az extension add --name connectedk8s') ||
+      stderr.includes('unrecognized arguments: connectedk8s');
+    if (commandNotFound) {
+      debugLog('connectedk8s extension not available; skipping BareMetal cluster discovery');
+      return clusters;
+    }
+
+    // Check if stderr contains only warnings (not actual errors)
+    const isWarningOnly =
+      stderr.includes('WARNING:') &&
+      !isAzError(stderr) &&
+      !stderr.includes('error:') &&
+      !stderr.includes('failed') &&
+      !stderr.includes('Failed');
+
+    if (!isWarningOnly) {
+      throw new Error(stderr);
+    }
+  }
+
+  if (!stdout) {
+    return clusters;
+  }
+
+  let parsed: any[];
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(
+      `Failed to parse connectedk8s list response: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error('Failed to parse connectedk8s list response: expected a JSON array');
+  }
+
+  parsed.forEach((cluster: any) => {
+    clusters.push({
+      name: cluster.name,
+      subscription: subscriptionId,
+      resourceGroup: cluster.resourceGroup,
+      location: cluster.location,
+      version: cluster.kubernetesVersion || cluster.agentVersion || '',
+      status: cluster.provisioningState || cluster.connectivityStatus || 'Unknown',
+      powerState: cluster.connectivityStatus || 'Unknown',
+      nodeCount: 0,
+      clusterType: 'aksarc',
+    });
+  });
+
   return clusters;
 }
 

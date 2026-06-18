@@ -67,6 +67,11 @@ import type { RegisterAKSClusterDialogPureProps } from './RegisterAKSClusterDial
 import RegisterAKSClusterDialogPure from './RegisterAKSClusterDialogPure';
 import {
   AllCapabilitiesEnabled,
+  BareMetalProxyActionLoading,
+  BareMetalProxyDropped,
+  BareMetalProxyError,
+  BareMetalProxyRunning,
+  BareMetalProxyStopped,
   CheckingAuth,
   CheckingCapabilities,
   ClusterSelected,
@@ -194,6 +199,30 @@ describe('Axe: RegisterAKSClusterDialogPure', () => {
     const violations = await runAxe();
     expect(violations).toEqual([]);
   });
+
+  it('BareMetalProxyStopped has no axe violations', async () => {
+    renderStory(BareMetalProxyStopped.args as RegisterAKSClusterDialogPureProps);
+    const violations = await runAxe();
+    expect(violations).toEqual([]);
+  });
+
+  it('BareMetalProxyRunning has no axe violations', async () => {
+    renderStory(BareMetalProxyRunning.args as RegisterAKSClusterDialogPureProps);
+    const violations = await runAxe();
+    expect(violations).toEqual([]);
+  });
+
+  it('BareMetalProxyError has no axe violations', async () => {
+    renderStory(BareMetalProxyError.args as RegisterAKSClusterDialogPureProps);
+    const violations = await runAxe();
+    expect(violations).toEqual([]);
+  });
+
+  it('BareMetalProxyDropped has no axe violations', async () => {
+    renderStory(BareMetalProxyDropped.args as RegisterAKSClusterDialogPureProps);
+    const violations = await runAxe();
+    expect(violations).toEqual([]);
+  });
 });
 
 describe('SR: Default — dialog structure', () => {
@@ -302,7 +331,7 @@ describe('SR: LoadingClusters — loading status', () => {
   it('announces the status region with loading clusters text', async () => {
     await mount(LoadingClusters.args as Partial<RegisterAKSClusterDialogPureProps>);
     const ps = await phrases();
-    expect(ps.some(p => p.includes('Loading AKS clusters'))).toBe(true);
+    expect(ps.some(p => p.includes('Loading clusters'))).toBe(true);
   });
 });
 
@@ -311,16 +340,57 @@ describe('SR: NoClusters — info alert', () => {
     await mount(NoClusters.args as Partial<RegisterAKSClusterDialogPureProps>);
     const ps = await phrases();
     expect(ps).toContain('alert');
-    expect(ps.some(p => p.includes('No AKS clusters found'))).toBe(true);
+    expect(ps.some(p => p.includes('No clusters found'))).toBe(true);
   });
 });
 
 describe('SR: WithClusters — both comboboxes', () => {
-  it('announces both Subscription and AKS Cluster comboboxes', async () => {
+  it('announces both Subscription and Cluster comboboxes', async () => {
     await mount(WithClusters.args as Partial<RegisterAKSClusterDialogPureProps>);
     const ps = await phrases();
     expect(ps.some(p => p.includes('combobox') && p.includes('Subscription'))).toBe(true);
-    expect(ps.some(p => p.includes('combobox') && p.includes('AKS Cluster'))).toBe(true);
+    expect(ps.some(p => p.includes('combobox') && p.includes('Cluster'))).toBe(true);
+  });
+});
+
+describe('SR: BareMetalProxy — proxy controls', () => {
+  it('announces proxy status and controls for a stopped BareMetal proxy', async () => {
+    await mount(BareMetalProxyStopped.args as Partial<RegisterAKSClusterDialogPureProps>);
+    const ps = await phrases();
+    expect(ps.some(p => p.includes('Proxy'))).toBe(true);
+    expect(ps.some(p => p.includes('STOPPED'))).toBe(true);
+    expect(ps.some(p => p.includes('button') && p.includes('Start Proxy'))).toBe(true);
+    expect(ps.some(p => p.includes('button') && p.includes('Stop Proxy'))).toBe(true);
+    expect(ps.some(p => p.includes('button') && p.includes('Restart Proxy'))).toBe(true);
+  });
+
+  it('announces running proxy process metadata', async () => {
+    await mount(BareMetalProxyRunning.args as Partial<RegisterAKSClusterDialogPureProps>);
+    const ps = await phrases();
+    expect(ps.some(p => p.includes('RUNNING'))).toBe(true);
+    expect(ps.some(p => p.includes('PID 4242'))).toBe(true);
+  });
+
+  it('announces the proxy last error', async () => {
+    await mount(BareMetalProxyError.args as Partial<RegisterAKSClusterDialogPureProps>);
+    const ps = await phrases();
+    expect(ps).toContain('alert');
+    expect(ps.some(p => p.includes('Unable to reach BareMetal proxy endpoint'))).toBe(true);
+  });
+
+  it('announces proxy buttons as disabled while a proxy action is loading', async () => {
+    await mount(BareMetalProxyActionLoading.args as Partial<RegisterAKSClusterDialogPureProps>);
+    const ps = await phrases();
+    expect(ps.some(p => p.includes('Start Proxy') && p.includes('disabled'))).toBe(true);
+    expect(ps.some(p => p.includes('Stop Proxy') && p.includes('disabled'))).toBe(true);
+  });
+
+  it('announces dropped-proxy recovery actions', async () => {
+    await mount(BareMetalProxyDropped.args as Partial<RegisterAKSClusterDialogPureProps>);
+    const ps = await phrases();
+    expect(ps.some(p => p.includes('BareMetal proxy disconnected'))).toBe(true);
+    expect(ps.some(p => p.includes('button') && p.includes('Restart Proxy'))).toBe(true);
+    expect(ps.some(p => p.includes('button') && p.includes('Open Proxy Controls'))).toBe(true);
   });
 });
 

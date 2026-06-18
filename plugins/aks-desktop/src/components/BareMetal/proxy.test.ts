@@ -1,0 +1,310 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the Apache 2.0.
+
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+
+const mockRunCommand = vi.hoisted(() => vi.fn());
+const mockClusterRequest = vi.hoisted(() => vi.fn());
+
+vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
+  ApiProxy: {
+    clusterRequest: mockClusterRequest,
+  },
+  runCommand: mockRunCommand,
+}));
+
+type Handler = (...args: any[]) => void;
+
+function createCommandHandle(
+  options: {
+    stdout?: string;
+    stderr?: string;
+    exitCode?: number | null;
+    autoExit?: boolean;
+    hasKill?: boolean;
+  } = {}
+) {
+  const handlers = new Map<string, Handler>();
+  const handle = {
+    pid: 1234,
+    kill: options.hasKill === false ? undefined : vi.fn(),
+    stdout: {
+      on: vi.fn((event: string, callback: Handler) => {
+        if (event === 'data' && options.stdout) {
+          callback(options.stdout);
+        }
+      }),
+    },
+    stderr: {
+      on: vi.fn((event: string, callback: Handler) => {
+        if (event === 'data' && options.stderr) {
+          callback(options.stderr);
+        }
+      }),
+    },
+    on: vi.fn((event: string, callback: Handler) => {
+      handlers.set(event, callback);
+      if (event === 'exit' && options.autoExit) {
+        callback(options.exitCode ?? 0);
+      }
+    }),
+    emit(event: string, ...args: any[]) {
+      handlers.get(event)?.(...args);
+    },
+  };
+
+  return handle;
+}
+
+async function loadBareMetalProxyModule() {
+  vi.resetModules();
+  (globalThis as any).pluginRunCommand = mockRunCommand;
+  return import('./proxy');
+}
+
+function setupReachabilitySuccess() {
+  mockClusterRequest.mockResolvedValue({});
+}
+
+function setupReachabilityFailure(message = 'Unable to connect to the server') {
+  mockClusterRequest.mockRejectedValue(new Error(message));
+}
+
+describe('BareMetal proxy lifecycle', () => {
+  beforeEach(() => {
+    mockRunCommand.mockReset();
+    mockClusterRequest.mockReset();
+    vi.useRealTimers();
+  });
+
+  test('reconciles status to running when Headlamp namespace API succeeds after reload', async () => {
+    setupReachabilitySuccess();
+
+    const { getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    expect(result).toEqual({ success: true, status: 'running' });
+    expect(mockClusterRequest).toHaveBeenCalledWith(
+      '/api/v1/namespaces',
+      expect.objectContaining({ cluster: 'edge-arc-cluster' }),
+      { limit: '1' }
+    );
+    expect(mockRunCommand).not.toHaveBeenCalled();
+  });
+
+  test('reports unknown (with no error) on first observation when probe fails and no prior session exists', async () => {
+    setupReachabilityFailure();
+
+    const { getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    expect(result).toEqual({
+      success: true,
+      status: 'unknown',
+    });
+  });
+
+  test('reconciles to stopped (preserving probe error) when a prior session existed and probe later fails', async () => {
+    // Spawn a proxy, simulate the process exiting cleanly so the session is
+    // retained but cmd is cleared, then probe-fail on the next status query.
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle();
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+    proxyCommand.emit('exit', 0); // process exits — session.cmd cleared, status = 'stopped'
+
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+    expect(result.status).toBe('stopped');
+    expect(result.lastError).toBe('connection refused');
+  });
+
+  test('starts connectedk8s proxy after reconciliation reports stopped', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle();
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy } = await loadBareMetalProxyModule();
+    const result = await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    expect(result).toEqual({ success: true, status: 'starting', pid: 1234 });
+    expect(mockRunCommand).toHaveBeenLastCalledWith(
+      'az',
+      [
+        'connectedk8s',
+        'proxy',
+        '--subscription',
+        'sub-1',
+        '--resource-group',
+        'rg-1',
+        '--name',
+        'edge-arc-cluster',
+      ],
+      {}
+    );
+  });
+
+  test('does not start a duplicate proxy when reconciliation reports running', async () => {
+    setupReachabilitySuccess();
+
+    const { startBareMetalProxy } = await loadBareMetalProxyModule();
+    const result = await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    expect(result).toEqual({ success: true, status: 'running' });
+    expect(mockRunCommand).not.toHaveBeenCalled();
+  });
+
+  test('stop kills an active proxy command and marks it stopped', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle();
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, stopBareMetalProxy } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+    const result = await stopBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    expect(proxyCommand.kill).toHaveBeenCalled();
+    expect(result.status).toBe('stopped');
+  });
+
+  test('restart stops active proxy and starts a new one', async () => {
+    const firstProxy = createCommandHandle();
+    const secondProxy = createCommandHandle();
+    setupReachabilityFailure('connection refused');
+    mockRunCommand.mockReturnValueOnce(firstProxy).mockReturnValueOnce(secondProxy);
+
+    const { startBareMetalProxy, restartBareMetalProxy } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+    const result = await restartBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    expect(firstProxy.kill).toHaveBeenCalled();
+    expect(result).toEqual({ success: true, status: 'starting', pid: 1234 });
+    expect(mockRunCommand).toHaveBeenCalledTimes(2);
+  });
+
+  test('status poll probes cluster and promotes starting → running when reachable', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle();
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    // Cluster becomes reachable on the next poll.
+    setupReachabilitySuccess();
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    expect(result.status).toBe('running');
+    expect(result.pid).toBe(1234);
+    // Probe was made once during start (reconcile) and once during status poll.
+    expect(mockClusterRequest).toHaveBeenCalledTimes(2);
+  });
+
+  test('status poll leaves starting unchanged when cluster is still unreachable', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle();
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+    expect(result.status).toBe('starting');
+  });
+
+  test('stderr "Proxy is listening" message promotes status to running', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle({ stderr: 'Proxy is listening on port 47011' });
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    // Once stderr fires the listening line, the in-memory session is 'running';
+    // make subsequent probes succeed so the poll confirms it.
+    setupReachabilitySuccess();
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+    expect(result.status).toBe('running');
+    expect(result.lastError).toBeUndefined();
+  });
+
+  test('benign stderr lines do not escalate status to error', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle({
+      stderr: 'Setting up environment variables for the proxy session',
+    });
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+    expect(result.status).toBe('starting');
+    expect(result.lastError).toBeUndefined();
+  });
+
+  test('stderr ERROR line escalates status to error while not yet running', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle({
+      stderr: 'ERROR: AADSTS50034: The user account does not exist',
+    });
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+    expect(result.status).toBe('error');
+    expect(result.lastError).toContain('AADSTS50034');
+  });
+});
+
+describe('bareMetalProxyKey', () => {
+  test('builds composite key from subscription, resource group and cluster name', async () => {
+    const { bareMetalProxyKey } = await loadBareMetalProxyModule();
+    expect(bareMetalProxyKey('sub-1', 'rg-1', 'cluster-1')).toBe('sub-1/rg-1/cluster-1');
+  });
+});
+
+describe('checkClusterReachable', () => {
+  beforeEach(() => {
+    mockClusterRequest.mockReset();
+  });
+
+  test('returns success when namespace API succeeds', async () => {
+    setupReachabilitySuccess();
+    const { checkClusterReachable } = await loadBareMetalProxyModule();
+    const result = await checkClusterReachable('my-cluster');
+    expect(result).toEqual({ success: true });
+  });
+
+  test('returns failure with error message when namespace API fails', async () => {
+    setupReachabilityFailure('connection refused');
+    const { checkClusterReachable } = await loadBareMetalProxyModule();
+    const result = await checkClusterReachable('my-cluster');
+    expect(result).toEqual({ success: false, error: 'connection refused' });
+  });
+
+  test('returns failure when namespace API throws', async () => {
+    mockClusterRequest.mockImplementation(() => {
+      throw new Error('API not available');
+    });
+    const { checkClusterReachable } = await loadBareMetalProxyModule();
+    const result = await checkClusterReachable('my-cluster');
+    expect(result).toEqual({ success: false, error: 'API not available' });
+  });
+});
+
+describe('stopBareMetalProxy', () => {
+  beforeEach(() => {
+    mockRunCommand.mockReset();
+    mockClusterRequest.mockReset();
+  });
+
+  test('returns stopped when no session exists', async () => {
+    const { stopBareMetalProxy } = await loadBareMetalProxyModule();
+    const result = await stopBareMetalProxy('sub-1', 'rg-1', 'no-session-cluster');
+    expect(result).toEqual({ success: true, status: 'stopped' });
+  });
+});

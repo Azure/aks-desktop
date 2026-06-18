@@ -452,3 +452,4 @@ FodyWeavers.xsd
 
 # Old translation files
 **/locales/**/*_old.json
+plugins/aks-desktop/node_modules/

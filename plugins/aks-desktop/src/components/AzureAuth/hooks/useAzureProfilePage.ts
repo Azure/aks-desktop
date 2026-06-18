@@ -26,6 +26,8 @@ export interface UseAzureProfilePageResult {
   handleBack: () => void;
   /** Navigates to the Add Cluster from Azure page. */
   handleAddCluster: () => void;
+  /** Navigates to BareMetal proxy management. */
+  handleBareMetalProxy: () => void;
   /**
    * Initiates the Azure CLI logout flow. On success, dispatches an
    * `azure-auth-update` event and redirects to the login page after
@@ -73,6 +75,10 @@ export function useAzureProfilePage(): UseAzureProfilePageResult {
     history.push('/add-cluster-aks');
   };
 
+  const handleBareMetalProxy = () => {
+    history.push('/azure/baremetal-proxy');
+  };
+
   const handleLogout = async () => {
     setLoggingOut(true);
     try {
@@ -108,6 +114,7 @@ export function useAzureProfilePage(): UseAzureProfilePageResult {
     loggingOut,
     handleBack,
     handleAddCluster,
+    handleBareMetalProxy,
     handleLogout,
   };
 }

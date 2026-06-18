@@ -45,13 +45,11 @@ export interface UseRegisterClusterResult {
  * @param cluster - The AKS cluster name to register.
  * @param resourceGroup - The resource group the cluster belongs to.
  * @param subscription - The Azure subscription ID.
- * @param tenantId - Optional tenant ID for multi-tenant environments.
  */
 export function useRegisterCluster(
   cluster: string,
   resourceGroup: string,
-  subscription: string,
-  tenantId?: string
+  subscription: string
 ): UseRegisterClusterResult {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
@@ -69,13 +67,7 @@ export function useRegisterCluster(
 
     try {
       if (DEBUG) console.debug('[AKS] Registering cluster...');
-      const result = await registerAKSCluster(
-        subscription,
-        resourceGroup,
-        cluster,
-        undefined,
-        tenantId
-      );
+      const result = await registerAKSCluster(subscription, resourceGroup, cluster);
       if (DEBUG) console.debug('[AKS] Register cluster result:', result.success);
 
       if (!result.success) {

@@ -5,10 +5,12 @@ import { ConfigStore } from '@kinvolk/headlamp-plugin/lib';
 
 export interface PreviewFeaturesConfig {
   githubPipelines: boolean;
+  bareMetalEnvironment: boolean;
 }
 
 export const PREVIEW_FEATURES_DEFAULTS: PreviewFeaturesConfig = {
   githubPipelines: false,
+  bareMetalEnvironment: false,
 };
 
 export const previewFeaturesStore = new ConfigStore<PreviewFeaturesConfig>('aks-desktop');
