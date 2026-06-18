@@ -289,19 +289,35 @@ export async function startBareMetalProxy(
 
     cmd.stderr.on('data', (data: string) => {
       const latest = bareMetalProxySessions.get(key);
-      if (latest) {
-        const msg = data.toString().trim();
-        // Azure CLI frequently writes warnings/progress to stderr even when healthy.
-        // Only escalate to an error state when the process is not yet running and the
-        // message looks like a genuine error (not a warning or informational line).
-        const isWarning =
-          /^\s*(WARNING|warn(ing)?)\b/i.test(msg) || /^\s*\[.*\]\s*(WARNING|Info)/i.test(msg);
-        if (!isWarning) {
-          latest.lastError = msg;
-          if (latest.status !== 'running') {
-            latest.status = 'error';
-          }
-        }
+      if (!latest) {
+        return;
+      }
+      const msg = data.toString().trim();
+      if (!msg) {
+        return;
+      }
+
+      // `az connectedk8s proxy` writes its readiness message ("Proxy is
+      // listening on port …") to stderr; treat that as the running signal.
+      if (/proxy is listening|listening on port \d/i.test(msg)) {
+        latest.status = 'running';
+        latest.lastError = undefined;
+        bareMetalProxySessions.set(key, latest);
+        return;
+      }
+
+      // Azure CLI routinely writes progress/info lines to stderr while healthy.
+      // Only escalate to 'error' when the line clearly indicates a failure, and
+      // only when the proxy hasn't already reached the 'running' state.
+      const looksLikeError =
+        /^\s*ERROR\b/i.test(msg) ||
+        /^\s*FATAL\b/i.test(msg) ||
+        /^\s*\[.*\]\s*ERROR\b/i.test(msg) ||
+        /Traceback \(most recent call last\)/.test(msg);
+
+      if (looksLikeError && latest.status !== 'running') {
+        latest.lastError = msg;
+        latest.status = 'error';
         bareMetalProxySessions.set(key, latest);
       }
     });

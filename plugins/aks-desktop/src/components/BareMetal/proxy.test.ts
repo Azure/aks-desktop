@@ -212,6 +212,52 @@ describe('BareMetal proxy lifecycle', () => {
     const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
     expect(result.status).toBe('starting');
   });
+
+  test('stderr "Proxy is listening" message promotes status to running', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle({ stderr: 'Proxy is listening on port 47011' });
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    // Once stderr fires the listening line, the in-memory session is 'running';
+    // make subsequent probes succeed so the poll confirms it.
+    setupReachabilitySuccess();
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+    expect(result.status).toBe('running');
+    expect(result.lastError).toBeUndefined();
+  });
+
+  test('benign stderr lines do not escalate status to error', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle({
+      stderr: 'Setting up environment variables for the proxy session',
+    });
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+    expect(result.status).toBe('starting');
+    expect(result.lastError).toBeUndefined();
+  });
+
+  test('stderr ERROR line escalates status to error while not yet running', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle({
+      stderr: 'ERROR: AADSTS50034: The user account does not exist',
+    });
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+    expect(result.status).toBe('error');
+    expect(result.lastError).toContain('AADSTS50034');
+  });
 });
 
 describe('bareMetalProxyKey', () => {
