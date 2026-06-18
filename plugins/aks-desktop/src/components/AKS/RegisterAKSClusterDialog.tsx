@@ -291,20 +291,31 @@ export default function RegisterAKSClusterDialog({
     setError('');
     setSuccess('');
 
-    try {
-      // Register the cluster by running az aks get-credentials and setting up kubeconfig
-      const result = await registerAKSCluster(
-        selectedSubscription.id,
-        selectedCluster.resourceGroup,
-        selectedCluster.name,
-        undefined, // managedNamespace
-        selectedCluster.clusterType || 'aks'
-      );
+    const clusterType = selectedCluster.clusterType || 'aks';
+    const isAksArc = clusterType === 'aksarc';
+    // `az connectedk8s proxy` writes its own kubeconfig entry pointing at the
+    // local tunnel. Running `az aksarc get-credentials` afterwards would add a
+    // second entry for the same cluster (pointing at the Arc public endpoint,
+    // which generally isn't reachable without the proxy anyway). For aksarc
+    // clusters with a live proxy we therefore skip get-credentials and just
+    // persist the Azure metadata the rest of the plugin needs.
+    const proxyAlreadyWroteKubeconfig = isAksArc && proxyStatus?.status === 'running';
 
-      if (!result.success) {
-        setError(result.message);
-        setLoading(false);
-        return;
+    try {
+      if (!proxyAlreadyWroteKubeconfig) {
+        const result = await registerAKSCluster(
+          selectedSubscription.id,
+          selectedCluster.resourceGroup,
+          selectedCluster.name,
+          undefined, // managedNamespace
+          clusterType
+        );
+
+        if (!result.success) {
+          setError(result.message);
+          setLoading(false);
+          return;
+        }
       }
 
       setLoading(false);
@@ -326,17 +337,17 @@ export default function RegisterAKSClusterDialog({
           selectedSubscription.id,
           selectedCluster.resourceGroup
         ),
-        clusterType: selectedCluster.clusterType || 'aks',
+        clusterType,
         subscriptionId: selectedSubscription.id,
         resourceGroup: selectedCluster.resourceGroup,
       });
 
-      if ((selectedCluster.clusterType || 'aks') === 'aksarc') {
+      if (isAksArc) {
         await refreshProxyStatus();
       }
 
       // Cluster capabilities are only available for AKS managed clusters.
-      if ((selectedCluster.clusterType || 'aks') === 'aks') {
+      if (!isAksArc) {
         setCapabilitiesLoading(true);
         try {
           const caps = await getClusterCapabilities({
