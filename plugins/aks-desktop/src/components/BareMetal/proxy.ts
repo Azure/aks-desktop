@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { K8s } from '@kinvolk/headlamp-plugin/lib';
+import { ApiProxy } from '@kinvolk/headlamp-plugin/lib';
 
 declare const pluginRunCommand: (
   command: string,
@@ -42,44 +42,34 @@ const bareMetalProxySessions = new Map<string, BareMetalProxySession>();
  * @param clusterName - The cluster name to probe.
  * @returns A result indicating reachability plus any error detail.
  */
-export function checkClusterReachable(
+export async function checkClusterReachable(
   clusterName: string
 ): Promise<{ success: boolean; error?: string }> {
-  return new Promise(resolve => {
-    let settled = false;
-    let cancel: (() => void) | undefined;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
 
-    const finish = (result: { success: boolean; error?: string }) => {
-      if (!settled) {
-        settled = true;
-        if (cancel) {
-          cancel();
-        }
-        resolve(result);
-      }
-    };
-
-    const timeout = setTimeout(() => {
-      finish({ success: false, error: 'Timed out checking cluster reachability' });
-    }, 5000);
-
-    try {
-      cancel = K8s.ResourceClasses.Namespace.apiList(
-        () => {
-          clearTimeout(timeout);
-          finish({ success: true });
-        },
-        (error: unknown) => {
-          clearTimeout(timeout);
-          finish({ success: false, error: error instanceof Error ? error.message : String(error) });
-        },
-        { cluster: clusterName }
-      );
-    } catch (error) {
-      clearTimeout(timeout);
-      finish({ success: false, error: error instanceof Error ? error.message : String(error) });
+  try {
+    await ApiProxy.clusterRequest(
+      '/api/v1/namespaces',
+      {
+        cluster: clusterName,
+        isJSON: true,
+        autoLogoutOnAuthError: false,
+        signal: controller.signal,
+      },
+      { limit: '1' }
+    );
+    return { success: true };
+  } catch (error) {
+    const aborted =
+      (error instanceof Error && error.name === 'AbortError') || controller.signal.aborted;
+    if (aborted) {
+      return { success: false, error: 'Timed out checking cluster reachability' };
     }
-  });
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /**

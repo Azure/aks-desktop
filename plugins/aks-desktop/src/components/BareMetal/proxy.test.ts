@@ -4,15 +4,11 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const mockRunCommand = vi.hoisted(() => vi.fn());
-const mockNamespaceApiList = vi.hoisted(() => vi.fn());
+const mockClusterRequest = vi.hoisted(() => vi.fn());
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
-  K8s: {
-    ResourceClasses: {
-      Namespace: {
-        apiList: mockNamespaceApiList,
-      },
-    },
+  ApiProxy: {
+    clusterRequest: mockClusterRequest,
   },
   runCommand: mockRunCommand,
 }));
@@ -67,25 +63,17 @@ async function loadBareMetalProxyModule() {
 }
 
 function setupReachabilitySuccess() {
-  mockNamespaceApiList.mockImplementation((success: () => void) => {
-    success();
-    return vi.fn();
-  });
+  mockClusterRequest.mockResolvedValue({});
 }
 
 function setupReachabilityFailure(message = 'Unable to connect to the server') {
-  mockNamespaceApiList.mockImplementation(
-    (_success: () => void, failure: (error: Error) => void) => {
-      failure(new Error(message));
-      return vi.fn();
-    }
-  );
+  mockClusterRequest.mockRejectedValue(new Error(message));
 }
 
 describe('BareMetal proxy lifecycle', () => {
   beforeEach(() => {
     mockRunCommand.mockReset();
-    mockNamespaceApiList.mockReset();
+    mockClusterRequest.mockReset();
     vi.useRealTimers();
   });
 
@@ -96,9 +84,11 @@ describe('BareMetal proxy lifecycle', () => {
     const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
 
     expect(result).toEqual({ success: true, status: 'running' });
-    expect(mockNamespaceApiList).toHaveBeenCalledWith(expect.any(Function), expect.any(Function), {
-      cluster: 'edge-arc-cluster',
-    });
+    expect(mockClusterRequest).toHaveBeenCalledWith(
+      '/api/v1/namespaces',
+      expect.objectContaining({ cluster: 'edge-arc-cluster' }),
+      { limit: '1' }
+    );
     expect(mockRunCommand).not.toHaveBeenCalled();
   });
 
@@ -188,7 +178,7 @@ describe('bareMetalProxyKey', () => {
 
 describe('checkClusterReachable', () => {
   beforeEach(() => {
-    mockNamespaceApiList.mockReset();
+    mockClusterRequest.mockReset();
   });
 
   test('returns success when namespace API succeeds', async () => {
@@ -206,7 +196,7 @@ describe('checkClusterReachable', () => {
   });
 
   test('returns failure when namespace API throws', async () => {
-    mockNamespaceApiList.mockImplementation(() => {
+    mockClusterRequest.mockImplementation(() => {
       throw new Error('API not available');
     });
     const { checkClusterReachable } = await loadBareMetalProxyModule();
@@ -218,7 +208,7 @@ describe('checkClusterReachable', () => {
 describe('stopBareMetalProxy', () => {
   beforeEach(() => {
     mockRunCommand.mockReset();
-    mockNamespaceApiList.mockReset();
+    mockClusterRequest.mockReset();
   });
 
   test('returns stopped when no session exists', async () => {
