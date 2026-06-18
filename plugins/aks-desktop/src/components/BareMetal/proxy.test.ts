@@ -92,7 +92,7 @@ describe('BareMetal proxy lifecycle', () => {
     expect(mockRunCommand).not.toHaveBeenCalled();
   });
 
-  test('reconciles status to stopped with last error when Headlamp namespace API fails', async () => {
+  test('reports unknown (with no error) on first observation when probe fails and no prior session exists', async () => {
     setupReachabilityFailure();
 
     const { getBareMetalProxyStatus } = await loadBareMetalProxyModule();
@@ -100,9 +100,24 @@ describe('BareMetal proxy lifecycle', () => {
 
     expect(result).toEqual({
       success: true,
-      status: 'stopped',
-      lastError: 'Unable to connect to the server',
+      status: 'unknown',
     });
+  });
+
+  test('reconciles to stopped (preserving probe error) when a prior session existed and probe later fails', async () => {
+    // Spawn a proxy, simulate the process exiting cleanly so the session is
+    // retained but cmd is cleared, then probe-fail on the next status query.
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle();
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+    proxyCommand.emit('exit', 0); // process exits — session.cmd cleared, status = 'stopped'
+
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+    expect(result.status).toBe('stopped');
+    expect(result.lastError).toBe('connection refused');
   });
 
   test('starts connectedk8s proxy after reconciliation reports stopped', async () => {

@@ -13,8 +13,14 @@ declare const pluginRunCommand: (
 export interface BareMetalProxyStatus {
   /** Whether the operation itself succeeded. */
   success: boolean;
-  /** Current proxy state. */
-  status: 'stopped' | 'starting' | 'running' | 'error';
+  /**
+   * Current proxy state.
+   *
+   * `'unknown'` means we have never managed a proxy for this cluster in the
+   * current renderer session and a probe to the cluster failed — i.e. there
+   * is nothing to report, not that the proxy was actively stopped.
+   */
+  status: 'unknown' | 'stopped' | 'starting' | 'running' | 'error';
   /** Most recent error message, if any. */
   lastError?: string;
   /** OS process ID of the running proxy, when available. */
@@ -25,7 +31,12 @@ export interface BareMetalProxyStatus {
 interface BareMetalProxySession {
   /** The child-process handle; `undefined` after the process exits. */
   cmd?: ReturnType<typeof import('@kinvolk/headlamp-plugin/lib').runCommand>;
-  /** Mirrors {@link BareMetalProxyStatus.status}. */
+  /**
+   * Mirrors {@link BareMetalProxyStatus.status}. May also hold `'unknown'`
+   * as a sentinel for "we probed once and found nothing, but we never
+   * managed a proxy here either" — keeps subsequent reconciles from
+   * misreporting that absence as a deliberate stop.
+   */
   status: BareMetalProxyStatus['status'];
   /** Most recent error message, if any. */
   lastError?: string;
@@ -106,10 +117,31 @@ async function reconcileBareMetalProxyStatus(
   }
 
   const previous = bareMetalProxySessions.get(key);
+
+  // No prior session (or only the synthetic 'unknown' marker from a previous
+  // reconcile) means we have no evidence this cluster ever had a proxy in
+  // this renderer. Don't pretend the proxy was stopped — surface the absence
+  // of state as 'unknown' and don't attach the probe error, which is just
+  // "connection refused" against a non-existent listener.
+  const isFirstObservation = !previous || previous.status === 'unknown';
+  if (isFirstObservation) {
+    const unknown: BareMetalProxySession = {
+      status: 'unknown',
+      lastError: undefined,
+      pid: undefined,
+    };
+    bareMetalProxySessions.set(key, unknown);
+    return {
+      success: true,
+      status: 'unknown',
+    };
+  }
+
   const stopped: BareMetalProxySession = {
+    ...previous,
     status: 'stopped',
     lastError: probe.error || previous?.lastError,
-    pid: undefined,
+    pid: previous?.pid,
   };
   bareMetalProxySessions.set(key, stopped);
   return {
