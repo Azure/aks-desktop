@@ -183,11 +183,28 @@ export async function getBareMetalProxyStatus(
     return reconcileBareMetalProxyStatus(subscriptionId, resourceGroup, clusterName);
   }
 
+  // Probe the cluster to verify the proxy is actually serving traffic.
+  // `az connectedk8s proxy` writes its "listening" message to stderr, so the
+  // stdout-driven 'starting' → 'running' transition can't be relied on alone;
+  // probing on every poll also makes the polling cadence visible in DevTools.
+  const probe = await checkClusterReachable(clusterName);
+  const latest = bareMetalProxySessions.get(key);
+
+  if (!latest) {
+    return reconcileBareMetalProxyStatus(subscriptionId, resourceGroup, clusterName);
+  }
+
+  if (probe.success && latest.cmd && latest.status !== 'running') {
+    latest.status = 'running';
+    latest.lastError = undefined;
+    bareMetalProxySessions.set(key, latest);
+  }
+
   return {
     success: true,
-    status: session.status,
-    lastError: session.lastError,
-    pid: session.pid,
+    status: latest.status,
+    lastError: latest.lastError,
+    pid: latest.pid,
   };
 }
 

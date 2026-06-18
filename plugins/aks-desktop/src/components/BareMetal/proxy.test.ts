@@ -182,6 +182,36 @@ describe('BareMetal proxy lifecycle', () => {
     expect(result).toEqual({ success: true, status: 'starting', pid: 1234 });
     expect(mockRunCommand).toHaveBeenCalledTimes(2);
   });
+
+  test('status poll probes cluster and promotes starting → running when reachable', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle();
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    // Cluster becomes reachable on the next poll.
+    setupReachabilitySuccess();
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    expect(result.status).toBe('running');
+    expect(result.pid).toBe(1234);
+    // Probe was made once during start (reconcile) and once during status poll.
+    expect(mockClusterRequest).toHaveBeenCalledTimes(2);
+  });
+
+  test('status poll leaves starting unchanged when cluster is still unreachable', async () => {
+    setupReachabilityFailure('connection refused');
+    const proxyCommand = createCommandHandle();
+    mockRunCommand.mockReturnValueOnce(proxyCommand);
+
+    const { startBareMetalProxy, getBareMetalProxyStatus } = await loadBareMetalProxyModule();
+    await startBareMetalProxy('sub-1', 'rg-1', 'edge-arc-cluster');
+
+    const result = await getBareMetalProxyStatus('sub-1', 'rg-1', 'edge-arc-cluster');
+    expect(result.status).toBe('starting');
+  });
 });
 
 describe('bareMetalProxyKey', () => {
