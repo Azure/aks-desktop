@@ -4,6 +4,7 @@
 import {
   Headlamp,
   registerAddClusterProvider,
+  registerAppBarAction,
   registerAppLogo,
   registerAppTheme,
   registerCustomCreateProject,
@@ -40,8 +41,11 @@ import MetricsCard from './components/Metrics/MetricsCard';
 import MetricsTab from './components/Metrics/MetricsTab';
 import PreviewFeaturesSettings from './components/PluginSettings/PreviewFeaturesSettings';
 import { previewFeaturesStore } from './components/PluginSettings/previewFeaturesStore';
+import TelemetrySettings from './components/PluginSettings/TelemetrySettings';
 import ScalingCard from './components/Scaling/ScalingCard';
 import ScalingTab from './components/Scaling/ScalingTab';
+import TelemetryBoot from './components/TelemetryBoot';
+import { TelemetryErrorBoundary } from './components/TelemetryErrorBoundary';
 import type { ProjectDefinition } from './types/project';
 import { getLoginStatus } from './utils/azure/az-auth';
 import { AZURE_ACCOUNT_POLL_INTERVAL_MS } from './utils/constants/timing';
@@ -83,6 +87,9 @@ Headlamp.setAppMenu(menus => {
 
 // add azure related components only if running as app
 if (Headlamp.isRunningAsApp()) {
+  // boot App Insights telemetry once on first render
+  registerAppBarAction(() => <TelemetryBoot />);
+
   // register azure logo
   registerAppLogo(AzureLogo);
 
@@ -189,7 +196,11 @@ if (Headlamp.isRunningAsApp()) {
   registerRoute({
     path: '/azure/login',
     // @ts-ignore todo: fix component type
-    component: AzureLoginPage,
+    component: () => (
+      <TelemetryErrorBoundary>
+        <AzureLoginPage />
+      </TelemetryErrorBoundary>
+    ),
     name: 'Azure Login',
     exact: true,
     sidebar: {
@@ -202,7 +213,11 @@ if (Headlamp.isRunningAsApp()) {
 
   registerRoute({
     path: '/azure/profile',
-    component: AzureProfilePage,
+    component: () => (
+      <TelemetryErrorBoundary>
+        <AzureProfilePage />
+      </TelemetryErrorBoundary>
+    ),
     name: 'Azure Profile',
     sidebar: {
       sidebar: 'HOME',
@@ -215,7 +230,11 @@ if (Headlamp.isRunningAsApp()) {
 
   registerRoute({
     path: '/projects/create-aks-project',
-    component: CreateAKSProject,
+    component: () => (
+      <TelemetryErrorBoundary>
+        <CreateAKSProject />
+      </TelemetryErrorBoundary>
+    ),
     name: 'Create a new AKS project',
     sidebar: {
       sidebar: 'HOME',
@@ -228,7 +247,11 @@ if (Headlamp.isRunningAsApp()) {
 
   registerRoute({
     path: '/projects/import-aks-projects',
-    component: ImportAKSProjects,
+    component: () => (
+      <TelemetryErrorBoundary>
+        <ImportAKSProjects />
+      </TelemetryErrorBoundary>
+    ),
     name: 'Import AKS Projects',
     sidebar: {
       sidebar: 'HOME',
@@ -252,7 +275,11 @@ if (Headlamp.isRunningAsApp()) {
   // Override built-in "Create New Namespace" with AKS-aware version
   registerRoute({
     path: '/projects/create-namespace',
-    component: CreateNamespace,
+    component: () => (
+      <TelemetryErrorBoundary>
+        <CreateNamespace />
+      </TelemetryErrorBoundary>
+    ),
     name: 'Create New Namespace',
     sidebar: {
       sidebar: 'HOME',
@@ -293,16 +320,102 @@ if (Headlamp.isRunningAsApp()) {
   // Register route for the AKS cluster registration dialog
   registerRoute({
     path: '/add-cluster-aks',
-    component: RegisterAKSClusterPage,
+    component: () => (
+      <TelemetryErrorBoundary>
+        <RegisterAKSClusterPage />
+      </TelemetryErrorBoundary>
+    ),
     name: 'Register AKS Cluster',
     sidebar: null,
     exact: true,
     useClusterURL: false,
     noAuthRequired: true,
   });
+
+  // Project details tabs wrap in TelemetryErrorBoundary, which reports
+  // through the telemetry chokepoint. Telemetry is only booted in the
+  // app context (TelemetryBoot is registered via registerAppBarAction
+  // above), so the boundary is scoped to the app context as well to
+  // avoid rendering the plugin's Alert fallback in non-app hosts.
+  // Overview sections and header actions are intentionally not wrapped.
+  registerProjectDetailsTab({
+    id: 'info',
+    label: 'Info',
+    icon: 'mdi:information',
+    isEnabled: isAksProjectWithResourceGroup,
+    component: ({ project }) => (
+      <TelemetryErrorBoundary>
+        <InfoTab project={project} />
+      </TelemetryErrorBoundary>
+    ),
+  });
+
+  registerProjectDetailsTab({
+    id: 'deploy',
+    label: 'Deploy',
+    icon: 'mdi:cloud-upload',
+    isEnabled: isAksProject,
+    component: ({ project }) => (
+      <TelemetryErrorBoundary>
+        <GitHubAuthProvider>
+          <DeployTab project={project} />
+        </GitHubAuthProvider>
+      </TelemetryErrorBoundary>
+    ),
+  });
+
+  registerProjectDetailsTab({
+    id: 'logs',
+    label: 'Logs',
+    icon: 'mdi:text-box-multiple-outline',
+    isEnabled: isAksProject,
+    component: ({ projectResources }) => (
+      <TelemetryErrorBoundary>
+        <LogsTab projectResources={projectResources} />
+      </TelemetryErrorBoundary>
+    ),
+  });
+
+  registerProjectDetailsTab({
+    id: 'metrics',
+    label: 'Metrics',
+    icon: 'mdi:chart-line',
+    isEnabled: isAksProject,
+    component: ({ project }) => (
+      <TelemetryErrorBoundary>
+        <MetricsTab project={project} />
+      </TelemetryErrorBoundary>
+    ),
+  });
+
+  registerProjectDetailsTab({
+    id: 'scaling',
+    label: 'Scaling',
+    icon: 'mdi:chart-timeline-variant',
+    isEnabled: isAksProject,
+    component: ({ project }) => (
+      <TelemetryErrorBoundary>
+        <ScalingTab project={project} />
+      </TelemetryErrorBoundary>
+    ),
+  });
+
+  // Override built-in Access tab with Azure role assignments for ARM-managed projects
+  registerProjectDetailsTab({
+    id: 'headlamp-projects.tabs.access',
+    label: 'Access',
+    icon: 'mdi:account-lock',
+    isEnabled: isArmManagedProject,
+    component: ({ project }) => (
+      <TelemetryErrorBoundary>
+        <AccessTab project={project} />
+      </TelemetryErrorBoundary>
+    ),
+  });
 }
 
 registerPluginSettings('aks-desktop', PreviewFeaturesSettings, false);
+registerPluginSettings('aks-desktop-telemetry', TelemetrySettings, false);
 
 registerProjectOverviewSection({
   id: 'cluster-capabilities',
@@ -341,49 +454,6 @@ registerProjectOverviewSection({
   ),
 });
 
-registerProjectDetailsTab({
-  id: 'info',
-  label: 'Info',
-  icon: 'mdi:information',
-  isEnabled: isAksProjectWithResourceGroup,
-  component: ({ project }) => <InfoTab project={project} />,
-});
-
-registerProjectDetailsTab({
-  id: 'deploy',
-  label: 'Deploy',
-  icon: 'mdi:cloud-upload',
-  isEnabled: isAksProject,
-  component: ({ project }) => (
-    <GitHubAuthProvider>
-      <DeployTab project={project} />
-    </GitHubAuthProvider>
-  ),
-});
-
-registerProjectDetailsTab({
-  id: 'logs',
-  label: 'Logs',
-  icon: 'mdi:text-box-multiple-outline',
-  component: LogsTab,
-});
-
-registerProjectDetailsTab({
-  id: 'metrics',
-  label: 'Metrics',
-  icon: 'mdi:chart-line',
-  isEnabled: isAksProject,
-  component: ({ project }) => <MetricsTab project={project} />,
-});
-
-registerProjectDetailsTab({
-  id: 'scaling',
-  label: 'Scaling',
-  icon: 'mdi:chart-timeline-variant',
-  isEnabled: isAksProject,
-  component: ({ project }) => <ScalingTab project={project} />,
-});
-
 // Register Deploy Application button in project header
 registerProjectHeaderAction({
   id: 'deploy-application',
@@ -407,15 +477,6 @@ registerProjectHeaderAction({
       <ConfigurePipelineButton project={props.project} setSelectedTab={props.setSelectedTab} />
     </GitHubAuthProvider>
   ),
-});
-
-// Override built-in Access tab with Azure role assignments for ARM-managed projects
-registerProjectDetailsTab({
-  id: 'headlamp-projects.tabs.access',
-  label: 'Access',
-  icon: 'mdi:account-lock',
-  isEnabled: isArmManagedProject,
-  component: ({ project }) => <AccessTab project={project} />,
 });
 
 // Register custom delete button for AKS Desktop + ARM-managed projects only

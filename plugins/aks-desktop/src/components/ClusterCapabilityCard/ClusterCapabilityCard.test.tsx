@@ -8,11 +8,21 @@ import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 
 // Mock K8s.ResourceClasses.Namespace.useGet
 const mockUseGet = vi.fn();
+const mockNodeUseList = vi.fn(function nodeList(): any {
+  return [null, null];
+});
+const mockNamespaceUseList = vi.fn(function nsList(): any {
+  return [null, null];
+});
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   K8s: {
     ResourceClasses: {
       Namespace: {
         useGet: (...args: any[]) => mockUseGet(...args),
+        useList: () => mockNamespaceUseList(),
+      },
+      Node: {
+        useList: () => mockNodeUseList(),
       },
     },
   },
@@ -32,6 +42,12 @@ vi.mock('../CreateAKSProject/components/ClusterConfigurePanel', () => ({
   ),
 }));
 
+// Mock trackClusterShape so we can assert telemetry emission
+const mockTrackClusterShape = vi.fn();
+vi.mock('../../telemetry', () => ({
+  trackClusterShape: (...args: any[]) => mockTrackClusterShape(...args),
+}));
+
 import ClusterCapabilityCard from './ClusterCapabilityCard';
 
 function makeCapabilities(overrides: Partial<ClusterCapabilities> = {}): ClusterCapabilities {
@@ -45,6 +61,9 @@ function makeCapabilities(overrides: Partial<ClusterCapabilities> = {}): Cluster
     containerInsightsEnabled: true,
     kedaEnabled: true,
     vpaEnabled: true,
+    location: 'eastus',
+    tier: 'Standard',
+    kubernetesVersion: '1.29.4',
     ...overrides,
   };
 }
@@ -258,5 +277,80 @@ describe('ClusterCapabilityCard', () => {
     render(<ClusterCapabilityCard project={defaultProject} />);
 
     expect(mockFetchCapabilities).not.toHaveBeenCalled();
+  });
+
+  describe('trackClusterShape', () => {
+    const fullCapabilities = makeCapabilities();
+
+    test('calls trackClusterShape with correct args when all inputs are present', () => {
+      mockUseClusterCapabilities.mockReturnValue({
+        capabilities: fullCapabilities,
+        loading: false,
+        error: null,
+        fetchCapabilities: mockFetchCapabilities,
+      });
+      mockNodeUseList.mockReturnValue([[{}, {}, {}], null]); // 3 nodes
+      mockNamespaceUseList.mockReturnValue([[{}, {}], null]); // 2 namespaces
+
+      render(<ClusterCapabilityCard project={defaultProject} />);
+
+      expect(mockTrackClusterShape).toHaveBeenCalledOnce();
+      expect(mockTrackClusterShape).toHaveBeenCalledWith(
+        '/subscriptions/test-sub/resourceGroups/test-rg/providers/Microsoft.ContainerService/managedClusters/test-cluster',
+        {
+          kubernetesVersion: '1.29.4',
+          nodeCount: 3,
+          namespaceCount: 2,
+          region: 'eastus',
+          aksTier: 'Standard',
+        }
+      );
+    });
+
+    test('does not call trackClusterShape when nodes list is null', () => {
+      mockUseClusterCapabilities.mockReturnValue({
+        capabilities: fullCapabilities,
+        loading: false,
+        error: null,
+        fetchCapabilities: mockFetchCapabilities,
+      });
+      mockNodeUseList.mockReturnValue([null, null]);
+      mockNamespaceUseList.mockReturnValue([[{}], null]);
+
+      render(<ClusterCapabilityCard project={defaultProject} />);
+
+      expect(mockTrackClusterShape).not.toHaveBeenCalled();
+    });
+
+    test('does not call trackClusterShape when capabilities are null', () => {
+      mockUseClusterCapabilities.mockReturnValue({
+        capabilities: null,
+        loading: false,
+        error: null,
+        fetchCapabilities: mockFetchCapabilities,
+      });
+      mockNodeUseList.mockReturnValue([[{}], null]);
+      mockNamespaceUseList.mockReturnValue([[{}], null]);
+
+      render(<ClusterCapabilityCard project={defaultProject} />);
+
+      expect(mockTrackClusterShape).not.toHaveBeenCalled();
+    });
+
+    test('does not call trackClusterShape when subscription labels are missing', () => {
+      mockUseGet.mockReturnValue([{ jsonData: { metadata: { labels: {} } } }]);
+      mockUseClusterCapabilities.mockReturnValue({
+        capabilities: fullCapabilities,
+        loading: false,
+        error: null,
+        fetchCapabilities: mockFetchCapabilities,
+      });
+      mockNodeUseList.mockReturnValue([[{}], null]);
+      mockNamespaceUseList.mockReturnValue([[{}], null]);
+
+      render(<ClusterCapabilityCard project={defaultProject} />);
+
+      expect(mockTrackClusterShape).not.toHaveBeenCalled();
+    });
   });
 });

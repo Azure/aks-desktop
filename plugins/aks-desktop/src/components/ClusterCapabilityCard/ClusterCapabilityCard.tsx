@@ -4,6 +4,7 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Box, Typography } from '@mui/material';
 import React, { useEffect } from 'react';
+import { trackClusterShape } from '../../telemetry';
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { ClusterConfigurePanel } from '../CreateAKSProject/components/ClusterConfigurePanel';
 import { useClusterCapabilities } from '../CreateAKSProject/hooks/useClusterCapabilities';
@@ -46,7 +47,26 @@ function ClusterCapabilityCard({ project }: ClusterCapabilityCardProps) {
     if (subscription && resourceGroup && cluster) {
       fetchCapabilities(subscription, resourceGroup, cluster);
     }
-  }, [subscription, resourceGroup, cluster]);
+  }, [subscription, resourceGroup, cluster, fetchCapabilities]);
+
+  // Live k8s counts feed the cluster-shape envelope; null/empty-guard
+  // and per-resource-id dedupe live inside trackClusterShape.
+  const [nodes] = K8s.ResourceClasses.Node.useList({ cluster });
+  const [namespaces] = K8s.ResourceClasses.Namespace.useList({ cluster });
+
+  useEffect(() => {
+    if (!capabilities || !subscription || !resourceGroup || !cluster || !nodes || !namespaces) {
+      return;
+    }
+    const azureResourceId = `/subscriptions/${subscription}/resourceGroups/${resourceGroup}/providers/Microsoft.ContainerService/managedClusters/${cluster}`;
+    trackClusterShape(azureResourceId, {
+      kubernetesVersion: capabilities.kubernetesVersion ?? undefined,
+      nodeCount: nodes.length,
+      namespaceCount: namespaces.length,
+      region: capabilities.location ?? undefined,
+      aksTier: capabilities.tier ?? undefined,
+    });
+  }, [capabilities, nodes, namespaces, subscription, resourceGroup, cluster]);
 
   // Don't show anything while loading or if we don't have data yet
   if (loading) return null;
