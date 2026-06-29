@@ -15,6 +15,11 @@ const SAMPLE_SUBSCRIPTIONS = [
   { id: 'sub-3', name: 'Legacy Subscription', state: 'Disabled', tenantId: 'tenant-2' },
 ];
 
+const SAMPLE_TENANTS = [
+  { id: 'tenant-1', name: 'Tenant 1' },
+  { id: 'tenant-2', name: 'Tenant 2' },
+];
+
 const SAMPLE_CLUSTERS = [
   {
     name: 'prod-aks-cluster',
@@ -42,9 +47,12 @@ const baseArgs: RegisterAKSClusterDialogPureProps = {
   capabilitiesLoading: false,
   error: '',
   success: '',
-  subscriptions: SAMPLE_SUBSCRIPTIONS,
+  subscriptions: SAMPLE_SUBSCRIPTIONS.filter(s => s.tenantId === SAMPLE_TENANTS[0].id),
   selectedSubscription: null,
   subscriptionInputValue: '',
+  tenants: SAMPLE_TENANTS,
+  selectedTenant: SAMPLE_TENANTS[0],
+  tenantInputValue: SAMPLE_TENANTS[0].name,
   clusters: [],
   filteredClusters: [],
   clusterInputValue: '',
@@ -53,6 +61,8 @@ const baseArgs: RegisterAKSClusterDialogPureProps = {
   onClose: noOp,
   onSubscriptionChange: noOp as any,
   onSubscriptionInputChange: noOp as any,
+  onTenantChange: noOp as any,
+  onTenantInputChange: noOp as any,
   onClusterChange: noOp as any,
   onClusterInputChange: noOp as any,
   onRegister: noOp,
@@ -240,4 +250,14 @@ NoNetworkPolicy.args = {
     vpaEnabled: true,
     networkPolicy: 'none',
   },
+};
+
+/** Multiple tenants, none selected — Subscription field stays disabled. */
+export const TenantNotSelected = Template.bind({});
+TenantNotSelected.args = {
+  ...baseArgs,
+  selectedTenant: null,
+  tenantInputValue: '',
+  selectedSubscription: null,
+  subscriptionInputValue: '',
 };

@@ -8,7 +8,7 @@ import { useAzureAuth } from '../../hooks/useAzureAuth';
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { getAKSClusters, getSubscriptions, registerAKSCluster } from '../../utils/azure/aks';
 import { getClusterCapabilities } from '../../utils/azure/az-clusters';
-import type { AKSCluster, Subscription } from './RegisterAKSClusterDialogPure';
+import type { AKSCluster, Subscription, Tenant } from './RegisterAKSClusterDialogPure';
 import RegisterAKSClusterDialogPure from './RegisterAKSClusterDialogPure';
 
 interface RegisterAKSClusterDialogProps {
@@ -32,6 +32,8 @@ export default function RegisterAKSClusterDialog({
   const [success, setSuccess] = useState('');
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
+  const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
+  const [tenantInputValue, setTenantInputValue] = useState('');
   const [clusters, setClusters] = useState<AKSCluster[]>([]);
   const [selectedCluster, setSelectedCluster] = useState<AKSCluster | null>(null);
   const [subscriptionInputValue, setSubscriptionInputValue] = useState('');
@@ -51,6 +53,18 @@ export default function RegisterAKSClusterDialog({
         const bi = b.name.toLowerCase().indexOf(query);
         return ai !== bi ? ai - bi : a.name.localeCompare(b.name);
       });
+  }
+
+  /** Extract unique, sorted list of tenants that own the available subscriptions. */
+  function extractTenants(subs: Subscription[]): Tenant[] {
+    const byId = new Map<string, Tenant>();
+    for (const sub of subs) {
+      if (sub.tenantId && !byId.has(sub.tenantId)) {
+        byId.set(sub.tenantId, { id: sub.tenantId, name: sub.tenantName || sub.tenantId });
+      }
+    }
+    const uniqueTenants = Array.from(byId.values());
+    return uniqueTenants.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   const resetClusterState = () => {
@@ -94,11 +108,19 @@ export default function RegisterAKSClusterDialog({
         return;
       }
 
-      setSubscriptions(result.subscriptions || []);
+      const subs = result.subscriptions || [];
+      setSubscriptions(subs);
+
+      // Auto-select tenant when all subscriptions belong to the same tenant.
+      const uniqueTenants = extractTenants(subs);
+      if (uniqueTenants.length === 1) {
+        setSelectedTenant(uniqueTenants[0]);
+        setTenantInputValue(uniqueTenants[0].name);
+      }
 
       // Auto-select if only one subscription
-      if (result.subscriptions && result.subscriptions.length === 1) {
-        const sub = result.subscriptions[0];
+      if (subs.length === 1) {
+        const sub = subs[0];
         setSelectedSubscription(sub);
         setSubscriptionInputValue(`${sub.name}${sub.state !== 'Enabled' ? ` (${sub.state})` : ''}`);
       }
@@ -134,15 +156,43 @@ export default function RegisterAKSClusterDialog({
     }
   };
 
+  const tenants = React.useMemo(() => extractTenants(subscriptions), [subscriptions]);
+
+  const tenantScopedSubscriptions = React.useMemo(() => {
+    return selectedTenant
+      ? subscriptions.filter(sub => sub.tenantId === selectedTenant.id)
+      : subscriptions;
+  }, [subscriptions, selectedTenant]);
+
   const filteredSubscriptions = React.useMemo(() => {
     return selectedSubscription
-      ? subscriptions
-      : rankNameMatches(subscriptions, subscriptionInputValue);
-  }, [subscriptions, subscriptionInputValue, selectedSubscription]);
+      ? tenantScopedSubscriptions
+      : rankNameMatches(tenantScopedSubscriptions, subscriptionInputValue);
+  }, [tenantScopedSubscriptions, subscriptionInputValue, selectedSubscription]);
 
   const filteredClusters = React.useMemo(() => {
     return rankNameMatches(clusters, clusterInputValue);
   }, [clusters, clusterInputValue]);
+
+  const handleTenantChange = (_event: React.SyntheticEvent, value: Tenant | null) => {
+    setSelectedTenant(value);
+    setTenantInputValue(value ? value.name : '');
+    setSelectedSubscription(null);
+    setSubscriptionInputValue('');
+    resetClusterState();
+  };
+
+  const handleTenantInputChange = (_event: React.SyntheticEvent, value: string, reason: string) => {
+    if (reason === 'input' || reason === 'clear') {
+      setTenantInputValue(value);
+      if (reason === 'clear') {
+        setSelectedTenant(null);
+        setSelectedSubscription(null);
+        setSubscriptionInputValue('');
+        resetClusterState();
+      }
+    }
+  };
 
   const handleSubscriptionChange = (event: React.SyntheticEvent, value: Subscription | null) => {
     setSelectedSubscription(value);
@@ -288,6 +338,9 @@ export default function RegisterAKSClusterDialog({
       subscriptions={filteredSubscriptions}
       selectedSubscription={selectedSubscription}
       subscriptionInputValue={subscriptionInputValue}
+      tenants={tenants}
+      selectedTenant={selectedTenant}
+      tenantInputValue={tenantInputValue}
       clusters={clusters}
       filteredClusters={filteredClusters}
       selectedCluster={selectedCluster}
@@ -296,6 +349,8 @@ export default function RegisterAKSClusterDialog({
       onClose={handleClose}
       onSubscriptionChange={handleSubscriptionChange}
       onSubscriptionInputChange={handleSubscriptionInputChange}
+      onTenantChange={handleTenantChange}
+      onTenantInputChange={handleTenantInputChange}
       onClusterChange={handleClusterChange}
       onClusterInputChange={handleClusterInputChange}
       onRegister={handleRegister}

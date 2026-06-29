@@ -25,6 +25,12 @@ export interface Subscription {
   name: string;
   state: string;
   tenantId: string;
+  tenantName?: string;
+}
+
+export interface Tenant {
+  id: string;
+  name: string;
 }
 
 export interface AKSCluster {
@@ -48,6 +54,9 @@ export interface RegisterAKSClusterDialogPureProps {
   subscriptions: Subscription[];
   selectedSubscription: Subscription | null;
   subscriptionInputValue: string;
+  tenants: Tenant[];
+  selectedTenant: Tenant | null;
+  tenantInputValue: string;
   clusters: AKSCluster[];
   filteredClusters: AKSCluster[];
   clusterInputValue: string;
@@ -56,6 +65,8 @@ export interface RegisterAKSClusterDialogPureProps {
   onClose: () => void;
   onSubscriptionChange: (event: React.SyntheticEvent, value: Subscription | null) => void;
   onSubscriptionInputChange: (event: React.SyntheticEvent, value: string, reason: string) => void;
+  onTenantChange: (event: React.SyntheticEvent, value: Tenant | null) => void;
+  onTenantInputChange: (event: React.SyntheticEvent, value: string, reason: string) => void;
   onClusterChange: (event: React.SyntheticEvent, value: AKSCluster | null) => void;
   onClusterInputChange: (event: React.SyntheticEvent, value: string, reason: string) => void;
   onRegister: () => void;
@@ -78,6 +89,9 @@ export default function RegisterAKSClusterDialogPure({
   subscriptions,
   selectedSubscription,
   subscriptionInputValue,
+  tenants,
+  selectedTenant,
+  tenantInputValue,
   clusters,
   filteredClusters,
   selectedCluster,
@@ -86,6 +100,8 @@ export default function RegisterAKSClusterDialogPure({
   onClose,
   onSubscriptionChange,
   onSubscriptionInputChange,
+  onTenantChange,
+  onTenantInputChange,
   onClusterChange,
   onClusterInputChange,
   onRegister,
@@ -196,6 +212,36 @@ export default function RegisterAKSClusterDialogPure({
             <>
               <Autocomplete
                 fullWidth
+                options={tenants}
+                value={selectedTenant}
+                onChange={onTenantChange}
+                inputValue={tenantInputValue}
+                onInputChange={onTenantInputChange}
+                getOptionKey={option => option.id}
+                getOptionLabel={option => option.name}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                disabled={loadingSubscriptions || tenants.length <= 1}
+                renderInput={params => (
+                  <TextField
+                    {...params}
+                    label={t('Tenant')}
+                    placeholder={t('Select an Azure tenant')}
+                  />
+                )}
+                renderOption={(props, option) => (
+                  <li {...props} key={option.id}>
+                    <Box>
+                      <Typography variant="body1">{option.name}</Typography>
+                      <Typography variant="caption" color="textSecondary">
+                        {option.id}
+                      </Typography>
+                    </Box>
+                  </li>
+                )}
+              />
+
+              <Autocomplete
+                fullWidth
                 options={subscriptions}
                 value={selectedSubscription}
                 onChange={onSubscriptionChange}
@@ -207,7 +253,7 @@ export default function RegisterAKSClusterDialogPure({
                   `${option.name}${option.state !== 'Enabled' ? ` (${option.state})` : ''}`
                 }
                 isOptionEqualToValue={(option, value) => option.id === value.id}
-                disabled={loadingSubscriptions}
+                disabled={loadingSubscriptions || (tenants.length > 1 && !selectedTenant)}
                 loading={loadingSubscriptions}
                 renderInput={params => (
                   <TextField

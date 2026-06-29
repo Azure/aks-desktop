@@ -6,6 +6,7 @@ export interface Subscription {
   name: string;
   state: string;
   tenantId: string;
+  tenantName: string;
   isDefault: boolean;
 }
 
@@ -38,6 +39,7 @@ export async function getSubscriptions(): Promise<{
         name: sub.name,
         state: sub.status || 'Unknown',
         tenantId: sub.tenant,
+        tenantName: sub.tenantName || sub.tenant,
         isDefault: false, // We don't have this info from the existing function
       })),
     };
