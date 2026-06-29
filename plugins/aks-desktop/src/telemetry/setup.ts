@@ -1,11 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { registerHeadlampEventCallback } from '@kinvolk/headlamp-plugin/lib';
 import {
-  type HeadlampEvent,
-  HeadlampEventType,
-} from '@kinvolk/headlamp-plugin/lib/redux/headlampEventSlice';
+  DefaultHeadlampEvents as HeadlampEventType,
+  registerHeadlampEventCallback,
+} from '@kinvolk/headlamp-plugin/lib';
+// @ts-ignore
+import { type HeadlampEvent } from '@kinvolk/headlamp-plugin/lib/redux/headlampEventSlice';
 import { trackFeature, trackPluginsLoaded } from './index';
 import { KNOWN_PLUGIN_IDS, sanitizeKind } from './schema';
 
