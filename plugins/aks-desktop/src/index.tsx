@@ -414,8 +414,16 @@ if (Headlamp.isRunningAsApp()) {
   });
 }
 
-registerPluginSettings('aks-desktop', PreviewFeaturesSettings, false);
-registerPluginSettings('aks-desktop-telemetry', TelemetrySettings, false);
+registerPluginSettings(
+  'aks-desktop',
+  () => (
+    <>
+      <PreviewFeaturesSettings />
+      <TelemetrySettings />
+    </>
+  ),
+  false
+);
 
 registerProjectOverviewSection({
   id: 'cluster-capabilities',
