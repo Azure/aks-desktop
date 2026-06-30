@@ -585,6 +585,7 @@
   "Select an AKS cluster": "Выберите кластер AKS",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "Выберите Реестр контейнеров Azure для создания и отправки образов контейнеров или создайте новый.",
   "Select an Azure subscription": "Выберите подписку Azure",
+  "Select an Azure tenant": "Select an Azure tenant",
   "Select an option": "Выберите вариант",
   "Select Deployment": "Выберите развертывание",
   "Select managed identity": "Выбрать управляемое удостоверение",

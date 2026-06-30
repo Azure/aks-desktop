@@ -585,6 +585,7 @@
   "Select an AKS cluster": "AKS-fürt kiválasztása",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "Válasszon ki egy Azure Container Registry-adatbázist tárolórendszerképek létrehozásához és leküldéséhez, vagy hozzon létre egy újat.",
   "Select an Azure subscription": "Válasszon ki egy Azure-előfizetést",
+  "Select an Azure tenant": "Select an Azure tenant",
   "Select an option": "Válasszon egy lehetőséget",
   "Select Deployment": "Üzemelő példány kiválasztása",
   "Select managed identity": "Felügyelt identitás kiválasztása",

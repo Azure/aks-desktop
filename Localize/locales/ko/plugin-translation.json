@@ -585,6 +585,7 @@
   "Select an AKS cluster": "AKS 클러스터 선택",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "컨테이너 이미지를 빌드하고 푸시할 Azure Container Registry를 선택하거나 새로 만듭니다.",
   "Select an Azure subscription": "Azure 구독을 선택합니다.",
+  "Select an Azure tenant": "Select an Azure tenant",
   "Select an option": "옵션 선택",
   "Select Deployment": "배포 선택",
   "Select managed identity": "관리 ID 선택",
