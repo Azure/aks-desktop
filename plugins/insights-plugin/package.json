@@ -11,6 +11,6 @@
     "package": "headlamp-plugin package"
   },
   "devDependencies": {
-    "@kinvolk/headlamp-plugin": "^0.13.1"
+    "@kinvolk/headlamp-plugin": "^0.14.0"
   }
 }
