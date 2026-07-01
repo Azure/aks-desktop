@@ -328,6 +328,8 @@
   "failureThreshold": "failureThreshold",
   "When a probe fails, Kubernetes will try this many times before giving up and restarting the container.": "When a probe fails, Kubernetes will try this many times before giving up and restarting the container.",
   "successThreshold": "successThreshold",
+  "Kubernetes requires successThreshold to be 1 for liveness probes.": "Kubernetes requires successThreshold to be 1 for liveness probes.",
+  "Kubernetes requires successThreshold to be 1 for startup probes.": "Kubernetes requires successThreshold to be 1 for startup probes.",
   "Minimum consecutive successes for the probe to be considered successful after having failed. Default is 1.": "Minimum consecutive successes for the probe to be considered successful after having failed. Default is 1.",
   "Enable readiness probe": "Enable readiness probe",
   "Kubernetes won't send traffic to the pod until this check passes. Used to indicate when a container is ready to accept traffic.": "Kubernetes won't send traffic to the pod until this check passes. Used to indicate when a container is ready to accept traffic.",
