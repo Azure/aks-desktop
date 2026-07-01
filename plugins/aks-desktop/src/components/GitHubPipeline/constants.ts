@@ -16,12 +16,6 @@ export const COPILOT_SETUP_STEPS_PATH = '.github/workflows/copilot-setup-steps.y
 /** Path to the containerization agent config pushed by the setup PR. */
 export const AGENT_CONFIG_PATH = '.github/agents/containerization.agent.md';
 
-/**
- * GitHub bot usernames that may author PRs created by the Copilot Coding Agent.
- * Stored lowercase — always compare with `.toLowerCase()`.
- */
-export const COPILOT_BOT_USERS = new Set(['copilot-swe-agent[bot]', 'copilot[bot]', 'copilot']);
-
 /** Default image tag mandated in agent instructions. */
 export const DEFAULT_IMAGE_TAG = '1.0';
 

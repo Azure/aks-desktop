@@ -33,12 +33,6 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 /** Prometheus endpoint cache. */
 const promEndpointCache = new Map<string, string>();
 
-/** Clears all card metric caches */
-export function clearCardMetricsCaches(): void {
-  metricsCache.clear();
-  promEndpointCache.clear();
-}
-
 /** Result returned by {@link useCardMetrics}. */
 export interface UseCardMetricsResult {
   /** Metric values to be displayed on the MetricsCard. */
