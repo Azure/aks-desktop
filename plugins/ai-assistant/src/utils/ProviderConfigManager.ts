@@ -15,6 +15,42 @@ export interface SavedConfigurations {
 }
 
 /**
+ * Returns true when two stored provider configs refer to the same logical
+ * configuration.
+ *
+ * For Azure sentinel configs (`apiKey === AZ_CLI_AUTH_SENTINEL`), the
+ * account name is used as the primary identity because all auto-detected Azure
+ * accounts share the same sentinel value. Matching on sentinel alone would
+ * cause configs for different Azure accounts to be treated as identical.
+ *
+ * For providers without an API key (e.g. local/Ollama), `baseUrl`, `model`,
+ * and ultimately a full config comparison are applied in sequence as
+ * tiebreakers. Each mismatching field causes an early `false`; if all checked
+ * fields agree the full configs are compared with `JSON.stringify` to catch
+ * any remaining differences.
+ *
+ * For all other providers, `providerId + apiKey` uniquely identifies a config.
+ */
+export function isSameStoredConfig(a: StoredProviderConfig, b: StoredProviderConfig): boolean {
+  if (a.providerId !== b.providerId) return false;
+  if (a.config.apiKey !== b.config.apiKey) return false;
+  // Tiebreaker for sentinel-keyed configs that carry per-account metadata.
+  if (a.config.azAccountName && b.config.azAccountName) {
+    return a.config.azAccountName === b.config.azAccountName;
+  }
+  // When neither config has an API key (e.g. local/Ollama), cascade through
+  // baseUrl → model → full JSON comparison. An early mismatch on any field
+  // returns false; agreement on all visible fields falls through to the full
+  // comparison so any remaining differences are also caught.
+  if (!a.config.apiKey && !b.config.apiKey) {
+    if (a.config.baseUrl !== b.config.baseUrl) return false;
+    if (a.config.model !== b.config.model) return false;
+    return JSON.stringify(a.config) === JSON.stringify(b.config);
+  }
+  return true;
+}
+
+/**
  * Gets saved provider configurations from plugin data
  */
 export function getSavedConfigurations(data: any): SavedConfigurations {
@@ -92,6 +128,13 @@ export function saveProviderConfig(
 
     // If API keys exist and match, consider a match (same account)
     if (p.config.apiKey && config.apiKey && p.config.apiKey === config.apiKey) {
+      // For sentinel-keyed providers (e.g. Azure CLI auto-detect), the sentinel
+      // is shared across all accounts. azAccountName is the primary identity:
+      // same name → update in-place; different name → distinct entry.
+      if (p.config.azAccountName && config.azAccountName) {
+        return p.config.azAccountName === config.azAccountName;
+      }
+
       // But if models or deployment names differ, they're different configs
       if (p.config.model && config.model && p.config.model !== config.model) {
         return false;
@@ -174,7 +217,14 @@ export function deleteProviderConfig(
         if (p.providerId !== providerId) return true;
 
         if (p.config.apiKey && config.apiKey) {
-          return p.config.apiKey !== config.apiKey;
+          if (p.config.apiKey !== config.apiKey) return true;
+          // For sentinel-keyed providers (e.g. Azure CLI), the sentinel is shared
+          // across accounts. Use azAccountName to distinguish them so deleting one
+          // Azure account does not remove all others with the same sentinel.
+          if (p.config.azAccountName || config.azAccountName) {
+            return p.config.azAccountName !== config.azAccountName;
+          }
+          return JSON.stringify(p.config) !== JSON.stringify(config);
         }
         if (p.config.baseUrl && config.baseUrl) {
           return p.config.baseUrl !== config.baseUrl;

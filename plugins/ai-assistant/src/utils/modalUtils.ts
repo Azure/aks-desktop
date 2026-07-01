@@ -80,6 +80,12 @@ export function parseSuggestionsFromResponse(content: string | any): {
 export function getProviderModels(providerConfig: StoredProviderConfig): string[] {
   const providerInfo = getProviderById(providerConfig.providerId);
 
+  // Azure OpenAI deployments are tied to a specific model, so only show the
+  // configured model rather than the full list of possible Azure models.
+  if (providerConfig.providerId === 'azure' && providerConfig.config?.model) {
+    return [providerConfig.config.model];
+  }
+
   // First try to use the models field, then fall back to options from the model field
   let models: string[] = [];
   if (providerInfo?.models && providerInfo.models.length > 0) {
@@ -123,6 +129,15 @@ export function getProviderModelsForChat(
 }
 
 export function getModelDisplayName(model: string): string {
-  // You can customize this if you want more user-friendly names
-  return model;
+  const value = String(model || '').trim();
+  if (!value) {
+    return value;
+  }
+
+  const slashIndex = value.indexOf('/');
+  if (slashIndex > -1 && slashIndex < value.length - 1) {
+    return value.slice(slashIndex + 1);
+  }
+
+  return value;
 }
