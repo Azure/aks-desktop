@@ -585,7 +585,7 @@
   "Select an AKS cluster": "Selecionar um cluster do AKS",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "Selecione um Registro de Contêiner do Azure para criar e enviar imagens de contêiner por push ou criar uma nova.",
   "Select an Azure subscription": "Selecionar uma assinatura do Azure",
-  "Select an Azure tenant": "Select an Azure tenant",
+  "Select an Azure tenant": "Selecionar um locatário do Azure",
   "Select an option": "Selecione uma opção",
   "Select Deployment": "Selecionar Implantação",
   "Select managed identity": "Selecionar identidade gerenciada",

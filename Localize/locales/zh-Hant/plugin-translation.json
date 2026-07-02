@@ -585,7 +585,7 @@
   "Select an AKS cluster": "選取 AKS 叢集",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "選取 Azure Container Registry 以用於建置和推送容器映像，或建立新映像。",
   "Select an Azure subscription": "選取 Azure 訂用帳戶",
-  "Select an Azure tenant": "Select an Azure tenant",
+  "Select an Azure tenant": "選取 Azure 租用戶",
   "Select an option": "選取選項",
   "Select Deployment": "選取部署",
   "Select managed identity": "選取受控識別",

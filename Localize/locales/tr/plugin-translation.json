@@ -585,7 +585,7 @@
   "Select an AKS cluster": "AKS kümesi seçin",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "Kapsayıcı görüntülerini oluşturmak ve göndermek için bir Azure Container Registry seçin veya yeni bir tane oluşturun.",
   "Select an Azure subscription": "Bir Azure aboneliği seçin",
-  "Select an Azure tenant": "Select an Azure tenant",
+  "Select an Azure tenant": "Bir Azure kiracısı seçin",
   "Select an option": "Bir seçenek belirtin",
   "Select Deployment": "Dağıtım Seç",
   "Select managed identity": "Yönetilen kimliği seçin",

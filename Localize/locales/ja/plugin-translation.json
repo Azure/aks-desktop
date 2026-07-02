@@ -585,7 +585,7 @@
   "Select an AKS cluster": "AKS クラスターを選択する",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "コンテナー イメージをビルドしてプッシュするための Azure Container Registry を選ぶか、新しいものを作成します。",
   "Select an Azure subscription": "Azure サブスクリプションを選択します",
-  "Select an Azure tenant": "Select an Azure tenant",
+  "Select an Azure tenant": "Azure テナントの選択",
   "Select an option": "オプションを選択する",
   "Select Deployment": "デプロイの選択",
   "Select managed identity": "マネージド ID の選択",
