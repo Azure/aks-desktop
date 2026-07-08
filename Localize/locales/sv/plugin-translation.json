@@ -585,7 +585,7 @@
   "Select an AKS cluster": "Välj ett AKS-kluster",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "Välj en Azure Container Registry för att skapa och push-överföra containeravbildningar eller skapa en ny.",
   "Select an Azure subscription": "Välj en Azure-prenumeration",
-  "Select an Azure tenant": "Select an Azure tenant",
+  "Select an Azure tenant": "Välj en Azure-klientorganisation",
   "Select an option": "Välj ett alternativ",
   "Select Deployment": "Välj distribution",
   "Select managed identity": "Välj hanterad identitet",
