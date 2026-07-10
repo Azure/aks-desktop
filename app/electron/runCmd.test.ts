@@ -251,15 +251,19 @@ describe('validateCommandData', () => {
   });
 });
 
+vi.mock('child_process', () => ({
+  spawn: vi.fn(),
+}));
+
+vi.mock('./main', () => ({
+  getShellEnvironment: vi.fn(async () => ({})),
+}));
+
 describe('handleRunCommand - child process error event', () => {
   it('sends command-stderr and command-exit with -1 when child emits error', async () => {
     const childEmitter = new EventEmitter() as any;
     childEmitter.stdout = new EventEmitter();
     childEmitter.stderr = new EventEmitter();
-
-    vi.mock('child_process', () => ({
-      spawn: vi.fn(() => childEmitter),
-    }));
 
     const { spawn } = await import('child_process');
     (spawn as Mock).mockReturnValue(childEmitter);
@@ -282,7 +286,7 @@ describe('handleRunCommand - child process error event', () => {
       permissionSecrets: { 'runCmd-minikube': 99 },
     };
 
-    handleRunCommand(fakeEvent, eventData, fakeMainWindow, permissionSecrets);
+    await handleRunCommand(fakeEvent, eventData, fakeMainWindow, permissionSecrets);
 
     const err = new Error('spawn error');
     childEmitter.emit('error', err);
