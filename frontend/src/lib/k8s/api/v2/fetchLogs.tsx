@@ -19,9 +19,12 @@
 import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import { labelSelectorToQuery } from '../..';
 import { ApiError } from '../../apiProxy';
+import type DaemonSet from '../../daemonSet';
 import type Deployment from '../../deployment';
+import type Job from '../../job';
 import Pod from '../../pod';
 import type ReplicaSet from '../../replicaSet';
+import type StatefulSet from '../../statefulSet';
 import { clusterFetch } from './fetch';
 import { makeUrl } from './makeUrl';
 
@@ -116,7 +119,7 @@ export const useDeploymentLogs = ({
   lines,
   container,
 }: {
-  item: Deployment | ReplicaSet;
+  item: Deployment | ReplicaSet | DaemonSet | StatefulSet | Job;
   container: string;
   lines: number;
 }) => {
