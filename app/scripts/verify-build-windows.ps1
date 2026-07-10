@@ -55,11 +55,11 @@ function Test-BackendBinary {
     exit $exitCode
   }
   Write-Host "Backend version: $versionOutput"
-  if (-not $versionOutput -or -not ($versionOutput -match "Headlamp")) {
+  if (-not $versionOutput -or -not ($versionOutput -match "AKS desktop")) {
     if (-not $versionOutput) {
       Write-Host "[FAIL] Backend produced no version output" -ForegroundColor Red
     } else {
-      Write-Host "[FAIL] Backend version check failed - output does not contain 'Headlamp'" -ForegroundColor Red
+      Write-Host "[FAIL] Backend version check failed - output does not contain 'AKS desktop'" -ForegroundColor Red
     }
     exit 1
   }

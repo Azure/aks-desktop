@@ -31,7 +31,7 @@ test_backend() {
       return 1
     fi
     echo "Backend version: $VERSION_OUTPUT"
-    if echo "$VERSION_OUTPUT" | grep -q "Headlamp"; then
+    if echo "$VERSION_OUTPUT" | grep -q "AKS desktop"; then
       echo "✓ Backend binary is working"
       return 0
     else
