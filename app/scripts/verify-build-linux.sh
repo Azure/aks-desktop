@@ -79,9 +79,9 @@ if [ ! -z "$TARBALL" ]; then
   echo "Reusing extracted files for app testing..."
   
   # Find the headlamp executable
-  HEADLAMP_EXEC=$(find "$EXTRACT_DIR" -name "headlamp" -type f -executable | head -n 1)
+  HEADLAMP_EXEC=$(find "$EXTRACT_DIR" -name "aks-desktop" -type f -executable | head -n 1)
   if [ -z "$HEADLAMP_EXEC" ]; then
-    echo "✗ Headlamp executable not found"
+    echo "✗ AKS desktop executable not found"
     rm -rf "$EXTRACT_DIR"
     exit 1
   fi
@@ -89,7 +89,6 @@ if [ ! -z "$TARBALL" ]; then
   
   # Create unique temporary file for output
   OUTPUT_FILE=$(mktemp)
-  
   # Run with list-plugins command (exits immediately, no GUI needed)
   chmod +x "$HEADLAMP_EXEC"
   set +e
@@ -118,7 +117,7 @@ if [ ! -z "$TARBALL" ]; then
 
   # Record existing headlamp-server and headlamp PIDs to exclude them
   EXISTING_SERVER_PIDS=$(pgrep -f headlamp-server 2>/dev/null || true)
-  EXISTING_HEADLAMP_PIDS=$(pgrep -x headlamp 2>/dev/null || true)
+  EXISTING_HEADLAMP_PIDS=$(pgrep -x aks-desktop 2>/dev/null || true)
 
   # Start the app in the background (needs a virtual display on headless CI)
   if command -v xvfb-run &>/dev/null; then
@@ -153,7 +152,7 @@ if [ ! -z "$TARBALL" ]; then
     echo "⚠ headlamp-server did not start within 30 seconds, skipping cleanup test"
     # Kill the wrapper and any headlamp (Electron) processes we spawned
     kill -TERM "$WRAPPER_PID" 2>/dev/null || true
-    ALL_HEADLAMP_PIDS=$(pgrep -x headlamp 2>/dev/null || true)
+    ALL_HEADLAMP_PIDS=$(pgrep -x aks-desktop 2>/dev/null || true)
     for pid in $ALL_HEADLAMP_PIDS; do
       if [ -z "$EXISTING_HEADLAMP_PIDS" ] || ! echo "$EXISTING_HEADLAMP_PIDS" | grep -qw "$pid"; then
         kill -TERM "$pid" 2>/dev/null || true
@@ -173,7 +172,7 @@ if [ ! -z "$TARBALL" ]; then
     # $WRAPPER_PID is the wrapper, not the Electron process. We need to SIGTERM
     # the Electron process directly so its quit handler fires.
     ELECTRON_PID=""
-    ALL_HEADLAMP_PIDS=$(pgrep -x headlamp 2>/dev/null || true)
+    ALL_HEADLAMP_PIDS=$(pgrep -x aks-desktop 2>/dev/null || true)
     for pid in $ALL_HEADLAMP_PIDS; do
       if [ -z "$EXISTING_HEADLAMP_PIDS" ] || ! echo "$EXISTING_HEADLAMP_PIDS" | grep -qw "$pid"; then
         ELECTRON_PID="$pid"

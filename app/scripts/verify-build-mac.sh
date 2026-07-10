@@ -122,7 +122,7 @@ if [ -d "$DIST_DIR/mac" ]; then
   
   # Test Electron app
   echo "=== Verifying Electron App ==="
-  HEADLAMP_EXEC="$APP_BUNDLE/Contents/MacOS/Headlamp"
+  HEADLAMP_EXEC="$APP_BUNDLE/Contents/MacOS/AKS desktop"
   test_electron_app "$HEADLAMP_EXEC" || exit 1
 else
   echo "Mac build directory not found, checking DMG contents..."
@@ -159,7 +159,7 @@ else
       
       # Test Electron app
       echo "=== Verifying Electron App from DMG ==="
-      HEADLAMP_EXEC="$APP_BUNDLE/Contents/MacOS/Headlamp"
+      HEADLAMP_EXEC="$APP_BUNDLE/Contents/MacOS/AKS desktop"
       if ! test_electron_app "$HEADLAMP_EXEC"; then
         hdiutil detach "$MOUNT_POINT" > /dev/null 2>&1
         rm -rf "$MOUNT_POINT" || true
@@ -202,7 +202,7 @@ test_server_cleanup() {
   local REMAINING_SERVER_PIDS
 
   EXISTING_SERVER_PIDS=$(pgrep -f headlamp-server 2>/dev/null || true)
-  EXISTING_APP_PIDS=$(pgrep -x Headlamp 2>/dev/null || true)
+  EXISTING_APP_PIDS=$(pgrep -x "AKS desktop" 2>/dev/null || true)
 
   # Launch the app using macOS 'open' command so it properly registers with
   # WindowServer and Electron's 'ready' event fires (direct binary execution
@@ -214,7 +214,7 @@ test_server_cleanup() {
   # Wait for the Headlamp process to appear (up to 15 seconds)
   ELECTRON_PID=""
   for i in $(seq 1 15); do
-    ALL_APP_PIDS=$(pgrep -x Headlamp 2>/dev/null || true)
+    ALL_APP_PIDS=$(pgrep -x "AKS desktop" 2>/dev/null || true)
     for pid in $ALL_APP_PIDS; do
       if [ -z "$EXISTING_APP_PIDS" ] || ! echo "$EXISTING_APP_PIDS" | grep -qw "$pid"; then
         ELECTRON_PID="$pid"
