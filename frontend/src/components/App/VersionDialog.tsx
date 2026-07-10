@@ -136,10 +136,12 @@ export default function VersionDialog(props: {
   const tabs = [
     {
       label: t('About'),
+      // eslint-disable-next-line react-hooks/static-components
       component: <AboutTab />,
     },
     {
       label: t('Legal'),
+      // eslint-disable-next-line react-hooks/static-components
       component: <LegalTab />,
     },
   ];
