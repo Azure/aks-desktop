@@ -16,7 +16,7 @@
 
 // Portions (c) Microsoft Corp.
 
-import { ChildProcessWithoutNullStreams, exec, execSync, spawn } from 'child_process';
+import { ChildProcessWithoutNullStreams, exec, execFileSync, execSync, spawn } from 'child_process';
 import { randomBytes } from 'crypto';
 import dotenv from 'dotenv';
 import {
@@ -134,7 +134,7 @@ const args = yargs(hideBin(process.argv))
     () => {
       try {
         const backendPath = path.join(process.resourcesPath, 'headlamp-server');
-        const stdout = execSync(`${backendPath} list-plugins`);
+        const stdout = execFileSync(backendPath, ['list-plugins']);
         process.stdout.write(stdout);
         process.exit(0);
       } catch (error) {

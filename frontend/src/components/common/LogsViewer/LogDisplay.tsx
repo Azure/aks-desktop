@@ -183,6 +183,7 @@ export function LogDisplay({
     if (searchResults.length > 0 && searchResultIndex === 0) {
       listRef.current?.scrollToItem(searchResults[0], 'start');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchResults]);
 
   // Handle resizing, make sure height of the list is right

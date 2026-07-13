@@ -21,9 +21,12 @@ import { useMemo, useState } from 'react';
 import { Trans } from 'react-i18next';
 import { useDeploymentLogs, usePodLogs } from '../../../lib/k8s/api/v2/fetchLogs';
 import { KubeContainer } from '../../../lib/k8s/cluster';
+import type DaemonSet from '../../../lib/k8s/daemonSet';
 import Deployment from '../../../lib/k8s/deployment';
+import type Job from '../../../lib/k8s/job';
 import Pod from '../../../lib/k8s/pod';
 import type ReplicaSet from '../../../lib/k8s/replicaSet';
+import type StatefulSet from '../../../lib/k8s/statefulSet';
 import { ClusterGroupErrorMessage } from '../../cluster/ClusterGroupErrorMessage';
 import { useLocalStorageState } from '../../globalSearch/useLocalStorageState';
 import { LogDisplay } from './LogDisplay';
@@ -36,7 +39,7 @@ export function LogsViewer({
   initialContainer,
   defaultSeverities,
 }: {
-  item: Pod | Deployment | ReplicaSet;
+  item: Pod | Deployment | ReplicaSet | DaemonSet | StatefulSet | Job;
   initialContainer?: string;
   defaultSeverities?: string[];
 }) {

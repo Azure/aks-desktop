@@ -55,11 +55,11 @@ function Test-BackendBinary {
     exit $exitCode
   }
   Write-Host "Backend version: $versionOutput"
-  if (-not $versionOutput -or -not ($versionOutput -match "Headlamp")) {
+  if (-not $versionOutput -or -not ($versionOutput -match "AKS desktop")) {
     if (-not $versionOutput) {
       Write-Host "[FAIL] Backend produced no version output" -ForegroundColor Red
     } else {
-      Write-Host "[FAIL] Backend version check failed - output does not contain 'Headlamp'" -ForegroundColor Red
+      Write-Host "[FAIL] Backend version check failed - output does not contain 'AKS desktop'" -ForegroundColor Red
     }
     exit 1
   }
@@ -97,7 +97,7 @@ if (Test-Path $unpackedDir) {
   $backendPath = Join-Path $unpackedDir "resources\headlamp-server.exe"
   if (Test-Path $backendPath) {
     Test-BackendBinary $backendPath
-    $appPath = Join-Path $unpackedDir "Headlamp.exe"
+    $appPath = Join-Path $unpackedDir "AKS desktop.exe"
   } else {
     Write-Host "[FAIL] Backend server binary not found in unpacked resources" -ForegroundColor Red
     exit 1
@@ -108,7 +108,7 @@ if (Test-Path $unpackedDir) {
   if ($backendPath) {
     Test-BackendBinary $backendPath.FullName
     # Try to find the app executable in the dist output
-    $appPath = Get-ChildItem -Path $distDir -Recurse -Filter "Headlamp.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 | Select-Object -ExpandProperty FullName
+    $appPath = Get-ChildItem -Path $distDir -Recurse -Filter "AKS desktop.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 | Select-Object -ExpandProperty FullName
   } else {
     Write-Host "[FAIL] Could not find backend binary to test in dist output" -ForegroundColor Red
     exit 1
@@ -200,7 +200,7 @@ if ($appPath -and (Test-Path $appPath)) {
     }
   }
 } else {
-  Write-Host "[FAIL] Could not find Headlamp.exe for app verification" -ForegroundColor Red
+  Write-Host "[FAIL] Could not find AKS desktop.exe for app verification" -ForegroundColor Red
   exit 1
 }
 
