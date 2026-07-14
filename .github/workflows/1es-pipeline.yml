@@ -154,7 +154,7 @@ extends:
                   echo "=== COPY EXECUTABLE DEBUG END ==="
 
                   echo "Finding built .exe file..."
-                  EXE_PATH=$(find headlamp/app/dist -type f -name "aks-desktop*.exe" -print -quit)
+                  EXE_PATH=$(find headlamp/app/dist -type f -name "aks-desktop-*-win-x64.exe" -print -quit)
 
                   if [ -z "$EXE_PATH" ]; then
                     echo "❌ No aks-desktop .exe file found in headlamp/app/dist!" >&2
@@ -282,4 +282,3 @@ extends:
                   echo "=== END ARTIFACT DEBUG ==="
                 displayName: "Debug: Artifact Publishing"
                 condition: succeeded()
-
