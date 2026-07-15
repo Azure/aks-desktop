@@ -3,7 +3,7 @@
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
-import AksLogo from './aks-logo.svg';
+import AksLogo from './aks-logo.svg?react';
 
 export default function AzureLogo() {
   const { t } = useTranslation();

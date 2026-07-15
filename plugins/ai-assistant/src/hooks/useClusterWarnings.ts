@@ -3,7 +3,7 @@
  * This replaces the non-existent Event.useWarningList method
  */
 
-import Event from '@kinvolk/headlamp-plugin/lib/K8s/event';
+import Event, { useEventWarningList } from '@kinvolk/headlamp-plugin/lib/K8s/event';
 import { useMemo } from 'react';
 
 export interface EventsPerCluster {
@@ -15,7 +15,7 @@ export interface EventsPerCluster {
 
 export function useClusterWarnings(clusterNames: string[]): EventsPerCluster {
   // Get events for all clusters
-  const warningsPerCluster = Event.useWarningList(clusterNames);
+  const warningsPerCluster = useEventWarningList(clusterNames);
 
   return useMemo(() => {
     const result: EventsPerCluster = {};
