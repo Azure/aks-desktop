@@ -337,6 +337,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
       '@headlamp-k8s/ai-assistant': false,
     });
   });
@@ -351,6 +352,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
       '@headlamp-k8s/ai-assistant': false,
     });
   });
@@ -366,6 +368,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -380,6 +383,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -389,6 +393,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
       '@headlamp-k8s/ai-assistant': false,
     });
   });
@@ -399,6 +404,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
       '@headlamp-k8s/ai-assistant': false,
     });
   });
@@ -409,6 +415,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
       '@headlamp-k8s/ai-assistant': false,
     });
   });
@@ -419,6 +426,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
       '@headlamp-k8s/ai-assistant': false,
     });
   });
@@ -429,6 +437,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
       '@headlamp-k8s/ai-assistant': false,
     });
   });
@@ -439,6 +448,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
       '@headlamp-k8s/ai-assistant': false,
     });
   });
@@ -453,6 +463,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
       '@headlamp-k8s/ai-assistant': false,
     });
   });
@@ -468,6 +479,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -477,6 +489,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
       '@headlamp-k8s/ai-assistant': false,
     });
   });
@@ -488,6 +501,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -503,6 +517,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -517,6 +532,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -531,6 +547,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -545,6 +562,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -555,6 +573,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -569,6 +588,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -583,6 +603,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -593,6 +614,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -603,6 +625,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -617,6 +640,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -631,6 +655,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -645,6 +670,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -659,6 +685,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/ai-assistant': true,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -670,6 +697,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': true,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -680,6 +708,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': true,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -690,6 +719,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': true,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -700,6 +730,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -710,6 +741,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -720,6 +752,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': true,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -730,6 +763,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': true,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -741,6 +775,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': true,
+      'az-auth': false,
     });
   });
 
@@ -751,6 +786,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': true,
+      'az-auth': false,
     });
   });
 
@@ -761,6 +797,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': true,
+      'az-auth': false,
     });
   });
 
@@ -771,6 +808,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -781,6 +819,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': false,
+      'az-auth': false,
     });
   });
 
@@ -791,6 +830,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': true,
+      'az-auth': false,
     });
   });
 
@@ -801,6 +841,7 @@ describe('identifyPackages', () => {
       '@headlamp-k8s/minikube': false,
       'aks-desktop': false,
       'ai-assistant': true,
+      'az-auth': false,
     });
   });
 });

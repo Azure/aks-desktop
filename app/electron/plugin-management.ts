@@ -1047,7 +1047,8 @@ function validPluginBinFolder(folder: string): boolean {
   return (
     folder === 'headlamp_minikube' ||
     folder === 'headlamp_minikubeprerelease' ||
-    folder === 'aks-desktop'
+    folder === 'aks-desktop' ||
+    folder === 'az-auth'
   );
 }
 

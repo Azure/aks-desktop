@@ -144,6 +144,7 @@ const COMMANDS_WITH_CONSENT = {
     'kubectl top',
     'kubectl config',
   ],
+  az_auth: ['scriptjs az-auth/azure-api.js'],
   headlamp_ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
   ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
 };
@@ -182,6 +183,11 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
   const pluginIsAksDesktop = pluginInfo.name === 'aks-desktop';
   if (pluginIsAksDesktop) {
     commands = COMMANDS_WITH_CONSENT.aks_desktop;
+  }
+
+  const pluginIsAzAuth = pluginInfo.name === 'az-auth';
+  if (pluginIsAzAuth) {
+    commands = COMMANDS_WITH_CONSENT.az_auth;
   }
 
   const pluginIsAiAssistant = pluginInfo.name === 'ai-assistant';
@@ -489,6 +495,7 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
     'runCmd-scriptjs-minikube/manage-minikube.js': cryptoRandom(),
     'runCmd-scriptjs-headlamp_minikube/manage-minikube.js': cryptoRandom(),
     'runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js': cryptoRandom(),
+    'runCmd-scriptjs-az-auth/azure-api.js': cryptoRandom(),
     'runCmd-az': cryptoRandom(),
     'runCmd-kubectl': cryptoRandom(),
     'runCmd-gh': cryptoRandom(),

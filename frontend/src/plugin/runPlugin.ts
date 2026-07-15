@@ -254,6 +254,7 @@ export function identifyPackages(
       'static-plugins/headlamp_ai-assistantprerelease',
     ],
     'aks-desktop': ['plugins/aks-desktop', 'static-plugins/aks-desktop'],
+    'az-auth': ['plugins/az-auth', 'static-plugins/az-auth'],
     'ai-assistant': ['plugins/ai-assistant', 'static-plugins/ai-assistant'],
   };
 
@@ -274,6 +275,7 @@ export function identifyPackages(
       '@headlamp-k8s/ai-assistantprerelease',
     ],
     'aks-desktop': ['aks-desktop'],
+    'az-auth': ['az-auth'],
     'ai-assistant': ['ai-assistant'],
   };
   const isPackage: Record<string, boolean> = {};
