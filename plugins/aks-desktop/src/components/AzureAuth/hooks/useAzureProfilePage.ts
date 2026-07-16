@@ -4,7 +4,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useAzureAuth } from '../../../hooks/useAzureAuth';
+import { trackError, trackFeature } from '../../../telemetry';
 import { PROFILE_REDIRECT_DELAY_MS } from '../../../utils/constants/timing';
+
+function safelyTrackFeature(properties: Parameters<typeof trackFeature>[0]) {
+  try {
+    trackFeature(properties);
+  } catch {}
+}
+
+function safelyTrackError(properties: Parameters<typeof trackError>[0]) {
+  try {
+    trackError(properties);
+  } catch {}
+}
 
 /**
  * Return type for {@link useAzureProfilePage}.
@@ -74,6 +87,7 @@ export function useAzureProfilePage(): UseAzureProfilePageResult {
   };
 
   const handleLogout = async () => {
+    safelyTrackFeature({ feature: 'aksd.azure-logout', status: 'started' });
     setLoggingOut(true);
     try {
       // Dynamic import avoids circular dependencies at module load time.
@@ -81,12 +95,19 @@ export function useAzureProfilePage(): UseAzureProfilePageResult {
       const result = await runCommandAsync('az', ['logout']);
 
       if (result.stderr && isAzError(result.stderr)) {
+        safelyTrackFeature({ feature: 'aksd.azure-logout', status: 'failed' });
+        safelyTrackError({
+          area: 'azure-login',
+          errorClass: 'AuthenticationError',
+          phase: 'failed',
+        });
         console.error('Azure CLI logout error:', result.stderr);
         setLoggingOut(false);
         return;
       }
 
       // Notify the sidebar label to refresh its auth state.
+      safelyTrackFeature({ feature: 'aksd.azure-logout', status: 'succeeded' });
       window.dispatchEvent(new CustomEvent('azure-auth-update'));
 
       // Stay in loggingOut=true state until the component unmounts on redirect.
@@ -94,6 +115,8 @@ export function useAzureProfilePage(): UseAzureProfilePageResult {
         history.push('/azure/login');
       }, PROFILE_REDIRECT_DELAY_MS);
     } catch (error) {
+      safelyTrackFeature({ feature: 'aksd.azure-logout', status: 'failed' });
+      safelyTrackError({ area: 'azure-login', errorClass: 'UnknownError', phase: 'failed' });
       console.error('Error logging out:', error);
       setLoggingOut(false);
     }

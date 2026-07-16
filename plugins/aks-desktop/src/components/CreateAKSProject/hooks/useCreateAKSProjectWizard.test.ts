@@ -4,6 +4,14 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const mockTrackFeature = vi.hoisted(() => vi.fn());
+const mockTrackError = vi.hoisted(() => vi.fn());
+
+vi.mock('../../../telemetry', () => ({
+  trackFeature: mockTrackFeature,
+  trackError: mockTrackError,
+}));
+
 // Use a real i18next instance so {{variable}} interpolation works correctly in
 // error messages (e.g. 'Namespace status verification failed: {{message}}'
 // renders with the actual message instead of the raw placeholder).
@@ -139,6 +147,8 @@ const defaultFormData = {
 describe('useCreateAKSProjectWizard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTrackFeature.mockImplementation(() => {});
+    mockTrackError.mockImplementation(() => {});
     // Silence console.error so error-path tests don't pollute the test output.
     // Individual tests that need to assert on console.error output create their
     // own spy on top and restore it themselves before this one is cleaned up.
@@ -159,6 +169,10 @@ describe('useCreateAKSProjectWizard', () => {
   it('has initial activeStep of 0', () => {
     const { result } = renderHook(() => useCreateAKSProjectWizard());
     expect(result.current.activeStep).toBe(0);
+    expect(mockTrackFeature).toHaveBeenCalledWith({
+      feature: 'aksd.project-create',
+      status: 'opened',
+    });
   });
 
   it('handleNext increments activeStep', () => {
@@ -188,6 +202,10 @@ describe('useCreateAKSProjectWizard', () => {
         result.current.onBack();
       });
     }).not.toThrow();
+    expect(mockTrackFeature).toHaveBeenCalledWith({
+      feature: 'aksd.project-create',
+      status: 'cancelled',
+    });
   });
 
   it('initial isCreating is false', () => {
@@ -213,6 +231,14 @@ describe('useCreateAKSProjectWizard', () => {
 
     expect(result.current.isCreating).toBe(false);
     expect(result.current.showSuccessDialog).toBe(true);
+    expect(mockTrackFeature).toHaveBeenCalledWith({
+      feature: 'aksd.project-create',
+      status: 'started',
+    });
+    expect(mockTrackFeature).toHaveBeenCalledWith({
+      feature: 'aksd.project-create',
+      status: 'succeeded',
+    });
   }, 10000);
 
   it('handleSubmit error path: sets creationError when createManagedNamespace fails', async () => {
@@ -229,6 +255,15 @@ describe('useCreateAKSProjectWizard', () => {
 
     expect(result.current.creationError).toBeTruthy();
     expect(result.current.isCreating).toBe(false);
+    expect(mockTrackFeature).toHaveBeenCalledWith({
+      feature: 'aksd.project-create',
+      status: 'failed',
+    });
+    expect(mockTrackError).toHaveBeenCalledWith({
+      area: 'project-create',
+      errorClass: 'UnknownError',
+      phase: 'failed',
+    });
   });
 
   it('handleSubmit sets isCreating false after error completion', async () => {
@@ -272,6 +307,23 @@ describe('useCreateAKSProjectWizard', () => {
 
     expect(result.current.creationError).toContain('timed out');
     expect(result.current.isCreating).toBe(false);
+    expect(mockTrackError).toHaveBeenCalledWith({
+      area: 'project-create',
+      errorClass: 'TimeoutError',
+      phase: 'failed',
+    });
+  });
+
+  it('telemetry failures do not interrupt cancellation navigation', () => {
+    mockTrackFeature.mockImplementation(() => {
+      throw new Error('telemetry unavailable');
+    });
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+
+    expect(() => {
+      act(() => result.current.onBack());
+    }).not.toThrow();
   });
 
   it('handleSubmit timeout: sets creationError when timeout fires during verifyNamespaceAccess', async () => {

@@ -23,12 +23,18 @@ vi.mock('./index', () => ({
   trackPluginsLoaded: indexMocks.trackPluginsLoaded,
 }));
 
-import { extractKindFromPayload, registerReduxCallback, TELEMETRY_EVENT_ALLOWLIST } from './setup';
+import {
+  __resetReduxRegistrationForTests,
+  extractKindFromPayload,
+  registerReduxCallback,
+  TELEMETRY_EVENT_ALLOWLIST,
+} from './setup';
 
 beforeEach(() => {
   trackFeature.mockClear();
   trackPluginsLoaded.mockClear();
   registerHeadlampEventCallback.mockClear();
+  __resetReduxRegistrationForTests();
 });
 
 afterEach(() => {
@@ -88,6 +94,39 @@ describe('registerReduxCallback', () => {
     });
   });
 
+  it('registers the Headlamp callback only once', () => {
+    registerReduxCallback();
+    registerReduxCallback();
+    expect(registerHeadlampEventCallback).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not register when persisted telemetry is disabled', () => {
+    registerReduxCallback(() => false);
+    expect(registerHeadlampEventCallback).not.toHaveBeenCalled();
+  });
+
+  it('drops events when telemetry becomes disabled after registration', () => {
+    let enabled = true;
+    registerReduxCallback(() => enabled);
+    const cb = registerHeadlampEventCallback.mock.calls[0][0];
+    enabled = false;
+    cb({
+      type: 'headlamp.plugins-loaded',
+      data: { plugins: [{ name: 'aks-desktop', isEnabled: true }] },
+    } as unknown as HeadlampEvent);
+    expect(trackPluginsLoaded).not.toHaveBeenCalled();
+    expect(trackFeature).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when Headlamp callback registration throws', () => {
+    registerHeadlampEventCallback.mockImplementationOnce(() => {
+      throw new Error('synthetic registration failure');
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => registerReduxCallback()).not.toThrow();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
   it('forwards an allowlisted resource event to trackFeature with status', () => {
     const cb = getCallback();
     cb({
@@ -126,7 +165,7 @@ describe('registerReduxCallback', () => {
         data: {},
       } as unknown as HeadlampEvent)
     ).not.toThrow();
-    expect(errorSpy).toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });
 

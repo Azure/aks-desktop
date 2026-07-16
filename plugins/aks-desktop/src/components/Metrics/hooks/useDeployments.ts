@@ -3,7 +3,20 @@
 
 import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import Deployment from '@kinvolk/headlamp-plugin/lib/lib/k8s/deployment';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { trackError, trackFeature } from '../../../telemetry';
+
+function safelyTrackMetricsViewed() {
+  try {
+    trackFeature({ feature: 'aksd.metrics', status: 'viewed' });
+  } catch {}
+}
+
+function safelyTrackMetricsError() {
+  try {
+    trackError({ area: 'metrics', errorClass: 'UnknownError', phase: 'failed' });
+  } catch {}
+}
 
 /** Basic deployment information used in deployment selector dropdown. */
 export interface DeploymentInfo {
@@ -42,6 +55,13 @@ export function useDeployments(
   const [deployments, setDeployments] = useState<DeploymentInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const hasTrackedViewRef = useRef(false);
+
+  useEffect(() => {
+    if (hasTrackedViewRef.current) return;
+    hasTrackedViewRef.current = true;
+    safelyTrackMetricsViewed();
+  }, []);
 
   useEffect(() => {
     if (!namespace) return;
@@ -75,6 +95,7 @@ export function useDeployments(
           setSelectedDeployment('');
           setError(t('Failed to fetch deployments'));
           setLoading(false);
+          safelyTrackMetricsError();
         },
         {
           namespace: namespace,
@@ -89,6 +110,7 @@ export function useDeployments(
       setSelectedDeployment('');
       setError(t('Failed to fetch deployments'));
       setLoading(false);
+      safelyTrackMetricsError();
     }
 
     return () => {
@@ -96,5 +118,15 @@ export function useDeployments(
     };
   }, [namespace, cluster]);
 
-  return { deployments, selectedDeployment, loading, error, setSelectedDeployment };
+  const selectDeployment = (deployment: string) => {
+    setSelectedDeployment(deployment);
+  };
+
+  return {
+    deployments,
+    selectedDeployment,
+    loading,
+    error,
+    setSelectedDeployment: selectDeployment,
+  };
 }

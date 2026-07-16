@@ -10,9 +10,48 @@ import {
   KNOWN_ROUTES,
   sanitizeErrorClass,
   sanitizeRoute,
+  TELEMETRY_EVENT_NAMES,
+  TELEMETRY_PROPERTY_KEYS,
 } from './schema';
 
 describe('telemetry privacy vocabularies', () => {
+  it('enumerates every approved event name', () => {
+    expect([...TELEMETRY_EVENT_NAMES]).toEqual([
+      'headlamp.session-start',
+      'headlamp.cluster-shape',
+      'headlamp.feature',
+      'headlamp.exception',
+      'headlamp.plugins-loaded',
+    ]);
+  });
+
+  it('enumerates every approved custom property key', () => {
+    expect([...TELEMETRY_PROPERTY_KEYS]).toEqual([
+      'appVersion',
+      'locale',
+      'os',
+      'arch',
+      'electronVersion',
+      'headlampVersion',
+      'provider',
+      'kubernetesMinor',
+      'nodeCountBucket',
+      'namespaceCountBucket',
+      'region',
+      'aksTier',
+      'feature',
+      'status',
+      'resourceKind',
+      'errorClass',
+      'area',
+      'phase',
+      'totalCount',
+      'enabledCount',
+      'knownEnabledIds',
+      'thirdPartyCount',
+    ]);
+  });
+
   it('enumerates every approved feature type', () => {
     expect([...KNOWN_FEATURE_TYPES]).toEqual([
       'headlamp.delete-resource',

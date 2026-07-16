@@ -5,12 +5,26 @@ import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { apply } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
 import React, { useEffect, useState } from 'react';
 import YAML from 'yaml';
+import { trackError, trackFeature } from '../../../telemetry';
 import { dryRunApply } from '../utils/dryRunApply';
 import { applyNamespaceOverride } from '../utils/namespaceOverride';
 import { checkResourceQuota, type QuotaWarning } from '../utils/quotaCheck';
 import { type ContainerDeploymentConfig, generateYamlForContainer } from '../utils/yamlGenerator';
 import type { ContainerConfig } from './useContainerConfiguration';
 import { useContainerConfiguration } from './useContainerConfiguration';
+
+function safelyTrackDeploy(status: 'started' | 'succeeded' | 'failed') {
+  try {
+    trackFeature({ feature: 'aksd.deploy', status });
+  } catch {}
+}
+
+function safelyTrackDeployError(errorClass: 'ValidationError' | 'UnknownError') {
+  safelyTrackDeploy('failed');
+  try {
+    trackError({ area: 'deploy', errorClass, phase: 'failed' });
+  } catch {}
+}
 
 /**
  * Parses a multi-document YAML string, filters empty documents, converts
@@ -298,6 +312,7 @@ export function useDeployWizard({
       setDeployResult(null);
       setDeployMessage('');
       setDeploying(true);
+      safelyTrackDeploy('started');
 
       // Generate container YAML synchronously to avoid a race where
       // containerPreviewYaml may still be empty on the first render of the Deploy step.
@@ -333,6 +348,7 @@ export function useDeployWizard({
         setYamlError(msg || t('Invalid YAML'));
         setDeployResult('error');
         setDeployMessage(msg || t('Invalid YAML'));
+        safelyTrackDeployError('ValidationError');
         return;
       }
 
@@ -362,6 +378,7 @@ export function useDeployWizard({
       if (dryRunErrors.length > 0) {
         setDeployResult('error');
         setDeployMessage(dryRunErrors.join('\n'));
+        safelyTrackDeployError('ValidationError');
         return;
       }
 
@@ -394,14 +411,17 @@ export function useDeployWizard({
               })
             : errors.join('\n')
         );
+        safelyTrackDeployError('UnknownError');
       } else {
         setDeployResult('success');
         setDeployMessage(t('Applied {{count}} resource(s) successfully.', { count: applied }));
+        safelyTrackDeploy('succeeded');
       }
     } catch (e: unknown) {
       setDeployResult('error');
       const deployErrMsg = e instanceof Error ? e.message : String(e);
       setDeployMessage(deployErrMsg || t('Failed to apply resources.'));
+      safelyTrackDeployError('UnknownError');
     } finally {
       setDeploying(false);
     }

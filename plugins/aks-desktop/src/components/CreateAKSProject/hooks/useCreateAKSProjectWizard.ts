@@ -4,6 +4,7 @@
 import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import React, { useEffect, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
+import { trackError, trackFeature } from '../../../telemetry';
 import { checkNamespaceExists } from '../../../utils/azure/az-namespace-access';
 import { createManagedNamespace } from '../../../utils/azure/az-namespaces';
 import { checkAzureCliAndAksPreview } from '../../../utils/azure/checkAzureCli';
@@ -26,6 +27,18 @@ import { useValidation } from './useValidation';
 
 /** Set to `true` locally to enable verbose debug logging. Never enable in production. */
 const DEBUG = false;
+
+function safelyTrackFeature(properties: Parameters<typeof trackFeature>[0]) {
+  try {
+    trackFeature(properties);
+  } catch {}
+}
+
+function safelyTrackError(properties: Parameters<typeof trackError>[0]) {
+  try {
+    trackError(properties);
+  } catch {}
+}
 
 /**
  * All state and handlers returned by {@link useCreateAKSProjectWizard}.
@@ -126,12 +139,17 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   const [creationError, setCreationError] = useState<string | null>(null);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [applicationName, setApplicationName] = useState('');
+  const terminalTrackedRef = useRef(false);
   const [cliSuggestions, setCliSuggestions] = useState<string[]>([]);
   const stepContentRef = useRef<HTMLDivElement>(null);
 
   // Track the 2-second success-dialog delay timer so it can be cleared on unmount,
   // preventing a setState call on an unmounted component (React warning / memory leak).
   const successTimeoutRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    safelyTrackFeature({ feature: 'aksd.project-create', status: 'opened' });
+  }, []);
 
   const { formData, updateFormData } = useFormData();
   const azureResources = useAzureResources();
@@ -264,6 +282,9 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
 
   const handleSubmit = async () => {
     let creationTimeoutId: number | undefined;
+    let didTimeout = false;
+    terminalTrackedRef.current = false;
+    safelyTrackFeature({ feature: 'aksd.project-create', status: 'started' });
     try {
       if (DEBUG)
         console.debug('handleSubmit', {
@@ -282,6 +303,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
       const timeoutPromise = new Promise((_, reject) => {
         creationTimeoutId = window.setTimeout(() => {
           aborted = true;
+          didTimeout = true;
           reject(
             new Error(
               t(
@@ -493,6 +515,9 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
 
       await Promise.race([creationPromise, timeoutPromise]);
 
+      terminalTrackedRef.current = true;
+      safelyTrackFeature({ feature: 'aksd.project-create', status: 'succeeded' });
+
       // Store the timer id so the cleanup effect can cancel it if the component
       // unmounts before the 2 seconds elapse, preventing setState on an unmounted component.
       successTimeoutRef.current = window.setTimeout(() => {
@@ -500,6 +525,13 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
         setShowSuccessDialog(true);
       }, 2000);
     } catch (error) {
+      terminalTrackedRef.current = true;
+      safelyTrackFeature({ feature: 'aksd.project-create', status: 'failed' });
+      safelyTrackError({
+        area: 'project-create',
+        errorClass: didTimeout ? 'TimeoutError' : 'UnknownError',
+        phase: 'failed',
+      });
       const rawErrorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       // Sanitize potential PII (e.g., email addresses) from the error message and stack
@@ -545,6 +577,10 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   };
 
   const onBack = () => {
+    if (!terminalTrackedRef.current) {
+      terminalTrackedRef.current = true;
+      safelyTrackFeature({ feature: 'aksd.project-create', status: 'cancelled' });
+    }
     history.push('/');
   };
 

@@ -5,10 +5,11 @@ import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { PageGrid, SectionBox, Table } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Alert, Box, Button, Checkbox, Chip, CircularProgress, Typography } from '@mui/material';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { DiscoveredNamespace, useNamespaceDiscovery } from '../../hooks/useNamespaceDiscovery';
 import { useRegisteredClusters } from '../../hooks/useRegisteredClusters';
+import { trackError, trackFeature } from '../../telemetry';
 import { getSubscriptions, registerAKSCluster } from '../../utils/azure/aks';
 import { applyProjectLabels } from '../../utils/kubernetes/namespaceUtils';
 import { getClusterSettings, setClusterSettings } from '../../utils/shared/clusterSettings';
@@ -20,10 +21,23 @@ interface ImportSelection {
   selected: boolean;
 }
 
+function safelyTrackFeature(properties: Parameters<typeof trackFeature>[0]) {
+  try {
+    trackFeature(properties);
+  } catch {}
+}
+
+function safelyTrackError(properties: Parameters<typeof trackError>[0]) {
+  try {
+    trackError(properties);
+  } catch {}
+}
+
 function ImportAKSProjectsContent() {
   const history = useHistory();
   const { t } = useTranslation();
   const registeredClusters = useRegisteredClusters();
+  const terminalTrackedRef = useRef(false);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -64,6 +78,10 @@ function ImportAKSProjectsContent() {
     Array<{ namespace: string; clusterName: string; success: boolean; message: string }> | undefined
   >();
 
+  useEffect(() => {
+    safelyTrackFeature({ feature: 'aksd.project-import', status: 'opened' });
+  }, []);
+
   const toggleSelection = (ns: DiscoveredNamespace) => {
     setSelections(prev => {
       const key = `${ns.clusterName}/${ns.name}`;
@@ -86,6 +104,10 @@ function ImportAKSProjectsContent() {
   };
 
   const handleCancel = () => {
+    if (!terminalTrackedRef.current) {
+      terminalTrackedRef.current = true;
+      safelyTrackFeature({ feature: 'aksd.project-import', status: 'cancelled' });
+    }
     history.push('/');
   };
 
@@ -95,6 +117,8 @@ function ImportAKSProjectsContent() {
       setError(t('Please select at least one namespace to import'));
       return;
     }
+
+    terminalTrackedRef.current = false;
 
     const needsConversion = selectedNamespaces.filter(s => !s.namespace.isAksProject);
 
@@ -109,6 +133,7 @@ function ImportAKSProjectsContent() {
 
   /** Process the import (called after confirmation if conversion needed) */
   const processImport = async () => {
+    safelyTrackFeature({ feature: 'aksd.project-import', status: 'started' });
     setShowConversionDialog(false);
     setImporting(true);
     setError('');
@@ -351,6 +376,25 @@ function ImportAKSProjectsContent() {
       setError(t('Failed to import any projects. See details below.'));
     }
 
+    terminalTrackedRef.current = true;
+    if (failureCount === 0 && successCount > 0) {
+      safelyTrackFeature({ feature: 'aksd.project-import', status: 'succeeded' });
+    } else if (successCount > 0) {
+      safelyTrackFeature({ feature: 'aksd.project-import', status: 'completed' });
+      safelyTrackError({
+        area: 'project-import',
+        errorClass: 'UnknownError',
+        phase: 'completed',
+      });
+    } else {
+      safelyTrackFeature({ feature: 'aksd.project-import', status: 'failed' });
+      safelyTrackError({
+        area: 'project-import',
+        errorClass: 'UnknownError',
+        phase: 'failed',
+      });
+    }
+
     setImporting(false);
     setImportProgress('');
   };
@@ -581,7 +625,13 @@ function ImportAKSProjectsContent() {
 
       <ConversionDialog
         open={showConversionDialog}
-        onClose={() => setShowConversionDialog(false)}
+        onClose={() => {
+          if (!terminalTrackedRef.current) {
+            terminalTrackedRef.current = true;
+            safelyTrackFeature({ feature: 'aksd.project-import', status: 'cancelled' });
+          }
+          setShowConversionDialog(false);
+        }}
         onConfirm={processImport}
         namespacesToConvert={selectedNamespaces
           .filter(s => !s.namespace.isAksProject)

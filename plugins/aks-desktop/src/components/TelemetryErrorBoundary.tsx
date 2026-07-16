@@ -4,7 +4,7 @@
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Alert } from '@mui/material';
 import React from 'react';
-import { trackException } from '../telemetry';
+import { trackError } from '../telemetry';
 
 interface State {
   hasError: boolean;
@@ -20,7 +20,7 @@ function ErrorFallback() {
 }
 
 /**
- * Plugin-subtree error boundary. Reports Error.name through the
+ * Plugin-subtree error boundary. Reports a categorical failure through the
  * telemetry chokepoint and renders an Alert fallback. The headlamp
  * shell is intentionally not wrapped.
  *
@@ -38,10 +38,10 @@ export class TelemetryErrorBoundary extends React.Component<Props, State> {
     // eslint-disable-next-line no-console
     console.error('[aksd] TelemetryErrorBoundary caught:', error, errorInfo.componentStack);
     try {
-      trackException(error.name);
+      trackError({ area: 'plugin-ui', errorClass: 'UnknownError', phase: 'failed' });
     } catch (telemetryError) {
       // eslint-disable-next-line no-console
-      console.error('[aksd] TelemetryErrorBoundary: trackException threw', telemetryError);
+      console.error('[aksd] TelemetryErrorBoundary: trackError threw', telemetryError);
     }
   }
 

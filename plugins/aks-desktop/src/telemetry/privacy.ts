@@ -1,12 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { KNOWN_ROUTES, sanitizeRoute } from './schema';
+
 const DENIED_VALUE_PATTERNS: readonly RegExp[] = [
   /\/subscriptions\/[^/\s]+/i,
   /\/resourceGroups\/[^/\s]+/i,
   /\/managedClusters\/[^/\s]+/i,
-  /(?:^|[\s"'])\/(?:home|Users)\/[^/\s]+\//i,
-  /(?:^|[\s"'])[a-z]:[\\/]Users[\\/][^\\/\s]+[\\/]/i,
+  /(?:^|[=\s"'(])\/(?!\/)[^\s"'?#]+/i,
+  /(?:^|[=\s"'(])[a-z]:[\\/][^\s"'?#]+/i,
   /file:\/\//i,
   /https?:\/\//i,
 ];
@@ -21,10 +23,11 @@ const DENIED_GEO_KEYS = new Set([
 ]);
 
 function isDeniedKey(key: string): boolean {
-  return DENIED_GEO_KEYS.has(key.toLowerCase());
+  return DENIED_GEO_KEYS.has(key.toLowerCase()) || isDeniedValue(key);
 }
 
 function isDeniedValue(value: string): boolean {
+  if (KNOWN_ROUTES.has(value)) return false;
   return DENIED_VALUE_PATTERNS.some(pattern => pattern.test(value));
 }
 
@@ -38,9 +41,14 @@ function containsDeniedData(value: unknown, seen: WeakSet<object>): boolean {
     return value.some(item => containsDeniedData(item, seen));
   }
 
-  return Object.entries(value).some(
-    ([key, nestedValue]) => isDeniedKey(key) || containsDeniedData(nestedValue, seen)
-  );
+  return Object.entries(value).some(([key, nestedValue]) => {
+    if (isDeniedKey(key)) return true;
+    if (key === 'ai.operation.name') {
+      return typeof nestedValue !== 'string' || sanitizeRoute(nestedValue) !== nestedValue;
+    }
+    if (key === 'ai.location.ip') return nestedValue !== '0.0.0.0';
+    return containsDeniedData(nestedValue, seen);
+  });
 }
 
 export function assertNoPII(value: unknown): void {
@@ -70,6 +78,14 @@ function scrubValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
   seen.set(value, scrubbed);
   for (const [key, nestedValue] of Object.entries(value)) {
     if (isDeniedKey(key)) continue;
+    if (key === 'ai.operation.name') {
+      scrubbed[key] = sanitizeRoute(typeof nestedValue === 'string' ? nestedValue : undefined);
+      continue;
+    }
+    if (key === 'ai.location.ip') {
+      scrubbed[key] = '0.0.0.0';
+      continue;
+    }
     const safeValue = scrubValue(nestedValue, seen);
     if (safeValue !== undefined) scrubbed[key] = safeValue;
   }

@@ -22,7 +22,7 @@ let cachedInstallId: string | undefined;
  * contract is "approximately per install", with session-level stability as
  * the floor.
  *
- * Anonymous: never concatenated with PII before use as an App Insights
+ * Pseudonymous: never concatenated with PII before use as an App Insights
  * correlation key.
  */
 export function getOrCreateInstallId(): string {

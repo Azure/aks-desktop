@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef } from 'react';
+import { trackError, trackFeature } from '../../../telemetry';
 import type { RepoReadiness } from '../../../types/github';
 import { SCHEMA_VERSION, STORAGE_KEY_PREFIX } from '../constants';
 import {
@@ -13,6 +14,19 @@ import {
   type PRTracking,
 } from '../types';
 import { safeRecord } from '../utils/safeRecord';
+
+function safelyTrackPipeline(status: 'started' | 'completed' | 'succeeded' | 'failed') {
+  try {
+    trackFeature({ feature: 'aksd.pipeline', status });
+  } catch {}
+}
+
+function safelyTrackPipelineFailure() {
+  safelyTrackPipeline('failed');
+  try {
+    trackError({ area: 'pipeline', errorClass: 'UnknownError', phase: 'failed' });
+  } catch {}
+}
 
 /**
  * Transient (in-flight) states that are dead-ends for RETRY because the
@@ -57,6 +71,10 @@ const INITIAL_STATE: PipelineState = {
   createdAt: null,
   updatedAt: null,
 };
+
+function hasStartedRun(state: PipelineState): boolean {
+  return state.deploymentState !== 'Configured' || state.config !== null;
+}
 
 const loadPersistedState = (repoKey: string): PipelineState | null => {
   try {
@@ -440,6 +458,10 @@ export const useGitHubPipelineState = (repoKey: string | null): UseGitHubPipelin
 
   const prevRepoKeyRef = useRef(repoKey);
   const lastLoadedStateRef = useRef<PipelineState | null>(null);
+  const startedForRunRef = useRef(hasStartedRun(pipelineState));
+  const terminalTelemetryEmittedForRunRef = useRef(
+    pipelineState.deploymentState === 'Failed' || TERMINAL_STATES.has(pipelineState.deploymentState)
+  );
 
   // Load persisted state when repoKey changes — useLayoutEffect runs
   // synchronously before paint and before regular effects, avoiding both
@@ -450,6 +472,9 @@ export const useGitHubPipelineState = (repoKey: string | null): UseGitHubPipelin
     const persisted = repoKey ? loadPersistedState(repoKey) : null;
     const loaded = persisted ?? INITIAL_STATE;
     lastLoadedStateRef.current = loaded;
+    startedForRunRef.current = hasStartedRun(loaded);
+    terminalTelemetryEmittedForRunRef.current =
+      loaded.deploymentState === 'Failed' || TERMINAL_STATES.has(loaded.deploymentState);
     dispatch({ type: 'LOAD_STATE', state: loaded });
   }, [repoKey]);
 
@@ -477,15 +502,32 @@ export const useGitHubPipelineState = (repoKey: string | null): UseGitHubPipelin
 
   const actions = useMemo(
     () => ({
-      setConfig: (config: PipelineConfig) => dispatch({ type: 'SET_CONFIG', config }),
+      setConfig: (config: PipelineConfig) => {
+        if (!startedForRunRef.current) {
+          startedForRunRef.current = true;
+          terminalTelemetryEmittedForRunRef.current = false;
+          safelyTrackPipeline('started');
+        }
+        dispatch({ type: 'SET_CONFIG', config });
+      },
       updateConfig: (partial: Partial<PipelineConfig>) =>
         dispatch({ type: 'UPDATE_CONFIG', partial }),
       setAuthNeeded: () => dispatch({ type: 'SET_AUTH_NEEDED' }),
       setAuthCompleted: () => dispatch({ type: 'SET_AUTH_COMPLETED' }),
       setAppInstallNeeded: () => dispatch({ type: 'SET_APP_INSTALL_NEEDED' }),
       setCheckingRepo: () => dispatch({ type: 'SET_CHECKING_REPO' }),
-      setRepoReadiness: (readiness: RepoReadiness) =>
-        dispatch({ type: 'SET_REPO_READINESS', readiness }),
+      setRepoReadiness: (readiness: RepoReadiness) => {
+        const currentState = latestStateRef.current.deploymentState;
+        if (
+          readiness.hasDeployWorkflow &&
+          (currentState === 'CheckingRepo' || currentState === 'AppInstallationNeeded') &&
+          !terminalTelemetryEmittedForRunRef.current
+        ) {
+          terminalTelemetryEmittedForRunRef.current = true;
+          safelyTrackPipeline('completed');
+        }
+        dispatch({ type: 'SET_REPO_READINESS', readiness });
+      },
       setAcrCompleted: () => dispatch({ type: 'SET_ACR_COMPLETED' }),
       setIdentitySetup: () => dispatch({ type: 'SET_IDENTITY_SETUP' }),
       setIdentityReady: () => dispatch({ type: 'SET_IDENTITY_READY' }),
@@ -496,11 +538,43 @@ export const useGitHubPipelineState = (repoKey: string | null): UseGitHubPipelin
       setGeneratedPRCreated: (prUrl: string, prNumber: number) =>
         dispatch({ type: 'SET_GENERATED_PR_CREATED', prUrl, prNumber }),
       setGeneratedPRMerged: () => dispatch({ type: 'SET_GENERATED_PR_MERGED' }),
-      setPipelineConfigured: () => dispatch({ type: 'SET_PIPELINE_CONFIGURED' }),
-      setDeployed: (serviceEndpoint?: string) =>
-        dispatch({ type: 'SET_DEPLOYED', serviceEndpoint }),
-      setFailed: (error: string) => dispatch({ type: 'SET_FAILED', error }),
-      retry: () => dispatch({ type: 'RETRY' }),
+      setPipelineConfigured: () => {
+        const currentState = latestStateRef.current.deploymentState;
+        if (
+          (currentState === 'GeneratedPRAwaitingMerge' || currentState === 'AgentRunning') &&
+          !terminalTelemetryEmittedForRunRef.current
+        ) {
+          terminalTelemetryEmittedForRunRef.current = true;
+          safelyTrackPipeline('completed');
+        }
+        dispatch({ type: 'SET_PIPELINE_CONFIGURED' });
+      },
+      setDeployed: (serviceEndpoint?: string) => {
+        if (
+          latestStateRef.current.deploymentState === 'PipelineRunning' &&
+          !terminalTelemetryEmittedForRunRef.current
+        ) {
+          terminalTelemetryEmittedForRunRef.current = true;
+          safelyTrackPipeline('succeeded');
+        }
+        dispatch({ type: 'SET_DEPLOYED', serviceEndpoint });
+      },
+      setFailed: (error: string) => {
+        if (
+          latestStateRef.current.deploymentState !== 'Failed' &&
+          !terminalTelemetryEmittedForRunRef.current
+        ) {
+          terminalTelemetryEmittedForRunRef.current = true;
+          safelyTrackPipelineFailure();
+        }
+        dispatch({ type: 'SET_FAILED', error });
+      },
+      retry: () => {
+        if (latestStateRef.current.deploymentState === 'Failed') {
+          terminalTelemetryEmittedForRunRef.current = false;
+        }
+        dispatch({ type: 'RETRY' });
+      },
     }),
     []
   );

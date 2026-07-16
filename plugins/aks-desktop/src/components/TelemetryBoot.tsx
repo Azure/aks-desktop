@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { useEffect } from 'react';
-import { initTelemetry } from '../telemetry';
+import { useEffect, useRef } from 'react';
+import { initTelemetry, setTelemetryEnabled } from '../telemetry';
 import { getAppInfo } from '../telemetry/appInfo';
 import { getOrCreateInstallId } from '../telemetry/installId';
 import { isTelemetryEnabled } from './PluginSettings/telemetrySettingsStore';
@@ -37,8 +37,11 @@ const HEADLAMP_VERSION =
  * handled by initTelemetry's internal initAttempted guard.
  */
 export default function TelemetryBoot(): null {
+  const enabled = useRef(isTelemetryEnabled()).current;
+  setTelemetryEnabled(enabled);
+
   useEffect(() => {
-    if (!isTelemetryEnabled()) return;
+    if (!enabled) return;
 
     try {
       const installId = getOrCreateInstallId();
@@ -53,12 +56,9 @@ export default function TelemetryBoot(): null {
           locale: navigator.language || 'unknown',
         },
       });
-    } catch (e) {
-      // initTelemetry swallows internally; catch synchronous throws from
-      // the helpers above.
-      // eslint-disable-next-line no-console
-      console.error('[aksd-telemetry] boot failed:', e);
+    } catch {
+      // Fail closed. Telemetry failures never emit more telemetry or logs.
     }
-  }, []);
+  }, [enabled]);
   return null;
 }

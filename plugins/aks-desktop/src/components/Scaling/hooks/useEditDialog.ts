@@ -2,7 +2,8 @@
 // Licensed under the Apache 2.0.
 
 import { clusterRequest } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { trackError, trackFeature } from '../../../telemetry';
 import type { DeploymentInfo } from './useDeployments';
 import type { HPAInfo } from './useHPAInfo';
 
@@ -11,6 +12,19 @@ const MERGE_PATCH_HEADERS = {
   Accept: 'application/json',
   'Content-Type': 'application/merge-patch+json',
 };
+
+function safelyTrackScaling(status: 'opened' | 'started' | 'succeeded' | 'failed' | 'cancelled') {
+  try {
+    trackFeature({ feature: 'aksd.scaling', status });
+  } catch {}
+}
+
+function safelyTrackScalingError(errorClass: 'ValidationError' | 'UnknownError') {
+  safelyTrackScaling('failed');
+  try {
+    trackError({ area: 'scaling', errorClass, phase: 'failed' });
+  } catch {}
+}
 
 /**
  * Form values for the scaling edit dialog.
@@ -78,6 +92,8 @@ export const useEditDialog = (
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const savingRef = useRef(false);
+  const unresolvedOpenAttemptRef = useRef(false);
 
   const handleEditClick = () => {
     const currentDeployment = deployments.find(d => d.name === selectedDeployment);
@@ -88,21 +104,33 @@ export const useEditDialog = (
       replicas: currentDeployment?.replicas ?? 1,
     });
     setEditDialogOpen(true);
+    unresolvedOpenAttemptRef.current = true;
+    safelyTrackScaling('opened');
   };
 
   const handleClose = () => {
+    if (savingRef.current) return;
     setEditDialogOpen(false);
     setSaveError(null);
+    if (unresolvedOpenAttemptRef.current) {
+      unresolvedOpenAttemptRef.current = false;
+      safelyTrackScaling('cancelled');
+    }
   };
 
   const handleSave = async () => {
     if (!namespace || !cluster || !selectedDeployment) {
       setSaveError('Cannot save: missing namespace, cluster, or deployment');
+      unresolvedOpenAttemptRef.current = false;
+      safelyTrackScalingError('ValidationError');
       return;
     }
 
+    savingRef.current = true;
+    unresolvedOpenAttemptRef.current = true;
     setSaving(true);
     setSaveError(null);
+    safelyTrackScaling('started');
 
     try {
       if (hpaInfo) {
@@ -143,6 +171,8 @@ export const useEditDialog = (
 
       setEditDialogOpen(false);
       onSaved();
+      unresolvedOpenAttemptRef.current = false;
+      safelyTrackScaling('succeeded');
     } catch (error) {
       console.error('Error saving scaling configuration:', error);
       setSaveError(
@@ -150,7 +180,10 @@ export const useEditDialog = (
           error instanceof Error ? error.message : 'Unknown error'
         }`
       );
+      unresolvedOpenAttemptRef.current = false;
+      safelyTrackScalingError('UnknownError');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };

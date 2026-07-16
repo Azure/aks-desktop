@@ -9,8 +9,15 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // --- Mocks (must be defined before imports that use them) ---
 const mockPush = vi.fn();
 const mockReplace = vi.fn();
+const mockTrackFeature = vi.hoisted(() => vi.fn());
+const mockTrackError = vi.hoisted(() => vi.fn());
 vi.mock('react-router-dom', () => ({
   useHistory: () => ({ push: mockPush, replace: mockReplace }),
+}));
+
+vi.mock('../../telemetry', () => ({
+  trackFeature: mockTrackFeature,
+  trackError: mockTrackError,
 }));
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => {
@@ -141,6 +148,8 @@ describe('ImportAKSProjects', () => {
     mockSetClusterSettings.mockReset();
     mockUseRegisteredClusters.mockReturnValue(new Set());
     mockUseNamespaceDiscovery.mockReturnValue(defaultDiscoveryReturn([]));
+    mockTrackFeature.mockReset();
+    mockTrackError.mockReset();
   });
 
   afterEach(() => {
@@ -161,6 +170,11 @@ describe('ImportAKSProjects', () => {
     mockUseNamespaceDiscovery.mockReturnValue(defaultDiscoveryReturn([ns1, ns2]));
 
     render(<ImportAKSProjects />);
+
+    expect(mockTrackFeature).toHaveBeenCalledWith({
+      feature: 'aksd.project-import',
+      status: 'opened',
+    });
 
     expect(screen.getByTestId('row-ns1')).toBeInTheDocument();
     expect(screen.getByTestId('row-ns2')).toBeInTheDocument();
@@ -363,6 +377,10 @@ describe('ImportAKSProjects', () => {
     fireEvent.click(screen.getByText('Cancel'));
 
     expect(mockPush).toHaveBeenCalledWith('/');
+    expect(mockTrackFeature).toHaveBeenCalledWith({
+      feature: 'aksd.project-import',
+      status: 'cancelled',
+    });
   });
 
   test('displays error when cluster registration fails', async () => {
@@ -502,6 +520,93 @@ describe('ImportAKSProjects', () => {
     });
 
     expect(screen.getByText(/Failed to convert namespace/)).toBeInTheDocument();
+    expect(mockTrackFeature).toHaveBeenCalledWith({
+      feature: 'aksd.project-import',
+      status: 'started',
+    });
+    expect(mockTrackFeature).toHaveBeenCalledWith({
+      feature: 'aksd.project-import',
+      status: 'completed',
+    });
+    expect(mockTrackError).toHaveBeenCalledWith({
+      area: 'project-import',
+      errorClass: 'UnknownError',
+      phase: 'completed',
+    });
+  });
+
+  test('all-success import emits exactly opened, started, and succeeded', async () => {
+    const ns = makeDiscoveredNamespace({
+      name: 'ns-ok',
+      clusterName: 'cluster-a',
+      isAksProject: true,
+      category: 'needs-import',
+    });
+    mockUseNamespaceDiscovery.mockReturnValue(defaultDiscoveryReturn([ns]));
+    mockUseRegisteredClusters.mockReturnValue(new Set(['cluster-a']));
+
+    render(<ImportAKSProjects />);
+    const checkbox = screen
+      .getByTestId('row-ns-ok')
+      .querySelector('input[type="checkbox"]') as HTMLInputElement;
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByText('Import Selected Projects'));
+
+    await waitFor(() => expect(screen.getByText('Go To Projects')).toBeInTheDocument());
+
+    expect(mockTrackFeature.mock.calls).toEqual([
+      [{ feature: 'aksd.project-import', status: 'opened' }],
+      [{ feature: 'aksd.project-import', status: 'started' }],
+      [{ feature: 'aksd.project-import', status: 'succeeded' }],
+    ]);
+    expect(mockTrackError).not.toHaveBeenCalled();
+  });
+
+  test('all-failure import emits exactly opened, started, and failed', async () => {
+    const ns = makeDiscoveredNamespace({
+      name: 'ns-fail',
+      clusterName: 'cluster-a',
+      resourceGroup: 'rg-a',
+      subscriptionId: 'sub-a',
+      isAksProject: false,
+      category: 'needs-conversion',
+    });
+    mockUseNamespaceDiscovery.mockReturnValue(defaultDiscoveryReturn([ns]));
+    mockRegisterAKSCluster.mockResolvedValue({ success: false, message: 'not available' });
+
+    render(<ImportAKSProjects />);
+    const checkbox = screen
+      .getByTestId('row-ns-fail')
+      .querySelector('input[type="checkbox"]') as HTMLInputElement;
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByText('Import Selected Projects'));
+    fireEvent.click(screen.getByText('Confirm & Import'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Failed to import any projects. See details below.')
+      ).toBeInTheDocument()
+    );
+
+    expect(mockTrackFeature.mock.calls).toEqual([
+      [{ feature: 'aksd.project-import', status: 'opened' }],
+      [{ feature: 'aksd.project-import', status: 'started' }],
+      [{ feature: 'aksd.project-import', status: 'failed' }],
+    ]);
+    expect(mockTrackError.mock.calls).toEqual([
+      [{ area: 'project-import', errorClass: 'UnknownError', phase: 'failed' }],
+    ]);
+  });
+
+  test('telemetry failures do not interrupt cancellation', () => {
+    mockTrackFeature.mockImplementation(() => {
+      throw new Error('telemetry unavailable');
+    });
+
+    render(<ImportAKSProjects />);
+
+    expect(() => fireEvent.click(screen.getByText('Cancel'))).not.toThrow();
+    expect(mockPush).toHaveBeenCalledWith('/');
   });
 
   test('Go To Projects button navigates via history.replace and reloads', async () => {
