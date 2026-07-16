@@ -144,9 +144,12 @@ const COMMANDS_WITH_CONSENT = {
     'kubectl top',
     'kubectl config',
   ],
-  headlamp_ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
-  ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
+  aiAssistant: ['gh auth', 'az account', 'az cognitiveservices'],
 };
+
+function isAIAssistantPlugin(pluginName: string): boolean {
+  return pluginName === '@headlamp-k8s/ai-assistant';
+}
 
 /**
  * Adds the runCmd consent for the plugin.
@@ -171,22 +174,13 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
     commands = COMMANDS_WITH_CONSENT.headlamp_minikube;
   }
 
-  const pluginIsHeadlampAiAssistant =
-    pluginInfo.name === 'headlamp_ai-assistant' ||
-    pluginInfo.name === 'headlamp_ai-assistantprerelease' ||
-    (process.env.NODE_ENV === 'development' && pluginInfo.name === 'ai-assistant');
-  if (pluginIsHeadlampAiAssistant) {
-    commands = COMMANDS_WITH_CONSENT.headlamp_ai_assistant;
+  if (isAIAssistantPlugin(pluginInfo.name)) {
+    commands = COMMANDS_WITH_CONSENT.aiAssistant;
   }
 
   const pluginIsAksDesktop = pluginInfo.name === 'aks-desktop';
   if (pluginIsAksDesktop) {
     commands = COMMANDS_WITH_CONSENT.aks_desktop;
-  }
-
-  const pluginIsAiAssistant = pluginInfo.name === 'ai-assistant';
-  if (pluginIsAiAssistant) {
-    commands = COMMANDS_WITH_CONSENT.ai_assistant;
   }
 
   for (const command of commands) {
@@ -215,14 +209,8 @@ export function removeRunCmdConsent(pluginName: string): void {
   ) {
     commands = COMMANDS_WITH_CONSENT.headlamp_minikube;
   }
-  if (pluginName === 'ai-assistant') {
-    commands = COMMANDS_WITH_CONSENT.ai_assistant;
-  }
-  if (
-    pluginName === '@headlamp-k8s/ai-assistant' ||
-    pluginName === '@headlamp-k8s/ai-assistantprerelease'
-  ) {
-    commands = COMMANDS_WITH_CONSENT.headlamp_ai_assistant;
+  if (isAIAssistantPlugin(pluginName)) {
+    commands = COMMANDS_WITH_CONSENT.aiAssistant;
   }
   for (const command of commands) {
     delete settings.confirmedCommands[command];

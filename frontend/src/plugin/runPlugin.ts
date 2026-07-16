@@ -235,7 +235,7 @@ export function identifyPackages(
     .replace(/static-plugins[\\/]/, 'static-plugins/')
     .replace(/user-plugins[\\/]/, 'user-plugins/');
 
-  // For artifacthub installed packages, the package name is the folder name.
+  // Map package names to the plugin directories they are allowed to run from.
   const pluginPaths: Record<string, string[]> = {
     '@headlamp-k8s/minikube': [
       'plugins/headlamp_minikube',
@@ -245,36 +245,17 @@ export function identifyPackages(
       'user-plugins/headlamp_minikubeprerelease',
       'static-plugins/headlamp_minikubeprerelease',
     ],
-    '@headlamp-k8s/ai-assistant': [
-      'plugins/headlamp_ai-assistant',
-      'user-plugins/headlamp_ai-assistant',
-      'static-plugins/headlamp_ai-assistant',
-      'plugins/headlamp_ai-assistantprerelease',
-      'user-plugins/headlamp_ai-assistantprerelease',
-      'static-plugins/headlamp_ai-assistantprerelease',
-    ],
     'aks-desktop': ['plugins/aks-desktop', 'static-plugins/aks-desktop'],
-    'ai-assistant': ['plugins/ai-assistant', 'static-plugins/ai-assistant'],
   };
 
   if (isDevelopmentMode) {
     pluginPaths['@headlamp-k8s/minikube'][pluginPaths['@headlamp-k8s/minikube'].length] =
       'plugins/minikube';
-    pluginPaths['@headlamp-k8s/ai-assistant'].push(
-      'plugins/ai-assistant',
-      'plugins/ai-assistantprerelease'
-    );
     pluginPaths['aks-desktop'][pluginPaths['aks-desktop'].length] = 'plugins/aks-desktop';
-    pluginPaths['ai-assistant'][pluginPaths['ai-assistant'].length] = 'plugins/ai-assistant';
   }
   const pluginPackageNames: Record<string, string[]> = {
     '@headlamp-k8s/minikube': ['@headlamp-k8s/minikube', '@headlamp-k8s/minikubeprerelease'],
-    '@headlamp-k8s/ai-assistant': [
-      '@headlamp-k8s/ai-assistant',
-      '@headlamp-k8s/ai-assistantprerelease',
-    ],
     'aks-desktop': ['aks-desktop'],
-    'ai-assistant': ['ai-assistant'],
   };
   const isPackage: Record<string, boolean> = {};
   for (const key in pluginPaths) {
@@ -294,5 +275,6 @@ export function identifyPackages(
     }
     isPackage[key] = foundPath && foundName;
   }
+  isPackage['@headlamp-k8s/ai-assistant'] = pluginName === '@headlamp-k8s/ai-assistant';
   return isPackage;
 }
