@@ -6,11 +6,15 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getClusterSettings: vi.fn(),
   getClusters: vi.fn(),
+  getConnectedClusters: vi.fn(),
   getSubscriptions: vi.fn(),
   setClusterSettings: vi.fn(),
 }));
 
-vi.mock('./az-clusters', () => ({ getClusters: mocks.getClusters }));
+vi.mock('./az-clusters', () => ({
+  getClusters: mocks.getClusters,
+  getConnectedClusters: mocks.getConnectedClusters,
+}));
 vi.mock('./az-subscriptions', () => ({ getSubscriptions: mocks.getSubscriptions }));
 vi.mock('../shared/clusterSettings', () => ({
   getClusterSettings: mocks.getClusterSettings,
@@ -31,6 +35,7 @@ describe('Azure AKS utilities', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getClusterSettings.mockReturnValue({ allowedNamespaces: ['existing'] });
+    mocks.getConnectedClusters.mockResolvedValue([]);
     (window as any).desktopApi = {
       registerAKSCluster: desktopRegisterAKSCluster,
     };
@@ -147,6 +152,8 @@ describe('Azure AKS utilities', () => {
           provisioningState: 'Succeeded',
           fqdn: '',
           isAzureRBACEnabled: true,
+          clusterType: 'aks',
+          connectivityStatus: undefined,
         },
         {
           name: 'cluster-2',
@@ -156,6 +163,8 @@ describe('Azure AKS utilities', () => {
           provisioningState: 'Updating',
           fqdn: '',
           isAzureRBACEnabled: false,
+          clusterType: 'aks',
+          connectivityStatus: undefined,
         },
         {
           name: 'cluster-3',
@@ -165,6 +174,8 @@ describe('Azure AKS utilities', () => {
           provisioningState: 'Succeeded',
           fqdn: '',
           isAzureRBACEnabled: false,
+          clusterType: 'aks',
+          connectivityStatus: undefined,
         },
         {
           name: 'cluster-4',
@@ -174,8 +185,58 @@ describe('Azure AKS utilities', () => {
           provisioningState: 'Succeeded',
           fqdn: '',
           isAzureRBACEnabled: false,
+          clusterType: 'aks',
+          connectivityStatus: undefined,
         },
       ],
+    });
+  });
+
+  test('merges managed and AKS Hybrid & Edge clusters', async () => {
+    mocks.getClusters.mockResolvedValue([
+      {
+        name: 'managed',
+        resourceGroup: 'managed-rg',
+        location: 'eastus',
+        version: '1.32',
+        status: 'Succeeded',
+      },
+    ]);
+    mocks.getConnectedClusters.mockResolvedValue([
+      {
+        name: 'hybrid-edge',
+        resourceGroup: 'arc-rg',
+        location: 'westus',
+        version: '1.31',
+        status: 'Connected',
+        clusterType: 'aksarc',
+        connectivityStatus: 'Connected',
+      },
+    ]);
+
+    const result = await getAKSClusters('sub-1');
+
+    expect(result.clusters).toEqual([
+      expect.objectContaining({ name: 'managed', clusterType: 'aks' }),
+      expect.objectContaining({
+        name: 'hybrid-edge',
+        clusterType: 'aksarc',
+        connectivityStatus: 'Connected',
+      }),
+    ]);
+  });
+
+  test('keeps managed clusters when Hybrid & Edge discovery fails', async () => {
+    mocks.getClusters.mockResolvedValue([
+      { name: 'managed', resourceGroup: 'rg', location: 'eastus', status: 'Succeeded' },
+    ]);
+    mocks.getConnectedClusters.mockRejectedValue(new Error('connectedk8s failed'));
+
+    const result = await getAKSClusters('sub-1');
+
+    expect(result).toMatchObject({
+      success: true,
+      clusters: [{ name: 'managed', clusterType: 'aks' }],
     });
   });
 

@@ -1,5 +1,5 @@
 import { getClusterSettings, setClusterSettings } from '../shared/clusterSettings';
-import { getClusters } from './az-clusters';
+import { getClusters, getConnectedClusters } from './az-clusters';
 import { getSubscriptions as getAzSubscriptions } from './az-subscriptions';
 
 export interface Subscription {
@@ -11,6 +11,9 @@ export interface Subscription {
   isDefault: boolean;
 }
 
+/** Discriminator distinguishing managed AKS clusters from Arc-connected AKS Hybrid & Edge clusters. */
+export type ClusterType = 'aks' | 'aksarc';
+
 export interface AKSCluster {
   name: string;
   resourceGroup: string;
@@ -19,6 +22,13 @@ export interface AKSCluster {
   provisioningState: string;
   fqdn: string;
   isAzureRBACEnabled: boolean;
+  /** `'aks'` for managed clusters, `'aksarc'` for Arc-connected (AKS Hybrid & Edge) clusters. */
+  clusterType: ClusterType;
+  /**
+   * For AKS Hybrid & Edge (`aksarc`) clusters: the Azure Arc agent heartbeat status
+   * (`'Connected'` when online). Undefined for managed AKS clusters.
+   */
+  connectivityStatus?: string;
 }
 
 /** Tail promise used to serialize native kubeconfig updates. */
@@ -169,7 +179,23 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
   clusters?: AKSCluster[];
 }> {
   try {
-    const clusters = await getClusters(subscriptionId);
+    const aksClusters = await getClusters(subscriptionId);
+
+    // AKS Hybrid & Edge (Arc-connected) discovery is additive and best-effort: a
+    // failure here must never prevent the managed AKS clusters from listing.
+    // getConnectedClusters already swallows its own errors, but we guard again
+    // so the AKS path is resilient regardless of that contract.
+    let arcClusters: any[] = [];
+    try {
+      arcClusters = await getConnectedClusters(subscriptionId);
+    } catch (arcError) {
+      console.warn(
+        'AKS Hybrid & Edge cluster discovery failed; continuing with AKS clusters only:',
+        arcError
+      );
+    }
+
+    const clusters = [...aksClusters, ...arcClusters];
 
     return {
       success: true,
@@ -178,10 +204,12 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
         name: cluster.name,
         resourceGroup: cluster.resourceGroup,
         location: cluster.location,
-        kubernetesVersion: cluster.version,
+        kubernetesVersion: cluster.version || '',
         provisioningState: cluster.status,
         fqdn: '', // Not returned by getClusters
         isAzureRBACEnabled: cluster.aadProfile?.enableAzureRbac === true,
+        clusterType: (cluster.clusterType as ClusterType) || 'aks',
+        connectivityStatus: cluster.connectivityStatus,
       })),
     };
   } catch (error) {
