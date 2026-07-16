@@ -8,6 +8,7 @@ import {
   Autocomplete,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -39,6 +40,15 @@ export interface AKSCluster {
   location: string;
   kubernetesVersion: string;
   provisioningState: string;
+  /** `'aks'` for managed clusters, `'aksarc'` for Arc-connected (AKS Hybrid & Edge) clusters. */
+  clusterType?: 'aks' | 'aksarc';
+  /** For AKS Hybrid & Edge clusters: Arc agent status (`'Connected'` when online). */
+  connectivityStatus?: string;
+}
+
+/** AKS Hybrid & Edge cluster is online only when its Arc agent reports 'Connected'. */
+export function isAksHybridEdgeOnline(cluster: AKSCluster): boolean {
+  return cluster.clusterType !== 'aksarc' || cluster.connectivityStatus === 'Connected';
 }
 
 export interface RegisterAKSClusterDialogPureProps {
@@ -111,6 +121,7 @@ export default function RegisterAKSClusterDialogPure({
   onConfigured,
 }: RegisterAKSClusterDialogPureProps) {
   const { t } = useTranslation();
+  const isAksHybridEdgeSelected = selectedCluster?.clusterType === 'aksarc';
 
   return (
     <Dialog
@@ -320,6 +331,7 @@ export default function RegisterAKSClusterDialogPure({
                   filterOptions={x => x}
                   getOptionKey={option => `${option.resourceGroup}/${option.name}`}
                   getOptionLabel={option => option.name}
+                  getOptionDisabled={option => !isAksHybridEdgeOnline(option)}
                   isOptionEqualToValue={(option, value) =>
                     option.name === value.name && option.resourceGroup === value.resourceGroup
                   }
@@ -330,17 +342,40 @@ export default function RegisterAKSClusterDialogPure({
                       placeholder={t('Select an AKS cluster')}
                     />
                   )}
-                  renderOption={(props, option) => (
-                    <li {...props} key={`${option.resourceGroup}/${option.name}`}>
-                      <Box width="100%">
-                        <Typography variant="body1">{option.name}</Typography>
-                        <Typography variant="caption" color="textSecondary">
-                          {option.location} • v{option.kubernetesVersion} •{' '}
-                          {option.provisioningState}
-                        </Typography>
-                      </Box>
-                    </li>
-                  )}
+                  renderOption={(props, option) => {
+                    const offline = !isAksHybridEdgeOnline(option);
+                    return (
+                      <li {...props} key={`${option.resourceGroup}/${option.name}`}>
+                        <Box width="100%">
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Typography variant="body1">{option.name}</Typography>
+                            {option.clusterType === 'aksarc' && (
+                              <Chip
+                                label={t('AKS Hybrid & Edge')}
+                                size="small"
+                                color="info"
+                                variant="outlined"
+                                icon={<Icon icon="mdi:server" aria-hidden="true" />}
+                              />
+                            )}
+                            {offline && (
+                              <Chip
+                                label={t('Offline')}
+                                size="small"
+                                color="default"
+                                variant="outlined"
+                                icon={<Icon icon="mdi:cloud-off-outline" aria-hidden="true" />}
+                              />
+                            )}
+                          </Box>
+                          <Typography variant="caption" color="textSecondary">
+                            {option.location} • v{option.kubernetesVersion} •{' '}
+                            {offline ? option.connectivityStatus : option.provisioningState}
+                          </Typography>
+                        </Box>
+                      </li>
+                    );
+                  }}
                 />
               )}
 
@@ -367,6 +402,11 @@ export default function RegisterAKSClusterDialogPure({
                   <Typography variant="body2">
                     <strong>{t('Kubernetes Version')}:</strong> {selectedCluster.kubernetesVersion}
                   </Typography>
+                  {isAksHybridEdgeSelected && (
+                    <Typography variant="body2">
+                      <strong>{t('Type')}:</strong> {t('AKS Hybrid & Edge (Arc-connected)')}
+                    </Typography>
+                  )}
                 </Box>
               )}
             </>

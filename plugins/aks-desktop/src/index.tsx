@@ -7,6 +7,9 @@ import {
   registerAppBarAction,
   registerAppLogo,
   registerAppTheme,
+  registerClusterProviderDialog,
+  registerClusterProviderMenuItem,
+  registerClusterProviderPreOpen,
   registerCustomCreateProject,
   registerPluginSettings,
   registerProjectDeleteButton,
@@ -21,6 +24,11 @@ import React from 'react';
 import { Redirect } from 'react-router-dom';
 import AccessTab from './components/AccessTab/AccessTab';
 import RegisterAKSClusterPage from './components/AKS/RegisterAKSClusterPage';
+import { aksHybridEdgePreOpenHook } from './components/AksHybridEdge/aksHybridEdgePreOpen';
+import {
+  AksHybridEdgeProxyMenuItem,
+  AksHybridEdgeProxyStartDialog,
+} from './components/AksHybridEdge/AksHybridEdgeProxyControls';
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
 import ClusterCapabilityCard from './components/ClusterCapabilityCard/ClusterCapabilityCard';
@@ -340,6 +348,21 @@ if (Headlamp.isRunningAsApp()) {
     useClusterURL: false,
     noAuthRequired: true,
   });
+
+  // AKS Hybrid & Edge (Arc-connected) cluster list integration.
+  // - AKS Hybrid & Edge clusters are differentiated on the Home list by a distinct
+  //   name badge (server icon + Azure-blue accent) set via the shared cluster
+  //   appearance settings at registration time — no custom status column.
+  // - A menu item starts/stops the local `az connectedk8s proxy`. The proxy is
+  //   not persisted across app restarts, so this is how connectivity is
+  //   re-established after a reload.
+  // - A dialog drives the start flow and verifies the cluster becomes reachable.
+  // - A pre-open hook auto-starts and verifies the proxy when the user opens an
+  //   AKS Hybrid & Edge cluster, so connecting is seamless (no manual menu step);
+  //   the menu item/dialog remain as an explicit fallback.
+  registerClusterProviderMenuItem(AksHybridEdgeProxyMenuItem);
+  registerClusterProviderDialog(AksHybridEdgeProxyStartDialog);
+  registerClusterProviderPreOpen(aksHybridEdgePreOpenHook);
 
   // Project details tabs wrap in TelemetryErrorBoundary, which reports
   // through the telemetry chokepoint. Telemetry is only booted in the

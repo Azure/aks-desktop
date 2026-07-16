@@ -9,9 +9,12 @@ import {
 import type { ExtensionStatus } from '../types';
 
 /**
- * Custom hook for managing AKS Preview Extension status
+ * Custom hook for managing an Azure CLI extension's status.
+ *
+ * @param extensionName - The `az` extension to check/install. Defaults to
+ *   `'aks-preview'`; pass `'connectedk8s'` for the AKS Hybrid & Edge proxy path.
  */
-export const useExtensionCheck = () => {
+export const useExtensionCheck = (extensionName: string = 'aks-preview') => {
   const [status, setStatus] = useState<ExtensionStatus>({
     installed: null,
     installing: false,
@@ -21,7 +24,7 @@ export const useExtensionCheck = () => {
 
   const checkExtension = useCallback(async () => {
     try {
-      const result = await isExtensionInstalled('aks-preview');
+      const result = await isExtensionInstalled(extensionName);
       setStatus(prev => ({
         ...prev,
         installed: result.installed,
@@ -35,12 +38,12 @@ export const useExtensionCheck = () => {
         error: 'Failed to check extension status',
       }));
     }
-  }, []);
+  }, [extensionName]);
 
   const installExtension = useCallback(async () => {
     try {
       setStatus(prev => ({ ...prev, installing: true, error: null }));
-      const result = await installAzExtension('aks-preview');
+      const result = await installAzExtension(extensionName);
 
       if (result.success) {
         setStatus(prev => ({
@@ -69,7 +72,7 @@ export const useExtensionCheck = () => {
     } finally {
       setStatus(prev => ({ ...prev, installing: false }));
     }
-  }, []);
+  }, [extensionName]);
 
   const clearError = useCallback(() => {
     setStatus(prev => ({ ...prev, error: null }));
