@@ -17,7 +17,14 @@
 import { EventEmitter } from 'events';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from 'vitest';
-import { checkPermissionSecret, handleRunCommand, validateCommandData } from './runCmd';
+import {
+  addRunCmdConsent,
+  checkPermissionSecret,
+  handleRunCommand,
+  removeRunCmdConsent,
+  validateCommandData,
+} from './runCmd';
+import { loadSettings, saveSettings } from './settings';
 
 vi.mock('./plugin-management', () => ({
   defaultPluginsDir: vi.fn(() => '/plugins/default'),
@@ -35,6 +42,47 @@ vi.mock('./settings', () => ({
 vi.mock('./i18next.config', () => ({
   default: { t: (s: string) => s },
 }));
+
+describe('AI Assistant runCmd consent', () => {
+  const aiAssistantCommands = ['gh auth', 'az account', 'az cognitiveservices'];
+  const defaultSettings = {
+    confirmedCommands: { 'minikube start': true, gh: true, az: true },
+  };
+
+  beforeEach(() => {
+    vi.mocked(saveSettings).mockClear();
+  });
+
+  afterEach(() => {
+    vi.mocked(loadSettings).mockReturnValue(defaultSettings);
+  });
+
+  it('adds consent for the canonical package name', () => {
+    const settings = { confirmedCommands: {} as Record<string, boolean> };
+    vi.mocked(loadSettings).mockReturnValue(settings);
+
+    addRunCmdConsent({ name: '@headlamp-k8s/ai-assistant' });
+
+    expect(settings.confirmedCommands).toEqual(
+      Object.fromEntries(aiAssistantCommands.map(command => [command, true]))
+    );
+    expect(saveSettings).toHaveBeenCalledOnce();
+  });
+
+  it('removes consent using the package name', () => {
+    const settings = {
+      confirmedCommands: Object.fromEntries(
+        aiAssistantCommands.map(command => [command, true])
+      ) as Record<string, boolean>,
+    };
+    vi.mocked(loadSettings).mockReturnValue(settings);
+
+    removeRunCmdConsent('@headlamp-k8s/ai-assistant');
+
+    expect(settings.confirmedCommands).toEqual({});
+    expect(saveSettings).toHaveBeenCalledOnce();
+  });
+});
 
 describe('checkPermissionSecret', () => {
   const baseCommandData = {
