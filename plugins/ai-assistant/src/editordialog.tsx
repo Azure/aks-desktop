@@ -4,9 +4,9 @@ import { Dialog } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { getCluster } from '@kinvolk/headlamp-plugin/lib/Utils';
 import Editor from '@monaco-editor/react';
 import { Box, Button, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material';
+import jsYaml from 'js-yaml';
 import { useSnackbar } from 'notistack';
 import React, { useEffect, useState } from 'react';
-import YAML from 'yaml';
 
 type EditorDialogProps = {
   open: boolean;
@@ -52,13 +52,14 @@ export default function EditorDialog({
     try {
       const cluster = getCluster();
       if (!cluster) {
-        throw new Error('No cluster selected');
+        throw new Error(t('No cluster selected'));
       }
 
       // Use the current content from state, which contains user edits
-      const resource = YAML.parse(content);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const resource = jsYaml.load(content) as any;
       if (!resource) {
-        throw new Error('Invalid YAML content');
+        throw new Error(t('Invalid YAML content'));
       }
 
       // Ensure we have the resourceType from the YAML content if not already set
@@ -104,9 +105,14 @@ export default function EditorDialog({
       );
     } catch (error) {
       console.error('Error applying resource:', error);
-      enqueueSnackbar(t('Error applying resource: {{message}}', { message: error.message }), {
-        variant: 'error',
-      });
+      enqueueSnackbar(
+        t('Error applying resource: {{message}}', {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+        {
+          variant: 'error',
+        }
+      );
     }
   };
 

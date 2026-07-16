@@ -1,138 +1,45 @@
-import { Icon } from '@iconify/react';
+/*
+ * Copyright 2025 The Kubernetes Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Initialize the bundled react-i18next instance so that i18n interpolation
+// works in ai-ui components before plugin-specific translations are loaded.
+// The vite bundle ships its own react-i18next (not externalized) which is
+// separate from Headlamp's I18nextProvider; without init, t() returns keys
+// verbatim (e.g. "Configure {{provider}}") with no interpolation applied.
+import { initAiUiI18n } from '@headlamp-k8s/ai-ui/i18n';
 import {
   registerAppBarAction,
-  registerHeadlampEventCallback,
   registerPluginSettings,
+  registerResourceTableColumnsProcessor,
   registerUIPanel,
-  useTranslation,
 } from '@kinvolk/headlamp-plugin/lib';
-// @todo: this HeadlampEventType import is weird. Maybe fix in headlamp to be better.
-import { DefaultHeadlampEvents as HeadlampEventType } from '@kinvolk/headlamp-plugin/lib/plugin/registry';
-import {
-  Box,
-  Button,
-  Divider,
-  FormControlLabel,
-  IconButton,
-  Link as MuiLink,
-  Paper,
-  Popper,
-  Switch,
-  ToggleButton,
-  Tooltip,
-  Typography,
-  useTheme,
-} from '@mui/material';
+import { ActionButton, ResourceTableColumn } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
+import Event from '@kinvolk/headlamp-plugin/lib/K8s/event';
 import React from 'react';
-import { useHistory } from 'react-router-dom';
-import {
-  type AksAgentPodInfo,
-  checkAksAgentInstalled,
-  getClustersFromHeadlampConfig,
-} from './agent/aksAgentManager';
-import { ModelSelector } from './components';
-import { getDefaultConfig } from './config/modelConfig';
-import { isTestModeCheck } from './helper';
-import AIPrompt from './modal';
-import {
-  AKS_AGENT_INSTALL_DOC_URL,
-  getSettingsURL,
-  PLUGIN_NAME,
-  pluginStore,
-  useGlobalState,
-  usePluginConfig,
-} from './utils';
-import {
-  getActiveConfig,
-  getSavedConfigurations,
-  SavedConfigurations,
-} from './utils/ProviderConfigManager';
-import { getAllAvailableTools, isToolEnabled, toggleTool } from './utils/ToolConfigManager';
 
-// Memoized UI Panel component to prevent unnecessary re-renders
-const AIPanelComponent = React.memo(() => {
-  const pluginState = useGlobalState();
-  const conf = usePluginConfig();
-  const [width, setWidth] = React.useState('35vw');
-  const [isResizing, setIsResizing] = React.useState(false);
-
-  const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-  }, []);
-
-  React.useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-
-      // Calculate width based on mouse position
-      const newWidth = window.innerWidth - e.clientX;
-      // Set minimum and maximum width constraints
-      const constrainedWidth = Math.max(300, Math.min(newWidth, window.innerWidth * 0.8));
-      setWidth(`${constrainedWidth}px`);
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isResizing]);
-
-  // Don't render anything if preview is disabled or panel is closed
-  if (!conf?.previewEnabled || !pluginState.isUIPanelOpen) {
-    return null;
-  }
-  return (
-    <Box
-      flexShrink={0}
-      sx={{
-        height: '100%',
-        width: width,
-        borderLeft: '2px solid',
-        position: 'relative',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          top: 0,
-          left: '-8px', // moved left to enlarge interactive area
-          bottom: 0,
-          width: '16px', // increased width for better accessibility
-          cursor: 'ew-resize',
-          zIndex: 1,
-        },
-      }}
-    >
-      <Box
-        onMouseDown={handleMouseDown}
-        sx={{
-          position: 'absolute',
-          top: 0,
-          left: '-8px', // adjust position to match pseudo-element
-          bottom: 0,
-          width: '16px', // increased interactive width
-          cursor: 'ew-resize',
-          zIndex: 10,
-        }}
-      />
-      <AIPrompt
-        openPopup={pluginState.isUIPanelOpen}
-        setOpenPopup={pluginState.setIsUIPanelOpen}
-        pluginSettings={conf}
-      />
-    </Box>
-  );
-});
-
-AIPanelComponent.displayName = 'AIPanelComponent';
+void initAiUiI18n();
+// Register provider icons for offline use
+import '@headlamp-k8s/ai-ui/icons/iconBundles';
+import { proactiveDiagnosisManager } from '@headlamp-k8s/ai-ui/diagnosis/ProactiveDiagnosisManager';
+import HeadlampAIPrompt from './components/appbar/HeadlampAIPrompt';
+import HeadlampEventHandler from './components/appbar/HeadlampEventHandler';
+import AIPanelComponent from './components/panel/AIPanelComponent';
+import Settings from './components/settings/Settings';
+import type { RawK8sEvent } from './kubernetes/EventFetcher';
+import { PLUGIN_NAME, useGlobalState, usePluginConfig } from './pluginState';
 
 // Register UI Panel component that uses the shared state to show/hide
 registerUIPanel({
@@ -141,466 +48,76 @@ registerUIPanel({
   component: () => <AIPanelComponent />,
 });
 
-function HeadlampAIPrompt() {
-  const pluginState = useGlobalState();
-  const savedConfigs = usePluginConfig();
-  const { t } = useTranslation();
-  const history = useHistory();
-  const [popoverAnchor, setPopoverAnchor] = React.useState<HTMLElement | null>(null);
-  const [showPopover, setShowPopover] = React.useState(false);
-  const theme = useTheme();
-
-  const previewEnabled = savedConfigs?.previewEnabled ?? false;
-  const hasShownPopover = savedConfigs?.configPopoverShown || false;
-
-  const savedConfigData = React.useMemo(() => {
-    return getSavedConfigurations(savedConfigs);
-  }, [savedConfigs]);
-
-  const hasAnyValidConfig = savedConfigData.providers && savedConfigData.providers.length > 0;
-
-  // Run AKS cluster check once on mount so results are ready before the panel opens
-  React.useEffect(() => {
-    if (pluginState.hasCheckedForAgents) return;
-    getClustersFromHeadlampConfig().then(async clusters => {
-      pluginState.setAksClusterServerMap(Object.fromEntries(clusters.map(c => [c.name, c.server])));
-
-      // For each AKS cluster, check if the agent is installed and record its pod info
-      const podInfoMap: Record<string, AksAgentPodInfo> = {};
-      const clustersWithAgent: string[] = [];
-
-      await Promise.all(
-        clusters.map(async c => {
-          const agentPodInfo = await checkAksAgentInstalled(c.name);
-          if (agentPodInfo) {
-            podInfoMap[c.name] = agentPodInfo;
-            clustersWithAgent.push(c.name);
-          }
-        })
-      );
-
-      pluginState.setAksAgentClusters(
-        clustersWithAgent.length > 0 ? clustersWithAgent : clusters.map(c => c.name)
-      );
-      pluginState.setAksAgentPodInfoMap(podInfoMap);
-      pluginState.setHasCheckedForAgents(true);
-    });
-  }, []);
-
-  const hasAksAgents = pluginState.aksAgentClusters.length > 0;
-
-  // Reset popover shown state when configurations change from none to some
-  React.useEffect(() => {
-    if (hasAnyValidConfig && hasShownPopover) {
-      // User now has configurations, reset the popover shown state
-      // so it can show again if they remove all configurations later
-      const currentConf = pluginStore.get() || {};
-      pluginStore.update({
-        ...currentConf,
-        configPopoverShown: false,
-      });
-    }
-  }, [hasAnyValidConfig, hasShownPopover]);
-
-  // Show popover only if no valid config AND no AKS agents available
-  React.useEffect(() => {
-    if (!hasAnyValidConfig && !hasAksAgents && !hasShownPopover && !pluginState.isUIPanelOpen) {
-      // Show popover after a short delay to ensure component is mounted
-      const timer = setTimeout(() => {
-        if (!!popoverAnchor) {
-          setShowPopover(true);
-        }
-      }, 500);
-      return () => clearTimeout(timer);
-    } else {
-      // Close popover if conditions are not met
-      setShowPopover(false);
-    }
-  }, [hasAnyValidConfig, hasAksAgents, popoverAnchor, hasShownPopover, pluginState.isUIPanelOpen]);
-
-  const handleClosePopover = () => {
-    setShowPopover(false);
-    // Save the popover shown state to plugin settings
-    const currentConf = pluginStore.get() || {};
-    pluginStore.update({
-      ...currentConf,
-      configPopoverShown: true,
-    });
-  };
-
-  const handleConfigureClick = () => {
-    handleClosePopover();
-    // Navigate to settings page
-    history.push(getSettingsURL());
-  };
-
-  // Don't render the app bar button if preview is not enabled
-  if (!previewEnabled) {
-    return null;
-  }
-
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-      <Tooltip title={t('AI Assistant')}>
-        <ToggleButton
-          ref={el => {
-            setPopoverAnchor(el);
-          }}
-          aria-label={t('AI Assistant')}
-          onClick={() => {
-            // Toggle the UI panel state
-            pluginState.setIsUIPanelOpen(!pluginState.isUIPanelOpen);
-          }}
-          selected={pluginState.isUIPanelOpen}
-          size="small"
-          value="ai-assistant"
-        >
-          <Icon icon="ai-assistant:logo" width="24px" color="white" />
-        </ToggleButton>
-      </Tooltip>
-
-      <Popper
-        open={showPopover}
-        anchorEl={popoverAnchor}
-        placement="bottom"
-        modifiers={[
-          {
-            name: 'offset',
-            options: {
-              offset: [0, 8],
-            },
-          },
-        ]}
-        sx={{
-          zIndex: theme.zIndex.modal,
-        }}
-      >
-        <Paper
-          elevation={8}
-          sx={{
-            p: 2,
-            maxWidth: 300,
-            border: '1px solid',
-            borderColor: 'divider',
-          }}
-        >
-          <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'flex-start',
-              mb: 1,
-            }}
-          >
-            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
-              {t('Configure AI Assistant')}
-            </Typography>
-            <IconButton size="small" onClick={handleClosePopover} sx={{ ml: 1, mt: -0.5 }}>
-              <Icon icon="mdi:close" />
-            </IconButton>
-          </Box>
-          <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
-            {t(
-              'To use the AI Assistant, you need to configure at least one AI model provider in the settings.'
-            )}
-          </Typography>
-          <Button variant="contained" size="small" onClick={handleConfigureClick} fullWidth>
-            {t('Open Settings')}
-          </Button>
-        </Paper>
-      </Popper>
-    </Box>
-  );
-}
-
 registerAppBarAction(HeadlampAIPrompt);
 
-registerAppBarAction(() => {
-  const _pluginState = useGlobalState();
-  const _conf = usePluginConfig();
+registerAppBarAction(HeadlampEventHandler);
 
-  // Only register event callbacks when the preview is enabled
-  if (!_conf?.previewEnabled) {
-    return null;
-  }
+registerPluginSettings(PLUGIN_NAME, Settings);
 
-  // @todo: these "any" casts are all suspicious and also bugs (at least in the types maybe more).
-  // @todo: the data being used is not in the event type definitions. Check the definitions and this code.
-  registerHeadlampEventCallback(event => {
-    // @todo: headlamp.home-page-loaded does not exist in headlampEventSlice or anywhere in headlamp.
-    if (event.type === 'headlamp.home-page-loaded') {
-      _pluginState.setEvent({
-        ..._pluginState.event,
-        type: 'headlamp.home-page-loaded',
-        clusters: (event.data as any).clusters,
-        errors: (event.data as any).errors,
+function AIDiagnosisButton({ event }: { event: Event }) {
+  const pluginState = useGlobalState();
+  const pluginConfig = usePluginConfig();
+
+  if (pluginConfig?.proactiveDiagnosisEnabled !== true) return null;
+
+  const handleDiagnose = () => {
+    const data = (event.jsonData || {}) as Partial<RawK8sEvent>;
+    const eventUid = data?.metadata?.uid || `${data?.metadata?.name}-${data?.metadata?.namespace}`;
+    const involvedObject = data?.involvedObject ?? { kind: '', name: '', namespace: '' };
+
+    const eventDigest = {
+      uid: eventUid,
+      name: data?.metadata?.name || 'unknown',
+      type: data?.type || 'Warning',
+      reason: data?.reason || '',
+      message: data?.message || '',
+      objectKind: involvedObject?.kind || '',
+      objectName: involvedObject?.name || '',
+      objectNamespace: involvedObject?.namespace || '',
+      lastTimestamp: data?.lastTimestamp || data?.metadata?.creationTimestamp || '',
+      rawEvent: data,
+    };
+
+    if (!proactiveDiagnosisManager.hasDiagnosis(eventUid)) {
+      proactiveDiagnosisManager.diagnoseSingleEvent(eventDigest).catch(err => {
+        console.error('[AIDiagnosisButton] Failed to diagnose event:', err);
       });
     }
-    if (event.type === HeadlampEventType.OBJECT_EVENTS) {
-      // @todo: some of these fields need fixing
-      _pluginState.setEvent({
-        ..._pluginState.event,
-        type: HeadlampEventType.OBJECT_EVENTS,
-        objectEvent: (_pluginState?.event as any)?.objectEvent,
-        resources: (event.data as any).resources,
-        resourceKind: (event.data as any).resourceKind,
-      });
-    }
-    if (event.type === HeadlampEventType.DETAILS_VIEW) {
-      // @todo: some of these fields need fixing
-      _pluginState.setEvent({
-        type: HeadlampEventType.DETAILS_VIEW,
-        title: (event.data as any).title,
-        resource: (event.data as any).resource,
-        objectEvent: (_pluginState?.event as any)?.objectEvent,
-        resources: (event.data as any).resources,
-        resourceKind: (event.data as any).resourceKind,
-      });
-    }
-    if (event.type === HeadlampEventType.LIST_VIEW) {
-      // @todo: some of these fields need fixing
-      _pluginState.setEvent({
-        type: HeadlampEventType.LIST_VIEW,
-        title: (event.data as any).title,
-        resources: (event.data as any).resources,
-        resourceKind: (event.data as any).resourceKind,
-        resource: (event.data as any).resource,
-        objectEvent: (_pluginState?.event as any)?.objectEvent,
-      });
-    }
-    return null;
-  });
-  return null;
-});
 
-/**
- * A component for displaying and editing plugin settings, specifically for customizing error messages.
- * It renders a text input field that allows users to specify a custom error message.
- * This message is intended to be displayed when a specific error condition occurs (e.g., pod count cannot be retrieved).
- */
-function Settings() {
-  const savedConfigs = usePluginConfig();
-  const { t } = useTranslation();
-
-  // Track the active configuration in a single state object
-  const [activeConfiguration, setActiveConfiguration] = React.useState<{
-    providerId: string;
-    config: Record<string, any>;
-    displayName: string;
-  }>(() => {
-    // Initialize with active config or default values
-    const activeConfig = getActiveConfig(savedConfigs);
-    if (activeConfig) {
-      return {
-        providerId: activeConfig.providerId,
-        config: { ...activeConfig.config },
-        displayName: activeConfig.displayName || '',
-      };
-    }
-    return { providerId: 'openai', config: getDefaultConfig('openai'), displayName: '' };
-  });
-
-  // Handle all changes from the ModelSelector in one place
-  const handleModelSelectorChange = (changes: {
-    providerId: string;
-    config: Record<string, any>;
-    displayName: string;
-    savedConfigs?: SavedConfigurations;
-  }) => {
-    // Update active configuration
-    setActiveConfiguration({
-      providerId: changes.providerId,
-      config: changes.config,
-      displayName: changes.displayName,
-    });
-
-    // If savedConfigs were changed, update the store
-    if (changes.savedConfigs) {
-      pluginStore.update(changes.savedConfigs);
-    }
-  };
-
-  // Handle test mode toggle
-  const handleTestModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const isTestMode = event.target.checked;
-    const currentConf = pluginStore.get() || {};
-    pluginStore.update({
-      ...currentConf,
-      testMode: isTestMode,
-    });
-  };
-
-  const handleResetPopover = () => {
-    const currentConf = pluginStore.get() || {};
-    pluginStore.update({
-      ...currentConf,
-      configPopoverShown: false,
-    });
-  };
-
-  const isTestMode = isTestModeCheck();
-  const hasShownConfigPopover = savedConfigs?.configPopoverShown || false;
-  const previewEnabled = savedConfigs?.previewEnabled ?? false;
-
-  const toolsList = getAllAvailableTools();
-  const pluginSettings = savedConfigs;
-
-  const handleToolToggle = (toolId: string) => {
-    const updatedSettings = toggleTool(pluginSettings, toolId);
-    pluginStore.update(updatedSettings);
-  };
-
-  const handlePreviewToggle = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const currentConf = pluginStore.get() || {};
-    pluginStore.update({
-      ...currentConf,
-      previewEnabled: event.target.checked,
-    });
+    proactiveDiagnosisManager.setScrollToEventUid(eventUid);
+    pluginState.setIsUIPanelOpen(true);
   };
 
   return (
-    <Box width={'80%'}>
-      <Box sx={{ mb: 3, ml: 2 }}>
-        <FormControlLabel
-          control={
-            <Switch checked={previewEnabled} onChange={handlePreviewToggle} color="primary" />
-          }
-          label={
-            <Box>
-              <Typography variant="body1">{t('Enable AI Assistant (Preview)')}</Typography>
-              <Typography variant="caption" color="text.secondary">
-                {t(
-                  'Enable the AI Assistant preview feature. This is experimental and may incur costs from the AI provider.'
-                )}
-              </Typography>
-            </Box>
-          }
-        />
-      </Box>
-
-      {!previewEnabled && (
-        <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
-          {t('Enable the preview above to configure the AI Assistant.')}
-        </Typography>
-      )}
-
-      {previewEnabled && (
-        <>
-          <Typography variant="body1" sx={{ mb: 3 }}>
-            {t(
-              'This plugin is in early development and is not yet ready for production use. Using it may incur in costs from the AI provider! Use at your own risk.'
-            )}
-          </Typography>
-
-          <Divider sx={{ my: 3 }} />
-          {isTestMode && (
-            <>
-              <Box sx={{ mb: 3, ml: 2 }}>
-                <FormControlLabel
-                  control={
-                    <Switch checked={isTestMode} onChange={handleTestModeChange} color="primary" />
-                  }
-                  label={
-                    <Box>
-                      <Typography variant="body1">{t('Test Mode')}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {t(
-                          'Enable test mode to manually input AI responses and see how they render in the chat window'
-                        )}
-                      </Typography>
-                    </Box>
-                  }
-                />
-              </Box>
-
-              <Box sx={{ mb: 3, ml: 2 }}>
-                <Box
-                  sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                >
-                  <Box>
-                    <Typography variant="body1">{t('Configuration Popover')}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {hasShownConfigPopover
-                        ? t('The configuration popover has been shown and dismissed')
-                        : t(
-                            'The configuration popover will show when no AI providers are configured'
-                          )}
-                    </Typography>
-                  </Box>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={handleResetPopover}
-                    disabled={!hasShownConfigPopover}
-                  >
-                    {t('Reset')}
-                  </Button>
-                </Box>
-              </Box>
-
-              <Divider sx={{ my: 3 }} />
-            </>
-          )}
-          <ModelSelector
-            selectedProvider={activeConfiguration.providerId}
-            config={activeConfiguration.config}
-            savedConfigs={savedConfigs}
-            configName={activeConfiguration.displayName}
-            isConfigView
-            onChange={handleModelSelectorChange}
-            onTermsAccept={updatedConfigs => {
-              pluginStore.update(updatedConfigs);
-            }}
-          />
-          {/* AI Tools Section */}
-          <Divider sx={{ my: 3 }} />
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            {t('AI Tools')}
-          </Typography>
-          <Box>
-            {toolsList.map(tool => (
-              <Box key={tool.id} sx={{ display: 'flex', alignItems: 'center', mb: 2, ml: 2 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={isToolEnabled(pluginSettings, tool.id)}
-                      onChange={() => handleToolToggle(tool.id)}
-                      color="primary"
-                    />
-                  }
-                  label={
-                    <Box>
-                      <Typography variant="body1">{tool.name}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {tool.description}
-                      </Typography>
-                    </Box>
-                  }
-                />
-              </Box>
-            ))}
-          </Box>
-
-          {/* Documentation Section */}
-          <Divider sx={{ my: 3 }} />
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            {t('Documentation')}
-          </Typography>
-          <Box sx={{ ml: 2 }}>
-            <MuiLink
-              href={AKS_AGENT_INSTALL_DOC_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
-            >
-              <Icon icon="mdi:open-in-new" width="16px" aria-hidden="true" focusable="false" />
-              {t('Learn how to enable the AKS agent CLI on a cluster')}
-            </MuiLink>
-          </Box>
-        </>
-      )}
-    </Box>
+    <ActionButton
+      description="Diagnose with AI"
+      icon="mdi:robot-outline"
+      onClick={handleDiagnose}
+    />
   );
 }
 
-registerPluginSettings(PLUGIN_NAME, Settings);
+registerResourceTableColumnsProcessor(function addAIDiagnosisToEvents({ id, columns }) {
+  if (id === 'headlamp-cluster.overview.events') {
+    const eventColumns = columns as ResourceTableColumn<Event>[];
+    eventColumns.push({
+      label: 'AI Diagnosis',
+      getValue: (event: Event) => {
+        const eventType = event.jsonData?.type || '';
+        return eventType === 'Warning' || eventType === 'Error' ? eventType : '';
+      },
+      render: (event: Event) => {
+        const eventType = event.jsonData?.type || '';
+        if (eventType === 'Warning' || eventType === 'Error') {
+          return <AIDiagnosisButton event={event} />;
+        }
+        return null;
+      },
+    });
+  }
+
+  return columns;
+});
+
+// Export the cluster change notifier for external use
+export { useClusterChangeNotifier, ClusterChangeNotifier } from './hooks/useClusterChangeNotifier';

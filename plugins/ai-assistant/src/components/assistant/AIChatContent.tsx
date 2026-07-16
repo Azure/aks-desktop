@@ -1,69 +1,44 @@
-import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
+import type { AgentThinkingStep } from '@headlamp-k8s/ai-common/agents/types';
+import type { ConversationMessage } from '@headlamp-k8s/ai-common/conversation/types';
+import AIChatContentBase from '@headlamp-k8s/ai-ui/components/assistant/AIChatContent';
 import { Link } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Alert, Box, Button } from '@mui/material';
 import React from 'react';
-import type { AgentThinkingStep } from '../../agent/aksAgentManager';
-import { Prompt } from '../../ai/manager';
 import TextStreamContainer from '../../textstream';
 
+/** Props for the AIChatContent component that renders the chat message history. */
 interface AIChatContentProps {
-  history: Prompt[];
+  /** Array of chat messages (prompts and responses) to display. */
+  history: ConversationMessage[];
+  /** Whether an AI response is currently being generated. */
   isLoading: boolean;
+  /** Error message from the last API call, or null if none. */
   apiError: string | null;
+  /** Callback invoked when a Kubernetes API operation succeeds. */
   onOperationSuccess: (response: any) => void;
+  /** Callback invoked when a Kubernetes API operation fails. */
   onOperationFailure: (error: any, operationType: string, resourceInfo?: any) => void;
+  /** Callback invoked when the user triggers a YAML apply/delete action. */
   onYamlAction: (yaml: string, title: string, type: string, isDeleteOp: boolean) => void;
+  /** Callback to retry a failed tool invocation with the given name and arguments. */
+  onRetryTool?: (toolName: string, args: Record<string, any>) => void;
   /** Live thinking steps streamed from the AKS agent during processing. */
   agentThinkingSteps?: AgentThinkingStep[];
 }
 
-export default function AIChatContent({
-  history,
-  isLoading,
-  apiError,
-  onOperationSuccess,
-  onOperationFailure,
-  onYamlAction,
-  agentThinkingSteps,
-}: AIChatContentProps) {
-  const { t } = useTranslation();
+function SettingsLink({ children }: { children: React.ReactNode }) {
   return (
-    <Box
-      sx={{
-        height: '100%',
-        overflowY: 'auto',
-      }}
-    >
-      {apiError && (
-        <Alert
-          severity="error"
-          sx={{ mb: 2 }}
-          action={
-            <Button color="inherit" size="small">
-              <Link
-                routeName="pluginDetails"
-                params={{
-                  name: '@headlamp-k8s/ai-assistant',
-                }}
-              >
-                {t('Settings')}
-              </Link>
-            </Button>
-          }
-        >
-          {apiError}
-        </Alert>
-      )}
+    <Link routeName="pluginDetails" params={{ name: '@headlamp-k8s/ai-assistant' }}>
+      {children}
+    </Link>
+  );
+}
 
-      <TextStreamContainer
-        history={history}
-        isLoading={isLoading}
-        apiError={apiError}
-        onOperationSuccess={onOperationSuccess}
-        onOperationFailure={onOperationFailure}
-        onYamlAction={onYamlAction}
-        agentThinkingSteps={agentThinkingSteps}
-      />
-    </Box>
+export default function AIChatContent(props: AIChatContentProps) {
+  return (
+    <AIChatContentBase
+      {...props}
+      TextStreamSlot={TextStreamContainer}
+      SettingsLinkSlot={SettingsLink}
+    />
   );
 }
