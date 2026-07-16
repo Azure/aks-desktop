@@ -9,13 +9,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 const mockPush = vi.hoisted(() => vi.fn());
 const mockUseAzureAuth = vi.hoisted(() => vi.fn());
 const mockRunCommandAsync = vi.hoisted(() => vi.fn());
-const mockTrackFeature = vi.hoisted(() => vi.fn());
-const mockTrackError = vi.hoisted(() => vi.fn());
-
-vi.mock('../../../telemetry', () => ({
-  trackFeature: mockTrackFeature,
-  trackError: mockTrackError,
-}));
 
 vi.mock('react-router-dom', () => ({
   useHistory: () => ({ push: mockPush }),
@@ -68,8 +61,6 @@ describe('useAzureProfilePage', () => {
     vi.useFakeTimers();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mockUseAzureAuth.mockReturnValue(AUTH_LOGGED_IN);
-    mockTrackFeature.mockImplementation(() => {});
-    mockTrackError.mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -130,14 +121,6 @@ describe('useAzureProfilePage', () => {
 
     act(() => vi.runAllTimers());
     expect(mockPush).toHaveBeenCalledWith('/azure/login');
-    expect(mockTrackFeature).toHaveBeenCalledWith({
-      feature: 'aksd.azure-logout',
-      status: 'started',
-    });
-    expect(mockTrackFeature).toHaveBeenCalledWith({
-      feature: 'aksd.azure-logout',
-      status: 'succeeded',
-    });
   });
 
   test('redirect guard defers to timeout during active logout flow', async () => {
@@ -167,15 +150,6 @@ describe('useAzureProfilePage', () => {
     act(() => vi.runAllTimers());
     expect(mockPush).not.toHaveBeenCalled();
     expect(result.current.loggingOut).toBe(false);
-    expect(mockTrackFeature).toHaveBeenCalledWith({
-      feature: 'aksd.azure-logout',
-      status: 'failed',
-    });
-    expect(mockTrackError).toHaveBeenCalledWith({
-      area: 'azure-login',
-      errorClass: 'AuthenticationError',
-      phase: 'failed',
-    });
   });
 
   test('handleLogout sets loggingOut false when an error is thrown', async () => {
@@ -185,25 +159,6 @@ describe('useAzureProfilePage', () => {
     await act(() => result.current.handleLogout());
 
     expect(result.current.loggingOut).toBe(false);
-    expect(mockTrackError).toHaveBeenCalledWith({
-      area: 'azure-login',
-      errorClass: 'UnknownError',
-      phase: 'failed',
-    });
-  });
-
-  test('telemetry failures do not interrupt logout', async () => {
-    mockRunCommandAsync.mockResolvedValue({ stderr: '' });
-    mockTrackFeature.mockImplementation(() => {
-      throw new Error('telemetry unavailable');
-    });
-
-    const { result } = renderHook(() => useAzureProfilePage());
-
-    await act(async () => {
-      await result.current.handleLogout();
-    });
-    expect(result.current.loggingOut).toBe(true);
   });
 
   test('clears redirect timer on unmount to prevent stray navigation', async () => {

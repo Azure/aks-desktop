@@ -17,7 +17,6 @@ import {
 } from '@mui/material';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
-import { trackError, trackFeature } from '../../telemetry';
 import { createNamespaceAsProject } from '../../utils/kubernetes/namespaceUtils';
 import { getClusterSettings, setClusterSettings } from '../../utils/shared/clusterSettings';
 import { Breadcrumb } from '../CreateAKSProject/components/Breadcrumb';
@@ -46,18 +45,6 @@ function getStepLabel(t: (key: string) => string, step: NamespaceStepName): stri
 
 const NAMESPACE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 
-function safelyTrackFeature(properties: Parameters<typeof trackFeature>[0]) {
-  try {
-    trackFeature(properties);
-  } catch {}
-}
-
-function safelyTrackError(properties: Parameters<typeof trackError>[0]) {
-  try {
-    trackError(properties);
-  } catch {}
-}
-
 function CreateNamespaceContent() {
   const history = useHistory();
   const { t } = useTranslation();
@@ -72,25 +59,6 @@ function CreateNamespaceContent() {
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [applicationName, setApplicationName] = useState('');
   const stepContentRef = useRef<HTMLDivElement>(null);
-  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const terminalTrackedRef = useRef(false);
-
-  useEffect(() => {
-    safelyTrackFeature({
-      feature: 'aksd.namespace-create',
-      status: 'opened',
-      resourceKind: 'Namespace',
-    });
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (successTimeoutRef.current !== null) {
-        clearTimeout(successTimeoutRef.current);
-      }
-    },
-    []
-  );
 
   // Focus the first form input when the active step changes.
   // Skip if the user already has focus inside the step content.
@@ -142,12 +110,6 @@ function CreateNamespaceContent() {
   }, [selectedCluster, namespaceName]);
 
   const handleSubmit = async () => {
-    terminalTrackedRef.current = false;
-    safelyTrackFeature({
-      feature: 'aksd.namespace-create',
-      status: 'started',
-      resourceKind: 'Namespace',
-    });
     try {
       setIsCreating(true);
       setCreationError(null);
@@ -166,29 +128,11 @@ function CreateNamespaceContent() {
       }
 
       setCreationProgress(t('Namespace created successfully!'));
-      terminalTrackedRef.current = true;
-      safelyTrackFeature({
-        feature: 'aksd.namespace-create',
-        status: 'succeeded',
-        resourceKind: 'Namespace',
-      });
-      successTimeoutRef.current = setTimeout(() => {
-        successTimeoutRef.current = null;
+      setTimeout(() => {
         setShowSuccessDialog(true);
         setIsCreating(false);
       }, 1500);
     } catch (error) {
-      terminalTrackedRef.current = true;
-      safelyTrackFeature({
-        feature: 'aksd.namespace-create',
-        status: 'failed',
-        resourceKind: 'Namespace',
-      });
-      safelyTrackError({
-        area: 'namespace-create',
-        errorClass: 'UnknownError',
-        phase: 'failed',
-      });
       console.error('Error creating namespace:', error);
       setCreationError(error instanceof Error ? error.message : t('Failed to create namespace'));
       setIsCreating(false);
@@ -197,14 +141,6 @@ function CreateNamespaceContent() {
   };
 
   const onBack = () => {
-    if (!terminalTrackedRef.current) {
-      terminalTrackedRef.current = true;
-      safelyTrackFeature({
-        feature: 'aksd.namespace-create',
-        status: 'cancelled',
-        resourceKind: 'Namespace',
-      });
-    }
     history.push('/');
   };
 

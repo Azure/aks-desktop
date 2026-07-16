@@ -1,121 +1,92 @@
 #!/usr/bin/env node
 
-// Copyright (c) Microsoft Corporation.
+// Copyright (c) Microsoft Corporation. 
 // Licensed under the Apache 2.0.
 
-import { execSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as path from "node:path";
-
-import {
-  createPluginBuildEnvironment,
-  readBuildMetadata,
-} from "./build-metadata";
-import { installAndBuildPlugin } from "./setup-plugin-build";
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
-const PLUGINS = ["aks-desktop", "ai-assistant", "insights-plugin"];
 
-interface SetupPluginsOptions {
-  buildPlugin?: typeof installAndBuildPlugin;
-  environment?: NodeJS.ProcessEnv;
-  log?: (message: string | string[]) => void;
-  rootDir?: string;
-  setupExternalTools?: (scriptPath: string) => void;
-}
+// Setup external tools (Azure CLI, etc.) if not already present
+console.log('==========================================');
+console.log('Checking external tools...');
+console.log('==========================================');
 
-function defaultSetupExternalTools(scriptPath: string): void {
-  execSync(`npx --yes tsx "${scriptPath}"`, { stdio: "inherit" });
-}
-
-export function setupPlugins({
-  buildPlugin = installAndBuildPlugin,
-  environment = process.env,
-  log = console.log,
-  rootDir = ROOT_DIR,
-  setupExternalTools = defaultSetupExternalTools,
-}: SetupPluginsOptions = {}): void {
-  const scriptDir = path.join(rootDir, "build");
-  const headlampDir = path.join(rootDir, "headlamp");
-  const externalToolsDir = path.join(
-    headlampDir,
-    "app",
-    "resources",
-    "external-tools"
-  );
-
-  if (!fs.existsSync(headlampDir)) {
-    throw new Error(
-      `Headlamp repository directory not found. Root directory: ${rootDir}`
-    );
-  }
-
-  log("==========================================");
-  log("Checking external tools...");
-  log("==========================================");
-
-  if (!fs.existsSync(externalToolsDir)) {
-    log("External tools not found. Setting up...");
-    setupExternalTools(path.join(scriptDir, "setup-external-tools.ts"));
-  } else {
-    log("External tools already present. Skipping setup.");
-    log(`To re-setup, remove: ${externalToolsDir}`);
-  }
-
-  const pluginBuildEnvironment = createPluginBuildEnvironment(
-    environment,
-    readBuildMetadata(rootDir)
-  );
-
-  for (const plugin of PLUGINS) {
-    const pluginDir = path.join(rootDir, "plugins", plugin);
-
-    if (!fs.existsSync(pluginDir)) {
-      log(`Warning: Plugin directory not found: ${pluginDir}. Skipping.`);
-      continue;
+const externalToolsDir = path.join(
+  ROOT_DIR,
+  'headlamp',
+  'app',
+  'resources',
+  'external-tools'
+);
+if (!fs.existsSync(externalToolsDir)) {
+  console.log('External tools not found. Setting up...');
+  execSync(
+    `npx --yes tsx "${path.join(SCRIPT_DIR, 'setup-external-tools.ts')}"`,
+    {
+      stdio: 'inherit',
     }
-
-    const packageJsonPath = path.join(pluginDir, "package.json");
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
-    const pluginName = packageJson.name;
-
-    log("==========================================");
-    log(`Building plugin: ${pluginName}`);
-    log("==========================================");
-
-    buildPlugin(pluginDir, pluginBuildEnvironment);
-
-    log(`Copying built files for plugin: ${pluginName}`);
-    const targetDir = path.join(headlampDir, ".plugins", pluginName);
-    fs.rmSync(targetDir, { force: true, recursive: true });
-    fs.mkdirSync(targetDir, { recursive: true });
-
-    const distDir = path.join(pluginDir, "dist");
-    fs.readdirSync(distDir).forEach((file) => {
-      fs.cpSync(path.join(distDir, file), path.join(targetDir, file), {
-        recursive: true,
-      });
-    });
-
-    fs.copyFileSync(packageJsonPath, path.join(targetDir, "package.json"));
-    log(`Plugin ${pluginName} has been built and copied to ${targetDir}`);
-  }
-
-  log("Listing contents of headlamp .plugins directory after copying plugins");
-  const headlampPluginsDir = path.join(headlampDir, ".plugins");
-  log(fs.existsSync(headlampPluginsDir) ? fs.readdirSync(headlampPluginsDir) : []);
+  );
+} else {
+  console.log('External tools already present. Skipping setup.');
+  console.log(`To re-setup, remove: ${externalToolsDir}`);
 }
 
-if (require.main === module) {
-  try {
-    setupPlugins();
-  } catch (error) {
-    console.error(
-      `Plugin setup failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
-    process.exit(1);
-  }
+// Ensure we are in the repository with the headlamp directory
+if (!fs.existsSync(path.join(ROOT_DIR, 'headlamp'))) {
+  console.log("Error: Headlamp repository directory 'headlamp' not found.");
+  console.log(`Root directory: ${ROOT_DIR}`);
+  console.log(fs.readdirSync(ROOT_DIR));
+  process.exit(1);
 }
+
+// List of plugins to build and bundle
+const PLUGINS = ['aks-desktop', 'ai-assistant', 'insights-plugin'];
+
+for (const plugin of PLUGINS) {
+  const pluginDir = path.join(ROOT_DIR, 'plugins', plugin);
+
+  if (!fs.existsSync(pluginDir)) {
+    console.log(`Warning: Plugin directory not found: ${pluginDir}. Skipping.`);
+    continue;
+  }
+
+  process.chdir(pluginDir);
+
+  // Get the current plugin name from package.json
+  const packageJson = JSON.parse(fs.readFileSync('./package.json', 'utf8'));
+  const pluginName = packageJson.name;
+
+  console.log('==========================================');
+  console.log(`Building plugin: ${pluginName}`);
+  console.log('==========================================');
+
+  // Build the plugin
+  execSync('npm install && npm run build', { stdio: 'inherit' });
+
+  console.log(`Copying built files for plugin: ${pluginName}`);
+  const targetDir = path.join(ROOT_DIR, 'headlamp', '.plugins', pluginName);
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  // Copy dist folder contents
+  const distDir = path.join(pluginDir, 'dist');
+  fs.readdirSync(distDir).forEach((file) => {
+    const src = path.join(distDir, file);
+    const dest = path.join(targetDir, file);
+    fs.cpSync(src, dest, { recursive: true });
+  });
+
+  // Copy package.json
+  fs.copyFileSync('./package.json', path.join(targetDir, 'package.json'));
+
+  console.log(`Plugin ${pluginName} has been built and copied to ${targetDir}`);
+}
+
+// List the contents of the headlamp plugins directory
+console.log(
+  'Listing contents of headlamp .plugins directory after copying plugins'
+);
+console.log(fs.readdirSync(path.join(ROOT_DIR, 'headlamp', '.plugins')));

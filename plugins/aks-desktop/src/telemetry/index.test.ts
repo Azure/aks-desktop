@@ -279,6 +279,11 @@ describe('initTelemetry', () => {
     const preset = { tags: { 'ai.user.id': 'someone-else' } };
     initializer(preset);
     expect(preset.tags['ai.user.id']).toBe(VALID_INSTALL_ID);
+
+    const withoutTags = {} as ITelemetryItem;
+    initializer(withoutTags);
+    expect(Array.isArray(withoutTags.tags)).toBe(false);
+    expect(withoutTags.tags?.['ai.user.id']).toBe(VALID_INSTALL_ID);
   });
 });
 

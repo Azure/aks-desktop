@@ -50,7 +50,7 @@ describe('real Application Insights envelope', () => {
       },
     });
     trackFeature({ feature: 'headlamp.logs', status: 'opened' });
-    trackError({ area: 'pipeline', errorClass: 'NetworkError', phase: 'failed' });
+    trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
     await __flushForTests();
 
     expect(batches).toHaveLength(1);
@@ -72,7 +72,7 @@ describe('real Application Insights envelope', () => {
     );
     expect(errorEnvelope.data.baseData.properties).toEqual({
       appVersion: '1.0.0-test',
-      area: 'pipeline',
+      area: 'deploy',
       errorClass: 'NetworkError',
       phase: 'failed',
     });

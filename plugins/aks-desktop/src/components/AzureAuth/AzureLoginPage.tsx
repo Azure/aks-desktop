@@ -12,9 +12,8 @@ import {
   Container,
   Typography,
 } from '@mui/material';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
-import { trackError, trackFeature } from '../../telemetry';
 import { getLoginStatus, initiateLogin } from '../../utils/azure/az-auth';
 import {
   LOGIN_POLL_INTERVAL_MS,
@@ -26,18 +25,6 @@ interface AzureLoginPageProps {
   redirectTo?: string;
 }
 
-function safelyTrackFeature(properties: Parameters<typeof trackFeature>[0]) {
-  try {
-    trackFeature(properties);
-  } catch {}
-}
-
-function safelyTrackError(properties: Parameters<typeof trackError>[0]) {
-  try {
-    trackError(properties);
-  } catch {}
-}
-
 export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   const history = useHistory();
   const { t } = useTranslation();
@@ -46,30 +33,7 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   const [checking, setChecking] = useState(true);
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(false);
-  const loginAttemptRef = useRef(0);
-  const terminalTrackedRef = useRef(false);
-
-  const stopPolling = () => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-  };
-
-  const trackTerminal = (
-    status: 'succeeded' | 'failed' | 'cancelled',
-    errorClass?: 'AuthenticationError' | 'TimeoutError'
-  ) => {
-    if (terminalTrackedRef.current) return;
-    terminalTrackedRef.current = true;
-    safelyTrackFeature({ feature: 'aksd.azure-login', status });
-    if (errorClass) {
-      safelyTrackError({ area: 'azure-login', errorClass, phase: 'failed' });
-    }
-  };
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
 
   // Get redirect target from URL query parameter or prop, fallback to profile page
   const getRedirectTarget = () => {
@@ -80,16 +44,10 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
 
   // Check if already logged in on mount
   useEffect(() => {
-    mountedRef.current = true;
-    safelyTrackFeature({ feature: 'aksd.azure-login', status: 'opened' });
     checkLoginStatus();
     return () => {
-      mountedRef.current = false;
-      loginAttemptRef.current++;
-      stopPolling();
-      if (redirectTimeoutRef.current) {
-        clearTimeout(redirectTimeoutRef.current);
-        redirectTimeoutRef.current = null;
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
       }
     };
   }, []);
@@ -97,7 +55,6 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   const checkLoginStatus = async () => {
     try {
       const status = await getLoginStatus();
-      if (!mountedRef.current) return;
       if (status.isLoggedIn) {
         // Trigger update event for sidebar label
         window.dispatchEvent(new CustomEvent('azure-auth-update'));
@@ -108,25 +65,19 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
     } catch (error) {
       console.error('Error checking login status:', error);
     } finally {
-      if (mountedRef.current) setChecking(false);
+      setChecking(false);
     }
   };
 
   const handleLogin = async () => {
-    stopPolling();
-    const attemptId = ++loginAttemptRef.current;
-    terminalTrackedRef.current = false;
-    safelyTrackFeature({ feature: 'aksd.azure-login', status: 'started' });
     setLoading(true);
     setErrorMessage('');
     setStatusMessage(`${t('Initiating Azure login')}...`);
 
     try {
       const result = await initiateLogin();
-      if (!mountedRef.current || loginAttemptRef.current !== attemptId) return;
 
       if (!result.success) {
-        trackTerminal('failed', 'AuthenticationError');
         setErrorMessage(result.message);
         setLoading(false);
         return;
@@ -140,44 +91,30 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
 
       // Start polling for login completion
       let pollCount = 0;
-      let pollInFlight = false;
       const maxPolls = Math.ceil(LOGIN_TIMEOUT_MS / LOGIN_POLL_INTERVAL_MS);
 
-      const isActiveAttempt = () =>
-        mountedRef.current && loginAttemptRef.current === attemptId && !terminalTrackedRef.current;
-
-      const finishWithTimeout = () => {
-        stopPolling();
-        trackTerminal('failed', 'TimeoutError');
-        setErrorMessage(t('Login timeout. Please try again.'));
-        setLoading(false);
-      };
-
-      const pollLoginStatus = async () => {
-        if (!isActiveAttempt() || pollInFlight || pollCount >= maxPolls) return;
-        pollInFlight = true;
+      const interval = setInterval(async () => {
         pollCount++;
 
         try {
           const status = await getLoginStatus();
-          if (!isActiveAttempt()) return;
 
           if (status.isLoggedIn) {
-            stopPolling();
-            trackTerminal('succeeded');
+            clearInterval(interval);
             setStatusMessage(`${t('Login successful! Redirecting')}...`);
 
             // Trigger update event for sidebar label
             window.dispatchEvent(new CustomEvent('azure-auth-update'));
 
             // Wait a moment before redirecting
-            redirectTimeoutRef.current = setTimeout(() => {
-              if (!mountedRef.current || loginAttemptRef.current !== attemptId) return;
+            setTimeout(() => {
               const target = getRedirectTarget();
               history.push(target);
             }, LOGIN_REDIRECT_DELAY_MS);
           } else if (pollCount >= maxPolls) {
-            finishWithTimeout();
+            clearInterval(interval);
+            setErrorMessage(t('Login timeout. Please try again.'));
+            setLoading(false);
           } else {
             const remaining = ((maxPolls - pollCount) * LOGIN_POLL_INTERVAL_MS) / 60_000;
             setStatusMessage(
@@ -188,20 +125,11 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
           }
         } catch (error) {
           console.error('Error polling login status:', error);
-          if (isActiveAttempt() && pollCount >= maxPolls) {
-            finishWithTimeout();
-          }
-        } finally {
-          pollInFlight = false;
         }
-      };
-
-      pollingIntervalRef.current = setInterval(() => {
-        void pollLoginStatus();
       }, LOGIN_POLL_INTERVAL_MS);
+
+      setPollingInterval(interval);
     } catch (error) {
-      if (!mountedRef.current || loginAttemptRef.current !== attemptId) return;
-      trackTerminal('failed', 'AuthenticationError');
       console.error('Error initiating login:', error);
       setErrorMessage(
         t('Failed to initiate login: {{message}}', {
@@ -213,9 +141,9 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   };
 
   const handleCancel = () => {
-    loginAttemptRef.current++;
-    stopPolling();
-    trackTerminal('cancelled');
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+    }
     setLoading(false);
     setStatusMessage('');
     setErrorMessage('');

@@ -69,15 +69,9 @@ describe('telemetry privacy vocabularies', () => {
       'headlamp.details-view',
       'headlamp.list-view',
       'headlamp.object-events',
-      'aksd.azure-login',
-      'aksd.azure-logout',
       'aksd.project-create',
       'aksd.project-import',
-      'aksd.namespace-create',
-      'aksd.metrics',
-      'aksd.scaling',
       'aksd.deploy',
-      'aksd.pipeline',
     ]);
   });
 
@@ -94,7 +88,6 @@ describe('telemetry privacy vocabularies', () => {
       'failed',
       'cancelled',
       'completed',
-      'viewed',
     ]);
   });
 
@@ -123,14 +116,9 @@ describe('telemetry privacy vocabularies', () => {
       'UnknownError',
     ]);
     expect([...ERROR_AREAS]).toEqual([
-      'azure-login',
       'project-create',
       'project-import',
-      'namespace-create',
-      'metrics',
       'deploy',
-      'scaling',
-      'pipeline',
       'kubernetes',
       'plugin-ui',
     ]);

@@ -81,6 +81,7 @@ export function registerReduxCallback(isEnabled: () => boolean = () => true): vo
       }
     });
   } catch {
+    reduxCallbackRegistered = false;
     // Fail closed. Telemetry failures never emit more telemetry or logs.
   }
 }

@@ -190,7 +190,7 @@ export function createTelemetryInitializer(
 ): (envelope: ITelemetryItem) => boolean | void {
   return envelope => {
     try {
-      const tags = envelope.tags ?? [];
+      const tags = envelope.tags ?? {};
       const trace = (envelope.ext?.trace ?? {}) as Record<string, unknown>;
       const taggedOperationName = getEnvelopeTag(tags, 'ai.operation.name');
       const operationName =

@@ -125,6 +125,9 @@ describe('registerReduxCallback', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => registerReduxCallback()).not.toThrow();
     expect(errorSpy).not.toHaveBeenCalled();
+
+    registerReduxCallback();
+    expect(registerHeadlampEventCallback).toHaveBeenCalledTimes(2);
   });
 
   it('forwards an allowlisted resource event to trackFeature with status', () => {

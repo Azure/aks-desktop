@@ -27,6 +27,7 @@ import TelemetryBoot from './TelemetryBoot';
 
 describe('TelemetryBoot', () => {
   beforeEach(() => {
+    delete (window as { desktopApi?: unknown }).desktopApi;
     mocks.getAppInfo.mockReset();
     mocks.getOrCreateInstallId.mockReset();
     mocks.initTelemetry.mockReset();
@@ -43,6 +44,8 @@ describe('TelemetryBoot', () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
+    delete (window as { desktopApi?: unknown }).desktopApi;
   });
 
   it('does not initialize when telemetry is disabled', async () => {
@@ -55,6 +58,62 @@ describe('TelemetryBoot', () => {
   it('synchronously marks telemetry enabled before initialization', () => {
     render(<TelemetryBoot />);
     expect(mocks.setTelemetryEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it('uses the installed app version from the existing appConfig channel', async () => {
+    vi.useFakeTimers();
+    let onAppConfig: ((config: { appVersion?: string }) => void) | undefined;
+    const unsubscribe = vi.fn();
+    const send = vi.fn();
+    (window as { desktopApi?: unknown }).desktopApi = {
+      receive: vi.fn((channel, callback) => {
+        expect(channel).toBe('appConfig');
+        onAppConfig = callback;
+        return unsubscribe;
+      }),
+      send,
+    };
+
+    const { unmount } = render(<TelemetryBoot />);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(mocks.initTelemetry).not.toHaveBeenCalled();
+
+    onAppConfig?.({ appVersion: '0.3.0-beta' });
+
+    expect(mocks.initTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionProps: expect.objectContaining({ appVersion: '0.3.0-beta' }),
+      })
+    );
+    vi.advanceTimersByTime(1500);
+    expect(send).not.toHaveBeenCalled();
+
+    unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('requests appConfig after a grace period and falls back when it never arrives', () => {
+    vi.useFakeTimers();
+    const unsubscribe = vi.fn();
+    const send = vi.fn();
+    (window as { desktopApi?: unknown }).desktopApi = {
+      receive: vi.fn(() => unsubscribe),
+      send,
+    };
+
+    render(<TelemetryBoot />);
+    vi.advanceTimersByTime(100);
+    expect(send).toHaveBeenCalledWith('appConfig');
+    expect(mocks.initTelemetry).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1400);
+    expect(mocks.initTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionProps: expect.objectContaining({ appVersion: 'unknown' }),
+      })
+    );
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the launch-time consent snapshot across rerenders', async () => {

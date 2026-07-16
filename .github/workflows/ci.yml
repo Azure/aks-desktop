@@ -166,9 +166,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-          submodules: ${{ matrix.plugin == 'aks-desktop' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -180,29 +177,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install build dependencies
-        if: matrix.plugin == 'aks-desktop'
-        working-directory: ${{ github.workspace }}
-        run: npm ci
-
-      - name: Test build metadata setup
-        if: matrix.plugin == 'aks-desktop'
-        working-directory: ${{ github.workspace }}
-        run: npm run test:build
-
       - name: Build plugin
-        if: matrix.plugin != 'aks-desktop'
         run: npm run build
-
-      - name: Build AKS Desktop plugin with release metadata
-        if: matrix.plugin == 'aks-desktop'
-        working-directory: ${{ github.workspace }}
-        run: npm run plugin:build:metadata
-
-      - name: Verify AKS Desktop plugin release metadata
-        if: matrix.plugin == 'aks-desktop'
-        working-directory: ${{ github.workspace }}
-        run: npm run verify:plugin-build-metadata
 
       - name: Package plugin
         run: npm run package

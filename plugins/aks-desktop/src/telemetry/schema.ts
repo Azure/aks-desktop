@@ -111,15 +111,9 @@ export const KNOWN_FEATURE_TYPES: ReadonlySet<string> = new Set([
   'headlamp.details-view',
   'headlamp.list-view',
   'headlamp.object-events',
-  'aksd.azure-login',
-  'aksd.azure-logout',
   'aksd.project-create',
   'aksd.project-import',
-  'aksd.namespace-create',
-  'aksd.metrics',
-  'aksd.scaling',
   'aksd.deploy',
-  'aksd.pipeline',
   // PLUGINS_LOADED routes to trackPluginsLoaded; ERROR_BOUNDARY is captured
   // by TelemetryErrorBoundary directly. Both intentionally omitted.
 ]);
@@ -136,7 +130,6 @@ const EVENT_STATUS_VALUES = [
   'failed',
   'cancelled',
   'completed',
-  'viewed',
 ] as const;
 
 export type TelemetryStatus = (typeof EVENT_STATUS_VALUES)[number];
@@ -168,14 +161,9 @@ export type TelemetryErrorClass = (typeof ERROR_CLASS_VALUES)[number];
 export const ERROR_CLASSES: ReadonlySet<TelemetryErrorClass> = new Set(ERROR_CLASS_VALUES);
 
 const ERROR_AREA_VALUES = [
-  'azure-login',
   'project-create',
   'project-import',
-  'namespace-create',
-  'metrics',
   'deploy',
-  'scaling',
-  'pipeline',
   'kubernetes',
   'plugin-ui',
 ] as const;

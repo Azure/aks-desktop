@@ -2,21 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef } from 'react';
-import { trackError, trackFeature } from '../../../telemetry';
 import type { PipelineConfig, PRTracking } from '../types';
-
-function safelyTrackFastPathPipeline(status: 'started' | 'succeeded' | 'failed') {
-  try {
-    trackFeature({ feature: 'aksd.pipeline', status });
-  } catch {}
-}
-
-function safelyTrackFastPathFailure() {
-  safelyTrackFastPathPipeline('failed');
-  try {
-    trackError({ area: 'pipeline', errorClass: 'UnknownError', phase: 'failed' });
-  } catch {}
-}
 
 /** Storage key prefix — separate from the agent-path pipeline state. */
 const FAST_PATH_STORAGE_PREFIX = 'aks-desktop:fast-path-state:';
@@ -114,10 +100,6 @@ const INITIAL_STATE: FastPathState = {
   createdAt: null,
   updatedAt: null,
 };
-
-function hasStartedRun(state: FastPathState): boolean {
-  return state.deploymentState !== 'Configured' || state.config !== null;
-}
 
 const VALID_TRANSITIONS: Record<
   FastPathAction['type'],
@@ -387,10 +369,6 @@ export const useFastPathPipelineState = (
 
   const prevRepoKeyRef = useRef(repoKey);
   const lastLoadedStateRef = useRef<FastPathState | null>(null);
-  const startedForRunRef = useRef(hasStartedRun(pipelineState));
-  const terminalTelemetryEmittedForRunRef = useRef(
-    pipelineState.deploymentState === 'Failed' || TERMINAL_STATES.has(pipelineState.deploymentState)
-  );
 
   useLayoutEffect(() => {
     if (repoKey === prevRepoKeyRef.current) return;
@@ -398,9 +376,6 @@ export const useFastPathPipelineState = (
     const persisted = repoKey ? loadPersistedState(repoKey) : null;
     const loaded = persisted ?? INITIAL_STATE;
     lastLoadedStateRef.current = loaded;
-    startedForRunRef.current = hasStartedRun(loaded);
-    terminalTelemetryEmittedForRunRef.current =
-      loaded.deploymentState === 'Failed' || TERMINAL_STATES.has(loaded.deploymentState);
     dispatch({ type: 'LOAD_STATE', state: loaded });
   }, [repoKey]);
 
@@ -428,14 +403,8 @@ export const useFastPathPipelineState = (
 
   const actions = useMemo(
     () => ({
-      setConfig: (config: PipelineConfig, withAsyncAgent?: boolean) => {
-        if (!startedForRunRef.current) {
-          startedForRunRef.current = true;
-          terminalTelemetryEmittedForRunRef.current = false;
-          safelyTrackFastPathPipeline('started');
-        }
-        dispatch({ type: 'SET_CONFIG', config, withAsyncAgent });
-      },
+      setConfig: (config: PipelineConfig, withAsyncAgent?: boolean) =>
+        dispatch({ type: 'SET_CONFIG', config, withAsyncAgent }),
       updateConfig: (partial: Partial<PipelineConfig>) =>
         dispatch({ type: 'UPDATE_CONFIG', partial }),
       setDockerfileDetected: (paths: string[]) =>
@@ -444,40 +413,13 @@ export const useFastPathPipelineState = (
       setPRCreating: () => dispatch({ type: 'SET_PR_CREATING' }),
       setPRCreated: (pr: PRTracking) => dispatch({ type: 'SET_PR_CREATED', pr }),
       setPRMerged: () => dispatch({ type: 'SET_PR_MERGED' }),
-      setDeployed: (serviceEndpoint?: string) => {
-        if (
-          latestStateRef.current.deploymentState === 'PipelineRunning' &&
-          !terminalTelemetryEmittedForRunRef.current
-        ) {
-          terminalTelemetryEmittedForRunRef.current = true;
-          safelyTrackFastPathPipeline('succeeded');
-        }
-        dispatch({ type: 'SET_DEPLOYED', serviceEndpoint });
-      },
+      setDeployed: (serviceEndpoint?: string) =>
+        dispatch({ type: 'SET_DEPLOYED', serviceEndpoint }),
       setAsyncAgentTriggered: (issueUrl: string) =>
         dispatch({ type: 'SET_ASYNC_AGENT_TRIGGERED', issueUrl }),
-      setFailed: (error: string) => {
-        if (
-          latestStateRef.current.deploymentState !== 'Failed' &&
-          !terminalTelemetryEmittedForRunRef.current
-        ) {
-          terminalTelemetryEmittedForRunRef.current = true;
-          safelyTrackFastPathFailure();
-        }
-        dispatch({ type: 'SET_FAILED', error });
-      },
-      retry: () => {
-        if (latestStateRef.current.deploymentState === 'Failed') {
-          terminalTelemetryEmittedForRunRef.current = false;
-        }
-        dispatch({ type: 'RETRY' });
-      },
-      loadState: (state: FastPathState) => {
-        startedForRunRef.current = hasStartedRun(state);
-        terminalTelemetryEmittedForRunRef.current =
-          state.deploymentState === 'Failed' || TERMINAL_STATES.has(state.deploymentState);
-        dispatch({ type: 'LOAD_STATE', state });
-      },
+      setFailed: (error: string) => dispatch({ type: 'SET_FAILED', error }),
+      retry: () => dispatch({ type: 'RETRY' }),
+      loadState: (state: FastPathState) => dispatch({ type: 'LOAD_STATE', state }),
     }),
     []
   );

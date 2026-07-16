@@ -6,12 +6,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 /** Mock the Headlamp K8s API */
 const mockApiList = vi.hoisted(() => vi.fn());
-const telemetryMocks = vi.hoisted(() => ({
-  trackFeature: vi.fn(),
-  trackError: vi.fn(),
-}));
-
-vi.mock('../../../telemetry', () => telemetryMocks);
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   K8s: {
@@ -77,16 +71,12 @@ describe('useDeployments', () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
     expect(mockApiList).not.toHaveBeenCalled();
-    expect(telemetryMocks.trackFeature.mock.calls).toEqual([
-      [{ feature: 'aksd.metrics', status: 'viewed' }],
-    ]);
   });
 
   test('fetches, maps, and auto-selects first deployment', () => {
     mockApiListSuccess(MOCK_DEPLOYMENTS);
 
-    const { result, rerender } = renderHook(() => useDeployments('test-ns', 'test-cluster'));
-    rerender();
+    const { result } = renderHook(() => useDeployments('test-ns', 'test-cluster'));
 
     expect(result.current.deployments).toHaveLength(2);
     expect(result.current.deployments[0]).toEqual({ name: 'app-1', namespace: 'test-ns' });
@@ -98,75 +88,40 @@ describe('useDeployments', () => {
       namespace: 'test-ns',
       cluster: 'test-cluster',
     });
-    expect(telemetryMocks.trackFeature).toHaveBeenCalledTimes(1);
-    expect(telemetryMocks.trackFeature).toHaveBeenCalledWith({
-      feature: 'aksd.metrics',
-      status: 'viewed',
-    });
   });
 
   test('handles error callback gracefully', () => {
     mockApiListError(new Error('API connection failed'));
 
-    const { result, rerender } = renderHook(() => useDeployments('test-ns', 'test-cluster'));
-    rerender();
+    const { result } = renderHook(() => useDeployments('test-ns', 'test-cluster'));
 
     expect(result.current.deployments).toHaveLength(0);
     expect(result.current.error).toBe('Failed to fetch deployments');
     expect(result.current.loading).toBe(false);
-    expect(telemetryMocks.trackFeature.mock.calls).toEqual([
-      [{ feature: 'aksd.metrics', status: 'viewed' }],
-    ]);
-    expect(telemetryMocks.trackError).toHaveBeenCalledWith({
-      area: 'metrics',
-      errorClass: 'UnknownError',
-      phase: 'failed',
-    });
-    expect(telemetryMocks.trackError).toHaveBeenCalledTimes(1);
   });
 
   test('handles empty deployment list', () => {
     mockApiListSuccess([]);
 
-    const { result, rerender } = renderHook(() => useDeployments('test-ns', 'test-cluster'));
-    rerender();
+    const { result } = renderHook(() => useDeployments('test-ns', 'test-cluster'));
 
     expect(result.current.deployments).toHaveLength(0);
     expect(result.current.selectedDeployment).toBe('');
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
-    expect(telemetryMocks.trackFeature.mock.calls).toEqual([
-      [{ feature: 'aksd.metrics', status: 'viewed' }],
-    ]);
   });
 
-  test('tracks the displayed metrics view exactly once across watcher updates and rerenders', () => {
-    let successCallback: ((deployments: object[]) => void) | undefined;
-    mockApiList.mockImplementation((callback: (deployments: object[]) => void) => {
-      return () => {
-        successCallback = callback;
-        callback(MOCK_DEPLOYMENTS);
-        return Promise.resolve(() => {});
-      };
-    });
+  test('setSelectedDeployment changes the selected deployment', () => {
+    mockApiListSuccess(MOCK_DEPLOYMENTS);
 
-    const { result, rerender } = renderHook(() => useDeployments('test-ns', 'test-cluster'));
+    const { result } = renderHook(() => useDeployments('test-ns', 'test-cluster'));
 
     expect(result.current.selectedDeployment).toBe('app-1');
-    expect(telemetryMocks.trackFeature).toHaveBeenCalledTimes(1);
-
-    act(() => successCallback?.(MOCK_DEPLOYMENTS));
-    rerender();
 
     act(() => {
       result.current.setSelectedDeployment('app-2');
     });
 
     expect(result.current.selectedDeployment).toBe('app-2');
-    expect(telemetryMocks.trackFeature).toHaveBeenCalledTimes(1);
-    expect(telemetryMocks.trackFeature).toHaveBeenLastCalledWith({
-      feature: 'aksd.metrics',
-      status: 'viewed',
-    });
   });
 });

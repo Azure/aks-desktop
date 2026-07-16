@@ -22,11 +22,19 @@ const CONNECTION_STRING =
   (import.meta.env.REACT_APP_APPINSIGHTS_CONNECTION_STRING as string | undefined) ||
   DEFAULT_CONNECTION_STRING;
 
-const APP_VERSION =
-  (import.meta.env.REACT_APP_AKS_DESKTOP_VERSION as string | undefined) ?? 'unknown';
-
 const HEADLAMP_VERSION =
   (import.meta.env.REACT_APP_HEADLAMP_VERSION as string | undefined) ?? 'unknown';
+
+interface DesktopAppConfigApi {
+  receive: (
+    channel: 'appConfig',
+    callback: (config: { appVersion?: string }) => void
+  ) => () => void;
+  send: (channel: 'appConfig') => void;
+}
+
+const APP_CONFIG_REQUEST_GRACE_MS = 100;
+const APP_CONFIG_RESPONSE_TIMEOUT_MS = 1500;
 
 /**
  * Boots telemetry once when telemetry is enabled (the user has not
@@ -43,22 +51,61 @@ export default function TelemetryBoot(): null {
   useEffect(() => {
     if (!enabled) return;
 
-    try {
-      const installId = getOrCreateInstallId();
-      const appInfo = getAppInfo();
-      initTelemetry({
-        connectionString: CONNECTION_STRING,
-        installId,
-        sessionProps: {
-          ...appInfo,
-          appVersion: APP_VERSION,
-          headlampVersion: HEADLAMP_VERSION,
-          locale: navigator.language || 'unknown',
-        },
-      });
-    } catch {
-      // Fail closed. Telemetry failures never emit more telemetry or logs.
+    const initialize = (appVersion: string) => {
+      try {
+        const installId = getOrCreateInstallId();
+        const appInfo = getAppInfo();
+        initTelemetry({
+          connectionString: CONNECTION_STRING,
+          installId,
+          sessionProps: {
+            ...appInfo,
+            appVersion,
+            headlampVersion: HEADLAMP_VERSION,
+            locale: navigator.language || 'unknown',
+          },
+        });
+      } catch {
+        // Fail closed. Telemetry failures never emit more telemetry or logs.
+      }
+    };
+
+    const desktopApi = (window as { desktopApi?: DesktopAppConfigApi }).desktopApi;
+    if (!desktopApi?.receive || !desktopApi.send) {
+      initialize('unknown');
+      return;
     }
+
+    let settled = false;
+    let unsubscribe = () => {};
+    const stopListening = () => {
+      unsubscribe();
+      unsubscribe = () => {};
+    };
+    const settle = (appVersion: string) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(requestTimer);
+      window.clearTimeout(fallbackTimer);
+      stopListening();
+      initialize(appVersion);
+    };
+    unsubscribe = desktopApi.receive('appConfig', config => {
+      settle(config.appVersion || 'unknown');
+    });
+    const requestTimer = window.setTimeout(() => {
+      desktopApi.send('appConfig');
+    }, APP_CONFIG_REQUEST_GRACE_MS);
+    const fallbackTimer = window.setTimeout(() => {
+      settle('unknown');
+    }, APP_CONFIG_RESPONSE_TIMEOUT_MS);
+
+    return () => {
+      settled = true;
+      window.clearTimeout(requestTimer);
+      window.clearTimeout(fallbackTimer);
+      stopListening();
+    };
   }, [enabled]);
   return null;
 }
