@@ -6,10 +6,10 @@ import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const trackExceptionMock = vi.hoisted(() => ({ trackException: vi.fn() }));
-const { trackException } = trackExceptionMock;
+const trackErrorMock = vi.hoisted(() => ({ trackError: vi.fn() }));
+const { trackError } = trackErrorMock;
 vi.mock('../telemetry', () => ({
-  trackException: trackExceptionMock.trackException,
+  trackError: trackErrorMock.trackError,
 }));
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
@@ -23,7 +23,7 @@ function Boom({ message }: { message: string }): React.ReactElement {
 }
 
 beforeEach(() => {
-  trackException.mockClear();
+  trackError.mockClear();
   // Suppress React's noisy error-boundary warnings.
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -43,10 +43,10 @@ describe('TelemetryErrorBoundary', () => {
       </TelemetryErrorBoundary>
     );
     expect(screen.getByTestId('child')).toBeInTheDocument();
-    expect(trackException).not.toHaveBeenCalled();
+    expect(trackError).not.toHaveBeenCalled();
   });
 
-  it('catches a child error, renders fallback, and calls trackException', () => {
+  it('catches a child error and reports only a categorical plugin-ui failure', () => {
     render(
       <TelemetryErrorBoundary>
         <Boom message="boom" />
@@ -54,11 +54,16 @@ describe('TelemetryErrorBoundary', () => {
     );
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(screen.getByText(/error occurred/i)).toBeInTheDocument();
-    expect(trackException).toHaveBeenCalledWith('Error');
+    expect(trackError).toHaveBeenCalledWith({
+      area: 'plugin-ui',
+      errorClass: 'UnknownError',
+      phase: 'failed',
+    });
+    expect(trackError.mock.calls.flat()).not.toContainEqual(expect.any(Error));
   });
 
-  it('still renders fallback if trackException throws', () => {
-    trackException.mockImplementationOnce(() => {
+  it('still renders fallback if trackError throws', () => {
+    trackError.mockImplementationOnce(() => {
       throw new Error('telemetry broken');
     });
     render(

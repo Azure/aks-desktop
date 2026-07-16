@@ -35,14 +35,14 @@ export default function TelemetrySettings() {
       <Typography variant="h6">{t('Telemetry')}</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         {t(
-          'AKS Desktop sends anonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.'
+          'AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.'
         )}
       </Typography>
       <FormControlLabel
         control={
           <Switch checked={config.enabled} onChange={(_e, checked) => handleToggle(checked)} />
         }
-        label={<Typography variant="body1">{t('Send anonymous usage data')}</Typography>}
+        label={<Typography variant="body1">{t('Send pseudonymous usage data')}</Typography>}
         sx={{ alignItems: 'flex-start', ml: 0, mt: 1 }}
       />
       {needsRestart && (

@@ -61,6 +61,39 @@ export const BUILTIN_K8S_KINDS: ReadonlySet<string> = new Set([
 
 export const KNOWN_PLUGIN_IDS: ReadonlySet<string> = new Set(['aks-desktop']);
 
+export const TELEMETRY_EVENT_NAMES: ReadonlySet<string> = new Set([
+  'headlamp.session-start',
+  'headlamp.cluster-shape',
+  'headlamp.feature',
+  'headlamp.exception',
+  'headlamp.plugins-loaded',
+]);
+
+export const TELEMETRY_PROPERTY_KEYS: ReadonlySet<string> = new Set([
+  'appVersion',
+  'locale',
+  'os',
+  'arch',
+  'electronVersion',
+  'headlampVersion',
+  'provider',
+  'kubernetesMinor',
+  'nodeCountBucket',
+  'namespaceCountBucket',
+  'region',
+  'aksTier',
+  'feature',
+  'status',
+  'resourceKind',
+  'errorClass',
+  'area',
+  'phase',
+  'totalCount',
+  'enabledCount',
+  'knownEnabledIds',
+  'thirdPartyCount',
+]);
+
 /** Redux event types forwarded as `headlamp.feature` envelopes. */
 export const KNOWN_FEATURE_TYPES: ReadonlySet<string> = new Set([
   'headlamp.delete-resource',
@@ -78,17 +111,65 @@ export const KNOWN_FEATURE_TYPES: ReadonlySet<string> = new Set([
   'headlamp.details-view',
   'headlamp.list-view',
   'headlamp.object-events',
+  'aksd.project-create',
+  'aksd.project-import',
+  'aksd.deploy',
   // PLUGINS_LOADED routes to trackPluginsLoaded; ERROR_BOUNDARY is captured
   // by TelemetryErrorBoundary directly. Both intentionally omitted.
 ]);
 
-export const EVENT_STATUSES: ReadonlySet<string> = new Set([
+const EVENT_STATUS_VALUES = [
   'unknown',
   'open',
   'closed',
   'confirmed',
   'finished',
+  'opened',
+  'started',
+  'succeeded',
+  'failed',
+  'cancelled',
+  'completed',
+] as const;
+
+export type TelemetryStatus = (typeof EVENT_STATUS_VALUES)[number];
+export const EVENT_STATUSES: ReadonlySet<TelemetryStatus> = new Set(EVENT_STATUS_VALUES);
+
+export const KNOWN_ROUTES: ReadonlySet<string> = new Set([
+  '/index',
+  '/login',
+  '/profile',
+  '/projects',
+  '/project-create',
+  '/project-import',
+  '/namespace-create',
+  '/add-cluster',
+  '/settings',
+  'unknown',
 ]);
+
+const ERROR_CLASS_VALUES = [
+  'AuthenticationError',
+  'PermissionError',
+  'NetworkError',
+  'ValidationError',
+  'TimeoutError',
+  'UnknownError',
+] as const;
+
+export type TelemetryErrorClass = (typeof ERROR_CLASS_VALUES)[number];
+export const ERROR_CLASSES: ReadonlySet<TelemetryErrorClass> = new Set(ERROR_CLASS_VALUES);
+
+const ERROR_AREA_VALUES = [
+  'project-create',
+  'project-import',
+  'deploy',
+  'kubernetes',
+  'plugin-ui',
+] as const;
+
+export type TelemetryErrorArea = (typeof ERROR_AREA_VALUES)[number];
+export const ERROR_AREAS: ReadonlySet<TelemetryErrorArea> = new Set(ERROR_AREA_VALUES);
 
 /**
  * Azure region shape: lowercase letters containing a compass keyword and
@@ -117,9 +198,31 @@ export function sanitizeFeatureType(type: string | undefined): string | undefine
   return type && KNOWN_FEATURE_TYPES.has(type) ? type : undefined;
 }
 
-export function sanitizeStatus(status: string | null | undefined): string {
+export function sanitizeStatus(status: string | null | undefined): TelemetryStatus {
   if (!status) return 'unknown';
-  return EVENT_STATUSES.has(status) ? status : 'unknown';
+  return EVENT_STATUSES.has(status as TelemetryStatus) ? (status as TelemetryStatus) : 'unknown';
+}
+
+export function sanitizeRoute(route: string | null | undefined): string {
+  if (!route || !route.startsWith('/')) return 'unknown';
+  const path = route.split(/[?#]/, 1)[0];
+
+  if (path === '/' || path === '/index') return '/index';
+  if (path === '/azure/login') return '/login';
+  if (path === '/azure/profile') return '/profile';
+  if (path === '/projects') return '/projects';
+  if (path === '/projects/create-aks-project') return '/project-create';
+  if (path === '/projects/import-aks-projects') return '/project-import';
+  if (path === '/projects/create-namespace') return '/namespace-create';
+  if (path === '/add-cluster-aks') return '/add-cluster';
+  if (path === '/settings' || path.startsWith('/settings/')) return '/settings';
+  return 'unknown';
+}
+
+export function sanitizeErrorClass(errorClass: string | null | undefined): TelemetryErrorClass {
+  return errorClass && ERROR_CLASSES.has(errorClass as TelemetryErrorClass)
+    ? (errorClass as TelemetryErrorClass)
+    : 'UnknownError';
 }
 
 export type AksTier = 'Free' | 'Standard' | 'Premium' | 'Unknown';

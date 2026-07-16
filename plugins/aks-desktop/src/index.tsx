@@ -42,10 +42,13 @@ import MetricsTab from './components/Metrics/MetricsTab';
 import PreviewFeaturesSettings from './components/PluginSettings/PreviewFeaturesSettings';
 import { previewFeaturesStore } from './components/PluginSettings/previewFeaturesStore';
 import TelemetrySettings from './components/PluginSettings/TelemetrySettings';
+import { isTelemetryEnabled } from './components/PluginSettings/telemetrySettingsStore';
 import ScalingCard from './components/Scaling/ScalingCard';
 import ScalingTab from './components/Scaling/ScalingTab';
 import TelemetryBoot from './components/TelemetryBoot';
 import { TelemetryErrorBoundary } from './components/TelemetryErrorBoundary';
+import { setTelemetryEnabled } from './telemetry';
+import { registerReduxCallback } from './telemetry/setup';
 import type { ProjectDefinition } from './types/project';
 import { getLoginStatus } from './utils/azure/az-auth';
 import { AZURE_ACCOUNT_POLL_INTERVAL_MS } from './utils/constants/timing';
@@ -87,6 +90,12 @@ Headlamp.setAppMenu(menus => {
 
 // add azure related components only if running as app
 if (Headlamp.isRunningAsApp()) {
+  const telemetryEnabledAtLaunch = isTelemetryEnabled();
+  setTelemetryEnabled(telemetryEnabledAtLaunch);
+
+  // Register before TelemetryBoot renders so early plugins-loaded events are buffered.
+  registerReduxCallback(() => telemetryEnabledAtLaunch);
+
   // boot App Insights telemetry once on first render
   registerAppBarAction(() => <TelemetryBoot />);
 

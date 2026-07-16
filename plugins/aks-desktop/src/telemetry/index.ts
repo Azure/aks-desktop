@@ -1,24 +1,33 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import type { IXHROverride } from '@microsoft/applicationinsights-core-js';
 import { ApplicationInsights, type ITelemetryItem } from '@microsoft/applicationinsights-web';
 import type { AppInfo } from './appInfo';
+import { scrubTelemetryData } from './privacy';
 import {
   type AksTier,
   bucketNamespaceCount,
   bucketNodeCount,
+  ERROR_AREAS,
   KNOWN_PLUGIN_IDS,
   kubernetesMinor,
   localeLanguage,
   type NamespaceCountBucket,
   type NodeCountBucket,
+  sanitizeErrorClass,
   sanitizeFeatureType,
   sanitizeKind,
   sanitizeRegion,
+  sanitizeRoute,
   sanitizeStatus,
   sanitizeTier,
+  TELEMETRY_EVENT_NAMES,
+  TELEMETRY_PROPERTY_KEYS,
+  type TelemetryErrorArea,
+  type TelemetryErrorClass,
+  type TelemetryStatus,
 } from './schema';
-import { registerReduxCallback } from './setup';
 
 // Module-private SDK handle. Only the typed track* functions below can
 // post envelopes.
@@ -28,16 +37,67 @@ let ai: ApplicationInsights | null = null;
 // skip retries on subsequent renders (e.g. StrictMode double-mount,
 // re-mount after a failed connection-string parse).
 let initAttempted = false;
+let transportOverrideForTests: IXHROverride | null = null;
+let telemetryEnabled = false;
+let initializedAppVersion: string | null = null;
 
 // Per-resource-id dedupe of headlamp.cluster-shape across re-renders.
 // Module-private (the key is never sent).
 const emittedShapeFor = new Set<string>();
+const errorCounts = new Map<string, number>();
+
+interface PendingEvent {
+  name: string;
+  properties: Record<string, string>;
+}
+
+const pendingEvents: PendingEvent[] = [];
+const MAX_PENDING_EVENTS = 100;
+const MAX_ERRORS_PER_KEY = 5;
 
 /** Test-only state reset. Do not call from production code. */
 export function __resetForTests(): void {
   ai = null;
   initAttempted = false;
   emittedShapeFor.clear();
+  errorCounts.clear();
+  pendingEvents.length = 0;
+  transportOverrideForTests = null;
+  telemetryEnabled = false;
+  initializedAppVersion = null;
+}
+
+export function setTelemetryEnabled(enabled: boolean): void {
+  telemetryEnabled = enabled;
+  if (enabled) return;
+
+  pendingEvents.length = 0;
+  if (ai) {
+    disableAndUnload(ai);
+    ai = null;
+  }
+}
+
+export function __setTransportOverrideForTests(transport: IXHROverride): void {
+  transportOverrideForTests = transport;
+}
+
+export function __getPendingEventCountForTests(): number {
+  return pendingEvents.length;
+}
+
+export function __flushForTests(): Promise<void> {
+  return new Promise(resolve => {
+    if (!ai) {
+      resolve();
+      return;
+    }
+    try {
+      void ai.flush(false, resolve);
+    } catch {
+      resolve();
+    }
+  });
 }
 
 export interface SessionStartProps extends AppInfo {
@@ -54,67 +114,174 @@ export interface InitTelemetryOptions {
 }
 
 /**
- * Initialize App Insights and wire the redux event callback. Idempotent:
+ * Initialize App Insights and flush events captured by the early Redux callback. Idempotent:
  * the initAttempted flag survives React StrictMode double-mount.
  *
  * Fails closed — if the AI constructor throws, ai stays null and
  * initAttempted stays true so we don't retry on every render.
  */
 export function initTelemetry(opts: InitTelemetryOptions): void {
+  if (!telemetryEnabled) {
+    pendingEvents.length = 0;
+    return;
+  }
   if (initAttempted) return;
   initAttempted = true;
 
+  let insights: ApplicationInsights | null = null;
   try {
-    ai = new ApplicationInsights({
-      config: {
-        connectionString: opts.connectionString,
-        disableFetchTracking: true,
-        disableAjaxTracking: true,
-        disableExceptionTracking: true,
-        disableCookiesUsage: true,
-        isStorageUseDisabled: true,
-        enableAutoRouteTracking: false,
-      },
+    const config = {
+      connectionString: opts.connectionString,
+      disableFetchTracking: true,
+      disableAjaxTracking: true,
+      disableExceptionTracking: true,
+      disableCookiesUsage: true,
+      isStorageUseDisabled: true,
+      enableAutoRouteTracking: false,
+    };
+    if (transportOverrideForTests) {
+      Object.assign(config, {
+        httpXHROverride: transportOverrideForTests,
+        alwaysUseXhrOverride: true,
+      });
+    }
+    insights = new ApplicationInsights({
+      config,
     });
-    ai.loadAppInsights();
 
     // Stamp ai.user.id with the install UUID so the Azure Portal Users
     // metric correlates by install rather than by SDK session. The id
     // lives only as an envelope tag — never as a regular property
     // dimension (it would otherwise be queryable/exportable as data).
-    const { installId } = opts;
-    ai.addTelemetryInitializer((envelope: ITelemetryItem) => {
-      envelope.tags = envelope.tags ?? {};
-      envelope.tags['ai.user.id'] = installId;
-    });
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.error('[aksd-telemetry] init failed:', e);
+    configureTelemetryPrivacy(insights, opts.installId);
+    insights.loadAppInsights();
+    ai = insights;
+    initializedAppVersion = opts.sessionProps.appVersion;
+  } catch {
+    if (insights) disableAndUnload(insights);
     ai = null;
+    pendingEvents.length = 0;
     return;
   }
 
   trackSessionStart(opts.sessionProps);
-  registerReduxCallback();
+  flushPendingEvents();
+}
+
+function disableAndUnload(insights: ApplicationInsights): void {
+  try {
+    insights.config.disableTelemetry = true;
+  } catch {
+    // Continue to unload even when the dynamic config cannot be updated.
+  }
+  try {
+    void insights.unload(false);
+  } catch {
+    // Fail closed. Telemetry cleanup failures are never reported recursively.
+  }
 }
 
 export function isTelemetryInitialized(): boolean {
   return initAttempted;
 }
 
+export function createTelemetryInitializer(
+  installId: string
+): (envelope: ITelemetryItem) => boolean | void {
+  return envelope => {
+    try {
+      const tags = envelope.tags ?? {};
+      const trace = (envelope.ext?.trace ?? {}) as Record<string, unknown>;
+      const taggedOperationName = getEnvelopeTag(tags, 'ai.operation.name');
+      const operationName =
+        typeof trace.name === 'string'
+          ? trace.name
+          : typeof taggedOperationName === 'string'
+          ? taggedOperationName
+          : globalThis.location?.pathname;
+      trace.name = sanitizeRoute(operationName);
+      envelope.ext = envelope.ext ?? {};
+      envelope.ext.trace = trace;
+      setEnvelopeTag(tags, 'ai.user.id', installId);
+      setEnvelopeTag(tags, 'ai.operation.name', trace.name);
+      setEnvelopeTag(tags, 'ai.location.ip', '0.0.0.0');
+      envelope.tags = tags;
+
+      const scrubbed = scrubTelemetryData(envelope) as ITelemetryItem;
+      for (const key of Object.keys(envelope)) {
+        delete (envelope as unknown as Record<string, unknown>)[key];
+      }
+      Object.assign(envelope, scrubbed);
+    } catch {
+      return false;
+    }
+  };
+}
+
+function getEnvelopeTag(tags: ITelemetryItem['tags'], key: string): unknown {
+  if (Array.isArray(tags)) {
+    for (const tag of tags) {
+      if (tag && key in tag) return tag[key];
+    }
+    return undefined;
+  }
+  return tags?.[key];
+}
+
+function setEnvelopeTag(
+  tags: NonNullable<ITelemetryItem['tags']>,
+  key: string,
+  value: unknown
+): void {
+  if (Array.isArray(tags)) {
+    const existing = tags.find(tag => tag && key in tag);
+    if (existing) existing[key] = value;
+    else tags.push({ [key]: value });
+    return;
+  }
+  tags[key] = value;
+}
+
+export function configureTelemetryPrivacy(insights: ApplicationInsights, installId: string): void {
+  insights.addTelemetryInitializer(createTelemetryInitializer(installId));
+}
+
+function send(event: PendingEvent): void {
+  if (!ai) return;
+  try {
+    ai.trackEvent(
+      event.name === 'headlamp.exception' && initializedAppVersion
+        ? {
+            ...event,
+            properties: { ...event.properties, appVersion: initializedAppVersion },
+          }
+        : event
+    );
+  } catch {
+    // Fail closed. Telemetry failures never emit more telemetry or logs.
+  }
+}
+
+function flushPendingEvents(): void {
+  if (!ai) return;
+  const events = pendingEvents.splice(0);
+  for (const event of events) send(event);
+}
+
 /** The only path from the typed wrappers to ai.trackEvent. */
 function emit(name: string, properties: Record<string, string | undefined>): void {
-  if (!ai) return;
+  if (!telemetryEnabled) return;
+  if (!TELEMETRY_EVENT_NAMES.has(name)) return;
   const filtered: Record<string, string> = {};
   for (const [key, value] of Object.entries(properties)) {
-    if (value !== undefined) filtered[key] = value;
+    if (value !== undefined && TELEMETRY_PROPERTY_KEYS.has(key)) filtered[key] = value;
   }
-  try {
-    ai.trackEvent({ name, properties: filtered });
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.error('[aksd-telemetry] track failed:', name, e);
+  const event = { name, properties: filtered };
+  if (!ai) {
+    if (!initAttempted && pendingEvents.length < MAX_PENDING_EVENTS) pendingEvents.push(event);
+    return;
   }
+  send(event);
 }
 
 export function trackSessionStart(p: SessionStartProps): void {
@@ -184,8 +351,27 @@ export function trackFeature(p: FeatureProps): void {
   });
 }
 
-export function trackException(errorName: string): void {
-  emit('headlamp.exception', { errorName: errorName || 'Unknown' });
+export interface ErrorProps {
+  area: TelemetryErrorArea;
+  errorClass: TelemetryErrorClass;
+  phase?: TelemetryErrorPhase;
+}
+
+export type TelemetryErrorPhase = TelemetryStatus;
+
+export function trackError(p: ErrorProps): void {
+  if (!telemetryEnabled) return;
+  if (!ERROR_AREAS.has(p.area)) return;
+  const errorClass = sanitizeErrorClass(p.errorClass);
+  const key = `${p.area}:${errorClass}`;
+  const count = errorCounts.get(key) ?? 0;
+  if (count >= MAX_ERRORS_PER_KEY) return;
+  errorCounts.set(key, count + 1);
+  emit('headlamp.exception', {
+    area: p.area,
+    errorClass,
+    phase: p.phase === undefined ? undefined : sanitizeStatus(p.phase),
+  });
 }
 
 export interface PluginsLoadedProps {

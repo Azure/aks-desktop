@@ -10,11 +10,17 @@ import { type HeadlampEvent } from '@kinvolk/headlamp-plugin/lib/redux/headlampE
 import { trackFeature, trackPluginsLoaded } from './index';
 import { KNOWN_PLUGIN_IDS, sanitizeKind } from './schema';
 
+let reduxCallbackRegistered = false;
+
+export function __resetReduxRegistrationForTests(): void {
+  reduxCallbackRegistered = false;
+}
+
 /**
  * Redux event types allowed to forward as `headlamp.feature` envelopes.
  * Verified by snapshot test so each addition is reviewed alongside the
  * privacy posture. ERROR_BOUNDARY is omitted — TelemetryErrorBoundary
- * calls trackException directly.
+ * calls trackError directly.
  */
 export const TELEMETRY_EVENT_ALLOWLIST: ReadonlySet<string> = new Set([
   HeadlampEventType.DELETE_RESOURCE,
@@ -40,37 +46,52 @@ export const TELEMETRY_EVENT_ALLOWLIST: ReadonlySet<string> = new Set([
  * to trackPluginsLoaded; other allowlisted types route to trackFeature;
  * everything else is dropped silently.
  */
-export function registerReduxCallback(): void {
-  registerHeadlampEventCallback((event: HeadlampEvent) => {
-    try {
-      if (!TELEMETRY_EVENT_ALLOWLIST.has(event.type)) return;
+export function registerReduxCallback(isEnabled: () => boolean = () => true): void {
+  if (reduxCallbackRegistered || !telemetryEnabled(isEnabled)) return;
+  reduxCallbackRegistered = true;
+  try {
+    registerHeadlampEventCallback((event: HeadlampEvent) => {
+      try {
+        if (!telemetryEnabled(isEnabled)) return;
+        if (!TELEMETRY_EVENT_ALLOWLIST.has(event.type)) return;
 
-      if (event.type === HeadlampEventType.PLUGINS_LOADED) {
-        const plugins =
-          (event.data as { plugins?: Array<{ name: string; isEnabled: boolean }> } | undefined)
-            ?.plugins ?? [];
-        const enabled = plugins.filter(p => p.isEnabled);
-        const knownEnabledIds = enabled.map(p => p.name).filter(n => KNOWN_PLUGIN_IDS.has(n));
-        const thirdPartyCount = enabled.filter(p => !KNOWN_PLUGIN_IDS.has(p.name)).length;
-        trackPluginsLoaded({
-          totalCount: plugins.length,
-          enabledCount: enabled.length,
-          knownEnabledIds,
-          thirdPartyCount,
+        if (event.type === HeadlampEventType.PLUGINS_LOADED) {
+          const plugins =
+            (event.data as { plugins?: Array<{ name: string; isEnabled: boolean }> } | undefined)
+              ?.plugins ?? [];
+          const enabled = plugins.filter(p => p.isEnabled);
+          const knownEnabledIds = enabled.map(p => p.name).filter(n => KNOWN_PLUGIN_IDS.has(n));
+          const thirdPartyCount = enabled.filter(p => !KNOWN_PLUGIN_IDS.has(p.name)).length;
+          trackPluginsLoaded({
+            totalCount: plugins.length,
+            enabledCount: enabled.length,
+            knownEnabledIds,
+            thirdPartyCount,
+          });
+          return;
+        }
+
+        trackFeature({
+          feature: event.type,
+          status: (event.data as { status?: string } | undefined)?.status ?? 'unknown',
+          resourceKind: extractKindFromPayload({ type: event.type, data: event.data }),
         });
-        return;
+      } catch {
+        // Fail closed. Telemetry failures never emit more telemetry or logs.
       }
+    });
+  } catch {
+    reduxCallbackRegistered = false;
+    // Fail closed. Telemetry failures never emit more telemetry or logs.
+  }
+}
 
-      trackFeature({
-        feature: event.type,
-        status: (event.data as { status?: string } | undefined)?.status ?? 'unknown',
-        resourceKind: extractKindFromPayload({ type: event.type, data: event.data }),
-      });
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[aksd-telemetry] callback failed:', e);
-    }
-  });
+function telemetryEnabled(isEnabled: () => boolean): boolean {
+  try {
+    return isEnabled();
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -4,6 +4,13 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+const telemetryMocks = vi.hoisted(() => ({
+  trackFeature: vi.fn(),
+  trackError: vi.fn(),
+}));
+
+vi.mock('../../../telemetry', () => telemetryMocks);
+
 vi.mock('@kinvolk/headlamp-plugin/lib', async () => {
   const i18n = (await import('i18next')).default;
   const { initReactI18next, useTranslation } = await import('react-i18next');
@@ -124,6 +131,15 @@ describe('useDeployWizard', () => {
     });
     expect(result.current.deployResult).toBe('success');
     expect(result.current.deploying).toBe(false);
+    expect(telemetryMocks.trackFeature).toHaveBeenNthCalledWith(1, {
+      feature: 'aksd.deploy',
+      status: 'started',
+    });
+    expect(telemetryMocks.trackFeature).toHaveBeenNthCalledWith(2, {
+      feature: 'aksd.deploy',
+      status: 'succeeded',
+    });
+    expect(telemetryMocks.trackError).not.toHaveBeenCalled();
   });
 
   it('handleDeploy error path sets deployResult to error', async () => {
@@ -142,6 +158,51 @@ describe('useDeployWizard', () => {
     expect(result.current.deployResult).toBe('error');
     expect(result.current.deployMessage).toBe('ConfigMap/my-cm: apply failed');
     expect(result.current.deploying).toBe(false);
+    expect(telemetryMocks.trackFeature).toHaveBeenCalledWith({
+      feature: 'aksd.deploy',
+      status: 'failed',
+    });
+    expect(telemetryMocks.trackError).toHaveBeenCalledWith({
+      area: 'deploy',
+      errorClass: 'UnknownError',
+      phase: 'failed',
+    });
+  });
+
+  it('reports malformed YAML as a validation failure without leaking the error', async () => {
+    const { result } = renderHook(() => useDeployWizard({}));
+    act(() => {
+      result.current.setSourceType('yaml');
+      result.current.setYamlEditorValue('apiVersion: v1\nmetadata:\n  name: synthetic-name');
+    });
+
+    await act(async () => result.current.handleDeploy());
+
+    expect(telemetryMocks.trackError).toHaveBeenCalledWith({
+      area: 'deploy',
+      errorClass: 'ValidationError',
+      phase: 'failed',
+    });
+    expect(JSON.stringify(telemetryMocks.trackError.mock.calls)).not.toContain('synthetic-name');
+  });
+
+  it('telemetry failures do not change deploy success behavior', async () => {
+    telemetryMocks.trackFeature.mockImplementation(() => {
+      throw new Error('telemetry unavailable');
+    });
+    mockDryRunApply.mockResolvedValueOnce(undefined);
+    mockApply.mockResolvedValueOnce(undefined as any);
+    const { result } = renderHook(() => useDeployWizard({}));
+    act(() => {
+      result.current.setSourceType('yaml');
+      result.current.setYamlEditorValue(
+        'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: my-cm'
+      );
+    });
+
+    await act(async () => result.current.handleDeploy());
+
+    expect(result.current.deployResult).toBe('success');
   });
 
   it('handleDeploy sets deploying false after completion', async () => {

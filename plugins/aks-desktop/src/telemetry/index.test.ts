@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import type { ITelemetryItem } from '@microsoft/applicationinsights-web';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // vi.hoisted so the vi.mock factories below can reference these mocks.
@@ -8,14 +9,36 @@ const aiMocks = vi.hoisted(() => {
   const trackEvent = vi.fn();
   const loadAppInsights = vi.fn();
   const addTelemetryInitializer = vi.fn();
+  const unload = vi.fn();
+  const config: Record<string, unknown> = {};
+  const context = { location: {}, user: {} };
   const ApplicationInsightsCtor = vi.fn().mockImplementation(() => ({
     trackEvent,
     loadAppInsights,
     addTelemetryInitializer,
+    unload,
+    config,
+    context,
   }));
-  return { trackEvent, loadAppInsights, addTelemetryInitializer, ApplicationInsightsCtor };
+  return {
+    trackEvent,
+    loadAppInsights,
+    addTelemetryInitializer,
+    unload,
+    config,
+    context,
+    ApplicationInsightsCtor,
+  };
 });
-const { trackEvent, loadAppInsights, addTelemetryInitializer, ApplicationInsightsCtor } = aiMocks;
+const {
+  trackEvent,
+  loadAppInsights,
+  addTelemetryInitializer,
+  unload,
+  config,
+  context,
+  ApplicationInsightsCtor,
+} = aiMocks;
 
 vi.mock('@microsoft/applicationinsights-web', () => ({
   ApplicationInsights: aiMocks.ApplicationInsightsCtor,
@@ -30,11 +53,14 @@ vi.mock('@kinvolk/headlamp-plugin/lib', async () => {
 
 // Imported AFTER mocks are registered.
 import {
+  __getPendingEventCountForTests,
   __resetForTests,
+  createTelemetryInitializer,
   initTelemetry,
   isTelemetryInitialized,
+  setTelemetryEnabled,
   trackClusterShape,
-  trackException,
+  trackError,
   trackFeature,
   trackPluginsLoaded,
   trackSessionStart,
@@ -62,14 +88,22 @@ beforeEach(() => {
   trackEvent.mockClear();
   loadAppInsights.mockClear();
   addTelemetryInitializer.mockClear();
+  unload.mockClear();
+  for (const key of Object.keys(config)) delete config[key];
   ApplicationInsightsCtor.mockReset();
   ApplicationInsightsCtor.mockImplementation(() => ({
     trackEvent,
     loadAppInsights,
     addTelemetryInitializer,
+    unload,
+    config,
+    context,
   }));
+  context.location = {};
+  context.user = {};
   registerHeadlampEventCallback.mockClear();
   __resetForTests();
+  setTelemetryEnabled(true);
 });
 
 afterEach(() => {
@@ -87,6 +121,73 @@ describe('initTelemetry', () => {
     expect(ApplicationInsightsCtor).toHaveBeenCalledTimes(1);
     expect(loadAppInsights).toHaveBeenCalledTimes(1);
     expect(isTelemetryInitialized()).toBe(true);
+    expect(ApplicationInsightsCtor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ disableExceptionTracking: true }),
+      })
+    );
+  });
+
+  it('installs the privacy initializer before loading the SDK', () => {
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    expect(addTelemetryInitializer).toHaveBeenCalledTimes(1);
+    expect(loadAppInsights).toHaveBeenCalledTimes(1);
+    expect(addTelemetryInitializer.mock.invocationCallOrder[0]).toBeLessThan(
+      loadAppInsights.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('disables and unloads the SDK when privacy setup fails after construction', () => {
+    addTelemetryInitializer.mockImplementationOnce(() => {
+      throw new Error('synthetic initializer failure');
+    });
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    expect(config.disableTelemetry).toBe(true);
+    expect(unload).toHaveBeenCalledWith(false);
+    expect(loadAppInsights).not.toHaveBeenCalled();
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it('clears buffered events when initialization fails', () => {
+    trackFeature({ feature: 'headlamp.logs', status: 'opened' });
+    expect(__getPendingEventCountForTests()).toBe(1);
+    ApplicationInsightsCtor.mockImplementationOnce(() => {
+      throw new Error('synthetic construction failure');
+    });
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    expect(__getPendingEventCountForTests()).toBe(0);
+  });
+
+  it('stamps initialized appVersion on an exception buffered before initialization', () => {
+    trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+
+    expect(trackEvent).toHaveBeenCalledWith({
+      name: 'headlamp.exception',
+      properties: {
+        appVersion: SESSION_PROPS.appVersion,
+        area: 'deploy',
+        errorClass: 'NetworkError',
+        phase: 'failed',
+      },
+    });
   });
 
   it('is idempotent — second call does not re-construct AI', () => {
@@ -102,7 +203,7 @@ describe('initTelemetry', () => {
     });
     expect(ApplicationInsightsCtor).toHaveBeenCalledTimes(1);
     expect(loadAppInsights).toHaveBeenCalledTimes(1);
-    expect(registerHeadlampEventCallback).toHaveBeenCalledTimes(1);
+    expect(registerHeadlampEventCallback).not.toHaveBeenCalled();
   });
 
   it('emits a session-start event on first init', () => {
@@ -138,39 +239,73 @@ describe('initTelemetry', () => {
     });
     // initAttempted stays true so we don't retry on every render.
     expect(isTelemetryInitialized()).toBe(true);
-    expect(errorSpy).toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
     trackSessionStart(SESSION_PROPS);
     expect(trackEvent).not.toHaveBeenCalled();
   });
 
-  it('registers a telemetry initializer that sets ai.user.id to the install UUID', () => {
+  it('registers a telemetry initializer that applies the privacy chokepoint', () => {
     initTelemetry({
       connectionString: 'InstrumentationKey=test',
       installId: VALID_INSTALL_ID,
       sessionProps: SESSION_PROPS,
     });
     expect(addTelemetryInitializer).toHaveBeenCalledTimes(1);
-    const initializer = addTelemetryInitializer.mock.calls[0][0] as (envelope: {
-      tags?: Record<string, unknown>;
-    }) => void;
+    const initializer = addTelemetryInitializer.mock.calls[0][0] as (envelope: any) => void;
 
-    const fresh: { tags?: Record<string, unknown> } = {};
-    initializer(fresh);
-    expect(fresh.tags?.['ai.user.id']).toBe(VALID_INSTALL_ID);
+    window.history.replaceState({}, '', '/projects/synthetic-customer?subscription=synthetic');
+    const envelope = {
+      tags: {
+        'ai.operation.name': '/projects/synthetic-customer',
+        'ai.location.country': 'SyntheticCountry',
+      },
+      data: {
+        baseData: {
+          properties: {
+            safe: 'kept',
+            unsafe: 'https://synthetic.invalid/customer',
+          },
+        },
+      },
+    };
+    initializer(envelope);
+    expect(envelope.tags['ai.user.id']).toBe(VALID_INSTALL_ID);
+    expect(envelope.tags['ai.operation.name']).toBe('unknown');
+    expect(envelope.tags['ai.location.ip']).toBe('0.0.0.0');
+    expect(envelope.tags['ai.location.country']).toBeUndefined();
+    expect(envelope.data.baseData.properties).toEqual({ safe: 'kept' });
 
     // Overwrites a pre-existing id — install UUID wins over SDK auto-assigned.
     const preset = { tags: { 'ai.user.id': 'someone-else' } };
     initializer(preset);
     expect(preset.tags['ai.user.id']).toBe(VALID_INSTALL_ID);
+
+    const withoutTags = {} as ITelemetryItem;
+    initializer(withoutTags);
+    expect(Array.isArray(withoutTags.tags)).toBe(false);
+    expect(withoutTags.tags?.['ai.user.id']).toBe(VALID_INSTALL_ID);
   });
 });
 
-describe('track* before init', () => {
+describe('telemetry initializer failure handling', () => {
+  it('drops an envelope that cannot be scrubbed without throwing', () => {
+    const initializer = createTelemetryInitializer(VALID_INSTALL_ID);
+    const frozenEnvelope = Object.freeze({ tags: Object.freeze({}) });
+    const telemetryItem = frozenEnvelope as unknown as ITelemetryItem;
+    expect(() => initializer(telemetryItem)).not.toThrow();
+    expect(initializer(telemetryItem)).toBe(false);
+  });
+});
+
+describe('tracking before initialization', () => {
   it.each([
     ['trackSessionStart', () => trackSessionStart(SESSION_PROPS)],
     ['trackFeature', () => trackFeature({ feature: 'headlamp.logs', status: 'open' })],
     ['trackClusterShape', () => trackClusterShape(SHAPE_KEY, FULL_SHAPE)],
-    ['trackException', () => trackException('Error')],
+    [
+      'trackError',
+      () => trackError({ area: 'plugin-ui', errorClass: 'UnknownError', phase: 'failed' }),
+    ],
     [
       'trackPluginsLoaded',
       () =>
@@ -181,9 +316,51 @@ describe('track* before init', () => {
           thirdPartyCount: 0,
         }),
     ],
-  ])('%s is a silent no-op when ai is null', (_name, fn) => {
+  ])('%s does not send before initialization', (_name, fn) => {
     expect(fn).not.toThrow();
     expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it('buffers an allowlisted feature event and flushes it after initialization', () => {
+    trackFeature({ feature: 'headlamp.logs', status: 'opened' });
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    expect(trackEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'headlamp.feature',
+        properties: expect.objectContaining({ feature: 'headlamp.logs', status: 'opened' }),
+      })
+    );
+  });
+
+  it('does not buffer direct typed calls when telemetry is disabled', () => {
+    setTelemetryEnabled(false);
+    trackFeature({ feature: 'headlamp.logs', status: 'opened' });
+    trackError({ area: 'plugin-ui', errorClass: 'UnknownError', phase: 'failed' });
+    expect(__getPendingEventCountForTests()).toBe(0);
+
+    setTelemetryEnabled(true);
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'headlamp.feature' })
+    );
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'headlamp.exception' })
+    );
+  });
+
+  it('clears already buffered events when telemetry becomes disabled', () => {
+    trackFeature({ feature: 'headlamp.logs', status: 'opened' });
+    expect(__getPendingEventCountForTests()).toBe(1);
+    setTelemetryEnabled(false);
+    expect(__getPendingEventCountForTests()).toBe(0);
   });
 });
 
@@ -198,7 +375,7 @@ describe('envelope name closure', () => {
 
     trackFeature({ feature: 'headlamp.logs', status: 'open' });
     trackClusterShape(SHAPE_KEY, FULL_SHAPE);
-    trackException('Error');
+    trackError({ area: 'plugin-ui', errorClass: 'UnknownError', phase: 'failed' });
     trackPluginsLoaded({
       totalCount: 1,
       enabledCount: 1,
@@ -215,6 +392,40 @@ describe('envelope name closure', () => {
         'headlamp.plugins-loaded',
       ])
     );
+  });
+});
+
+describe('trackError', () => {
+  beforeEach(() => {
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    trackEvent.mockClear();
+  });
+
+  it('emits only the closed error schema', () => {
+    trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    expect(trackEvent).toHaveBeenCalledWith({
+      name: 'headlamp.exception',
+      properties: {
+        appVersion: SESSION_PROPS.appVersion,
+        area: 'deploy',
+        errorClass: 'NetworkError',
+        phase: 'failed',
+      },
+    });
+  });
+
+  it('caps each area and errorClass pair at five events per session', () => {
+    for (let count = 0; count < 7; count += 1) {
+      trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    }
+    expect(trackEvent).toHaveBeenCalledTimes(5);
+
+    trackError({ area: 'deploy', errorClass: 'TimeoutError', phase: 'failed' });
+    expect(trackEvent).toHaveBeenCalledTimes(6);
   });
 });
 
@@ -299,6 +510,7 @@ describe('trackClusterShape dedupe', () => {
 
   it('does not mark dedupeKey as seen when called before init (so post-init call still fires)', () => {
     __resetForTests();
+    setTelemetryEnabled(true);
     trackClusterShape(SHAPE_KEY, FULL_SHAPE);
     expect(trackEvent).not.toHaveBeenCalled();
 
@@ -375,11 +587,9 @@ describe('error swallowing', () => {
       throw new Error('boom');
     });
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(() => trackException('Error')).not.toThrow();
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[aksd-telemetry]'),
-      expect.anything(),
-      expect.anything()
-    );
+    expect(() =>
+      trackError({ area: 'plugin-ui', errorClass: 'UnknownError', phase: 'failed' })
+    ).not.toThrow();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });

@@ -4,10 +4,17 @@
 import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Button, Dialog } from '@mui/material';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
+import { trackFeature } from '../../telemetry';
 import DeployWizard from '../DeployWizard/DeployWizard';
 import { useDeployUrlParams } from './hooks/useDeployUrlParams';
 import { useDialogState } from './hooks/useDialogState';
+
+function safelyTrackDeployOpened() {
+  try {
+    trackFeature({ feature: 'aksd.deploy', status: 'opened' });
+  } catch {}
+}
 
 /**
  * Defines the structure of a project for deployment.
@@ -41,13 +48,20 @@ function DeployButton({ project }: DeployButtonProps) {
   const { t } = useTranslation();
   const urlParams = useDeployUrlParams();
   const dialogState = useDialogState();
+  const handledUrlOpenRef = useRef(false);
 
   // Open dialog when URL parameters indicate we should
   useEffect(() => {
-    if (urlParams.shouldOpenDialog) {
-      dialogState.openDialog(urlParams.initialApplicationName);
-      urlParams.clearUrlTrigger();
+    if (!urlParams.shouldOpenDialog) {
+      handledUrlOpenRef.current = false;
+      return;
     }
+
+    if (handledUrlOpenRef.current) return;
+    handledUrlOpenRef.current = true;
+    safelyTrackDeployOpened();
+    dialogState.openDialog(urlParams.initialApplicationName);
+    urlParams.clearUrlTrigger();
   }, [
     urlParams.shouldOpenDialog,
     urlParams.initialApplicationName,
@@ -56,6 +70,7 @@ function DeployButton({ project }: DeployButtonProps) {
   ]);
 
   const handleClickOpen = () => {
+    safelyTrackDeployOpened();
     dialogState.openDialog();
   };
 
