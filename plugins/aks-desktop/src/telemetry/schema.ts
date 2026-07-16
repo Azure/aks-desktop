@@ -78,6 +78,15 @@ export const KNOWN_FEATURE_TYPES: ReadonlySet<string> = new Set([
   'headlamp.details-view',
   'headlamp.list-view',
   'headlamp.object-events',
+  'aksd.azure-login',
+  'aksd.azure-logout',
+  'aksd.project-create',
+  'aksd.project-import',
+  'aksd.namespace-create',
+  'aksd.metrics',
+  'aksd.scaling',
+  'aksd.deploy',
+  'aksd.pipeline',
   // PLUGINS_LOADED routes to trackPluginsLoaded; ERROR_BOUNDARY is captured
   // by TelemetryErrorBoundary directly. Both intentionally omitted.
 ]);
@@ -88,7 +97,69 @@ export const EVENT_STATUSES: ReadonlySet<string> = new Set([
   'closed',
   'confirmed',
   'finished',
+  'opened',
+  'started',
+  'succeeded',
+  'failed',
+  'cancelled',
+  'completed',
+  'viewed',
 ]);
+
+export const KNOWN_ROUTES: ReadonlySet<string> = new Set([
+  '/index',
+  '/login',
+  '/profile',
+  '/projects',
+  '/project-create',
+  '/project-import',
+  '/namespace-create',
+  '/add-cluster',
+  '/settings',
+  'unknown',
+]);
+
+export const ERROR_CLASSES = new Set([
+  'AuthenticationError',
+  'PermissionError',
+  'NetworkError',
+  'ValidationError',
+  'TimeoutError',
+  'UnknownError',
+] as const);
+
+export type TelemetryErrorClass =
+  | 'AuthenticationError'
+  | 'PermissionError'
+  | 'NetworkError'
+  | 'ValidationError'
+  | 'TimeoutError'
+  | 'UnknownError';
+
+export const ERROR_AREAS = new Set([
+  'azure-login',
+  'project-create',
+  'project-import',
+  'namespace-create',
+  'metrics',
+  'deploy',
+  'scaling',
+  'pipeline',
+  'kubernetes',
+  'plugin-ui',
+] as const);
+
+export type TelemetryErrorArea =
+  | 'azure-login'
+  | 'project-create'
+  | 'project-import'
+  | 'namespace-create'
+  | 'metrics'
+  | 'deploy'
+  | 'scaling'
+  | 'pipeline'
+  | 'kubernetes'
+  | 'plugin-ui';
 
 /**
  * Azure region shape: lowercase letters containing a compass keyword and
@@ -120,6 +191,28 @@ export function sanitizeFeatureType(type: string | undefined): string | undefine
 export function sanitizeStatus(status: string | null | undefined): string {
   if (!status) return 'unknown';
   return EVENT_STATUSES.has(status) ? status : 'unknown';
+}
+
+export function sanitizeRoute(route: string | null | undefined): string {
+  if (!route || !route.startsWith('/')) return 'unknown';
+  const path = route.split(/[?#]/, 1)[0];
+
+  if (path === '/' || path === '/index') return '/index';
+  if (path === '/azure/login') return '/login';
+  if (path === '/azure/profile') return '/profile';
+  if (path === '/projects') return '/projects';
+  if (path === '/projects/create-aks-project') return '/project-create';
+  if (path === '/projects/import-aks-projects') return '/project-import';
+  if (path === '/projects/create-namespace') return '/namespace-create';
+  if (path === '/add-cluster-aks') return '/add-cluster';
+  if (path === '/settings' || path.startsWith('/settings/')) return '/settings';
+  return 'unknown';
+}
+
+export function sanitizeErrorClass(errorClass: string | null | undefined): TelemetryErrorClass {
+  return errorClass && ERROR_CLASSES.has(errorClass as TelemetryErrorClass)
+    ? (errorClass as TelemetryErrorClass)
+    : 'UnknownError';
 }
 
 export type AksTier = 'Free' | 'Standard' | 'Premium' | 'Unknown';
