@@ -1,835 +1,96 @@
-import { Link } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
-import { Alert, Box, Button, Link as MuiLink, Typography, useTheme } from '@mui/material';
-import React, { useMemo, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+/*
+ * Copyright 2025 The Kubernetes Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import type {
+  ContentRendererProps as BaseProps,
+  LinkRendererProps,
+} from '@headlamp-k8s/ai-ui/components/chat/ContentRenderer';
+import ContentRendererBase from '@headlamp-k8s/ai-ui/components/chat/ContentRenderer';
+import { Link as MuiLink } from '@mui/material';
+import React from 'react';
 import { Link as RouterLink, useHistory } from 'react-router-dom';
-import remarkGfm from 'remark-gfm';
-import YAML from 'yaml';
-import { debugLog, detailLog, verboseLog } from './agent/debugLog';
-import { LogsButton, YamlDisplay } from './components';
-import { getHeadlampLink } from './utils/promptLinkHelper';
-import { parseKubernetesYAML } from './utils/SampleYamlLibrary';
-
-// Helper types for error handling
-interface ParseResult<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
-
-// Helper function to safely parse JSON content
-const parseJsonContent = (content: string): ParseResult<any> => {
-  try {
-    const parsed = JSON.parse(content);
-    return { success: true, data: parsed };
-  } catch (error) {
-    detailLog(
-      'Content is not valid JSON:',
-      error instanceof Error ? error.message : 'Unknown error'
-    );
-    return {
-      success: false,
-      error: `Invalid JSON: ${error instanceof Error ? error.message : 'Unknown error'}`,
-    };
-  }
-};
-
-// Helper function to safely parse logs button data
-const parseLogsButtonData = (content: string, logsButtonIndex: number): ParseResult<any> => {
-  try {
-    // Find the start of the JSON object
-    const jsonStart = logsButtonIndex + 'LOGS_BUTTON:'.length;
-    let jsonString = '';
-    let braceCount = 0;
-    let foundFirstBrace = false;
-    let inString = false;
-    let escaped = false;
-
-    // Parse character by character to find the complete JSON object,
-    // tracking whether we are inside a JSON string to avoid counting
-    // braces that appear inside string values.
-    for (let i = jsonStart; i < content.length; i++) {
-      const char = content[i];
-
-      if (escaped) {
-        escaped = false;
-        if (foundFirstBrace) jsonString += char;
-        continue;
-      }
-
-      if (char === '\\' && inString) {
-        escaped = true;
-        if (foundFirstBrace) jsonString += char;
-        continue;
-      }
-
-      if (char === '"' && foundFirstBrace) {
-        inString = !inString;
-      }
-
-      if (!inString) {
-        if (char === '{') {
-          foundFirstBrace = true;
-          braceCount++;
-        } else if (char === '}') {
-          braceCount--;
-        }
-      }
-
-      if (foundFirstBrace) {
-        jsonString += char;
-        if (braceCount === 0) {
-          break;
-        }
-      }
-    }
-
-    if (!jsonString) {
-      return { success: false, error: 'No JSON object found after LOGS_BUTTON:' };
-    }
-
-    const logsData = JSON.parse(jsonString);
-
-    // Validate required fields
-    if (!logsData.data || !logsData.data.logs) {
-      return { success: false, error: 'Invalid logs data structure: missing required fields' };
-    }
-
-    return { success: true, data: logsData };
-  } catch (error) {
-    console.error(
-      'Failed to parse logs JSON data:',
-      error instanceof Error ? error.message : 'Unknown error'
-    );
-    return {
-      success: false,
-      error: `Invalid logs JSON: ${error instanceof Error ? error.message : 'Unknown error'}`,
-    };
-  }
-};
+import { getHeadlampLink } from './headlampLink';
 
 /**
- * Check if content looks like YAML structure (indented key-value pairs,
- * list items) even without Kubernetes-specific keywords.
- * Used to catch orphaned YAML parts from --- splitting.
+ * Headlamp link renderer for markdown content.
+ *
+ * Resolves Kubernetes resource links via headlamp-plugin's `Link` component
+ * and uses `react-router-dom` for internal navigation. Falls back to
+ * external links for non-headlamp URLs.
  */
-export const looksLikeYamlContent = (text: string): boolean => {
-  const lines = text.split('\n').filter(l => l.trim() !== '');
-  if (lines.length < 2) return false;
+const HeadlampLinkRenderer = React.memo(({ href, children, ...props }: LinkRendererProps) => {
+  const history = useHistory();
 
-  let yamlLikeLines = 0;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    // key: value pair  OR  key: (no value, e.g. metadata:, spec:)
-    if (/^\w[\w./-]*:\s/.test(trimmed) || /^\w[\w./-]*:\s*$/.test(trimmed)) yamlLikeLines++;
-    // list item: - something
-    else if (/^-\s/.test(trimmed)) yamlLikeLines++;
-    // indented key: value  OR  indented key: (no value)
-    else if (/^\s+\w[\w./-]*:(\s|$)/.test(line)) yamlLikeLines++;
-    // indented list item
-    else if (/^\s+-\s/.test(line)) yamlLikeLines++;
+  // Check if it's a resource details link
+  // Wrapped in try-catch because headlamp-plugin imports (ResourceClasses)
+  // may be undefined depending on plugin externalization
+  let headlampLinkDetails;
+  try {
+    headlampLinkDetails = getHeadlampLink(href);
+  } catch {
+    // Fall through to external link rendering
+    headlampLinkDetails = { isHeadlampLink: false, url: '', kubeObject: null };
   }
+  if (headlampLinkDetails.isHeadlampLink) {
+    // Use RouterLink for all Headlamp links to avoid headlampEventSlice crash
+    // where DefaultHeadlampEvents is undefined
+    if (headlampLinkDetails.url) {
+      return (
+        <MuiLink
+          {...props}
+          to={headlampLinkDetails.url}
+          component={RouterLink}
+          onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+            event.preventDefault();
+            history.push(headlampLinkDetails.url);
+          }}
+        >
+          {children}
+        </MuiLink>
+      );
+    }
 
-  // If at least half the lines look like YAML, treat it as YAML
-  return yamlLikeLines / lines.length >= 0.5;
-};
-
-interface ContentRendererProps {
-  content: string;
-  onYamlDetected?: (yaml: string, resourceType: string) => void;
-}
-
-// Table wrapper component with show more functionality - moved outside to preserve state
-const TableWrapper: React.FC<{ children: React.ReactNode }> = React.memo(({ children }) => {
-  const [showAll, setShowAll] = useState(false);
-  const maxRows = 5;
-
-  // Extract table rows from children
-  const tableElement = React.Children.only(children) as React.ReactElement;
-  const tbody = React.Children.toArray(tableElement.props.children).find(
-    (child: any) => child?.type === 'tbody' || child?.props?.component === 'tbody'
-  );
-
-  if (!tbody) {
-    // No tbody found, return table as is
-    return <Box sx={{ overflowX: 'auto', width: '100%', mb: 2 }}>{children}</Box>;
+    // The link is not supported in Headlamp so likely the LLM made it up
+    return <em>{children}</em>;
   }
-
-  const tbodyElement = tbody as React.ReactElement;
-  const rows = React.Children.toArray(tbodyElement.props.children);
-  const hasMoreRows = rows.length > maxRows;
-  const visibleRows = showAll ? rows : rows.slice(0, maxRows);
-
-  // Clone the tbody with limited rows
-  const limitedTbody = React.cloneElement(tbodyElement, {
-    children: visibleRows,
-  });
-
-  // Clone the table with the limited tbody
-  const limitedTable = React.cloneElement(tableElement, {
-    children: React.Children.map(tableElement.props.children, (child: any) => {
-      if (child?.type === 'tbody' || child?.props?.component === 'tbody') {
-        return limitedTbody;
-      }
-      return child;
-    }),
-  });
 
   return (
-    <Box sx={{ overflowX: 'auto', width: '100%', mb: 2 }}>
-      {limitedTable}
-      {hasMoreRows && (
-        <Box sx={{ mt: 1, textAlign: 'center' }}>
-          <Button variant="outlined" size="small" onClick={() => setShowAll(!showAll)}>
-            {showAll ? `Show Less (${maxRows} rows)` : `Show More (${rows.length} total rows)`}
-          </Button>
-        </Box>
-      )}
-    </Box>
+    <MuiLink href={href} target="_blank" rel="noopener noreferrer" {...props}>
+      {children}
+    </MuiLink>
   );
 });
+HeadlampLinkRenderer.displayName = 'HeadlampLinkRenderer';
 
-TableWrapper.displayName = 'TableWrapper';
+type ContentRendererProps = Omit<BaseProps, 'LinkRendererSlot'>;
 
-// Helper function to detect and convert JSON Kubernetes resources to YAML
-const convertJsonToYaml = (content: string): string => {
-  try {
-    // First, try to parse as JSON
-    const parsed = JSON.parse(content.trim());
-
-    // Check if it's a Kubernetes resource (has apiVersion and kind)
-    if (parsed && typeof parsed === 'object' && parsed.apiVersion && parsed.kind) {
-      // Convert to YAML format
-      return YAML.stringify(parsed, {
-        sortMapEntries: false,
-        lineWidth: 0,
-        minContentWidth: 0,
-      });
-    }
-  } catch (error) {
-    detailLog(
-      'Content is not valid JSON, cannot convert to YAML:',
-      error instanceof Error ? error.message : 'Unknown error'
-    );
-  }
-  return content;
-};
-
-// Helper function to detect if content is a JSON Kubernetes resource
-const isJsonKubernetesResource = (content: string): boolean => {
-  try {
-    const trimmed = content.trim();
-    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
-      return false;
-    }
-
-    const parsed = JSON.parse(trimmed);
-    return !!(parsed && typeof parsed === 'object' && parsed.apiVersion && parsed.kind);
-  } catch (error) {
-    detailLog(
-      'Content is not valid JSON when checking for Kubernetes resource:',
-      error instanceof Error ? error.message : 'Unknown error'
-    );
-    return false;
-  }
-};
-
-// Memoized markdown components to prevent remounting
-const markdownComponents = {
-  // Override h1 rendering
-  h1: React.memo(({ ...props }: any) => (
-    <Typography variant="h4" gutterBottom sx={{ overflowWrap: 'break-word' }} {...props} />
-  )),
-  // Override h2 rendering
-  h2: React.memo(({ ...props }: any) => (
-    <Typography variant="h5" gutterBottom sx={{ overflowWrap: 'break-word' }} {...props} />
-  )),
-  // Override h3 rendering
-  h3: React.memo(({ ...props }: any) => (
-    <Typography variant="h6" gutterBottom sx={{ overflowWrap: 'break-word' }} {...props} />
-  )),
-  // Override paragraph rendering
-  p: React.memo(({ ...props }: any) => (
-    <Typography variant="body1" paragraph sx={{ overflowWrap: 'break-word' }} {...props} />
-  )),
-  // Style for tables
-  table: React.memo(({ ...props }: any) => (
-    <TableWrapper>
-      <Box component="table" sx={{ minWidth: '400px', borderCollapse: 'collapse' }} {...props} />
-    </TableWrapper>
-  )),
-  // Style for table headers
-  th: React.memo(({ ...props }: any) => (
-    <Box
-      component="th"
-      sx={{
-        borderBottom: '1px solid',
-        borderColor: 'divider',
-        padding: '8px 16px',
-        textAlign: 'left',
-        fontWeight: 'bold',
-      }}
-      {...props}
-    />
-  )),
-  // Style for table cells
-  td: React.memo(({ ...props }: any) => (
-    <Box
-      component="td"
-      sx={{
-        borderBottom: '1px solid',
-        borderColor: 'divider',
-        padding: '8px 16px',
-        textAlign: 'left',
-      }}
-      {...props}
-    />
-  )),
-  // Style for lists
-  ul: React.memo(({ ...props }: any) => (
-    <Box component="ul" sx={{ pl: 2, mb: 2, overflowWrap: 'break-word' }} {...props} />
-  )),
-  ol: React.memo(({ ...props }: any) => (
-    <Box component="ol" sx={{ pl: 2, mb: 2, overflowWrap: 'break-word' }} {...props} />
-  )),
-  li: React.memo(({ ...props }: any) => (
-    <Box component="li" sx={{ mb: 1, overflowWrap: 'break-word' }} {...props} />
-  )),
-  // Style for blockquotes
-  blockquote: React.memo(({ ...props }: any) => (
-    <Box
-      component="blockquote"
-      sx={{
-        borderLeft: '4px solid',
-        borderColor: 'divider',
-        pl: 2,
-        my: 2,
-        color: 'text.secondary',
-        overflowWrap: 'break-word',
-      }}
-      {...props}
-    />
-  )),
-};
-
-// Add display names for better debugging
-markdownComponents.h1.displayName = 'MarkdownH1';
-markdownComponents.h2.displayName = 'MarkdownH2';
-markdownComponents.h3.displayName = 'MarkdownH3';
-markdownComponents.p.displayName = 'MarkdownP';
-markdownComponents.table.displayName = 'MarkdownTable';
-markdownComponents.th.displayName = 'MarkdownTh';
-markdownComponents.td.displayName = 'MarkdownTd';
-markdownComponents.ul.displayName = 'MarkdownUl';
-markdownComponents.ol.displayName = 'MarkdownOl';
-markdownComponents.li.displayName = 'MarkdownLi';
-markdownComponents.blockquote.displayName = 'MarkdownBlockquote';
-
+/**
+ * ContentRenderer with headlamp-plugin link resolution.
+ *
+ * Thin wrapper around the framework-agnostic ContentRenderer from ai-ui
+ * that injects the HeadlampLinkRenderer for Kubernetes resource links.
+ */
 const ContentRenderer: React.FC<ContentRendererProps> = React.memo(
-  ({ content, onYamlDetected }) => {
-    const history = useHistory();
-    const theme = useTheme();
-    const isDark = theme.palette.mode === 'dark';
-
-    // Theme-aware code block colors
-    const codeBlockBg = isDark ? theme.palette.grey[900] : theme.palette.grey[100];
-    const codeBlockColor = isDark ? theme.palette.grey[100] : theme.palette.grey[900];
-
-    // Create code component that has access to onYamlDetected
-    const CodeComponent = React.useMemo(() => {
-      const component = React.memo(({ className, children, ...props }: any) => {
-        // Check if this is a YAML code block
-        const isYamlBlock =
-          !props.inline &&
-          (className === 'language-yaml' ||
-            className === 'language-yml' ||
-            (typeof children === 'string' &&
-              children.includes('apiVersion:') &&
-              children.includes('kind:')));
-
-        // Check if this is a JSON code block with Kubernetes resource
-        const isJsonKubernetesBlock =
-          !props.inline &&
-          typeof children === 'string' &&
-          (className === 'language-json' || isJsonKubernetesResource(children));
-
-        detailLog(
-          '[ContentRenderer] CodeComponent: className:',
-          className,
-          'inline:',
-          props.inline,
-          'isYamlBlock:',
-          isYamlBlock,
-          'isJsonK8s:',
-          isJsonKubernetesBlock,
-          'content length:',
-          typeof children === 'string' ? children.length : 'N/A'
-        );
-
-        if (isYamlBlock && onYamlDetected && typeof children === 'string') {
-          const parsed = parseKubernetesYAML(children);
-          if (parsed.isValid) {
-            return (
-              <YamlDisplay
-                yaml={children}
-                title={parsed.resourceType}
-                onOpenInEditor={onYamlDetected}
-              />
-            );
-          }
-        }
-
-        if (isJsonKubernetesBlock && onYamlDetected && typeof children === 'string') {
-          // Convert JSON to YAML and display
-          const yamlContent = convertJsonToYaml(children);
-          const parsed = parseKubernetesYAML(yamlContent);
-          if (parsed.isValid) {
-            return (
-              <YamlDisplay
-                yaml={yamlContent}
-                title={`${parsed.resourceType}${parsed.name ? ` - ${parsed.name}` : ''}`}
-                onOpenInEditor={onYamlDetected}
-              />
-            );
-          }
-        }
-
-        // Check if it's just one line of inline code (not a fenced block)
-        if (props.inline && typeof children === 'string' && !children.trim().includes('\n')) {
-          // Display inline
-          return <em>{children}</em>;
-        }
-
-        // Regular code block styling
-        return !props.inline ? (
-          <Box
-            component="pre"
-            sx={{
-              backgroundColor: codeBlockBg,
-              color: codeBlockColor,
-              padding: 2,
-              borderRadius: 1,
-              overflowX: 'auto',
-              '& code': {
-                whiteSpace: 'pre-wrap',
-                wordWrap: 'break-word',
-              },
-            }}
-          >
-            <Box component="code" className={className} {...props}>
-              {children}
-            </Box>
-          </Box>
-        ) : (
-          <Box
-            component="code"
-            sx={{
-              backgroundColor: codeBlockBg,
-              color: codeBlockColor,
-              padding: '0.1em 0.3em',
-              borderRadius: '0.3em',
-              fontSize: '85%',
-              wordWrap: 'break-word',
-            }}
-            className={className}
-            {...props}
-          >
-            {children}
-          </Box>
-        );
-      });
-      component.displayName = 'MarkdownCode';
-      return component;
-    }, [onYamlDetected, codeBlockBg, codeBlockColor]);
-
-    // Create link component that has access to history
-    const LinkComponent = React.useMemo(() => {
-      const component = React.memo(({ href, ...props }: any) => {
-        // Check if it's a resource details link
-        const headlampLinkDetails = getHeadlampLink(href);
-        if (headlampLinkDetails.isHeadlampLink) {
-          const { kubeObject } = headlampLinkDetails;
-          if (kubeObject) {
-            return <Link kubeObject={kubeObject} />;
-          }
-          // In case it's a Headlamp processed link but no kube object
-          if (headlampLinkDetails.url) {
-            return (
-              <MuiLink
-                to={headlampLinkDetails.url}
-                component={RouterLink}
-                onClick={(e: any) => {
-                  e.preventDefault();
-                  history.push(headlampLinkDetails.url);
-                }}
-              >
-                {props.children}
-              </MuiLink>
-            );
-          }
-
-          // The link is not supported in Headlamp so likely the LLM made it up
-          return <em>{props.children}</em>;
-        }
-
-        return (
-          <MuiLink href={href} target="_blank" rel="noopener noreferrer" {...props}>
-            {props.children}
-          </MuiLink>
-        );
-      });
-      component.displayName = 'MarkdownLink';
-      return component;
-    }, [history]);
-
-    // Combine all components
-    const allMarkdownComponents = React.useMemo(
-      () => ({
-        ...markdownComponents,
-        code: CodeComponent,
-        a: LinkComponent,
-      }),
-      [CodeComponent, LinkComponent]
-    );
-
-    // Helper function to process content with unformatted YAML
-    const processUnformattedYaml = React.useCallback(
-      (content: string) => {
-        const sections: React.ReactNode[] = [];
-        let sectionIndex = 0;
-
-        // Split content by YAML document separators or detect YAML blocks
-        const yamlSeparatorRegex = /^---+$/gm;
-        const parts = content.split(yamlSeparatorRegex);
-        detailLog(
-          '[ContentRenderer] processUnformattedYaml: split into',
-          parts.length,
-          'parts by --- separators'
-        );
-
-        parts.forEach((part, index) => {
-          const trimmedPart = part.trim();
-          if (!trimmedPart) return;
-
-          // Check if this part is a JSON Kubernetes resource
-          if (isJsonKubernetesResource(trimmedPart)) {
-            verboseLog(
-              '[ContentRenderer] processUnformattedYaml: part',
-              index,
-              'is JSON K8s resource'
-            );
-            const yamlContent = convertJsonToYaml(trimmedPart);
-            const parsed = parseKubernetesYAML(yamlContent);
-            if (parsed.isValid) {
-              sections.push(
-                <YamlDisplay
-                  key={`json-yaml-${index}-${sectionIndex++}`}
-                  yaml={yamlContent}
-                  title={`${parsed.resourceType}${parsed.name ? ` - ${parsed.name}` : ''}`}
-                  onOpenInEditor={onYamlDetected}
-                />
-              );
-              return;
-            }
-          }
-
-          // Check if this part looks like YAML
-          const isYamlPart =
-            trimmedPart.includes('apiVersion:') &&
-            trimmedPart.includes('kind:') &&
-            trimmedPart.includes('metadata:');
-
-          if (isYamlPart) {
-            // Try to parse as Kubernetes YAML
-            const parsed = parseKubernetesYAML(trimmedPart);
-            verboseLog(
-              '[ContentRenderer] processUnformattedYaml: part',
-              index,
-              'is YAML, valid:',
-              parsed.isValid,
-              'type:',
-              parsed.resourceType
-            );
-            if (parsed.isValid) {
-              sections.push(
-                <YamlDisplay
-                  key={`yaml-${index}-${sectionIndex++}`}
-                  yaml={trimmedPart}
-                  title={`${parsed.resourceType}${parsed.name ? ` - ${parsed.name}` : ''}`}
-                  onOpenInEditor={onYamlDetected}
-                />
-              );
-            } else {
-              // Not valid YAML, display as code
-              verboseLog(
-                '[ContentRenderer] processUnformattedYaml: part',
-                index,
-                'invalid YAML, rendering as code block'
-              );
-              sections.push(
-                <Box
-                  component="pre"
-                  key={`code-${index}-${sectionIndex++}`}
-                  sx={{
-                    backgroundColor: codeBlockBg,
-                    color: codeBlockColor,
-                    padding: 2,
-                    borderRadius: 1,
-                    overflowX: 'auto',
-                    whiteSpace: 'pre-wrap',
-                    fontSize: '0.85rem',
-                  }}
-                >
-                  {trimmedPart}
-                </Box>
-              );
-            }
-          } else if (looksLikeYamlContent(trimmedPart)) {
-            // Part looks like YAML content (indented key-value pairs, list items)
-            // but doesn't have K8s keywords — render as code block to avoid
-            // markdown interpreting YAML syntax (e.g. __name__ as bold)
-            verboseLog(
-              '[ContentRenderer] processUnformattedYaml: part',
-              index,
-              'looks like YAML content without K8s keywords, rendering as code block'
-            );
-            sections.push(
-              <Box
-                component="pre"
-                key={`yaml-code-${index}-${sectionIndex++}`}
-                sx={{
-                  backgroundColor: codeBlockBg,
-                  color: codeBlockColor,
-                  padding: 2,
-                  borderRadius: 1,
-                  overflowX: 'auto',
-                  whiteSpace: 'pre-wrap',
-                  fontSize: '0.85rem',
-                }}
-              >
-                {trimmedPart}
-              </Box>
-            );
-          } else {
-            // Regular text content - use ReactMarkdown with simplified components
-            verboseLog(
-              '[ContentRenderer] processUnformattedYaml: part',
-              index,
-              'is regular text, rendering as markdown'
-            );
-            sections.push(
-              <ReactMarkdown
-                key={`text-${index}-${sectionIndex++}`}
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  p: markdownComponents.p,
-                  h1: markdownComponents.h1,
-                  h2: markdownComponents.h2,
-                  h3: markdownComponents.h3,
-                  ul: markdownComponents.ul,
-                  ol: markdownComponents.ol,
-                  li: markdownComponents.li,
-                  a: LinkComponent,
-                  code: CodeComponent,
-                }}
-              >
-                {trimmedPart}
-              </ReactMarkdown>
-            );
-          }
-        });
-
-        detailLog(
-          '[ContentRenderer] processUnformattedYaml: rendered',
-          sections.length,
-          'sections'
-        );
-        return <Box>{sections}</Box>;
-      },
-      [onYamlDetected, LinkComponent, CodeComponent]
-    );
-
-    // Process content and detect standalone YAML blocks and logs buttons
-    const processedContent = useMemo(() => {
-      if (!content) return null;
-
-      debugLog(
-        '[ContentRenderer] Processing content, length:',
-        content.length,
-        'content:',
-        content
-      );
-
-      // First, check if content is a JSON response with error or success keys
-      const jsonParseResult = parseJsonContent(content.trim());
-      if (jsonParseResult.success) {
-        const parsedContent = jsonParseResult.data;
-
-        // Check if it's an error response
-        if (parsedContent.error === true && parsedContent.content) {
-          debugLog('[ContentRenderer] Detected JSON error response');
-          return (
-            <Alert severity="error" sx={{ mb: 1, overflowWrap: 'anywhere' }}>
-              <Typography variant="body2">{parsedContent.content}</Typography>
-            </Alert>
-          );
-        }
-
-        // Check if it's a success response
-        if (parsedContent.success === true && parsedContent.content) {
-          debugLog('[ContentRenderer] Detected JSON success response');
-          return (
-            <Alert severity="success" sx={{ mb: 1, overflowWrap: 'anywhere' }}>
-              <Typography variant="body2">{parsedContent.content}</Typography>
-            </Alert>
-          );
-        }
-
-        // If it's a JSON response but not error/success, continue with normal processing
-        // unless it's a Kubernetes resource, then fall through to regular content processing
-        if (!isJsonKubernetesResource(content)) {
-          debugLog('[ContentRenderer] Detected non-K8s JSON response, rendering as formatted JSON');
-          // For other JSON responses that aren't Kubernetes resources,
-          // render as formatted JSON
-          return (
-            <Box
-              component="pre"
-              sx={{
-                backgroundColor: codeBlockBg,
-                color: codeBlockColor,
-                padding: 2,
-                borderRadius: 1,
-                overflowX: 'auto',
-                whiteSpace: 'pre-wrap',
-                fontSize: '0.85rem',
-              }}
-            >
-              {JSON.stringify(parsedContent, null, 2)}
-            </Box>
-          );
-        }
-      }
-
-      // Check if the entire content is a JSON Kubernetes resource
-      if (isJsonKubernetesResource(content)) {
-        debugLog('[ContentRenderer] Detected JSON Kubernetes resource');
-        const yamlContent = convertJsonToYaml(content);
-        const parsed = parseKubernetesYAML(yamlContent);
-        if (parsed.isValid) {
-          return (
-            <YamlDisplay
-              yaml={yamlContent}
-              title={`${parsed.resourceType}${parsed.name ? ` - ${parsed.name}` : ''}`}
-              onOpenInEditor={onYamlDetected}
-            />
-          );
-        }
-      }
-
-      // Check for logs button format
-      if (content.includes('LOGS_BUTTON:')) {
-        debugLog('[ContentRenderer] Detected LOGS_BUTTON marker');
-        const logsButtonIndex = content.indexOf('LOGS_BUTTON:');
-        if (logsButtonIndex !== -1) {
-          const logsResult = parseLogsButtonData(content, logsButtonIndex);
-          if (logsResult.success) {
-            const logsData = logsResult.data;
-            return (
-              <Box>
-                <LogsButton
-                  logs={logsData.data.logs}
-                  resourceName={logsData.data.resourceName}
-                  resourceType={logsData.data.resourceType}
-                  namespace={logsData.data.namespace}
-                  containerName={logsData.data.containerName}
-                />
-              </Box>
-            );
-          }
-        }
-      }
-
-      // First, let's detect if this content has unformatted YAML (not in code blocks)
-      // or JSON Kubernetes resources that need special handling.
-      // Check for apiVersion: outside code fences — even if some YAML is fenced,
-      // there may also be unfenced YAML that needs special handling.
-      const hasYamlKeywords =
-        content.includes('apiVersion:') &&
-        content.includes('kind:') &&
-        content.includes('metadata:');
-
-      let hasUnformattedYaml = false;
-      if (hasYamlKeywords) {
-        if (!content.includes('```yaml') && !content.includes('```yml')) {
-          // No fenced YAML at all — all YAML is unfenced
-          hasUnformattedYaml = true;
-        } else {
-          // Some YAML is fenced — check if apiVersion: also appears outside fences
-          const lines = content.split('\n');
-          let inFence = false;
-          for (const line of lines) {
-            if (/^\s*```/.test(line)) {
-              inFence = !inFence;
-              continue;
-            }
-            if (!inFence && /apiVersion:\s*\S/.test(line)) {
-              hasUnformattedYaml = true;
-              break;
-            }
-          }
-        }
-      }
-
-      let hasJsonKubernetesResource = false;
-      if (
-        content.includes('"apiVersion":') &&
-        content.includes('"kind":') &&
-        content.includes('"metadata":')
-      ) {
-        // Check whether JSON K8s keywords appear outside fenced code blocks
-        const jsonLines = content.split('\n');
-        let inJsonFence = false;
-        for (const line of jsonLines) {
-          if (/^\s*```/.test(line)) {
-            inJsonFence = !inJsonFence;
-            continue;
-          }
-          if (!inJsonFence && /"apiVersion"\s*:/.test(line)) {
-            hasJsonKubernetesResource = true;
-            break;
-          }
-        }
-      }
-
-      if (hasUnformattedYaml || hasJsonKubernetesResource) {
-        debugLog(
-          '[ContentRenderer] Detected unformatted YAML/JSON K8s resource, processing separately',
-          { hasUnformattedYaml, hasJsonKubernetesResource }
-        );
-        // Handle content with unformatted YAML or JSON resources
-        return processUnformattedYaml(content);
-      }
-
-      // For regular markdown content, use ReactMarkdown
-      debugLog('[ContentRenderer] Rendering as regular markdown');
-      return (
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={allMarkdownComponents}>
-          {content}
-        </ReactMarkdown>
-      );
-    }, [content, onYamlDetected, processUnformattedYaml, codeBlockBg, codeBlockColor]);
-
-    return (
-      <Box sx={{ width: '100%', overflowWrap: 'break-word', wordWrap: 'break-word' }}>
-        {processedContent}
-      </Box>
-    );
-  },
+  props => <ContentRendererBase {...props} LinkRendererSlot={HeadlampLinkRenderer} />,
   (prevProps, nextProps) => {
-    // Only re-render if content or onYamlDetected actually changed
     return (
       prevProps.content === nextProps.content &&
-      prevProps.onYamlDetected === nextProps.onYamlDetected
+      prevProps.onYamlDetected === nextProps.onYamlDetected &&
+      prevProps.onRetryTool === nextProps.onRetryTool &&
+      prevProps.promptWidth === nextProps.promptWidth
     );
   }
 );
@@ -837,6 +98,3 @@ const ContentRenderer: React.FC<ContentRendererProps> = React.memo(
 ContentRenderer.displayName = 'ContentRenderer';
 
 export default ContentRenderer;
-
-// Exported for testing — internal parsing helpers
-export { parseLogsButtonData, parseJsonContent, isJsonKubernetesResource, convertJsonToYaml };
