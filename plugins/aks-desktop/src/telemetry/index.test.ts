@@ -190,6 +190,26 @@ describe('initTelemetry', () => {
     });
   });
 
+  it('stamps initialized appVersion on a non-exception event', () => {
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    trackEvent.mockClear();
+
+    trackFeature({ feature: 'headlamp.logs', status: 'opened' });
+
+    expect(trackEvent).toHaveBeenCalledWith({
+      name: 'headlamp.feature',
+      properties: {
+        appVersion: SESSION_PROPS.appVersion,
+        feature: 'headlamp.logs',
+        status: 'opened',
+      },
+    });
+  });
+
   it('is idempotent — second call does not re-construct AI', () => {
     initTelemetry({
       connectionString: 'InstrumentationKey=test',
