@@ -65,6 +65,7 @@ describe('real Application Insights envelope', () => {
     expect(featureEnvelope.data.baseData.properties).toEqual({
       feature: 'headlamp.logs',
       status: 'opened',
+      appVersion: '1.0.0-test',
     });
     const errorEnvelope = serializedBatch.find(
       (envelope: { data?: { baseData?: { name?: string } } }) =>

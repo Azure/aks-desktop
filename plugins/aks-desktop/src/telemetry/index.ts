@@ -250,7 +250,7 @@ function send(event: PendingEvent): void {
   if (!ai) return;
   try {
     ai.trackEvent(
-      event.name === 'headlamp.exception' && initializedAppVersion
+      initializedAppVersion
         ? {
             ...event,
             properties: { ...event.properties, appVersion: initializedAppVersion },
