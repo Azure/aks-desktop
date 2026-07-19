@@ -17,6 +17,9 @@ import {
 } from '@mui/material';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
+import { useTelemetryFeatureOpened } from '../../hooks/useTelemetryFeatureOpened';
+import { trackError } from '../../telemetry';
+import { trackAksFeature } from '../../telemetry/aksFeature';
 import { createNamespaceAsProject } from '../../utils/kubernetes/namespaceUtils';
 import { getClusterSettings, setClusterSettings } from '../../utils/shared/clusterSettings';
 import { Breadcrumb } from '../CreateAKSProject/components/Breadcrumb';
@@ -45,6 +48,48 @@ function getStepLabel(t: (key: string) => string, step: NamespaceStepName): stri
 
 const NAMESPACE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 
+type NamespaceCreationAttemptOutcome = 'active' | 'cancelled' | 'failed' | 'succeeded';
+
+interface NamespaceCreationAttemptState {
+  cancel: () => boolean;
+  finish: (
+    generation: number,
+    outcome: Extract<NamespaceCreationAttemptOutcome, 'failed' | 'succeeded'>
+  ) => boolean;
+  invalidate: () => void;
+  is: (generation: number, outcome: NamespaceCreationAttemptOutcome) => boolean;
+  start: () => number;
+}
+
+function createNamespaceCreationAttemptState(): NamespaceCreationAttemptState {
+  let generation = 0;
+  let outcome: NamespaceCreationAttemptOutcome = 'active';
+
+  return {
+    cancel: () => {
+      if (outcome !== 'active') return false;
+      outcome = 'cancelled';
+      generation += 1;
+      return true;
+    },
+    finish: (attemptGeneration, attemptOutcome) => {
+      if (generation !== attemptGeneration || outcome !== 'active') return false;
+      outcome = attemptOutcome;
+      return true;
+    },
+    invalidate: () => {
+      generation += 1;
+    },
+    is: (attemptGeneration, attemptOutcome) =>
+      generation === attemptGeneration && outcome === attemptOutcome,
+    start: () => {
+      generation += 1;
+      outcome = 'active';
+      return generation;
+    },
+  };
+}
+
 function CreateNamespaceContent() {
   const history = useHistory();
   const { t } = useTranslation();
@@ -59,6 +104,29 @@ function CreateNamespaceContent() {
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [applicationName, setApplicationName] = useState('');
   const stepContentRef = useRef<HTMLDivElement>(null);
+  const attemptStateRef = useRef<NamespaceCreationAttemptState | null>(null);
+  const isMountedRef = useRef(true);
+  const submissionInFlightRef = useRef(false);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  if (attemptStateRef.current === null) {
+    attemptStateRef.current = createNamespaceCreationAttemptState();
+  }
+  const attemptState = attemptStateRef.current;
+
+  useTelemetryFeatureOpened('aksd.namespace-create');
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      attemptState.invalidate();
+      if (successTimerRef.current !== null) {
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = null;
+      }
+    };
+  }, [attemptState]);
 
   // Focus the first form input when the active step changes.
   // Skip if the user already has focus inside the step content.
@@ -110,12 +178,26 @@ function CreateNamespaceContent() {
   }, [selectedCluster, namespaceName]);
 
   const handleSubmit = async () => {
+    if (!validation.isValid || submissionInFlightRef.current) return;
+
+    const attemptGeneration = attemptState.start();
+    submissionInFlightRef.current = true;
+    if (successTimerRef.current !== null) {
+      clearTimeout(successTimerRef.current);
+      successTimerRef.current = null;
+    }
+    trackAksFeature('aksd.namespace-create', 'started');
+
+    const isCurrentActiveAttempt = () =>
+      isMountedRef.current && attemptState.is(attemptGeneration, 'active');
+
     try {
       setIsCreating(true);
       setCreationError(null);
       setCreationProgress(`${t('Creating namespace')}...`);
 
       await createNamespaceAsProject(namespaceName, selectedCluster);
+      if (!isCurrentActiveAttempt()) return;
 
       setCreationProgress(`${t('Updating local settings')}...`);
       // Only append to allowedNamespaces if it's already configured. Appending
@@ -127,12 +209,22 @@ function CreateNamespaceContent() {
         setClusterSettings(selectedCluster, settings);
       }
 
+      if (!isMountedRef.current || !attemptState.finish(attemptGeneration, 'succeeded')) return;
+      trackAksFeature('aksd.namespace-create', 'succeeded');
       setCreationProgress(t('Namespace created successfully!'));
-      setTimeout(() => {
+      successTimerRef.current = setTimeout(() => {
+        successTimerRef.current = null;
+        if (!isMountedRef.current || !attemptState.is(attemptGeneration, 'succeeded')) {
+          return;
+        }
         setShowSuccessDialog(true);
         setIsCreating(false);
       }, 1500);
     } catch (error) {
+      if (!isMountedRef.current || !attemptState.finish(attemptGeneration, 'failed')) return;
+      submissionInFlightRef.current = false;
+      trackAksFeature('aksd.namespace-create', 'failed');
+      trackError({ area: 'namespace-create', errorClass: 'UnknownError', phase: 'failed' });
       console.error('Error creating namespace:', error);
       setCreationError(error instanceof Error ? error.message : t('Failed to create namespace'));
       setIsCreating(false);
@@ -141,6 +233,14 @@ function CreateNamespaceContent() {
   };
 
   const onBack = () => {
+    if (attemptState.cancel()) {
+      submissionInFlightRef.current = false;
+      if (successTimerRef.current !== null) {
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = null;
+      }
+      trackAksFeature('aksd.namespace-create', 'cancelled');
+    }
     history.push('/');
   };
 
@@ -230,10 +330,18 @@ function CreateNamespaceContent() {
 
   return (
     <PageGrid maxWidth="lg" sx={{ margin: '0 auto' }}>
+      <Button
+        color="primary"
+        startIcon={<Icon icon="mdi:chevron-left" />}
+        size="small"
+        sx={{ alignSelf: 'flex-start' }}
+        onClick={onBack}
+      >
+        <Typography style={{ paddingTop: '3px' }}>{t('Back')}</Typography>
+      </Button>
       <SectionBox
         title={t('Create New Namespace')}
         subtitle={t('Create a new namespace on an existing cluster and set it up as a project')}
-        backLink="/"
       >
         <Card elevation={2} sx={{ position: 'relative' }}>
           {/* Loading / Success / Error Overlay */}

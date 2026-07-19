@@ -5,6 +5,8 @@ import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import React, { useEffect, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useAzureAuth } from '../../hooks/useAzureAuth';
+import { trackError } from '../../telemetry';
+import { trackAksFeature } from '../../telemetry/aksFeature';
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { getAKSClusters, getSubscriptions, registerAKSCluster } from '../../utils/azure/aks';
 import { getClusterCapabilities } from '../../utils/azure/az-clusters';
@@ -15,12 +17,16 @@ interface RegisterAKSClusterDialogProps {
   open: boolean;
   onClose: () => void;
   onClusterRegistered?: () => void;
+  onRegistrationFinished?: (outcome: 'failed' | 'succeeded') => void;
+  onRegistrationStarted?: () => void;
 }
 
 export default function RegisterAKSClusterDialog({
   open,
   onClose,
   onClusterRegistered,
+  onRegistrationFinished,
+  onRegistrationStarted,
 }: RegisterAKSClusterDialogProps) {
   const history = useHistory();
   const { t } = useTranslation();
@@ -236,55 +242,22 @@ export default function RegisterAKSClusterDialog({
       return;
     }
 
+    onRegistrationStarted?.();
+    trackAksFeature('aksd.cluster-add', 'started');
     setLoading(true);
     setError('');
     setSuccess('');
 
+    let result: Awaited<ReturnType<typeof registerAKSCluster>>;
     try {
       // Register the cluster by running az aks get-credentials and setting up kubeconfig
-      const result = await registerAKSCluster(
+      result = await registerAKSCluster(
         selectedSubscription.id,
         selectedCluster.resourceGroup,
         selectedCluster.name,
         undefined, // managedNamespace
         selectedSubscription.tenantId
       );
-
-      if (!result.success) {
-        setError(result.message);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(false);
-
-      // Show success message with cluster name
-      setSuccess(
-        t("Cluster '{{cluster}}' successfully merged in kubeconfig", {
-          cluster: selectedCluster.name,
-        })
-      );
-
-      onClusterRegistered?.();
-
-      // Check cluster capabilities (non-blocking)
-      setCapabilitiesLoading(true);
-      try {
-        const caps = await getClusterCapabilities({
-          subscriptionId: selectedSubscription.id,
-          resourceGroup: selectedCluster.resourceGroup,
-          clusterName: selectedCluster.name,
-        });
-        if (isMountedRef.current) {
-          setCapabilities(caps);
-        }
-      } catch {
-        // Non-critical — just don't show capabilities
-      } finally {
-        if (isMountedRef.current) {
-          setCapabilitiesLoading(false);
-        }
-      }
     } catch (err) {
       console.error('Error registering AKS cluster:', err);
       setError(
@@ -293,6 +266,51 @@ export default function RegisterAKSClusterDialog({
         })
       );
       setLoading(false);
+      trackAksFeature('aksd.cluster-add', 'failed');
+      trackError({ area: 'cluster-add', errorClass: 'UnknownError', phase: 'failed' });
+      onRegistrationFinished?.('failed');
+      return;
+    }
+
+    if (!result.success) {
+      setError(result.message);
+      setLoading(false);
+      trackAksFeature('aksd.cluster-add', 'failed');
+      trackError({ area: 'cluster-add', errorClass: 'UnknownError', phase: 'failed' });
+      onRegistrationFinished?.('failed');
+      return;
+    }
+
+    trackAksFeature('aksd.cluster-add', 'succeeded');
+    onRegistrationFinished?.('succeeded');
+    setLoading(false);
+
+    // Show success message with cluster name
+    setSuccess(
+      t("Cluster '{{cluster}}' successfully merged in kubeconfig", {
+        cluster: selectedCluster.name,
+      })
+    );
+
+    onClusterRegistered?.();
+
+    // Check cluster capabilities (non-blocking)
+    setCapabilitiesLoading(true);
+    try {
+      const caps = await getClusterCapabilities({
+        subscriptionId: selectedSubscription.id,
+        resourceGroup: selectedCluster.resourceGroup,
+        clusterName: selectedCluster.name,
+      });
+      if (isMountedRef.current) {
+        setCapabilities(caps);
+      }
+    } catch {
+      // Non-critical — just don't show capabilities
+    } finally {
+      if (isMountedRef.current) {
+        setCapabilitiesLoading(false);
+      }
     }
   };
 

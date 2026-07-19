@@ -4,6 +4,7 @@ import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { IconButton, Tooltip } from '@mui/material';
 import React, { useState } from 'react';
+import { trackAksFeature } from '../../telemetry/aksFeature';
 import { AKSProjectDeleteDialog } from './components/AKSProjectDeleteDialog';
 import { useProjectDeletion } from './hooks/useProjectDeletion';
 import { useProjectPermissions } from './hooks/useProjectPermissions';
@@ -26,6 +27,16 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
   const { isLoading, canDelete } = useProjectPermissions(project);
   const { handleDelete } = useProjectDeletion();
 
+  const handleOpen = () => {
+    trackAksFeature('aksd.project-delete', 'opened');
+    setOpen(true);
+  };
+
+  const handleCancel = () => {
+    trackAksFeature('aksd.project-delete', 'cancelled');
+    setOpen(false);
+  };
+
   if (isLoading) {
     return (
       <Tooltip title={t('Delete project')}>
@@ -43,14 +54,14 @@ const AKSProjectDeleteButton: React.FC<AKSProjectDeleteButtonProps> = ({ project
   return (
     <>
       <Tooltip title={t('Delete project')}>
-        <IconButton aria-label={t('Delete project')} onClick={() => setOpen(true)} size="medium">
+        <IconButton aria-label={t('Delete project')} onClick={handleOpen} size="medium">
           <Icon icon="mdi:delete" />
         </IconButton>
       </Tooltip>
 
       <AKSProjectDeleteDialog
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={handleCancel}
         project={project}
         deleteNamespaces={deleteNamespaces}
         setDeleteNamespaces={setDeleteNamespaces}
