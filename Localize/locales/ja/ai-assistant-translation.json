@@ -75,7 +75,7 @@
   "Switched back to AI Chat mode.": "AI チャット モードに戻しました。",
   "Switched to {{providerName}}{{modelSuffix}}.": "{{providerName}}{{modelSuffix}} に切り替えました。",
   "The AI model is still initializing. Please try again.": "AI モデルはまだ初期化中です。もう一度お試しください。",
-  "The pod \"{{podName}}\" has multiple containers. Please specify which container you want logs from:\n\nAvailable containers: {{containers}}\n\nTo get logs from a specific container, ask: \"get logs from {{podName}} container [container-name]\"": "The pod \"{{podName}}\" has multiple containers. Please specify which container you want logs from:\n\nAvailable containers: {{containers}}\n\nTo get logs from a specific container, ask: \"get logs from {{podName}} container [container-name]\"",
+  "The pod \"{{podName}}\" has multiple containers. Please specify which container you want logs from:\n\nAvailable containers: {{containers}}\n\nTo get logs from a specific container, ask: \"get logs from {{podName}} container [container-name]\"": "ポッド \"{{podName}}\" には複数のコンテナーがあります。ログを取得するコンテナーを指定してください。\n\n使用可能なコンテナー: {{containers}}\n\n特定のコンテナーからログを取得するには、次のように指示します: \"{{podName}} コンテナー [container-name] からログを取得します\"",
   "To use the AI Assistant, please configure your AI provider credentials in the settings page.": "AI アシスタントを使用するには、設定ページで AI プロバイダーの資格情報を構成してください。",
   "Tool {{toolCallName}} completed": "ツール {{toolCallName}} が完了しました",
   "Tool {{toolName}} completed": "ツール {{toolName}} が完了しました",
