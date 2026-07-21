@@ -87,6 +87,15 @@ const DEFAULT_TABS: Record<string, ProjectDetailsTab> = {
   },
 };
 
+function getProjectKey(project: ProjectDefinition, routeName?: string) {
+  return JSON.stringify({
+    routeName: routeName ?? project.id,
+    id: project.id,
+    clusters: [...project.clusters].sort(),
+    namespaces: [...project.namespaces].sort(),
+  });
+}
+
 export default function ProjectDetails() {
   const { t } = useTranslation();
   const { name } = useParams<ProjectDetailsParams>();
@@ -97,10 +106,14 @@ export default function ProjectDetails() {
   if (isProjectLoading || !project || !name) {
     return <Loader title={t('Loading')} />;
   }
-  // Key forces remount when project name or plugin resource list changes,
-  // which is required because useProjectItems → useKubeLists calls hooks
-  // per resource in a loop (the array length must stay stable per mount).
-  return <ProjectDetailsContent key={`${name}-${pluginApiResources.length}`} project={project} />;
+  // Remount when the route or resolved project identity changes.
+  // The plugin resource list length is included in the key because
+  // useProjectItems → useKubeLists calls hooks per resource in a loop
+  // (the array length must stay stable per mount).
+  const projectKey = getProjectKey(project, name);
+  return (
+    <ProjectDetailsContent key={`${projectKey}-${pluginApiResources.length}`} project={project} />
+  );
 }
 
 function ProjectOverview({
@@ -499,9 +512,11 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
 
   const { items, isLoading } = useProjectItems(project);
 
-  const [allTabs, setAllTabs] = useState<Record<string, ProjectDetailsTab>>(DEFAULT_TABS);
+  const [customTabs, setCustomTabs] = useState<Record<string, ProjectDetailsTab>>({});
 
   useEffect(() => {
+    let isCurrent = true;
+
     async function loadTabs() {
       const registeredTabsList = Object.values(registeredTabs);
       // Get a list of enabled Tabs
@@ -524,28 +539,36 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
         )
       ).filter(Boolean) as ProjectDetailsTab[];
 
+      if (!isCurrent) return;
+
       const enabledTabsById = Object.fromEntries(enabledTabs.map(tab => [tab.id, tab]));
-
-      // Merge default tabs with custom tabs
-      const allTabs: Record<string, ProjectDetailsTab> = {
-        ...DEFAULT_TABS,
-        ...enabledTabsById,
-      };
-
-      setAllTabs(allTabs);
+      setCustomTabs(enabledTabsById);
     }
 
     loadTabs();
+
+    return () => {
+      isCurrent = false;
+    };
   }, [registeredTabs, project]);
 
-  // Set initial selected tab to the first available tab
-  const tabIds = Object.keys(allTabs);
-  if (tabIds.length > 0 && !selectedTab) {
-    setSelectedTab(tabIds[0]);
-  }
+  const allTabs = useMemo(
+    () => ({
+      ...DEFAULT_TABS,
+      ...customTabs,
+    }),
+    [customTabs]
+  );
 
-  // Get the definition for the currently selected tab
-  const selectedTabData = selectedTab ? allTabs[selectedTab] : undefined;
+  // Only tabs with a component can be rendered, so selection must be based
+  // on the same filter used when rendering the tab list below.
+  const firstTabId = Object.keys(allTabs).find(id => allTabs[id].component);
+
+  // Derive the active tab, falling back to the first renderable tab when the
+  // selected tab is missing or no longer renderable. Deriving during render
+  // (instead of syncing via an effect) avoids stale/blank tab content.
+  const activeTab = selectedTab && allTabs[selectedTab]?.component ? selectedTab : firstTabId;
+  const selectedTabData = activeTab ? allTabs[activeTab] : undefined;
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
     setSelectedTab(newValue);
@@ -598,7 +621,7 @@ function ProjectDetailsContent({ project }: { project: ProjectDefinition }) {
         >
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tabs
-              value={selectedTab}
+              value={activeTab}
               onChange={handleTabChange}
               variant="scrollable"
               scrollButtons="auto"

@@ -98,46 +98,38 @@ export function ClusterNameEditor({
     setCustomNameInUse(nameInUse);
   }
 
-  function ClusterErrorDialog() {
-    return (
-      <ConfirmDialog
-        onConfirm={() => {
-          setClusterErrorDialogOpen(false);
-        }}
-        handleClose={() => {
-          setClusterErrorDialogOpen(false);
-        }}
-        hideCancelButton
-        open={clusterErrorDialogOpen}
-        title={t('translation|Error')}
-        description={clusterErrorDialogMessage}
-        confirmLabel={t('translation|Okay')}
-      ></ConfirmDialog>
-    );
-  }
+  const clusterErrorDialog = (
+    <ConfirmDialog
+      onConfirm={() => {
+        setClusterErrorDialogOpen(false);
+      }}
+      handleClose={() => {
+        setClusterErrorDialogOpen(false);
+      }}
+      hideCancelButton
+      open={clusterErrorDialogOpen}
+      title={t('translation|Error')}
+      description={clusterErrorDialogMessage}
+      confirmLabel={t('translation|Okay')}
+    ></ConfirmDialog>
+  );
 
   // Display the original name of the cluster if it was loaded from a kubeconfig file.
-  function ClusterName() {
-    const currentName = clusterInfo?.name;
-    const originalName = clusterInfo?.meta_data?.originalName;
-    const source = clusterInfo?.meta_data?.source;
-    // Note: display original name is currently only supported for non dynamic clusters from kubeconfig sources.
-    const displayOriginalName = source === 'kubeconfig' && originalName;
-
-    return (
-      <>
-        {clusterErrorDialogOpen && <ClusterErrorDialog />}
-        <Typography>{t('translation|Name')}</Typography>
-        {displayOriginalName && currentName !== displayOriginalName && (
-          <Typography variant="body2" color="textSecondary">
-            {t('translation|Original name: {{ displayName }}', {
-              displayName: displayName,
-            })}
-          </Typography>
-        )}
-      </>
-    );
-  }
+  // Note: display original name is currently only supported for non dynamic clusters from kubeconfig sources.
+  const displayOriginalName = source === 'kubeconfig' && originalName;
+  const clusterNameContent = (
+    <>
+      {clusterErrorDialogOpen && clusterErrorDialog}
+      <Typography>{t('translation|Name')}</Typography>
+      {displayOriginalName && clusterInfo?.name !== displayOriginalName && (
+        <Typography variant="body2" color="textSecondary">
+          {t('translation|Original name: {{ displayName }}', {
+            displayName: displayName,
+          })}
+        </Typography>
+      )}
+    </>
+  );
 
   function storeNewClusterName(name: string) {
     let actualName = name;

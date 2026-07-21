@@ -87,9 +87,9 @@ export default function VersionDialog(props: {
     }
   };
 
-  const AboutTab = () => <NameValueTable rows={rows} />;
+  const aboutTab = <NameValueTable rows={rows} />;
 
-  const LegalTab = () => (
+  const legalTab = (
     <Box sx={{ p: 2 }}>
       <Typography variant="body1" paragraph>
         As installed, this program contains software and functionality that is either open source or
