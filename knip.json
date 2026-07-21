@@ -3,10 +3,6 @@
   "ignoreBinaries": [
     "make"
   ],
-  "ignore": [
-    "headlamp/.plugins/**",
-    "headlamp/app/resources/**"
-  ],
   "workspaces": {
     ".": {
       "entry": [
@@ -14,23 +10,21 @@
       ],
       "project": [
         "build/**/*.ts"
-      ],
-      "ignore": [
-        "build/download-az-cli.ts"
       ]
     },
     "plugins/aks-desktop": {
       "entry": [
-        "src/index.tsx"
+        "src/index.tsx",
+        "src/**/*.stories.{ts,tsx}",
+        "src/**/*.test.{ts,tsx}",
+        "src/**/*.guidepup.test.{ts,tsx}",
+        "src/utils/azure/**/*.ts"
       ],
       "project": [
         "src/**/*.{ts,tsx}"
       ],
       "ignore": [
-        "dist/**",
-        "src/**/*.d.ts",
-        "src/utils/test/*.test.ts",
-        "src/utils/test/run-tests.js"
+        "src/**/*.d.ts"
       ],
       "ignoreDependencies": [
         "@azure/arm-resourcegraph",
@@ -39,28 +33,14 @@
         "@iconify/react",
         "@monaco-editor/react",
         "@mui/material",
+        "@mui/utils",
+        "@storybook/react",
+        "@testing-library/jest-dom",
+        "@types/libsodium-wrappers",
+        "axe-core",
         "eslint-plugin-no-barrel-files",
-        "react-router-dom"
-      ],
-      "ignoreBinaries": [
-        "prettier"
-      ]
-    },
-    "plugins/ai-assistant": {
-      "entry": [
-        "src/index.tsx"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx}"
-      ],
-      "ignore": [
-        "dist/**",
-        "src/**/*.d.ts"
-      ],
-      "ignoreDependencies": [
-        "@iconify/react",
-        "@monaco-editor/react",
-        "@mui/material",
+        "i18next",
+        "react-i18next",
         "react-router-dom"
       ],
       "ignoreBinaries": [
