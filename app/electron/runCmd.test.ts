@@ -17,11 +17,13 @@
 import { EventEmitter } from 'events';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, Mock, vi } from 'vitest';
+import { killAllProxies } from './proxies';
 import {
   addRunCmdConsent,
   checkPermissionSecret,
   handleRunCommand,
   removeRunCmdConsent,
+  setupRunCmdHandlers,
   validateCommandData,
 } from './runCmd';
 import { loadSettings, saveSettings } from './settings';
@@ -402,4 +404,331 @@ describe('runScript', () => {
     expect(consoleErrorMock).toHaveBeenCalledTimes(1);
     expect(exitMock).toHaveBeenCalledWith(1);
   });
+});
+
+/**
+ * Pins `process.platform` for the duration of `fn`. Proxy teardown branches on
+ * it -- POSIX signals the process group, Windows shells out to taskkill -- so a
+ * test has to state which one it describes instead of inheriting the runner's.
+ *
+ * @param platform - Platform value exposed to the code under test.
+ * @param fn - Test operation to run while the platform override is active.
+ * @returns A promise that settles after the operation and platform restoration.
+ */
+async function withPlatform(platform: string, fn: () => Promise<void> | void) {
+  const original = process.platform;
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  try {
+    await fn();
+  } finally {
+    Object.defineProperty(process, 'platform', { value: original, configurable: true });
+  }
+}
+
+describe('killAllProxies - quit during an in-flight proxy start', () => {
+  /** A stand-in for the spawned `az connectedk8s proxy` child. */
+  function fakeChild() {
+    const child = new EventEmitter() as any;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.pid = 4242;
+    child.exitCode = null;
+    child.signalCode = null;
+    child.kill = vi.fn();
+    return child;
+  }
+
+  async function spawnProxy(cluster: string, child: any) {
+    // Consent is keyed on `command + ' ' + args[0]`, so pre-confirm the proxy
+    // invocation to keep the dialog out of this test.
+    (loadSettings as Mock).mockReturnValue({
+      confirmedCommands: { 'az connectedk8s': true },
+    });
+    const { spawn } = await import('child_process');
+    (spawn as Mock).mockReturnValue(child);
+    const fakeEvent = { sender: { send: vi.fn() } } as any;
+    await handleRunCommand(
+      fakeEvent,
+      {
+        id: `proxy:${cluster}`,
+        command: 'az',
+        args: ['connectedk8s', 'proxy', '-n', cluster],
+        options: { cluster },
+        permissionSecrets: { 'runCmd-az': 7 },
+      },
+      { id: 1 } as any,
+      { 'runCmd-az': 7 }
+    );
+  }
+
+  it('kills a proxy that finishes spawning after the app began quitting', async () =>
+    withPlatform('linux', async () => {
+      // The race: `killAllProxies` runs while the start is still awaiting shell
+      // setup, so it sees nothing to kill; the child appears moments later and
+      // would otherwise outlive the app, holding the arcProxy ports.
+      killAllProxies();
+
+      const child = fakeChild();
+      await spawnProxy('late-cluster', child);
+
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      // Killed rather than tracked: a later teardown must not signal it again,
+      // by then its pid may belong to something else.
+      killAllProxies();
+      expect(child.kill).toHaveBeenCalledTimes(1);
+    }));
+});
+
+describe('AKS Hybrid & Edge proxy lifecycle', () => {
+  /** A stand-in for the spawned `az connectedk8s proxy` child. */
+  function proxyChild(pid = 4242) {
+    const child = new EventEmitter() as any;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.pid = pid;
+    child.exitCode = null;
+    child.signalCode = null;
+    child.kill = vi.fn();
+    return child;
+  }
+
+  /**
+   * Registers the real IPC handlers against a fake `ipcMain` that just records
+   * them, so the start/stop paths can be driven directly.
+   */
+  function setupHandlers() {
+    const handlers: Record<string, (...args: any[]) => any> = {};
+    const register = (channel: string, fn: any) => (handlers[channel] = fn);
+    const fakeIpcMain = { on: register, handle: register } as any;
+    const fakeMainWindow = { webContents: { on: vi.fn(), send: vi.fn() } } as any;
+    setupRunCmdHandlers(fakeMainWindow, fakeIpcMain);
+    return handlers;
+  }
+
+  const startPayload = (cluster: string) => ({
+    cluster,
+    subscriptionId: '00000000-0000-0000-0000-000000000000',
+    resourceGroup: 'rg',
+  });
+
+  const fakeEvent = () => ({ sender: { send: vi.fn() } } as any);
+
+  beforeEach(async () => {
+    (loadSettings as Mock).mockReturnValue({ confirmedCommands: { 'az connectedk8s': true } });
+    vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const { spawn } = await import('child_process');
+    (spawn as Mock).mockReset();
+  });
+
+  afterEach(() => {
+    killAllProxies();
+    vi.mocked(process.kill).mockClear();
+  });
+
+  it.each([
+    {
+      cluster: 'cluster;calc',
+      subscriptionId: startPayload('valid').subscriptionId,
+      resourceGroup: 'rg',
+    },
+    { cluster: 'valid', subscriptionId: 'sub && calc', resourceGroup: 'rg' },
+    {
+      cluster: 'valid',
+      subscriptionId: startPayload('valid').subscriptionId,
+      resourceGroup: 'rg | calc',
+    },
+  ])('rejects an unsafe proxy target before spawning: $cluster', async payload => {
+    const { spawn } = await import('child_process');
+    const handlers = setupHandlers();
+
+    await expect(handlers['start-cluster-proxy'](fakeEvent(), payload)).resolves.toEqual({
+      success: false,
+      error: 'Cluster proxy target is invalid.',
+    });
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('shares an in-flight start failure with duplicate callers', async () => {
+    // Both events arrive before the child is tracked. They must share the first
+    // result rather than spawning twice or reporting premature success.
+    const { spawn } = await import('child_process');
+    const child = proxyChild();
+    child.pid = undefined;
+    (spawn as Mock).mockReturnValue(child);
+    const handlers = setupHandlers();
+
+    const firstStart = handlers['start-cluster-proxy'](fakeEvent(), startPayload('dupe'));
+    const duplicateStart = handlers['start-cluster-proxy'](fakeEvent(), startPayload('dupe'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    child.emit('error', new Error('spawn az ENOENT'));
+
+    await expect(Promise.all([firstStart, duplicateStart])).resolves.toEqual([
+      { success: false, error: 'spawn az ENOENT' },
+      { success: false, error: 'spawn az ENOENT' },
+    ]);
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds the next cluster until the first proxy reports ready, not merely spawned', async () => {
+    // arcProxy takes seconds to bind after `az` is spawned. A second start
+    // arriving in that window races the daemon bootstrap and loses, leaving its
+    // cluster unregistered — so spawning is not a sufficient release signal.
+    const { spawn } = await import('child_process');
+    const first = proxyChild(1111);
+    const second = proxyChild(2222);
+    (spawn as Mock).mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const handlers = setupHandlers();
+
+    const a = handlers['start-cluster-proxy'](fakeEvent(), startPayload('cluster-a'));
+    await a;
+    const b = handlers['start-cluster-proxy'](fakeEvent(), startPayload('cluster-b'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // A is spawned but still bootstrapping the daemon, so B has not started.
+    expect(spawn).toHaveBeenCalledTimes(1);
+
+    // The signal the CLI emits once the cluster is registered and usable — not
+    // "Proxy is listening on port …", which it prints before registering.
+    first.stdout.emit('data', "Start sending kubectl requests on 'cluster-a' context\n");
+    await b;
+
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it('recognises the readiness line even when stdout splits it across chunks', async () => {
+    // stdout is a byte stream; matching each chunk alone would miss this and hold
+    // every queued cluster until the 30s timeout.
+    const { spawn } = await import('child_process');
+    const first = proxyChild(5555);
+    const second = proxyChild(6666);
+    (spawn as Mock).mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const handlers = setupHandlers();
+
+    await handlers['start-cluster-proxy'](fakeEvent(), startPayload('split-a'));
+    const b = handlers['start-cluster-proxy'](fakeEvent(), startPayload('split-b'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(spawn).toHaveBeenCalledTimes(1);
+
+    first.stdout.emit('data', 'Start sending kub');
+    first.stdout.emit('data', "ectl requests on 'split-a' context\n");
+    await b;
+
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the queue when the spawn fails, which emits error and may never exit', async () => {
+    // A missing or broken `az` emits 'error' with no 'exit'; without observing it
+    // the queue would stay blocked for the full readiness timeout.
+    const { spawn } = await import('child_process');
+    const first = proxyChild(7777);
+    const second = proxyChild(8888);
+    (spawn as Mock).mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const handlers = setupHandlers();
+
+    await handlers['start-cluster-proxy'](fakeEvent(), startPayload('broken-a'));
+    const b = handlers['start-cluster-proxy'](fakeEvent(), startPayload('broken-b'));
+    first.emit('error', new Error('spawn az ENOENT'));
+    await b;
+
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns an immediate failure when the proxy process cannot spawn', async () => {
+    const { spawn } = await import('child_process');
+    const child = proxyChild();
+    child.pid = undefined;
+    (spawn as Mock).mockReturnValue(child);
+    const handlers = setupHandlers();
+
+    const start = handlers['start-cluster-proxy'](fakeEvent(), startPayload('missing-az'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    child.emit('error', new Error('spawn az ENOENT'));
+
+    await expect(start).resolves.toEqual({ success: false, error: 'spawn az ENOENT' });
+  });
+
+  it('releases the queue when a proxy exits instead of reporting ready', async () => {
+    // The register-and-exit case: a daemon was already running, so the CLI
+    // registers its route and exits. Nothing to wait for.
+    const { spawn } = await import('child_process');
+    const first = proxyChild(3333);
+    const second = proxyChild(4444);
+    (spawn as Mock).mockReturnValueOnce(first).mockReturnValueOnce(second);
+    const handlers = setupHandlers();
+
+    await handlers['start-cluster-proxy'](fakeEvent(), startPayload('exits-a'));
+    const b = handlers['start-cluster-proxy'](fakeEvent(), startPayload('exits-b'));
+    first.emit('exit', 1, null);
+    await b;
+
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it('hides the console window on Windows, where a detached child would open one', async () => {
+    await withPlatform('win32', async () => {
+      const { spawn } = await import('child_process');
+      (spawn as Mock).mockReturnValue(proxyChild());
+      const handlers = setupHandlers();
+
+      await handlers['start-cluster-proxy'](fakeEvent(), startPayload('hidden'));
+
+      expect(spawn).toHaveBeenCalledWith(
+        'az',
+        expect.any(Array),
+        expect.objectContaining({ windowsHide: true, shell: false })
+      );
+    });
+  });
+
+  it('stops tracking a proxy once its child exits, so quit does not signal a dead pid', async () =>
+    withPlatform('linux', async () => {
+      // A pid can be reused; signalling one that already exited on quit could hit
+      // an unrelated process.
+      const child = proxyChild(4242);
+      const { spawn } = await import('child_process');
+      (spawn as Mock).mockReturnValue(child);
+      const killSpy = vi.mocked(process.kill);
+      const handlers = setupHandlers();
+
+      await handlers['start-cluster-proxy'](fakeEvent(), startPayload('exiting'));
+      child.emit('exit', 0, null);
+
+      killAllProxies();
+
+      expect(killSpy).not.toHaveBeenCalled();
+    }));
+
+  it('signals the whole process group on POSIX so the arcProxy daemon goes too', async () =>
+    withPlatform('linux', async () => {
+      // `az connectedk8s proxy` spawns arcProxy as a separate process; signalling
+      // only the CLI would leave the daemon holding the client-proxy ports after
+      // the app has quit.
+      const child = proxyChild(5150);
+      const { spawn } = await import('child_process');
+      (spawn as Mock).mockReturnValue(child);
+      const killSpy = vi.mocked(process.kill);
+      const handlers = setupHandlers();
+
+      await handlers['start-cluster-proxy'](fakeEvent(), startPayload('posix'));
+      killAllProxies();
+
+      expect(killSpy).toHaveBeenCalledWith(-5150, 'SIGKILL');
+    }));
+
+  it('kills the child tree with taskkill on Windows, where process groups do not exist', async () =>
+    withPlatform('win32', async () => {
+      const child = proxyChild(6060);
+      const { spawn } = await import('child_process');
+      (spawn as Mock).mockReturnValue(child);
+      const handlers = setupHandlers();
+
+      await handlers['start-cluster-proxy'](fakeEvent(), startPayload('windows'));
+      (spawn as Mock).mockClear();
+      (spawn as Mock).mockReturnValue(Object.assign(new EventEmitter(), { on: vi.fn() }));
+
+      killAllProxies();
+
+      expect(spawn).toHaveBeenCalledWith('taskkill', ['/pid', '6060', '/T', '/F']);
+    }));
 });

@@ -18,12 +18,13 @@
 
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import { BrowserWindow, dialog } from 'electron';
-import { IpcMainEvent } from 'electron/main';
+import { IpcMainEvent, IpcMainInvokeEvent } from 'electron/main';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'path';
 import i18n from './i18next.config';
 import { defaultPluginsDir, defaultUserPluginsDir } from './plugin-management';
+import { setupProxyHandlers, trackProxyChild } from './proxies';
 import { loadSettings, saveSettings, SETTINGS_PATH } from './settings';
 
 /**
@@ -43,6 +44,11 @@ interface CommandData {
   options: {};
   /** The permission secrets for the command. */
   permissionSecrets: Record<string, number>;
+}
+
+export interface RunCommandResult {
+  success: boolean;
+  error?: string;
 }
 
 /**
@@ -336,14 +342,15 @@ export async function executeCommandWithShellEnv(
  *                            Checks against eventData.permissionSecrets.
  */
 export async function handleRunCommand(
-  event: IpcMainEvent,
+  event: IpcMainEvent | IpcMainInvokeEvent,
   eventData: CommandDataPartial,
   mainWindow: BrowserWindow | null,
   permissionSecrets: Record<string, number>
-): Promise<void> {
+): Promise<RunCommandResult> {
   if (mainWindow === null) {
-    console.error('Main window is null, cannot run command');
-    return;
+    const error = 'Main window is null, cannot run command';
+    console.error(error);
+    return { success: false, error };
   }
   const [isValid, errorMessage] = validateCommandData(eventData);
   if (!isValid) {
@@ -351,7 +358,7 @@ export async function handleRunCommand(
     if (eventData.id) {
       event.sender.send('command-exit', eventData.id, -1);
     }
-    return;
+    return { success: false, error: errorMessage };
   }
   const commandData = eventData as CommandData;
 
@@ -359,11 +366,11 @@ export async function handleRunCommand(
   if (!permissionsValid) {
     console.error(permissionError);
     event.sender.send('command-exit', commandData.id, -2);
-    return;
+    return { success: false, error: permissionError };
   }
   if (!checkCommandConsent(commandData.command, commandData.args, mainWindow)) {
     event.sender.send('command-exit', commandData.id, -3);
-    return;
+    return { success: false, error: 'Command was not allowed.' };
   }
 
   // Get the command and args to run. With the correct paths for "scriptjs" commands.
@@ -387,7 +394,8 @@ export async function handleRunCommand(
 
   // On Windows, use shell
   // https://stackoverflow.com/questions/37459717/error-spawn-enoent-on-windows
-  const useShell = process.platform === 'win32';
+  const proxyCluster = (commandData.options as { cluster?: string }).cluster;
+  const useShell = process.platform === 'win32' && !proxyCluster;
   if (useShell) {
     console.log('Using shell on Windows');
   }
@@ -400,6 +408,7 @@ export async function handleRunCommand(
       ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
     },
   });
+  const untrackProxy = trackProxyChild(command, args, commandData.options, child);
 
   child.stdout.on('data', (data: string | Buffer) => {
     event.sender.send('command-stdout', commandData.id, data.toString());
@@ -410,12 +419,23 @@ export async function handleRunCommand(
   });
 
   child.on('error', (err: Error) => {
+    untrackProxy();
     event.sender.send('command-stderr', commandData.id, err.message);
     event.sender.send('command-exit', commandData.id, -1);
   });
 
   child.on('exit', (code: number | null) => {
+    untrackProxy();
     event.sender.send('command-exit', commandData.id, code);
+  });
+
+  if (!proxyCluster || child.pid) {
+    return { success: true };
+  }
+
+  return new Promise(resolve => {
+    child.once('spawn', () => resolve({ success: true }));
+    child.once('error', error => resolve({ success: false, error: error.message }));
   });
 }
 
@@ -501,6 +521,7 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
     async (event, eventData) =>
       await handleRunCommand(event, eventData, mainWindow, permissionSecrets)
   );
+  setupProxyHandlers(mainWindow, ipcMain, permissionSecrets, handleRunCommand);
 }
 
 /**
