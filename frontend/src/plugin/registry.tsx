@@ -68,11 +68,14 @@ import {
   addClusterStatus,
   addDialog,
   addMenuItem,
+  addPreOpenHook,
+  ClusterPreOpenHook,
   ClusterProviderInfo,
   ClusterStatusComponent,
   DialogComponent,
   MenuItemComponent,
 } from '../redux/clusterProviderSlice';
+export type { ClusterPreOpenContext, ClusterPreOpenHook } from '../redux/clusterProviderSlice';
 import {
   addEventCallback,
   CreateResourceEvent,
@@ -991,6 +994,40 @@ export function registerClusterProviderDialog(item: DialogComponent) {
  */
 export function registerAddClusterProvider(item: ClusterProviderInfo) {
   store.dispatch(addAddClusterProvider(item));
+}
+
+/**
+ * Register a hook that runs once, before a cluster's views are rendered.
+ *
+ * Use it for any asynchronous work a cluster needs before it can be used —
+ * starting a proxy/tunnel, refreshing credentials, writing a kubeconfig
+ * context, warming a cache, and so on. The hook runs for every cluster that is
+ * opened individually, so a hook that only applies to some clusters should
+ * inspect the context and resolve immediately for the ones it does not own.
+ * Combined multi-cluster views currently skip pre-open hooks.
+ *
+ * The returned promise gates entry to the cluster: while it is pending the app
+ * shows a neutral loading state, and if it rejects the thrown error's message
+ * is shown to the user with a retry affordance. Multiple registered hooks run
+ * sequentially, in registration order; the cluster opens once all of them
+ * resolve, and the first rejection stops the rest.
+ *
+ * @param hook - The hook to run before a cluster is opened.
+ * @returns Nothing.
+ *
+ * @example
+ *
+ * ```ts
+ * import { ApiProxy, registerClusterProviderPreOpen } from '@kinvolk/headlamp-plugin/lib';
+ *
+ * registerClusterProviderPreOpen(async ({ cluster, reportProgress, signal }) => {
+ *   reportProgress?.(`Checking ${cluster} connection...`);
+ *   await ApiProxy.clusterRequest('/version', { cluster, signal });
+ * });
+ * ```
+ */
+export function registerClusterProviderPreOpen(hook: ClusterPreOpenHook): void {
+  store.dispatch(addPreOpenHook(hook));
 }
 
 /**

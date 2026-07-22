@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import { useQuery } from '@tanstack/react-query';
 import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -33,8 +35,13 @@ import { uiSlice } from '../../redux/uiSlice';
 import ErrorBoundary from '../common/ErrorBoundary';
 import ErrorComponent from '../common/ErrorPage';
 import { useSidebarItem } from '../Sidebar';
+import ClusterPreparingDialog from './ClusterPreparingDialog';
+import { ClusterPreOpenState, useClusterPreOpen } from './useClusterPreOpen';
 
 export default function RouteSwitcher(props: { requiresToken: () => boolean }) {
+  // Owned here, above <Suspense> and <Switch>, so preparation spans navigation
+  // within a cluster and is evicted only when the user leaves it.
+  const preOpen = useClusterPreOpen();
   // The NotFoundRoute always has to be evaluated in the last place.
   const routes = useTypedSelector(state => state.routes.routes);
   const routeFilters = useTypedSelector(state => state.routes.routeFilters);
@@ -69,6 +76,7 @@ export default function RouteSwitcher(props: { requiresToken: () => boolean }) {
               exact={!!route.exact}
               clusters={clusters}
               requiresToken={props.requiresToken}
+              preOpen={preOpen}
               children={
                 <RouteComponent route={route} key={`${getRoutePath(route)}-${getCluster()}`} />
               }
@@ -147,6 +155,8 @@ function PageTitle({
 }
 
 interface AuthRouteProps {
+  /** Cluster preparation state, owned above the route switch. */
+  preOpen: ClusterPreOpenState;
   children: React.ReactNode;
   sidebar: RouteType['sidebar'];
   requiresAuth: boolean;
@@ -155,26 +165,36 @@ interface AuthRouteProps {
   [otherProps: string]: any;
 }
 
-function AuthRoute(props: AuthRouteProps) {
+export function AuthRoute(props: AuthRouteProps) {
   const {
     children,
     sidebar,
+    preOpen,
     requiresAuth = true,
     requiresCluster = true,
     computedMatch = {},
     ...other
   } = props;
 
+  const { t } = useTranslation();
   useSidebarItem(sidebar, computedMatch);
   const cluster = useCluster();
+
+  const clusters = useClustersConf();
+
+  // Preparation state comes from above the route switch (see useClusterPreOpen):
+  // observing it per route would re-run every hook whenever a route unmounts.
+  // `requiresCluster` still decides whether *this* route waits on it.
+  const preOpenEnabled = preOpen.enabled && requiresCluster;
+
   const query = useQuery({
     queryKey: ['auth', cluster],
     queryFn: () => testAuth(cluster!),
-    enabled: !!cluster && requiresAuth,
+    // Wait for pre-open preparation before probing auth against the cluster.
+    enabled: !!cluster && requiresAuth && (!preOpenEnabled || preOpen.isSuccess),
     retry: 0,
   });
 
-  const clusters = useClustersConf();
   const currentCluster = getCluster();
   const clusterConf = currentCluster && clusters ? clusters[currentCluster] : null;
   const authError = query.error as any;
@@ -193,6 +213,38 @@ function AuthRoute(props: AuthRouteProps) {
   }
 
   function getRenderer({ location }: RouteProps) {
+    // Gate the cluster's views on any registered pre-open preparation. This runs
+    // before the auth check below, and for both auth and no-auth cluster routes.
+    if (preOpenEnabled) {
+      if (preOpen.isError) {
+        const detail =
+          preOpen.error instanceof Error ? preOpen.error.message : String(preOpen.error);
+        return (
+          <ErrorComponent
+            title={t('translation|Could not open cluster')}
+            error={preOpen.error instanceof Error ? preOpen.error : undefined}
+            message={
+              <>
+                {detail}
+                <Box mt={2}>
+                  <Button variant="contained" color="primary" onClick={() => preOpen.retry()}>
+                    {t('translation|Retry')}
+                  </Button>
+                </Box>
+              </>
+            }
+          />
+        );
+      }
+      if (!preOpen.isSuccess) {
+        // A modal "connecting" popup (rather than a bare page loader) so opening
+        // the cluster reads as a deliberate connect step. Only the dialog renders
+        // while preparation is pending; the cluster's views render once it
+        // succeeds (this renderer returns `children` on success, below).
+        return <ClusterPreparingDialog cluster={cluster!} message={preOpen.message} />;
+      }
+    }
+
     if (!requiresAuth) {
       return children;
     }

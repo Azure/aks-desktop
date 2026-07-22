@@ -14,7 +14,12 @@
  * limitations under the License.
  */
 
-import { ApiProxy, Headlamp, registerAppBarAction } from '@kinvolk/headlamp-plugin/lib';
+import {
+  ApiProxy,
+  Headlamp,
+  registerAppBarAction,
+  registerClusterProviderPreOpen,
+} from '@kinvolk/headlamp-plugin/lib';
 import { Button, Modal, Paper, Stack, TextField, Typography } from '@mui/material';
 import * as yaml from 'js-yaml';
 import { useEffect, useState } from 'react';
@@ -168,3 +173,8 @@ function ClusterCreationButton() {
 }
 
 registerAppBarAction(ClusterCreationButton);
+
+registerClusterProviderPreOpen(async ({ cluster, reportProgress, signal }) => {
+  reportProgress?.(`Checking ${cluster} connection...`);
+  await ApiProxy.clusterRequest('/version', { cluster, signal });
+});

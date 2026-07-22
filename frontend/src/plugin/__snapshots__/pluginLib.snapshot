@@ -625,6 +625,7 @@
   "registerClusterChooser": [Function],
   "registerClusterProviderDialog": [Function],
   "registerClusterProviderMenuItem": [Function],
+  "registerClusterProviderPreOpen": [Function],
   "registerClusterStatus": [Function],
   "registerCustomCreateProject": [Function],
   "registerDetailsViewHeaderAction": [Function],
