@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
-import { debugLog, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
+import { debugLog, isAzError, needsRelogin, runAzCommand, runCommandAsync } from './az-cli-core';
 import { getClusterResourceGroupViaGraph, getClustersViaGraph } from './az-resource-graph';
 import { getSubscriptions } from './az-subscriptions';
 
@@ -104,6 +104,82 @@ export async function getClusters(subscriptionId?: string, query?: string): Prom
       }
     }
   }
+  return clusters;
+}
+
+/**
+ * Discovers Arc-connected (AKS Hybrid & Edge / AKS Arc) Kubernetes clusters in a
+ * subscription via `az connectedk8s list`.
+ *
+ * Each returned cluster carries a `clusterType: 'aksarc'` discriminator so
+ * callers can tell AKS Hybrid & Edge clusters apart from managed AKS clusters.
+ *
+ * This function is intentionally resilient: if the `connectedk8s` CLI
+ * extension is missing, or the call fails for any other reason, it returns an
+ * empty list rather than throwing. AKS Hybrid & Edge discovery is additive and must
+ * never prevent the standard AKS cluster list from loading.
+ *
+ * @param subscriptionId - Azure subscription GUID to query.
+ * @returns An array of AKS Hybrid & Edge cluster objects, possibly empty.
+ */
+export async function getConnectedClusters(subscriptionId: string): Promise<any[]> {
+  const clusters: any[] = [];
+
+  // AKS Hybrid & Edge discovery is additive and must never block the standard AKS
+  // list, so any failure — missing `connectedk8s` extension, no access, relogin
+  // needed, or non-array/invalid output — resolves to an empty list. runAzCommand
+  // gives us the same relogin/isAzError handling as the other Azure helpers; a
+  // throwing JSON.parse is caught by it and reported as `success: false`.
+  const result = await runAzCommand<any[]>(
+    ['connectedk8s', 'list', '--subscription', subscriptionId, '-o', 'json'],
+    'Listing connectedk8s clusters:',
+    'list AKS Hybrid & Edge clusters',
+    stdout => {
+      if (!stdout) {
+        return [];
+      }
+      const parsed = JSON.parse(stdout);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+  );
+
+  if (!result.success || !result.data) {
+    debugLog('Skipping AKS Hybrid & Edge discovery:', result.error ?? 'no clusters returned');
+    return clusters;
+  }
+
+  result.data.forEach((cluster: any) => {
+    // `az connectedk8s list` returns *every* Azure Arc-enabled Kubernetes
+    // cluster, but only AKS-Arc (AKS Hybrid & Edge / baremetal) clusters are
+    // reported with `kind: "ProvisionedCluster"`. Generic Arc-connected
+    // clusters — a kind/k3s/Azure-Local cluster merely attached via
+    // `az connectedk8s connect` — have `kind: null` and are NOT AKS Hybrid &
+    // Edge, so they must not be offered, tagged `aksarc`, badged, or given the
+    // proxy Start/Stop actions.
+    if (cluster.kind !== 'ProvisionedCluster') {
+      debugLog(
+        'Skipping non-AKS-Arc connected cluster:',
+        cluster.name,
+        `(kind=${cluster.kind ?? 'null'}, distribution=${cluster.distribution ?? ''})`
+      );
+      return;
+    }
+    clusters.push({
+      name: cluster.name,
+      subscription: subscriptionId,
+      resourceGroup: cluster.resourceGroup,
+      location: cluster.location,
+      version: cluster.kubernetesVersion || cluster.agentVersion || '',
+      status: cluster.provisioningState || cluster.connectivityStatus || 'Unknown',
+      powerState: cluster.connectivityStatus || 'Unknown',
+      // Arc agent heartbeat status ('Connected' | 'Offline' | 'Expired'…).
+      // Used to disable clusters that can't be reached before the user tries.
+      connectivityStatus: cluster.connectivityStatus || 'Unknown',
+      nodeCount: 0,
+      clusterType: 'aksarc',
+    });
+  });
+
   return clusters;
 }
 

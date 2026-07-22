@@ -7,7 +7,18 @@ import { useHistory } from 'react-router-dom';
 import { useAzureAuth } from '../../hooks/useAzureAuth';
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { getAKSClusters, getSubscriptions, registerAKSCluster } from '../../utils/azure/aks';
+import {
+  startProxy,
+  stopProxy,
+  verifyAksHybridEdgeCluster,
+} from '../../utils/azure/aksHybridEdgeProxy';
 import { getClusterCapabilities } from '../../utils/azure/az-clusters';
+import { isExtensionInstalled } from '../../utils/azure/az-extensions';
+import {
+  getClusterSettings,
+  markAksHybridEdgeAppearance,
+  setClusterSettings,
+} from '../../utils/shared/clusterSettings';
 import type { AKSCluster, Subscription, Tenant } from './RegisterAKSClusterDialogPure';
 import RegisterAKSClusterDialogPure from './RegisterAKSClusterDialogPure';
 
@@ -231,8 +242,124 @@ export default function RegisterAKSClusterDialog({
     }
   };
 
+  /**
+   * Registers an AKS Hybrid & Edge (Arc-connected) cluster by starting `az connectedk8s
+   * proxy`, which registers the cluster on the shared local proxy daemon and
+   * writes its kubeconfig context. Multiple AKS Hybrid & Edge clusters can be connected
+   * at once (they multiplex on the shared daemon).
+   */
+  const handleAksHybridEdgeRegister = async () => {
+    if (!selectedCluster || !selectedSubscription) {
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setSuccess('');
+
+    const target = {
+      subscriptionId: selectedSubscription.id,
+      resourceGroup: selectedCluster.resourceGroup,
+      clusterName: selectedCluster.name,
+    };
+
+    const finish = () => {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    };
+
+    try {
+      // The proxy is driven by the `connectedk8s` Azure CLI extension.
+      const ext = await isExtensionInstalled('connectedk8s');
+      if (!ext.installed) {
+        // Surface the underlying reason when the check failed for something other
+        // than a missing extension (e.g. "Authentication required…"), so a
+        // login/CLI failure isn't masked by the generic install message.
+        setError(
+          ext.error ||
+            t(
+              'The Azure CLI "connectedk8s" extension is required for AKS Hybrid & Edge clusters. Install it with: az extension add --name connectedk8s'
+            )
+        );
+        finish();
+        return;
+      }
+
+      const startResult = await startProxy(target);
+
+      if (!startResult.success) {
+        setError(
+          t('Failed to connect to the AKS Hybrid & Edge cluster: {{message}}', {
+            message: startResult.error || t('Unknown error'),
+          })
+        );
+        finish();
+        return;
+      }
+
+      // Confirm the cluster actually answers through the proxy. If it doesn't,
+      // the cluster is typically stopped or its Azure Arc agents aren't running
+      // — but surface the underlying proxy/probe error so a genuine failure
+      // (extension, auth, spawn error) isn't masked as "cluster offline".
+      const verify = await verifyAksHybridEdgeCluster(selectedCluster.name, {
+        target: {
+          subscriptionId: target.subscriptionId,
+          resourceGroup: target.resourceGroup,
+        },
+      });
+      if (!verify.success) {
+        console.error('[AKS] AKS Hybrid & Edge verify failed:', verify);
+        await stopProxy(selectedCluster.name);
+        setError(
+          t(
+            "Cluster '{{cluster}}' was added, but it did not become reachable. Details: {{message}}",
+            { cluster: selectedCluster.name, message: verify.error || t('Unknown error') }
+          )
+        );
+        finish();
+        return;
+      }
+
+      // Persist metadata so the cluster is recognised as AKS Hybrid & Edge in the list
+      // view and by the proxy actions.
+      const existing = getClusterSettings(selectedCluster.name);
+      setClusterSettings(selectedCluster.name, {
+        ...existing,
+        clusterType: 'aksarc',
+        subscriptionId: selectedSubscription.id,
+        resourceGroup: selectedCluster.resourceGroup,
+      });
+      // Give the cluster a distinct name badge (server icon + Azure-blue accent)
+      // on the Home table, so AKS Hybrid & Edge clusters stand out next to their name.
+      markAksHybridEdgeAppearance(selectedCluster.name);
+
+      finish();
+      setSuccess(
+        t("Cluster '{{cluster}}' successfully connected", {
+          cluster: selectedCluster.name,
+        })
+      );
+      onClusterRegistered?.();
+    } catch (err) {
+      console.error('Error connecting AKS Hybrid & Edge cluster:', err);
+      await stopProxy(selectedCluster.name);
+      setError(
+        t('Failed to connect to the AKS Hybrid & Edge cluster: {{message}}', {
+          message: err instanceof Error ? err.message : t('Unknown error'),
+        })
+      );
+      finish();
+    }
+  };
+
   const handleRegister = async () => {
     if (!selectedCluster || !selectedSubscription) {
+      return;
+    }
+
+    if (selectedCluster.clusterType === 'aksarc') {
+      await handleAksHybridEdgeRegister();
       return;
     }
 
