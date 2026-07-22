@@ -4,7 +4,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useAzureAuth } from '../../../hooks/useAzureAuth';
+import { trackError } from '../../../telemetry';
+import { trackAksFeature } from '../../../telemetry/aksFeature';
 import { PROFILE_REDIRECT_DELAY_MS } from '../../../utils/constants/timing';
+
+function trackLogoutFailure() {
+  trackAksFeature('aksd.auth-logout', 'failed');
+  try {
+    trackError({ area: 'auth-logout', errorClass: 'UnknownError', phase: 'failed' });
+  } catch {}
+}
 
 /**
  * Return type for {@link useAzureProfilePage}.
@@ -48,11 +57,20 @@ export function useAzureProfilePage(): UseAzureProfilePageResult {
   const authStatus = useAzureAuth();
   const [loggingOut, setLoggingOut] = useState(false);
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+  const logoutAttemptGenerationRef = useRef(0);
+
+  const isCurrentLogoutAttempt = (attemptGeneration: number) =>
+    mountedRef.current && logoutAttemptGenerationRef.current === attemptGeneration;
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      logoutAttemptGenerationRef.current++;
       if (redirectTimerRef.current) {
         clearTimeout(redirectTimerRef.current);
+        redirectTimerRef.current = null;
       }
     };
   }, []);
@@ -74,27 +92,41 @@ export function useAzureProfilePage(): UseAzureProfilePageResult {
   };
 
   const handleLogout = async () => {
+    const attemptGeneration = ++logoutAttemptGenerationRef.current;
+    trackAksFeature('aksd.auth-logout', 'started');
     setLoggingOut(true);
     try {
       // Dynamic import avoids circular dependencies at module load time.
       const { runCommandAsync, isAzError } = await import('../../../utils/azure/az-cli-core');
       const result = await runCommandAsync('az', ['logout']);
+      if (!isCurrentLogoutAttempt(attemptGeneration)) {
+        return;
+      }
 
       if (result.stderr && isAzError(result.stderr)) {
         console.error('Azure CLI logout error:', result.stderr);
+        trackLogoutFailure();
         setLoggingOut(false);
         return;
       }
+
+      trackAksFeature('aksd.auth-logout', 'succeeded');
 
       // Notify the sidebar label to refresh its auth state.
       window.dispatchEvent(new CustomEvent('azure-auth-update'));
 
       // Stay in loggingOut=true state until the component unmounts on redirect.
       redirectTimerRef.current = setTimeout(() => {
-        history.push('/azure/login');
+        if (isCurrentLogoutAttempt(attemptGeneration)) {
+          history.push('/azure/login');
+        }
       }, PROFILE_REDIRECT_DELAY_MS);
     } catch (error) {
+      if (!isCurrentLogoutAttempt(attemptGeneration)) {
+        return;
+      }
       console.error('Error logging out:', error);
+      trackLogoutFailure();
       setLoggingOut(false);
     }
   };
