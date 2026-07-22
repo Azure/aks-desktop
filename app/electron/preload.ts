@@ -38,6 +38,8 @@ contextBridge.exposeInMainWorld('desktopApi', {
       'appConfig',
       'pluginsLoaded',
       'run-command',
+      'start-aks-hybrid-edge-proxy',
+      'stop-aks-hybrid-edge-proxy',
       'plugin-manager',
       'request-backend-token',
       'request-plugin-permission-secrets',

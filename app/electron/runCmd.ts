@@ -27,6 +27,137 @@ import { defaultPluginsDir, defaultUserPluginsDir } from './plugin-management';
 import { loadSettings, saveSettings, SETTINGS_PATH } from './settings';
 
 /**
+ * Active AKS Hybrid & Edge proxy children (`az connectedk8s proxy`), owned by
+ * the app layer and keyed by cluster name. The main process is the single
+ * source of truth for proxy lifecycle: start is idempotent per cluster, stop
+ * kills by cluster, and all are killed on app quit — so a proxy (and the
+ * `arcProxy` daemon it spawns on 127.0.0.1:47011) never orphans to launchd and
+ * keeps serving the cluster after the app closes.
+ *
+ * `group` is true when the child was spawned detached (its own process group),
+ * so it can be group-killed to also stop that grandchild daemon.
+ */
+const proxiesByCluster = new Map<
+  string,
+  { child: ChildProcessWithoutNullStreams; group: boolean }
+>();
+
+/**
+ * Clusters whose proxy start is in-flight but not yet tracked in
+ * `proxiesByCluster` (the child isn't registered until after `spawn`, and the
+ * start path is async). Reserved synchronously so back-to-back start IPC events
+ * can't both pass the idempotency guard and launch duplicate proxies.
+ */
+const startingProxies = new Set<string>();
+
+/**
+ * Clusters for which a Stop arrived while their proxy start was still in-flight
+ * (present in `startingProxies` but not yet tracked). The proxy is torn down the
+ * moment it becomes tracked after spawn, so an in-flight start can't outlive a
+ * Stop request.
+ */
+const stopRequestedProxies = new Set<string>();
+
+/** Whether a proxy is already running for the given cluster. */
+export function hasProxyForCluster(cluster: string): boolean {
+  return proxiesByCluster.has(cluster);
+}
+
+/**
+ * Sends `signal` to a tracked proxy. Detached children are signalled as a whole
+ * process group (negative pid) so the daemon they launched (arcProxy) is
+ * included; others are signalled directly. Best-effort and synchronous.
+ */
+function signalChildEntry(
+  { child, group }: { child: ChildProcessWithoutNullStreams; group: boolean },
+  signal: NodeJS.Signals
+): void {
+  const pid = child.pid;
+  if (!pid) {
+    return;
+  }
+  try {
+    if (process.platform === 'win32') {
+      // Windows has no POSIX process groups, so `process.kill(-pid)` fails with
+      // EINVAL and can't reach the daemon (arcProxy) the CLI spawned. Kill the
+      // whole child tree with taskkill (/T = tree, /F = force). Windows has no
+      // reliable graceful console signal, so both SIGTERM and SIGKILL map to a
+      // forced tree kill here.
+      const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F']);
+      // taskkill exits non-zero if the tree is already gone; ignore spawn errors
+      // so a best-effort teardown never throws.
+      killer.on('error', () => {});
+    } else if (group) {
+      process.kill(-pid, signal);
+    } else {
+      child.kill(signal);
+    }
+  } catch (err) {
+    // ESRCH = process/group already exited, which is the expected outcome for a
+    // teardown — ignore it. Anything else (EPERM, EINVAL) means the kill
+    // genuinely failed and a proxy may be orphaned, so surface it.
+    if ((err as NodeJS.ErrnoException).code !== 'ESRCH') {
+      console.error(`[AKS][main] failed to ${signal} proxy pid ${pid}:`, err);
+    }
+  }
+}
+
+/**
+ * Stops the proxy for a specific cluster, if any.
+ *
+ * Targets the whole tree — `az connectedk8s proxy` + the `arcProxy` daemon it
+ * spawns — because arcProxy is what actually serves the cluster on
+ * 127.0.0.1:47011, so signalling only the CLI leaves the cluster reachable and
+ * Stop appears to do nothing.
+ *
+ * Cross-platform behaviour differs (see {@link signalChildEntry}):
+ *  - **POSIX**: a graceful `SIGTERM` to the process group so arcProxy closes its
+ *    listener and releases the port cleanly, with a `SIGKILL` fallback a few
+ *    seconds later only if something ignored the SIGTERM. (An abrupt SIGKILL
+ *    leaves arcProxy in a bad state and a subsequent Start can't reconnect.)
+ *  - **Windows**: no process-group signalling and no reliable graceful console
+ *    signal, so both calls force-kill the tree with `taskkill /T /F`; the port
+ *    is released on process exit rather than a graceful listener close.
+ */
+export function stopProxyForCluster(cluster: string): void {
+  const entry = proxiesByCluster.get(cluster);
+  if (!entry) {
+    return;
+  }
+  // Intentionally keep the entry tracked until the child actually exits (the
+  // `untrack()` handler removes it on exit). Removing it here would make
+  // hasProxyForCluster() false while the process is still shutting down, letting
+  // a quick Start spawn a second proxy and fight over the port/arcProxy daemon.
+
+  // POSIX: graceful group stop (CLI + arcProxy). Windows: forced taskkill tree
+  // stop — see signalChildEntry for the platform split.
+  signalChildEntry(entry, 'SIGTERM');
+
+  // Force-kill fallback a few seconds later, only if the child hasn't already
+  // exited — avoids ESRCH noise and, more importantly, signalling a reused PID.
+  // The timer is cancelled when the child exits (the common case after SIGTERM).
+  const killTimer = setTimeout(() => {
+    if (entry.child.exitCode === null && entry.child.signalCode === null) {
+      signalChildEntry(entry, 'SIGKILL');
+    }
+  }, 4000);
+  entry.child.once('exit', () => clearTimeout(killTimer));
+}
+
+/**
+ * Kills every tracked proxy. Intended to run from the app's `before-quit`
+ * handler so proxies don't survive the app.
+ */
+export function killAllProxies(): void {
+  for (const entry of proxiesByCluster.values()) {
+    // On quit, force-kill for a guaranteed teardown (no time to wait on a
+    // graceful shutdown as the app is exiting).
+    signalChildEntry(entry, 'SIGKILL');
+  }
+  proxiesByCluster.clear();
+}
+
+/**
  * Data sent from the renderer process when a 'run-command' event is emitted.
  */
 interface CommandData {
@@ -413,6 +544,33 @@ export async function handleRunCommand(
     },
   });
 
+  // When the caller tags the command with a `cluster` (the AKS Hybrid & Edge
+  // proxy does, via handleStartProxy), track the child by cluster so the app
+  // layer owns its lifecycle — stop-by-cluster and kill-on-quit. Such commands
+  // are spawned `detached: true`, making the child a process-group leader we can
+  // group-kill to also stop the daemon it launches (arcProxy).
+  const proxyCluster = (commandData.options as { cluster?: string })?.cluster;
+  const isDetached = !!(commandData.options as { detached?: boolean })?.detached;
+  // Only lifecycle-manage the actual `az connectedk8s proxy` invocation. Guarding
+  // on the command keeps an unrelated run-command that happens to set
+  // options.cluster from being tracked (and later killed) as if it were a proxy.
+  const isAksProxyCommand = command === 'az' && args[0] === 'connectedk8s' && args[1] === 'proxy';
+  if (proxyCluster && isAksProxyCommand && !proxiesByCluster.has(proxyCluster)) {
+    proxiesByCluster.set(proxyCluster, { child, group: isDetached });
+    // A Stop that arrived while this proxy was still starting can now be honored,
+    // now that the child exists and is tracked.
+    if (stopRequestedProxies.delete(proxyCluster)) {
+      stopProxyForCluster(proxyCluster);
+    }
+  }
+  const untrack = () => {
+    // Guard: only clear if this exact child is still the tracked one, so a late
+    // exit from a replaced proxy can't evict a newer one.
+    if (proxyCluster && proxiesByCluster.get(proxyCluster)?.child === child) {
+      proxiesByCluster.delete(proxyCluster);
+    }
+  };
+
   child.stdout.on('data', (data: string | Buffer) => {
     event.sender.send('command-stdout', commandData.id, data.toString());
   });
@@ -422,11 +580,13 @@ export async function handleRunCommand(
   });
 
   child.on('error', (err: Error) => {
+    untrack();
     event.sender.send('command-stderr', commandData.id, err.message);
     event.sender.send('command-exit', commandData.id, -1);
   });
 
   child.on('exit', (code: number | null) => {
+    untrack();
     event.sender.send('command-exit', commandData.id, code);
   });
 }
@@ -513,6 +673,90 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
     async (event, eventData) =>
       await handleRunCommand(event, eventData, mainWindow, permissionSecrets)
   );
+
+  // Starts the AKS Hybrid & Edge proxy for a cluster. App-layer owned and
+  // idempotent: if a proxy is already running for the cluster this is a no-op,
+  // so a duplicate Start never launches a second `az connectedk8s proxy` (which
+  // would bounce the shared arcProxy daemon). Delegates to the run-command path
+  // so the existing consent / permission-secret checks and child streaming
+  // apply; the child is spawned detached and tracked by cluster.
+  ipcMain.on('start-aks-hybrid-edge-proxy', async (event, eventData) => {
+    const { cluster, subscriptionId, resourceGroup } = (eventData ?? {}) as {
+      cluster?: string;
+      subscriptionId?: string;
+      resourceGroup?: string;
+    };
+    console.log(
+      `[AKS][main] start-aks-hybrid-edge-proxy received: cluster=${cluster} ` +
+        `alreadyRunning=${cluster ? hasProxyForCluster(cluster) : 'n/a'}`
+    );
+    if (
+      !cluster ||
+      !subscriptionId ||
+      !resourceGroup ||
+      hasProxyForCluster(cluster) ||
+      startingProxies.has(cluster)
+    ) {
+      return;
+    }
+    // Reserve synchronously: the child isn't tracked in proxiesByCluster until
+    // after spawn (inside the async handleRunCommand below), so without this a
+    // second back-to-back event could pass the guard and launch a duplicate.
+    startingProxies.add(cluster);
+    // Drop any stale stop-request from a previous start so it can't tear down
+    // this fresh one.
+    stopRequestedProxies.delete(cluster);
+    const commandData: CommandData = {
+      id: `aks-hybrid-edge-proxy:${cluster}:${cryptoRandom()}`,
+      command: 'az',
+      args: [
+        'connectedk8s',
+        'proxy',
+        '--subscription',
+        subscriptionId,
+        '--resource-group',
+        resourceGroup,
+        '--name',
+        cluster,
+      ],
+      // `cluster` tags the child for cluster-keyed tracking; `detached` makes it
+      // a process-group leader so it (and arcProxy) can be group-killed.
+      options: { detached: true, cluster },
+      permissionSecrets,
+    };
+    // Log only the cluster, not the full arg list — it carries the Azure
+    // subscription id and resource group, which can be sensitive and may end up
+    // in diagnostic bundles.
+    console.log(`[AKS][main] spawning proxy for cluster=${cluster}`);
+    try {
+      await handleRunCommand(event, commandData, mainWindow, permissionSecrets);
+    } finally {
+      // Once spawned, proxiesByCluster owns the idempotency guard; drop the
+      // in-flight reservation (also clears it if the start failed before spawn).
+      startingProxies.delete(cluster);
+    }
+  });
+
+  // Stops the AKS Hybrid & Edge proxy for a cluster: signals the tracked child
+  // (and its arcProxy daemon); it stays tracked until it actually exits. Keyed by
+  // cluster name, so it works even after a renderer reload (which has no memory
+  // of the command id).
+  ipcMain.on('stop-aks-hybrid-edge-proxy', (_event, eventData) => {
+    const cluster = (eventData as { cluster?: unknown })?.cluster;
+    console.log(
+      `[AKS][main] stop-aks-hybrid-edge-proxy received: cluster=${String(cluster)} ` +
+        `tracked=${typeof cluster === 'string' ? hasProxyForCluster(cluster) : 'n/a'}`
+    );
+    if (typeof cluster === 'string') {
+      if (hasProxyForCluster(cluster)) {
+        stopProxyForCluster(cluster);
+      } else if (startingProxies.has(cluster)) {
+        // Start is in-flight but not yet tracked; mark it so the proxy is torn
+        // down the moment it's tracked after spawn, instead of coming up anyway.
+        stopRequestedProxies.add(cluster);
+      }
+    }
+  });
 }
 
 /**
