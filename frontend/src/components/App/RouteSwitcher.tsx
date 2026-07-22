@@ -16,11 +16,6 @@
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
-import Dialog from '@mui/material/Dialog';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
-import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
 import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -41,6 +36,7 @@ import { uiSlice } from '../../redux/uiSlice';
 import ErrorBoundary from '../common/ErrorBoundary';
 import ErrorComponent from '../common/ErrorPage';
 import { useSidebarItem } from '../Sidebar';
+import ClusterPreparingDialog from './ClusterPreparingDialog';
 
 export default function RouteSwitcher(props: { requiresToken: () => boolean }) {
   // The NotFoundRoute always has to be evaluated in the last place.
@@ -295,21 +291,7 @@ export function AuthRoute(props: AuthRouteProps) {
         // the cluster reads as a deliberate connect step. Only the dialog renders
         // while preparation is pending; the cluster's views render once it
         // succeeds (this renderer returns `children` on success, below).
-        return (
-          <Dialog open maxWidth="xs" fullWidth aria-labelledby="cluster-preopen-title">
-            <DialogTitle id="cluster-preopen-title">
-              {t('translation|Connecting to "{{cluster}}"', { cluster })}
-            </DialogTitle>
-            <DialogContent>
-              <Box display="flex" alignItems="center" gap={2} py={1}>
-                <CircularProgress size={22} aria-hidden="true" />
-                <Typography variant="body2">
-                  {preparingMessage || t('translation|Preparing cluster…')}
-                </Typography>
-              </Box>
-            </DialogContent>
-          </Dialog>
-        );
+        return <ClusterPreparingDialog cluster={cluster!} message={preparingMessage} />;
       }
     }
 
