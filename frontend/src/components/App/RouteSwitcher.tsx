@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import { useQuery } from '@tanstack/react-query';
 import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -28,11 +30,13 @@ import { getDefaultRoutes } from '../../lib/router/getDefaultRoutes';
 import { getRoutePath } from '../../lib/router/getRoutePath';
 import { getRouteUseClusterURL } from '../../lib/router/getRouteUseClusterURL';
 import { Route as RouteType } from '../../lib/router/Route';
+import { clearClusterPreparing, setClusterPreparing } from '../../redux/clusterProviderSlice';
 import { useTypedSelector } from '../../redux/hooks';
 import { uiSlice } from '../../redux/uiSlice';
 import ErrorBoundary from '../common/ErrorBoundary';
 import ErrorComponent from '../common/ErrorPage';
 import { useSidebarItem } from '../Sidebar';
+import ClusterPreparingDialog from './ClusterPreparingDialog';
 
 export default function RouteSwitcher(props: { requiresToken: () => boolean }) {
   // The NotFoundRoute always has to be evaluated in the last place.
@@ -155,7 +159,7 @@ interface AuthRouteProps {
   [otherProps: string]: any;
 }
 
-function AuthRoute(props: AuthRouteProps) {
+export function AuthRoute(props: AuthRouteProps) {
   const {
     children,
     sidebar,
@@ -165,16 +169,76 @@ function AuthRoute(props: AuthRouteProps) {
     ...other
   } = props;
 
+  const { t } = useTranslation();
+  const dispatch = useDispatch();
   useSidebarItem(sidebar, computedMatch);
   const cluster = useCluster();
+
+  const clusters = useClustersConf();
+  const currentClusterConf = (cluster && clusters ? clusters[cluster] : null) ?? null;
+
+  // Pre-open hooks let plugins prepare a cluster (start a proxy, refresh
+  // credentials, write a kubeconfig context, …) before its views load. They run
+  // for a single opened cluster only; in multi-cluster mode we cannot attribute
+  // preparation to one cluster, so we skip them (mirroring the auth handling
+  // below). They must complete before we probe auth, since the auth probe talks
+  // to the cluster's API and may depend on the preparation (e.g. a proxy).
+  const preOpenHooks = useTypedSelector(state => state.clusterProvider.preOpenHooks);
+  const isSingleCluster = getSelectedClusters().length <= 1;
+  const preOpenEnabled = !!cluster && requiresCluster && isSingleCluster && preOpenHooks.length > 0;
+  const preOpenQuery = useQuery({
+    queryKey: ['clusterPreOpen', cluster],
+    queryFn: async () => {
+      // Capture the cluster this run prepares so cleanup stays keyed to it even
+      // if the user navigates to a different cluster while hooks are running.
+      const preparingCluster = cluster!;
+      // Mark the cluster as preparing so the connecting popup shows and the
+      // "Lost connection" health banner is suppressed while hooks run.
+      dispatch(setClusterPreparing({ cluster: preparingCluster }));
+      const reportProgress = (message: string) =>
+        dispatch(setClusterPreparing({ cluster: preparingCluster, message }));
+      try {
+        for (const hook of preOpenHooks) {
+          await hook({
+            cluster: preparingCluster,
+            clusterConf: currentClusterConf,
+            reportProgress,
+          });
+        }
+        return true;
+      } finally {
+        // Clear deterministically for the cluster we prepared (on success or
+        // error) so a mid-run navigation can't leave a stale "preparing" entry.
+        dispatch(clearClusterPreparing(preparingCluster));
+      }
+    },
+    enabled: preOpenEnabled,
+    retry: 0,
+    // Prepare a cluster once per open: staleTime keeps hooks from re-running
+    // while the cluster page stays mounted, and gcTime: 0 evicts the result on
+    // unmount so leaving and re-opening the cluster re-runs preparation (rather
+    // than reusing a cached success and skipping a proxy that may have died).
+    staleTime: Infinity,
+    gcTime: 0,
+  });
+
+  // The latest progress message a hook reported for this cluster (drives the
+  // connecting popup's text). Undefined when the cluster isn't preparing.
+  const preparingMessage = useTypedSelector(state =>
+    cluster ? state.clusterProvider.preparing?.[cluster] : undefined
+  );
+
+  // (The preparing flag is cleared in the query's `finally` above, keyed to the
+  // cluster that was prepared — deterministic even across mid-run navigation.)
+
   const query = useQuery({
     queryKey: ['auth', cluster],
     queryFn: () => testAuth(cluster!),
-    enabled: !!cluster && requiresAuth,
+    // Wait for pre-open preparation before probing auth against the cluster.
+    enabled: !!cluster && requiresAuth && (!preOpenEnabled || preOpenQuery.isSuccess),
     retry: 0,
   });
 
-  const clusters = useClustersConf();
   const currentCluster = getCluster();
   const clusterConf = currentCluster && clusters ? clusters[currentCluster] : null;
   const authError = query.error as any;
@@ -193,6 +257,44 @@ function AuthRoute(props: AuthRouteProps) {
   }
 
   function getRenderer({ location }: RouteProps) {
+    // Gate the cluster's views on any registered pre-open preparation. This runs
+    // before the auth check below, and for both auth and no-auth cluster routes.
+    if (preOpenEnabled) {
+      if (preOpenQuery.isError) {
+        const detail =
+          preOpenQuery.error instanceof Error
+            ? preOpenQuery.error.message
+            : String(preOpenQuery.error);
+        return (
+          <ErrorComponent
+            title={t('translation|Could not open cluster')}
+            error={preOpenQuery.error instanceof Error ? preOpenQuery.error : undefined}
+            message={
+              <>
+                {detail}
+                <Box mt={2}>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={() => preOpenQuery.refetch()}
+                  >
+                    {t('translation|Retry')}
+                  </Button>
+                </Box>
+              </>
+            }
+          />
+        );
+      }
+      if (!preOpenQuery.isSuccess) {
+        // A modal "connecting" popup (rather than a bare page loader) so opening
+        // the cluster reads as a deliberate connect step. Only the dialog renders
+        // while preparation is pending; the cluster's views render once it
+        // succeeds (this renderer returns `children` on success, below).
+        return <ClusterPreparingDialog cluster={cluster!} message={preparingMessage} />;
+      }
+    }
+
     if (!requiresAuth) {
       return children;
     }

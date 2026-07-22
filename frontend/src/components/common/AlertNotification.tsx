@@ -24,12 +24,19 @@ import { getCluster } from '../../lib/cluster';
 import { testClusterHealth } from '../../lib/k8s/api/v1/clusterApi';
 import { getRoute } from '../../lib/router/getRoute';
 import { getRoutePath } from '../../lib/router/getRoutePath';
+import { useTypedSelector } from '../../redux/hooks';
 
 // in ms
 const NETWORK_STATUS_CHECK_TIME = 5000;
 
 export interface PureAlertNotificationProps {
   checkerFunction(): Promise<any>;
+  /**
+   * When true, the alert is suppressed. Used while a cluster is being prepared
+   * by pre-open hooks (e.g. a proxy is still starting), so the transient
+   * unreachability during connect doesn't flash a "Lost connection" banner.
+   */
+  suppress?: boolean;
 }
 
 // Routes where we don't show the alert notification.
@@ -37,7 +44,7 @@ export interface PureAlertNotificationProps {
 // some other reason.
 const ROUTES_WITHOUT_ALERT = ['login', 'token', 'settingsCluster'];
 
-export function PureAlertNotification({ checkerFunction }: PureAlertNotificationProps) {
+export function PureAlertNotification({ checkerFunction, suppress }: PureAlertNotificationProps) {
   const [networkStatusCheckTimeFactor, setNetworkStatusCheckTimeFactor] = React.useState(0);
   const [error, setError] = React.useState<null | string | boolean>(null);
 
@@ -46,6 +53,13 @@ export function PureAlertNotification({ checkerFunction }: PureAlertNotification
 
   function registerSetInterval(): NodeJS.Timeout {
     return setInterval(() => {
+      // While the cluster is being prepared (proxy starting, etc.) transient
+      // unreachability is expected — don't alarm the user.
+      if (suppress) {
+        setError(null);
+        return;
+      }
+
       if (!window.navigator.onLine) {
         setError(t('translation|Offline') as string);
         return;
@@ -78,13 +92,21 @@ export function PureAlertNotification({ checkerFunction }: PureAlertNotification
     }
   }, [pathname]);
 
+  // Clear any standing error the moment preparation starts, so the banner
+  // disappears immediately rather than on the next poll tick.
+  React.useEffect(() => {
+    if (suppress) {
+      setError(null);
+    }
+  }, [suppress]);
+
   React.useEffect(
     () => {
       const id = registerSetInterval();
       return () => clearInterval(id);
     },
     // eslint-disable-next-line
-    [networkStatusCheckTimeFactor]
+    [networkStatusCheckTimeFactor, suppress]
   );
 
   const showOnRoute = React.useMemo(() => {
@@ -102,7 +124,7 @@ export function PureAlertNotification({ checkerFunction }: PureAlertNotification
     return true;
   }, [pathname]);
 
-  if (!error || !showOnRoute) {
+  if (!error || !showOnRoute || suppress) {
     return null;
   }
 
@@ -162,5 +184,16 @@ export function PureAlertNotification({ checkerFunction }: PureAlertNotification
 }
 
 export default function AlertNotification() {
-  return <PureAlertNotification checkerFunction={testClusterHealth} />;
+  // Re-render on navigation so the URL-derived cluster below stays current:
+  // getCluster() reads the location, which Redux state changes alone don't track,
+  // so without this the selector could keep a stale cluster after a route change.
+  useLocation();
+  // Suppress the banner while the current cluster is being prepared by pre-open
+  // hooks (the connecting popup owns the UX during that window).
+  const isPreparing = useTypedSelector(state => {
+    const current = getCluster();
+    const preparing = state.clusterProvider.preparing;
+    return !!current && !!preparing && Object.prototype.hasOwnProperty.call(preparing, current);
+  });
+  return <PureAlertNotification checkerFunction={testClusterHealth} suppress={isPreparing} />;
 }

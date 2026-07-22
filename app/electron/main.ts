@@ -54,7 +54,13 @@ import {
   getPluginBinDirectories,
   PluginManager,
 } from './plugin-management';
-import { addRunCmdConsent, removeRunCmdConsent, runScript, setupRunCmdHandlers } from './runCmd';
+import {
+  addRunCmdConsent,
+  killAllProxies,
+  removeRunCmdConsent,
+  runScript,
+  setupRunCmdHandlers,
+} from './runCmd';
 import { setupSecureStorageHandlers } from './secure-storage';
 import { cleanupHeadlampTray, createHeadlampTray } from './tray';
 import windowSize from './windowSize';
@@ -2110,6 +2116,10 @@ async function startElectron() {
 
   app.once('before-quit', async () => {
     isQuitting = true;
+    // Kill any running AKS Hybrid & Edge proxies (the `az connectedk8s proxy`
+    // processes and their arcProxy daemons) so they don't orphan to launchd and
+    // keep running after the app closes.
+    killAllProxies();
     cleanupHeadlampTray();
     hasTray = false;
     saveZoomFactor(cachedZoom);
