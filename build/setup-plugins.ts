@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { copyShippedPlugin } from './plugin-packaging';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
@@ -68,19 +69,8 @@ for (const plugin of PLUGINS) {
   execSync('npm install && npm run build', { stdio: 'inherit' });
 
   console.log(`Copying built files for plugin: ${pluginName}`);
-  const targetDir = path.join(ROOT_DIR, 'headlamp', '.plugins', pluginName);
-  fs.mkdirSync(targetDir, { recursive: true });
-
-  // Copy dist folder contents
-  const distDir = path.join(pluginDir, 'dist');
-  fs.readdirSync(distDir).forEach((file) => {
-    const src = path.join(distDir, file);
-    const dest = path.join(targetDir, file);
-    fs.cpSync(src, dest, { recursive: true });
-  });
-
-  // Copy package.json
-  fs.copyFileSync('./package.json', path.join(targetDir, 'package.json'));
+  const pluginsDir = path.join(ROOT_DIR, 'headlamp', '.plugins');
+  const targetDir = copyShippedPlugin(pluginDir, pluginsDir, pluginName);
 
   console.log(`Plugin ${pluginName} has been built and copied to ${targetDir}`);
 }
