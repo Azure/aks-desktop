@@ -167,7 +167,6 @@ export const validateNetworkingPolicies = (
 export const validateBasicsStep = (
   formData: Pick<FormData, 'projectName' | 'subscription' | 'cluster' | 'resourceGroup'>,
   extensionInstalled: boolean | null,
-  featureRegistered: boolean | null,
   namespaceExists: boolean | null,
   checkingNamespace: boolean,
   namespaceError: string | null,
@@ -184,11 +183,6 @@ export const validateBasicsStep = (
   // Check extension installation
   if (extensionInstalled !== true) {
     errors.push('AKS Preview Extension must be installed');
-  }
-
-  // Check feature registration
-  if (featureRegistered !== true) {
-    errors.push('ManagedNamespacePreview feature must be registered');
   }
 
   // Validate project name
@@ -323,7 +317,6 @@ export const validateStep = (
   step: number,
   formData: FormData,
   extensionInstalled?: boolean | null,
-  featureRegistered?: boolean | null,
   namespaceExists?: boolean | null,
   checkingNamespace?: boolean,
   namespaceError?: string | null,
@@ -335,7 +328,6 @@ export const validateStep = (
       return validateBasicsStep(
         formData,
         extensionInstalled ?? null,
-        featureRegistered ?? null,
         namespaceExists ?? null,
         checkingNamespace ?? false,
         namespaceError ?? null,

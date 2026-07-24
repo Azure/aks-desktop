@@ -65,14 +65,6 @@ export interface ExtensionStatus {
   showSuccess: boolean;
 }
 
-export interface FeatureStatus {
-  registered: boolean | null;
-  state: string | null;
-  registering: boolean;
-  error: string | null;
-  showSuccess: boolean;
-}
-
 export interface NamespaceStatus {
   exists: boolean | null;
   checking: boolean;
@@ -104,12 +96,10 @@ export interface BasicsStepProps extends StepProps {
   loadingClusters: boolean;
   clusterError: string | null;
   extensionStatus: ExtensionStatus;
-  featureStatus: FeatureStatus;
   namespaceStatus: NamespaceStatus;
   clusterCapabilities: ClusterCapabilities | null;
   capabilitiesLoading: boolean;
   onInstallExtension: () => Promise<void>;
-  onRegisterFeature: () => Promise<void>;
   onRetrySubscriptions: () => Promise<void>;
   onRetryClusters: () => Promise<void>;
   onRefreshCapabilities?: () => void;

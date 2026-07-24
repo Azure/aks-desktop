@@ -76,18 +76,10 @@ const BASE_PROPS: BasicsStepProps = {
   clusterError: null,
   totalClusterCount: null,
   extensionStatus: { installed: true, installing: false, error: null, showSuccess: false },
-  featureStatus: {
-    registered: true,
-    state: 'Registered',
-    registering: false,
-    error: null,
-    showSuccess: false,
-  },
   namespaceStatus: { exists: null, checking: false, error: null },
   clusterCapabilities: null,
   capabilitiesLoading: false,
   onInstallExtension: async () => {},
-  onRegisterFeature: async () => {},
   onRetrySubscriptions: async () => {},
   onRetryClusters: async () => {},
   onRefreshCapabilities: () => {},
@@ -201,40 +193,6 @@ ExtensionInstallSuccess.args = {
   ...BASE_PROPS,
   formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
   extensionStatus: { installed: true, installing: false, error: null, showSuccess: true },
-};
-
-/**
- * The `ManagedNamespacePreview` feature flag is not yet registered.
- * Shows the red error panel with the "Register Feature" button.
- */
-export const FeatureNotRegistered = Template.bind({});
-FeatureNotRegistered.args = {
-  ...BASE_PROPS,
-  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
-  featureStatus: {
-    registered: false,
-    state: 'NotRegistered',
-    registering: false,
-    error: null,
-    showSuccess: false,
-  },
-};
-
-/**
- * Feature registration is in progress.
- * The "Register Feature" button shows a spinner and is disabled.
- */
-export const FeatureRegistering = Template.bind({});
-FeatureRegistering.args = {
-  ...BASE_PROPS,
-  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
-  featureStatus: {
-    registered: false,
-    state: 'Registering',
-    registering: true,
-    error: null,
-    showSuccess: false,
-  },
 };
 
 /**

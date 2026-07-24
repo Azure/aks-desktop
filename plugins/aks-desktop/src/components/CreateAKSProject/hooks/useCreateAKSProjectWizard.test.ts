@@ -89,19 +89,6 @@ vi.mock('./useExtensionCheck', () => ({
   }),
 }));
 
-vi.mock('./useFeatureCheck', () => ({
-  useFeatureCheck: () => ({
-    registered: true,
-    state: null,
-    registering: false,
-    error: null,
-    showSuccess: false,
-    registerFeature: vi.fn(),
-    checkFeature: vi.fn(),
-    clearError: vi.fn(),
-  }),
-}));
-
 vi.mock('./useNamespaceCheck', () => ({
   useNamespaceCheck: () => ({
     exists: false,

@@ -17,7 +17,7 @@ This directory contains the Azure CLI integration layer for AKS Desktop. Every A
 | Module                   | Responsibility                                                                           |
 | ------------------------ | ---------------------------------------------------------------------------------------- |
 | `az-auth.ts`             | Login flows, status checks, access tokens                                                |
-| `az-extensions.ts`       | Extension install/check, feature registration (ManagedNamespacePreview), CLI config      |
+| `az-extensions.ts`       | Extension installation, status checks, and Azure CLI configuration                       |
 | `az-subscriptions.ts`    | Subscriptions, tenants, resource groups, locations, VM sizes                             |
 | `az-clusters.ts`         | AKS cluster listing (Resource Graph optimized), status, capabilities, kubeconfig, addons |
 | `az-resource-graph.ts`   | Azure Resource Graph queries for fast cluster lookups                                    |

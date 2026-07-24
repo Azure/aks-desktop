@@ -117,8 +117,7 @@ function RegisterCluster({ cluster, resourceGroup, subscription, tenantId }: Reg
  *
  * Collects the project name, description, Azure subscription, and AKS cluster.
  * Also surfaces pre-flight warnings and errors for the AKS Preview extension,
- * the ManagedNamespacePreview feature flag, cluster readiness, cluster
- * capabilities, and namespace name availability.
+ * cluster readiness, cluster capabilities, and namespace name availability.
  *
  * All stateful logic (focus management, auto-select, option mapping, cluster
  * state derivation) lives in {@link useBasicsStep}. The `RegisterCluster`
@@ -134,12 +133,10 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
     loadingClusters,
     clusterError,
     extensionStatus,
-    featureStatus,
     namespaceStatus,
     clusterCapabilities,
     capabilitiesLoading,
     onInstallExtension,
-    onRegisterFeature,
     onRetrySubscriptions,
     onRetryClusters,
     onRefreshCapabilities,
@@ -211,60 +208,6 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
         <ValidationAlert
           type="success"
           message={'✓ ' + t('AKS Preview Extension installed successfully!')}
-        />
-      )}
-
-      {/* ManagedNamespacePreview feature flag check */}
-      {featureStatus.registered === false && (
-        <ValidationAlert
-          type="error"
-          message={
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Typography variant="h6" component="div">
-                Feature Flag Required
-              </Typography>
-              <Typography variant="body2">
-                {t(
-                  'The ManagedNamespacePreview feature must be registered to create managed namespaces.'
-                )}
-              </Typography>
-              {featureStatus.state && (
-                <Typography variant="body2">
-                  {t('Current state')}: <strong>{featureStatus.state}</strong>
-                </Typography>
-              )}
-              <Typography variant="body2">{t('Please register it to continue.')}</Typography>
-              {featureStatus.error && (
-                <Typography variant="caption" color="error" sx={{ display: 'block' }}>
-                  {featureStatus.error}
-                </Typography>
-              )}
-              <Button
-                variant="contained"
-                onClick={onRegisterFeature}
-                disabled={featureStatus.registering}
-                sx={{ alignSelf: 'flex-start' }}
-                size="large"
-                aria-busy={featureStatus.registering || undefined}
-              >
-                {featureStatus.registering ? (
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <CircularProgress size={16} color="inherit" aria-hidden="true" />
-                    {t('Registering')}...
-                  </Box>
-                ) : (
-                  t('Register ManagedNamespacePreview Feature')
-                )}
-              </Button>
-            </Box>
-          }
-        />
-      )}
-
-      {featureStatus.showSuccess && (
-        <ValidationAlert
-          type="success"
-          message={'✓ ' + t('ManagedNamespacePreview feature registered successfully!')}
         />
       )}
 
