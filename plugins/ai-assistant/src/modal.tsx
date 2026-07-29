@@ -100,6 +100,8 @@ interface CommandProcess {
   };
   /** Registers a listener for process exit. */
   on: (event: 'exit', listener: (code: number | null) => void) => void;
+  /** Terminates the command process when supported by the host. */
+  kill?: () => void;
 }
 
 interface HolmesTextEvent {
@@ -136,12 +138,18 @@ export default function AIPrompt(props: {
   const commandRunnerRef = React.useRef<CommandRunner | null>(null);
   React.useEffect(() => {
     if (typeof pluginRunCommand !== 'undefined') {
-      commandRunnerRef.current = (command: string, args: string[]) =>
+      commandRunnerRef.current = (command: string, args: string[], signal?: AbortSignal) =>
         new Promise<{ stdout: string; exitCode: number }>(resolve => {
           const proc = (pluginRunCommand as unknown as PluginCommandRunner)(command, args, {});
           let out = '';
+          const abort = () => proc.kill?.();
+          if (signal?.aborted) abort();
+          signal?.addEventListener('abort', abort, { once: true });
           proc.stdout.on('data', chunk => (out += String(chunk)));
-          proc.on('exit', (code: number | null) => resolve({ stdout: out, exitCode: code ?? -1 }));
+          proc.on('exit', (code: number | null) => {
+            signal?.removeEventListener('abort', abort);
+            resolve({ stdout: out, exitCode: code ?? -1 });
+          });
         });
     }
   }, []);

@@ -157,15 +157,21 @@ export default function Settings() {
   const [commandRunner, setCommandRunner] = React.useState<CommandRunner | null>(null);
   React.useEffect(() => {
     if (typeof pluginRunCommand !== 'undefined') {
-      setCommandRunner(() => async (command: string, args: string[]) => {
+      setCommandRunner(() => async (command: string, args: string[], signal?: AbortSignal) => {
         // pluginRunCommand returns an EventEmitter-like object; convert to
         // the { stdout, exitCode } shape that CommandRunner expects.
         return new Promise<{ stdout: string; exitCode: number }>(resolve => {
           // @ts-ignore — 'gh' and 'az' are narrower than the declared type
           const proc = pluginRunCommand(command as any, args, {});
           let out = '';
+          const abort = () => (proc as typeof proc & { kill?: () => void }).kill?.();
+          if (signal?.aborted) abort();
+          signal?.addEventListener('abort', abort, { once: true });
           proc.stdout.on('data', (d: any) => (out += String(d)));
-          proc.on('exit', (code: number | null) => resolve({ stdout: out, exitCode: code ?? -1 }));
+          proc.on('exit', (code: number | null) => {
+            signal?.removeEventListener('abort', abort);
+            resolve({ stdout: out, exitCode: code ?? -1 });
+          });
         });
       });
     }

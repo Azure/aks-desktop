@@ -43,9 +43,14 @@ export interface CommandRunResult {
  *
  * @param command - Executable name.
  * @param args - Command arguments.
+ * @param signal - Optional cancellation signal for terminating supported command runners.
  * @returns Captured standard output and process exit code.
  */
-export type CommandRunner = (command: string, args: string[]) => Promise<CommandRunResult>;
+export type CommandRunner = (
+  command: string,
+  args: string[],
+  signal?: AbortSignal
+) => Promise<CommandRunResult>;
 
 /** A provider discovered by the auto-detection system. */
 export interface DetectedProvider {
@@ -102,29 +107,42 @@ const COMMAND_TIMEOUT_MS = 15_000;
  * @param command - Executable name, which must be `gh` or `az`.
  * @param args - Command arguments passed to the runner.
  * @param commandRunner - Host-provided command executor.
+ * @param signal - Optional parent signal propagated to the command runner.
  * @returns Runner result, or an empty result with exit code `-1` when rejected or failed.
  */
 async function runDetectCommand(
   command: string,
   args: string[],
-  commandRunner: CommandRunner
+  commandRunner: CommandRunner,
+  signal?: AbortSignal
 ): Promise<CommandRunResult> {
   if (!ALLOWED_COMMANDS.has(command)) {
     console.warn(`[ai-assistant auto-detect] command "${command}" not in allowlist — skipping`);
     return { stdout: '', exitCode: -1 };
   }
 
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     const result = await Promise.race([
-      commandRunner(command, args),
-      new Promise<CommandRunResult>((_resolve, reject) =>
-        setTimeout(() => reject(new Error(`Command "${command}" timed out`)), COMMAND_TIMEOUT_MS)
+      commandRunner(command, args, controller.signal),
+      new Promise<CommandRunResult>(
+        (_resolve, reject) =>
+          (timeoutId = setTimeout(() => {
+            controller.abort();
+            reject(new Error(`Command "${command}" timed out`));
+          }, COMMAND_TIMEOUT_MS))
       ),
     ]);
     return result;
   } catch (e) {
     console.debug(`[ai-assistant auto-detect] command "${command}" failed:`, e);
     return { stdout: '', exitCode: -1 };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', abort);
   }
 }
 
@@ -380,8 +398,10 @@ export async function detectOllamaProvider(): Promise<DetectedProvider | null> {
 // Azure OpenAI detection via `az` CLI
 // ---------------------------------------------------------------------------
 
-/** Azure OpenAI account returned by the Azure CLI. */
+/** Azure OpenAI account returned by Azure Management APIs or the Azure CLI fallback. */
 interface AzureOpenAIAccount {
+  /** Azure resource ID. */
+  id?: string;
   /** Azure resource name. */
   name: string;
   /** Optional account properties. */
@@ -391,9 +411,56 @@ interface AzureOpenAIAccount {
   };
   /** Resource group containing the account. */
   resourceGroup?: string;
+  /** Subscription containing the account. */
+  subscriptionId?: string;
 }
 
-/** Azure OpenAI deployment returned by the Azure CLI. */
+/** Azure account with the fields required for deployment discovery. */
+type DiscoverableAzureOpenAIAccount = AzureOpenAIAccount & {
+  properties: { endpoint: string };
+  resourceGroup: string;
+};
+
+/** Azure subscription returned by the Azure CLI session. */
+interface AzureSubscription {
+  /** Subscription ID used to scope resource commands. */
+  id?: string;
+}
+
+/** Maximum number of concurrent Azure deployment-list commands. */
+const AZURE_DEPLOYMENT_CONCURRENCY = 8;
+
+/** Account row projected by the Azure Resource Graph query. */
+interface AzureResourceGraphAccount {
+  /** Azure resource ID. */
+  id?: string;
+  /** Azure resource name. */
+  name: string;
+  /** Resource group containing the account. */
+  resourceGroup?: string;
+  /** Subscription containing the account. */
+  subscriptionId?: string;
+  /** Azure AI service endpoint. */
+  endpoint?: string;
+}
+
+/** Azure Resource Graph REST response envelope. */
+interface AzureResourceGraphResponse {
+  /** Accounts in the current page. */
+  data?: AzureResourceGraphAccount[];
+  /** Opaque token used to request the next page. */
+  $skipToken?: string;
+}
+
+/** Azure Resource Manager list response envelope. */
+interface AzureManagementListResponse<T> {
+  /** Resources in the current page. */
+  value?: T[];
+  /** Absolute URL for the next page. */
+  nextLink?: string;
+}
+
+/** Azure OpenAI deployment returned by Azure Management APIs or the Azure CLI fallback. */
 interface AzureOpenAIDeployment {
   /** Deployment name used by Azure OpenAI requests. */
   name: string;
@@ -404,7 +471,7 @@ interface AzureOpenAIDeployment {
       /** Underlying model name. */
       name?: string;
     };
-    /** Capability flags represented as Azure CLI strings. */
+    /** Capability flags represented as Azure response strings. */
     capabilities?: Record<string, string>;
   };
 }
@@ -435,12 +502,12 @@ function isChatDeployment(deployment: AzureOpenAIDeployment): boolean {
 }
 
 /**
- * Checks Azure CLI login state and extracts an account label.
+ * Checks Azure CLI login state and extracts the active subscription ID.
  *
  * @param commandRunner - Host-provided command executor.
- * @returns Account name, user name, `Azure`, or `null` when unavailable or invalid.
+ * @returns Active subscription metadata, or `null` when unavailable or invalid.
  */
-async function checkAzureLogin(commandRunner: CommandRunner): Promise<string | null> {
+async function checkAzureLogin(commandRunner: CommandRunner): Promise<AzureSubscription | null> {
   const { stdout, exitCode } = await runDetectCommand(
     'az',
     ['account', 'show', '-o', 'json'],
@@ -449,21 +516,194 @@ async function checkAzureLogin(commandRunner: CommandRunner): Promise<string | n
   if (exitCode !== 0 || !stdout) return null;
   try {
     const account = JSON.parse(stdout);
-    return account.name || account.user?.name || 'Azure';
+    return { id: account.id };
   } catch {
     return null;
   }
 }
 
 /**
+ * Lists enabled subscriptions, falling back to the active subscription.
+ *
+ * @param activeSubscription - Subscription returned by `az account show`.
+ * @param commandRunner - Host-provided command executor.
+ * @returns Enabled subscriptions, or the active subscription when listing fails.
+ */
+async function listAzureSubscriptions(
+  activeSubscription: AzureSubscription,
+  commandRunner: CommandRunner
+): Promise<AzureSubscription[]> {
+  const { stdout, exitCode } = await runDetectCommand(
+    'az',
+    ['account', 'list', '--query', "[?state=='Enabled'].{id:id,name:name}", '-o', 'json'],
+    commandRunner
+  );
+  if (exitCode === 0 && stdout) {
+    try {
+      const subscriptions: AzureSubscription[] = JSON.parse(stdout);
+      if (Array.isArray(subscriptions) && subscriptions.length > 0) return subscriptions;
+    } catch {
+      // Fall through to the active subscription.
+    }
+  }
+  return [activeSubscription];
+}
+
+/**
+ * Obtains an Azure Resource Manager token from the authenticated Azure CLI session.
+ *
+ * @param commandRunner - Host-provided command executor.
+ * @returns ARM bearer token, or `null` when authentication is unavailable.
+ */
+async function getAzureManagementToken(commandRunner: CommandRunner): Promise<string | null> {
+  const { stdout, exitCode } = await runDetectCommand(
+    'az',
+    [
+      'account',
+      'get-access-token',
+      '--resource',
+      'https://management.azure.com/',
+      '--query',
+      'accessToken',
+      '-o',
+      'tsv',
+    ],
+    commandRunner
+  );
+  if (exitCode !== 0) return null;
+  const token = stdout.trim();
+  return token || null;
+}
+
+/**
+ * Discovers Azure OpenAI and Foundry accounts through the Resource Graph REST API.
+ *
+ * @param token - ARM bearer token.
+ * @param subscriptions - Subscription IDs included in the query.
+ * @returns Accounts from Resource Graph, or `null` when the API is unavailable.
+ */
+async function listAzureOpenAIAccountsWithResourceGraphApi(
+  token: string,
+  subscriptions: string[]
+): Promise<AzureOpenAIAccount[] | null> {
+  const query = [
+    'Resources',
+    "| where type =~ 'microsoft.cognitiveservices/accounts'",
+    "| where kind in~ ('OpenAI', 'AIServices')",
+    '| project id, name, resourceGroup, subscriptionId, endpoint=tostring(properties.endpoint)',
+    '| order by name asc',
+  ].join(' ');
+  const accounts: AzureOpenAIAccount[] = [];
+  let skipToken: string | undefined;
+  do {
+    try {
+      const response = await fetch(
+        'https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            subscriptions,
+            query,
+            options: {
+              resultFormat: 'objectArray',
+              $top: 1000,
+              ...(skipToken ? { $skipToken: skipToken } : {}),
+            },
+          }),
+        }
+      );
+      if (!response.ok) return null;
+      const page: AzureResourceGraphResponse = await response.json();
+      if (!Array.isArray(page.data)) return null;
+      accounts.push(
+        ...page.data.map(account => ({
+          id: account.id,
+          name: account.name,
+          resourceGroup: account.resourceGroup,
+          subscriptionId: account.subscriptionId,
+          properties: { endpoint: account.endpoint },
+        }))
+      );
+      skipToken = page.$skipToken;
+    } catch {
+      return null;
+    }
+  } while (skipToken);
+  return accounts;
+}
+
+/**
+ * Lists deployments for one Azure account through the ARM REST API.
+ *
+ * @param account - Azure account with a resource ID.
+ * @param token - ARM bearer token.
+ * @param signal - Optional cancellation signal.
+ * @returns Parsed deployments, or `null` when the API is unavailable.
+ */
+async function listAzureOpenAIDeploymentsWithApi(
+  account: DiscoverableAzureOpenAIAccount,
+  token: string,
+  signal?: AbortSignal
+): Promise<AzureOpenAIDeployment[] | null> {
+  if (!account.id) return null;
+  const deployments: AzureOpenAIDeployment[] = [];
+  let url:
+    | string
+    | undefined = `https://management.azure.com${account.id}/deployments?api-version=2023-05-01`;
+  try {
+    while (url) {
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal,
+      });
+      if (!response.ok) return null;
+      const page: AzureManagementListResponse<AzureOpenAIDeployment> = await response.json();
+      if (!Array.isArray(page.value)) return null;
+      deployments.push(...page.value);
+      url = page.nextLink;
+    }
+    return deployments;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Maps items in bounded concurrent batches while preserving input order.
+ *
+ * @param items - Items to process.
+ * @param concurrency - Maximum operations started at once.
+ * @param mapper - Async item mapper.
+ * @returns Mapped values in input order.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let offset = 0; offset < items.length; offset += concurrency) {
+    results.push(...(await Promise.all(items.slice(offset, offset + concurrency).map(mapper))));
+  }
+  return results;
+}
+
+/**
  * Lists Azure cognitive-service accounts of kind `OpenAI` or `AIServices`.
  *
  * @param commandRunner - Host-provided command executor.
+ * @param subscriptionId - Optional subscription used to scope the command.
  * @returns Parsed account array, or an empty array on command or JSON failure.
  */
 async function listAzureOpenAIAccounts(
-  commandRunner: CommandRunner
+  commandRunner: CommandRunner,
+  subscriptionId?: string
 ): Promise<AzureOpenAIAccount[]> {
+  const subscriptionArgs = subscriptionId ? ['--subscription', subscriptionId] : [];
   const { stdout, exitCode } = await runDetectCommand(
     'az',
     [
@@ -472,6 +712,7 @@ async function listAzureOpenAIAccounts(
       'list',
       '--query',
       "[?kind=='OpenAI' || kind=='AIServices']",
+      ...subscriptionArgs,
       '-o',
       'json',
     ],
@@ -480,7 +721,7 @@ async function listAzureOpenAIAccounts(
   if (exitCode !== 0 || !stdout) return [];
   try {
     const accounts: AzureOpenAIAccount[] = JSON.parse(stdout);
-    return Array.isArray(accounts) ? accounts : [];
+    return Array.isArray(accounts) ? accounts.map(account => ({ ...account, subscriptionId })) : [];
   } catch {
     return [];
   }
@@ -492,13 +733,18 @@ async function listAzureOpenAIAccounts(
  * @param resourceGroup - Resource group containing the account.
  * @param accountName - Azure account resource name.
  * @param commandRunner - Host-provided command executor.
+ * @param subscriptionId - Optional subscription used to scope the command.
+ * @param signal - Optional cancellation signal for the deployment query.
  * @returns Parsed deployment array, or an empty array on command or JSON failure.
  */
 async function listAzureOpenAIDeployments(
   resourceGroup: string,
   accountName: string,
-  commandRunner: CommandRunner
+  commandRunner: CommandRunner,
+  subscriptionId?: string,
+  signal?: AbortSignal
 ): Promise<AzureOpenAIDeployment[]> {
+  const subscriptionArgs = subscriptionId ? ['--subscription', subscriptionId] : [];
   const { stdout, exitCode } = await runDetectCommand(
     'az',
     [
@@ -510,10 +756,12 @@ async function listAzureOpenAIDeployments(
       resourceGroup,
       '-n',
       accountName,
+      ...subscriptionArgs,
       '-o',
       'json',
     ],
-    commandRunner
+    commandRunner,
+    signal
   );
   if (exitCode !== 0 || !stdout) return [];
   try {
@@ -530,13 +778,16 @@ async function listAzureOpenAIDeployments(
  * @param resourceGroup - Resource group containing the account.
  * @param accountName - Azure account resource name.
  * @param commandRunner - Host-provided command executor.
+ * @param subscriptionId - Optional subscription used to scope the command.
  * @returns Primary key, secondary key, or `null` when unavailable or invalid.
  */
 async function getAzureOpenAIKey(
   resourceGroup: string,
   accountName: string,
-  commandRunner: CommandRunner
+  commandRunner: CommandRunner,
+  subscriptionId?: string
 ): Promise<string | null> {
+  const subscriptionArgs = subscriptionId ? ['--subscription', subscriptionId] : [];
   const { stdout, exitCode } = await runDetectCommand(
     'az',
     [
@@ -548,6 +799,7 @@ async function getAzureOpenAIKey(
       resourceGroup,
       '-n',
       accountName,
+      ...subscriptionArgs,
       '-o',
       'json',
     ],
@@ -576,6 +828,87 @@ function normaliseEndpoint(url: string): string {
   return s;
 }
 
+/** Returns the stable scoped identity of an Azure account when metadata is complete. */
+function azureAccountIdentity(account: {
+  name?: string;
+  resourceGroup?: string;
+  subscriptionId?: string;
+}): string | null {
+  if (!account.name || !account.resourceGroup || !account.subscriptionId) return null;
+  return [account.subscriptionId, account.resourceGroup, account.name]
+    .map(value => value.toLowerCase())
+    .join('/');
+}
+
+/**
+ * Checks whether an Azure account has usable identity and endpoint metadata.
+ *
+ * @param account - Account to validate.
+ * @param skipAccountNames - Exact account names to omit.
+ * @param skipEndpoints - Normalized endpoint URLs to omit.
+ * @param skipAccountIdentities - Subscription-scoped account identities to omit.
+ * @returns Whether the account can be checked for chat deployments.
+ */
+function isDiscoverableAzureAccount(
+  account: AzureOpenAIAccount,
+  skipAccountNames: ReadonlySet<string>,
+  skipEndpoints: ReadonlySet<string>,
+  skipAccountIdentities: ReadonlySet<string>
+): account is DiscoverableAzureOpenAIAccount {
+  if (skipAccountNames.has(account.name)) return false;
+  const identity = azureAccountIdentity(account);
+  if (identity && skipAccountIdentities.has(identity)) return false;
+  const endpoint = account.properties?.endpoint;
+  if (!endpoint || !account.resourceGroup) return false;
+  return !skipEndpoints.has(normaliseEndpoint(endpoint));
+}
+
+/**
+ * Detects the first chat deployment for one Azure account.
+ *
+ * @param account - Account with endpoint and resource-group metadata.
+ * @param commandRunner - Host-provided command executor.
+ * @param managementToken - Optional ARM token used for direct deployment API calls.
+ * @param signal - Optional cancellation signal for deployment discovery.
+ * @returns A detected provider, or `null` when the account has no chat deployment.
+ */
+async function detectAzureAccountProvider(
+  account: DiscoverableAzureOpenAIAccount,
+  commandRunner: CommandRunner,
+  managementToken?: string,
+  signal?: AbortSignal
+): Promise<DetectedProvider | null> {
+  const apiDeployments = managementToken
+    ? await listAzureOpenAIDeploymentsWithApi(account, managementToken, signal)
+    : null;
+  const deployments =
+    apiDeployments ??
+    (await listAzureOpenAIDeployments(
+      account.resourceGroup,
+      account.name,
+      commandRunner,
+      account.subscriptionId,
+      signal
+    ));
+  const deployment = deployments.find(isChatDeployment);
+  if (!deployment) return null;
+
+  return {
+    providerId: 'azure',
+    source: 'Azure CLI',
+    config: {
+      apiKey: AZ_CLI_AUTH_SENTINEL,
+      azResourceGroup: account.resourceGroup,
+      azAccountName: account.name,
+      ...(account.subscriptionId ? { azSubscriptionId: account.subscriptionId } : {}),
+      endpoint: account.properties.endpoint,
+      deploymentName: deployment.name,
+      model: deployment.properties?.model?.name || 'gpt-4',
+    },
+    displayName: `Azure OpenAI (${account.name})`,
+  };
+}
+
 /**
  * Collects all valid Azure OpenAI accounts with chat-capable deployments.
  *
@@ -585,61 +918,136 @@ function normaliseEndpoint(url: string): string {
  * @param commandRunner - Host-provided command executor.
  * @param skipAccountNames - Exact Azure account names to omit.
  * @param skipEndpoints - Normalized endpoint URLs to omit.
+ * @param skipAccountIdentities - Subscription-scoped account identities to omit.
+ * @param maxResults - Maximum providers to return before ending deployment discovery.
  * @returns Detected Azure providers with endpoints, deployments, and account metadata.
  */
-export async function collectAzureOpenAIProviders(
+async function collectAzureOpenAIProvidersWithLimit(
   commandRunner: CommandRunner,
-  skipAccountNames: ReadonlySet<string> = new Set(),
-  skipEndpoints: ReadonlySet<string> = new Set()
+  skipAccountNames: ReadonlySet<string>,
+  skipEndpoints: ReadonlySet<string>,
+  skipAccountIdentities: ReadonlySet<string>,
+  maxResults = Number.POSITIVE_INFINITY
 ): Promise<DetectedProvider[]> {
-  const subscriptionName = await checkAzureLogin(commandRunner);
-  if (!subscriptionName) return [];
+  const activeSubscription = await checkAzureLogin(commandRunner);
+  if (!activeSubscription) return [];
 
-  const accounts = await listAzureOpenAIAccounts(commandRunner);
+  const subscriptions = await listAzureSubscriptions(activeSubscription, commandRunner);
+  const subscriptionIds = subscriptions.flatMap(subscription =>
+    subscription.id ? [subscription.id] : []
+  );
+  const managementToken = await getAzureManagementToken(commandRunner);
+  let accounts =
+    managementToken && subscriptionIds.length > 0
+      ? await listAzureOpenAIAccountsWithResourceGraphApi(managementToken, subscriptionIds)
+      : null;
+  if (accounts === null) {
+    accounts = (
+      await mapWithConcurrency(subscriptions, AZURE_DEPLOYMENT_CONCURRENCY, subscription =>
+        listAzureOpenAIAccounts(commandRunner, subscription.id)
+      )
+    ).flat();
+  }
   if (accounts.length === 0) return [];
 
   const results: DetectedProvider[] = [];
 
-  for (const account of accounts) {
-    if (skipAccountNames.has(account.name)) continue;
+  const eligibleAccounts = accounts.filter(account =>
+    isDiscoverableAzureAccount(account, skipAccountNames, skipEndpoints, skipAccountIdentities)
+  );
 
-    const endpoint = account.properties?.endpoint;
-    const resourceGroup = account.resourceGroup;
-
-    if (endpoint && skipEndpoints.has(normaliseEndpoint(endpoint))) continue;
-    if (!endpoint || !resourceGroup) continue;
-
-    const deployments = await listAzureOpenAIDeployments(
-      resourceGroup,
-      account.name,
-      commandRunner
+  for (let offset = 0; offset < eligibleAccounts.length; offset += AZURE_DEPLOYMENT_CONCURRENCY) {
+    const batch = eligibleAccounts.slice(offset, offset + AZURE_DEPLOYMENT_CONCURRENCY);
+    if (maxResults === 1) {
+      const controllers = batch.map(() => new AbortController());
+      const provider = await new Promise<DetectedProvider | null>(resolve => {
+        let remaining = batch.length;
+        let settled = false;
+        batch.forEach((account, index) => {
+          void detectAzureAccountProvider(
+            account,
+            commandRunner,
+            managementToken ?? undefined,
+            controllers[index].signal
+          )
+            .then(result => {
+              if (result && !settled) {
+                settled = true;
+                controllers.forEach(controller => controller.abort());
+                resolve(result);
+              }
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              remaining -= 1;
+              if (remaining === 0 && !settled) resolve(null);
+            });
+        });
+      });
+      if (provider) return [provider];
+      continue;
+    }
+    const detectedBatch = await Promise.all(
+      batch.map(account =>
+        detectAzureAccountProvider(account, commandRunner, managementToken ?? undefined)
+      )
     );
-    const chatDeployments = deployments.filter(isChatDeployment);
-    if (chatDeployments.length === 0) continue;
-
-    const deployment = chatDeployments[0];
-    const deploymentName = deployment.name;
-    const modelName = deployment.properties?.model?.name || 'gpt-4';
-
-    const apiKey = await getAzureOpenAIKey(resourceGroup, account.name, commandRunner);
-    if (!apiKey) continue;
-
-    results.push({
-      providerId: 'azure',
-      source: 'Azure CLI',
-      config: {
-        apiKey: AZ_CLI_AUTH_SENTINEL,
-        azResourceGroup: resourceGroup,
-        azAccountName: account.name,
-        endpoint,
-        deploymentName,
-        model: modelName,
-      },
-      displayName: `Azure OpenAI (${account.name})`,
-    });
+    results.push(...detectedBatch.filter(result => result !== null));
+    if (results.length >= maxResults) return results.slice(0, maxResults);
   }
 
   return results;
+}
+
+/**
+ * Collects Azure OpenAI and Foundry providers across accessible subscriptions.
+ *
+ * @param commandRunner - Host-provided command executor.
+ * @param skipAccountNames - Exact Azure account names to omit.
+ * @param skipEndpoints - Normalized endpoint URLs to omit.
+ * @param skipAccountIdentities - Subscription-scoped account identities to omit.
+ * @returns Detected providers with their first chat-capable deployment.
+ */
+export async function collectAzureOpenAIProviders(
+  commandRunner: CommandRunner,
+  skipAccountNames: ReadonlySet<string> = new Set(),
+  skipEndpoints: ReadonlySet<string> = new Set(),
+  skipAccountIdentities: ReadonlySet<string> = new Set()
+): Promise<DetectedProvider[]> {
+  return collectAzureOpenAIProvidersWithLimit(
+    commandRunner,
+    skipAccountNames,
+    skipEndpoints,
+    skipAccountIdentities
+  );
+}
+
+/**
+ * Detects the first usable Azure OpenAI or Foundry provider.
+ *
+ * @param commandRunner - Host-provided command executor.
+ * @param skipAccountNames - Exact Azure account names to omit.
+ * @param skipEndpoints - Normalized endpoint URLs to omit.
+ * @param skipAccountIdentities - Subscription-scoped account identities to omit.
+ * @returns First detected provider, or `null` when none is usable.
+ */
+export async function detectAzureOpenAIProvider(
+  commandRunner: CommandRunner,
+  skipAccountNames: ReadonlySet<string> = new Set(),
+  skipEndpoints: ReadonlySet<string> = new Set(),
+  skipAccountIdentities: ReadonlySet<string> = new Set()
+): Promise<DetectedProvider | null> {
+  return (
+    (
+      await collectAzureOpenAIProvidersWithLimit(
+        commandRunner,
+        skipAccountNames,
+        skipEndpoints,
+        skipAccountIdentities,
+        1
+      )
+    )[0] ?? null
+  );
 }
 
 /**
@@ -649,14 +1057,16 @@ export async function collectAzureOpenAIProviders(
  * @param resourceGroup - Resource group containing the account.
  * @param accountName - Azure account resource name.
  * @param commandRunner - Host-provided command executor.
+ * @param subscriptionId - Optional subscription used to scope the key lookup.
  * @returns Primary or secondary account key, or `null` when unavailable.
  */
 export async function refreshAzureOpenAIKey(
   resourceGroup: string,
   accountName: string,
-  commandRunner: CommandRunner
+  commandRunner: CommandRunner,
+  subscriptionId?: string
 ): Promise<string | null> {
-  return getAzureOpenAIKey(resourceGroup, accountName, commandRunner);
+  return getAzureOpenAIKey(resourceGroup, accountName, commandRunner, subscriptionId);
 }
 
 /**
@@ -667,6 +1077,14 @@ export async function refreshAzureOpenAIKey(
  * @returns Account-specific Azure key when available, otherwise the provider ID.
  */
 export function dismissalKey(provider: DetectedProvider): string {
+  const identity = azureAccountIdentity({
+    name: provider.config.azAccountName as string | undefined,
+    resourceGroup: provider.config.azResourceGroup as string | undefined,
+    subscriptionId: provider.config.azSubscriptionId as string | undefined,
+  });
+  if (provider.providerId === 'azure' && identity) {
+    return `azure-account:${identity}`;
+  }
   if (provider.providerId === 'azure' && provider.config.azAccountName) {
     return `azure:${provider.config.azAccountName}`;
   }
@@ -713,10 +1131,28 @@ export async function detectProviders(
   const dismissedAzureNames = new Set(
     dismissedKeys.filter(k => k.startsWith('azure:')).map(k => k.slice('azure:'.length))
   );
+  const dismissedAzureIdentities = new Set(
+    dismissedKeys
+      .filter(k => k.startsWith('azure-account:'))
+      .map(k => k.slice('azure-account:'.length).toLowerCase())
+  );
   const savedAzureAccountNames = new Set(
     existingProviders
-      .filter(p => p.providerId === 'azure' && p.config?.azAccountName)
+      .filter(
+        p => p.providerId === 'azure' && p.config?.azAccountName && !p.config?.azSubscriptionId
+      )
       .map(p => p.config.azAccountName as string)
+  );
+  const savedAzureIdentities = new Set(
+    existingProviders.flatMap(provider => {
+      if (provider.providerId !== 'azure') return [];
+      const identity = azureAccountIdentity({
+        name: provider.config.azAccountName as string | undefined,
+        resourceGroup: provider.config.azResourceGroup as string | undefined,
+        subscriptionId: provider.config.azSubscriptionId as string | undefined,
+      });
+      return identity ? [identity] : [];
+    })
   );
   const savedAzureEndpoints = new Set(
     existingProviders
@@ -731,19 +1167,23 @@ export async function detectProviders(
       .map(k => normaliseEndpoint(k.slice('azure-endpoint:'.length))),
   ]);
 
-  const [copilot, azureAll, ollama] = await Promise.all([
+  const [copilot, azure, ollama] = await Promise.all([
     skipCopilot || !commandRunner ? Promise.resolve(null) : detectCopilotProvider(commandRunner),
     skipAllAzure || !commandRunner
-      ? Promise.resolve([])
-      : collectAzureOpenAIProviders(commandRunner, skipAzureAccountNames, skipAzureEndpoints),
+      ? Promise.resolve(null)
+      : detectAzureOpenAIProvider(
+          commandRunner,
+          skipAzureAccountNames,
+          skipAzureEndpoints,
+          new Set([...savedAzureIdentities, ...dismissedAzureIdentities])
+        ),
     skipLocal ? Promise.resolve(null) : detectOllamaProvider(),
   ]);
 
   if (copilot) detected.push(copilot);
-  for (const a of azureAll) {
-    const accountName = a.config?.azAccountName as string | undefined;
-    if (!accountName && hasProvider('azure')) continue;
-    detected.push(a);
+  if (azure) {
+    const accountName = azure.config?.azAccountName as string | undefined;
+    if (accountName || !hasProvider('azure')) detected.push(azure);
   }
   if (ollama) detected.push(ollama);
 

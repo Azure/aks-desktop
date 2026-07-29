@@ -15,7 +15,8 @@ export interface RuntimeCredentialResolver {
   refreshAzureOpenAIKey: (
     resourceGroup: string,
     accountName: string,
-    runner: CommandRunner
+    runner: CommandRunner,
+    subscriptionId?: string
   ) => Promise<string | null>;
 }
 
@@ -51,13 +52,19 @@ export async function resolveRuntimeProviderConfig(
   if (runtimeConfig.apiKey === AZ_CLI_AUTH_SENTINEL) {
     const resourceGroup = runtimeConfig.azResourceGroup;
     const accountName = runtimeConfig.azAccountName;
+    const subscriptionId = runtimeConfig.azSubscriptionId;
     const freshKey =
       resolver.commandRunner &&
       typeof resourceGroup === 'string' &&
       typeof accountName === 'string' &&
       resourceGroup &&
       accountName
-        ? await resolver.refreshAzureOpenAIKey(resourceGroup, accountName, resolver.commandRunner)
+        ? await resolver.refreshAzureOpenAIKey(
+            resourceGroup,
+            accountName,
+            resolver.commandRunner,
+            typeof subscriptionId === 'string' ? subscriptionId : undefined
+          )
         : null;
     if (!freshKey) {
       throw new Error(
