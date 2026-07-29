@@ -13,6 +13,7 @@
     "build:unpacked:linux": "npm run plugin:setup && cd headlamp && make app-build",
     "build:unpacked:mac": "npm run plugin:setup && cd headlamp && make app-build",
     "build:unpacked:win": "npm run plugin:setup && cd headlamp && make app-build",
+    "test:build": "tsx --test build/plugin-packaging.test.ts",
     "test:post-build": "npx --yes tsx ./build/verify-bundled-tools.ts",
     "plugin:setup": "npx --yes tsx ./build/setup-plugins.ts",
     "plugin:install": "cd plugins/aks-desktop && npm install",
