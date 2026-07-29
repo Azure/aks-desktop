@@ -22,6 +22,7 @@ import {
 } from '@headlamp-k8s/ai-common/providers/catalog';
 import {
   type CommandRunner,
+  detectAzureOpenAIProvider,
   detectCopilotChatModels,
   detectCopilotProvider,
   DetectedProvider,
@@ -272,7 +273,7 @@ function ConfigurationDialog({
   latestConfig.current = config;
   latestConfigName.current = configName;
 
-  const isDetectSupported = providerId === 'copilot';
+  const isDetectSupported = providerId === 'copilot' || providerId === 'azure';
   const detectRequestId = useRef(0);
 
   // Reset detect state when dialog opens/provider changes
@@ -335,6 +336,8 @@ function ConfigurationDialog({
       let detected: DetectedProvider | null = null;
       if (providerId === 'copilot') {
         detected = await detectCopilotProvider(commandRunner);
+      } else if (providerId === 'azure') {
+        detected = await detectAzureOpenAIProvider(commandRunner);
       }
       if (detectRequestId.current !== requestId) return;
       if (detected) {
@@ -357,7 +360,7 @@ function ConfigurationDialog({
           onConfigNameChange(detected.displayName || provider?.name || providerId);
         }
         const detectedApiKey = detected.config.apiKey;
-        if (detected.config.model && detectedApiKey) {
+        if (providerId === 'copilot' && detected.config.model && detectedApiKey) {
           void (async () => {
             try {
               const modelToken =
@@ -749,7 +752,7 @@ function ConfigurationDialog({
             onClick={handleDetect}
             disabled={isDetecting}
           >
-            {isDetecting ? t('Auto Detecting...') : t('Auto Detect')}
+            {isDetecting ? t('Detecting…') : t('Auto Detect')}
           </Button>
         )}
         <Button onClick={onClose} disabled={isDetecting}>

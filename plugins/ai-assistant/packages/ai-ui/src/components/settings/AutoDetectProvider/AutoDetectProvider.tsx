@@ -114,7 +114,7 @@ export function useAutoDetect({
     try {
       const existing = savedConfigs?.providers || [];
       const detected = await detectProviders(existing, dismissedProviders, commandRunner ?? null);
-      if (run === detectionRun.current && detected.length > 0) {
+      if (run === detectionRun.current) {
         setDetectedProviders(detected);
         setShowDetectedDialog(true);
       }

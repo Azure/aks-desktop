@@ -33,6 +33,7 @@ import {
 } from './ModelSelector.stories';
 
 const detectionMocks = vi.hoisted(() => ({
+  detectAzureOpenAIProvider: vi.fn(),
   detectCopilotChatModels: vi.fn(),
   detectCopilotProvider: vi.fn(),
   detectGhCliAvailable: vi.fn(),
@@ -89,6 +90,7 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  detectionMocks.detectAzureOpenAIProvider.mockResolvedValue(null);
   detectionMocks.detectCopilotChatModels.mockResolvedValue([]);
   detectionMocks.detectCopilotProvider.mockResolvedValue(null);
   detectionMocks.detectGhCliAvailable.mockResolvedValue(true);
@@ -477,6 +479,56 @@ describe('ModelSelector configuration editing', () => {
     expect(screen.queryByRole('button', { name: 'Auto Detect' })).toBeNull();
   });
 
+  it('auto-detects Azure OpenAI settings in the provider form', async () => {
+    detectionMocks.detectAzureOpenAIProvider.mockResolvedValue({
+      providerId: 'azure',
+      source: 'Azure CLI',
+      displayName: 'Azure OpenAI (my-foundry)',
+      config: {
+        apiKey: '__AZ_CLI_AUTH__',
+        endpoint: 'https://my-foundry.cognitiveservices.azure.com/',
+        deploymentName: 'gpt-4.1-deployment',
+        model: 'gpt-4.1',
+        azSubscriptionId: 'foundry-subscription',
+        azResourceGroup: 'foundry-rg',
+        azAccountName: 'my-foundry',
+      },
+    });
+    const azureArgs: ModelSelectorProps = {
+      selectedConfigId: 'azure-primary',
+      selectedProvider: 'azure',
+      config: {},
+      savedConfigs: {
+        termsAccepted: true,
+        providers: [
+          {
+            id: 'azure-primary',
+            providerId: 'azure',
+            displayName: 'Azure OpenAI',
+            config: {},
+          },
+        ],
+      },
+      isConfigView: true,
+      onChange: vi.fn(),
+    };
+
+    renderSelector(azureArgs, { commandRunner });
+    await openEditDialog();
+    fireEvent.click(screen.getByRole('button', { name: 'Auto Detect' }));
+
+    expect(await screen.findByText('Detected and applied provider settings.')).toBeTruthy();
+    expect(detectionMocks.detectAzureOpenAIProvider).toHaveBeenCalledWith(commandRunner);
+    expect(screen.getByDisplayValue('Azure OpenAI (my-foundry)')).toBeTruthy();
+    expect(
+      screen.getByDisplayValue('https://my-foundry.cognitiveservices.azure.com/')
+    ).toBeTruthy();
+    expect(screen.getByDisplayValue('gpt-4.1-deployment')).toBeTruthy();
+    expect(screen.getByDisplayValue('gpt-4.1')).toBeTruthy();
+    expect(detectionMocks.refreshGitHubToken).not.toHaveBeenCalled();
+    expect(detectionMocks.detectCopilotChatModels).not.toHaveBeenCalled();
+  });
+
   it('ignores stale manual detection after closing and opening another provider', async () => {
     let resolveDetection: (value: DetectedProvider | null) => void = () => {};
     detectionMocks.detectCopilotProvider.mockReturnValue(
@@ -514,6 +566,7 @@ describe('ModelSelector configuration editing', () => {
     renderSelector(withCopilotProviderArgs, { commandRunner, onChange });
     await openEditDialog();
     fireEvent.click(screen.getByRole('button', { name: 'Auto Detect' }));
+    expect(screen.getByRole('button', { name: 'Detecting…' })).toBeTruthy();
     fireEvent.change(screen.getByPlaceholderText('Give this configuration a name'), {
       target: { value: 'Keep my name' },
     });

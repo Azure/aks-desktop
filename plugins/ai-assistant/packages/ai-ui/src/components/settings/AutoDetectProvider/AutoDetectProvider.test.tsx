@@ -91,7 +91,7 @@ describe('useAutoDetect', () => {
     expect(result.current.showDetectedDialog).toBe(true);
   });
 
-  it('clears stale results when a later run finds nothing', async () => {
+  it('opens an empty result dialog when a later run finds nothing', async () => {
     detectionMocks.detectProviders
       .mockResolvedValueOnce(sampleDetectedProviders)
       .mockResolvedValueOnce([]);
@@ -102,7 +102,7 @@ describe('useAutoDetect', () => {
     await act(async () => result.current.handleAutoDetect());
 
     expect(result.current.detectedProviders).toEqual([]);
-    expect(result.current.showDetectedDialog).toBe(false);
+    expect(result.current.showDetectedDialog).toBe(true);
   });
 
   it('ignores an older detection result that finishes last', async () => {
