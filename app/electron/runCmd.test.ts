@@ -44,7 +44,7 @@ vi.mock('./i18next.config', () => ({
 }));
 
 describe('AI Assistant runCmd consent', () => {
-  const aiAssistantCommands = ['gh auth', 'az account', 'az cognitiveservices'];
+  const aiAssistantCommands = ['gh auth', 'az account', 'az cognitiveservices', 'az graph'];
   const defaultSettings = {
     confirmedCommands: { 'minikube start': true, gh: true, az: true },
   };

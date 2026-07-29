@@ -144,7 +144,7 @@ const COMMANDS_WITH_CONSENT = {
     'kubectl top',
     'kubectl config',
   ],
-  aiAssistant: ['gh auth', 'az account', 'az cognitiveservices'],
+  aiAssistant: ['gh auth', 'az account', 'az cognitiveservices', 'az graph'],
 };
 
 function isAIAssistantPlugin(pluginName: string): boolean {
