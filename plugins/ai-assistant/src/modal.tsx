@@ -91,18 +91,7 @@ import {
 } from '@headlamp-k8s/ai-common/providers/savedConfigs';
 import { getEnabledToolIds } from '@headlamp-k8s/ai-common/tools/settings/enabledTools';
 import { usePromptWidth } from '@headlamp-k8s/ai-ui/contexts/PromptWidthContext';
-
-interface CommandProcess {
-  /** Standard output stream emitted by the injected command. */
-  stdout: {
-    /** Registers a listener for command output chunks. */
-    on: (event: 'data', listener: (chunk: unknown) => void) => void;
-  };
-  /** Registers a listener for process exit. */
-  on: (event: 'exit', listener: (code: number | null) => void) => void;
-  /** Terminates the command process when supported by the host. */
-  kill?: () => void;
-}
+import { createPluginCommandRunner } from './pluginCommandRunner';
 
 interface HolmesTextEvent {
   /** Streamed message identifier. */
@@ -118,12 +107,6 @@ interface HolmesToolEvent {
   toolCallName?: string;
 }
 
-type PluginCommandRunner = (
-  command: string,
-  args: string[],
-  options: Record<string, unknown>
-) => CommandProcess;
-
 export default function AIPrompt(props: {
   openPopup: boolean;
   setOpenPopup: (open: boolean) => void;
@@ -138,19 +121,9 @@ export default function AIPrompt(props: {
   const commandRunnerRef = React.useRef<CommandRunner | null>(null);
   React.useEffect(() => {
     if (typeof pluginRunCommand !== 'undefined') {
-      commandRunnerRef.current = (command: string, args: string[], signal?: AbortSignal) =>
-        new Promise<{ stdout: string; exitCode: number }>(resolve => {
-          const proc = (pluginRunCommand as unknown as PluginCommandRunner)(command, args, {});
-          let out = '';
-          const abort = () => proc.kill?.();
-          if (signal?.aborted) abort();
-          signal?.addEventListener('abort', abort, { once: true });
-          proc.stdout.on('data', chunk => (out += String(chunk)));
-          proc.on('exit', (code: number | null) => {
-            signal?.removeEventListener('abort', abort);
-            resolve({ stdout: out, exitCode: code ?? -1 });
-          });
-        });
+      commandRunnerRef.current = createPluginCommandRunner((command, args, options) =>
+        pluginRunCommand(command as Parameters<typeof pluginRunCommand>[0], args, options)
+      );
     }
   }, []);
 

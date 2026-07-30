@@ -123,7 +123,11 @@ async function runDetectCommand(
 
   const controller = new AbortController();
   const abort = () => controller.abort();
-  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) {
+    abort();
+  } else {
+    signal?.addEventListener('abort', abort, { once: true });
+  }
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     const result = await Promise.race([

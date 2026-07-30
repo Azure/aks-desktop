@@ -535,6 +535,7 @@ describe('collectAzureOpenAIProviders', () => {
   it('stops after the first successful deployment batch for single-provider detection', async () => {
     const deploymentCalls: string[] = [];
     const abortedAccounts: string[] = [];
+    const fallbackSignals: AbortSignal[] = [];
     const accounts = Array.from({ length: 9 }, (_, index) => ({
       id: `/subscriptions/sub/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/account-${index}`,
       name: `account-${index}`,
@@ -542,7 +543,7 @@ describe('collectAzureOpenAIProviders', () => {
       subscriptionId: 'sub',
       endpoint: `https://account-${index}.openai.azure.com`,
     }));
-    const runner: CommandRunner = async (_command, args) => {
+    const runner: CommandRunner = async (_command, args, signal) => {
       const call = args.join(' ');
       if (call.includes('account show')) {
         return { stdout: JSON.stringify({ id: 'sub' }), exitCode: 0 };
@@ -552,6 +553,10 @@ describe('collectAzureOpenAIProviders', () => {
       }
       if (call.includes('get-access-token')) {
         return { stdout: 'token', exitCode: 0 };
+      }
+      if (call.includes('deployment list')) {
+        if (signal) fallbackSignals.push(signal);
+        return { stdout: '', exitCode: -1 };
       }
       return { stdout: '', exitCode: -1 };
     };
@@ -585,6 +590,8 @@ describe('collectAzureOpenAIProviders', () => {
       expect(result?.config.azAccountName).toBe('account-0');
       expect(deploymentCalls).toHaveLength(8);
       expect(abortedAccounts).toHaveLength(7);
+      expect(fallbackSignals).toHaveLength(7);
+      expect(fallbackSignals.every(signal => signal.aborted)).toBe(true);
     } finally {
       fetchSpy.mockRestore();
     }
