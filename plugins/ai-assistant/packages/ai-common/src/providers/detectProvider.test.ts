@@ -306,12 +306,6 @@ describe('collectAzureOpenAIProviders', () => {
       const call = `${command} ${args.join(' ')}`;
       calls.push(call);
 
-      if (call.includes('az account show')) {
-        return { stdout: JSON.stringify({ name: 'ActiveSub', id: 'active-sub' }), exitCode: 0 };
-      }
-      if (call.includes('az account list')) {
-        return { stdout: JSON.stringify([{ id: 'foundry-sub' }]), exitCode: 0 };
-      }
       if (call.includes('az account get-access-token')) {
         return { stdout: 'management-token\n', exitCode: 0 };
       }
@@ -319,6 +313,14 @@ describe('collectAzureOpenAIProviders', () => {
     };
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            value: [{ id: '/subscriptions/foundry-sub', subscriptionId: 'foundry-sub' }],
+          }),
+          { status: 200 }
+        )
+      )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -361,37 +363,36 @@ describe('collectAzureOpenAIProviders', () => {
         endpoint: 'https://my-foundry.cognitiveservices.azure.com/',
         deploymentName: 'gpt-4.1',
       });
-      expect(calls.some(call => call.includes('az account get-access-token'))).toBe(true);
+      expect(calls).toEqual([
+        'az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv',
+      ]);
       expect(calls.some(call => call.includes('az graph'))).toBe(false);
       expect(calls.some(call => call.includes('az rest'))).toBe(false);
       expect(calls.some(call => call.includes('account keys list'))).toBe(false);
-      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
     } finally {
       fetchSpy.mockRestore();
     }
   });
 
-  it('falls back to Azure CLI deployment discovery when the ARM API fails', async () => {
+  it('returns no provider when the deployment API fails without invoking another command', async () => {
     const calls: string[] = [];
     const runner: CommandRunner = async (command, args) => {
       const call = `${command} ${args.join(' ')}`;
       calls.push(call);
-      if (call.includes('az account show')) {
-        return { stdout: JSON.stringify({ id: 'sub' }), exitCode: 0 };
-      }
-      if (call.includes('az account list')) {
-        return { stdout: JSON.stringify([{ id: 'sub' }]), exitCode: 0 };
-      }
       if (call.includes('az account get-access-token')) {
         return { stdout: 'token', exitCode: 0 };
-      }
-      if (call.includes('az cognitiveservices account deployment list')) {
-        return { stdout: CHAT_DEPLOYMENT_STDOUT, exitCode: 0 };
       }
       return { stdout: '', exitCode: -1 };
     };
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ value: [{ id: '/subscriptions/sub', subscriptionId: 'sub' }] }),
+          { status: 200 }
+        )
+      )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
@@ -413,10 +414,10 @@ describe('collectAzureOpenAIProviders', () => {
     try {
       const result = await detectAzureOpenAIProvider(runner);
 
-      expect(result?.config.azAccountName).toBe('account');
-      expect(
-        calls.some(call => call.includes('az cognitiveservices account deployment list'))
-      ).toBe(true);
+      expect(result).toBeNull();
+      expect(calls).toEqual([
+        'az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv',
+      ]);
     } finally {
       fetchSpy.mockRestore();
     }
@@ -425,12 +426,6 @@ describe('collectAzureOpenAIProviders', () => {
   it('follows Resource Graph API continuation tokens', async () => {
     const runner: CommandRunner = async (_command, args) => {
       const call = args.join(' ');
-      if (call.includes('account show')) {
-        return { stdout: JSON.stringify({ id: 'sub' }), exitCode: 0 };
-      }
-      if (call.includes('account list')) {
-        return { stdout: JSON.stringify([{ id: 'sub' }]), exitCode: 0 };
-      }
       if (call.includes('get-access-token')) {
         return { stdout: 'token', exitCode: 0 };
       }
@@ -439,6 +434,12 @@ describe('collectAzureOpenAIProviders', () => {
     const graphBodies: Record<string, unknown>[] = [];
     const accounts = ['first', 'second'];
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options) => {
+      if (String(url).includes('/subscriptions?')) {
+        return new Response(
+          JSON.stringify({ value: [{ id: '/subscriptions/sub', subscriptionId: 'sub' }] }),
+          { status: 200 }
+        );
+      }
       if (String(url).includes('Microsoft.ResourceGraph/resources')) {
         const body = JSON.parse(String(options?.body)) as Record<string, any>;
         graphBodies.push(body);
@@ -489,18 +490,18 @@ describe('collectAzureOpenAIProviders', () => {
     }));
     const runner: CommandRunner = async (_command, args) => {
       const call = args.join(' ');
-      if (call.includes('account show')) {
-        return { stdout: JSON.stringify({ id: 'sub' }), exitCode: 0 };
-      }
-      if (call.includes('account list')) {
-        return { stdout: JSON.stringify([{ id: 'sub' }]), exitCode: 0 };
-      }
       if (call.includes('get-access-token')) {
         return { stdout: 'token', exitCode: 0 };
       }
       return { stdout: '', exitCode: -1 };
     };
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => {
+      if (String(url).includes('/subscriptions?')) {
+        return new Response(
+          JSON.stringify({ value: [{ id: '/subscriptions/sub', subscriptionId: 'sub' }] }),
+          { status: 200 }
+        );
+      }
       if (String(url).includes('Microsoft.ResourceGraph/resources')) {
         return new Response(JSON.stringify({ data: accounts }), { status: 200 });
       }
@@ -535,7 +536,6 @@ describe('collectAzureOpenAIProviders', () => {
   it('stops after the first successful deployment batch for single-provider detection', async () => {
     const deploymentCalls: string[] = [];
     const abortedAccounts: string[] = [];
-    const fallbackSignals: AbortSignal[] = [];
     const accounts = Array.from({ length: 9 }, (_, index) => ({
       id: `/subscriptions/sub/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/account-${index}`,
       name: `account-${index}`,
@@ -543,24 +543,20 @@ describe('collectAzureOpenAIProviders', () => {
       subscriptionId: 'sub',
       endpoint: `https://account-${index}.openai.azure.com`,
     }));
-    const runner: CommandRunner = async (_command, args, signal) => {
+    const runner: CommandRunner = async (_command, args) => {
       const call = args.join(' ');
-      if (call.includes('account show')) {
-        return { stdout: JSON.stringify({ id: 'sub' }), exitCode: 0 };
-      }
-      if (call.includes('account list')) {
-        return { stdout: JSON.stringify([{ id: 'sub' }]), exitCode: 0 };
-      }
       if (call.includes('get-access-token')) {
         return { stdout: 'token', exitCode: 0 };
-      }
-      if (call.includes('deployment list')) {
-        if (signal) fallbackSignals.push(signal);
-        return { stdout: '', exitCode: -1 };
       }
       return { stdout: '', exitCode: -1 };
     };
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, options) => {
+      if (String(url).includes('/subscriptions?')) {
+        return new Response(
+          JSON.stringify({ value: [{ id: '/subscriptions/sub', subscriptionId: 'sub' }] }),
+          { status: 200 }
+        );
+      }
       if (String(url).includes('Microsoft.ResourceGraph/resources')) {
         return new Response(JSON.stringify({ data: accounts }), { status: 200 });
       }
@@ -590,49 +586,19 @@ describe('collectAzureOpenAIProviders', () => {
       expect(result?.config.azAccountName).toBe('account-0');
       expect(deploymentCalls).toHaveLength(8);
       expect(abortedAccounts).toHaveLength(7);
-      expect(fallbackSignals).toHaveLength(7);
-      expect(fallbackSignals.every(signal => signal.aborted)).toBe(true);
     } finally {
       fetchSpy.mockRestore();
     }
   });
 
   it('returns Azure providers with chat-capable deployments', async () => {
-    const runner = mockCommandRunner({
-      'az account show': {
-        stdout: JSON.stringify({ name: 'TestSub' }),
-        exitCode: 0,
-      },
-      'az cognitiveservices account list': {
-        stdout: JSON.stringify([
-          {
-            name: 'myopenai',
-            resourceGroup: 'rg1',
-            properties: { endpoint: 'https://myopenai.openai.azure.com' },
-          },
-        ]),
-        exitCode: 0,
-      },
-      'az cognitiveservices account deployment list': {
-        stdout: JSON.stringify([
-          {
-            name: 'gpt4-deploy',
-            properties: { model: { name: 'gpt-4' }, capabilities: { chatCompletion: 'true' } },
-          },
-        ]),
-        exitCode: 0,
-      },
-      'az cognitiveservices account keys list': {
-        stdout: JSON.stringify({ key1: 'test-key-1' }),
-        exitCode: 0,
-      },
-    });
+    const runner = makeAzureBaseRunner(CHAT_DEPLOYMENT_STDOUT);
 
     const result = await collectAzureOpenAIProviders(runner);
     expect(result).toHaveLength(1);
     expect(result[0].providerId).toBe('azure');
     expect(result[0].config.apiKey).toBe(AZ_CLI_AUTH_SENTINEL);
-    expect(result[0].config.azAccountName).toBe('myopenai');
+    expect(result[0].config.azAccountName).toBe('myoai');
     expect(result[0].config.deploymentName).toBe('gpt4-deploy');
   });
 
@@ -642,54 +608,56 @@ describe('collectAzureOpenAIProviders', () => {
       const call = `${command} ${args.join(' ')}`;
       calls.push(call);
 
-      if (call.includes('az account show')) {
-        return { stdout: JSON.stringify({ name: 'ActiveSub', id: 'active-sub' }), exitCode: 0 };
-      }
-      if (call.includes('az account list')) {
-        return {
-          stdout: JSON.stringify([
-            { name: 'ActiveSub', id: 'active-sub' },
-            { name: 'FoundrySub', id: 'foundry-sub' },
-          ]),
-          exitCode: 0,
-        };
-      }
-      if (call.includes('az cognitiveservices account list')) {
-        return call.includes('--subscription foundry-sub')
-          ? {
-              stdout: JSON.stringify([
-                {
-                  name: 'my-foundry',
-                  resourceGroup: 'foundry-rg',
-                  kind: 'AIServices',
-                  properties: {
-                    endpoint: 'https://my-foundry.cognitiveservices.azure.com/',
-                  },
-                },
-              ]),
-              exitCode: 0,
-            }
-          : { stdout: '[]', exitCode: 0 };
-      }
-      if (call.includes('az cognitiveservices account deployment list')) {
-        return {
-          stdout: JSON.stringify([
-            {
-              name: 'gpt-4.1-deployment',
-              properties: {
-                model: { name: 'gpt-4.1' },
-                capabilities: { chatCompletion: 'true' },
-              },
-            },
-          ]),
-          exitCode: 0,
-        };
-      }
-      if (call.includes('az cognitiveservices account keys list')) {
-        return { stdout: JSON.stringify({ key1: 'foundry-key' }), exitCode: 0 };
+      if (call.includes('az account get-access-token')) {
+        return { stdout: 'token', exitCode: 0 };
       }
       return { stdout: '', exitCode: -1 };
     };
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            value: [
+              { id: '/subscriptions/active-sub', subscriptionId: 'active-sub' },
+              { id: '/subscriptions/foundry-sub', subscriptionId: 'foundry-sub' },
+            ],
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: '/subscriptions/foundry-sub/resourceGroups/foundry-rg/providers/Microsoft.CognitiveServices/accounts/my-foundry',
+                name: 'my-foundry',
+                resourceGroup: 'foundry-rg',
+                subscriptionId: 'foundry-sub',
+                endpoint: 'https://my-foundry.cognitiveservices.azure.com/',
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            value: [
+              {
+                name: 'gpt-4.1-deployment',
+                properties: {
+                  model: { name: 'gpt-4.1' },
+                  capabilities: { chatCompletion: 'true' },
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+      );
 
     const result = await collectAzureOpenAIProviders(runner);
 
@@ -700,37 +668,24 @@ describe('collectAzureOpenAIProviders', () => {
       deploymentName: 'gpt-4.1-deployment',
       model: 'gpt-4.1',
     });
-    expect(calls).toContain(
-      'az cognitiveservices account deployment list -g foundry-rg -n my-foundry --subscription foundry-sub -o json'
-    );
-    expect(calls.some(call => call.includes('account keys list'))).toBe(false);
+    expect(calls).toEqual([
+      'az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv',
+    ]);
+    fetchSpy.mockRestore();
   });
 
   it('returns empty when not logged in', async () => {
     const runner = mockCommandRunner({
-      'az account show': { stdout: '', exitCode: 1 },
+      'az account get-access-token': { stdout: '', exitCode: 1 },
     });
     const result = await collectAzureOpenAIProviders(runner);
     expect(result).toHaveLength(0);
   });
 
   it('skips accounts in the skip set', async () => {
-    const runner = mockCommandRunner({
-      'az account show': {
-        stdout: JSON.stringify({ name: 'TestSub' }),
-        exitCode: 0,
-      },
-      'az cognitiveservices account list': {
-        stdout: JSON.stringify([
-          {
-            name: 'skippedAccount',
-            resourceGroup: 'rg1',
-            properties: { endpoint: 'https://skipped.openai.azure.com' },
-          },
-        ]),
-        exitCode: 0,
-      },
-    });
+    const runner = makeAzureBaseRunner(CHAT_DEPLOYMENT_STDOUT, [
+      { ...AZURE_TEST_ACCOUNT, name: 'skippedAccount' },
+    ]);
 
     const result = await collectAzureOpenAIProviders(runner, new Set(['skippedAccount']));
     expect(result).toHaveLength(0);
@@ -752,18 +707,18 @@ describe('refreshGitHubToken', () => {
 });
 
 describe('refreshAzureOpenAIKey', () => {
-  it('returns fresh key from az CLI', async () => {
+  it('returns a fresh key using token auth and ARM', async () => {
     const runner = mockCommandRunner({
-      'az cognitiveservices account keys list': {
-        stdout: JSON.stringify({ key1: 'fresh-key' }),
-        exitCode: 0,
-      },
+      'az account get-access-token': { stdout: 'token', exitCode: 0 },
     });
-    const result = await refreshAzureOpenAIKey('rg1', 'account1', runner);
-    expect(result).toBe('fresh-key');
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ key1: 'fresh-key' }), { status: 200 }));
+    expect(await refreshAzureOpenAIKey('rg1', 'account1', runner, 'sub')).toBe('fresh-key');
+    fetchSpy.mockRestore();
   });
 
-  it('returns null when az CLI fails', async () => {
+  it('returns null when token acquisition fails', async () => {
     const runner = mockCommandRunner({});
     const result = await refreshAzureOpenAIKey('rg1', 'account1', runner);
     expect(result).toBeNull();
@@ -1050,37 +1005,48 @@ describe('detectOllamaProvider — non-ok HTTP and abort', () => {
 // Helpers for Azure tests
 // ---------------------------------------------------------------------------
 
+/** Default account returned by the Azure Resource Graph API test harness. */
+const AZURE_TEST_ACCOUNT = {
+  id: '/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.CognitiveServices/accounts/myoai',
+  name: 'myoai',
+  resourceGroup: 'rg1',
+  subscriptionId: 'sub',
+  endpoint: 'https://myoai.openai.azure.com',
+};
+
 /**
- * Build a command runner that satisfies the full Azure detection flow,
- * with overridable responses per command.
+ * Builds an auth-only command runner and mocks the Azure APIs used for detection.
+ *
+ * @param deploymentStdout - JSON deployment array returned by the deployment API.
+ * @param accounts - Resource Graph account rows.
+ * @returns Command runner that supports only Azure token acquisition.
  */
 function makeAzureBaseRunner(
   deploymentStdout: string,
-  extraOverrides: Record<string, { stdout: string; exitCode: number }> = {}
+  accounts: Record<string, unknown>[] = [AZURE_TEST_ACCOUNT]
 ): CommandRunner {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async url => {
+    const requestUrl = String(url);
+    if (requestUrl.includes('/subscriptions?')) {
+      return new Response(
+        JSON.stringify({ value: [{ id: '/subscriptions/sub', subscriptionId: 'sub' }] }),
+        { status: 200 }
+      );
+    }
+    if (requestUrl.includes('Microsoft.ResourceGraph/resources')) {
+      return new Response(JSON.stringify({ data: accounts }), { status: 200 });
+    }
+    if (requestUrl.includes('/deployments?')) {
+      return new Response(JSON.stringify({ value: JSON.parse(deploymentStdout) }), { status: 200 });
+    }
+    return new Response('', { status: 404 });
+  });
   return mockCommandRunner({
-    'az account show': { stdout: JSON.stringify({ name: 'TestSub' }), exitCode: 0 },
-    'az cognitiveservices account list': {
-      stdout: JSON.stringify([
-        {
-          name: 'myoai',
-          resourceGroup: 'rg1',
-          properties: { endpoint: 'https://myoai.openai.azure.com' },
-        },
-      ]),
-      exitCode: 0,
-    },
-    'az cognitiveservices account deployment list': {
-      stdout: deploymentStdout,
-      exitCode: 0,
-    },
-    'az cognitiveservices account keys list': {
-      stdout: JSON.stringify({ key1: 'test-key' }),
-      exitCode: 0,
-    },
-    ...extraOverrides,
+    'az account get-access-token': { stdout: 'management-token', exitCode: 0 },
   });
 }
+
+afterEach(() => vi.restoreAllMocks());
 
 const CHAT_DEPLOYMENT_STDOUT = JSON.stringify([
   {
@@ -1161,75 +1127,25 @@ describe('isChatDeployment — deployment filtering via collectAzureOpenAIProvid
 // ---------------------------------------------------------------------------
 
 describe('collectAzureOpenAIProviders — error and skip branches', () => {
-  it('returns empty when az account show returns invalid JSON (checkAzureLogin catch)', async () => {
+  it('returns empty when token acquisition fails', async () => {
     const runner = mockCommandRunner({
-      'az account show': { stdout: 'NOT_JSON{{{', exitCode: 0 },
+      'az account get-access-token': { stdout: '', exitCode: 1 },
     });
     expect(await collectAzureOpenAIProviders(runner)).toHaveLength(0);
   });
 
-  it('uses "Azure" as fallback subscriptionName when account JSON has neither name nor user.name', async () => {
+  it('returns empty when subscription discovery fails', async () => {
     const runner = mockCommandRunner({
-      'az account show': { stdout: JSON.stringify({ id: 'xyz' }), exitCode: 0 },
-      'az cognitiveservices account list': { stdout: JSON.stringify([]), exitCode: 0 },
+      'az account get-access-token': { stdout: 'token', exitCode: 0 },
     });
-    expect(await collectAzureOpenAIProviders(runner)).toHaveLength(0);
-  });
-
-  it('uses user.name as subscriptionName when account.name is absent', async () => {
-    const runner = mockCommandRunner({
-      'az account show': {
-        stdout: JSON.stringify({ user: { name: 'user@example.com' } }),
-        exitCode: 0,
-      },
-      'az cognitiveservices account list': { stdout: JSON.stringify([]), exitCode: 0 },
-    });
-    expect(await collectAzureOpenAIProviders(runner)).toHaveLength(0);
-  });
-
-  it('returns empty when account list exits non-zero (listAzureOpenAIAccounts early return)', async () => {
-    const runner = mockCommandRunner({
-      'az account show': { stdout: JSON.stringify({ name: 'TestSub' }), exitCode: 0 },
-      'az cognitiveservices account list': { stdout: '', exitCode: 1 },
-    });
-    expect(await collectAzureOpenAIProviders(runner)).toHaveLength(0);
-  });
-
-  it('returns empty when account list JSON is invalid (listAzureOpenAIAccounts catch)', async () => {
-    const runner = mockCommandRunner({
-      'az account show': { stdout: JSON.stringify({ name: 'TestSub' }), exitCode: 0 },
-      'az cognitiveservices account list': { stdout: 'INVALID_JSON{{{', exitCode: 0 },
-    });
-    expect(await collectAzureOpenAIProviders(runner)).toHaveLength(0);
-  });
-
-  it('returns empty when account list returns non-array JSON', async () => {
-    const runner = mockCommandRunner({
-      'az account show': { stdout: JSON.stringify({ name: 'TestSub' }), exitCode: 0 },
-      'az cognitiveservices account list': {
-        stdout: JSON.stringify({ not: 'an array' }),
-        exitCode: 0,
-      },
-    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 403 }));
     expect(await collectAzureOpenAIProviders(runner)).toHaveLength(0);
   });
 
   it('skips account whose endpoint matches skipEndpoints (normalises trailing slashes)', async () => {
-    const runner = mockCommandRunner({
-      'az account show': { stdout: JSON.stringify({ name: 'TestSub' }), exitCode: 0 },
-      'az cognitiveservices account list': {
-        stdout: JSON.stringify([
-          {
-            name: 'myoai',
-            resourceGroup: 'rg1',
-            // endpoint has trailing slash
-            properties: { endpoint: 'https://myoai.openai.azure.com/' },
-          },
-        ]),
-        exitCode: 0,
-      },
-    });
-    // skipEndpoints uses already-normalised value (no trailing slash)
+    const runner = makeAzureBaseRunner(CHAT_DEPLOYMENT_STDOUT, [
+      { ...AZURE_TEST_ACCOUNT, endpoint: 'https://myoai.openai.azure.com/' },
+    ]);
     const result = await collectAzureOpenAIProviders(
       runner,
       new Set(),
@@ -1238,45 +1154,16 @@ describe('collectAzureOpenAIProviders — error and skip branches', () => {
     expect(result).toHaveLength(0);
   });
 
-  it('skips account with no endpoint', async () => {
-    const runner = mockCommandRunner({
-      'az account show': { stdout: JSON.stringify({ name: 'TestSub' }), exitCode: 0 },
-      'az cognitiveservices account list': {
-        stdout: JSON.stringify([{ name: 'myoai', resourceGroup: 'rg1', properties: {} }]),
-        exitCode: 0,
-      },
-    });
-    expect(await collectAzureOpenAIProviders(runner)).toHaveLength(0);
+  it.each([
+    ['resource ID', { ...AZURE_TEST_ACCOUNT, id: undefined }],
+    ['endpoint', { ...AZURE_TEST_ACCOUNT, endpoint: undefined }],
+    ['resource group', { ...AZURE_TEST_ACCOUNT, resourceGroup: undefined }],
+  ])('skips accounts missing %s', async (_label, account) => {
+    const runner = makeAzureBaseRunner(CHAT_DEPLOYMENT_STDOUT, [account]);
+    expect(await collectAzureOpenAIProviders(runner)).toEqual([]);
   });
 
-  it('skips account with no resourceGroup', async () => {
-    const runner = mockCommandRunner({
-      'az account show': { stdout: JSON.stringify({ name: 'TestSub' }), exitCode: 0 },
-      'az cognitiveservices account list': {
-        stdout: JSON.stringify([
-          { name: 'myoai', properties: { endpoint: 'https://myoai.openai.azure.com' } },
-        ]),
-        exitCode: 0,
-      },
-    });
-    expect(await collectAzureOpenAIProviders(runner)).toHaveLength(0);
-  });
-
-  it('skips account when deployment list exits non-zero (listAzureOpenAIDeployments early return)', async () => {
-    const runner = makeAzureBaseRunner('', {
-      'az cognitiveservices account deployment list': { stdout: '', exitCode: 1 },
-    });
-    expect(await collectAzureOpenAIProviders(runner)).toHaveLength(0);
-  });
-
-  it('skips account when deployment list JSON is invalid (listAzureOpenAIDeployments catch)', async () => {
-    const runner = makeAzureBaseRunner('', {
-      'az cognitiveservices account deployment list': { stdout: 'BAD_JSON{', exitCode: 0 },
-    });
-    expect(await collectAzureOpenAIProviders(runner)).toHaveLength(0);
-  });
-
-  it('skips account when all deployments are non-chat (chatDeployments.length === 0)', async () => {
+  it('skips account when all deployments are non-chat', async () => {
     const runner = makeAzureBaseRunner(
       JSON.stringify([
         {
@@ -1290,15 +1177,15 @@ describe('collectAzureOpenAIProviders — error and skip branches', () => {
 
   it('defers key validation until the detected provider is used', async () => {
     const calls: string[] = [];
-    const baseRunner = makeAzureBaseRunner(CHAT_DEPLOYMENT_STDOUT, {
-      'az cognitiveservices account keys list': { stdout: 'NOT_JSON{', exitCode: 0 },
-    });
+    const baseRunner = makeAzureBaseRunner(CHAT_DEPLOYMENT_STDOUT);
     const runner: CommandRunner = async (command, args) => {
       calls.push(`${command} ${args.join(' ')}`);
       return baseRunner(command, args);
     };
     expect(await collectAzureOpenAIProviders(runner)).toHaveLength(1);
-    expect(calls.some(call => call.includes('account keys list'))).toBe(false);
+    expect(calls).toEqual([
+      'az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv',
+    ]);
   });
 });
 
@@ -1311,29 +1198,39 @@ describe('refreshAzureOpenAIKey — extra paths', () => {
     const calls: string[] = [];
     const runner: CommandRunner = async (command, args) => {
       calls.push(`${command} ${args.join(' ')}`);
-      return { stdout: JSON.stringify({ key1: 'key' }), exitCode: 0 };
+      return { stdout: 'token', exitCode: 0 };
     };
-    expect(await refreshAzureOpenAIKey('rg', 'account', runner, 'subscription')).toBe('key');
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ key1: 'key' }), { status: 200 }));
+    expect(await refreshAzureOpenAIKey('rg name', 'account/name', runner, 'subscription')).toBe(
+      'key'
+    );
     expect(calls).toEqual([
-      'az cognitiveservices account keys list -g rg -n account --subscription subscription -o json',
+      'az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv',
     ]);
+    expect(fetchSpy.mock.calls[0][0]).toContain(
+      '/subscriptions/subscription/resourceGroups/rg%20name/providers/Microsoft.CognitiveServices/accounts/account%2Fname/listKeys'
+    );
   });
 
   it('returns key2 when key1 is absent', async () => {
     const runner = mockCommandRunner({
-      'az cognitiveservices account keys list': {
-        stdout: JSON.stringify({ key2: 'secondary-key' }),
-        exitCode: 0,
-      },
+      'az account get-access-token': { stdout: 'token', exitCode: 0 },
     });
-    expect(await refreshAzureOpenAIKey('rg1', 'account1', runner)).toBe('secondary-key');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ key2: 'secondary-key' }), { status: 200 })
+    );
+    expect(await refreshAzureOpenAIKey('rg1', 'account1', runner, 'sub')).toBe('secondary-key');
   });
 
-  it('returns null when keys response JSON is invalid', async () => {
+  it('returns null when the subscription or key API is unavailable', async () => {
     const runner = mockCommandRunner({
-      'az cognitiveservices account keys list': { stdout: 'NOT_VALID_JSON{{{', exitCode: 0 },
+      'az account get-access-token': { stdout: 'token', exitCode: 0 },
     });
     expect(await refreshAzureOpenAIKey('rg1', 'account1', runner)).toBeNull();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 403 }));
+    expect(await refreshAzureOpenAIKey('rg1', 'account1', runner, 'sub')).toBeNull();
   });
 });
 
@@ -1385,9 +1282,7 @@ describe('detectProviders — Azure and Copilot result building', () => {
 
   it('skips all Azure detection when "azure" is in dismissedKeys', async () => {
     fetchSpy.mockRejectedValueOnce(new Error('no ollama'));
-    const runner = mockCommandRunner({
-      'az account show': { stdout: JSON.stringify({ name: 'MySub' }), exitCode: 0 },
-    });
+    const runner = mockCommandRunner({});
     const result = await detectProviders([], ['azure'], runner);
     expect(result.filter(p => p.providerId === 'azure')).toHaveLength(0);
   });
@@ -1424,29 +1319,9 @@ describe('detectProviders — Azure and Copilot result building', () => {
 
   it('skips Azure provider with empty accountName when azure is already configured', async () => {
     fetchSpy.mockRejectedValueOnce(new Error('no ollama'));
-    // Account list returns an account whose name is empty string
-    const runner = mockCommandRunner({
-      'az account show': { stdout: JSON.stringify({ name: 'MySub' }), exitCode: 0 },
-      'az cognitiveservices account list': {
-        stdout: JSON.stringify([
-          {
-            name: '',
-            resourceGroup: 'rg1',
-            properties: { endpoint: 'https://blank.openai.azure.com' },
-          },
-        ]),
-        exitCode: 0,
-      },
-      'az cognitiveservices account deployment list': {
-        stdout: CHAT_DEPLOYMENT_STDOUT,
-        exitCode: 0,
-      },
-      'az cognitiveservices account keys list': {
-        stdout: JSON.stringify({ key1: 'k' }),
-        exitCode: 0,
-      },
-    });
-    // Existing azure provider present → the empty-accountName result should be skipped
+    const runner = makeAzureBaseRunner(CHAT_DEPLOYMENT_STDOUT, [
+      { ...AZURE_TEST_ACCOUNT, name: '' },
+    ]);
     const existing = [{ providerId: 'azure', config: {} }];
     const result = await detectProviders(existing, [], runner);
     expect(result.filter(p => p.providerId === 'azure')).toHaveLength(0);
