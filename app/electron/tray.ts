@@ -72,10 +72,10 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
   }
 
   const iconPath = options.isDev
-    ? path.join(__dirname, '..', 'assets', 'tray-icon.png')
-    : path.join(process.resourcesPath, 'assets', 'tray-icon.png');
+    ? path.join(__dirname, '..', '..', 'frontend', 'public', 'favicon-32x32.png')
+    : path.join(process.resourcesPath, 'frontend', 'favicon-32x32.png');
 
-  const trayIcon = nativeImage.createFromPath(iconPath);
+  let trayIcon = nativeImage.createFromPath(iconPath);
   if (trayIcon.isEmpty()) {
     console.error(
       `Failed to load tray icon from path "${iconPath}". System tray will not be created.`
@@ -84,6 +84,7 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
   }
 
   if (process.platform === 'darwin') {
+    trayIcon = trayIcon.resize({ width: 22, height: 22 });
     trayIcon.setTemplateImage(true);
   }
 
