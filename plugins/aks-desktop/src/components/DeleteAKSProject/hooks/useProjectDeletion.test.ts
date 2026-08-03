@@ -53,6 +53,7 @@ function makeMockNs(labels: Record<string, string>, name = 'test-ns') {
     metadata: { name, labels },
     jsonData: { metadata: { name, labels: { ...labels } } },
     delete: vi.fn().mockResolvedValue(undefined),
+    patch: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -67,6 +68,29 @@ const regularLabels = {
   'headlamp.dev/project-id': 'test-project',
   'headlamp.dev/project-managed-by': 'headlamp',
 };
+
+// AKS Hybrid & Edge (Arc-connected) projects carry the aks-desktop managed-by
+// label (set by the native manifest apply) but NO subscription/resource-group
+// labels — there is no ARM resource behind them.
+const arcLabels = {
+  'headlamp.dev/project-id': 'test-project',
+  'headlamp.dev/project-managed-by': 'aks-desktop',
+};
+
+// The same project as the wizard actually stamps it: the authorization model is
+// recorded on the namespace, so it survives the loss of any local settings.
+const arcLabelsWithModel = {
+  ...arcLabels,
+  'aks-desktop/project-authz-model': 'kubernetes-rbac',
+};
+
+/** Marks the project's cluster as an AKS Hybrid & Edge (Arc) cluster in cluster settings. */
+function markClusterArc(clusterName = 'test-cluster') {
+  localStorage.setItem(
+    `cluster_settings.${clusterName}`,
+    JSON.stringify({ clusterType: 'aksarc' })
+  );
+}
 
 // Gets the async callback passed to clusterAction and runs it
 async function executeClusterAction() {
@@ -89,6 +113,7 @@ describe('useProjectDeletion', () => {
 
   afterEach(() => {
     vi.resetAllMocks();
+    localStorage.clear();
   });
 
   test('calls clusterAction and onClose immediately', () => {
@@ -231,6 +256,89 @@ describe('useProjectDeletion', () => {
     await expect(executeClusterAction()).rejects.toThrow('Missing required Azure labels');
   });
 
+  test('ARM marker takes precedence over stale Arc labels and cluster settings', async () => {
+    markClusterArc();
+    const ns = makeMockNs({
+      ...aksLabels,
+      'aks-desktop/project-authz-model': 'kubernetes-rbac',
+      'kubernetes.azure.com/managedByArm': 'true',
+    });
+    setupApiGet(ns);
+    mockDeleteManagedNamespace.mockResolvedValue({ success: true });
+
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, false, vi.fn());
+
+    await executeClusterAction();
+
+    expect(mockDeleteManagedNamespace).toHaveBeenCalledWith({
+      clusterName: 'test-cluster',
+      resourceGroup: 'rg-test',
+      namespaceName: 'test-ns',
+      subscriptionId: 'sub-123',
+    });
+  });
+
+  /** AKS Hybrid & Edge (Arc-connected) Namespaces */
+
+  test('AKS Hybrid & Edge cluster + deleteNamespaces=true: native K8s delete, no ARM call', async () => {
+    markClusterArc();
+    const ns = makeMockNs(arcLabels);
+    setupApiGet(ns);
+
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, true, vi.fn());
+
+    await executeClusterAction();
+
+    // Even though the namespace carries the aks-desktop managed-by label, an
+    // AKS Hybrid & Edge cluster deletes natively — no `az aks namespace delete`.
+    expect(ns.delete).toHaveBeenCalled();
+    expect(mockDeleteManagedNamespace).not.toHaveBeenCalled();
+  });
+
+  test('Arc project is recognised from its namespace labels when cluster settings are gone', async () => {
+    // Cluster settings live in localStorage and are absent after the kubeconfig
+    // moves to another installation while the namespace persists. Without reading
+    // the durable label, this project would be misread as managed AKS and deleted
+    // with `az aks namespace delete` against a connected cluster.
+    // Note: no markClusterArc() here — that is the point.
+    const ns = makeMockNs(arcLabelsWithModel);
+    setupApiGet(ns);
+
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, true, vi.fn());
+
+    await executeClusterAction();
+
+    expect(ns.delete).toHaveBeenCalled();
+    expect(mockDeleteManagedNamespace).not.toHaveBeenCalled();
+  });
+
+  test('AKS Hybrid & Edge cluster + deleteNamespaces=false: merge-patches labels to null, no ARM call', async () => {
+    markClusterArc();
+    const ns = makeMockNs(arcLabels);
+    setupApiGet(ns);
+
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, false, vi.fn());
+
+    await executeClusterAction();
+
+    // A merge patch that clears just the project labels (null deletes the key) —
+    // the namespace is not rewritten and no `az` call is made.
+    expect(ns.patch).toHaveBeenCalledWith({
+      metadata: {
+        labels: {
+          'headlamp.dev/project-id': null,
+          'headlamp.dev/project-managed-by': null,
+        },
+      },
+    });
+    expect(mockApiEndpointPut).not.toHaveBeenCalled();
+    expect(mockDeleteManagedNamespace).not.toHaveBeenCalled();
+  });
+
   /** Regular Kubernetes Namespaces */
 
   test('regular namespace with deleteNamespaces=true: calls ns.delete()', async () => {
@@ -246,27 +354,24 @@ describe('useProjectDeletion', () => {
     expect(mockDeleteManagedNamespace).not.toHaveBeenCalled();
   });
 
-  test('regular namespace with deleteNamespaces=false: removes project labels', async () => {
+  test('regular namespace with deleteNamespaces=false: merge-patches labels to null', async () => {
     const ns = makeMockNs(regularLabels);
     setupApiGet(ns);
-    mockApiEndpointPut.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useProjectDeletion());
     result.current.handleDelete(baseProject, false, vi.fn());
 
     await executeClusterAction();
 
-    expect(mockApiEndpointPut).toHaveBeenCalledWith(
-      expect.objectContaining({
-        metadata: expect.objectContaining({
-          labels: expect.not.objectContaining({
-            'headlamp.dev/project-id': expect.anything(),
-          }),
-        }),
-      }),
-      {},
-      'test-cluster'
-    );
+    expect(ns.patch).toHaveBeenCalledWith({
+      metadata: {
+        labels: {
+          'headlamp.dev/project-id': null,
+          'headlamp.dev/project-managed-by': null,
+        },
+      },
+    });
+    expect(mockApiEndpointPut).not.toHaveBeenCalled();
     expect(mockDeleteManagedNamespace).not.toHaveBeenCalled();
   });
 });
