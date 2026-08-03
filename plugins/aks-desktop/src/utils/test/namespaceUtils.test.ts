@@ -3,9 +3,12 @@
 
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-// Mock the K8s API
-const mockGet = vi.fn();
-const mockPut = vi.fn();
+// Mock the K8s API. These are declared with vi.hoisted so the vi.mock factory
+// (hoisted above imports) can safely reference them.
+const { mockGet, mockPut } = vi.hoisted(() => ({
+  mockGet: vi.fn(),
+  mockPut: vi.fn(),
+}));
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   K8s: {
@@ -20,13 +23,24 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   },
 }));
 
+// applyNamespaceManifest applies each object via Headlamp's generic apply() helper
+// (create-or-update), imported from the public ApiProxy entry — mock that.
+const mockApply = vi.hoisted(() => vi.fn());
+vi.mock('@kinvolk/headlamp-plugin/lib/ApiProxy', () => ({
+  apply: (...args: any[]) => mockApply(...args),
+}));
+
 // Mock the Azure CLI
 const mockRunCommandAsync = vi.fn();
 vi.mock('../azure/az-cli-core', () => ({
   runCommandAsync: (...args: any[]) => mockRunCommandAsync(...args),
 }));
 
-import { applyProjectLabels, fetchNamespaceData } from '../kubernetes/namespaceUtils';
+import {
+  applyNamespaceManifest,
+  applyProjectLabels,
+  fetchNamespaceData,
+} from '../kubernetes/namespaceUtils';
 
 /**
  * Helper: creates a mockGet implementation that calls the success callback
@@ -104,6 +118,52 @@ describe('fetchNamespaceData', () => {
 
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(mockCancel).toHaveBeenCalled();
+  });
+});
+
+describe('applyNamespaceManifest', () => {
+  beforeEach(() => {
+    mockApply.mockReset();
+  });
+
+  const baseOptions = {
+    namespaceName: 'my-project',
+    cpuRequest: 2000,
+    cpuLimit: 4000,
+    memoryRequest: 4096,
+    memoryLimit: 8192,
+    ingressPolicy: 'AllowSameNamespace' as const,
+    egressPolicy: 'AllowAll' as const,
+    labels: { 'headlamp.dev/project-id': 'my-project' },
+    userAssignments: [{ objectId: '11111111-1111-1111-1111-111111111111', role: 'Admin' }],
+  };
+
+  test('applies every object in order to the given cluster via apply()', async () => {
+    mockApply.mockResolvedValue({});
+
+    const result = await applyNamespaceManifest('arc-cluster', baseOptions);
+
+    expect(result).toEqual({ success: true });
+    // Namespace first, then the namespaced children.
+    const appliedKinds = mockApply.mock.calls.map(call => call[0].kind);
+    expect(appliedKinds).toEqual(['Namespace', 'ResourceQuota', 'NetworkPolicy', 'RoleBinding']);
+    // Every apply targets the cluster context (2nd positional arg).
+    for (const call of mockApply.mock.calls) {
+      expect(call[1]).toBe('arc-cluster');
+    }
+  });
+
+  test('fails fast and reports the failing kind on error', async () => {
+    // Namespace succeeds, ResourceQuota rejects.
+    mockApply.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('quota exceeded'));
+
+    const result = await applyNamespaceManifest('arc-cluster', baseOptions);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('ResourceQuota');
+    expect(result.error).toContain('quota exceeded');
+    // Stopped after the failure — NetworkPolicy/RoleBinding were not attempted.
+    expect(mockApply).toHaveBeenCalledTimes(2);
   });
 });
 
