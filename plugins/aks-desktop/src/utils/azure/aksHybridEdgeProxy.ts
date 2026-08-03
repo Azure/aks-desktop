@@ -41,6 +41,12 @@ export interface StartProxyResult {
 /** How long a single reachability probe may take. */
 const REACHABILITY_TIMEOUT_MS = 5_000;
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+  }
+}
+
 /**
  * Builds the Azure portal deep link to a connected cluster's Overview blade,
  * where a user can inspect its health / "Current state" when it's Failed.
@@ -92,12 +98,17 @@ export async function startProxy(target: ProxyTarget): Promise<StartProxyResult>
  * running.
  *
  * @param clusterName - The kubeconfig context / Headlamp cluster name to probe.
+ * @param signal - Cancels the probe when its caller no longer needs the result.
  */
 export async function checkClusterReachable(
-  clusterName: string
+  clusterName: string,
+  signal?: AbortSignal
 ): Promise<{ success: boolean; error?: string }> {
+  throwIfAborted(signal);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REACHABILITY_TIMEOUT_MS);
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener('abort', abort, { once: true });
 
   try {
     await ApiProxy.clusterRequest('/version', {
@@ -108,6 +119,7 @@ export async function checkClusterReachable(
     });
     return { success: true };
   } catch (error) {
+    throwIfAborted(signal);
     const aborted =
       (error instanceof Error && error.name === 'AbortError') || controller.signal.aborted;
     if (aborted) {
@@ -116,7 +128,37 @@ export async function checkClusterReachable(
     return { success: false, error: getErrorMessage(error) };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
   }
+}
+
+/**
+ * Determines whether a cluster is actually accessible by making live Kubernetes
+ * API requests, rather than trusting a cached Arc heartbeat/connectivity status.
+ *
+ * Probes with {@link checkClusterReachable} up to `attempts` times back-to-back;
+ * the cluster is considered accessible as soon as one probe succeeds, and only
+ * marked inaccessible when every attempt fails (the last error is returned).
+ * Each probe carries its own {@link REACHABILITY_TIMEOUT_MS} timeout, so an
+ * unresponsive cluster fails fast per attempt.
+ *
+ * @param clusterName - The kubeconfig context / Headlamp cluster name to probe.
+ * @param attempts - Number of sequential probes before declaring it inaccessible
+ *   (default 3).
+ */
+export async function checkClusterAccessible(
+  clusterName: string,
+  attempts = 3
+): Promise<{ accessible: boolean; error?: string }> {
+  let lastError: string | undefined;
+  for (let i = 0; i < attempts; i++) {
+    const result = await checkClusterReachable(clusterName);
+    if (result.success) {
+      return { accessible: true };
+    }
+    lastError = result.error;
+  }
+  return { accessible: false, error: lastError };
 }
 
 /** Fetches the set of cluster (context) names Headlamp currently knows about. */
@@ -239,6 +281,7 @@ export async function getClusterCurrentState(
  * @param clusterName - The kubeconfig context / Headlamp cluster name.
  * @param options.timeoutMs - Overall budget (default 60s).
  * @param options.intervalMs - Delay between poll attempts (default 2s).
+ * @param options.signal - Cancels verification and any active polling delay.
  * @param options.target - When provided, a Phase-2 (unreachable) failure queries
  *   the cluster's Azure `provisioningState` to explain *why* it's unreachable
  *   (e.g. the cluster is in a `Failed` state, not a proxy problem).
@@ -248,6 +291,7 @@ export async function verifyAksHybridEdgeCluster(
   options: {
     timeoutMs?: number;
     intervalMs?: number;
+    signal?: AbortSignal;
     target?: Pick<ProxyTarget, 'subscriptionId' | 'resourceGroup'>;
   } = {}
 ): Promise<VerifyResult> {
@@ -255,11 +299,28 @@ export async function verifyAksHybridEdgeCluster(
   const intervalMs = options.intervalMs ?? 2_000;
   const deadline = Date.now() + timeoutMs;
 
-  const delay = () => new Promise(resolve => setTimeout(resolve, intervalMs));
+  const delay = () =>
+    new Promise<void>((resolve, reject) => {
+      throwIfAborted(options.signal);
+      const timer = setTimeout(() => {
+        options.signal?.removeEventListener('abort', abort);
+        resolve();
+      }, intervalMs);
+      const abort = () => {
+        clearTimeout(timer);
+        reject(
+          options.signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError')
+        );
+      };
+      options.signal?.addEventListener('abort', abort, { once: true });
+    });
+
+  throwIfAborted(options.signal);
 
   // Phase 1 — wait for the backend to load the proxy-written context. No
   // cluster-API probe happens until this succeeds.
   while (!(await isClusterInKubeconfig(clusterName))) {
+    throwIfAborted(options.signal);
     if (Date.now() >= deadline) {
       return {
         success: false,
@@ -276,7 +337,7 @@ export async function verifyAksHybridEdgeCluster(
   // Phase 2 — context is loaded; now wait until the cluster answers the API.
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const reachable = await checkClusterReachable(clusterName);
+    const reachable = await checkClusterReachable(clusterName, options.signal);
     if (reachable.success) {
       return { success: true, inKubeconfig: true, reachable: true };
     }

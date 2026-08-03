@@ -23,6 +23,7 @@ vi.mock('../shared/runCommandAsync', () => ({
 
 import {
   azurePortalClusterUrl,
+  checkClusterAccessible,
   checkClusterReachable,
   getClusterCurrentState,
   isClusterInKubeconfig,
@@ -94,6 +95,55 @@ describe('aksHybridEdgeProxy — reachability & verification', () => {
     expect(res.error).toContain('connection refused');
   });
 
+  test('checkClusterReachable aborts an active API probe', async () => {
+    const controller = new AbortController();
+    mockClusterRequest.mockImplementation(
+      (_path, options) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () => reject(options.signal.reason), {
+            once: true,
+          });
+        })
+    );
+
+    const probe = checkClusterReachable('cluster-a', controller.signal);
+    controller.abort();
+
+    await expect(probe).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  test('checkClusterAccessible returns accessible on the first successful probe', async () => {
+    mockClusterRequest.mockResolvedValue({ items: [] });
+    const res = await checkClusterAccessible('cluster-a');
+    expect(res.accessible).toBe(true);
+    // Short-circuits — no retries once a probe succeeds.
+    expect(mockClusterRequest).toHaveBeenCalledTimes(1);
+  });
+
+  test('checkClusterAccessible retries and succeeds if a later probe responds', async () => {
+    mockClusterRequest
+      .mockRejectedValueOnce(new Error('no route to host'))
+      .mockResolvedValueOnce({ items: [] });
+    const res = await checkClusterAccessible('cluster-a');
+    expect(res.accessible).toBe(true);
+    expect(mockClusterRequest).toHaveBeenCalledTimes(2);
+  });
+
+  test('checkClusterAccessible marks inaccessible after 3 failed probes', async () => {
+    mockClusterRequest.mockRejectedValue(new Error('connection refused'));
+    const res = await checkClusterAccessible('cluster-a');
+    expect(res.accessible).toBe(false);
+    expect(res.error).toContain('connection refused');
+    expect(mockClusterRequest).toHaveBeenCalledTimes(3);
+  });
+
+  test('checkClusterAccessible honours a custom attempt count', async () => {
+    mockClusterRequest.mockRejectedValue(new Error('down'));
+    const res = await checkClusterAccessible('cluster-a', 2);
+    expect(res.accessible).toBe(false);
+    expect(mockClusterRequest).toHaveBeenCalledTimes(2);
+  });
+
   test('isClusterInKubeconfig checks Headlamp /config (array of clusters) for the context', async () => {
     mockRequest.mockResolvedValue({ clusters: [{ name: 'cluster-a' }, { name: 'other' }] });
     expect(await isClusterInKubeconfig('cluster-a')).toBe(true);
@@ -119,6 +169,22 @@ describe('aksHybridEdgeProxy — reachability & verification', () => {
       expect(res.success).toBe(false);
       expect(res.inKubeconfig).toBe(false);
       // Phase 1 gates Phase 2: no API probe until the context is loaded.
+      expect(mockClusterRequest).not.toHaveBeenCalled();
+    });
+
+    test('aborts while waiting for the kubeconfig context', async () => {
+      const controller = new AbortController();
+      mockRequest.mockResolvedValue({ clusters: [] });
+
+      const verification = verifyAksHybridEdgeCluster('cluster-a', {
+        intervalMs: 10_000,
+        signal: controller.signal,
+      });
+      await vi.waitFor(() => expect(mockRequest).toHaveBeenCalledOnce());
+      controller.abort();
+
+      await expect(verification).rejects.toMatchObject({ name: 'AbortError' });
+      expect(mockRequest).toHaveBeenCalledOnce();
       expect(mockClusterRequest).not.toHaveBeenCalled();
     });
 
