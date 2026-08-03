@@ -21,6 +21,17 @@ export interface AzureCluster {
   status: string;
   resourceGroup: string;
   powerState?: string;
+  /**
+   * `'aks'` for managed clusters, `'aksarc'` for Arc-connected (AKS Hybrid & Edge)
+   * clusters. Absence implies a managed AKS cluster. Drives whether the wizard
+   * creates a managed namespace (`az aks namespace add`) or applies a native
+   * Kubernetes namespace manifest via the Headlamp K8s API.
+   *
+   * Accessibility of an AKS Hybrid & Edge cluster is NOT inferred from a cached
+   * Arc heartbeat — it is verified with a live Kubernetes API probe
+   * (`checkClusterAccessible`) at submit time.
+   */
+  clusterType?: 'aks' | 'aksarc';
 }
 
 export interface UserAssignment {
@@ -71,6 +82,14 @@ export interface NamespaceStatus {
   error: string | null;
 }
 
+/** Live API reachability state for the selected cluster. */
+export interface ClusterAccessStatus {
+  /** Whether a reachability probe is currently running. */
+  checking: boolean;
+  /** Probe result, or `null` when reachability is not applicable or not known. */
+  accessible: boolean | null;
+}
+
 export interface AzureResourceState {
   subscriptions: AzureSubscription[];
   clusters: AzureCluster[];
@@ -79,6 +98,7 @@ export interface AzureResourceState {
   loadingClusters: boolean;
   error: string | null;
   clusterError: string | null;
+  arcDiscoveryUnavailable: boolean;
 }
 
 export interface StepProps {
@@ -90,18 +110,38 @@ export interface StepProps {
 }
 
 export interface BasicsStepProps extends StepProps {
+  /** Azure subscriptions available to the signed-in user. */
   subscriptions: AzureSubscription[];
+  /** Managed and Arc clusters available for the selected subscription. */
   clusters: AzureCluster[];
+  /** Cluster count before unsupported clusters are filtered out. */
   totalClusterCount: number | null;
+  /** Whether clusters are being loaded for the selected subscription. */
   loadingClusters: boolean;
+  /** Non-fatal cluster discovery error. */
   clusterError: string | null;
+  /** Whether Arc discovery is unavailable because `connectedk8s` is missing. */
+  arcDiscoveryUnavailable?: boolean;
+  /** Installation state for the AKS Preview Azure CLI extension. */
   extensionStatus: ExtensionStatus;
+  /** Availability state for the requested project namespace. */
   namespaceStatus: NamespaceStatus;
+  /**
+   * Live reachability of the selected Arc (AKS Hybrid & Edge) cluster. `accessible`
+   * is `null` when not applicable. Used to explain a disabled "Next" button.
+   */
+  clusterAccessStatus: ClusterAccessStatus;
+  /** Capabilities reported by the selected cluster. */
   clusterCapabilities: ClusterCapabilities | null;
+  /** Whether selected-cluster capabilities are being loaded. */
   capabilitiesLoading: boolean;
+  /** Installs the AKS Preview Azure CLI extension. */
   onInstallExtension: () => Promise<void>;
+  /** Retries loading Azure subscriptions. */
   onRetrySubscriptions: () => Promise<void>;
+  /** Retries loading clusters for the selected subscription. */
   onRetryClusters: () => Promise<void>;
+  /** Refreshes capabilities for the selected cluster. */
   onRefreshCapabilities?: () => void;
 }
 

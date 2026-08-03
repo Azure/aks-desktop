@@ -6,6 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockTrackFeature = vi.hoisted(() => vi.fn());
 const mockTrackError = vi.hoisted(() => vi.fn());
+const mockCheckNamespaceViaK8s = vi.hoisted(() => vi.fn());
+const mockCheckClusterAccessible = vi.hoisted(() => vi.fn());
+const mockAzureResourcesState = vi.hoisted(() => ({ clusters: [] as any[] }));
+const mockClustersConf = vi.hoisted(() => ({
+  current: null as Record<string, { name: string }> | null,
+}));
 
 vi.mock('../../../telemetry', () => ({
   trackFeature: mockTrackFeature,
@@ -29,8 +35,12 @@ vi.mock('@kinvolk/headlamp-plugin/lib', async () => {
       returnEmptyString: false,
     });
   }
-  return { useTranslation, K8s: { useClustersConf: () => ({}) } };
+  return { useTranslation, K8s: { useClustersConf: () => mockClustersConf.current } };
 });
+
+vi.mock('../../../utils/azure/aksHybridEdgeProxy', () => ({
+  checkClusterAccessible: mockCheckClusterAccessible,
+}));
 
 vi.mock('react-router-dom', () => ({
   useHistory: () => ({ push: vi.fn() }),
@@ -53,7 +63,7 @@ vi.mock('../../../utils/azure/checkAzureCli', () => ({
 vi.mock('./useAzureResources', () => ({
   useAzureResources: () => ({
     subscriptions: [],
-    clusters: [],
+    clusters: mockAzureResourcesState.clusters,
     loading: false,
     error: null,
     clusterError: null,
@@ -95,6 +105,7 @@ vi.mock('./useNamespaceCheck', () => ({
     checking: false,
     error: null,
     checkNamespace: vi.fn(),
+    checkNamespaceViaK8s: mockCheckNamespaceViaK8s,
     clearStatus: vi.fn(),
   }),
 }));
@@ -134,6 +145,9 @@ const defaultFormData = {
 describe('useCreateAKSProjectWizard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCheckClusterAccessible.mockResolvedValue({ accessible: true });
+    mockAzureResourcesState.clusters = [];
+    mockClustersConf.current = null;
     mockTrackFeature.mockImplementation(() => {});
     mockTrackError.mockImplementation(() => {});
     // Silence console.error so error-path tests don't pollute the test output.
@@ -162,6 +176,35 @@ describe('useCreateAKSProjectWizard', () => {
     });
   });
 
+  it('checks an Arc namespace only after the cluster context is connected', async () => {
+    vi.useFakeTimers();
+    const arcFormData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'arc-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aksarc' as const,
+    };
+    mockAzureResourcesState.clusters = [
+      { name: 'arc-a', resourceGroup: 'rg-a', clusterType: 'aksarc' },
+    ];
+    vi.mocked(useFormData).mockReturnValue({
+      formData: arcFormData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { rerender } = renderHook(() => useCreateAKSProjectWizard());
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(mockCheckNamespaceViaK8s).not.toHaveBeenCalled();
+
+    mockClustersConf.current = { 'arc-a': { name: 'arc-a' } };
+    rerender();
+    await act(() => vi.advanceTimersByTimeAsync(500));
+
+    expect(mockCheckNamespaceViaK8s).toHaveBeenCalledWith('arc-a', 'test-project');
+  });
   it('handleNext increments activeStep', () => {
     const { result } = renderHook(() => useCreateAKSProjectWizard());
     act(() => {

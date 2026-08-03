@@ -2,10 +2,11 @@
 // Licensed under the Apache 2.0.
 
 import { useCallback, useState } from 'react';
-import { getClusters } from '../../../utils/azure/az-clusters';
+import { getClusters, getConnectedClusters } from '../../../utils/azure/az-clusters';
+import { isExtensionInstalled } from '../../../utils/azure/az-extensions';
 import { getClusterCount } from '../../../utils/azure/az-resource-graph';
 import { getSubscriptions } from '../../../utils/azure/az-subscriptions';
-import type { AzureResourceState } from '../types';
+import type { AzureCluster, AzureResourceState } from '../types';
 
 /**
  * Custom hook for managing Azure resources (subscriptions and clusters)
@@ -19,6 +20,7 @@ export const useAzureResources = () => {
     loadingClusters: false,
     error: null,
     clusterError: null,
+    arcDiscoveryUnavailable: false,
   });
 
   const fetchSubscriptions = useCallback(async () => {
@@ -49,18 +51,53 @@ export const useAzureResources = () => {
         ...prev,
         loadingClusters: true,
         clusterError: null,
+        arcDiscoveryUnavailable: false,
         clusters: [],
         totalClusterCount: null,
       }));
-      const [clusterList, totalCount] = await Promise.all([
+      // Managed AKS clusters are filtered to Entra-ID (managed namespaces require it).
+      // Arc-connected (AKS Hybrid & Edge) clusters are discovered separately and are
+      // additive/best-effort — getConnectedClusters swallows its own errors, so a
+      // failure there never blocks the managed AKS list.
+      const [aksClusters, arcClusters, totalCount] = await Promise.all([
         getClusters(subscriptionId, '[?aadProfile!=null]'),
+        getConnectedClusters(subscriptionId),
         getClusterCount(subscriptionId),
       ]);
-      const normalizedTotalCount = totalCount < 0 ? null : totalCount;
+      // Tag managed clusters explicitly. Map Arc clusters into the AzureCluster
+      // shape without carrying the Arc heartbeat (connectivityStatus) into state —
+      // accessibility is verified with a live API probe at submit time, not from a
+      // cached heartbeat.
+      const managed: AzureCluster[] = aksClusters.map((c: AzureCluster) => ({
+        ...c,
+        clusterType: 'aks',
+      }));
+      const arc: AzureCluster[] = arcClusters.map((c: any) => ({
+        name: c.name,
+        location: c.location,
+        version: c.version,
+        nodeCount: c.nodeCount ?? 0,
+        status: c.status,
+        resourceGroup: c.resourceGroup,
+        powerState: c.powerState,
+        clusterType: 'aksarc' as const,
+      }));
+      const clusterList: AzureCluster[] = [...managed, ...arc];
+      let arcDiscoveryUnavailable = false;
+      if (arcClusters.length === 0) {
+        const extension = await isExtensionInstalled('connectedk8s');
+        arcDiscoveryUnavailable = !extension.installed;
+      }
+      // getClusterCount only counts managed AKS. The "hidden" helper text computes
+      // totalClusterCount - clusters.length; since clusters.length now also includes
+      // Arc clusters, add them back into the total so the hidden count stays equal to
+      // (managed AKS in subscription) - (managed AKS shown after the Entra-ID filter).
+      const normalizedTotalCount = totalCount < 0 ? null : totalCount + arcClusters.length;
       setState(prev => ({
         ...prev,
         clusters: clusterList,
         totalClusterCount: normalizedTotalCount,
+        arcDiscoveryUnavailable,
         loadingClusters: false,
       }));
       return clusterList;
@@ -89,7 +126,12 @@ export const useAzureResources = () => {
   }, []);
 
   const clearClusters = useCallback(() => {
-    setState(prev => ({ ...prev, clusters: [], clusterError: null }));
+    setState(prev => ({
+      ...prev,
+      clusters: [],
+      clusterError: null,
+      arcDiscoveryUnavailable: false,
+    }));
   }, []);
 
   return {

@@ -5,6 +5,7 @@ import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import React, { useEffect, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { trackError, trackFeature } from '../../../telemetry';
+import { checkClusterAccessible } from '../../../utils/azure/aksHybridEdgeProxy';
 import { checkNamespaceExists } from '../../../utils/azure/az-namespace-access';
 import { createManagedNamespace } from '../../../utils/azure/az-namespaces';
 import { checkAzureCliAndAksPreview } from '../../../utils/azure/checkAzureCli';
@@ -16,6 +17,7 @@ import {
   RESOURCE_GROUP_LABEL,
   SUBSCRIPTION_LABEL,
 } from '../../../utils/constants/projectLabels';
+import { applyNamespaceManifest } from '../../../utils/kubernetes/namespaceUtils';
 import { STEPS } from '../types';
 import { useAzureResources } from './useAzureResources';
 import { getClusterRegistrationState } from './useBasicsStep';
@@ -113,6 +115,13 @@ export interface UseCreateAKSProjectWizardResult {
    * cluster registry, `undefined` when no cluster is selected.
    */
   isClusterMissing: boolean | undefined;
+  /**
+   * Live reachability of the selected Arc (AKS Hybrid & Edge) cluster. `accessible`
+   * is `null` when not applicable (managed cluster, none selected, or not connected),
+   * `true`/`false` once the API probe resolves. Used by the Basics step to explain a
+   * disabled "Next" button.
+   */
+  clusterAccess: { checking: boolean; accessible: boolean | null };
   /** Ref object for the step content container, used to manage focus and scroll position. */
   stepContentRef: React.RefObject<HTMLDivElement>;
 }
@@ -139,6 +148,13 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   const [applicationName, setApplicationName] = useState('');
   const terminalTrackedRef = useRef(false);
   const [cliSuggestions, setCliSuggestions] = useState<string[]>([]);
+  // Live accessibility of the selected Arc (AKS Hybrid & Edge) cluster, determined
+  // by a real Kubernetes API probe rather than a cached Arc heartbeat. `accessible`
+  // is `null` when not applicable (managed cluster, none selected, or not connected).
+  const [clusterAccess, setClusterAccess] = useState<{
+    checking: boolean;
+    accessible: boolean | null;
+  }>({ checking: false, accessible: null });
   const stepContentRef = useRef<HTMLDivElement>(null);
 
   // Track the 2-second success-dialog delay timer so it can be cleared on unmount,
@@ -167,13 +183,24 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
       : undefined
     : undefined;
 
+  // Whether the selected cluster is an Arc-connected (AKS Hybrid & Edge) cluster.
+  // Arc clusters have no `az aks namespace` surface, so the wizard applies a native
+  // Kubernetes manifest via the K8s API instead of creating a managed namespace, and
+  // the `az`-only preflight side-effects below are skipped for them.
+  const selectedClusterObj = formData.cluster
+    ? azureResources.clusters.find(c => c.name === formData.cluster)
+    : undefined;
+  const isArcCluster = selectedClusterObj?.clusterType === 'aksarc';
+
   const validation = useValidation(
     activeStep,
     formData,
     extensionStatus,
     namespaceCheck,
     isClusterMissing,
-    clusterCapabilities.capabilities
+    clusterCapabilities.capabilities,
+    isArcCluster,
+    clusterAccess
   );
 
   useEffect(() => {
@@ -207,7 +234,9 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   }, [formData.subscription]);
 
   useEffect(() => {
-    if (formData.cluster && formData.subscription && formData.resourceGroup) {
+    // Cluster capabilities come from `az aks show`, which does not apply to Arc
+    // (AKS Hybrid & Edge) clusters — skip the fetch for them.
+    if (!isArcCluster && formData.cluster && formData.subscription && formData.resourceGroup) {
       clusterCapabilities.fetchCapabilities(
         formData.subscription,
         formData.resourceGroup,
@@ -216,16 +245,20 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     } else {
       clusterCapabilities.clearCapabilities();
     }
-  }, [formData.cluster, formData.subscription, formData.resourceGroup]);
+  }, [formData.cluster, formData.subscription, formData.resourceGroup, isArcCluster]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      if (
-        formData.projectName &&
-        formData.cluster &&
-        formData.resourceGroup &&
-        formData.subscription
-      ) {
+      if (!formData.projectName || !formData.cluster) {
+        return;
+      }
+      if (isArcCluster) {
+        if (isClusterMissing) {
+          return;
+        }
+        // Arc clusters: check existence directly via the Kubernetes API.
+        namespaceCheck.checkNamespaceViaK8s(formData.cluster, formData.projectName);
+      } else if (formData.resourceGroup && formData.subscription) {
         namespaceCheck.checkNamespace(
           formData.cluster,
           formData.resourceGroup,
@@ -236,7 +269,40 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [formData.projectName, formData.cluster, formData.resourceGroup, formData.subscription]);
+  }, [
+    formData.projectName,
+    formData.cluster,
+    formData.resourceGroup,
+    formData.subscription,
+    isArcCluster,
+    isClusterMissing,
+  ]);
+
+  // Verify an Arc (AKS Hybrid & Edge) cluster is actually reachable with a live
+  // Kubernetes API probe when it's selected — a cluster can report a `Succeeded`
+  // state in Azure yet be unreachable (proxy down / cluster offline). The result
+  // gates the "Next" button (via validation) so the user can't proceed with an
+  // unreachable cluster. Only applies to Arc clusters that are already connected;
+  // managed clusters create their namespace through Azure ARM, which doesn't need
+  // the cluster's API to be reachable from here.
+  useEffect(() => {
+    if (!isArcCluster || isClusterMissing || !formData.cluster) {
+      setClusterAccess({ checking: false, accessible: null });
+      return;
+    }
+    let cancelled = false;
+    setClusterAccess({ checking: true, accessible: null });
+    checkClusterAccessible(formData.cluster)
+      .then(res => {
+        if (!cancelled) setClusterAccess({ checking: false, accessible: res.accessible });
+      })
+      .catch(() => {
+        if (!cancelled) setClusterAccess({ checking: false, accessible: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [formData.cluster, isArcCluster, isClusterMissing]);
 
   // Clear the success-dialog delay timer when the hook unmounts so we never call
   // setState after the component has been removed from the tree.
@@ -316,6 +382,59 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
       });
 
       const creationPromise = (async () => {
+        // Arc (AKS Hybrid & Edge) clusters have no managed-namespace API. Apply a
+        // native Kubernetes manifest (Namespace + ResourceQuota + NetworkPolicy +
+        // RoleBindings) through the cluster's kubeconfig context instead. RBAC is
+        // baked into the manifest as RoleBindings, so no separate az role assignment.
+        if (isArcCluster) {
+          // Confirm the cluster is actually reachable with a live Kubernetes API
+          // probe (retried up to 3 times) rather than trusting a cached Arc
+          // heartbeat. If every probe fails, the cluster is inaccessible and we
+          // stop before attempting to apply anything.
+          setCreationProgress(`${t('Checking cluster accessibility')}...`);
+          const access = await checkClusterAccessible(formData.cluster);
+          if (aborted) return;
+          if (!access.accessible) {
+            throw new Error(
+              t('Cluster "{{cluster}}" is not accessible: {{message}}', {
+                cluster: formData.cluster,
+                message: access.error || t('no response after 3 attempts'),
+              })
+            );
+          }
+
+          const manifestOptions = {
+            namespaceName: formData.projectName,
+            cpuRequest: formData.cpuRequest,
+            cpuLimit: formData.cpuLimit,
+            memoryRequest: formData.memoryRequest,
+            memoryLimit: formData.memoryLimit,
+            ingressPolicy: formData.ingress,
+            egressPolicy: formData.egress,
+            labels: {
+              [PROJECT_ID_LABEL]: formData.projectName,
+              [PROJECT_MANAGED_BY_LABEL]: PROJECT_MANAGED_BY_VALUE,
+            },
+            userAssignments: formData.userAssignments,
+          };
+
+          setCreationProgress(`${t('Applying namespace manifest')}...`);
+          const applyResult = await applyNamespaceManifest(formData.cluster, manifestOptions);
+
+          if (aborted) return;
+
+          if (!applyResult.success) {
+            throw new Error(
+              t('Namespace creation failed: {{message}}', {
+                message: applyResult.error || t('Unknown error'),
+              })
+            );
+          }
+
+          setCreationProgress(t('Project creation completed successfully!'));
+          return;
+        }
+
         setCreationProgress(`${t('Initiating managed namespace creation')}...`);
         const namespaceResult = await createManagedNamespace({
           clusterName: formData.cluster,
@@ -611,6 +730,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     clusterCapabilities,
     validation,
     isClusterMissing,
+    clusterAccess,
     stepContentRef,
   };
 }

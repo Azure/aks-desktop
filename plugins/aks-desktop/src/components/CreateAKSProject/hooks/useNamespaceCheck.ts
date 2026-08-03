@@ -3,6 +3,7 @@
 
 import { useCallback, useState } from 'react';
 import { checkNamespaceExists } from '../../../utils/azure/az-namespace-access';
+import { fetchNamespaceData } from '../../../utils/kubernetes/namespaceUtils';
 import type { NamespaceStatus } from '../types';
 
 /** Set to `true` locally to enable verbose debug logging. Never enable in production. */
@@ -82,6 +83,29 @@ export const useNamespaceCheck = () => {
     []
   );
 
+  /**
+   * Arc (AKS Hybrid & Edge) counterpart to {@link checkNamespace}. Arc clusters
+   * have no `az aks namespace` surface, so existence is checked directly through
+   * the Kubernetes API via the cluster's kubeconfig context. A rejected fetch is
+   * treated as "does not exist" (name available) — a genuine apply-time conflict
+   * is surfaced separately when the manifest is applied.
+   */
+  const checkNamespaceViaK8s = useCallback(async (clusterName: string, namespaceName: string) => {
+    if (!clusterName.trim() || !namespaceName.trim()) {
+      setStatus({ exists: null, checking: false, error: null });
+      return;
+    }
+
+    setStatus(prev => ({ ...prev, checking: true, error: null }));
+    try {
+      await fetchNamespaceData(namespaceName, clusterName);
+      setStatus({ exists: true, checking: false, error: null });
+    } catch {
+      // Not found (or unreachable): treat as available for the pre-check.
+      setStatus({ exists: false, checking: false, error: null });
+    }
+  }, []);
+
   const clearStatus = useCallback(() => {
     setStatus({ exists: null, checking: false, error: null });
   }, []);
@@ -89,6 +113,7 @@ export const useNamespaceCheck = () => {
   return {
     ...status,
     checkNamespace,
+    checkNamespaceViaK8s,
     clearStatus,
   };
 };

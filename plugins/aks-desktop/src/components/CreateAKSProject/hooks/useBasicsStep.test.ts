@@ -35,6 +35,7 @@ import {
   getClusterHelperText,
   getClusterOptionValue,
   getClusterStateMessage,
+  isClusterFailed,
   isClusterNonReady,
   useBasicsStep,
 } from './useBasicsStep';
@@ -93,6 +94,7 @@ function makeProps(overrides: Partial<BasicsStepProps> = {}): BasicsStepProps {
     totalClusterCount: null,
     extensionStatus: { installed: true, installing: false, error: null, showSuccess: false },
     namespaceStatus: { exists: null, checking: false, error: null },
+    clusterAccessStatus: { checking: false, accessible: null },
     clusterCapabilities: null,
     capabilitiesLoading: false,
     onInstallExtension: vi.fn(),
@@ -170,6 +172,18 @@ describe('isClusterNonReady', () => {
 
   test('is case-insensitive for power state', () => {
     expect(isClusterNonReady({ ...CLUSTER_RUNNING, powerState: 'STOPPED' })).toBe(true);
+  });
+});
+
+describe('isClusterFailed', () => {
+  test('is true for a Failed provisioning state (case-insensitive)', () => {
+    expect(isClusterFailed({ ...CLUSTER_RUNNING, status: 'Failed' })).toBe(true);
+    expect(isClusterFailed({ ...CLUSTER_RUNNING, status: 'FAILED' })).toBe(true);
+  });
+
+  test('is false for non-failed states', () => {
+    expect(isClusterFailed(CLUSTER_RUNNING)).toBe(false);
+    expect(isClusterFailed({ ...CLUSTER_RUNNING, status: 'Updating' })).toBe(false);
   });
 });
 
@@ -257,6 +271,18 @@ describe('useBasicsStep', () => {
     expect(result.current.clusterOptions[0].subtitle).toContain('eastus');
     expect(result.current.clusterOptions[0].subtitle).toContain('1.28.5');
     expect(result.current.clusterOptions[0].subtitle).toContain('nodes');
+    // A Succeeded cluster is selectable.
+    expect(result.current.clusterOptions[0].disabled).toBe(false);
+  });
+
+  test('disables cluster options in a Failed provisioning state', () => {
+    const props = makeProps({
+      clusters: [CLUSTER_RUNNING, { ...CLUSTER_RUNNING, name: 'aks-broken', status: 'Failed' }],
+    });
+    const { result } = renderHook(() => useBasicsStep(props));
+    const options = result.current.clusterOptions;
+    expect(options.find(o => o.label === 'aks-prod')?.disabled).toBe(false);
+    expect(options.find(o => o.label === 'aks-broken')?.disabled).toBe(true);
   });
 
   test('selectedSubscription is undefined when no subscription is selected', () => {

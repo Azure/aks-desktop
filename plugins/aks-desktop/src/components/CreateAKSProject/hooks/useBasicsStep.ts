@@ -84,6 +84,17 @@ export function isClusterNonReady(cluster: AzureCluster): boolean {
 }
 
 /**
+ * Returns `true` when the cluster's provisioning state is `Failed`. Failed
+ * clusters are not deployable, so they are disabled (non-selectable) in the
+ * cluster dropdown by default.
+ *
+ * @param cluster - The Azure cluster to inspect.
+ */
+export function isClusterFailed(cluster: AzureCluster): boolean {
+  return (cluster.status?.toLowerCase() || '') === 'failed';
+}
+
+/**
  * Returns a human-readable warning message for the cluster's current
  * non-ready state, or an empty string if the cluster is ready.
  *
@@ -195,7 +206,11 @@ export function getClusterRegistrationState(
   );
   if (!activeCluster) return 'missing';
 
-  const registeredScope = getClusterSettings(clusterName).azureRegistration;
+  const settings = getClusterSettings(clusterName);
+  const registeredScope =
+    settings.clusterType === 'aksarc'
+      ? { subscriptionId: settings.subscriptionId, resourceGroup: settings.resourceGroup }
+      : settings.azureRegistration;
   const scopeMatches =
     typeof registeredScope?.subscriptionId === 'string' &&
     typeof registeredScope.resourceGroup === 'string' &&
@@ -290,6 +305,15 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     subtitle: `${t('Resource Group')}: ${cluster.resourceGroup} • ${cluster.location} • ${
       cluster.version
     } • ${t('{{count}} nodes', { count: cluster.nodeCount })} • ${cluster.status}`,
+    // Clusters in a Failed provisioning state are not deployable — disable them
+    // (non-selectable) in the dropdown by default. The subtitle already shows the
+    // "Failed" status so the reason is visible.
+    disabled: isClusterFailed(cluster),
+    // Tag Arc-connected clusters so they stand out in the dropdown, matching the
+    // "AKS Hybrid & Edge" chip used in the Add Cluster dialog.
+    ...(cluster.clusterType === 'aksarc'
+      ? { chip: { label: t('AKS Hybrid & Edge'), icon: 'mdi:server', color: 'info' as const } }
+      : {}),
   }));
 
   const clusterHelperText = getClusterHelperText(

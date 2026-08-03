@@ -38,6 +38,80 @@ const checkingNamespace = false;
 const namespaceError = null;
 const isClusterMissing = false;
 
+describe('validateBasicsStep Arc (AKS Hybrid & Edge) accessibility gating', () => {
+  const isArc = true;
+
+  it('blocks the step while the accessibility probe is running', () => {
+    const result = validateBasicsStep(
+      validFormData,
+      extensionInstalled,
+      namespaceExists,
+      checkingNamespace,
+      namespaceError,
+      false, // isClusterMissing
+      null, // capabilities
+      isArc,
+      true, // arcAccessChecking
+      null // arcAccessible
+    );
+    expect(result.isValid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining('Checking cluster accessibility')])
+    );
+  });
+
+  it('blocks the step when the Arc cluster is unreachable', () => {
+    const result = validateBasicsStep(
+      validFormData,
+      extensionInstalled,
+      namespaceExists,
+      checkingNamespace,
+      namespaceError,
+      false,
+      null,
+      isArc,
+      false, // arcAccessChecking
+      false // arcAccessible
+    );
+    expect(result.isValid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining('not accessible')])
+    );
+  });
+
+  it('allows the step when the Arc cluster is reachable', () => {
+    const result = validateBasicsStep(
+      validFormData,
+      extensionInstalled,
+      namespaceExists,
+      checkingNamespace,
+      namespaceError,
+      false,
+      null,
+      isArc,
+      false,
+      true // arcAccessible
+    );
+    expect(result.isValid).toBe(true);
+  });
+
+  it('does not apply the accessibility gate to managed (non-Arc) clusters', () => {
+    const result = validateBasicsStep(
+      validFormData,
+      extensionInstalled,
+      namespaceExists,
+      checkingNamespace,
+      namespaceError,
+      false,
+      null,
+      false, // isArc
+      false,
+      false // arcAccessible — ignored for managed clusters
+    );
+    expect(result.isValid).toBe(true);
+  });
+});
+
 describe('validateBasicsStep with capabilities', () => {
   it('returns warnings when capabilities has no network policy (networkPolicy: "none")', () => {
     const capabilities: ClusterCapabilities = {

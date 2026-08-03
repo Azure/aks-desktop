@@ -1,17 +1,29 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { Autocomplete } from '@mui/material';
+import { Autocomplete, Chip, ChipProps } from '@mui/material';
 import { Box, CircularProgress, TextField, Typography } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import React, { ReactNode, useMemo, useState } from 'react';
+
+/** Optional chip/badge rendered next to an option's label (e.g. an "AKS Hybrid & Edge" tag). */
+export interface SearchableSelectOptionChip {
+  label: string;
+  /** Iconify icon id shown inside the chip (e.g. `'mdi:server'`). */
+  icon?: string;
+  /** MUI chip color; defaults to `'info'`. */
+  color?: ChipProps['color'];
+}
 
 export interface SearchableSelectOption {
   value: string;
   label: string;
   subtitle?: string;
   disabled?: boolean;
+  /** When set, a small chip is rendered next to the option label. */
+  chip?: SearchableSelectOptionChip;
 }
 
 export interface SearchableSelectProps {
@@ -79,6 +91,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         options={sortedOptions}
         disabled={disabled}
         getOptionKey={it => it.value}
+        getOptionDisabled={option => !!option.disabled}
         value={sortedOptions.find(it => it.value === value) ?? null}
         noOptionsText={resolvedNoResults}
         renderInput={params => (
@@ -119,7 +132,22 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                   alignItems: 'flex-start',
                 }}
               >
-                <Typography variant="body1">{option.label}</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="body1">{option.label}</Typography>
+                  {option.chip && (
+                    <Chip
+                      label={option.chip.label}
+                      size="small"
+                      color={option.chip.color ?? 'info'}
+                      variant="outlined"
+                      icon={
+                        option.chip.icon ? (
+                          <Icon icon={option.chip.icon} aria-hidden="true" />
+                        ) : undefined
+                      }
+                    />
+                  )}
+                </Box>
                 {option.subtitle && (
                   <Typography variant="caption" color="text.secondary">
                     {option.subtitle}
