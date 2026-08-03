@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { BrowserWindow, Menu, nativeImage, Tray } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, Tray } from 'electron';
 import { MenuItemConstructorOptions } from 'electron/main';
 import path from 'path';
 
@@ -96,7 +96,7 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
     return false;
   }
 
-  tray.setToolTip('Headlamp');
+  tray.setToolTip(app.name);
   tray.setContextMenu(buildTrayMenu(options, [{ label: 'Loading...', enabled: false }]));
 
   trayUpdateTimeout = setTimeout(() => {
@@ -185,7 +185,7 @@ function buildTrayMenu(
 ): Menu {
   return Menu.buildFromTemplate([
     {
-      label: 'Open Headlamp',
+      label: `Open ${app.name}`,
       click: () => {
         void showWindow(options);
       },
@@ -203,7 +203,7 @@ function buildTrayMenu(
     },
     { type: 'separator' },
     {
-      label: 'About Headlamp',
+      label: `About ${app.name}`,
       click: () => openAboutDialog(options),
     },
     { type: 'separator' },
