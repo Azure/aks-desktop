@@ -1008,8 +1008,13 @@ function checkValidPluginFolder(folder: string): boolean {
   return false;
 }
 
+// The per-user config folder name AKS Desktop uses for its plugins and
+// user-plugins, so they do not collide with a co-installed Headlamp. Must stay
+// in sync with the backend (see backend/pkg/config/config.go appConfigDirName).
+const APP_CONFIG_DIR_NAME = 'AKS desktop';
+
 /**
- * Returns the default directory where Headlamp plugins are installed.
+ * Returns the default directory where AKS Desktop plugins are installed.
  * If the data path exists, it is used as the base directory.
  * Otherwise, the config path is used as the base directory.
  * The 'plugins' subdirectory of the base directory is returned.
@@ -1017,7 +1022,7 @@ function checkValidPluginFolder(folder: string): boolean {
  * @returns {string} The path to the default plugins directory.
  */
 export function defaultPluginsDir() {
-  const paths = envPaths('Headlamp', { suffix: '' });
+  const paths = envPaths(APP_CONFIG_DIR_NAME, { suffix: '' });
   const configDir = fs.existsSync(paths.data) ? paths.data : paths.config;
   return path.join(configDir, 'plugins');
 }
@@ -1031,7 +1036,7 @@ export function defaultPluginsDir() {
  * @returns {string} The path to the default user-plugins directory.
  */
 export function defaultUserPluginsDir() {
-  const paths = envPaths('Headlamp', { suffix: '' });
+  const paths = envPaths(APP_CONFIG_DIR_NAME, { suffix: '' });
   const configDir = fs.existsSync(paths.data) ? paths.data : paths.config;
   return path.join(configDir, 'user-plugins');
 }
