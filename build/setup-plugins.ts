@@ -45,7 +45,7 @@ if (!fs.existsSync(path.join(ROOT_DIR, 'headlamp'))) {
 }
 
 // List of plugins to build and bundle
-const PLUGINS = ['aks-desktop', 'ai-assistant', 'insights-plugin'];
+const PLUGINS = ['aks-desktop', 'ai-assistant', 'insights-plugin', 'plugin-catalog'];
 
 for (const plugin of PLUGINS) {
   const pluginDir = path.join(ROOT_DIR, 'plugins', plugin);
