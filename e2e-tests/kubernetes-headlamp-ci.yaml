@@ -106,7 +106,7 @@ spec:
         - "-plugins-dir=/build/plugins"
         env:
         - name: KUBECONFIG
-          value: "/home/headlamp/.config/Headlamp/kubeconfigs/config"
+          value: "/home/headlamp/.config/AKS desktop/kubeconfigs/config"
         ports:
         - name: http
           containerPort: 4466
@@ -114,7 +114,7 @@ spec:
         volumeMounts:
         - mountPath: /build/plugins
           name: headlamp-plugins
-        - mountPath: "/home/headlamp/.config/Headlamp/kubeconfigs"
+        - mountPath: "/home/headlamp/.config/AKS desktop/kubeconfigs"
           name: kubeconfig
       nodeSelector:
         'kubernetes.io/os': linux
