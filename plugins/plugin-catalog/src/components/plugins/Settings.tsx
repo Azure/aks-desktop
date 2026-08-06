@@ -9,28 +9,14 @@ export function Settings(props) {
 
   const settingsRows = [
     {
-      name: t('Display only Official Plugins'),
+      name: t('Display only AKS optimized Plugins'),
       value: (
         <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
           <Switch
-            checked={data?.displayOnlyOfficialPlugins ?? true}
-            inputProps={{ 'aria-label': t('Display only Official Plugins') }}
+            checked={data?.displayOnlyAksOptimizedPlugins ?? true}
+            inputProps={{ 'aria-label': t('Display only AKS optimized Plugins') }}
             onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-              onDataChange({ ...data, displayOnlyOfficialPlugins: event.target.checked })
-            }
-          />
-        </Box>
-      ),
-    },
-    {
-      name: t('Display only Verified Plugins'),
-      value: (
-        <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-          <Switch
-            checked={data?.displayOnlyVerifiedPlugins ?? true}
-            inputProps={{ 'aria-label': t('Display only Verified Plugins') }}
-            onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-              onDataChange({ ...data, displayOnlyVerifiedPlugins: event.target.checked })
+              onDataChange({ ...data, displayOnlyAksOptimizedPlugins: event.target.checked })
             }
           />
         </Box>

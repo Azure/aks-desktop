@@ -8,6 +8,7 @@ import { FormControlLabel } from '@mui/material';
 import { isEqual } from 'lodash';
 import React, { useEffect, useMemo, useState } from 'react';
 import semver from 'semver';
+import aksOptimizedPluginsData from '../../aks-optimized-plugins.json';
 import { getExternalProxyEndpoint } from './externalProxy';
 import { PluginCard } from './PluginCard';
 
@@ -16,8 +17,7 @@ const ARTIFACTHUB_HEADLAMP_PLUGIN_KIND = '21';
 const ORGANIZATION_NAME = 'headlamp';
 
 type conf = {
-  displayOnlyOfficialPlugins: boolean;
-  displayOnlyVerifiedPlugins: boolean;
+  displayOnlyAksOptimizedPlugins: boolean;
 };
 
 const configStore = new ConfigStore<conf>('@headlamp-k8s/plugin-catalog');
@@ -52,6 +52,26 @@ export interface PluginPackage {
   isUpdateAvailable?: boolean;
 }
 
+interface AksOptimizedPluginEntry {
+  normalizedName: string;
+  repository: string;
+}
+
+// The curated list of plugins that are considered "AKS Desktop optimized". This
+// is a prefilled allowlist shipped with the binary; edit
+// src/aks-optimized-plugins.json to change what appears when the filter is on.
+const AKS_OPTIMIZED_PLUGINS: AksOptimizedPluginEntry[] = aksOptimizedPluginsData.plugins;
+
+const aksOptimizedPluginKeys = new Set(
+  AKS_OPTIMIZED_PLUGINS.map(entry => `${entry.normalizedName}@${entry.repository}`)
+);
+
+// A plugin is AKS Desktop optimized when its normalized name and repository name
+// both match an entry in the curated list.
+export function isAksOptimizedPlugin(plugin: PluginPackage): boolean {
+  return aksOptimizedPluginKeys.has(`${plugin.normalized_name}@${plugin.repository?.name}`);
+}
+
 async function fetchPlugins(offset: number, org?: string) {
   const url = 'https://artifacthub.io/api/v1/packages/search';
 
@@ -61,15 +81,11 @@ async function fetchPlugins(offset: number, org?: string) {
     offset: offset.toString(),
   };
 
+  // We always fetch the full catalog and apply the "AKS Desktop optimized"
+  // allowlist client-side, so that curated plugins show up regardless of their
+  // ArtifactHub official/verified status.
   if (org) {
     params.org = org;
-  } else {
-    const config = configStore.get();
-    const onlyOfficialPlugins = config?.displayOnlyOfficialPlugins ?? true;
-    const onlyVerifiedPlugins = config?.displayOnlyVerifiedPlugins ?? true;
-
-    params.official = onlyOfficialPlugins.toString();
-    params.verified_publisher = onlyVerifiedPlugins.toString();
   }
 
   const queryString = new URLSearchParams(params).toString();
@@ -115,7 +131,7 @@ async function fetchOrgPlugins(org: string) {
   return packages;
 }
 
-async function processPlugins() {
+async function processPlugins(onlyAksOptimized: boolean) {
   const [allPlugins, orgPlugins] = await Promise.all([
     fetchAllPlugins(),
     fetchOrgPlugins(ORGANIZATION_NAME),
@@ -163,9 +179,15 @@ async function processPlugins() {
     // Reorder so plugins with logos show first.
     .sort((a, b) => (!!b.logo_image_id ? 1 : 0) - (!!a.logo_image_id ? 1 : 0));
 
-  const totalPages = Math.ceil(pluginsWithInstallStatus.length / PAGE_SIZE);
+  // When the "AKS Desktop optimized" filter is on, only show plugins that are
+  // part of the curated allowlist.
+  const visiblePlugins = onlyAksOptimized
+    ? pluginsWithInstallStatus.filter(isAksOptimizedPlugin)
+    : pluginsWithInstallStatus;
 
-  return { plugins: pluginsWithInstallStatus, totalPages };
+  const totalPages = Math.ceil(visiblePlugins.length / PAGE_SIZE);
+
+  return { plugins: visiblePlugins, totalPages };
 }
 
 export interface PurePluginListProps {
@@ -175,45 +197,45 @@ export interface PurePluginListProps {
   search: string;
   onSearchChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onPageChange: (event: React.ChangeEvent<unknown>, page: number) => void;
-  isOfficialSwitchChecked: boolean;
-  onOfficialSwitchChange: (isChecked: boolean) => void;
+  isAksOptimizedSwitchChecked: boolean;
+  onAksOptimizedSwitchChange: (isChecked: boolean) => void;
 }
 
-interface OfficialSwitchProps {
+interface AksOptimizedSwitchProps {
   isChecked: boolean;
   onChange: (isChecked: boolean) => void;
 }
 
-function OfficialSwitch(props: OfficialSwitchProps) {
-  const { onChange: onOfficialSwitchChange, isChecked } = props;
+function AksOptimizedSwitch(props: AksOptimizedSwitchProps) {
+  const { onChange: onAksOptimizedSwitchChange, isChecked } = props;
   const { t } = useTranslation();
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   return (
     <>
       <FormControlLabel
         control={
-          <Switch defaultChecked size="small" inputProps={{ 'aria-label': t('Only Official') }} />
+          <Switch defaultChecked size="small" inputProps={{ 'aria-label': t('AKS optimized') }} />
         }
-        label={<Typography>{t('Only Official')}</Typography>}
+        label={<Typography>{t('AKS optimized')}</Typography>}
         checked={isChecked}
         onChange={() => {
           if (isChecked) {
             setIsConfirmOpen(true);
           } else {
-            onOfficialSwitchChange(true);
+            onAksOptimizedSwitchChange(true);
           }
         }}
       />
       <ConfirmDialog
         // @ts-ignore
         open={isConfirmOpen}
-        title={t('Do you want to show non-official plugins?')}
+        title={t('Do you want to show plugins that are not AKS optimized?')}
         description={t(
-          "Important: Non-official plugins may not be published by the actual projects they are related to, nor by Headlamp's maintainers. Are you sure you want to show them?"
+          'Important: Plugins that are not AKS optimized are published by third parties and have not been validated for use with AKS Desktop. Are you sure you want to show them?'
         )}
         handleClose={() => setIsConfirmOpen(false)}
         onConfirm={() => {
-          onOfficialSwitchChange(false);
+          onAksOptimizedSwitchChange(false);
         }}
       />
     </>
@@ -227,8 +249,8 @@ export function PurePluginList({
   search,
   onSearchChange,
   onPageChange,
-  isOfficialSwitchChecked,
-  onOfficialSwitchChange,
+  isAksOptimizedSwitchChecked,
+  onAksOptimizedSwitchChange,
 }: PurePluginListProps) {
   const { t } = useTranslation();
   return (
@@ -237,7 +259,10 @@ export function PurePluginList({
         title={t('Plugins')}
         titleSideActions={[
           <Box pl={2}>
-            <OfficialSwitch isChecked={isOfficialSwitchChecked} onChange={onOfficialSwitchChange} />
+            <AksOptimizedSwitch
+              isChecked={isAksOptimizedSwitchChecked}
+              onChange={onAksOptimizedSwitchChange}
+            />
           </Box>,
         ]}
         actions={[
@@ -295,16 +320,15 @@ export function PluginList() {
   const [totalPages, setTotalPages] = useState(0);
   const conf = configStore.useConfig()();
   const [fetchSettings, setFetchSettings] = useState<conf | null>({
-    displayOnlyOfficialPlugins: true,
-    displayOnlyVerifiedPlugins: true,
+    displayOnlyAksOptimizedPlugins: true,
   });
 
   useEffect(() => {
     const fetchAndProcessPlugins = async () => {
-      const { plugins, totalPages } = await processPlugins();
+      const onlyAksOptimized = fetchSettings?.displayOnlyAksOptimizedPlugins ?? true;
+      const { plugins, totalPages } = await processPlugins(onlyAksOptimized);
       setAllPlugins(plugins);
       setTotalPages(totalPages);
-      console.log(plugins, totalPages);
     };
     fetchAndProcessPlugins();
   }, [fetchSettings]);
@@ -360,9 +384,9 @@ export function PluginList() {
       search={search}
       onSearchChange={handleSearchChange}
       onPageChange={handlePageChange}
-      isOfficialSwitchChecked={conf?.displayOnlyOfficialPlugins ?? true}
-      onOfficialSwitchChange={(isChecked: boolean) => {
-        configStore.update({ displayOnlyOfficialPlugins: isChecked });
+      isAksOptimizedSwitchChecked={conf?.displayOnlyAksOptimizedPlugins ?? true}
+      onAksOptimizedSwitchChange={(isChecked: boolean) => {
+        configStore.update({ displayOnlyAksOptimizedPlugins: isChecked });
       }}
     />
   );

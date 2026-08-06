@@ -26,9 +26,9 @@
   "Other Plugins": "",
   "Unknown": "",
   "No plugins installed": "",
-  "Only Official": "",
-  "Do you want to show non-official plugins?": "",
-  "Important: Non-official plugins may not be published by the actual projects they are related to, nor by Headlamp's maintainers. Are you sure you want to show them?": "",
+  "AKS optimized": "",
+  "Do you want to show plugins that are not AKS optimized?": "",
+  "Important: Plugins that are not AKS optimized are published by third parties and have not been validated for use with AKS Desktop. Are you sure you want to show them?": "",
   "Plugins": "",
   "Search": "",
   "No plugins found": "",
@@ -38,6 +38,5 @@
   "Official Chart": "",
   "Verified Publisher": "",
   "Update available": "",
-  "Display only Official Plugins": "",
-  "Display only Verified Plugins": ""
+  "Display only AKS optimized Plugins": ""
 }

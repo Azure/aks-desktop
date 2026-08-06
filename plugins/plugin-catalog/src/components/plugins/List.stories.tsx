@@ -91,6 +91,8 @@ Default.args = {
   page: 1,
   onSearchChange: event => console.log('Search change:', event.target.value),
   onPageChange: (event, page) => console.log('Page change:', page),
+  isAksOptimizedSwitchChecked: true,
+  onAksOptimizedSwitchChange: isChecked => console.log('AKS optimized change:', isChecked),
 };
 
 export const WithSearchTerm = Template.bind({});
@@ -107,6 +109,8 @@ Empty.args = {
   page: 1,
   onSearchChange: event => console.log('Search change:', event.target.value),
   onPageChange: (event, page) => console.log('Page change:', page),
+  isAksOptimizedSwitchChecked: true,
+  onAksOptimizedSwitchChange: isChecked => console.log('AKS optimized change:', isChecked),
 };
 
 export const Loading = Template.bind({});
