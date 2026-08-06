@@ -17,11 +17,12 @@
 import { Icon } from '@iconify/react';
 import { Box, Button, Typography } from '@mui/material';
 import { groupBy, uniq } from 'lodash';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 import { useClustersConf } from '../../lib/k8s';
 import Namespace from '../../lib/k8s/namespace';
+import { HeadlampEventType, useEventCallback } from '../../redux/headlampEventSlice';
 import { useTypedSelector } from '../../redux/hooks';
 import { ProjectDefinition } from '../../redux/projectsSlice';
 import { StatusLabel } from '../common';
@@ -164,6 +165,11 @@ export default function ProjectList() {
   const pluginApiResources = useTypedSelector(state => state.projects.apiResources);
 
   const projects = useProjects();
+  const dispatchHeadlampEvent = useEventCallback(HeadlampEventType.PROJECT_LIST_VIEW);
+
+  useEffect(() => {
+    dispatchHeadlampEvent({ projects });
+  }, [projects]);
 
   const handleCreateProject = () => {
     setShowCreate(true);
