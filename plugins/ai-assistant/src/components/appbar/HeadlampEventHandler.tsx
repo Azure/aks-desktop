@@ -1,6 +1,7 @@
-import { registerHeadlampEventCallback } from '@kinvolk/headlamp-plugin/lib';
-// @todo: this HeadlampEventType import is weird. Maybe fix in headlamp to be better.
-import { DefaultHeadlampEvents as HeadlampEventType } from '@kinvolk/headlamp-plugin/lib/plugin/registry';
+import {
+  DefaultHeadlampEvents as HeadlampEventType,
+  registerHeadlampEventCallback,
+} from '@kinvolk/headlamp-plugin/lib';
 import type { HeadlampEventPayload } from '../../pluginState';
 import { useGlobalState } from '../../pluginState';
 
