@@ -60,7 +60,12 @@ export default function RegisterAKSClusterPage() {
   };
 
   const handleRegistrationFinished = (outcome: 'failed' | 'succeeded') => {
-    terminalStatusRef.current = outcome;
+    // Only an active attempt can reach a terminal status, so a late result
+    // cannot overwrite a recorded cancellation. The dialog blocks close while
+    // registration is in flight, so this is defensive rather than a live path.
+    if (terminalStatusRef.current === 'active') {
+      terminalStatusRef.current = outcome;
+    }
   };
 
   return (
