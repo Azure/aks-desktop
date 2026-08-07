@@ -330,18 +330,10 @@ function CreateNamespaceContent() {
 
   return (
     <PageGrid maxWidth="lg" sx={{ margin: '0 auto' }}>
-      <Button
-        color="primary"
-        startIcon={<Icon icon="mdi:chevron-left" />}
-        size="small"
-        sx={{ alignSelf: 'flex-start' }}
-        onClick={onBack}
-      >
-        <Typography style={{ paddingTop: '3px' }}>{t('Back')}</Typography>
-      </Button>
       <SectionBox
         title={t('Create New Namespace')}
         subtitle={t('Create a new namespace on an existing cluster and set it up as a project')}
+        backLink="/"
       >
         <Card elevation={2} sx={{ position: 'relative' }}>
           {/* Loading / Success / Error Overlay */}

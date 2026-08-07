@@ -144,10 +144,6 @@ function goBackOneWizardStep() {
   fireEvent.click(backButtons[backButtons.length - 1]);
 }
 
-function clickHeaderBack() {
-  fireEvent.click(screen.getAllByRole('button', { name: 'Back' })[0]);
-}
-
 describe('CreateNamespace telemetry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -232,15 +228,6 @@ describe('CreateNamespace telemetry', () => {
     expect(mocks.push).toHaveBeenCalledWith('/');
   });
 
-  test('emits cancelled from the accessible header back-to-home control', () => {
-    render(<CreateNamespace />);
-
-    clickHeaderBack();
-
-    expect(mocks.trackAksFeature.mock.calls).toEqual([['aksd.namespace-create', 'cancelled']]);
-    expect(mocks.push.mock.calls).toEqual([['/']]);
-  });
-
   test('does not instrument wizard Back between visible steps', () => {
     render(<CreateNamespace />);
     completeBasics();
@@ -284,55 +271,6 @@ describe('CreateNamespace telemetry', () => {
       ['aksd.namespace-create', 'started'],
       ['aksd.namespace-create', 'succeeded'],
     ]);
-  });
-
-  test('cancels an active attempt from the reachable header Back and ignores late completion', async () => {
-    const attempt = createDeferred<void>();
-    mocks.createNamespaceAsProject.mockReturnValue(attempt.promise);
-    render(<CreateNamespace />);
-    completeBasics();
-    submitNamespace();
-    clickHeaderBack();
-    await act(async () => {
-      attempt.resolve();
-      await attempt.promise;
-    });
-
-    expect(mocks.trackAksFeature.mock.calls).toEqual([
-      ['aksd.namespace-create', 'started'],
-      ['aksd.namespace-create', 'cancelled'],
-    ]);
-    expect(mocks.push.mock.calls).toEqual([['/']]);
-    expect(mocks.setClusterSettings).not.toHaveBeenCalled();
-  });
-
-  test('cancels a retry after failure and ignores its late completion', async () => {
-    const retry = createDeferred<void>();
-    mocks.createNamespaceAsProject
-      .mockRejectedValueOnce(new Error('private failure'))
-      .mockReturnValueOnce(retry.promise);
-    render(<CreateNamespace />);
-    completeBasics();
-    submitNamespace();
-    await waitFor(() =>
-      expect(mocks.trackAksFeature).toHaveBeenCalledWith('aksd.namespace-create', 'failed')
-    );
-
-    submitNamespace();
-    clickHeaderBack();
-    await act(async () => {
-      retry.resolve();
-      await retry.promise;
-    });
-
-    expect(mocks.trackAksFeature.mock.calls).toEqual([
-      ['aksd.namespace-create', 'started'],
-      ['aksd.namespace-create', 'failed'],
-      ['aksd.namespace-create', 'started'],
-      ['aksd.namespace-create', 'cancelled'],
-    ]);
-    expect(mocks.push.mock.calls).toEqual([['/']]);
-    expect(mocks.setClusterSettings).not.toHaveBeenCalled();
   });
 
   test('clears the success-dialog timer on unmount', async () => {
