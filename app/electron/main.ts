@@ -913,6 +913,16 @@ async function startServer(flags: string[] = []): Promise<ChildProcessWithoutNul
     // Directory doesn't exist or is not readable — ignore and continue.
   }
 
+  // Point the backend at AKS Desktop's own plugin directories (rather than the
+  // backend's "Headlamp" defaults) so what it serves matches where the app
+  // installs plugins, keeping them separate from a co-installed Headlamp.
+  serverArgs = serverArgs.concat([
+    '--plugins-dir',
+    defaultPluginsDir(),
+    '--user-plugins-dir',
+    defaultUserPluginsDir(),
+  ]);
+
   serverArgs = serverArgs.concat(flags);
   console.log('arguments passed to backend server', serverArgs);
 

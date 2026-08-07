@@ -26,6 +26,10 @@ const (
 	defaultPort       = 4466
 	defaultSessionTTL = 86400 // 24 hours in seconds
 	osWindows         = "windows"
+	// appConfigDirName is the per-user folder for AKS Desktop's kubeconfigs, so
+	// they do not collide with a co-installed Headlamp. (Plugin directories are
+	// instead passed to the backend by the app via --plugins-dir.)
+	appConfigDirName = "AKS desktop"
 )
 
 const (
@@ -465,16 +469,17 @@ func Parse(args []string) (*Config, error) {
 	return &config, nil
 }
 
-// MakeHeadlampKubeConfigsDir returns the default directory to store kubeconfig
-// files of clusters that are loaded in Headlamp.
+// MakeHeadlampKubeConfigsDir returns the default directory (under the AKS
+// Desktop config folder) to store kubeconfig files of clusters that are loaded
+// in the app.
 func MakeHeadlampKubeConfigsDir() (string, error) {
 	userConfigDir, err := os.UserConfigDir()
 	if err == nil {
-		kubeConfigDir := filepath.Join(userConfigDir, "Headlamp", "kubeconfigs")
+		kubeConfigDir := filepath.Join(userConfigDir, appConfigDirName, "kubeconfigs")
 		if runtime.GOOS == osWindows {
 			// golang is wrong for config folder on windows.
 			// This matches env-paths and headlamp-plugin.
-			kubeConfigDir = filepath.Join(userConfigDir, "Headlamp", "Config", "kubeconfigs")
+			kubeConfigDir = filepath.Join(userConfigDir, appConfigDirName, "Config", "kubeconfigs")
 		}
 
 		// Create the directory if it doesn't exist.

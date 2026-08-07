@@ -2528,12 +2528,12 @@ func newRealK8sHeadlampConfig(t *testing.T) (*HeadlampConfig, string) {
 	tempConfigHome := filepath.Join(tempDir, "config-home")
 	if runtime.GOOS == "darwin" {
 		require.NoError(t, os.MkdirAll(
-			filepath.Join(tempConfigHome, "Library", "Application Support", "Headlamp", "kubeconfigs"),
+			filepath.Join(tempConfigHome, "Library", "Application Support", "AKS desktop", "kubeconfigs"),
 			0o750,
 		))
 		t.Cleanup(setEnvForTest(t, "HOME", tempConfigHome))
 	} else {
-		require.NoError(t, os.MkdirAll(filepath.Join(tempConfigHome, "Headlamp", "kubeconfigs"), 0o750))
+		require.NoError(t, os.MkdirAll(filepath.Join(tempConfigHome, "AKS desktop", "kubeconfigs"), 0o750))
 		t.Cleanup(setEnvForTest(t, "XDG_CONFIG_HOME", tempConfigHome))
 	}
 
