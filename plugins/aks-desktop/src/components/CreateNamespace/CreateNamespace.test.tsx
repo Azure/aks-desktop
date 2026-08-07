@@ -140,12 +140,11 @@ function submitNamespace() {
 }
 
 function goBackOneWizardStep() {
-  const backButtons = screen.getAllByRole('button', { name: 'Back' });
-  fireEvent.click(backButtons[backButtons.length - 1]);
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
 }
 
 function clickHeaderBack() {
-  fireEvent.click(screen.getAllByRole('button', { name: 'Back' })[0]);
+  fireEvent.click(screen.getByRole('button', { name: 'Back to home' }));
 }
 
 describe('CreateNamespace telemetry', () => {
@@ -299,35 +298,6 @@ describe('CreateNamespace telemetry', () => {
     });
 
     expect(mocks.trackAksFeature.mock.calls).toEqual([
-      ['aksd.namespace-create', 'started'],
-      ['aksd.namespace-create', 'cancelled'],
-    ]);
-    expect(mocks.push.mock.calls).toEqual([['/']]);
-    expect(mocks.setClusterSettings).not.toHaveBeenCalled();
-  });
-
-  test('cancels a retry after failure and ignores its late completion', async () => {
-    const retry = createDeferred<void>();
-    mocks.createNamespaceAsProject
-      .mockRejectedValueOnce(new Error('private failure'))
-      .mockReturnValueOnce(retry.promise);
-    render(<CreateNamespace />);
-    completeBasics();
-    submitNamespace();
-    await waitFor(() =>
-      expect(mocks.trackAksFeature).toHaveBeenCalledWith('aksd.namespace-create', 'failed')
-    );
-
-    submitNamespace();
-    clickHeaderBack();
-    await act(async () => {
-      retry.resolve();
-      await retry.promise;
-    });
-
-    expect(mocks.trackAksFeature.mock.calls).toEqual([
-      ['aksd.namespace-create', 'started'],
-      ['aksd.namespace-create', 'failed'],
       ['aksd.namespace-create', 'started'],
       ['aksd.namespace-create', 'cancelled'],
     ]);

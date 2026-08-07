@@ -333,16 +333,20 @@ function CreateNamespaceContent() {
       {/*
         SectionBox's backLink prop renders a plain route link and exposes no
         click hook, so it cannot emit the namespace-create cancelled event.
-        An explicit Back button is used instead.
+        An explicit Back button is used instead, following the pattern in
+        AzureProfilePage. It is labelled "Back to home" to distinguish it from
+        the wizard's own Back control, which steps between visible steps.
       */}
       <Button
+        variant="text"
         color="primary"
-        startIcon={<Icon icon="mdi:chevron-left" />}
         size="small"
-        sx={{ alignSelf: 'flex-start' }}
+        aria-label={t('Back to home')}
         onClick={onBack}
+        startIcon={<Icon icon="mdi:chevron-left" height={20} width={20} aria-hidden="true" />}
+        sx={{ alignSelf: 'flex-start' }}
       >
-        <Typography style={{ paddingTop: '3px' }}>{t('Back')}</Typography>
+        {t('Back')}
       </Button>
       <SectionBox
         title={t('Create New Namespace')}
