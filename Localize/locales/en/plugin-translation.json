@@ -97,6 +97,7 @@
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.",
   "_Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials..comment": "{Locked=\"Azure\"}",
   "Back": "Back",
+  "Back to home": "Back to home",
   "Basic": "Basic",
   "Basics": "Basics",
   "branch": "branch",
