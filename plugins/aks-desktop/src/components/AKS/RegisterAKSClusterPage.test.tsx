@@ -73,9 +73,21 @@ describe('RegisterAKSClusterPage telemetry', () => {
     expect(mocks.useTelemetryFeatureOpened).toHaveBeenCalledWith('aksd.cluster-add');
   });
 
-  test('emits cancelled once when closing before registration succeeds', () => {
+  test('does not emit cancelled when leaving without starting a registration', () => {
     render(<RegisterAKSClusterPage />);
 
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(mocks.trackAksFeature).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(100);
+    expect(mocks.push).toHaveBeenCalledWith('/');
+  });
+
+  test('emits cancelled once when closing after registration started', () => {
+    render(<RegisterAKSClusterPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start registration' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 

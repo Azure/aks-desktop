@@ -14,7 +14,12 @@ import RegisterAKSClusterDialog from './RegisterAKSClusterDialog';
 export default function RegisterAKSClusterPage() {
   const [open, setOpen] = useState(true);
   const history = useHistory();
-  const terminalStatusRef = useRef<'active' | 'cancelled' | 'failed' | 'succeeded'>('active');
+  // Starts 'idle' so that merely opening the page and leaving reports only
+  // `opened`. `cancelled` is reserved for a registration the user actually
+  // started and then backed out of, matching auth-login.
+  const terminalStatusRef = useRef<'idle' | 'active' | 'cancelled' | 'failed' | 'succeeded'>(
+    'idle'
+  );
   const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useTelemetryFeatureOpened('aksd.cluster-add');
