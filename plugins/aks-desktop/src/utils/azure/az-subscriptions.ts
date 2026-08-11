@@ -69,11 +69,11 @@ async function resolveMissingTenantNames(subscriptions: any[]): Promise<any[]> {
   }
   if (namesById.size === 0) return subscriptions;
 
-  return subscriptions.map(sub =>
-    sub.tenantName || !namesById.has(sub.tenant)
-      ? sub
-      : { ...sub, tenantName: namesById.get(sub.tenant) }
-  );
+  return subscriptions.map(sub => {
+    if (sub.tenantName) return sub;
+    const resolvedName = namesById.get(sub.tenant);
+    return resolvedName ? { ...sub, tenantName: resolvedName } : sub;
+  });
 }
 
 export async function getTenants(): Promise<any[]> {
