@@ -53,7 +53,31 @@
         }
       },
       "aksMcp": {
-        "version": "latest"
+        "version": "v0.0.20",
+        "darwin": {
+          "arm64": {
+            "checksum": "1104b6abfeec05de836b67f309c47bdfff4aaa1d21f78505a4a1c090a0ef5c61"
+          },
+          "amd64": {
+            "checksum": "2e7999891851fa4a974ca6c145a0f0cd7c0ae46d9cda1385ef5a4c41ff7f6e68"
+          }
+        },
+        "linux": {
+          "arm64": {
+            "checksum": "1e3adee8e044d9185a11ddb89a18a32c865c1bb8c8464037847a66f3f4825370"
+          },
+          "amd64": {
+            "checksum": "1319f728c2b11eab5b12d110d2013e5c8c22641a9bc61b6f20aaa11e6eb4a473"
+          }
+        },
+        "win32": {
+          "arm64": {
+            "checksum": "a2124eb6b702cb562a09bb2d9cfe1d44098a737e1992ea87b80f14a88805cb20"
+          },
+          "amd64": {
+            "checksum": "0aa997347a2971075c29b96ab8d943ca565c11b3ba805c605e17ebad29531a26"
+          }
+        }
       },
       "azureCli": {
         "version": "2.78.0",

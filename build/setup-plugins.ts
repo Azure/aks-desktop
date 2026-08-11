@@ -23,8 +23,17 @@ const externalToolsDir = path.join(
   'resources',
   'external-tools'
 );
-if (!fs.existsSync(externalToolsDir)) {
-  console.log('External tools not found. Setting up...');
+// Individual tools are checked too, so checkouts created before a tool was
+// added still get it installed without deleting the whole directory.
+const requiredExternalTools = [
+  path.join(externalToolsDir, 'bin', process.platform === 'win32' ? 'aks-mcp.exe' : 'aks-mcp'),
+];
+const missingExternalTools = requiredExternalTools.filter(tool => !fs.existsSync(tool));
+if (!fs.existsSync(externalToolsDir) || missingExternalTools.length > 0) {
+  if (missingExternalTools.length > 0 && fs.existsSync(externalToolsDir)) {
+    console.log(`Missing external tools: ${missingExternalTools.join(', ')}`);
+  }
+  console.log('Setting up external tools...');
   execSync(
     `npx --yes tsx "${path.join(SCRIPT_DIR, 'setup-external-tools.ts')}"`,
     {

@@ -27,7 +27,6 @@ const EXTERNAL_TOOLS_BIN = path.join(
 const PACKAGE_JSON_PATH = path.join(ROOT_DIR, 'package.json');
 
 const PLATFORM = process.platform;
-const ARCH = process.arch === 'arm64' ? 'arm64' : 'amd64';
 
 const ASSET_PLATFORM: Record<string, string> = {
   linux: 'linux',
@@ -35,23 +34,52 @@ const ASSET_PLATFORM: Record<string, string> = {
   win32: 'windows',
 };
 
+/** Release assets are published for these architectures only. */
+const ASSET_ARCH: Record<string, string> = {
+  arm64: 'arm64',
+  x64: 'amd64',
+};
+
 if (!ASSET_PLATFORM[PLATFORM]) {
-  console.error(`Unknown platform: ${PLATFORM}`);
+  console.error(`Unsupported platform for aks-mcp: ${PLATFORM}`);
   process.exit(1);
 }
 
+if (!ASSET_ARCH[process.arch]) {
+  console.error(
+    `Unsupported architecture for aks-mcp: ${process.arch} ` +
+      `(supported: ${Object.keys(ASSET_ARCH).join(', ')})`
+  );
+  process.exit(1);
+}
+
+const ARCH = ASSET_ARCH[process.arch];
+
 const packageJson = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf-8'));
 const aksMcpConfig = packageJson.config?.externalTools?.aksMcp ?? {};
-const VERSION: string = aksMcpConfig.version || 'latest';
+const VERSION: string = aksMcpConfig.version ?? '';
 const EXPECTED_CHECKSUM: string | undefined =
   aksMcpConfig[PLATFORM]?.[ARCH]?.checksum ?? aksMcpConfig[PLATFORM]?.checksum;
 
+if (!VERSION || VERSION === 'latest') {
+  console.error(
+    'config.externalTools.aksMcp.version must be pinned to a release tag ' +
+      '(for example "v0.0.20") so builds are reproducible.'
+  );
+  process.exit(1);
+}
+
+if (!EXPECTED_CHECKSUM) {
+  console.error(
+    `No sha256 checksum configured for aks-mcp ${VERSION} on ${PLATFORM}/${ARCH}. ` +
+      `Add config.externalTools.aksMcp.${PLATFORM}.${ARCH}.checksum to package.json.`
+  );
+  process.exit(1);
+}
+
 const suffix = PLATFORM === 'win32' ? '.exe' : '';
 const assetName = `aks-mcp-${ASSET_PLATFORM[PLATFORM]}-${ARCH}${suffix}`;
-const downloadUrl =
-  VERSION === 'latest'
-    ? `https://github.com/Azure/aks-mcp/releases/latest/download/${assetName}`
-    : `https://github.com/Azure/aks-mcp/releases/download/${VERSION}/${assetName}`;
+const downloadUrl = `https://github.com/Azure/aks-mcp/releases/download/${VERSION}/${assetName}`;
 
 const targetPath = path.join(EXTERNAL_TOOLS_BIN, `aks-mcp${suffix}`);
 
@@ -88,22 +116,18 @@ async function main(): Promise<void> {
   fs.mkdirSync(EXTERNAL_TOOLS_BIN, { recursive: true });
   await download(downloadUrl, targetPath);
 
-  if (EXPECTED_CHECKSUM) {
-    const { createHash } = await import('crypto');
-    const actual = createHash('sha256').update(fs.readFileSync(targetPath)).digest('hex');
-    if (actual !== EXPECTED_CHECKSUM) {
-      fs.rmSync(targetPath, { force: true });
-      throw new Error(`Checksum mismatch for aks-mcp: expected ${EXPECTED_CHECKSUM}, got ${actual}`);
-    }
-  } else {
-    console.warn('No checksum configured for aks-mcp; skipping verification.');
+  const { createHash } = await import('crypto');
+  const actual = createHash('sha256').update(fs.readFileSync(targetPath)).digest('hex');
+  if (actual !== EXPECTED_CHECKSUM) {
+    fs.rmSync(targetPath, { force: true });
+    throw new Error(`Checksum mismatch for aks-mcp: expected ${EXPECTED_CHECKSUM}, got ${actual}`);
   }
 
   if (PLATFORM !== 'win32') {
     fs.chmodSync(targetPath, 0o755);
   }
 
-  console.log(`aks-mcp installed to: ${targetPath}`);
+  console.log(`aks-mcp ${VERSION} installed to: ${targetPath}`);
 }
 
 main().catch(error => {
