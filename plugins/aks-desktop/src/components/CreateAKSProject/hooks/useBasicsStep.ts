@@ -220,11 +220,19 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
   // Derived values
   // ---------------------------------------------------------------------------
 
-  const subscriptionOptions: SearchableSelectOption[] = subscriptions.map(sub => ({
-    value: sub.id,
-    label: sub.name,
-    subtitle: `${t('Tenant')}: ${sub.tenantName} - (${sub.tenant}) • ${t('Status')}: ${sub.status}`,
-  }));
+  const subscriptionOptions: SearchableSelectOption[] = subscriptions.map(sub => {
+    // tenantName is absent for guest/cross-tenant subscriptions, and can equal
+    // the GUID once upstream fallbacks apply — don't render the GUID twice.
+    const tenantLabel =
+      sub.tenantName && sub.tenantName !== sub.tenant
+        ? `${sub.tenantName} - (${sub.tenant})`
+        : sub.tenant;
+    return {
+      value: sub.id,
+      label: sub.name,
+      subtitle: `${t('Tenant')}: ${tenantLabel} • ${t('Status')}: ${sub.status}`,
+    };
+  });
 
   const clusterOptions: SearchableSelectOption[] = clusters.map(cluster => ({
     value: cluster.name,

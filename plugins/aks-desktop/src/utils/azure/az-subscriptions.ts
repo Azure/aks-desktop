@@ -27,13 +27,53 @@ export async function getSubscriptionIds(): Promise<string[]> {
 export async function getSubscriptions(): Promise<any[]> {
   const { stdout, stderr } = await runCommandAsync('az', ['account', 'list', '-o', 'json']);
   if (!stdout) throw new Error(stderr || 'Failed to get subscriptions');
-  return JSON.parse(stdout).map((sub: any) => ({
+  const subscriptions = JSON.parse(stdout).map((sub: any) => ({
     id: sub.id,
     name: sub.name,
     tenant: sub.tenantId,
     tenantName: sub.tenantDisplayName,
     status: sub.state,
   }));
+  return resolveMissingTenantNames(subscriptions);
+}
+
+/**
+ * Fill in `tenantName` for subscriptions where `az account list` omitted
+ * `tenantDisplayName` — which it does for guest and cross-tenant access, leaving
+ * the UI with nothing to show but the tenant GUID.
+ *
+ * Best-effort by design:
+ *  - the extra `az account tenant list` call only runs when a name is actually
+ *    missing, so the common single-tenant case pays no latency;
+ *  - any failure (no active login, tenant not returned, no display name and no
+ *    domain) leaves `tenantName` undefined so callers fall back to the GUID
+ *    exactly as before. Tenant naming must never break subscription loading.
+ */
+async function resolveMissingTenantNames(subscriptions: any[]): Promise<any[]> {
+  if (subscriptions.every(sub => sub.tenantName)) return subscriptions;
+
+  let tenants: any[];
+  try {
+    tenants = await getTenants();
+  } catch (error) {
+    debugLog('Could not resolve tenant display names, falling back to tenant IDs:', error);
+    return subscriptions;
+  }
+
+  const namesById = new Map<string, string>();
+  for (const tenant of tenants) {
+    // getTenants() already falls back to the GUID; treat that as "no name" so we
+    // don't overwrite an absent name with a value that renders identically.
+    const name = tenant.name && tenant.name !== tenant.id ? tenant.name : tenant.domain;
+    if (tenant.id && name) namesById.set(tenant.id, name);
+  }
+  if (namesById.size === 0) return subscriptions;
+
+  return subscriptions.map(sub =>
+    sub.tenantName || !namesById.has(sub.tenant)
+      ? sub
+      : { ...sub, tenantName: namesById.get(sub.tenant) }
+  );
 }
 
 export async function getTenants(): Promise<any[]> {
