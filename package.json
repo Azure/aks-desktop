@@ -52,6 +52,9 @@
           "checksum": "ff636e82637a7768c499921188222322369584d1b6a2e85a898aba1e263d69f2"
         }
       },
+      "aksMcp": {
+        "version": "latest"
+      },
       "azureCli": {
         "version": "2.78.0",
         "extensions": [
