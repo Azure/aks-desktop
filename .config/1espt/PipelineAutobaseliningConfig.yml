@@ -15,16 +15,16 @@ pipelines:
     retail:
       source:
         eslint:
-          lastModifiedDate: 2026-08-13
+          lastModifiedDate: 2025-11-07
         armory:
-          lastModifiedDate: 2026-08-13
+          lastModifiedDate: 2025-11-07
       binary:
         binskim:
-          lastModifiedDate: 2026-08-13
+          lastModifiedDate: 2025-11-07
   1000:
     retail:
       source:
         eslint:
-          lastModifiedDate: 2025-11-19
+          lastModifiedDate: 2026-08-13
         armory:
-          lastModifiedDate: 2025-11-19
+          lastModifiedDate: 2026-08-13
