@@ -67,6 +67,7 @@ export const TELEMETRY_EVENT_NAMES: ReadonlySet<string> = new Set([
   'headlamp.feature',
   'headlamp.exception',
   'headlamp.plugins-loaded',
+  'headlamp.telemetry-consent',
 ]);
 
 export const TELEMETRY_PROPERTY_KEYS: ReadonlySet<string> = new Set([
@@ -92,6 +93,7 @@ export const TELEMETRY_PROPERTY_KEYS: ReadonlySet<string> = new Set([
   'enabledCount',
   'knownEnabledIds',
   'thirdPartyCount',
+  'consent',
 ]);
 
 export const AKS_FEATURE_TYPES = [
@@ -145,6 +147,10 @@ const EVENT_STATUS_VALUES = [
 
 export type TelemetryStatus = (typeof EVENT_STATUS_VALUES)[number];
 export const EVENT_STATUSES: ReadonlySet<TelemetryStatus> = new Set(EVENT_STATUS_VALUES);
+
+export const CONSENT_VALUES = ['granted', 'revoked'] as const;
+export type TelemetryConsent = (typeof CONSENT_VALUES)[number];
+export const CONSENT_VALUE_SET: ReadonlySet<TelemetryConsent> = new Set(CONSENT_VALUES);
 
 export const KNOWN_ROUTES: ReadonlySet<string> = new Set([
   '/index',
@@ -217,6 +223,17 @@ export function sanitizeFeatureType(type: string | undefined): string | undefine
 export function sanitizeStatus(status: string | null | undefined): TelemetryStatus {
   if (!status) return 'unknown';
   return EVENT_STATUSES.has(status as TelemetryStatus) ? (status as TelemetryStatus) : 'unknown';
+}
+
+/**
+ * Unlike sanitizeStatus, this has no default fallback: there is no
+ * honest default for consent, so an unrecognized value is dropped
+ * rather than fabricated.
+ */
+export function sanitizeConsent(value: string | null | undefined): TelemetryConsent | undefined {
+  return value && CONSENT_VALUE_SET.has(value as TelemetryConsent)
+    ? (value as TelemetryConsent)
+    : undefined;
 }
 
 export function sanitizeRoute(route: string | null | undefined): string {
