@@ -37,6 +37,7 @@ import { ApiError } from '../../lib/k8s/api/v2/ApiError';
 import { KubeObjectInterface } from '../../lib/k8s/KubeObject';
 import Namespace from '../../lib/k8s/namespace';
 import { createRouteURL } from '../../lib/router';
+import { EventStatus, HeadlampEventType, useEventCallback } from '../../redux/headlampEventSlice';
 import { useTypedSelector } from '../../redux/hooks';
 import { CustomCreateProject } from '../../redux/projectsSlice';
 import { PROJECT_ID_LABEL, toKubernetesName } from './projectUtils';
@@ -135,6 +136,7 @@ function spaceToDashKeyDown(
 function UseExistingNamespaceDialog({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation();
   const history = useHistory();
+  const dispatchCreateProjectEvent = useEventCallback(HeadlampEventType.CREATE_PROJECT);
 
   const [projectName, setProjectName] = useState('');
   const [selectedClusters, setSelectedClusters] = useState<string[]>([]);
@@ -209,6 +211,15 @@ function UseExistingNamespaceDialog({ onBack }: { onBack: () => void }) {
 
   const handleCreate = async () => {
     if (!isReadyToCreate || isCreating) return;
+
+    dispatchCreateProjectEvent({
+      project: {
+        id: projectName,
+        namespaces: effectiveNamespace ? [effectiveNamespace] : [],
+        clusters: selectedClusters,
+      },
+      status: EventStatus.CONFIRMED,
+    });
 
     setIsCreating(true);
     try {
@@ -344,6 +355,7 @@ function UseExistingNamespaceDialog({ onBack }: { onBack: () => void }) {
 function CreateNamespaceDialog({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation();
   const history = useHistory();
+  const dispatchCreateProjectEvent = useEventCallback(HeadlampEventType.CREATE_PROJECT);
 
   const [projectName, setProjectName] = useState('');
   const [selectedClusters, setSelectedClusters] = useState<string[]>([]);
@@ -389,6 +401,11 @@ function CreateNamespaceDialog({ onBack }: { onBack: () => void }) {
 
   const handleCreate = async () => {
     if (!isReadyToCreate || isCreating) return;
+
+    dispatchCreateProjectEvent({
+      project: { id: projectName, namespaces: [k8sName], clusters: selectedClusters },
+      status: EventStatus.CONFIRMED,
+    });
 
     setIsCreating(true);
     try {
