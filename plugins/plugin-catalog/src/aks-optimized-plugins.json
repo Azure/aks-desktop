@@ -1,0 +1,8 @@
+{
+  "$comment": "AKS Desktop optimized allowlist. When the 'AKS Desktop optimized' filter is enabled (the default), only the plugins listed here are shown in the catalog. Each entry is matched against an ArtifactHub package by its normalized_name AND repository name, so add/remove entries here to curate the shipped catalog. See List.tsx (isAksOptimizedPlugin).",
+  "plugins": [
+    { "normalizedName": "headlamp_flux", "repository": "headlamp-plugins" },
+    { "normalizedName": "headlamp_cert-manager", "repository": "headlamp-plugins" },
+    { "normalizedName": "headlamp_keda", "repository": "headlamp-plugins" }
+  ]
+}
