@@ -9,6 +9,8 @@ const mockApiGet = vi.hoisted(() => vi.fn());
 const mockApiEndpointDelete = vi.hoisted(() => vi.fn());
 const mockApiEndpointPut = vi.hoisted(() => vi.fn());
 const mockDeleteManagedNamespace = vi.hoisted(() => vi.fn());
+const mockTrackAksFeature = vi.hoisted(() => vi.fn());
+const mockTrackError = vi.hoisted(() => vi.fn());
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   clusterAction: mockClusterAction,
@@ -28,6 +30,14 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
 
 vi.mock('../../../utils/azure/az-namespaces', () => ({
   deleteManagedNamespace: mockDeleteManagedNamespace,
+}));
+
+vi.mock('../../../telemetry/aksFeature', () => ({
+  trackAksFeature: mockTrackAksFeature,
+}));
+
+vi.mock('../../../telemetry', () => ({
+  trackError: mockTrackError,
 }));
 
 import { useProjectDeletion } from './useProjectDeletion';
@@ -96,6 +106,58 @@ describe('useProjectDeletion', () => {
       })
     );
     expect(onClose).toHaveBeenCalled();
+    expect(mockTrackAksFeature).toHaveBeenCalledWith('aksd.project-delete', 'started');
+    expect(mockTrackAksFeature.mock.invocationCallOrder[0]).toBeLessThan(
+      mockClusterAction.mock.invocationCallOrder[0]
+    );
+  });
+
+  test('tracks success only after all deletion work completes', async () => {
+    const ns = makeMockNs(regularLabels);
+    let resolveDelete!: () => void;
+    ns.delete.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          resolveDelete = resolve;
+        })
+    );
+    setupApiGet(ns);
+
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, true, vi.fn());
+
+    const actionPromise = executeClusterAction();
+    await vi.waitFor(() => expect(ns.delete).toHaveBeenCalled());
+    expect(mockTrackAksFeature).not.toHaveBeenCalledWith('aksd.project-delete', 'succeeded');
+
+    resolveDelete();
+    await actionPromise;
+
+    expect(mockTrackAksFeature.mock.calls).toEqual([
+      ['aksd.project-delete', 'started'],
+      ['aksd.project-delete', 'succeeded'],
+    ]);
+  });
+
+  test('tracks categorical failure and rethrows the original error', async () => {
+    const originalError = new Error('sensitive failure details');
+    const ns = makeMockNs(regularLabels);
+    ns.delete.mockRejectedValue(originalError);
+    setupApiGet(ns);
+
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, true, vi.fn());
+
+    await expect(executeClusterAction()).rejects.toBe(originalError);
+    expect(mockTrackAksFeature.mock.calls).toEqual([
+      ['aksd.project-delete', 'started'],
+      ['aksd.project-delete', 'failed'],
+    ]);
+    expect(mockTrackError).toHaveBeenCalledWith({
+      area: 'project-delete',
+      errorClass: 'UnknownError',
+      phase: 'failed',
+    });
   });
 
   /** AKS Managed Namespaces */

@@ -94,6 +94,19 @@ export const TELEMETRY_PROPERTY_KEYS: ReadonlySet<string> = new Set([
   'thirdPartyCount',
 ]);
 
+export const AKS_FEATURE_TYPES = [
+  'aksd.project-create',
+  'aksd.project-import',
+  'aksd.deploy',
+  'aksd.auth-login',
+  'aksd.auth-logout',
+  'aksd.cluster-add',
+  'aksd.namespace-create',
+  'aksd.project-delete',
+] as const;
+
+export type AksFeatureType = (typeof AKS_FEATURE_TYPES)[number];
+
 /** Redux event types forwarded as `headlamp.feature` envelopes. */
 export const KNOWN_FEATURE_TYPES: ReadonlySet<string> = new Set([
   'headlamp.delete-resource',
@@ -111,9 +124,7 @@ export const KNOWN_FEATURE_TYPES: ReadonlySet<string> = new Set([
   'headlamp.details-view',
   'headlamp.list-view',
   'headlamp.object-events',
-  'aksd.project-create',
-  'aksd.project-import',
-  'aksd.deploy',
+  ...AKS_FEATURE_TYPES,
   // PLUGINS_LOADED routes to trackPluginsLoaded; ERROR_BOUNDARY is captured
   // by TelemetryErrorBoundary directly. Both intentionally omitted.
 ]);
@@ -166,6 +177,11 @@ const ERROR_AREA_VALUES = [
   'deploy',
   'kubernetes',
   'plugin-ui',
+  'auth-login',
+  'auth-logout',
+  'cluster-add',
+  'namespace-create',
+  'project-delete',
 ] as const;
 
 export type TelemetryErrorArea = (typeof ERROR_AREA_VALUES)[number];

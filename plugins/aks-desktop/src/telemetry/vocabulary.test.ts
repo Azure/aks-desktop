@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  AKS_FEATURE_TYPES,
   ERROR_AREAS,
   ERROR_CLASSES,
   EVENT_STATUSES,
@@ -72,6 +73,24 @@ describe('telemetry privacy vocabularies', () => {
       'aksd.project-create',
       'aksd.project-import',
       'aksd.deploy',
+      'aksd.auth-login',
+      'aksd.auth-logout',
+      'aksd.cluster-add',
+      'aksd.namespace-create',
+      'aksd.project-delete',
+    ]);
+  });
+
+  it('enumerates every approved AKS feature type', () => {
+    expect(AKS_FEATURE_TYPES).toEqual([
+      'aksd.project-create',
+      'aksd.project-import',
+      'aksd.deploy',
+      'aksd.auth-login',
+      'aksd.auth-logout',
+      'aksd.cluster-add',
+      'aksd.namespace-create',
+      'aksd.project-delete',
     ]);
   });
 
@@ -121,6 +140,11 @@ describe('telemetry privacy vocabularies', () => {
       'deploy',
       'kubernetes',
       'plugin-ui',
+      'auth-login',
+      'auth-logout',
+      'cluster-add',
+      'namespace-create',
+      'project-delete',
     ]);
   });
 });
