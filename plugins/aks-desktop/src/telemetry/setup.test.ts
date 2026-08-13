@@ -100,9 +100,40 @@ describe('registerReduxCallback', () => {
     expect(registerHeadlampEventCallback).toHaveBeenCalledTimes(1);
   });
 
-  it('does not register when persisted telemetry is disabled', () => {
+  it('registers even when persisted telemetry is disabled, but forwards nothing', () => {
     registerReduxCallback(() => false);
-    expect(registerHeadlampEventCallback).not.toHaveBeenCalled();
+    expect(registerHeadlampEventCallback).toHaveBeenCalledTimes(1);
+    const cb = registerHeadlampEventCallback.mock.calls[0][0];
+    cb({
+      type: 'headlamp.plugins-loaded',
+      data: { plugins: [{ name: 'aks-desktop', isEnabled: true }] },
+    } as unknown as HeadlampEvent);
+    expect(trackPluginsLoaded).not.toHaveBeenCalled();
+    expect(trackFeature).not.toHaveBeenCalled();
+  });
+
+  it('forwards events once a live predicate flips from disabled to enabled', () => {
+    let enabled = false;
+    registerReduxCallback(() => enabled);
+    expect(registerHeadlampEventCallback).toHaveBeenCalledTimes(1);
+    const cb = registerHeadlampEventCallback.mock.calls[0][0];
+
+    cb({
+      type: 'headlamp.delete-resource',
+      data: { resource: { kind: 'Pod' }, status: 'confirmed' },
+    } as unknown as HeadlampEvent);
+    expect(trackFeature).not.toHaveBeenCalled();
+
+    enabled = true;
+    cb({
+      type: 'headlamp.delete-resource',
+      data: { resource: { kind: 'Pod' }, status: 'confirmed' },
+    } as unknown as HeadlampEvent);
+    expect(trackFeature).toHaveBeenCalledWith({
+      feature: 'headlamp.delete-resource',
+      status: 'confirmed',
+      resourceKind: 'Pod',
+    });
   });
 
   it('drops events when telemetry becomes disabled after registration', () => {

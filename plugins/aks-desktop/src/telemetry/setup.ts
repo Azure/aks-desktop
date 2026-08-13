@@ -47,7 +47,11 @@ export const TELEMETRY_EVENT_ALLOWLIST: ReadonlySet<string> = new Set([
  * everything else is dropped silently.
  */
 export function registerReduxCallback(isEnabled: () => boolean = () => true): void {
-  if (reduxCallbackRegistered || !telemetryEnabled(isEnabled)) return;
+  // Registration is unconditional — the per-event isEnabled() re-check
+  // inside the callback below is the only transmission gate. This lets a
+  // mid-session consent grant start delivering events without a second
+  // registration path.
+  if (reduxCallbackRegistered) return;
   reduxCallbackRegistered = true;
   try {
     registerHeadlampEventCallback((event: HeadlampEvent) => {

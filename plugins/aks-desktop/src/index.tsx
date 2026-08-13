@@ -90,11 +90,13 @@ Headlamp.setAppMenu(menus => {
 
 // add azure related components only if running as app
 if (Headlamp.isRunningAsApp()) {
-  const telemetryEnabledAtLaunch = isTelemetryEnabled();
-  setTelemetryEnabled(telemetryEnabledAtLaunch);
+  setTelemetryEnabled(isTelemetryEnabled());
 
-  // Register before TelemetryBoot renders so early plugins-loaded events are buffered.
-  registerReduxCallback(() => telemetryEnabledAtLaunch);
+  // Register before TelemetryBoot renders so early plugins-loaded events are
+  // buffered. Pass the live predicate, not a captured launch-time constant —
+  // registration is unconditional and the predicate is re-read per event, so
+  // a mid-session consent grant is delivered without any re-registration step.
+  registerReduxCallback(isTelemetryEnabled);
 
   // boot App Insights telemetry once on first render
   registerAppBarAction(() => <TelemetryBoot />);
