@@ -9,8 +9,10 @@ const mocks = vi.hoisted(() => ({
   getAppInfo: vi.fn(),
   getOrCreateInstallId: vi.fn(),
   initTelemetry: vi.fn(),
-  isTelemetryEnabled: vi.fn(),
   setTelemetryEnabled: vi.fn(),
+  grantConsent: vi.fn(),
+  revokeConsent: vi.fn(),
+  storeConfig: { enabled: true } as { enabled: boolean },
 }));
 
 vi.mock('../telemetry', () => ({
@@ -19,8 +21,16 @@ vi.mock('../telemetry', () => ({
 }));
 vi.mock('../telemetry/appInfo', () => ({ getAppInfo: mocks.getAppInfo }));
 vi.mock('../telemetry/installId', () => ({ getOrCreateInstallId: mocks.getOrCreateInstallId }));
+vi.mock('../telemetry/consent', () => ({
+  grantConsent: mocks.grantConsent,
+  revokeConsent: mocks.revokeConsent,
+}));
 vi.mock('./PluginSettings/telemetrySettingsStore', () => ({
-  isTelemetryEnabled: mocks.isTelemetryEnabled,
+  TELEMETRY_DEFAULTS: { enabled: true },
+  isTelemetryEnabled: () => mocks.storeConfig.enabled,
+  telemetrySettingsStore: {
+    useConfig: () => () => ({ ...mocks.storeConfig }),
+  },
 }));
 
 import TelemetryBoot from './TelemetryBoot';
@@ -31,9 +41,10 @@ describe('TelemetryBoot', () => {
     mocks.getAppInfo.mockReset();
     mocks.getOrCreateInstallId.mockReset();
     mocks.initTelemetry.mockReset();
-    mocks.isTelemetryEnabled.mockReset();
     mocks.setTelemetryEnabled.mockReset();
-    mocks.isTelemetryEnabled.mockReturnValue(true);
+    mocks.grantConsent.mockReset();
+    mocks.revokeConsent.mockReset();
+    mocks.storeConfig.enabled = true;
     mocks.getOrCreateInstallId.mockReturnValue('11111111-1111-4111-8111-111111111111');
     mocks.getAppInfo.mockReturnValue({
       os: 'linux',
@@ -49,15 +60,15 @@ describe('TelemetryBoot', () => {
   });
 
   it('does not initialize when telemetry is disabled', async () => {
-    mocks.isTelemetryEnabled.mockReturnValue(false);
+    mocks.storeConfig.enabled = false;
     render(<TelemetryBoot />);
-    expect(mocks.setTelemetryEnabled).toHaveBeenCalledWith(false);
-    await waitFor(() => expect(mocks.initTelemetry).not.toHaveBeenCalled());
+    await waitFor(() => expect(mocks.setTelemetryEnabled).toHaveBeenCalledWith(false));
+    expect(mocks.initTelemetry).not.toHaveBeenCalled();
   });
 
-  it('synchronously marks telemetry enabled before initialization', () => {
+  it('marks telemetry enabled on mount, before initialization', async () => {
     render(<TelemetryBoot />);
-    expect(mocks.setTelemetryEnabled).toHaveBeenCalledWith(true);
+    await waitFor(() => expect(mocks.setTelemetryEnabled).toHaveBeenCalledWith(true));
   });
 
   it('uses the installed app version from the existing appConfig channel', async () => {
@@ -81,10 +92,12 @@ describe('TelemetryBoot', () => {
 
     onAppConfig?.({ appVersion: '0.3.0-beta' });
 
-    expect(mocks.initTelemetry).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionProps: expect.objectContaining({ appVersion: '0.3.0-beta' }),
-      })
+    await waitFor(() =>
+      expect(mocks.initTelemetry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionProps: expect.objectContaining({ appVersion: '0.3.0-beta' }),
+        })
+      )
     );
     vi.advanceTimersByTime(1500);
     expect(send).not.toHaveBeenCalled();
@@ -93,7 +106,7 @@ describe('TelemetryBoot', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
-  it('requests appConfig after a grace period and falls back when it never arrives', () => {
+  it('requests appConfig after a grace period and falls back when it never arrives', async () => {
     vi.useFakeTimers();
     const unsubscribe = vi.fn();
     const send = vi.fn();
@@ -103,28 +116,17 @@ describe('TelemetryBoot', () => {
     };
 
     render(<TelemetryBoot />);
-    vi.advanceTimersByTime(100);
+    await vi.advanceTimersByTimeAsync(100);
     expect(send).toHaveBeenCalledWith('appConfig');
     expect(mocks.initTelemetry).not.toHaveBeenCalled();
 
-    vi.advanceTimersByTime(1400);
+    await vi.advanceTimersByTimeAsync(1400);
     expect(mocks.initTelemetry).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionProps: expect.objectContaining({ appVersion: 'unknown' }),
       })
     );
     expect(unsubscribe).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps the launch-time consent snapshot across rerenders', async () => {
-    const { rerender } = render(<TelemetryBoot />);
-    await waitFor(() => expect(mocks.initTelemetry).toHaveBeenCalledTimes(1));
-
-    mocks.isTelemetryEnabled.mockReturnValue(false);
-    rerender(<TelemetryBoot />);
-
-    expect(mocks.setTelemetryEnabled).not.toHaveBeenCalledWith(false);
-    expect(mocks.initTelemetry).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed without logging when boot helpers throw', async () => {
@@ -136,5 +138,73 @@ describe('TelemetryBoot', () => {
     await waitFor(() => expect(mocks.getOrCreateInstallId).toHaveBeenCalled());
     expect(mocks.initTelemetry).not.toHaveBeenCalled();
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not call grantConsent on initial mount even when enabled', async () => {
+    render(<TelemetryBoot />);
+    await waitFor(() => expect(mocks.initTelemetry).toHaveBeenCalledTimes(1));
+    expect(mocks.grantConsent).not.toHaveBeenCalled();
+    expect(mocks.revokeConsent).not.toHaveBeenCalled();
+  });
+
+  it('calls grantConsent on a false-to-true transition, not a duplicate init', async () => {
+    mocks.storeConfig.enabled = false;
+    const { rerender } = render(<TelemetryBoot />);
+    await waitFor(() => expect(mocks.setTelemetryEnabled).toHaveBeenCalledWith(false));
+    expect(mocks.initTelemetry).not.toHaveBeenCalled();
+
+    mocks.storeConfig.enabled = true;
+    rerender(<TelemetryBoot />);
+
+    expect(mocks.grantConsent).toHaveBeenCalledTimes(1);
+    expect(mocks.grantConsent).toHaveBeenCalledWith(expect.any(Function));
+    expect(mocks.revokeConsent).not.toHaveBeenCalled();
+  });
+
+  it('calls revokeConsent on a true-to-false transition', async () => {
+    const { rerender } = render(<TelemetryBoot />);
+    await waitFor(() => expect(mocks.initTelemetry).toHaveBeenCalledTimes(1));
+
+    mocks.storeConfig.enabled = false;
+    rerender(<TelemetryBoot />);
+
+    expect(mocks.revokeConsent).toHaveBeenCalledTimes(1);
+    expect(mocks.grantConsent).not.toHaveBeenCalled();
+  });
+
+  it('never disables telemetry directly on a transition — the orchestrator owns it', async () => {
+    const { rerender } = render(<TelemetryBoot />);
+    await waitFor(() => expect(mocks.initTelemetry).toHaveBeenCalledTimes(1));
+    mocks.setTelemetryEnabled.mockClear();
+
+    mocks.storeConfig.enabled = false;
+    rerender(<TelemetryBoot />);
+
+    expect(mocks.revokeConsent).toHaveBeenCalledTimes(1);
+    // The regression guard. Calling setTelemetryEnabled(false) from the
+    // component would unload the SDK and clear the enabled flag before
+    // revokeConsent could emit and flush the revoke event — which
+    // emitConsentEvent then drops, because it returns early when telemetry
+    // is disabled. Opt-out rate would silently read zero forever.
+    expect(mocks.setTelemetryEnabled).not.toHaveBeenCalledWith(false);
+  });
+
+  it('a grantConsent-injected initialize resolves the cached app version', async () => {
+    mocks.storeConfig.enabled = false;
+    const { rerender } = render(<TelemetryBoot />);
+    await waitFor(() => expect(mocks.setTelemetryEnabled).toHaveBeenCalledWith(false));
+
+    mocks.storeConfig.enabled = true;
+    rerender(<TelemetryBoot />);
+
+    expect(mocks.grantConsent).toHaveBeenCalledTimes(1);
+    const initialize = mocks.grantConsent.mock.calls[0][0] as () => Promise<void>;
+    await initialize();
+
+    expect(mocks.initTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionProps: expect.objectContaining({ appVersion: 'unknown' }),
+      })
+    );
   });
 });
