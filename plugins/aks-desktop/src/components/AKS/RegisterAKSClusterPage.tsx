@@ -17,9 +17,7 @@ export default function RegisterAKSClusterPage() {
   // Starts 'idle' so that merely opening the page and leaving reports only
   // `opened`. `cancelled` is reserved for a registration the user actually
   // started and then backed out of, matching auth-login.
-  const terminalStatusRef = useRef<'idle' | 'active' | 'cancelled' | 'failed' | 'succeeded'>(
-    'idle'
-  );
+  const finalStatusRef = useRef<'idle' | 'active' | 'cancelled' | 'failed' | 'succeeded'>('idle');
   const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useTelemetryFeatureOpened('aksd.cluster-add');
@@ -33,8 +31,8 @@ export default function RegisterAKSClusterPage() {
   }, []);
 
   const handleClose = () => {
-    if (terminalStatusRef.current === 'active') {
-      terminalStatusRef.current = 'cancelled';
+    if (finalStatusRef.current === 'active') {
+      finalStatusRef.current = 'cancelled';
       trackAksFeature('aksd.cluster-add', 'cancelled');
     }
 
@@ -49,22 +47,22 @@ export default function RegisterAKSClusterPage() {
   };
 
   const handleClusterRegistered = () => {
-    if (terminalStatusRef.current === 'active') {
-      terminalStatusRef.current = 'succeeded';
+    if (finalStatusRef.current === 'active') {
+      finalStatusRef.current = 'succeeded';
     }
     // Dialog will handle reload, so no need to do anything here
   };
 
   const handleRegistrationStarted = () => {
-    terminalStatusRef.current = 'active';
+    finalStatusRef.current = 'active';
   };
 
   const handleRegistrationFinished = (outcome: 'failed' | 'succeeded') => {
-    // Only an active attempt can reach a terminal status, so a late result
+    // Only an active attempt can reach a final status, so a late result
     // cannot overwrite a recorded cancellation. The dialog blocks close while
     // registration is in flight, so this is defensive rather than a live path.
-    if (terminalStatusRef.current === 'active') {
-      terminalStatusRef.current = outcome;
+    if (finalStatusRef.current === 'active') {
+      finalStatusRef.current = outcome;
     }
   };
 
