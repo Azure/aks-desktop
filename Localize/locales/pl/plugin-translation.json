@@ -236,7 +236,6 @@
   "Edit HPA Configuration": "Edytuj konfigurację HPA",
   "Edit Manual Scaling Configuration": "Edytuj konfigurację ręcznego skalowania",
   "Egress Policy": "Zasady ruchu wychodzącego",
-  "Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.": "Włącz potoki usługi GitHub w obszarze Ustawienia → Funkcji w wersji zapoznawczej, aby korzystać z wdrożeń potoków.",
   "Enable GitHub-based deployment pipelines for AKS projects.": "Włącz potoki wdrażania oparte na usłudze GitHub dla projektów usługi AKS.",
   "Enable Horizontal Pod Autoscaler": "Włączanie poziomego autoskalera podów",
   "Enable liveness probe": "Włącz sondę żywotności",
@@ -477,7 +476,6 @@
   "periodSeconds": "periodSeconds",
   "Pipeline": "Potok",
   "Pipeline configured": "Skonfigurowano potok",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Ukończ uwierzytelnianie w przeglądarce. To okno zostanie automatycznie przekierowane po zakończeniu logowania.",
   "Please review all the settings before creating your AKS project": "Przejrzyj wszystkie ustawienia przed utworzeniem projektu usługi AKS",
   "Please select a deployment to view metrics": "Wybierz wdrożenie, aby wyświetlić metryki",
   "Please select a subscription first": "Najpierw wybierz subskrypcję",
@@ -716,5 +714,7 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Możesz zwinąć ten panel. Postęp jest zapisywany i zostanie wznowiony po powrocie.",
   "You need to be logged in to Azure to register AKS clusters.": "Aby zarejestrować klastry usługi AKS, musisz zalogować się na platformie Azure.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Projekt usługi AKS „{{projectName}}” został utworzony i jest gotowy do użycia.",
-  "Your project \"{{projectName}}\" is ready to use.": "Projekt „{{projectName}}” jest gotowy do użycia."
+  "Your project \"{{projectName}}\" is ready to use.": "Projekt „{{projectName}}” jest gotowy do użycia.",
+  "Contact us": "",
+  "Get help, share feedback, or reach the AKS Desktop team": ""
 }

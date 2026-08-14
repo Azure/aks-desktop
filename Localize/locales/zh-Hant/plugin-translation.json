@@ -236,7 +236,6 @@
   "Edit HPA Configuration": "編輯 HPA 設定",
   "Edit Manual Scaling Configuration": "編輯手動縮放設定",
   "Egress Policy": "輸出原則",
-  "Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.": "在 [設定] → [預覽功能] 中啟用 GitHub 管線，以使用管線部署。",
   "Enable GitHub-based deployment pipelines for AKS projects.": "啟用 AKS 專案的 GitHub 型部署管線。",
   "Enable Horizontal Pod Autoscaler": "啟用水平 Pod 自動調整器",
   "Enable liveness probe": "啟用活躍度探查",
@@ -477,7 +476,6 @@
   "periodSeconds": "periodSeconds",
   "Pipeline": "管線",
   "Pipeline configured": "管線已設定",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "請在瀏覽器中完成驗證。登入完成後，此視窗會自動重新導向。",
   "Please review all the settings before creating your AKS project": "請先檢閱所有設定，再建立 AKS 專案",
   "Please select a deployment to view metrics": "請選取部署以檢視計量",
   "Please select a subscription first": "請先選取訂用帳戶",
@@ -716,5 +714,7 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "您可以摺疊此面板。進度已儲存，當您回來時將會繼續。",
   "You need to be logged in to Azure to register AKS clusters.": "您必須登入 Azure 以註冊 AKS 叢集。",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "已建立您的 AKS 專案「{{projectName}}」且已隨時可用。",
-  "Your project \"{{projectName}}\" is ready to use.": "您的專案「{{projectName}}」已可供使用。"
+  "Your project \"{{projectName}}\" is ready to use.": "您的專案「{{projectName}}」已可供使用。",
+  "Contact us": "",
+  "Get help, share feedback, or reach the AKS Desktop team": ""
 }

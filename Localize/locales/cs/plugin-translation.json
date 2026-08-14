@@ -236,7 +236,6 @@
   "Edit HPA Configuration": "Upravit konfiguraci HPA",
   "Edit Manual Scaling Configuration": "Upravit konfiguraci ručního škálování",
   "Egress Policy": "Zásada výchozího přenosu dat",
-  "Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.": "Pokud chcete používat nasazení kanálů, povolte kanály GitHubu tady: Nastavení → Funkce Preview.",
   "Enable GitHub-based deployment pipelines for AKS projects.": "Povolte kanály nasazení založené na GitHubu pro projekty AKS.",
   "Enable Horizontal Pod Autoscaler": "Povolit automatické horizontální škálování podů",
   "Enable liveness probe": "Povolit test aktivity",
@@ -477,7 +476,6 @@
   "periodSeconds": "periodSeconds",
   "Pipeline": "Kanál",
   "Pipeline configured": "Kanál byl nakonfigurován.",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Dokončete prosím ověření v prohlížeči. Toto okno se po dokončení přihlášení automaticky přesměruje.",
   "Please review all the settings before creating your AKS project": "Před vytvořením projektu AKS si prosím projděte všechna nastavení.",
   "Please select a deployment to view metrics": "Pokud si chcete zobrazit metriky, vyberte prosím nasazení.",
   "Please select a subscription first": "Nejdříve prosím vyberte předplatné.",
@@ -716,5 +714,7 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Tento panel můžete sbalit. Průběh se uloží a po návratu se obnoví.",
   "You need to be logged in to Azure to register AKS clusters.": "Abyste mohli registrovat clustery AKS, musíte být přihlášení k Azure.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Váš projekt AKS {{projectName}} byl vytvořen a je připraven k použití.",
-  "Your project \"{{projectName}}\" is ready to use.": "Váš projekt {{projectName}} je připravený k použití."
+  "Your project \"{{projectName}}\" is ready to use.": "Váš projekt {{projectName}} je připravený k použití.",
+  "Contact us": "",
+  "Get help, share feedback, or reach the AKS Desktop team": ""
 }

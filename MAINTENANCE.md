@@ -194,12 +194,21 @@ As bugs are fixed, there should be a test covering that bug fix.
 
 ## Translations
 
-Translation strings from `headlamp/frontend/` and `plugins/aks-desktop/` are managed via OneLocBuild. English source files are collected into `Localize/locales/en/`, and OneLocBuild produces translated files into `Localize/locales/{lang}/`. The `Localize/LocProject.json` file configures this pipeline.
+Translation strings from `headlamp/frontend/`, the in-repo plugins, and a set of external Headlamp plugins are managed via OneLocBuild. English source files are collected into `Localize/locales/en/`, and OneLocBuild produces translated files into `Localize/locales/{lang}/`. The `Localize/LocProject.json` file configures this pipeline.
+
+The covered sources are `headlamp/frontend/`, `plugins/aks-desktop/`, `plugins/ai-assistant/`, `plugins/plugin-catalog/`, and the external `keda`, `cert-manager`, and `prometheus` plugins.
+
+External plugins live in the separate Headlamp plugins repository, expected as a sibling checkout at `../plugins`. Override the location with the `HEADLAMP_PLUGINS_DIR` environment variable. If the repository is not present, those sources are skipped, so CI only verifies the in-repo sources.
 
 ### Workflow
 
-1. **Collect English keys**: Run `npm run i18n:collect` to copy English locale files from `headlamp/frontend/` and `plugins/aks-desktop/` into `Localize/locales/en/`. These are the source files OneLocBuild uses.
+1. **Collect English keys**: Run `npm run i18n:collect` to copy English locale files from every source into `Localize/locales/en/`. These are the source files OneLocBuild uses. The same step mirrors the English key set into each `Localize/locales/{lang}/` file, keeping existing translations and leaving new keys blank.
 
 2. **Translate**: OneLocBuild picks up the English files and produces translated files in `Localize/locales/{lang}/` for each target language.
 
-3. **Distribute**: Run `npm run i18n:distribute` to copy translated files from `Localize/locales/` back to the source locale directories (`headlamp/frontend/src/i18n/locales/` and `plugins/aks-desktop/locales/`), fully replacing their content.
+3. **Distribute**: Run `npm run i18n:distribute` to copy translated files back to their source locale directories.
+
+   - Directories owned by this repo (`headlamp/frontend/src/i18n/locales/` and `plugins/*/locales/`) are fully replaced.
+   - Directories in the external plugins repository are only topped up: a translation is written when the key is missing or empty there, is present in that plugin's own English file, and its English text matches ours. Existing community translations are never overwritten, and the plugin's key order is preserved to keep the diff small.
+
+   Translations for external plugins only reach users once they are merged upstream and the plugin is republished, since Headlamp fetches each plugin's `locales/{lang}/translation.json` from the plugin's own build output.

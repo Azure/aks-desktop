@@ -236,7 +236,6 @@
   "Edit HPA Configuration": "Editar Configuração de HPA",
   "Edit Manual Scaling Configuration": "Editar a Configuração de Escala Manual",
   "Egress Policy": "Política de saída",
-  "Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.": "Habilite os Pipelines do GitHub em Configurações → Versão Prévia dos Recursos para usar implantações via pipeline.",
   "Enable GitHub-based deployment pipelines for AKS projects.": "Habilite pipelines de implantação baseados no GitHub para projetos do AKS.",
   "Enable Horizontal Pod Autoscaler": "Habilitar o Dimensionador Automático de Pod Horizontal",
   "Enable liveness probe": "Habilitar investigação de atividade",
@@ -477,7 +476,6 @@
   "periodSeconds": "periodSeconds",
   "Pipeline": "Pipeline",
   "Pipeline configured": "Pipeline configurado",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Conclua a autenticação no navegador. Esta janela será redirecionada automaticamente quando o logon for concluído.",
   "Please review all the settings before creating your AKS project": "Examine todas as configurações antes de criar seu projeto do AKS",
   "Please select a deployment to view metrics": "Selecione uma implantação para exibir as métricas",
   "Please select a subscription first": "Primeiro, selecione uma assinatura",
@@ -716,5 +714,7 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Você pode recolher este painel. O progresso é salvo e será retomado quando você retornar.",
   "You need to be logged in to Azure to register AKS clusters.": "Você precisa estar conectado ao Azure para registrar clusters do AKS.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Seu projeto do AKS \"{{projectName}}\" foi criado e está pronto para uso.",
-  "Your project \"{{projectName}}\" is ready to use.": "Seu projeto \"{{projectName}}\" está pronto para uso."
+  "Your project \"{{projectName}}\" is ready to use.": "Seu projeto \"{{projectName}}\" está pronto para uso.",
+  "Contact us": "",
+  "Get help, share feedback, or reach the AKS Desktop team": ""
 }

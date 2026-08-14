@@ -236,7 +236,6 @@
   "Edit HPA Configuration": "HPA Yapılandırmasını Düzenle",
   "Edit Manual Scaling Configuration": "El ile Ölçeklendirme Yapılandırmasını Düzenle",
   "Egress Policy": "Çıkış İlkesi",
-  "Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.": "İşlem hattı dağıtımlarını kullanmak için Ayarlar → Önizleme Özellikleri bölümünden GitHub İşlem Hatları seçeneğini etkinleştirin.",
   "Enable GitHub-based deployment pipelines for AKS projects.": "AKS projeleri için GitHub tabanlı dağıtım işlem hatlarını etkinleştirin.",
   "Enable Horizontal Pod Autoscaler": "Yatay Pod Otomatik Ölçeklendiricisini Etkinleştir",
   "Enable liveness probe": "Canlılık yoklamasını etkinleştir",
@@ -477,7 +476,6 @@
   "periodSeconds": "periodSeconds",
   "Pipeline": "İşlem Hattı",
   "Pipeline configured": "İşlem hattı yapılandırıldı",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Lütfen kimlik doğrulamasını tarayıcınızda tamamlayın. Oturum açma tamamlandığında bu pencere otomatik olarak yeniden yönlendirilir.",
   "Please review all the settings before creating your AKS project": "AKS projenizi oluşturmadan önce lütfen tüm ayarları gözden geçirin",
   "Please select a deployment to view metrics": "Ölçümleri görüntülemek için lütfen bir dağıtım seçin",
   "Please select a subscription first": "Lütfen önce bir abonelik seçin",
@@ -716,5 +714,7 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Bu paneli daraltabilirsiniz. İlerleme kaydedilir ve geri döndüğünüzde işlem devam eder.",
   "You need to be logged in to Azure to register AKS clusters.": "AKS kümelerini kaydetmek için Azure hesabınızda oturum açmanız gerekir.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "\"{{projectName}}\" AKS projeniz oluşturuldu ve kullanıma hazır.",
-  "Your project \"{{projectName}}\" is ready to use.": "\"{{projectName}}\" projeniz kullanıma hazır."
+  "Your project \"{{projectName}}\" is ready to use.": "\"{{projectName}}\" projeniz kullanıma hazır.",
+  "Contact us": "",
+  "Get help, share feedback, or reach the AKS Desktop team": ""
 }

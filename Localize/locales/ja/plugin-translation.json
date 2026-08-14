@@ -236,7 +236,6 @@
   "Edit HPA Configuration": "HPA 構成の編集",
   "Edit Manual Scaling Configuration": "手動スケーリング構成の編集",
   "Egress Policy": "エグレス ポリシー",
-  "Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.": "パイプラインのデプロイを使用するには、[設定] → [プレビュー機能] で GitHub パイプラインを有効にします。",
   "Enable GitHub-based deployment pipelines for AKS projects.": "AKS プロジェクトの GitHub ベースのデプロイ パイプラインを有効にします。",
   "Enable Horizontal Pod Autoscaler": "水平ポッド自動スケーリングを有効にする",
   "Enable liveness probe": "liveness probe を有効にする",
@@ -477,7 +476,6 @@
   "periodSeconds": "periodSeconds",
   "Pipeline": "パイプライン",
   "Pipeline configured": "構成済みのパイプライン",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "ブラウザーで認証を完了してください。ログイン完了後、このウィンドウは自動的にリダイレクトされます。",
   "Please review all the settings before creating your AKS project": "AKS プロジェクトを作成する前に、すべての設定をレビューしてください",
   "Please select a deployment to view metrics": "メトリックを表示するには、デプロイを選択してください",
   "Please select a subscription first": "最初にサブスクリプションを選択してください",
@@ -716,5 +714,7 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "このパネルは折りたたむことができます。進行状況は保存され、戻ると再開されます。",
   "You need to be logged in to Azure to register AKS clusters.": "AKS クラスターを登録するには、Azure にログインする必要があります。",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "AKS プロジェクト \"{{projectName}}\" が作成され、使用する準備ができました。",
-  "Your project \"{{projectName}}\" is ready to use.": "プロジェクト \"{{projectName}}\" が使用できる状態です。"
+  "Your project \"{{projectName}}\" is ready to use.": "プロジェクト \"{{projectName}}\" が使用できる状態です。",
+  "Contact us": "",
+  "Get help, share feedback, or reach the AKS Desktop team": ""
 }

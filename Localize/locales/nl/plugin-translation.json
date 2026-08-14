@@ -236,7 +236,6 @@
   "Edit HPA Configuration": "HPA-configuratie bewerken",
   "Edit Manual Scaling Configuration": "Handmatige schaalconfiguratie bewerken",
   "Egress Policy": "Beleid voor uitgaand verkeer",
-  "Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.": "GitHub-pijplijnen inschakelen in Instellingen → Preview-functies om pijplijnimplementaties te gebruiken.",
   "Enable GitHub-based deployment pipelines for AKS projects.": "Schakel GitHub-gebaseerde implementatiepijplijnen in voor AKS-projecten.",
   "Enable Horizontal Pod Autoscaler": "Horizontale automatische schaalaanpassing van pods inschakelen",
   "Enable liveness probe": "Activiteitstest inschakelen",
@@ -477,7 +476,6 @@
   "periodSeconds": "periodSeconden",
   "Pipeline": "Pijplijn",
   "Pipeline configured": "Pijplijn geconfigureerd",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Rond de verificatie af in je browser. Dit venster wordt automatisch doorgestuurd zodra je bent ingelogd.",
   "Please review all the settings before creating your AKS project": "Controleer alle instellingen voordat je je AKS-project maakt",
   "Please select a deployment to view metrics": "Selecteer een implementatie om metrische gegevens weer te geven",
   "Please select a subscription first": "Selecteer eerst een abonnement",
@@ -716,5 +714,7 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Je kunt dit paneel inklappen. De voortgang wordt opgeslagen en hervat wanneer je terugkomt.",
   "You need to be logged in to Azure to register AKS clusters.": "Je moet zijn aangemeld bij Azure om AKS-clusters te registreren.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Je AKS-project {{projectName}} is gemaakt en is klaar voor gebruik.",
-  "Your project \"{{projectName}}\" is ready to use.": "Je project '{{projectName}}' is klaar voor gebruik."
+  "Your project \"{{projectName}}\" is ready to use.": "Je project '{{projectName}}' is klaar voor gebruik.",
+  "Contact us": "",
+  "Get help, share feedback, or reach the AKS Desktop team": ""
 }

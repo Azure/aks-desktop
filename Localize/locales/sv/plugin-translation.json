@@ -236,7 +236,6 @@
   "Edit HPA Configuration": "Redigera HPA-konfiguration",
   "Edit Manual Scaling Configuration": "Redigera konfiguration av manuell skalning",
   "Egress Policy": "Utgående princip",
-  "Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.": "Aktivera GitHub-pipeliner i Inställningar → Förhandsgranskningsfunktioner för att använda pipeline-distributioner.",
   "Enable GitHub-based deployment pipelines for AKS projects.": "Aktivera GitHub-baserade distributionspipelines för AKS-projekt.",
   "Enable Horizontal Pod Autoscaler": "Aktivera horisontell poddautoskalning",
   "Enable liveness probe": "Aktivera liveavsökning",
@@ -477,7 +476,6 @@
   "periodSeconds": "periodSeconds",
   "Pipeline": "Pipeline",
   "Pipeline configured": "Pipeline konfigurerad",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Slutför autentiseringen i webbläsaren. Det här fönstret omdirigeras automatiskt när inloggningen är klar.",
   "Please review all the settings before creating your AKS project": "Granska alla inställningar innan du skapar AKS-projektet",
   "Please select a deployment to view metrics": "Välj en distribution om du vill visa måtten",
   "Please select a subscription first": "Välj en prenumeration först",
@@ -716,5 +714,7 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Du kan fälla ihop den här panelen. Förloppet sparas och återupptas när du kommer tillbaka.",
   "You need to be logged in to Azure to register AKS clusters.": "Du måste vara inloggad i Azure för att registrera AKS-kluster.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Ditt AKS-projekt {{projectName}} har skapats och är redo att användas.",
-  "Your project \"{{projectName}}\" is ready to use.": "Projektet \"{{projectName}}\" är klart att använda."
+  "Your project \"{{projectName}}\" is ready to use.": "Projektet \"{{projectName}}\" är klart att använda.",
+  "Contact us": "",
+  "Get help, share feedback, or reach the AKS Desktop team": ""
 }
