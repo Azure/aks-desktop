@@ -179,11 +179,12 @@ async function processPlugins(onlyAksOptimized: boolean) {
     // Reorder so plugins with logos show first.
     .sort((a, b) => (!!b.logo_image_id ? 1 : 0) - (!!a.logo_image_id ? 1 : 0));
 
-  // When the "AKS Desktop optimized" filter is on, only show plugins that are
-  // part of the curated allowlist.
+  // When the "AKS Desktop optimized" filter is on, only show plugins from the
+  // curated allowlist. When off, fall back to plugins whose ArtifactHub org is
+  // ORGANIZATION_NAME ('headlamp', i.e. headlamp-k8s on GitHub) — known-safe.
   const visiblePlugins = onlyAksOptimized
     ? pluginsWithInstallStatus.filter(isAksOptimizedPlugin)
-    : pluginsWithInstallStatus;
+    : pluginsWithInstallStatus.filter(p => p.repository?.organization_name === ORGANIZATION_NAME);
 
   const totalPages = Math.ceil(visiblePlugins.length / PAGE_SIZE);
 
@@ -372,7 +373,7 @@ export function PluginList() {
     setPage(1);
   };
 
-  const handlePageChange = (event: React.ChangeEvent<unknown>, newPage: number) => {
+  const handlePageChange = (_event: React.ChangeEvent<unknown>, newPage: number) => {
     setPage(newPage);
   };
 
