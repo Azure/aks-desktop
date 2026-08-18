@@ -267,8 +267,6 @@
   "Edit HPA Configuration": "Edit HPA Configuration",
   "Edit Manual Scaling Configuration": "Edit Manual Scaling Configuration",
   "Egress Policy": "Egress Policy",
-  "Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.": "Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.",
-  "_Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments..comment": "{Locked=\"GitHub\"}",
   "Enable GitHub-based deployment pipelines for AKS projects.": "Enable GitHub-based deployment pipelines for AKS projects.",
   "_Enable GitHub-based deployment pipelines for AKS projects..comment": "{Locked=\"GitHub\"}",
   "Enable Horizontal Pod Autoscaler": "Enable Horizontal Pod Autoscaler",
