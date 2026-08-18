@@ -72,6 +72,15 @@ describe('DeployTab pipeline gating', () => {
     expect(screen.getByTestId('github-auth-provider')).toBeInTheDocument();
   });
 
+  it('keeps pipeline actions off when both the preview feature and the setting are off', () => {
+    pipelineSettings.githubPipelineEnabled = false;
+
+    render(<DeployTab project={project} />);
+
+    expect(screen.getByTestId('cluster-deploy-card')).toHaveTextContent('pipeline-disabled');
+    expect(screen.queryByTestId('github-auth-provider')).not.toBeInTheDocument();
+  });
+
   it('keeps pipeline actions off when the preview feature is on but the setting is off', () => {
     previewFeatures.githubPipelines = true;
     pipelineSettings.githubPipelineEnabled = false;
