@@ -45,6 +45,10 @@ extends:
             timeoutInMinutes: 120
             variables:
               - group: AKS Desktop
+              - name: NPM_CONFIG_REGISTRY
+                value: https://packagefeedproxy.microsoft.io/npm/
+              - name: NPM_CONFIG_REPLACE_REGISTRY_HOST
+                value: npmjs
               - name: ARCH
                 value: arm64
               - name: ARCH_DISPLAY
@@ -539,6 +543,10 @@ extends:
             timeoutInMinutes: 120
             variables:
               - group: AKS Desktop
+              - name: NPM_CONFIG_REGISTRY
+                value: https://packagefeedproxy.microsoft.io/npm/
+              - name: NPM_CONFIG_REPLACE_REGISTRY_HOST
+                value: npmjs
               - name: ARCH
                 value: x64
               - name: ARCH_DISPLAY
