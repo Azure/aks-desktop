@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { registerAKSCluster } from '../../../utils/azure/aks';
 
 /** Set to `true` locally to enable verbose debug logging. Never enable in production. */
@@ -58,12 +58,23 @@ export function useRegisterCluster(
   const [success, setSuccess] = useState<string | undefined>(undefined);
   /** Synchronous guard for repeated calls before loading state renders. */
   const registrationInFlightRef = useRef(false);
+  /** Identifies the active attempt so obsolete completions cannot update state. */
+  const registrationAttemptRef = useRef(0);
+
+  useEffect(() => {
+    registrationAttemptRef.current++;
+    registrationInFlightRef.current = false;
+    setLoading(false);
+    setError(undefined);
+    setSuccess(undefined);
+  }, [cluster, resourceGroup, subscription]);
 
   const handleRegister = async () => {
     if (registrationInFlightRef.current || !cluster || !resourceGroup || !subscription) {
       return;
     }
     registrationInFlightRef.current = true;
+    const registrationAttempt = ++registrationAttemptRef.current;
 
     setLoading(true);
     setError(undefined);
@@ -72,6 +83,9 @@ export function useRegisterCluster(
     try {
       if (DEBUG) console.debug('[AKS] Registering cluster...');
       const result = await registerAKSCluster(subscription, resourceGroup, cluster);
+      if (registrationAttempt !== registrationAttemptRef.current) {
+        return;
+      }
       if (DEBUG) console.debug('[AKS] Register cluster result:', result.success);
 
       if (!result.success) {
@@ -82,6 +96,9 @@ export function useRegisterCluster(
       if (DEBUG) console.debug('[AKS] Cluster registered successfully.', result.message);
       setSuccess(t("Cluster '{{cluster}}' successfully merged in kubeconfig", { cluster }));
     } catch (err) {
+      if (registrationAttempt !== registrationAttemptRef.current) {
+        return;
+      }
       console.error('Error registering AKS cluster:', err);
       setError(
         t('Failed to register cluster: {{message}}', {
@@ -89,8 +106,10 @@ export function useRegisterCluster(
         })
       );
     } finally {
-      registrationInFlightRef.current = false;
-      setLoading(false);
+      if (registrationAttempt === registrationAttemptRef.current) {
+        registrationInFlightRef.current = false;
+        setLoading(false);
+      }
     }
   };
 

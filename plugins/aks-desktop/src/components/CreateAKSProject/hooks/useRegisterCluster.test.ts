@@ -228,4 +228,31 @@ describe('useRegisterCluster', () => {
       await secondHandlePromise;
     });
   });
+
+  test('does not apply a completed registration to a newly selected cluster', async () => {
+    let resolveRegister!: (value: { success: boolean; message: string }) => void;
+    mockRegisterAKSCluster.mockReturnValue(
+      new Promise(resolve => {
+        resolveRegister = resolve;
+      })
+    );
+    const { result, rerender } = renderHook(
+      ({ cluster }) => useRegisterCluster(cluster, 'rg-prod', 'sub-123'),
+      { initialProps: { cluster: 'aks-old' } }
+    );
+
+    let registration!: Promise<void>;
+    act(() => {
+      registration = result.current.handleRegister();
+    });
+    rerender({ cluster: 'aks-new' });
+
+    await act(async () => {
+      resolveRegister({ success: true, message: 'ok' });
+      await registration;
+    });
+
+    expect(result.current.success).toBeUndefined();
+    expect(result.current.loading).toBe(false);
+  });
 });
