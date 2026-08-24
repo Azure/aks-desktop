@@ -45,6 +45,7 @@ export interface UseRegisterClusterResult {
  * @param cluster - The AKS cluster name to register.
  * @param resourceGroup - The resource group the cluster belongs to.
  * @param subscription - The Azure subscription ID.
+ * @returns Registration state and actions for the selected cluster.
  */
 export function useRegisterCluster(
   cluster: string,
@@ -55,6 +56,7 @@ export function useRegisterCluster(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [success, setSuccess] = useState<string | undefined>(undefined);
+  /** Synchronous guard for repeated calls before loading state renders. */
   const registrationInFlightRef = useRef(false);
 
   const handleRegister = async () => {

@@ -20,6 +20,7 @@ export interface AKSCluster {
   isAzureRBACEnabled: boolean;
 }
 
+/** Tail promise used to serialize native kubeconfig updates. */
 let registrationQueue = Promise.resolve();
 
 /**

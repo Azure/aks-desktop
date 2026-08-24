@@ -47,6 +47,7 @@ export default function RegisterAKSClusterDialog({
   const [capabilities, setCapabilities] = useState<ClusterCapabilities | null>(null);
   const [capabilitiesLoading, setCapabilitiesLoading] = useState(false);
   const isMountedRef = useRef(true);
+  /** Synchronous guard for repeated submissions before loading state renders. */
   const registrationInFlightRef = useRef(false);
 
   /** Helper function to filter options by name substring match, ranking prefix matches first. */
