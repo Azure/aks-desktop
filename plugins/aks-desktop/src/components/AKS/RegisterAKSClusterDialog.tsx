@@ -49,6 +49,10 @@ export default function RegisterAKSClusterDialog({
   const isMountedRef = useRef(true);
   /** Identifies the latest cluster-list request so stale responses are ignored. */
   const clusterRequestIdRef = useRef(0);
+  /** Identifies the latest capability request so stale responses are ignored. */
+  const capabilityRequestIdRef = useRef(0);
+  /** Identifies the active registration so closed sessions cannot update state. */
+  const registrationRequestIdRef = useRef(0);
   /** Synchronous guard for repeated submissions before loading state renders. */
   const registrationInFlightRef = useRef(false);
 
@@ -79,6 +83,7 @@ export default function RegisterAKSClusterDialog({
 
   const resetClusterState = () => {
     clusterRequestIdRef.current++;
+    capabilityRequestIdRef.current++;
     setLoadingClusters(false);
     setClusters([]);
     setSelectedCluster(null);
@@ -88,16 +93,93 @@ export default function RegisterAKSClusterDialog({
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      clusterRequestIdRef.current++;
+      capabilityRequestIdRef.current++;
+      registrationRequestIdRef.current++;
+      registrationInFlightRef.current = false;
     };
   }, []);
 
   useEffect(() => {
-    if (open && authStatus.isLoggedIn) {
-      loadSubscriptions();
+    if (!open) {
+      clusterRequestIdRef.current++;
+      capabilityRequestIdRef.current++;
+      registrationRequestIdRef.current++;
+      registrationInFlightRef.current = false;
+      setLoading(false);
+      setLoadingSubscriptions(false);
+      setLoadingClusters(false);
+      setCapabilitiesLoading(false);
+      setError('');
+      setSuccess('');
+      setSubscriptions([]);
+      setSelectedSubscription(null);
+      setSelectedTenant(null);
+      setTenantInputValue('');
+      setClusters([]);
+      setSelectedCluster(null);
+      setSubscriptionInputValue('');
+      setClusterInputValue('');
+      setCapabilities(null);
     }
-  }, [open, authStatus.isLoggedIn]);
+  }, [open]);
+
+  useEffect(() => {
+    let active = true;
+    if (open && authStatus.isLoggedIn) {
+      clusterRequestIdRef.current++;
+      capabilityRequestIdRef.current++;
+      registrationRequestIdRef.current++;
+      registrationInFlightRef.current = false;
+      setLoading(false);
+      setError('');
+      setSuccess('');
+      setSubscriptions([]);
+      setSelectedSubscription(null);
+      setSelectedTenant(null);
+      setTenantInputValue('');
+      setSubscriptionInputValue('');
+      setClusters([]);
+      setSelectedCluster(null);
+      setClusterInputValue('');
+      setCapabilities(null);
+      setCapabilitiesLoading(false);
+      loadSubscriptions(() => active);
+    } else {
+      setLoadingSubscriptions(false);
+      if (open) {
+        clusterRequestIdRef.current++;
+        capabilityRequestIdRef.current++;
+        registrationRequestIdRef.current++;
+        registrationInFlightRef.current = false;
+        setLoading(false);
+        setError('');
+        setSuccess('');
+        setSubscriptions([]);
+        setSelectedSubscription(null);
+        setSelectedTenant(null);
+        setTenantInputValue('');
+        setSubscriptionInputValue('');
+        setClusters([]);
+        setSelectedCluster(null);
+        setClusterInputValue('');
+        setCapabilities(null);
+        setCapabilitiesLoading(false);
+      }
+    }
+    return () => {
+      active = false;
+    };
+  }, [
+    open,
+    authStatus.isLoggedIn,
+    authStatus.subscriptionId,
+    authStatus.tenantId,
+    authStatus.username,
+  ]);
 
   useEffect(() => {
     if (selectedSubscription) {
@@ -110,12 +192,16 @@ export default function RegisterAKSClusterDialog({
     }
   }, [selectedSubscription]);
 
-  const loadSubscriptions = async () => {
+  const loadSubscriptions = async (isCurrent: () => boolean) => {
     setLoadingSubscriptions(true);
     setError('');
 
     try {
       const result = await getSubscriptions();
+
+      if (!isCurrent()) {
+        return;
+      }
 
       if (!result.success) {
         setError(result.message);
@@ -139,10 +225,15 @@ export default function RegisterAKSClusterDialog({
         setSubscriptionInputValue(`${sub.name}${sub.state !== 'Enabled' ? ` (${sub.state})` : ''}`);
       }
     } catch (err) {
+      if (!isCurrent()) {
+        return;
+      }
       console.error('Error loading subscriptions:', err);
       setError(t('Failed to load subscriptions'));
     } finally {
-      setLoadingSubscriptions(false);
+      if (isCurrent()) {
+        setLoadingSubscriptions(false);
+      }
     }
   };
 
@@ -239,8 +330,11 @@ export default function RegisterAKSClusterDialog({
   };
 
   const handleClusterChange = (_event: React.SyntheticEvent, value: AKSCluster | null) => {
+    capabilityRequestIdRef.current++;
     setSelectedCluster(value);
     setClusterInputValue(value ? value.name : '');
+    setCapabilities(null);
+    setCapabilitiesLoading(false);
   };
 
   const handleClusterInputChange = (
@@ -249,9 +343,11 @@ export default function RegisterAKSClusterDialog({
     reason: string
   ) => {
     if (reason === 'input' || reason === 'clear') {
+      capabilityRequestIdRef.current++;
       setClusterInputValue(value);
       setSelectedCluster(null);
       setCapabilities(null);
+      setCapabilitiesLoading(false);
     }
   };
 
@@ -260,6 +356,7 @@ export default function RegisterAKSClusterDialog({
       return;
     }
     registrationInFlightRef.current = true;
+    const registrationRequestId = ++registrationRequestIdRef.current;
 
     onRegistrationStarted?.();
     trackAksFeature('aksd.cluster-add', 'started');
@@ -275,7 +372,13 @@ export default function RegisterAKSClusterDialog({
         selectedCluster.resourceGroup,
         selectedCluster.name
       );
+      if (registrationRequestId !== registrationRequestIdRef.current) {
+        return;
+      }
     } catch (err) {
+      if (registrationRequestId !== registrationRequestIdRef.current) {
+        return;
+      }
       console.error('Error registering AKS cluster:', err);
       setError(
         t('Failed to register cluster: {{message}}', {
@@ -288,7 +391,9 @@ export default function RegisterAKSClusterDialog({
       onRegistrationFinished?.('failed');
       return;
     } finally {
-      registrationInFlightRef.current = false;
+      if (registrationRequestId === registrationRequestIdRef.current) {
+        registrationInFlightRef.current = false;
+      }
     }
 
     if (!result.success) {
@@ -314,6 +419,7 @@ export default function RegisterAKSClusterDialog({
     onClusterRegistered?.();
 
     // Check cluster capabilities (non-blocking)
+    const capabilityRequestId = ++capabilityRequestIdRef.current;
     setCapabilitiesLoading(true);
     try {
       const caps = await getClusterCapabilities({
@@ -321,13 +427,13 @@ export default function RegisterAKSClusterDialog({
         resourceGroup: selectedCluster.resourceGroup,
         clusterName: selectedCluster.name,
       });
-      if (isMountedRef.current) {
+      if (isMountedRef.current && capabilityRequestId === capabilityRequestIdRef.current) {
         setCapabilities(caps);
       }
     } catch {
       // Non-critical — just don't show capabilities
     } finally {
-      if (isMountedRef.current) {
+      if (isMountedRef.current && capabilityRequestId === capabilityRequestIdRef.current) {
         setCapabilitiesLoading(false);
       }
     }
@@ -347,13 +453,14 @@ export default function RegisterAKSClusterDialog({
 
   const handleConfigured = () => {
     if (selectedSubscription && selectedCluster) {
+      const capabilityRequestId = ++capabilityRequestIdRef.current;
       getClusterCapabilities({
         subscriptionId: selectedSubscription.id,
         resourceGroup: selectedCluster.resourceGroup,
         clusterName: selectedCluster.name,
       })
         .then(caps => {
-          if (isMountedRef.current) {
+          if (isMountedRef.current && capabilityRequestId === capabilityRequestIdRef.current) {
             setCapabilities(caps);
           }
         })

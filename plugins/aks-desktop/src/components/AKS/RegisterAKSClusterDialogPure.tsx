@@ -220,7 +220,9 @@ export default function RegisterAKSClusterDialogPure({
                 getOptionKey={option => option.id}
                 getOptionLabel={option => option.name}
                 isOptionEqualToValue={(option, value) => option.id === value.id}
-                disabled={loading || loadingSubscriptions || tenants.length <= 1}
+                disabled={
+                  loading || Boolean(success) || loadingSubscriptions || tenants.length <= 1
+                }
                 renderInput={params => (
                   <TextField
                     {...params}
@@ -258,7 +260,10 @@ export default function RegisterAKSClusterDialogPure({
                 }
                 isOptionEqualToValue={(option, value) => option.id === value.id}
                 disabled={
-                  loading || loadingSubscriptions || (tenants.length > 1 && !selectedTenant)
+                  loading ||
+                  Boolean(success) ||
+                  loadingSubscriptions ||
+                  (tenants.length > 1 && !selectedTenant)
                 }
                 loading={loadingSubscriptions}
                 renderInput={params => (
@@ -329,7 +334,7 @@ export default function RegisterAKSClusterDialogPure({
                   isOptionEqualToValue={(option, value) =>
                     option.name === value.name && option.resourceGroup === value.resourceGroup
                   }
-                  disabled={loading}
+                  disabled={loading || Boolean(success)}
                   renderInput={params => (
                     <TextField
                       {...params}

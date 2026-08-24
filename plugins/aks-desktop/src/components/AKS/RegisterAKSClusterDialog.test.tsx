@@ -8,6 +8,13 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  authStatus: {
+    isChecking: false,
+    isLoggedIn: true,
+    subscriptionId: undefined as string | undefined,
+    tenantId: undefined as string | undefined,
+    username: undefined as string | undefined,
+  },
   getAKSClusters: vi.fn(),
   getClusterCapabilities: vi.fn(),
   getSubscriptions: vi.fn(),
@@ -54,7 +61,7 @@ vi.mock('react-router-dom', () => ({
 }));
 
 vi.mock('../../hooks/useAzureAuth', () => ({
-  useAzureAuth: () => ({ isChecking: false, isLoggedIn: true }),
+  useAzureAuth: () => mocks.authStatus,
 }));
 
 vi.mock('../../utils/azure/aks', () => ({
@@ -133,6 +140,13 @@ function currentDialogProps() {
 describe('RegisterAKSClusterDialog telemetry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.assign(mocks.authStatus, {
+      isChecking: false,
+      isLoggedIn: true,
+      subscriptionId: undefined,
+      tenantId: undefined,
+      username: undefined,
+    });
     mocks.getAKSClusters.mockResolvedValue({ success: true, clusters: [] });
     mocks.getSubscriptions.mockResolvedValue({ success: true, subscriptions: [] });
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -270,6 +284,56 @@ describe('RegisterAKSClusterDialog telemetry', () => {
     expect(mocks.trackError).not.toHaveBeenCalled();
   });
 
+  test('ignores registration capabilities after selecting another cluster', async () => {
+    const nextCluster = { ...cluster, name: 'next-cluster' };
+    let resolveCapabilities!: (value: { azureRbacEnabled: boolean }) => void;
+    mocks.registerAKSCluster.mockResolvedValue({ success: true, message: 'registered' });
+    mocks.getClusterCapabilities.mockReturnValue(
+      new Promise(resolve => {
+        resolveCapabilities = resolve;
+      })
+    );
+    renderDialog();
+    selectRequiredValues();
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    await waitFor(() => expect(mocks.getClusterCapabilities).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      currentDialogProps().onClusterChange({} as React.SyntheticEvent, nextCluster);
+    });
+    await act(async () => {
+      resolveCapabilities({ azureRbacEnabled: true });
+    });
+
+    expect(currentDialogProps().selectedCluster).toEqual(nextCluster);
+    expect(currentDialogProps().capabilities).toBeNull();
+  });
+
+  test('ignores registration capabilities after selecting another subscription', async () => {
+    const nextSubscription = { ...subscription, id: 'next-subscription' };
+    let resolveCapabilities!: (value: { azureRbacEnabled: boolean }) => void;
+    mocks.registerAKSCluster.mockResolvedValue({ success: true, message: 'registered' });
+    mocks.getClusterCapabilities.mockReturnValue(
+      new Promise(resolve => {
+        resolveCapabilities = resolve;
+      })
+    );
+    renderDialog();
+    selectRequiredValues();
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    await waitFor(() => expect(mocks.getClusterCapabilities).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      currentDialogProps().onSubscriptionChange({} as React.SyntheticEvent, nextSubscription);
+    });
+    await act(async () => {
+      resolveCapabilities({ azureRbacEnabled: true });
+    });
+
+    expect(currentDialogProps().selectedSubscription).toEqual(nextSubscription);
+    expect(currentDialogProps().capabilities).toBeNull();
+  });
+
   test('auto-selects a sole tenant and subscription and loads its clusters', async () => {
     mocks.getSubscriptions.mockResolvedValue({
       success: true,
@@ -303,6 +367,227 @@ describe('RegisterAKSClusterDialog telemetry', () => {
 
     await waitFor(() => expect(currentDialogProps().error).toBe(message));
     expect(currentDialogProps().loadingSubscriptions).toBe(false);
+  });
+
+  test('ignores a stale subscription response after the dialog reopens', async () => {
+    const firstSubscription = { ...subscription, id: 'first-subscription' };
+    const secondSubscription = { ...subscription, id: 'second-subscription' };
+    let resolveFirst!: (value: {
+      success: boolean;
+      subscriptions: (typeof subscription)[];
+    }) => void;
+    let resolveSecond!: (value: {
+      success: boolean;
+      subscriptions: (typeof subscription)[];
+    }) => void;
+    mocks.getSubscriptions
+      .mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveFirst = resolve;
+        })
+      )
+      .mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveSecond = resolve;
+        })
+      );
+    const rendered = renderDialog();
+    rendered.rerender(
+      <RegisterAKSClusterDialog
+        open={false}
+        onClose={mocks.onClose}
+        onClusterRegistered={mocks.onClusterRegistered}
+        onRegistrationFinished={mocks.onRegistrationFinished}
+        onRegistrationStarted={mocks.onRegistrationStarted}
+      />
+    );
+    rendered.rerender(
+      <RegisterAKSClusterDialog
+        open
+        onClose={mocks.onClose}
+        onClusterRegistered={mocks.onClusterRegistered}
+        onRegistrationFinished={mocks.onRegistrationFinished}
+        onRegistrationStarted={mocks.onRegistrationStarted}
+      />
+    );
+    await waitFor(() => expect(mocks.getSubscriptions).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      resolveSecond({ success: true, subscriptions: [secondSubscription] });
+    });
+    expect(currentDialogProps().subscriptions).toEqual([secondSubscription]);
+
+    await act(async () => {
+      resolveFirst({ success: true, subscriptions: [firstSubscription] });
+    });
+    expect(currentDialogProps().subscriptions).toEqual([secondSubscription]);
+    expect(currentDialogProps().loadingSubscriptions).toBe(false);
+  });
+
+  test('clears terminal registration state when the dialog reopens', async () => {
+    mocks.registerAKSCluster.mockResolvedValue({ success: true, message: 'registered' });
+    mocks.getClusterCapabilities.mockResolvedValue({ azureRbacEnabled: true });
+    const rendered = renderDialog();
+    selectRequiredValues();
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    await waitFor(() => expect(currentDialogProps().success).toContain(cluster.name));
+    await waitFor(() =>
+      expect(currentDialogProps().capabilities).toEqual({ azureRbacEnabled: true })
+    );
+
+    rendered.rerender(
+      <RegisterAKSClusterDialog
+        open={false}
+        onClose={mocks.onClose}
+        onClusterRegistered={mocks.onClusterRegistered}
+        onRegistrationFinished={mocks.onRegistrationFinished}
+        onRegistrationStarted={mocks.onRegistrationStarted}
+      />
+    );
+    rendered.rerender(
+      <RegisterAKSClusterDialog
+        open
+        onClose={mocks.onClose}
+        onClusterRegistered={mocks.onClusterRegistered}
+        onRegistrationFinished={mocks.onRegistrationFinished}
+        onRegistrationStarted={mocks.onRegistrationStarted}
+      />
+    );
+
+    expect(currentDialogProps()).toMatchObject({
+      error: '',
+      success: '',
+      selectedSubscription: null,
+      selectedCluster: null,
+      capabilities: null,
+    });
+  });
+
+  test('ignores a registration completion from a closed dialog session', async () => {
+    let resolveRegistration!: (value: { success: boolean; message: string }) => void;
+    mocks.registerAKSCluster.mockReturnValue(
+      new Promise(resolve => {
+        resolveRegistration = resolve;
+      })
+    );
+    const rendered = renderDialog();
+    selectRequiredValues();
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    await waitFor(() => expect(mocks.registerAKSCluster).toHaveBeenCalledTimes(1));
+
+    rendered.rerender(
+      <RegisterAKSClusterDialog
+        open={false}
+        onClose={mocks.onClose}
+        onClusterRegistered={mocks.onClusterRegistered}
+        onRegistrationFinished={mocks.onRegistrationFinished}
+        onRegistrationStarted={mocks.onRegistrationStarted}
+      />
+    );
+    rendered.rerender(
+      <RegisterAKSClusterDialog
+        open
+        onClose={mocks.onClose}
+        onClusterRegistered={mocks.onClusterRegistered}
+        onRegistrationFinished={mocks.onRegistrationFinished}
+        onRegistrationStarted={mocks.onRegistrationStarted}
+      />
+    );
+    await act(async () => {
+      resolveRegistration({ success: true, message: 'registered' });
+    });
+
+    expect(currentDialogProps().success).toBe('');
+    expect(mocks.onClusterRegistered).not.toHaveBeenCalled();
+    expect(mocks.onRegistrationFinished).not.toHaveBeenCalled();
+  });
+
+  test('clears the previous Azure identity after logout and login', async () => {
+    const previousSubscription = { ...subscription, id: 'previous-subscription' };
+    const nextSubscriptions = [
+      { ...subscription, id: 'next-subscription-1', tenantId: 'next-tenant-1' },
+      { ...subscription, id: 'next-subscription-2', tenantId: 'next-tenant-2' },
+    ];
+    mocks.getSubscriptions
+      .mockResolvedValueOnce({ success: true, subscriptions: [previousSubscription] })
+      .mockResolvedValueOnce({ success: true, subscriptions: nextSubscriptions });
+    const rendered = renderDialog();
+    await waitFor(() =>
+      expect(currentDialogProps().selectedSubscription).toEqual(previousSubscription)
+    );
+
+    mocks.authStatus.isLoggedIn = false;
+    rendered.rerender(
+      <RegisterAKSClusterDialog
+        open
+        onClose={mocks.onClose}
+        onClusterRegistered={mocks.onClusterRegistered}
+        onRegistrationFinished={mocks.onRegistrationFinished}
+        onRegistrationStarted={mocks.onRegistrationStarted}
+      />
+    );
+    await waitFor(() => expect(currentDialogProps().isLoggedIn).toBe(false));
+    expect(mocks.getSubscriptions).toHaveBeenCalledTimes(1);
+
+    mocks.authStatus.isLoggedIn = true;
+    rendered.rerender(
+      <RegisterAKSClusterDialog
+        open
+        onClose={mocks.onClose}
+        onClusterRegistered={mocks.onClusterRegistered}
+        onRegistrationFinished={mocks.onRegistrationFinished}
+        onRegistrationStarted={mocks.onRegistrationStarted}
+      />
+    );
+    await waitFor(() => expect(mocks.getSubscriptions).toHaveBeenCalledTimes(2));
+    await expect(mocks.getSubscriptions.mock.results[1].value).resolves.toEqual({
+      success: true,
+      subscriptions: nextSubscriptions,
+    });
+    await waitFor(() => expect(currentDialogProps().subscriptions).toEqual(nextSubscriptions));
+
+    expect(currentDialogProps()).toMatchObject({
+      selectedTenant: null,
+      selectedSubscription: null,
+      selectedCluster: null,
+      capabilities: null,
+    });
+  });
+
+  test('reloads subscriptions when the active Azure identity changes', async () => {
+    const previousSubscription = { ...subscription, id: 'previous-subscription' };
+    const nextSubscriptions = [
+      { ...subscription, id: 'next-subscription-1', tenantId: 'next-tenant-1' },
+      { ...subscription, id: 'next-subscription-2', tenantId: 'next-tenant-2' },
+    ];
+    mocks.authStatus.subscriptionId = previousSubscription.id;
+    mocks.getSubscriptions
+      .mockResolvedValueOnce({ success: true, subscriptions: [previousSubscription] })
+      .mockResolvedValueOnce({ success: true, subscriptions: nextSubscriptions });
+    const rendered = renderDialog();
+    await waitFor(() =>
+      expect(currentDialogProps().selectedSubscription).toEqual(previousSubscription)
+    );
+
+    mocks.authStatus.subscriptionId = nextSubscriptions[0].id;
+    rendered.rerender(
+      <RegisterAKSClusterDialog
+        open
+        onClose={mocks.onClose}
+        onClusterRegistered={mocks.onClusterRegistered}
+        onRegistrationFinished={mocks.onRegistrationFinished}
+        onRegistrationStarted={mocks.onRegistrationStarted}
+      />
+    );
+
+    await waitFor(() => expect(mocks.getSubscriptions).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(currentDialogProps().subscriptions).toEqual(nextSubscriptions));
+    expect(currentDialogProps()).toMatchObject({
+      selectedTenant: null,
+      selectedSubscription: null,
+      selectedCluster: null,
+      capabilities: null,
+    });
   });
 
   test.each([
@@ -499,6 +784,29 @@ describe('RegisterAKSClusterDialog telemetry', () => {
 
     await waitFor(() => expect(mocks.getClusterCapabilities).toHaveBeenCalledTimes(1));
     expect(currentDialogProps().capabilities).toEqual({ azureRbacEnabled: true });
+  });
+
+  test('ignores a capability refresh after selecting another cluster', async () => {
+    const nextCluster = { ...cluster, name: 'next-cluster' };
+    let resolveCapabilities!: (value: { azureRbacEnabled: boolean }) => void;
+    mocks.getClusterCapabilities.mockReturnValue(
+      new Promise(resolve => {
+        resolveCapabilities = resolve;
+      })
+    );
+    renderDialog();
+    selectRequiredValues();
+    fireEvent.click(screen.getByRole('button', { name: 'Configured' }));
+    await waitFor(() => expect(mocks.getClusterCapabilities).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      currentDialogProps().onClusterChange({} as React.SyntheticEvent, nextCluster);
+    });
+    await act(async () => {
+      resolveCapabilities({ azureRbacEnabled: true });
+    });
+
+    expect(currentDialogProps().capabilities).toBeNull();
   });
 
   test('ignores a failed capability refresh', async () => {

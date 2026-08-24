@@ -209,6 +209,12 @@ Success.args = {
   success: "Cluster 'prod-aks-cluster' successfully merged in kubeconfig",
 };
 
+/** Successful registration keeps selection controls locked and exposes the terminal action. */
+export const SelectionControlsLockedAfterSuccess = Template.bind({});
+SelectionControlsLockedAfterSuccess.args = {
+  ...Success.args,
+};
+
 /** Registration failed — error alert displayed. */
 export const Error = Template.bind({});
 Error.args = {
