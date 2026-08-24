@@ -24,6 +24,42 @@ export interface AKSCluster {
 /** Tail promise used to serialize native kubeconfig updates. */
 let registrationQueue = Promise.resolve();
 
+/** Reserves one canonical cluster name for an Azure scope across queued registrations. */
+interface RegistrationScopeReservation {
+  /** Azure subscription that owns the reserved cluster name. */
+  subscriptionId: string;
+  /** Azure resource group that owns the reserved cluster name. */
+  resourceGroup: string;
+  /** Number of queued or active registrations using this reservation. */
+  pendingCount: number;
+  /** Whether native registration completed successfully in this session. */
+  registered: boolean;
+}
+
+/** Scopes reserved by registrations started during this application session. */
+const registrationScopes = new Map<string, RegistrationScopeReservation>();
+
+/**
+ * Checks whether persisted or reserved Azure scope metadata matches a requested scope.
+ *
+ * @param scope - Scope metadata to validate.
+ * @param subscriptionId - Requested Azure subscription ID.
+ * @param resourceGroup - Requested Azure resource group.
+ * @returns `true` when both scope fields are strings and match case-insensitively.
+ */
+function scopeMatches(
+  scope: { subscriptionId?: unknown; resourceGroup?: unknown } | undefined,
+  subscriptionId: string,
+  resourceGroup: string
+): boolean {
+  return (
+    typeof scope?.subscriptionId === 'string' &&
+    typeof scope.resourceGroup === 'string' &&
+    scope.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
+    scope.resourceGroup.toLowerCase() === resourceGroup.toLowerCase()
+  );
+}
+
 /**
  * Get list of Azure subscriptions
  */
@@ -115,18 +151,30 @@ export async function registerAKSCluster(
 }> {
   if (clusterAlreadyRegistered) {
     const registeredScope = getClusterSettings(clusterName).azureRegistration;
-    const scopeMatches =
-      typeof registeredScope?.subscriptionId === 'string' &&
-      typeof registeredScope.resourceGroup === 'string' &&
-      registeredScope.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
-      registeredScope.resourceGroup.toLowerCase() === resourceGroup.toLowerCase();
-    if (!scopeMatches) {
+    if (!scopeMatches(registeredScope, subscriptionId, resourceGroup)) {
       return {
         success: false,
         message: `Cluster '${clusterName}' is already registered from a different or unknown Azure scope.`,
       };
     }
   }
+
+  const reservationKey = clusterName.toLowerCase();
+  const existingReservation = registrationScopes.get(reservationKey);
+  if (existingReservation && !scopeMatches(existingReservation, subscriptionId, resourceGroup)) {
+    return {
+      success: false,
+      message: `Cluster '${clusterName}' is already registered from a different or unknown Azure scope.`,
+    };
+  }
+  const reservation = existingReservation ?? {
+    subscriptionId,
+    resourceGroup,
+    pendingCount: 0,
+    registered: clusterAlreadyRegistered,
+  };
+  reservation.pendingCount++;
+  registrationScopes.set(reservationKey, reservation);
 
   const previousRegistration = registrationQueue;
   let releaseRegistration!: () => void;
@@ -177,6 +225,7 @@ export async function registerAKSCluster(
     console.debug('[AKS] Registration result:', result);
     const registrationResult = result as { success: boolean; message: string };
     if (registrationResult.success) {
+      reservation.registered = true;
       try {
         const settings = getClusterSettings(clusterName);
         setClusterSettings(clusterName, {
@@ -195,6 +244,10 @@ export async function registerAKSCluster(
       message: error instanceof Error ? error.message : 'Unknown error',
     };
   } finally {
+    reservation.pendingCount--;
+    if (reservation.pendingCount === 0 && !reservation.registered) {
+      registrationScopes.delete(reservationKey);
+    }
     releaseRegistration();
   }
 }

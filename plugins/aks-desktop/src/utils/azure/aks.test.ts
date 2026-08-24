@@ -280,6 +280,28 @@ describe('Azure AKS utilities', () => {
     expect(registeredClusters).toEqual(['cluster-1', 'cluster-2']);
   });
 
+  test('rejects conflicting scopes while a first-time same-name registration is queued', async () => {
+    let resolveFirst!: (value: { success: boolean; message: string }) => void;
+    desktopRegisterAKSCluster.mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveFirst = resolve;
+      })
+    );
+
+    const first = registerAKSCluster('first-sub', 'first-rg', 'shared-queued-name');
+    const second = registerAKSCluster('second-sub', 'second-rg', 'shared-queued-name');
+
+    await expect(second).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'shared-queued-name' is already registered from a different or unknown Azure scope.",
+    });
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(1);
+
+    resolveFirst({ success: true, message: 'registered' });
+    await expect(first).resolves.toEqual({ success: true, message: 'registered' });
+  });
+
   test('continues the queue after a desktop registration rejects', async () => {
     desktopRegisterAKSCluster
       .mockRejectedValueOnce(new Error('registration failed'))
