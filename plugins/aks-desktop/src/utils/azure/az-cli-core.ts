@@ -28,7 +28,8 @@ export function needsRelogin(error: string): boolean {
   return (
     error.includes('Interactive authentication is needed') ||
     error.includes('AADSTS700082') ||
-    error.includes('AADSTS50173')
+    error.includes('AADSTS50173') ||
+    /please run\s+["']?az login["']?/i.test(error)
   );
 }
 
