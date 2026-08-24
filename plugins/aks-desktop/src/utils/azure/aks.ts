@@ -116,7 +116,9 @@ export async function registerAKSCluster(
   if (clusterAlreadyRegistered) {
     const registeredScope = getClusterSettings(clusterName).azureRegistration;
     const scopeMatches =
-      registeredScope?.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
+      typeof registeredScope?.subscriptionId === 'string' &&
+      typeof registeredScope.resourceGroup === 'string' &&
+      registeredScope.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
       registeredScope.resourceGroup.toLowerCase() === resourceGroup.toLowerCase();
     if (!scopeMatches) {
       return {

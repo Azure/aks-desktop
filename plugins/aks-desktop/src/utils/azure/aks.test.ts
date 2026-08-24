@@ -217,6 +217,24 @@ describe('Azure AKS utilities', () => {
     expect(desktopRegisterAKSCluster).not.toHaveBeenCalled();
   });
 
+  test.each([
+    { azureRegistration: { resourceGroup: 'rg-1' } },
+    { azureRegistration: { subscriptionId: 'sub-1' } },
+    { azureRegistration: { subscriptionId: { id: 'sub-1' }, resourceGroup: 'rg-1' } },
+    { azureRegistration: { subscriptionId: 'sub-1', resourceGroup: 42 } },
+  ])('treats malformed active scope metadata as unknown: %s', async settings => {
+    mocks.getClusterSettings.mockReturnValue(settings);
+
+    await expect(
+      registerAKSCluster('sub-1', 'rg-1', 'shared-name', undefined, true)
+    ).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'shared-name' is already registered from a different or unknown Azure scope.",
+    });
+    expect(desktopRegisterAKSCluster).not.toHaveBeenCalled();
+  });
+
   test('allows stale scope metadata when the cluster name is not active', async () => {
     mocks.getClusterSettings.mockReturnValue({
       azureRegistration: { subscriptionId: 'old-sub', resourceGroup: 'old-rg' },
