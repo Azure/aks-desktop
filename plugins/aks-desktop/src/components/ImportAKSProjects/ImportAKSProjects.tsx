@@ -179,10 +179,16 @@ function ImportAKSProjectsContent() {
       }
     >();
     const clusterKeyByName = new Map<string, string>();
-    const conflictingClusterNames = new Set(ambiguousAzureMetadataNames);
+    const conflictingClusterNames = new Set<string>();
     for (const item of selectedNamespaces) {
       const ns = item.namespace;
       const meta = clusterAzureMeta.get(ns.clusterName);
+      if (
+        (!ns.resourceGroup || !ns.subscriptionId) &&
+        ambiguousAzureMetadataNames.has(ns.clusterName)
+      ) {
+        conflictingClusterNames.add(ns.clusterName);
+      }
       const resourceGroup = ns.resourceGroup || meta?.resourceGroup || '';
       const subscriptionId = ns.subscriptionId || meta?.subscriptionId || '';
       const clusterKey = `${subscriptionId}\0${resourceGroup}\0${ns.clusterName}`;

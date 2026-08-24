@@ -430,6 +430,43 @@ describe('ImportAKSProjects', () => {
     expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
   });
 
+  test('allows one explicitly scoped cluster when another scope shares its name', async () => {
+    const selectedNamespace = makeDiscoveredNamespace({
+      name: 'selected-ns',
+      clusterName: 'shared-name',
+      resourceGroup: 'selected-rg',
+      subscriptionId: 'selected-sub',
+      isAksProject: true,
+      category: 'needs-import',
+    });
+    const otherNamespace = makeDiscoveredNamespace({
+      name: 'other-ns',
+      clusterName: 'shared-name',
+      resourceGroup: 'other-rg',
+      subscriptionId: 'other-sub',
+      isAksProject: true,
+      category: 'needs-import',
+    });
+    mockUseNamespaceDiscovery.mockReturnValue(
+      defaultDiscoveryReturn([selectedNamespace, otherNamespace])
+    );
+    mockRegisterAKSCluster.mockResolvedValue({ success: true });
+
+    render(<ImportAKSProjects />);
+    const checkbox = screen
+      .getByTestId('row-selected-ns')
+      .querySelector('input[type="checkbox"]') as HTMLInputElement;
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByText('Import Selected Projects'));
+
+    await waitFor(() => expect(screen.getByText('Go To Projects')).toBeInTheDocument());
+    expect(mockRegisterAKSCluster).toHaveBeenCalledWith(
+      'selected-sub',
+      'selected-rg',
+      'shared-name'
+    );
+  });
+
   test('select all / deselect all work correctly', () => {
     const ns1 = makeDiscoveredNamespace({ name: 'ns1' });
     const ns2 = makeDiscoveredNamespace({ name: 'ns2' });
