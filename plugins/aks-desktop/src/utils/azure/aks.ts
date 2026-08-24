@@ -98,15 +98,13 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
  * @param resourceGroup - Azure resource group containing the cluster.
  * @param clusterName - AKS cluster to register.
  * @param managedNamespace - Optional managed namespace name to use for scoped credentials
- * @param _tenantId - Deprecated tenant identifier retained for caller compatibility.
  * @returns The native registration result after earlier registrations finish.
  */
 export async function registerAKSCluster(
   subscriptionId: string,
   resourceGroup: string,
   clusterName: string,
-  managedNamespace?: string,
-  _tenantId?: string
+  managedNamespace?: string
 ): Promise<{
   success: boolean;
   message: string;

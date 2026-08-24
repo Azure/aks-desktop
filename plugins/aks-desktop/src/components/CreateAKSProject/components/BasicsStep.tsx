@@ -43,7 +43,6 @@ interface RegisterClusterProps {
   cluster: string;
   resourceGroup: string;
   subscription: string;
-  tenantId?: string;
 }
 
 /**
@@ -52,13 +51,12 @@ interface RegisterClusterProps {
  *
  * All async logic lives in {@link useRegisterCluster}.
  */
-function RegisterCluster({ cluster, resourceGroup, subscription, tenantId }: RegisterClusterProps) {
+function RegisterCluster({ cluster, resourceGroup, subscription }: RegisterClusterProps) {
   const { t } = useTranslation();
   const { loading, error, success, handleRegister, clearError, clearSuccess } = useRegisterCluster(
     cluster,
     resourceGroup,
-    subscription,
-    tenantId
+    subscription
   );
 
   return (
@@ -147,7 +145,6 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
     subscriptionOptions,
     clusterOptions,
     clusterHelperText,
-    selectedSubscription,
     selectedCluster,
     isClusterMissing,
     nonReadyCluster,
@@ -314,7 +311,6 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
             cluster={selectedCluster.name}
             resourceGroup={selectedCluster.resourceGroup}
             subscription={formData.subscription}
-            tenantId={selectedSubscription?.tenant}
           />
         )}
 

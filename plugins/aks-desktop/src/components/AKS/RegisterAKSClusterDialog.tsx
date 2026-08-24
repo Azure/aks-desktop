@@ -256,9 +256,7 @@ export default function RegisterAKSClusterDialog({
       result = await registerAKSCluster(
         selectedSubscription.id,
         selectedCluster.resourceGroup,
-        selectedCluster.name,
-        undefined, // managedNamespace
-        selectedSubscription.tenantId
+        selectedCluster.name
       );
     } catch (err) {
       console.error('Error registering AKS cluster:', err);
