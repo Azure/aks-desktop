@@ -132,8 +132,7 @@ export default function RegisterAKSClusterDialog({
       clusterRequestIdRef.current++;
       capabilityRequestIdRef.current++;
       registrationRequestIdRef.current++;
-      registrationInFlightRef.current = false;
-      setLoading(false);
+      setLoading(registrationInFlightRef.current);
       setLoadingSubscriptions(false);
       setLoadingClusters(false);
       setCapabilitiesLoading(false);
@@ -158,8 +157,7 @@ export default function RegisterAKSClusterDialog({
       clusterRequestIdRef.current++;
       capabilityRequestIdRef.current++;
       registrationRequestIdRef.current++;
-      registrationInFlightRef.current = false;
-      setLoading(false);
+      setLoading(registrationInFlightRef.current);
       setError('');
       setSuccess('');
       setRegistrationSucceeded(false);
@@ -180,8 +178,7 @@ export default function RegisterAKSClusterDialog({
         clusterRequestIdRef.current++;
         capabilityRequestIdRef.current++;
         registrationRequestIdRef.current++;
-        registrationInFlightRef.current = false;
-        setLoading(false);
+        setLoading(registrationInFlightRef.current);
         setError('');
         setSuccess('');
         setRegistrationSucceeded(false);
@@ -423,8 +420,9 @@ export default function RegisterAKSClusterDialog({
       onRegistrationFinished?.('failed');
       return;
     } finally {
-      if (registrationRequestId === registrationRequestIdRef.current) {
-        registrationInFlightRef.current = false;
+      registrationInFlightRef.current = false;
+      if (isMountedRef.current) {
+        setLoading(false);
       }
     }
 

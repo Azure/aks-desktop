@@ -606,6 +606,43 @@ describe('RegisterAKSClusterDialog telemetry', () => {
     });
   });
 
+  test('keeps registration locked while an auth change invalidates its session', async () => {
+    let resolveRegistration!: (value: { success: boolean; message: string }) => void;
+    mocks.authStatus.subscriptionId = subscription.id;
+    mocks.registerAKSCluster.mockReturnValue(
+      new Promise(resolve => {
+        resolveRegistration = resolve;
+      })
+    );
+    const rendered = renderDialog();
+    selectRequiredValues();
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    await waitFor(() => expect(mocks.registerAKSCluster).toHaveBeenCalledTimes(1));
+
+    mocks.authStatus.subscriptionId = 'next-subscription';
+    rendered.rerender(
+      <RegisterAKSClusterDialog
+        open
+        onClose={mocks.onClose}
+        onClusterRegistered={mocks.onClusterRegistered}
+        onRegistrationFinished={mocks.onRegistrationFinished}
+        onRegistrationStarted={mocks.onRegistrationStarted}
+      />
+    );
+    await waitFor(() => expect(currentDialogProps().selectedSubscription).toBeNull());
+
+    expect(currentDialogProps().loading).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(mocks.onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveRegistration({ success: true, message: 'registered' });
+    });
+    expect(currentDialogProps().loading).toBe(false);
+    expect(currentDialogProps().registrationSucceeded).toBe(false);
+    expect(mocks.onClusterRegistered).not.toHaveBeenCalled();
+  });
+
   test.each([
     [{ success: false, message: 'cluster unavailable' }, 'cluster unavailable'],
     [new Error('cluster exception'), 'Failed to load AKS clusters'],
