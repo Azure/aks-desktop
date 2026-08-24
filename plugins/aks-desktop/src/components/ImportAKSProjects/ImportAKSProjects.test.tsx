@@ -352,6 +352,39 @@ describe('ImportAKSProjects', () => {
     expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
   });
 
+  test('registers same-name clusters separately when their Azure scopes differ', async () => {
+    const firstNamespace = makeDiscoveredNamespace({
+      name: 'first-ns',
+      clusterName: 'shared-name',
+      resourceGroup: 'first-rg',
+      subscriptionId: 'first-sub',
+      isAksProject: true,
+      category: 'needs-import',
+    });
+    const secondNamespace = makeDiscoveredNamespace({
+      name: 'second-ns',
+      clusterName: 'shared-name',
+      resourceGroup: 'second-rg',
+      subscriptionId: 'second-sub',
+      isAksProject: true,
+      category: 'needs-import',
+    });
+    mockUseNamespaceDiscovery.mockReturnValue(
+      defaultDiscoveryReturn([firstNamespace, secondNamespace])
+    );
+    mockRegisterAKSCluster.mockResolvedValue({ success: true });
+
+    render(<ImportAKSProjects />);
+    fireEvent.click(screen.getByText('Select All'));
+    fireEvent.click(screen.getByText('Import Selected Projects'));
+
+    await waitFor(() => expect(screen.getByText('Go To Projects')).toBeInTheDocument());
+    expect(mockRegisterAKSCluster.mock.calls).toEqual([
+      ['first-sub', 'first-rg', 'shared-name'],
+      ['second-sub', 'second-rg', 'shared-name'],
+    ]);
+  });
+
   test('select all / deselect all work correctly', () => {
     const ns1 = makeDiscoveredNamespace({ name: 'ns1' });
     const ns2 = makeDiscoveredNamespace({ name: 'ns2' });

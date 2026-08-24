@@ -171,13 +171,16 @@ function ImportAKSProjectsContent() {
     for (const item of selectedNamespaces) {
       const ns = item.namespace;
       const meta = clusterAzureMeta.get(ns.clusterName);
-      const existing = clusterMap.get(ns.clusterName);
+      const resourceGroup = ns.resourceGroup || meta?.resourceGroup || '';
+      const subscriptionId = ns.subscriptionId || meta?.subscriptionId || '';
+      const clusterKey = `${subscriptionId}\0${resourceGroup}\0${ns.clusterName}`;
+      const existing = clusterMap.get(clusterKey);
       if (!existing) {
-        clusterMap.set(ns.clusterName, {
+        clusterMap.set(clusterKey, {
           key: {
             clusterName: ns.clusterName,
-            resourceGroup: ns.resourceGroup || meta?.resourceGroup || '',
-            subscriptionId: ns.subscriptionId || meta?.subscriptionId || '',
+            resourceGroup,
+            subscriptionId,
           },
           namespaces: [ns],
         });
