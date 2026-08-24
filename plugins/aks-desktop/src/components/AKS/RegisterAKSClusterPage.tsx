@@ -8,6 +8,17 @@ import { trackAksFeature } from '../../telemetry/aksFeature';
 import RegisterAKSClusterDialog from './RegisterAKSClusterDialog';
 
 /**
+ * Records cancellation without allowing telemetry failures to block navigation.
+ *
+ * @returns Nothing.
+ */
+function safelyTrackCancellation() {
+  try {
+    trackAksFeature('aksd.cluster-add', 'cancelled');
+  } catch {}
+}
+
+/**
  * Page component for the AKS cluster registration flow
  * This is rendered when user clicks "Add" on the AKS cluster provider
  */
@@ -17,7 +28,9 @@ export default function RegisterAKSClusterPage() {
   // Starts 'idle' so that merely opening the page and leaving reports only
   // `opened`. `cancelled` is reserved for a registration the user actually
   // started and then backed out of, matching auth-login.
-  const finalStatusRef = useRef<'idle' | 'active' | 'cancelled' | 'failed' | 'succeeded'>('idle');
+  const terminalStatusRef = useRef<'idle' | 'active' | 'cancelled' | 'failed' | 'succeeded'>(
+    'idle'
+  );
   const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useTelemetryFeatureOpened('aksd.cluster-add');
@@ -31,9 +44,9 @@ export default function RegisterAKSClusterPage() {
   }, []);
 
   const handleClose = () => {
-    if (finalStatusRef.current === 'active') {
-      finalStatusRef.current = 'cancelled';
-      trackAksFeature('aksd.cluster-add', 'cancelled');
+    if (terminalStatusRef.current === 'active') {
+      terminalStatusRef.current = 'cancelled';
+      safelyTrackCancellation();
     }
 
     setOpen(false);
@@ -47,22 +60,22 @@ export default function RegisterAKSClusterPage() {
   };
 
   const handleClusterRegistered = () => {
-    if (finalStatusRef.current === 'active') {
-      finalStatusRef.current = 'succeeded';
+    if (terminalStatusRef.current === 'active') {
+      terminalStatusRef.current = 'succeeded';
     }
     // Dialog will handle reload, so no need to do anything here
   };
 
   const handleRegistrationStarted = () => {
-    finalStatusRef.current = 'active';
+    terminalStatusRef.current = 'active';
   };
 
   const handleRegistrationFinished = (outcome: 'failed' | 'succeeded') => {
     // Only an active attempt can reach a final status, so a late result
     // cannot overwrite a recorded cancellation. The dialog blocks close while
     // registration is in flight, so this is defensive rather than a live path.
-    if (finalStatusRef.current === 'active') {
-      finalStatusRef.current = outcome;
+    if (terminalStatusRef.current === 'active') {
+      terminalStatusRef.current = outcome;
     }
   };
 
