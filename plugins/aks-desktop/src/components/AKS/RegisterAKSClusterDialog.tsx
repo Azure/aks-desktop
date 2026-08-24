@@ -47,6 +47,7 @@ export default function RegisterAKSClusterDialog({
   const [capabilities, setCapabilities] = useState<ClusterCapabilities | null>(null);
   const [capabilitiesLoading, setCapabilitiesLoading] = useState(false);
   const isMountedRef = useRef(true);
+  const registrationInFlightRef = useRef(false);
 
   /** Helper function to filter options by name substring match, ranking prefix matches first. */
   function rankNameMatches<T extends { name: string }>(options: T[], inputValue: string): T[] {
@@ -238,9 +239,10 @@ export default function RegisterAKSClusterDialog({
   };
 
   const handleRegister = async () => {
-    if (!selectedCluster || !selectedSubscription) {
+    if (registrationInFlightRef.current || !selectedCluster || !selectedSubscription) {
       return;
     }
+    registrationInFlightRef.current = true;
 
     onRegistrationStarted?.();
     trackAksFeature('aksd.cluster-add', 'started');
@@ -270,6 +272,8 @@ export default function RegisterAKSClusterDialog({
       trackError({ area: 'cluster-add', errorClass: 'UnknownError', phase: 'failed' });
       onRegistrationFinished?.('failed');
       return;
+    } finally {
+      registrationInFlightRef.current = false;
     }
 
     if (!result.success) {

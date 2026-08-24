@@ -160,6 +160,27 @@ describe('RegisterAKSClusterDialog telemetry', () => {
     );
   });
 
+  test('ignores a second registration request while the first is in flight', async () => {
+    let resolveRegistration!: (value: { success: boolean; message: string }) => void;
+    mocks.registerAKSCluster.mockReturnValue(
+      new Promise(resolve => {
+        resolveRegistration = resolve;
+      })
+    );
+    renderDialog();
+    selectRequiredValues();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+
+    expect(mocks.registerAKSCluster).toHaveBeenCalledTimes(1);
+    expect(mocks.onRegistrationStarted).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveRegistration({ success: false, message: 'expected failure' });
+    });
+  });
+
   test('emits succeeded immediately after registration before the capability query settles', async () => {
     let rejectCapabilities!: (error: Error) => void;
     mocks.registerAKSCluster.mockResolvedValue({
