@@ -423,6 +423,43 @@ describe('ImportAKSProjects', () => {
     expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
   });
 
+  test.each([
+    { azureRegistration: { resourceGroup: 'managed-rg' } },
+    { azureRegistration: { subscriptionId: 'managed-sub' } },
+    { azureRegistration: { subscriptionId: { id: 'managed-sub' }, resourceGroup: 'managed-rg' } },
+    { azureRegistration: { subscriptionId: 'managed-sub', resourceGroup: 42 } },
+  ])('rejects malformed registered Azure scope metadata: %s', async settings => {
+    mockUseRegisteredClusters.mockReturnValue(new Set(['legacy-cluster']));
+    mockGetClusterSettings.mockReturnValue(settings);
+    const namespace = makeDiscoveredNamespace({
+      name: 'managed-ns',
+      clusterName: 'legacy-cluster',
+      subscriptionId: 'managed-sub',
+      resourceGroup: 'managed-rg',
+      isAksProject: true,
+      category: 'needs-import',
+    });
+    mockUseNamespaceDiscovery.mockReturnValue(defaultDiscoveryReturn([namespace]));
+
+    render(<ImportAKSProjects />);
+    fireEvent.click(
+      screen
+        .getByTestId('row-managed-ns')
+        .querySelector('input[type="checkbox"]') as HTMLInputElement
+    );
+    fireEvent.click(screen.getByText('Import Selected Projects'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Failed to import any projects. See details below.')
+      ).toBeInTheDocument()
+    );
+    expect(
+      screen.getByText(/already registered from a different or unknown Azure scope/)
+    ).toBeInTheDocument();
+    expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
+  });
+
   test('rejects same-name clusters when their Azure scopes differ', async () => {
     const firstNamespace = makeDiscoveredNamespace({
       name: 'first-ns',
