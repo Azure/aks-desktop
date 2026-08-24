@@ -65,8 +65,6 @@ export function useRegisterCluster(
 
   useEffect(() => {
     registrationAttemptRef.current++;
-    registrationInFlightRef.current = false;
-    setLoading(false);
     setError(undefined);
     setSuccess(undefined);
   }, [cluster, resourceGroup, subscription]);
@@ -114,10 +112,8 @@ export function useRegisterCluster(
         })
       );
     } finally {
-      if (registrationAttempt === registrationAttemptRef.current) {
-        registrationInFlightRef.current = false;
-        setLoading(false);
-      }
+      registrationInFlightRef.current = false;
+      setLoading(false);
     }
   };
 
