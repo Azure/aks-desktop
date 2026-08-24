@@ -20,6 +20,38 @@ const SAMPLE_TENANTS = [
   { id: 'tenant-2', name: 'Tenant 2' },
 ];
 
+// Realistic multi-tenant data: real GUIDs plus the display names resolved from
+// `az account tenant list`, including a guest tenant that only has a domain.
+const MULTI_TENANTS = [
+  { id: '11111111-1111-1111-1111-111111111111', name: 'Contoso Corporation' },
+  { id: '22222222-2222-2222-2222-222222222222', name: 'Fabrikam Engineering' },
+  { id: '33333333-3333-3333-3333-333333333333', name: 'northwind.onmicrosoft.com' },
+];
+
+const MULTI_TENANT_SUBSCRIPTIONS = [
+  {
+    id: 'aaaaaaaa-0000-0000-0000-000000000001',
+    name: 'Contoso Production',
+    state: 'Enabled',
+    tenantId: MULTI_TENANTS[0].id,
+    tenantName: MULTI_TENANTS[0].name,
+  },
+  {
+    id: 'aaaaaaaa-0000-0000-0000-000000000002',
+    name: 'Fabrikam Shared Services',
+    state: 'Enabled',
+    tenantId: MULTI_TENANTS[1].id,
+    tenantName: MULTI_TENANTS[1].name,
+  },
+  {
+    id: 'aaaaaaaa-0000-0000-0000-000000000003',
+    name: 'Northwind Guest Access',
+    state: 'Enabled',
+    tenantId: MULTI_TENANTS[2].id,
+    tenantName: MULTI_TENANTS[2].name,
+  },
+];
+
 const SAMPLE_CLUSTERS = [
   {
     name: 'prod-aks-cluster',
@@ -260,4 +292,30 @@ TenantNotSelected.args = {
   tenantInputValue: '',
   selectedSubscription: null,
   subscriptionInputValue: '',
+};
+
+/**
+ * Multi-tenant account with real tenant display names resolved from
+ * `az account tenant list` — each option shows the name above its GUID.
+ * Regression cover for issue #853, where every option showed the GUID twice.
+ */
+export const MultipleTenantsWithNames = Template.bind({});
+MultipleTenantsWithNames.args = {
+  ...baseArgs,
+  tenants: MULTI_TENANTS,
+  selectedTenant: null,
+  tenantInputValue: '',
+  subscriptions: MULTI_TENANT_SUBSCRIPTIONS.filter(s => s.tenantId === MULTI_TENANTS[0].id),
+  selectedSubscription: null,
+  subscriptionInputValue: '',
+};
+
+/**
+ * Multi-tenant account where no display name could be resolved (tenant list
+ * unavailable, e.g. stale login). Options fall back to the GUID, shown once.
+ */
+export const MultipleTenantsUnresolvedNames = Template.bind({});
+MultipleTenantsUnresolvedNames.args = {
+  ...MultipleTenantsWithNames.args,
+  tenants: MULTI_TENANTS.map(tenant => ({ ...tenant, name: tenant.id })),
 };

@@ -232,9 +232,13 @@ export default function RegisterAKSClusterDialogPure({
                   <li {...props} key={option.id}>
                     <Box>
                       <Typography variant="body1">{option.name}</Typography>
-                      <Typography variant="caption" color="textSecondary">
-                        {option.id}
-                      </Typography>
+                      {/* When the display name is unresolvable the name falls back to the
+                          tenant ID; showing it twice reads as a rendering bug. */}
+                      {option.name !== option.id && (
+                        <Typography variant="caption" color="textSecondary">
+                          {option.id}
+                        </Typography>
+                      )}
                     </Box>
                   </li>
                 )}
