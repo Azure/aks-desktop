@@ -151,12 +151,22 @@ function ImportAKSProjectsContent() {
     // (not just selected). This ensures we have Azure metadata for clusters even
     // when the user only selects namespaces that were discovered via K8s API.
     const clusterAzureMeta = new Map<string, { resourceGroup: string; subscriptionId: string }>();
+    const ambiguousAzureMetadataNames = new Set<string>();
     for (const ns of discovered) {
-      if (ns.resourceGroup && ns.subscriptionId && !clusterAzureMeta.has(ns.clusterName)) {
-        clusterAzureMeta.set(ns.clusterName, {
-          resourceGroup: ns.resourceGroup,
-          subscriptionId: ns.subscriptionId,
-        });
+      if (ns.resourceGroup && ns.subscriptionId) {
+        const existing = clusterAzureMeta.get(ns.clusterName);
+        if (
+          existing &&
+          (existing.resourceGroup !== ns.resourceGroup ||
+            existing.subscriptionId !== ns.subscriptionId)
+        ) {
+          ambiguousAzureMetadataNames.add(ns.clusterName);
+        } else if (!existing) {
+          clusterAzureMeta.set(ns.clusterName, {
+            resourceGroup: ns.resourceGroup,
+            subscriptionId: ns.subscriptionId,
+          });
+        }
       }
     }
 
@@ -168,12 +178,20 @@ function ImportAKSProjectsContent() {
         namespaces: DiscoveredNamespace[];
       }
     >();
+    const clusterKeyByName = new Map<string, string>();
+    const conflictingClusterNames = new Set(ambiguousAzureMetadataNames);
     for (const item of selectedNamespaces) {
       const ns = item.namespace;
       const meta = clusterAzureMeta.get(ns.clusterName);
       const resourceGroup = ns.resourceGroup || meta?.resourceGroup || '';
       const subscriptionId = ns.subscriptionId || meta?.subscriptionId || '';
       const clusterKey = `${subscriptionId}\0${resourceGroup}\0${ns.clusterName}`;
+      const existingClusterKey = clusterKeyByName.get(ns.clusterName);
+      if (existingClusterKey && existingClusterKey !== clusterKey) {
+        conflictingClusterNames.add(ns.clusterName);
+      } else if (!existingClusterKey) {
+        clusterKeyByName.set(ns.clusterName, clusterKey);
+      }
       const existing = clusterMap.get(clusterKey);
       if (!existing) {
         clusterMap.set(clusterKey, {
@@ -202,6 +220,20 @@ function ImportAKSProjectsContent() {
       namespaces: namespacesInCluster,
     } of clusterMap.values()) {
       try {
+        if (conflictingClusterNames.has(clusterName)) {
+          for (const ns of namespacesInCluster) {
+            results.push({
+              namespace: `${ns.name} (${clusterName})`,
+              clusterName,
+              success: false,
+              message: t(
+                'Cannot import projects with the same cluster name in different Azure scopes because their kubeconfig entries would overwrite each other.'
+              ),
+            });
+          }
+          continue;
+        }
+
         // 2a: Register the cluster if it's not already registered in Headlamp.
         // Re-registering with a managedNamespace param overwrites the kubeconfig
         // with namespace-scoped credentials, which would break access to

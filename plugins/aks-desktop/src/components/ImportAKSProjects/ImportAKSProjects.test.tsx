@@ -352,7 +352,7 @@ describe('ImportAKSProjects', () => {
     expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
   });
 
-  test('registers same-name clusters separately when their Azure scopes differ', async () => {
+  test('rejects same-name clusters when their Azure scopes differ', async () => {
     const firstNamespace = makeDiscoveredNamespace({
       name: 'first-ns',
       clusterName: 'shared-name',
@@ -378,11 +378,56 @@ describe('ImportAKSProjects', () => {
     fireEvent.click(screen.getByText('Select All'));
     fireEvent.click(screen.getByText('Import Selected Projects'));
 
-    await waitFor(() => expect(screen.getByText('Go To Projects')).toBeInTheDocument());
-    expect(mockRegisterAKSCluster.mock.calls).toEqual([
-      ['first-sub', 'first-rg', 'shared-name'],
-      ['second-sub', 'second-rg', 'shared-name'],
-    ]);
+    await waitFor(() =>
+      expect(
+        screen.getByText('Failed to import any projects. See details below.')
+      ).toBeInTheDocument()
+    );
+    expect(screen.getAllByText(/same cluster name in different Azure scopes/)).toHaveLength(2);
+    expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
+  });
+
+  test('rejects metadata fallback when a cluster name maps to multiple Azure scopes', async () => {
+    const regularNamespace = makeDiscoveredNamespace({
+      name: 'regular-ns',
+      clusterName: 'shared-name',
+      resourceGroup: '',
+      subscriptionId: '',
+      isManagedNamespace: false,
+      isAksProject: true,
+      category: 'needs-import',
+    });
+    const firstManagedNamespace = makeDiscoveredNamespace({
+      name: 'first-managed',
+      clusterName: 'shared-name',
+      resourceGroup: 'first-rg',
+      subscriptionId: 'first-sub',
+    });
+    const secondManagedNamespace = makeDiscoveredNamespace({
+      name: 'second-managed',
+      clusterName: 'shared-name',
+      resourceGroup: 'second-rg',
+      subscriptionId: 'second-sub',
+    });
+    mockUseNamespaceDiscovery.mockReturnValue(
+      defaultDiscoveryReturn([regularNamespace, firstManagedNamespace, secondManagedNamespace])
+    );
+    mockRegisterAKSCluster.mockResolvedValue({ success: true });
+
+    render(<ImportAKSProjects />);
+    const checkbox = screen
+      .getByTestId('row-regular-ns')
+      .querySelector('input[type="checkbox"]') as HTMLInputElement;
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByText('Import Selected Projects'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Failed to import any projects. See details below.')
+      ).toBeInTheDocument()
+    );
+    expect(screen.getByText(/same cluster name in different Azure scopes/)).toBeInTheDocument();
+    expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
   });
 
   test('select all / deselect all work correctly', () => {
