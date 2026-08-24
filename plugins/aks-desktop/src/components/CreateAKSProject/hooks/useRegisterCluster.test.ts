@@ -69,6 +69,30 @@ describe('useRegisterCluster', () => {
     });
   });
 
+  test('handleRegister ignores a second call while registration is in flight', async () => {
+    let resolveRegister!: (value: { success: boolean; message: string }) => void;
+    mockRegisterAKSCluster.mockReturnValue(
+      new Promise(resolve => {
+        resolveRegister = resolve;
+      })
+    );
+    const { result } = renderHook(() => useRegisterCluster('aks-prod', 'rg-prod', 'sub-123'));
+
+    let firstCall!: Promise<void>;
+    let secondCall!: Promise<void>;
+    act(() => {
+      firstCall = result.current.handleRegister();
+      secondCall = result.current.handleRegister();
+    });
+
+    expect(mockRegisterAKSCluster).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveRegister({ success: true, message: 'ok' });
+      await Promise.all([firstCall, secondCall]);
+    });
+  });
+
   test('handleRegister sets success message on result.success=true', async () => {
     mockRegisterAKSCluster.mockResolvedValue({ success: true, message: 'ok' });
     const { result } = renderHook(() => useRegisterCluster('aks-prod', 'rg-prod', 'sub-123'));
@@ -119,23 +143,15 @@ describe('useRegisterCluster', () => {
     expect(result.current.error).toContain('Unknown error');
   });
 
-  test('handleRegister passes subscription, resourceGroup, cluster, and tenantId to registerAKSCluster', async () => {
+  test('handleRegister passes subscription, resourceGroup, and cluster to registerAKSCluster', async () => {
     mockRegisterAKSCluster.mockResolvedValue({ success: true, message: '' });
-    const { result } = renderHook(() =>
-      useRegisterCluster('aks-prod', 'rg-prod', 'sub-123', 'tenant-abc')
-    );
+    const { result } = renderHook(() => useRegisterCluster('aks-prod', 'rg-prod', 'sub-123'));
 
     await act(async () => {
       await result.current.handleRegister();
     });
 
-    expect(mockRegisterAKSCluster).toHaveBeenCalledWith(
-      'sub-123',
-      'rg-prod',
-      'aks-prod',
-      undefined,
-      'tenant-abc'
-    );
+    expect(mockRegisterAKSCluster).toHaveBeenCalledWith('sub-123', 'rg-prod', 'aks-prod');
   });
 
   test('handleRegister does not call registerAKSCluster when cluster is empty', async () => {

@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { registerAKSCluster } from '../../../utils/azure/aks';
 
 /** Set to `true` locally to enable verbose debug logging. Never enable in production. */
@@ -45,23 +45,25 @@ export interface UseRegisterClusterResult {
  * @param cluster - The AKS cluster name to register.
  * @param resourceGroup - The resource group the cluster belongs to.
  * @param subscription - The Azure subscription ID.
- * @param tenantId - Optional tenant ID for multi-tenant environments.
+ * @param _tenantId - Deprecated tenant ID retained for caller compatibility.
  */
 export function useRegisterCluster(
   cluster: string,
   resourceGroup: string,
   subscription: string,
-  tenantId?: string
+  _tenantId?: string
 ): UseRegisterClusterResult {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [success, setSuccess] = useState<string | undefined>(undefined);
+  const registrationInFlightRef = useRef(false);
 
   const handleRegister = async () => {
-    if (!cluster || !resourceGroup || !subscription) {
+    if (registrationInFlightRef.current || !cluster || !resourceGroup || !subscription) {
       return;
     }
+    registrationInFlightRef.current = true;
 
     setLoading(true);
     setError(undefined);
@@ -69,13 +71,7 @@ export function useRegisterCluster(
 
     try {
       if (DEBUG) console.debug('[AKS] Registering cluster...');
-      const result = await registerAKSCluster(
-        subscription,
-        resourceGroup,
-        cluster,
-        undefined,
-        tenantId
-      );
+      const result = await registerAKSCluster(subscription, resourceGroup, cluster);
       if (DEBUG) console.debug('[AKS] Register cluster result:', result.success);
 
       if (!result.success) {
@@ -93,6 +89,7 @@ export function useRegisterCluster(
         })
       );
     } finally {
+      registrationInFlightRef.current = false;
       setLoading(false);
     }
   };
