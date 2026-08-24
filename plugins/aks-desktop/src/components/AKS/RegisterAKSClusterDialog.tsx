@@ -47,6 +47,8 @@ export default function RegisterAKSClusterDialog({
   const [capabilities, setCapabilities] = useState<ClusterCapabilities | null>(null);
   const [capabilitiesLoading, setCapabilitiesLoading] = useState(false);
   const isMountedRef = useRef(true);
+  /** Identifies the latest cluster-list request so stale responses are ignored. */
+  const clusterRequestIdRef = useRef(0);
   /** Synchronous guard for repeated submissions before loading state renders. */
   const registrationInFlightRef = useRef(false);
 
@@ -76,6 +78,8 @@ export default function RegisterAKSClusterDialog({
   }
 
   const resetClusterState = () => {
+    clusterRequestIdRef.current++;
+    setLoadingClusters(false);
     setClusters([]);
     setSelectedCluster(null);
     setClusterInputValue('');
@@ -99,6 +103,8 @@ export default function RegisterAKSClusterDialog({
     if (selectedSubscription) {
       loadClusters(selectedSubscription.id);
     } else {
+      clusterRequestIdRef.current++;
+      setLoadingClusters(false);
       setClusters([]);
       setSelectedCluster(null);
     }
@@ -141,6 +147,7 @@ export default function RegisterAKSClusterDialog({
   };
 
   const loadClusters = async (subscriptionId: string) => {
+    const requestId = ++clusterRequestIdRef.current;
     setLoadingClusters(true);
     setError('');
     setClusters([]);
@@ -150,6 +157,10 @@ export default function RegisterAKSClusterDialog({
     try {
       const result = await getAKSClusters(subscriptionId);
 
+      if (requestId !== clusterRequestIdRef.current) {
+        return;
+      }
+
       if (!result.success) {
         setError(result.message);
         return;
@@ -157,10 +168,15 @@ export default function RegisterAKSClusterDialog({
 
       setClusters(result.clusters || []);
     } catch (err) {
+      if (requestId !== clusterRequestIdRef.current) {
+        return;
+      }
       console.error('Error loading AKS clusters:', err);
       setError(t('Failed to load AKS clusters'));
     } finally {
-      setLoadingClusters(false);
+      if (requestId === clusterRequestIdRef.current) {
+        setLoadingClusters(false);
+      }
     }
   };
 

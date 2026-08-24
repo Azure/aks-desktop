@@ -190,6 +190,13 @@ Registering.args = {
   loading: true,
 };
 
+/** Registration in progress with tenant, subscription, and cluster selection locked. */
+export const SelectionControlsLockedDuringRegistration = Template.bind({});
+SelectionControlsLockedDuringRegistration.args = {
+  ...ClusterSelected.args,
+  loading: true,
+};
+
 /** Registration succeeded — success alert and Done button. */
 export const Success = Template.bind({});
 Success.args = {

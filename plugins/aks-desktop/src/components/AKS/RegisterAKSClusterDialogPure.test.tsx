@@ -146,4 +146,43 @@ describe('RegisterAKSClusterDialogPure tenant options', () => {
 
     expect(screen.getByRole('combobox', { name: 'Tenant' })).toBeDisabled();
   });
+
+  test('disables all cluster identity controls while registration is in flight', () => {
+    const selectedSubscription = {
+      id: 'sub-1',
+      name: 'Production',
+      state: 'Enabled',
+      tenantId: TENANT_A,
+    };
+    const selectedCluster = {
+      name: 'aks-prod',
+      resourceGroup: 'rg-prod',
+      location: 'eastus',
+      kubernetesVersion: '1.32.0',
+      provisioningState: 'Succeeded',
+    };
+    render(
+      <RegisterAKSClusterDialogPure
+        {...baseArgs}
+        loading
+        tenants={[
+          { id: TENANT_A, name: 'Contoso' },
+          { id: TENANT_B, name: 'Fabrikam' },
+        ]}
+        selectedTenant={{ id: TENANT_A, name: 'Contoso' }}
+        tenantInputValue="Contoso"
+        subscriptions={[selectedSubscription]}
+        selectedSubscription={selectedSubscription}
+        subscriptionInputValue="Production"
+        clusters={[selectedCluster]}
+        filteredClusters={[selectedCluster]}
+        selectedCluster={selectedCluster}
+        clusterInputValue="aks-prod"
+      />
+    );
+
+    expect(screen.getByRole('combobox', { name: 'Tenant' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Subscription' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'AKS Cluster' })).toBeDisabled();
+  });
 });

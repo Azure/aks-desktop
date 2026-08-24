@@ -322,6 +322,50 @@ describe('RegisterAKSClusterDialog telemetry', () => {
     expect(currentDialogProps().loadingClusters).toBe(false);
   });
 
+  test('ignores a stale cluster response after the subscription changes', async () => {
+    const secondSubscription = {
+      ...subscription,
+      id: 'second-subscription-id',
+      name: 'Second Subscription',
+    };
+    const firstCluster = { ...cluster, name: 'first-cluster' };
+    const secondCluster = { ...cluster, name: 'second-cluster' };
+    let resolveFirst!: (value: { success: boolean; clusters: (typeof cluster)[] }) => void;
+    let resolveSecond!: (value: { success: boolean; clusters: (typeof cluster)[] }) => void;
+    mocks.getAKSClusters
+      .mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveFirst = resolve;
+        })
+      )
+      .mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveSecond = resolve;
+        })
+      );
+    renderDialog();
+
+    act(() => {
+      currentDialogProps().onSubscriptionChange({} as React.SyntheticEvent, subscription);
+    });
+    await waitFor(() => expect(mocks.getAKSClusters).toHaveBeenCalledWith(subscription.id));
+    act(() => {
+      currentDialogProps().onSubscriptionChange({} as React.SyntheticEvent, secondSubscription);
+    });
+    await waitFor(() => expect(mocks.getAKSClusters).toHaveBeenCalledWith(secondSubscription.id));
+
+    await act(async () => {
+      resolveSecond({ success: true, clusters: [secondCluster] });
+    });
+    expect(currentDialogProps().clusters).toEqual([secondCluster]);
+
+    await act(async () => {
+      resolveFirst({ success: true, clusters: [firstCluster] });
+    });
+    expect(currentDialogProps().clusters).toEqual([secondCluster]);
+    expect(currentDialogProps().loadingClusters).toBe(false);
+  });
+
   test('filters tenant subscriptions and resets dependent selection state', async () => {
     const otherSubscription = {
       ...subscription,
