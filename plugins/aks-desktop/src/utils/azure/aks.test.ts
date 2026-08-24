@@ -212,4 +212,13 @@ describe('Azure AKS utilities', () => {
       message: 'Unknown error',
     });
   });
+
+  test('reports a malformed desktop registration response', async () => {
+    desktopRegisterAKSCluster.mockResolvedValue(undefined);
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
+      success: false,
+      message: 'Cluster registration returned an invalid response.',
+    });
+  });
 });

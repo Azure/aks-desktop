@@ -135,7 +135,7 @@ export async function registerAKSCluster(
       };
     }
 
-    const result = await desktopApi.registerAKSCluster(
+    const result: unknown = await desktopApi.registerAKSCluster(
       subscriptionId,
       resourceGroup,
       clusterName,
@@ -144,8 +144,20 @@ export async function registerAKSCluster(
       'aks'
     );
 
+    if (
+      typeof result !== 'object' ||
+      result === null ||
+      typeof (result as { success?: unknown }).success !== 'boolean' ||
+      typeof (result as { message?: unknown }).message !== 'string'
+    ) {
+      return {
+        success: false,
+        message: 'Cluster registration returned an invalid response.',
+      };
+    }
+
     console.debug('[AKS] Registration result:', result);
-    return result;
+    return result as { success: boolean; message: string };
   } catch (error) {
     console.error('[AKS] Error registering AKS cluster:', error);
     return {
