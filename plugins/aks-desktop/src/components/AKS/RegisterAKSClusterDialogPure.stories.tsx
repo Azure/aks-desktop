@@ -215,6 +215,14 @@ SelectionControlsLockedAfterSuccess.args = {
   ...Success.args,
 };
 
+/** Success alert dismissed while the dialog remains terminal with only Done available. */
+export const DismissedSuccessRemainsTerminal = Template.bind({});
+DismissedSuccessRemainsTerminal.args = {
+  ...ClusterSelected.args,
+  registrationSucceeded: true,
+  success: '',
+};
+
 /** Registration failed — error alert displayed. */
 export const Error = Template.bind({});
 Error.args = {

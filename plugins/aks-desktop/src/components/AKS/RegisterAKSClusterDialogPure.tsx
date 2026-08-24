@@ -51,6 +51,8 @@ export interface RegisterAKSClusterDialogPureProps {
   capabilitiesLoading: boolean;
   error: string;
   success: string;
+  /** Whether registration completed successfully in the current dialog session. */
+  registrationSucceeded?: boolean;
   subscriptions: Subscription[];
   selectedSubscription: Subscription | null;
   subscriptionInputValue: string;
@@ -86,6 +88,7 @@ export default function RegisterAKSClusterDialogPure({
   capabilitiesLoading,
   error,
   success,
+  registrationSucceeded,
   subscriptions,
   selectedSubscription,
   subscriptionInputValue,
@@ -111,6 +114,7 @@ export default function RegisterAKSClusterDialogPure({
   onConfigured,
 }: RegisterAKSClusterDialogPureProps) {
   const { t } = useTranslation();
+  const registrationCompleted = registrationSucceeded ?? Boolean(success);
 
   return (
     <Dialog
@@ -221,7 +225,7 @@ export default function RegisterAKSClusterDialogPure({
                 getOptionLabel={option => option.name}
                 isOptionEqualToValue={(option, value) => option.id === value.id}
                 disabled={
-                  loading || Boolean(success) || loadingSubscriptions || tenants.length <= 1
+                  loading || registrationCompleted || loadingSubscriptions || tenants.length <= 1
                 }
                 renderInput={params => (
                   <TextField
@@ -261,7 +265,7 @@ export default function RegisterAKSClusterDialogPure({
                 isOptionEqualToValue={(option, value) => option.id === value.id}
                 disabled={
                   loading ||
-                  Boolean(success) ||
+                  registrationCompleted ||
                   loadingSubscriptions ||
                   (tenants.length > 1 && !selectedTenant)
                 }
@@ -334,7 +338,7 @@ export default function RegisterAKSClusterDialogPure({
                   isOptionEqualToValue={(option, value) =>
                     option.name === value.name && option.resourceGroup === value.resourceGroup
                   }
-                  disabled={loading || Boolean(success)}
+                  disabled={loading || registrationCompleted}
                   renderInput={params => (
                     <TextField
                       {...params}
@@ -356,31 +360,34 @@ export default function RegisterAKSClusterDialogPure({
                 />
               )}
 
-              {selectedCluster && clusterInputValue === selectedCluster.name && !success && (
-                <Box
-                  p={2}
-                  bgcolor="action.hover"
-                  borderRadius={1}
-                  role="region"
-                  aria-label={t('Selected Cluster Details')}
-                >
-                  <Typography variant="subtitle2" component="p" gutterBottom>
-                    {t('Selected Cluster Details')}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Name')}:</strong> {selectedCluster.name}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Resource Group')}:</strong> {selectedCluster.resourceGroup}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Location')}:</strong> {selectedCluster.location}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Kubernetes Version')}:</strong> {selectedCluster.kubernetesVersion}
-                  </Typography>
-                </Box>
-              )}
+              {selectedCluster &&
+                clusterInputValue === selectedCluster.name &&
+                !registrationCompleted && (
+                  <Box
+                    p={2}
+                    bgcolor="action.hover"
+                    borderRadius={1}
+                    role="region"
+                    aria-label={t('Selected Cluster Details')}
+                  >
+                    <Typography variant="subtitle2" component="p" gutterBottom>
+                      {t('Selected Cluster Details')}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Name')}:</strong> {selectedCluster.name}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Resource Group')}:</strong> {selectedCluster.resourceGroup}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Location')}:</strong> {selectedCluster.location}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Kubernetes Version')}:</strong>{' '}
+                      {selectedCluster.kubernetesVersion}
+                    </Typography>
+                  </Box>
+                )}
             </>
           )}
           {/* Persistent live region for loading status announcements.
@@ -416,7 +423,7 @@ export default function RegisterAKSClusterDialogPure({
       </DialogContent>
 
       <DialogActions>
-        {success ? (
+        {registrationCompleted ? (
           <Button onClick={onDone} variant="contained">
             {t('Done')}
           </Button>

@@ -13,6 +13,29 @@ import { getClusterCapabilities } from '../../utils/azure/az-clusters';
 import type { AKSCluster, Subscription, Tenant } from './RegisterAKSClusterDialogPure';
 import RegisterAKSClusterDialogPure from './RegisterAKSClusterDialogPure';
 
+/**
+ * Records a cluster-registration lifecycle status without disrupting the dialog.
+ *
+ * @param status - Registration lifecycle status to record.
+ * @returns Nothing.
+ */
+function safelyTrackAksFeature(status: 'failed' | 'started' | 'succeeded') {
+  try {
+    trackAksFeature('aksd.cluster-add', status);
+  } catch {}
+}
+
+/**
+ * Records a privacy-safe registration error without disrupting the dialog.
+ *
+ * @returns Nothing.
+ */
+function safelyTrackRegistrationError() {
+  try {
+    trackError({ area: 'cluster-add', errorClass: 'UnknownError', phase: 'failed' });
+  } catch {}
+}
+
 interface RegisterAKSClusterDialogProps {
   open: boolean;
   onClose: () => void;
@@ -36,6 +59,7 @@ export default function RegisterAKSClusterDialog({
   const [loadingClusters, setLoadingClusters] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [registrationSucceeded, setRegistrationSucceeded] = useState(false);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
@@ -115,6 +139,7 @@ export default function RegisterAKSClusterDialog({
       setCapabilitiesLoading(false);
       setError('');
       setSuccess('');
+      setRegistrationSucceeded(false);
       setSubscriptions([]);
       setSelectedSubscription(null);
       setSelectedTenant(null);
@@ -137,6 +162,7 @@ export default function RegisterAKSClusterDialog({
       setLoading(false);
       setError('');
       setSuccess('');
+      setRegistrationSucceeded(false);
       setSubscriptions([]);
       setSelectedSubscription(null);
       setSelectedTenant(null);
@@ -158,6 +184,7 @@ export default function RegisterAKSClusterDialog({
         setLoading(false);
         setError('');
         setSuccess('');
+        setRegistrationSucceeded(false);
         setSubscriptions([]);
         setSelectedSubscription(null);
         setSelectedTenant(null);
@@ -352,14 +379,19 @@ export default function RegisterAKSClusterDialog({
   };
 
   const handleRegister = async () => {
-    if (registrationInFlightRef.current || !selectedCluster || !selectedSubscription) {
+    if (
+      registrationInFlightRef.current ||
+      registrationSucceeded ||
+      !selectedCluster ||
+      !selectedSubscription
+    ) {
       return;
     }
     registrationInFlightRef.current = true;
     const registrationRequestId = ++registrationRequestIdRef.current;
 
     onRegistrationStarted?.();
-    trackAksFeature('aksd.cluster-add', 'started');
+    safelyTrackAksFeature('started');
     setLoading(true);
     setError('');
     setSuccess('');
@@ -386,8 +418,8 @@ export default function RegisterAKSClusterDialog({
         })
       );
       setLoading(false);
-      trackAksFeature('aksd.cluster-add', 'failed');
-      trackError({ area: 'cluster-add', errorClass: 'UnknownError', phase: 'failed' });
+      safelyTrackAksFeature('failed');
+      safelyTrackRegistrationError();
       onRegistrationFinished?.('failed');
       return;
     } finally {
@@ -399,15 +431,16 @@ export default function RegisterAKSClusterDialog({
     if (!result.success) {
       setError(result.message);
       setLoading(false);
-      trackAksFeature('aksd.cluster-add', 'failed');
-      trackError({ area: 'cluster-add', errorClass: 'UnknownError', phase: 'failed' });
+      safelyTrackAksFeature('failed');
+      safelyTrackRegistrationError();
       onRegistrationFinished?.('failed');
       return;
     }
 
-    trackAksFeature('aksd.cluster-add', 'succeeded');
+    safelyTrackAksFeature('succeeded');
     onRegistrationFinished?.('succeeded');
     setLoading(false);
+    setRegistrationSucceeded(true);
 
     // Show success message with cluster name
     setSuccess(
@@ -440,7 +473,7 @@ export default function RegisterAKSClusterDialog({
   };
 
   const handleClose = () => {
-    if (!loading) {
+    if (!loading && !registrationInFlightRef.current) {
       onClose();
     }
   };
@@ -479,6 +512,7 @@ export default function RegisterAKSClusterDialog({
       capabilitiesLoading={capabilitiesLoading}
       error={error}
       success={success}
+      registrationSucceeded={registrationSucceeded}
       subscriptions={filteredSubscriptions}
       selectedSubscription={selectedSubscription}
       subscriptionInputValue={subscriptionInputValue}
