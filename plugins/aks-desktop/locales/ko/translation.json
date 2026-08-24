@@ -23,7 +23,6 @@
   "Registering": "등록 중",
   "Register Cluster": "클러스터 등록",
   "Initiating Azure login": "Azure 로그인을 시작하는 중",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "브라우저에서 인증을 완료하세요. 로그인이 완료되면 이 창이 자동으로 리디렉션됩니다.",
   "Login successful! Redirecting": "로그인 성공! 리디렉션 중",
   "Login timeout. Please try again.": "로그인 시간이 초과되었습니다. 다시 시도하세요.",
   "Waiting for login completion... ({{minutes}} minutes remaining)": "로그인 완료를 기다리는 중... ({{minutes}}분 남음)",

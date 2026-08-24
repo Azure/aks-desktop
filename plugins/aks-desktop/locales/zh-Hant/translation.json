@@ -23,7 +23,6 @@
   "Registering": "正在註冊",
   "Register Cluster": "註冊叢集",
   "Initiating Azure login": "正在起始 Azure 登入",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "請在瀏覽器中完成驗證。登入完成後，此視窗會自動重新導向。",
   "Login successful! Redirecting": "登入成功!正在重新導向",
   "Login timeout. Please try again.": "登入逾時。請再試一次。",
   "Waiting for login completion... ({{minutes}} minutes remaining)": "正在等待登入完成...(剩餘 {{minutes}} 分鐘)",

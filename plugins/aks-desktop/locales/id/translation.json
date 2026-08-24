@@ -23,7 +23,6 @@
   "Registering": "Mendaftarkan",
   "Register Cluster": "Daftarkan Kluster",
   "Initiating Azure login": "Memulai proses masuk Azure",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Selesaikan autentikasi di browser Anda. Jendela ini akan otomatis dialihkan setelah proses masuk selesai.",
   "Login successful! Redirecting": "Berhasil masuk! Mengalihkan",
   "Login timeout. Please try again.": "Waktu masuk habis. Coba lagi.",
   "Waiting for login completion... ({{minutes}} minutes remaining)": "Menunggu penyelesaian proses masuk... ({{minutes}} menit tersisa)",
