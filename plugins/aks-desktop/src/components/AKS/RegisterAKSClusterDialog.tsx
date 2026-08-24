@@ -160,7 +160,6 @@ export default function RegisterAKSClusterDialog({
       setLoading(registrationInFlightRef.current);
       setError('');
       setSuccess('');
-      setRegistrationSucceeded(false);
       setSubscriptions([]);
       setSelectedSubscription(null);
       setSelectedTenant(null);
@@ -181,7 +180,6 @@ export default function RegisterAKSClusterDialog({
         setLoading(registrationInFlightRef.current);
         setError('');
         setSuccess('');
-        setRegistrationSucceeded(false);
         setSubscriptions([]);
         setSelectedSubscription(null);
         setSelectedTenant(null);

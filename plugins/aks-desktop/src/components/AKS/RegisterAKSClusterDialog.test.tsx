@@ -643,6 +643,32 @@ describe('RegisterAKSClusterDialog telemetry', () => {
     expect(mocks.onClusterRegistered).not.toHaveBeenCalled();
   });
 
+  test('preserves terminal success across an Azure identity refresh', async () => {
+    mocks.authStatus.subscriptionId = subscription.id;
+    mocks.registerAKSCluster.mockResolvedValue({ success: true, message: 'registered' });
+    mocks.getClusterCapabilities.mockResolvedValue({ azureRbacEnabled: true });
+    const rendered = renderDialog();
+    selectRequiredValues();
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    await waitFor(() => expect(currentDialogProps().registrationSucceeded).toBe(true));
+
+    mocks.authStatus.subscriptionId = 'next-subscription';
+    rendered.rerender(
+      <RegisterAKSClusterDialog
+        open
+        onClose={mocks.onClose}
+        onClusterRegistered={mocks.onClusterRegistered}
+        onRegistrationFinished={mocks.onRegistrationFinished}
+        onRegistrationStarted={mocks.onRegistrationStarted}
+      />
+    );
+    await waitFor(() => expect(currentDialogProps().selectedSubscription).toBeNull());
+
+    expect(currentDialogProps().registrationSucceeded).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(mocks.onClose).not.toHaveBeenCalled();
+  });
+
   test.each([
     [{ success: false, message: 'cluster unavailable' }, 'cluster unavailable'],
     [new Error('cluster exception'), 'Failed to load AKS clusters'],
