@@ -55,6 +55,7 @@ export async function getClusters(subscriptionId?: string, query?: string): Prom
           location: cluster.location,
           version: cluster.kubernetesVersion,
           status: cluster.provisioningState,
+          aadProfile: cluster.aadProfile,
           powerState: cluster.powerState?.code || 'Unknown',
           nodeCount:
             cluster.agentPoolProfiles?.reduce(
