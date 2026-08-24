@@ -100,17 +100,32 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
  * @param resourceGroup - Azure resource group containing the cluster.
  * @param clusterName - AKS cluster to register.
  * @param managedNamespace - Optional managed namespace name to use for scoped credentials
+ * @param clusterAlreadyRegistered - Whether Headlamp currently has this cluster name active.
  * @returns The native registration result after earlier registrations finish.
  */
 export async function registerAKSCluster(
   subscriptionId: string,
   resourceGroup: string,
   clusterName: string,
-  managedNamespace?: string
+  managedNamespace?: string,
+  clusterAlreadyRegistered = false
 ): Promise<{
   success: boolean;
   message: string;
 }> {
+  if (clusterAlreadyRegistered) {
+    const registeredScope = getClusterSettings(clusterName).azureRegistration;
+    const scopeMatches =
+      registeredScope?.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
+      registeredScope.resourceGroup.toLowerCase() === resourceGroup.toLowerCase();
+    if (!scopeMatches) {
+      return {
+        success: false,
+        message: `Cluster '${clusterName}' is already registered from a different or unknown Azure scope.`,
+      };
+    }
+  }
+
   const previousRegistration = registrationQueue;
   let releaseRegistration!: () => void;
   registrationQueue = new Promise(resolve => {

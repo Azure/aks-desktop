@@ -5,6 +5,7 @@ import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import React, { useEffect, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { useAzureAuth } from '../../hooks/useAzureAuth';
+import { useRegisteredClusters } from '../../hooks/useRegisteredClusters';
 import { trackError } from '../../telemetry';
 import { trackAksFeature } from '../../telemetry/aksFeature';
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
@@ -54,6 +55,7 @@ export default function RegisterAKSClusterDialog({
   const history = useHistory();
   const { t } = useTranslation();
   const authStatus = useAzureAuth();
+  const registeredClusters = useRegisteredClusters();
   const [loading, setLoading] = useState(false);
   const [loadingSubscriptions, setLoadingSubscriptions] = useState(false);
   const [loadingClusters, setLoadingClusters] = useState(false);
@@ -397,7 +399,9 @@ export default function RegisterAKSClusterDialog({
       result = await registerAKSCluster(
         selectedSubscription.id,
         selectedCluster.resourceGroup,
-        selectedCluster.name
+        selectedCluster.name,
+        undefined,
+        registeredClusters.has(selectedCluster.name)
       );
       if (registrationRequestId !== registrationRequestIdRef.current) {
         return;

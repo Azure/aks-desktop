@@ -202,6 +202,33 @@ describe('Azure AKS utilities', () => {
     });
   });
 
+  test('rejects an active same-name cluster from another Azure scope', async () => {
+    mocks.getClusterSettings.mockReturnValue({
+      azureRegistration: { subscriptionId: 'old-sub', resourceGroup: 'old-rg' },
+    });
+
+    await expect(
+      registerAKSCluster('new-sub', 'new-rg', 'shared-name', undefined, true)
+    ).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'shared-name' is already registered from a different or unknown Azure scope.",
+    });
+    expect(desktopRegisterAKSCluster).not.toHaveBeenCalled();
+  });
+
+  test('allows stale scope metadata when the cluster name is not active', async () => {
+    mocks.getClusterSettings.mockReturnValue({
+      azureRegistration: { subscriptionId: 'old-sub', resourceGroup: 'old-rg' },
+    });
+    desktopRegisterAKSCluster.mockResolvedValue(successResult);
+
+    await expect(
+      registerAKSCluster('new-sub', 'new-rg', 'shared-name', undefined, false)
+    ).resolves.toEqual(successResult);
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(1);
+  });
+
   test('prevents concurrent registrations from losing a kubeconfig update', async () => {
     let registeredClusters: string[] = [];
     let markFirstStarted!: () => void;

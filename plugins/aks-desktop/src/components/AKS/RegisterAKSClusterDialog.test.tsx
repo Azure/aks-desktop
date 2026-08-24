@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     tenantId: undefined as string | undefined,
     username: undefined as string | undefined,
   },
+  registeredClusters: new Set<string>(),
   getAKSClusters: vi.fn(),
   getClusterCapabilities: vi.fn(),
   getSubscriptions: vi.fn(),
@@ -62,6 +63,10 @@ vi.mock('react-router-dom', () => ({
 
 vi.mock('../../hooks/useAzureAuth', () => ({
   useAzureAuth: () => mocks.authStatus,
+}));
+
+vi.mock('../../hooks/useRegisteredClusters', () => ({
+  useRegisteredClusters: () => mocks.registeredClusters,
 }));
 
 vi.mock('../../utils/azure/aks', () => ({
@@ -147,6 +152,7 @@ describe('RegisterAKSClusterDialog telemetry', () => {
       tenantId: undefined,
       username: undefined,
     });
+    mocks.registeredClusters.clear();
     mocks.getAKSClusters.mockResolvedValue({ success: true, clusters: [] });
     mocks.getSubscriptions.mockResolvedValue({ success: true, subscriptions: [] });
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -263,6 +269,24 @@ describe('RegisterAKSClusterDialog telemetry', () => {
     expect(mocks.onRegistrationFinished).toHaveBeenCalledWith('failed');
     expect(mocks.getClusterCapabilities).not.toHaveBeenCalled();
     expect(telemetryCallsAsJson()).not.toContain('sensitive');
+  });
+
+  test('passes active cluster state to the shared registration boundary', async () => {
+    mocks.registeredClusters.add(cluster.name);
+    mocks.registerAKSCluster.mockResolvedValue({ success: false, message: 'scope conflict' });
+    renderDialog();
+    selectRequiredValues();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+
+    await waitFor(() => expect(mocks.registerAKSCluster).toHaveBeenCalledTimes(1));
+    expect(mocks.registerAKSCluster).toHaveBeenCalledWith(
+      subscription.id,
+      cluster.resourceGroup,
+      cluster.name,
+      undefined,
+      true
+    );
   });
 
   test('emits failed and a privacy-safe error for a thrown exception', async () => {

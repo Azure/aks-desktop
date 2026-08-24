@@ -3,6 +3,7 @@
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useRef, useState } from 'react';
+import { useRegisteredClusters } from '../../../hooks/useRegisteredClusters';
 import { registerAKSCluster } from '../../../utils/azure/aks';
 
 /** Set to `true` locally to enable verbose debug logging. Never enable in production. */
@@ -53,6 +54,7 @@ export function useRegisterCluster(
   subscription: string
 ): UseRegisterClusterResult {
   const { t } = useTranslation();
+  const registeredClusters = useRegisteredClusters();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [success, setSuccess] = useState<string | undefined>(undefined);
@@ -82,7 +84,13 @@ export function useRegisterCluster(
 
     try {
       if (DEBUG) console.debug('[AKS] Registering cluster...');
-      const result = await registerAKSCluster(subscription, resourceGroup, cluster);
+      const result = await registerAKSCluster(
+        subscription,
+        resourceGroup,
+        cluster,
+        undefined,
+        registeredClusters.has(cluster)
+      );
       if (registrationAttempt !== registrationAttemptRef.current) {
         return;
       }

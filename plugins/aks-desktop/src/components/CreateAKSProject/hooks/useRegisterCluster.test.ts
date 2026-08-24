@@ -11,9 +11,14 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 
 const mockRegisterAKSCluster = vi.hoisted(() => vi.fn());
+const mockRegisteredClusters = vi.hoisted(() => new Set<string>());
 
 vi.mock('../../../utils/azure/aks', () => ({
   registerAKSCluster: mockRegisterAKSCluster,
+}));
+
+vi.mock('../../../hooks/useRegisteredClusters', () => ({
+  useRegisteredClusters: () => mockRegisteredClusters,
 }));
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
@@ -35,6 +40,7 @@ import { useRegisterCluster } from './useRegisterCluster';
 describe('useRegisterCluster', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRegisteredClusters.clear();
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -151,7 +157,31 @@ describe('useRegisterCluster', () => {
       await result.current.handleRegister();
     });
 
-    expect(mockRegisterAKSCluster).toHaveBeenCalledWith('sub-123', 'rg-prod', 'aks-prod');
+    expect(mockRegisterAKSCluster).toHaveBeenCalledWith(
+      'sub-123',
+      'rg-prod',
+      'aks-prod',
+      undefined,
+      false
+    );
+  });
+
+  test('passes active cluster state to the shared registration boundary', async () => {
+    mockRegisteredClusters.add('aks-prod');
+    mockRegisterAKSCluster.mockResolvedValue({ success: false, message: 'scope conflict' });
+    const { result } = renderHook(() => useRegisterCluster('aks-prod', 'rg-prod', 'sub-123'));
+
+    await act(async () => {
+      await result.current.handleRegister();
+    });
+
+    expect(mockRegisterAKSCluster).toHaveBeenCalledWith(
+      'sub-123',
+      'rg-prod',
+      'aks-prod',
+      undefined,
+      true
+    );
   });
 
   test('handleRegister does not call registerAKSCluster when cluster is empty', async () => {
