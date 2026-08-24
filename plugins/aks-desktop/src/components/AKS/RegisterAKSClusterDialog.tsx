@@ -473,7 +473,7 @@ export default function RegisterAKSClusterDialog({
   };
 
   const handleClose = () => {
-    if (!loading && !registrationInFlightRef.current) {
+    if (!loading && !registrationInFlightRef.current && !registrationSucceeded) {
       onClose();
     }
   };

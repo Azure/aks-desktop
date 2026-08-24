@@ -795,6 +795,19 @@ describe('RegisterAKSClusterDialog telemetry', () => {
     expect(mocks.registerAKSCluster).toHaveBeenCalledTimes(1);
   });
 
+  test('blocks ordinary close after success so Done performs the reload', async () => {
+    mocks.registerAKSCluster.mockResolvedValue({ success: true, message: 'registered' });
+    mocks.getClusterCapabilities.mockResolvedValue({ azureRbacEnabled: true });
+    renderDialog();
+    selectRequiredValues();
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    await waitFor(() => expect(currentDialogProps().registrationSucceeded).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(mocks.onClose).not.toHaveBeenCalled();
+  });
+
   test('ignores capability completion after unmount', async () => {
     let resolveCapabilities!: (value: { azureRbacEnabled: boolean }) => void;
     mocks.registerAKSCluster.mockResolvedValue({ success: true, message: 'registered' });
