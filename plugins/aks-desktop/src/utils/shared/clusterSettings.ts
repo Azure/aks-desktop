@@ -1,8 +1,18 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+/** Persisted Headlamp settings associated with one canonical cluster identity. */
 export interface ClusterSettings {
+  /** Namespace restriction retained for existing cluster visibility behavior. */
   allowedNamespaces?: string[];
+  /** Azure resource identity used when this kubeconfig cluster was registered. */
+  azureRegistration?: {
+    /** Azure subscription containing the registered cluster. */
+    subscriptionId: string;
+    /** Azure resource group containing the registered cluster. */
+    resourceGroup: string;
+  };
+  /** Additional Headlamp-owned settings preserved during read-modify-write updates. */
   [key: string]: unknown;
 }
 

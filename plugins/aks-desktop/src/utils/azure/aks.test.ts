@@ -4,12 +4,18 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  getClusterSettings: vi.fn(),
   getClusters: vi.fn(),
   getSubscriptions: vi.fn(),
+  setClusterSettings: vi.fn(),
 }));
 
 vi.mock('./az-clusters', () => ({ getClusters: mocks.getClusters }));
 vi.mock('./az-subscriptions', () => ({ getSubscriptions: mocks.getSubscriptions }));
+vi.mock('../shared/clusterSettings', () => ({
+  getClusterSettings: mocks.getClusterSettings,
+  setClusterSettings: mocks.setClusterSettings,
+}));
 
 import { getAKSClusters, getSubscriptions, registerAKSCluster } from './aks';
 
@@ -19,6 +25,7 @@ const successResult = { success: true, message: 'registered' };
 describe('Azure AKS utilities', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getClusterSettings.mockReturnValue({ allowedNamespaces: ['existing'] });
     (window as any).desktopApi = {
       registerAKSCluster: desktopRegisterAKSCluster,
     };
@@ -177,6 +184,13 @@ describe('Azure AKS utilities', () => {
       'namespace-1',
       'aks'
     );
+    expect(mocks.setClusterSettings).toHaveBeenCalledWith('cluster-1', {
+      allowedNamespaces: ['existing'],
+      azureRegistration: {
+        subscriptionId: 'sub-1',
+        resourceGroup: 'rg-1',
+      },
+    });
   });
 
   test('reports when the desktop registration API is unavailable', async () => {

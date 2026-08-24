@@ -1,3 +1,4 @@
+import { getClusterSettings, setClusterSettings } from '../shared/clusterSettings';
 import { getClusters } from './az-clusters';
 import { getSubscriptions as getAzSubscriptions } from './az-subscriptions';
 
@@ -157,7 +158,19 @@ export async function registerAKSCluster(
     }
 
     console.debug('[AKS] Registration result:', result);
-    return result as { success: boolean; message: string };
+    const registrationResult = result as { success: boolean; message: string };
+    if (registrationResult.success) {
+      try {
+        const settings = getClusterSettings(clusterName);
+        setClusterSettings(clusterName, {
+          ...settings,
+          azureRegistration: { subscriptionId, resourceGroup },
+        });
+      } catch (error) {
+        console.warn('[AKS] Failed to persist cluster registration scope:', error);
+      }
+    }
+    return registrationResult;
   } catch (error) {
     console.error('[AKS] Error registering AKS cluster:', error);
     return {

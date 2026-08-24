@@ -21,6 +21,21 @@ interface ImportSelection {
   selected: boolean;
 }
 
+/**
+ * Builds a stable selection identity across Azure scope, cluster, and namespace.
+ *
+ * @param namespace - Discovered namespace whose selection key is required.
+ * @returns A null-delimited identity that remains unique across same-name resources.
+ */
+function namespaceSelectionKey(namespace: DiscoveredNamespace): string {
+  return [
+    namespace.subscriptionId,
+    namespace.resourceGroup,
+    namespace.clusterName,
+    namespace.name,
+  ].join('\0');
+}
+
 function safelyTrackFeature(properties: Parameters<typeof trackFeature>[0]) {
   try {
     trackFeature(properties);
@@ -62,7 +77,7 @@ function ImportAKSProjectsContent() {
   // Derive selectable list from discovered namespaces
   const namespaces: ImportSelection[] = discovered.map(ns => ({
     namespace: ns,
-    selected: selections.has(`${ns.clusterName}/${ns.name}`),
+    selected: selections.has(namespaceSelectionKey(ns)),
   }));
 
   const selectedNamespaces = namespaces.filter(ns => ns.selected);
@@ -84,7 +99,7 @@ function ImportAKSProjectsContent() {
 
   const toggleSelection = (ns: DiscoveredNamespace) => {
     setSelections(prev => {
-      const key = `${ns.clusterName}/${ns.name}`;
+      const key = namespaceSelectionKey(ns);
       const next = new Set(prev);
       if (next.has(key)) {
         next.delete(key);
@@ -96,7 +111,7 @@ function ImportAKSProjectsContent() {
   };
 
   const selectAll = () => {
-    setSelections(new Set(discovered.map(ns => `${ns.clusterName}/${ns.name}`)));
+    setSelections(new Set(discovered.map(namespaceSelectionKey)));
   };
 
   const deselectAll = () => {
@@ -244,7 +259,26 @@ function ImportAKSProjectsContent() {
         // Re-registering with a managedNamespace param overwrites the kubeconfig
         // with namespace-scoped credentials, which would break access to
         // previously imported namespaces on this cluster.
-        if (!registeredClusters.has(clusterName)) {
+        if (registeredClusters.has(clusterName) && subscriptionId && resourceGroup) {
+          const registeredScope = getClusterSettings(clusterName).azureRegistration;
+          const scopeMatches =
+            registeredScope?.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
+            registeredScope.resourceGroup.toLowerCase() === resourceGroup.toLowerCase();
+          if (!scopeMatches) {
+            for (const ns of namespacesInCluster) {
+              results.push({
+                namespace: `${ns.name} (${clusterName})`,
+                clusterName,
+                success: false,
+                message: t(
+                  'Cluster {{clusterName}} is already registered from a different or unknown Azure scope. Remove and register it again before importing these projects.',
+                  { clusterName }
+                ),
+              });
+            }
+            continue;
+          }
+        } else if (!registeredClusters.has(clusterName)) {
           // Non-managed namespaces lack Azure metadata, so we can't register the cluster
           // on their behalf. The cluster must already be registered.
           if (!subscriptionId || !resourceGroup) {
