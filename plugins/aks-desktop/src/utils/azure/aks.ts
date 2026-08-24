@@ -20,6 +20,8 @@ export interface AKSCluster {
   isAzureRBACEnabled: boolean;
 }
 
+let registrationQueue = Promise.resolve();
+
 /**
  * Get list of Azure subscriptions
  */
@@ -89,18 +91,33 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
  * Register an AKS cluster using the Electron IPC API.
  * This calls the native registration logic in the Electron backend.
  *
+ * Registrations run serially because each native operation reads and rewrites
+ * the shared kubeconfig file.
+ *
+ * @param subscriptionId - Azure subscription containing the cluster.
+ * @param resourceGroup - Azure resource group containing the cluster.
+ * @param clusterName - AKS cluster to register.
  * @param managedNamespace - Optional managed namespace name to use for scoped credentials
+ * @param _tenantId - Deprecated tenant identifier retained for caller compatibility.
+ * @returns The native registration result after earlier registrations finish.
  */
 export async function registerAKSCluster(
   subscriptionId: string,
   resourceGroup: string,
   clusterName: string,
   managedNamespace?: string,
-  tenantId?: string
+  _tenantId?: string
 ): Promise<{
   success: boolean;
   message: string;
 }> {
+  const previousRegistration = registrationQueue;
+  let releaseRegistration!: () => void;
+  registrationQueue = new Promise(resolve => {
+    releaseRegistration = resolve;
+  });
+  await previousRegistration;
+
   try {
     console.debug(
       '[AKS] Registering cluster:',
@@ -125,7 +142,7 @@ export async function registerAKSCluster(
       clusterName,
       false, // isAzureRBACEnabled
       managedNamespace,
-      tenantId
+      'aks'
     );
 
     console.debug('[AKS] Registration result:', result);
@@ -136,5 +153,7 @@ export async function registerAKSCluster(
       success: false,
       message: error instanceof Error ? error.message : 'Unknown error',
     };
+  } finally {
+    releaseRegistration();
   }
 }
