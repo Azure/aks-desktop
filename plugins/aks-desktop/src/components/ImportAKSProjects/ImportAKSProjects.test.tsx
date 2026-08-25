@@ -540,6 +540,41 @@ describe('ImportAKSProjects', () => {
     expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
   });
 
+  test('rejects case-variant cluster names in different Azure scopes before registration', async () => {
+    const firstNamespace = makeDiscoveredNamespace({
+      name: 'first-ns',
+      clusterName: 'Shared',
+      resourceGroup: 'first-rg',
+      subscriptionId: 'first-sub',
+      isAksProject: true,
+      category: 'needs-import',
+    });
+    const secondNamespace = makeDiscoveredNamespace({
+      name: 'second-ns',
+      clusterName: 'shared',
+      resourceGroup: 'second-rg',
+      subscriptionId: 'second-sub',
+      isAksProject: true,
+      category: 'needs-import',
+    });
+    mockUseNamespaceDiscovery.mockReturnValue(
+      defaultDiscoveryReturn([firstNamespace, secondNamespace])
+    );
+
+    render(<ImportAKSProjects />);
+    fireEvent.click(screen.getByText('Select All'));
+    fireEvent.click(screen.getByText('Import Selected Projects'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Failed to import any projects. See details below.')
+      ).toBeInTheDocument()
+    );
+    expect(screen.getAllByText(/same cluster name in different Azure scopes/)).toHaveLength(2);
+    expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
+    expect(mockApplyProjectLabels).not.toHaveBeenCalled();
+  });
+
   test('rejects metadata fallback when a cluster name maps to multiple Azure scopes', async () => {
     const regularNamespace = makeDiscoveredNamespace({
       name: 'regular-ns',

@@ -176,15 +176,16 @@ function ImportAKSProjectsContent() {
     const ambiguousAzureMetadataNames = new Set<string>();
     for (const ns of discovered) {
       if (ns.resourceGroup && ns.subscriptionId) {
-        const existing = clusterAzureMeta.get(ns.clusterName);
+        const normalizedClusterName = normalizeClusterName(ns.clusterName);
+        const existing = clusterAzureMeta.get(normalizedClusterName);
         if (
           existing &&
           (existing.resourceGroup !== ns.resourceGroup ||
             existing.subscriptionId !== ns.subscriptionId)
         ) {
-          ambiguousAzureMetadataNames.add(ns.clusterName);
+          ambiguousAzureMetadataNames.add(normalizedClusterName);
         } else if (!existing) {
-          clusterAzureMeta.set(ns.clusterName, {
+          clusterAzureMeta.set(normalizedClusterName, {
             resourceGroup: ns.resourceGroup,
             subscriptionId: ns.subscriptionId,
           });
@@ -204,21 +205,22 @@ function ImportAKSProjectsContent() {
     const conflictingClusterNames = new Set<string>();
     for (const item of selectedNamespaces) {
       const ns = item.namespace;
-      const meta = clusterAzureMeta.get(ns.clusterName);
+      const normalizedClusterName = normalizeClusterName(ns.clusterName);
+      const meta = clusterAzureMeta.get(normalizedClusterName);
       if (
         (!ns.resourceGroup || !ns.subscriptionId) &&
-        ambiguousAzureMetadataNames.has(ns.clusterName)
+        ambiguousAzureMetadataNames.has(normalizedClusterName)
       ) {
-        conflictingClusterNames.add(ns.clusterName);
+        conflictingClusterNames.add(normalizedClusterName);
       }
       const resourceGroup = ns.resourceGroup || meta?.resourceGroup || '';
       const subscriptionId = ns.subscriptionId || meta?.subscriptionId || '';
-      const clusterKey = `${subscriptionId}\0${resourceGroup}\0${ns.clusterName}`;
-      const existingClusterKey = clusterKeyByName.get(ns.clusterName);
+      const clusterKey = `${subscriptionId}\0${resourceGroup}\0${normalizedClusterName}`;
+      const existingClusterKey = clusterKeyByName.get(normalizedClusterName);
       if (existingClusterKey && existingClusterKey !== clusterKey) {
-        conflictingClusterNames.add(ns.clusterName);
+        conflictingClusterNames.add(normalizedClusterName);
       } else if (!existingClusterKey) {
-        clusterKeyByName.set(ns.clusterName, clusterKey);
+        clusterKeyByName.set(normalizedClusterName, clusterKey);
       }
       const existing = clusterMap.get(clusterKey);
       if (!existing) {
@@ -248,7 +250,7 @@ function ImportAKSProjectsContent() {
       namespaces: namespacesInCluster,
     } of clusterMap.values()) {
       try {
-        if (conflictingClusterNames.has(clusterName)) {
+        if (conflictingClusterNames.has(normalizeClusterName(clusterName))) {
           for (const ns of namespacesInCluster) {
             results.push({
               namespace: `${ns.name} (${clusterName})`,
