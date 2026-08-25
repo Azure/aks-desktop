@@ -64,6 +64,7 @@ import {
   isCurrentConsentGeneration,
   isTelemetryInitialized,
   resetInitAttempted,
+  setConsentPredicate,
   setTelemetryEnabled,
   trackClusterShape,
   trackError,
@@ -463,6 +464,91 @@ describe('trackError', () => {
 
     endConsentTransition(gen);
     trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('live consent predicate', () => {
+  beforeEach(() => {
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    trackEvent.mockClear();
+  });
+
+  it('drops ordinary events as soon as the predicate reports opt-out', () => {
+    // No beginConsentTransition here on purpose: this is the window between
+    // the config store write and TelemetryBoot's effect running revokeConsent.
+    setConsentPredicate(() => false);
+    trackFeature({ feature: 'headlamp.list-view', status: 'succeeded' });
+    trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it('resumes ordinary events when the predicate reports opt-in again', () => {
+    let enabled = false;
+    setConsentPredicate(() => enabled);
+    trackFeature({ feature: 'headlamp.list-view', status: 'succeeded' });
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    enabled = true;
+    trackFeature({ feature: 'headlamp.list-view', status: 'succeeded' });
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when the predicate throws', () => {
+    setConsentPredicate(() => {
+      throw new Error('synthetic predicate failure');
+    });
+    expect(() =>
+      trackFeature({ feature: 'headlamp.list-view', status: 'succeeded' })
+    ).not.toThrow();
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it('still delivers the consent event while the predicate reports opt-out', () => {
+    // The revoke path depends on this: by the time revokeConsent runs, the
+    // store already reads disabled. Routing the consent event through `emit`
+    // would drop it and opt-out rate would read zero forever.
+    setConsentPredicate(() => false);
+    emitConsentEvent('revoked');
+    expect(trackEvent).toHaveBeenCalledWith({
+      name: 'headlamp.telemetry-consent',
+      properties: { appVersion: SESSION_PROPS.appVersion, consent: 'revoked' },
+    });
+  });
+
+  it('still delivers session-start while the predicate reports opt-out', () => {
+    // Same bypass, for the mid-session grant case: initTelemetry runs before
+    // the store write has propagated anywhere observable.
+    setConsentPredicate(() => false);
+    trackSessionStart(SESSION_PROPS);
+    expect(trackEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'headlamp.session-start' })
+    );
+  });
+
+  it('does not spend the error quota on events the predicate rejects', () => {
+    setConsentPredicate(() => false);
+    for (let count = 0; count < 5; count += 1) {
+      trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    }
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    setConsentPredicate(() => true);
+    trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not mark a cluster-shape dedupe key the predicate rejected', () => {
+    setConsentPredicate(() => false);
+    trackClusterShape(SHAPE_KEY, FULL_SHAPE);
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    setConsentPredicate(() => true);
+    trackClusterShape(SHAPE_KEY, FULL_SHAPE);
     expect(trackEvent).toHaveBeenCalledTimes(1);
   });
 });

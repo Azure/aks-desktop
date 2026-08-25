@@ -47,7 +47,7 @@ import ScalingCard from './components/Scaling/ScalingCard';
 import ScalingTab from './components/Scaling/ScalingTab';
 import TelemetryBoot from './components/TelemetryBoot';
 import { TelemetryErrorBoundary } from './components/TelemetryErrorBoundary';
-import { setTelemetryEnabled } from './telemetry';
+import { setConsentPredicate, setTelemetryEnabled } from './telemetry';
 import { registerReduxCallback } from './telemetry/setup';
 import type { ProjectDefinition } from './types/project';
 import { getLoginStatus } from './utils/azure/az-auth';
@@ -91,6 +91,11 @@ Headlamp.setAppMenu(menus => {
 // add azure related components only if running as app
 if (Headlamp.isRunningAsApp()) {
   setTelemetryEnabled(isTelemetryEnabled());
+
+  // Give direct producers the same live predicate the Redux bridge gets, so
+  // opting out stops them on the config store write rather than waiting for
+  // TelemetryBoot's effect to run revokeConsent.
+  setConsentPredicate(isTelemetryEnabled);
 
   // Register before TelemetryBoot renders so early plugins-loaded events are
   // buffered. Pass the live predicate, not a captured launch-time constant —

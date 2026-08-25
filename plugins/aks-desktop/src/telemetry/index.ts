@@ -44,6 +44,7 @@ let telemetryEnabled = false;
 let initializedAppVersion: string | null = null;
 let consentGeneration = 0;
 let consentGateClosed = false;
+let consentPredicate: () => boolean = () => true;
 
 // Per-resource-id dedupe of headlamp.cluster-shape across re-renders.
 // Module-private (the key is never sent).
@@ -71,6 +72,7 @@ export function __resetForTests(): void {
   initializedAppVersion = null;
   consentGeneration = 0;
   consentGateClosed = false;
+  consentPredicate = () => true;
 }
 
 /**
@@ -111,6 +113,37 @@ export function setTelemetryEnabled(enabled: boolean): void {
  * later beginConsentTransition) is a no-op on end, so a slow revoke that
  * resumes after a fresh grant cannot reopen a state it no longer owns.
  */
+/**
+ * Installs the live consent predicate consulted per ordinary event. Mirrors
+ * the predicate registerReduxCallback already takes, so direct producers and
+ * the Redux bridge honour the same source of truth.
+ *
+ * Without this, opting out only stopped direct producers once TelemetryBoot's
+ * effect ran revokeConsent. React defers passive effects, so between the
+ * config store write and that effect neither telemetryEnabled nor the gate
+ * had changed and trackError/trackAksFeature could still transmit — a window
+ * after the user opted out. Injected at boot rather than imported so this
+ * module stays independent of the settings store.
+ */
+export function setConsentPredicate(isEnabled: () => boolean): void {
+  consentPredicate = isEnabled;
+}
+
+/**
+ * The single transmission test for ordinary events. Both stateful producers
+ * consult it before touching their dedupe/rate-limit state, so an event this
+ * rejects costs nothing that would suppress a later legitimate one.
+ */
+function transmissionAllowed(): boolean {
+  if (consentGateClosed) return false;
+  try {
+    return consentPredicate();
+  } catch {
+    // Fail closed. A throwing predicate must never widen transmission.
+    return false;
+  }
+}
+
 export function beginConsentTransition(): number {
   consentGateClosed = true;
   consentGeneration += 1;
@@ -353,7 +386,7 @@ function emitInternal(name: string, properties: Record<string, string | undefine
 
 /** The only path from the typed wrappers to ai.trackEvent for ordinary events. */
 function emit(name: string, properties: Record<string, string | undefined>): void {
-  if (consentGateClosed) return;
+  if (!transmissionAllowed()) return;
   emitInternal(name, properties);
 }
 
@@ -404,10 +437,10 @@ export interface ClusterShapeInput {
  */
 export function trackClusterShape(dedupeKey: string, input: ClusterShapeInput): void {
   // Bail before touching the dedupe set when telemetry isn't initialized,
-  // or when the consent gate is closed: otherwise a pre-init or
+  // or when transmission isn't allowed: otherwise a pre-init or
   // mid-transition call would mark the key as seen and permanently
   // suppress the post-init/post-transition emission for the same cluster.
-  if (!ai || consentGateClosed || emittedShapeFor.has(dedupeKey)) return;
+  if (!ai || !transmissionAllowed() || emittedShapeFor.has(dedupeKey)) return;
   const {
     kubernetesVersion: kv,
     nodeCount: nc,
@@ -455,13 +488,14 @@ export type TelemetryErrorPhase = TelemetryStatus;
 
 export function trackError(p: ErrorProps): void {
   if (!telemetryEnabled) return;
-  // Bail before touching errorCounts while the consent gate is closed:
-  // otherwise a mid-transition error charges the per-key session quota for an
-  // envelope `emit` then drops, and once five are charged, real errors on that
-  // key stay suppressed for the rest of the session. Same reasoning as
+  // Bail before touching errorCounts whenever transmission is disallowed —
+  // a closed consent gate, or a live predicate already reporting opt-out:
+  // otherwise such an error charges the per-key session quota for an envelope
+  // `emit` then drops, and once five are charged, real errors on that key stay
+  // suppressed for the rest of the session. Same reasoning as
   // trackClusterShape's dedupe-set guard below. Deliberately no `!ai` check —
   // pre-init errors are meant to buffer into pendingEvents and flush on init.
-  if (consentGateClosed) return;
+  if (!transmissionAllowed()) return;
   if (!ERROR_AREAS.has(p.area)) return;
   const errorClass = sanitizeErrorClass(p.errorClass);
   const key = `${p.area}:${errorClass}`;
