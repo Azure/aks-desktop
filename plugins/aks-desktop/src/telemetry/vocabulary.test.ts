@@ -78,6 +78,7 @@ describe('telemetry privacy vocabularies', () => {
       'aksd.cluster-add',
       'aksd.namespace-create',
       'aksd.project-delete',
+      'aksd.feedback',
     ]);
   });
 
@@ -91,6 +92,7 @@ describe('telemetry privacy vocabularies', () => {
       'aksd.cluster-add',
       'aksd.namespace-create',
       'aksd.project-delete',
+      'aksd.feedback',
     ]);
   });
 

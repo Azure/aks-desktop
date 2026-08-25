@@ -72,6 +72,11 @@ describe('sanitizeFeatureType', () => {
     expect(sanitizeFeatureType('cluster:my-prod')).toBeUndefined();
     expect(sanitizeFeatureType(undefined)).toBeUndefined();
   });
+  it('accepts the contact-us feature name', () => {
+    // Guard: dropping this from KNOWN_FEATURE_TYPES makes trackFeature return
+    // early without emitting and without erroring, silently killing the metric.
+    expect(sanitizeFeatureType('aksd.feedback')).toBe('aksd.feedback');
+  });
 });
 
 describe('sanitizeStatus', () => {
