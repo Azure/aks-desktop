@@ -53,11 +53,8 @@ interface RegisterClusterProps {
  */
 function RegisterCluster({ cluster, resourceGroup, subscription }: RegisterClusterProps) {
   const { t } = useTranslation();
-  const { loading, error, success, handleRegister, clearError, clearSuccess } = useRegisterCluster(
-    cluster,
-    resourceGroup,
-    subscription
-  );
+  const { loading, clusterConfigReady, error, success, handleRegister, clearError, clearSuccess } =
+    useRegisterCluster(cluster, resourceGroup, subscription);
 
   return (
     <Box display="flex" flexDirection="column" gap={2}>
@@ -96,7 +93,7 @@ function RegisterCluster({ cluster, resourceGroup, subscription }: RegisterClust
               <Icon icon="mdi:plus" aria-hidden="true" />
             )
           }
-          disabled={loading}
+          disabled={loading || !clusterConfigReady}
           aria-busy={loading || undefined}
         >
           {loading ? `${t('Registering cluster')}...` : t('Register Cluster')}

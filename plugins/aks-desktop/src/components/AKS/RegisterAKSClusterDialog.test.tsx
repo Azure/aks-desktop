@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     tenantId: undefined as string | undefined,
     username: undefined as string | undefined,
   },
+  clusterConfigReady: true,
   registeredClusters: new Set<string>(),
   getAKSClusters: vi.fn(),
   getClusterCapabilities: vi.fn(),
@@ -66,7 +67,10 @@ vi.mock('../../hooks/useAzureAuth', () => ({
 }));
 
 vi.mock('../../hooks/useRegisteredClusters', () => ({
-  useRegisteredClusters: () => mocks.registeredClusters,
+  useRegisteredClusters: () => ({
+    registeredClusters: mocks.registeredClusters,
+    isReady: mocks.clusterConfigReady,
+  }),
 }));
 
 vi.mock('../../utils/azure/aks', () => ({
@@ -104,7 +108,9 @@ vi.mock('./RegisterAKSClusterDialogPure', () => ({
           Select subscription
         </button>
         <button onClick={event => props.onClusterChange(event, cluster)}>Select cluster</button>
-        <button onClick={props.onRegister}>Register</button>
+        <button onClick={props.onRegister} disabled={props.clusterConfigReady === false}>
+          Register
+        </button>
         <button onClick={props.onClose}>Close</button>
         <button onClick={props.onDone}>Done</button>
         <button onClick={props.onConfigured}>Configured</button>
@@ -152,6 +158,7 @@ describe('RegisterAKSClusterDialog telemetry', () => {
       tenantId: undefined,
       username: undefined,
     });
+    mocks.clusterConfigReady = true;
     mocks.registeredClusters.clear();
     mocks.getAKSClusters.mockResolvedValue({ success: true, clusters: [] });
     mocks.getSubscriptions.mockResolvedValue({ success: true, subscriptions: [] });
@@ -178,6 +185,19 @@ describe('RegisterAKSClusterDialog telemetry', () => {
     expect(mocks.trackAksFeature.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.registerAKSCluster.mock.invocationCallOrder[0]
     );
+  });
+
+  test('blocks registration while cluster configuration is unavailable', () => {
+    mocks.clusterConfigReady = false;
+    renderDialog();
+    selectRequiredValues();
+
+    const registerButton = screen.getByRole('button', { name: 'Register' });
+    expect((registerButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(registerButton);
+
+    expect(mocks.registerAKSCluster).not.toHaveBeenCalled();
+    expect(mocks.onRegistrationStarted).not.toHaveBeenCalled();
   });
 
   test('continues registration when telemetry throws', async () => {

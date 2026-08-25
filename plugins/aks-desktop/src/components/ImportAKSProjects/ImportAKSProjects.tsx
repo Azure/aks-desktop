@@ -51,7 +51,7 @@ function safelyTrackError(properties: Parameters<typeof trackError>[0]) {
 function ImportAKSProjectsContent() {
   const history = useHistory();
   const { t } = useTranslation();
-  const registeredClusters = useRegisteredClusters();
+  const { registeredClusters, isReady: registeredClustersReady } = useRegisteredClusters();
   const terminalTrackedRef = useRef(false);
 
   const [error, setError] = useState('');
@@ -128,6 +128,9 @@ function ImportAKSProjectsContent() {
 
   /** Called when user clicks "Import Selected" */
   const handleImportClick = () => {
+    if (!registeredClustersReady) {
+      return;
+    }
     if (selectedCount === 0) {
       setError(t('Please select at least one namespace to import'));
       return;
@@ -148,6 +151,9 @@ function ImportAKSProjectsContent() {
 
   /** Process the import (called after confirmation if conversion needed) */
   const processImport = async () => {
+    if (!registeredClustersReady) {
+      return;
+    }
     safelyTrackFeature({ feature: 'aksd.project-import', status: 'started' });
     setShowConversionDialog(false);
     setImporting(true);
@@ -624,7 +630,7 @@ function ImportAKSProjectsContent() {
                   variant="contained"
                   color="primary"
                   onClick={handleImportClick}
-                  disabled={selectedCount === 0 || importing}
+                  disabled={selectedCount === 0 || importing || !registeredClustersReady}
                   sx={{ ml: 'auto' }}
                   startIcon={
                     importing ? <CircularProgress size={20} /> : <Icon icon="mdi:import" />

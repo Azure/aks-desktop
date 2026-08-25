@@ -11,14 +11,17 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 
 const mockRegisterAKSCluster = vi.hoisted(() => vi.fn());
-const mockRegisteredClusters = vi.hoisted(() => new Set<string>());
+const mockRegisteredClustersState = vi.hoisted(() => ({
+  registeredClusters: new Set<string>(),
+  isReady: true,
+}));
 
 vi.mock('../../../utils/azure/aks', () => ({
   registerAKSCluster: mockRegisterAKSCluster,
 }));
 
 vi.mock('../../../hooks/useRegisteredClusters', () => ({
-  useRegisteredClusters: () => mockRegisteredClusters,
+  useRegisteredClusters: () => mockRegisteredClustersState,
 }));
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
@@ -40,7 +43,8 @@ import { useRegisterCluster } from './useRegisterCluster';
 describe('useRegisterCluster', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockRegisteredClusters.clear();
+    mockRegisteredClustersState.registeredClusters.clear();
+    mockRegisteredClustersState.isReady = true;
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -167,7 +171,7 @@ describe('useRegisterCluster', () => {
   });
 
   test('passes active cluster state to the shared registration boundary', async () => {
-    mockRegisteredClusters.add('aks-prod');
+    mockRegisteredClustersState.registeredClusters.add('aks-prod');
     mockRegisterAKSCluster.mockResolvedValue({ success: false, message: 'scope conflict' });
     const { result } = renderHook(() => useRegisterCluster('aks-prod', 'rg-prod', 'sub-123'));
 
@@ -191,6 +195,18 @@ describe('useRegisterCluster', () => {
       await result.current.handleRegister();
     });
 
+    expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
+  });
+
+  test('does not register while cluster configuration is unavailable', async () => {
+    mockRegisteredClustersState.isReady = false;
+    const { result } = renderHook(() => useRegisterCluster('aks-prod', 'rg-prod', 'sub-123'));
+
+    await act(async () => {
+      await result.current.handleRegister();
+    });
+
+    expect(result.current.clusterConfigReady).toBe(false);
     expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
   });
 

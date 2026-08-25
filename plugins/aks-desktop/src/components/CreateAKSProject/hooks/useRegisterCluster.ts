@@ -19,6 +19,8 @@ const DEBUG = false;
 export interface UseRegisterClusterResult {
   /** `true` while the `az aks get-credentials` call is in flight. */
   loading: boolean;
+  /** `true` once Headlamp's live cluster configuration is authoritative. */
+  clusterConfigReady: boolean;
   /** Error message from the last failed registration attempt, or `undefined`. */
   error: string | undefined;
   /** Success message once registration completes, or `undefined`. */
@@ -54,7 +56,7 @@ export function useRegisterCluster(
   subscription: string
 ): UseRegisterClusterResult {
   const { t } = useTranslation();
-  const registeredClusters = useRegisteredClusters();
+  const { registeredClusters, isReady: clusterConfigReady } = useRegisteredClusters();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [success, setSuccess] = useState<string | undefined>(undefined);
@@ -70,7 +72,13 @@ export function useRegisterCluster(
   }, [cluster, resourceGroup, subscription]);
 
   const handleRegister = async () => {
-    if (registrationInFlightRef.current || !cluster || !resourceGroup || !subscription) {
+    if (
+      registrationInFlightRef.current ||
+      !clusterConfigReady ||
+      !cluster ||
+      !resourceGroup ||
+      !subscription
+    ) {
       return;
     }
     registrationInFlightRef.current = true;
@@ -119,6 +127,7 @@ export function useRegisterCluster(
 
   return {
     loading,
+    clusterConfigReady,
     error,
     success,
     handleRegister,

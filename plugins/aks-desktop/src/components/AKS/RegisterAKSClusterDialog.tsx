@@ -55,7 +55,7 @@ export default function RegisterAKSClusterDialog({
   const history = useHistory();
   const { t } = useTranslation();
   const authStatus = useAzureAuth();
-  const registeredClusters = useRegisteredClusters();
+  const { registeredClusters, isReady: registeredClustersReady } = useRegisteredClusters();
   const [loading, setLoading] = useState(false);
   const [loadingSubscriptions, setLoadingSubscriptions] = useState(false);
   const [loadingClusters, setLoadingClusters] = useState(false);
@@ -379,6 +379,7 @@ export default function RegisterAKSClusterDialog({
     if (
       registrationInFlightRef.current ||
       registrationSucceeded ||
+      !registeredClustersReady ||
       !selectedCluster ||
       !selectedSubscription
     ) {
@@ -513,6 +514,7 @@ export default function RegisterAKSClusterDialog({
       error={error}
       success={success}
       registrationSucceeded={registrationSucceeded}
+      clusterConfigReady={registeredClustersReady}
       subscriptions={filteredSubscriptions}
       selectedSubscription={selectedSubscription}
       subscriptionInputValue={subscriptionInputValue}

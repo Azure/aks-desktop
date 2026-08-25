@@ -28,22 +28,22 @@ describe('useRegisteredClusters', () => {
     mockReconcileRegisteredClusterNames.mockReset();
   });
 
-  test('returns empty Set when clustersConf is null', () => {
+  test('reports unavailable cluster configuration as not ready', () => {
     mockUseClustersConf.mockReturnValue(null);
 
     const { result } = renderHook(() => useRegisteredClusters());
 
-    expect(result.current).toBeInstanceOf(Set);
-    expect(result.current.size).toBe(0);
+    expect(result.current.registeredClusters.size).toBe(0);
+    expect(result.current.isReady).toBe(false);
   });
 
-  test('returns empty Set when clustersConf is empty object', () => {
+  test('reports an empty cluster configuration as ready', () => {
     mockUseClustersConf.mockReturnValue({});
 
     const { result } = renderHook(() => useRegisteredClusters());
 
-    expect(result.current).toBeInstanceOf(Set);
-    expect(result.current.size).toBe(0);
+    expect(result.current.registeredClusters.size).toBe(0);
+    expect(result.current.isReady).toBe(true);
   });
 
   test('returns Set of cluster names from clustersConf keys', () => {
@@ -54,10 +54,11 @@ describe('useRegisteredClusters', () => {
 
     const { result } = renderHook(() => useRegisteredClusters());
 
-    expect(result.current.size).toBe(2);
-    expect(result.current.has('cluster-a')).toBe(true);
-    expect(result.current.has('cluster-b')).toBe(true);
-    expect(result.current.has('cluster-c')).toBe(false);
+    expect(result.current.registeredClusters.size).toBe(2);
+    expect(result.current.registeredClusters.has('cluster-a')).toBe(true);
+    expect(result.current.registeredClusters.has('cluster-b')).toBe(true);
+    expect(result.current.registeredClusters.has('cluster-c')).toBe(false);
+    expect(result.current.isReady).toBe(true);
     expect(mockReconcileRegisteredClusterNames).toHaveBeenCalledWith(
       new Set(['cluster-a', 'cluster-b'])
     );
@@ -68,14 +69,14 @@ describe('useRegisteredClusters', () => {
 
     const { result, rerender } = renderHook(() => useRegisteredClusters());
 
-    expect(result.current.size).toBe(1);
-    expect(result.current.has('cluster-a')).toBe(true);
+    expect(result.current.registeredClusters.size).toBe(1);
+    expect(result.current.registeredClusters.has('cluster-a')).toBe(true);
 
     mockUseClustersConf.mockReturnValue({ 'cluster-a': {}, 'cluster-b': {} });
     rerender();
 
-    expect(result.current.size).toBe(2);
-    expect(result.current.has('cluster-b')).toBe(true);
+    expect(result.current.registeredClusters.size).toBe(2);
+    expect(result.current.registeredClusters.has('cluster-b')).toBe(true);
     expect(mockReconcileRegisteredClusterNames).toHaveBeenLastCalledWith(
       new Set(['cluster-a', 'cluster-b'])
     );

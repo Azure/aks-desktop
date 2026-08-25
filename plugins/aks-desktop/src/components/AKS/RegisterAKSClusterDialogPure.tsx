@@ -53,6 +53,8 @@ export interface RegisterAKSClusterDialogPureProps {
   success: string;
   /** Whether registration completed successfully in the current dialog session. */
   registrationSucceeded?: boolean;
+  /** Whether Headlamp's live cluster configuration is authoritative. */
+  clusterConfigReady?: boolean;
   subscriptions: Subscription[];
   selectedSubscription: Subscription | null;
   subscriptionInputValue: string;
@@ -89,6 +91,7 @@ export default function RegisterAKSClusterDialogPure({
   error,
   success,
   registrationSucceeded,
+  clusterConfigReady = true,
   subscriptions,
   selectedSubscription,
   subscriptionInputValue,
@@ -436,7 +439,9 @@ export default function RegisterAKSClusterDialogPure({
               onClick={onRegister}
               variant="contained"
               color="primary"
-              disabled={!selectedCluster || loading || !isLoggedIn || isChecking}
+              disabled={
+                !selectedCluster || loading || !isLoggedIn || isChecking || !clusterConfigReady
+              }
               startIcon={
                 loading ? (
                   <CircularProgress size={20} aria-hidden="true" />

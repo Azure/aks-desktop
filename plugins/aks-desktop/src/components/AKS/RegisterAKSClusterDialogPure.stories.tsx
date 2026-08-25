@@ -178,6 +178,13 @@ ClusterSelected.args = {
   clusterInputValue: SAMPLE_CLUSTERS[0].name,
 };
 
+/** Cluster selected while Headlamp cluster configuration is still loading. */
+export const ClusterConfigurationLoading = Template.bind({});
+ClusterConfigurationLoading.args = {
+  ...ClusterSelected.args,
+  clusterConfigReady: false,
+};
+
 /** Registration in progress — Register button shows spinner and "Registering...". */
 export const Registering = Template.bind({});
 Registering.args = {

@@ -71,8 +71,12 @@ vi.mock('../../hooks/useNamespaceDiscovery', () => ({
 }));
 
 const mockUseRegisteredClusters = vi.fn();
+const mockRegisteredClustersState = vi.hoisted(() => ({ isReady: true }));
 vi.mock('../../hooks/useRegisteredClusters', () => ({
-  useRegisteredClusters: () => mockUseRegisteredClusters(),
+  useRegisteredClusters: () => ({
+    registeredClusters: mockUseRegisteredClusters(),
+    isReady: mockRegisteredClustersState.isReady,
+  }),
 }));
 
 const mockRegisterAKSCluster = vi.fn();
@@ -149,6 +153,7 @@ describe('ImportAKSProjects', () => {
     mockGetClusterSettings.mockReset().mockReturnValue({ allowedNamespaces: [] });
     mockSetClusterSettings.mockReset();
     mockUseRegisteredClusters.mockReturnValue(new Set());
+    mockRegisteredClustersState.isReady = true;
     mockUseNamespaceDiscovery.mockReturnValue(defaultDiscoveryReturn([]));
     mockTrackFeature.mockReset();
     mockTrackError.mockReset();
@@ -180,6 +185,22 @@ describe('ImportAKSProjects', () => {
 
     expect(screen.getByTestId('row-ns1')).toBeInTheDocument();
     expect(screen.getByTestId('row-ns2')).toBeInTheDocument();
+  });
+
+  test('blocks import while cluster configuration is unavailable', () => {
+    mockRegisteredClustersState.isReady = false;
+    mockUseNamespaceDiscovery.mockReturnValue(
+      defaultDiscoveryReturn([makeDiscoveredNamespace({ isAksProject: true })])
+    );
+    render(<ImportAKSProjects />);
+
+    fireEvent.click(screen.getByRole('checkbox'));
+
+    const importButton = screen.getByRole('button', { name: 'Import Selected Projects' });
+    expect(importButton).toBeDisabled();
+    fireEvent.click(importButton);
+    expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
+    expect(mockApplyProjectLabels).not.toHaveBeenCalled();
   });
 
   test('shows loading state while discovering', () => {
