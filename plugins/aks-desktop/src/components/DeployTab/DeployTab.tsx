@@ -7,6 +7,7 @@ import { visuallyHidden } from '@mui/utils';
 import React, { useEffect, useState } from 'react';
 import { usePreviewFeatures } from '../../hooks/usePreviewFeatures';
 import type { ProjectDefinition } from '../../types/project';
+import { GitHubAuthProvider } from '../GitHubPipeline/GitHubAuthContext';
 import { ClusterDeployCard } from './components/ClusterDeployCard';
 import { usePipelineSettings } from './hooks/usePipelineSettings';
 
@@ -25,17 +26,11 @@ function DeployTab({ project }: DeployTabProps) {
     setLiveReady(true);
   }, []);
 
-  if (!githubPipelines) {
-    return (
-      <Box sx={{ p: 3, textAlign: 'center' }}>
-        <Typography color="text.secondary">
-          {t('Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.')}
-        </Typography>
-      </Box>
-    );
-  }
+  // Pipeline deployment is a preview feature; manual deploy and editing an
+  // AKS Desktop-deployed app are always available (issue #264).
+  const pipelineEnabled = githubPipelines && settings.githubPipelineEnabled;
 
-  return (
+  const content = (
     <Box sx={{ my: 3 }}>
       <Box sx={{ mb: 3 }}>
         <Typography variant="h5">{t('Workloads')}</Typography>
@@ -60,12 +55,16 @@ function DeployTab({ project }: DeployTabProps) {
             key={clusterName}
             cluster={clusterName}
             namespace={ns}
-            pipelineEnabled={settings.githubPipelineEnabled}
+            pipelineEnabled={pipelineEnabled}
           />
         );
       })}
     </Box>
   );
+
+  // The GitHub auth context is only consumed by the pipeline deploy dialog, so
+  // skip the provider (and its token validation) when pipelines are disabled.
+  return pipelineEnabled ? <GitHubAuthProvider>{content}</GitHubAuthProvider> : content;
 }
 
 export default DeployTab;

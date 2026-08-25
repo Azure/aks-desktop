@@ -364,11 +364,11 @@ if (Headlamp.isRunningAsApp()) {
     label: 'Deploy',
     icon: 'mdi:cloud-upload',
     isEnabled: isAksProject,
+    // DeployTab supplies its own GitHubAuthProvider, but only when pipeline
+    // deployment is enabled — manual deploy/edit needs no GitHub auth.
     component: ({ project }) => (
       <TelemetryErrorBoundary>
-        <GitHubAuthProvider>
-          <DeployTab project={project} />
-        </GitHubAuthProvider>
+        <DeployTab project={project} />
       </TelemetryErrorBoundary>
     ),
   });
