@@ -18,9 +18,13 @@ export async function getClusterResourceGroupViaGraph(
       return null;
     }
 
+    // Both cluster kinds are looked up here. An AKS Hybrid & Edge cluster is a
+    // `microsoft.kubernetes/connectedclusters` resource and would otherwise never
+    // resolve, leaving callers without the resource group they need to reach any
+    // Azure API for it (metrics, capabilities, role assignments).
     const query = `
       Resources
-      | where type == 'microsoft.containerservice/managedclusters'
+      | where type in ('microsoft.containerservice/managedclusters', 'microsoft.kubernetes/connectedclusters')
       | where name == '${clusterName}'
       | project resourceGroup
       | limit 1
