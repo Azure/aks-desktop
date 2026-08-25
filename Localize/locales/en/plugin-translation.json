@@ -30,6 +30,8 @@
   "~3-5 min deploy + async suggestions": "~3-5 min deploy + async suggestions",
   "00000000-0000-0000-0000-000000000000": "00000000-0000-0000-0000-000000000000",
   "A cluster must be selected": "A cluster must be selected",
+  "A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.": "A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.",
+  "_A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing..comment": "{Locked=\"Azure\"}",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.",
   "Absolute usage": "Absolute usage",
   "Access": "Access",
