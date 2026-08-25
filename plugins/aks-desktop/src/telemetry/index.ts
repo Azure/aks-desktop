@@ -455,6 +455,13 @@ export type TelemetryErrorPhase = TelemetryStatus;
 
 export function trackError(p: ErrorProps): void {
   if (!telemetryEnabled) return;
+  // Bail before touching errorCounts while the consent gate is closed:
+  // otherwise a mid-transition error charges the per-key session quota for an
+  // envelope `emit` then drops, and once five are charged, real errors on that
+  // key stay suppressed for the rest of the session. Same reasoning as
+  // trackClusterShape's dedupe-set guard below. Deliberately no `!ai` check —
+  // pre-init errors are meant to buffer into pendingEvents and flush on init.
+  if (consentGateClosed) return;
   if (!ERROR_AREAS.has(p.area)) return;
   const errorClass = sanitizeErrorClass(p.errorClass);
   const key = `${p.area}:${errorClass}`;

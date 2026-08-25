@@ -100,6 +100,11 @@ function startAppVersionResolution(): { promise: Promise<string>; cleanup: () =>
   // previousEnabledRef is no longer null on the re-run, the re-invoked
   // effect A/B pair would never call initTelemetry either — silently
   // disabling telemetry for the whole session.
+  //
+  // Resolving is not by itself enough, because a genuine unmount runs the
+  // same cleanup and would then let that continuation initialize telemetry
+  // for a component that no longer exists. The caller distinguishes the two
+  // with a mounted flag checked after the await — see TelemetryBoot below.
   const cleanup = () => {
     settle('unknown');
   };
@@ -119,13 +124,23 @@ export default function TelemetryBoot(): null {
   const { enabled } = useTelemetryConfig();
   const appVersionRef = useRef<Promise<string> | null>(null);
   const previousEnabledRef = useRef<boolean | null>(null);
+  // Cleared by effect A's cleanup, re-set by its body. React runs the
+  // StrictMode unmount/remount replay synchronously within one commit, so an
+  // `initialize` continuation — which resumes a microtask later, after the
+  // cleanup settled the promise it was awaiting — still observes true. A
+  // genuine unmount leaves it false and that continuation bails.
+  const mountedRef = useRef(true);
 
   // Resolve the app version exactly once per mount, independent of
   // consent transitions, and cache it for `initialize` to await.
   useEffect(() => {
+    mountedRef.current = true;
     const { promise, cleanup } = startAppVersionResolution();
     appVersionRef.current = promise;
-    return cleanup;
+    return () => {
+      mountedRef.current = false;
+      cleanup();
+    };
   }, []);
 
   // Mount-time only — deliberately `[]`-keyed, not `[enabled]` — so the flag
@@ -150,6 +165,19 @@ export default function TelemetryBoot(): null {
   useEffect(() => {
     const initialize = async () => {
       const appVersion = await (appVersionRef.current ?? Promise.resolve('unknown'));
+      // A real unmount resolved that promise from cleanup; constructing a
+      // client here would leave an App Insights instance and its send queue
+      // owned by nothing, unreachable and never unloaded. A StrictMode replay
+      // has already re-set this flag, so it still proceeds.
+      //
+      // When grantConsent injected this initialize, returning here makes it a
+      // resolved no-op: grantConsent then emits 'granted' with no client, so
+      // the event buffers into pendingEvents until some later initTelemetry
+      // flushes it. That is the intended trade — the alternative is leaving
+      // the consent gate closed for the rest of the process. Pinned by
+      // consent.test.ts, 'an initialize that resolves without building a
+      // client still completes the transition'.
+      if (!mountedRef.current) return;
       try {
         const installId = getOrCreateInstallId();
         const appInfo = getAppInfo();

@@ -120,6 +120,24 @@ describe('grantConsent error handling', () => {
     expect(indexMocks.emitConsentEvent).toHaveBeenCalledWith('granted');
     expect(indexMocks.endConsentTransition).toHaveBeenCalled();
   });
+
+  it('an initialize that resolves without building a client still completes the transition', async () => {
+    // Reachable since TelemetryBoot's mounted guard: a real unmount racing a
+    // grant makes `initialize` resolve as a silent no-op. The transition must
+    // still finish rather than leaving the gate closed for the rest of the
+    // process. The 'granted' event buffers into pendingEvents with no client
+    // to send it, and a later initTelemetry flushes it — deliberate, since the
+    // alternative is a permanently closed gate.
+    const noopInitialize = vi.fn().mockResolvedValue(undefined);
+
+    await expect(grantConsent(noopInitialize)).resolves.toBeUndefined();
+
+    expect(noopInitialize).toHaveBeenCalledTimes(1);
+    expect(indexMocks.setTelemetryEnabled).toHaveBeenCalledWith(true);
+    expect(indexMocks.emitConsentEvent).toHaveBeenCalledWith('granted');
+    expect(indexMocks.endConsentTransition).toHaveBeenCalled();
+    expect(getConsentEpoch()).toBe(1);
+  });
 });
 
 describe('consent epoch', () => {

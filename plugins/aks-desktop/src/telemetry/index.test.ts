@@ -453,6 +453,18 @@ describe('trackError', () => {
     trackError({ area: 'deploy', errorClass: 'TimeoutError', phase: 'failed' });
     expect(trackEvent).toHaveBeenCalledTimes(6);
   });
+
+  it('does not spend the per-key quota on errors dropped by a closed consent gate', () => {
+    const gen = beginConsentTransition();
+    for (let count = 0; count < 5; count += 1) {
+      trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    }
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    endConsentTransition(gen);
+    trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('trackClusterShape null-guard', () => {

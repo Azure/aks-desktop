@@ -140,6 +140,50 @@ describe('TelemetryBoot', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
+  it('does not initialize after a real unmount that beats the appConfig handshake', async () => {
+    const unsubscribe = vi.fn();
+    (window as { desktopApi?: unknown }).desktopApi = {
+      receive: vi.fn(() => unsubscribe),
+      send: vi.fn(),
+    };
+
+    // Unmount while `initialize` is still awaiting the app-version promise.
+    // Cleanup resolves that promise (so a StrictMode replay cannot hang), so
+    // the continuation does run — it must decline to build a client that no
+    // mounted component owns.
+    const { unmount } = render(<TelemetryBoot />);
+    unmount();
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mocks.initTelemetry).not.toHaveBeenCalled();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('still initializes across a StrictMode unmount/remount replay', async () => {
+    let onAppConfig: ((config: { appVersion?: string }) => void) | undefined;
+    (window as { desktopApi?: unknown }).desktopApi = {
+      receive: vi.fn((_channel, callback) => {
+        onAppConfig = callback;
+        return vi.fn();
+      }),
+      send: vi.fn(),
+    };
+
+    // The replay's cleanup settles the first app-version promise, and
+    // previousEnabledRef is no longer null on the re-run, so the *first*
+    // initialize continuation is the only one that can reach initTelemetry.
+    // The mounted guard must not cancel it.
+    render(
+      <React.StrictMode>
+        <TelemetryBoot />
+      </React.StrictMode>
+    );
+
+    onAppConfig?.({ appVersion: '0.4.0' });
+
+    await waitFor(() => expect(mocks.initTelemetry).toHaveBeenCalledTimes(1));
+  });
+
   it('does not call grantConsent on initial mount even when enabled', async () => {
     render(<TelemetryBoot />);
     await waitFor(() => expect(mocks.initTelemetry).toHaveBeenCalledTimes(1));
