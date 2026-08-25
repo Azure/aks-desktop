@@ -236,7 +236,6 @@
   "Edit HPA Configuration": "Edit Konfigurasi HPA",
   "Edit Manual Scaling Configuration": "Edit Konfigurasi Penskalaan Manual",
   "Egress Policy": "Kebijakan Egress",
-  "Enable GitHub Pipelines in Settings → Preview Features to use pipeline deployments.": "Aktifkan Alur GitHub di Pengaturan → Fitur Pratinjau untuk menggunakan penyebaran alur.",
   "Enable GitHub-based deployment pipelines for AKS projects.": "Aktifkan alur penyebaran berbasis GitHub untuk proyek AKS.",
   "Enable Horizontal Pod Autoscaler": "Aktifkan Horizontal Pod Autoscaler",
   "Enable liveness probe": "Aktifkan pemeriksaan keaktifan",
@@ -477,7 +476,6 @@
   "periodSeconds": "periodSeconds",
   "Pipeline": "Alur",
   "Pipeline configured": "Alur dikonfigurasi",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Selesaikan autentikasi di browser Anda. Jendela ini akan otomatis dialihkan setelah proses masuk selesai.",
   "Please review all the settings before creating your AKS project": "Harap tinjau semua pengaturan sebelum membuat proyek AKS Anda",
   "Please select a deployment to view metrics": "Pilih penyebaran untuk melihat metrik",
   "Please select a subscription first": "Pilih langganan terlebih dahulu",
@@ -716,5 +714,7 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Anda dapat menciutkan panel ini. Kemajuan disimpan dan akan dilanjutkan saat Anda kembali.",
   "You need to be logged in to Azure to register AKS clusters.": "Anda harus masuk ke Azure untuk mendaftarkan kluster AKS.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Proyek AKS Anda \"{{projectName}}\" telah dibuat dan siap digunakan.",
-  "Your project \"{{projectName}}\" is ready to use.": "Proyek \"{{projectName}}\" Anda siap digunakan."
+  "Your project \"{{projectName}}\" is ready to use.": "Proyek \"{{projectName}}\" Anda siap digunakan.",
+  "Contact us": "",
+  "Get help, share feedback, or reach the AKS Desktop team": ""
 }

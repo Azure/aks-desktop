@@ -391,6 +391,7 @@
   "Issues": "Issues",
   "just now": "just now",
   "KEDA (Event-Driven Autoscaling)": "KEDA (Event-Driven Autoscaling)",
+  "_KEDA (Event-Driven Autoscaling).comment": "{Locked=\"KEDA\"}",
   "Keep Going": "Keep Going",
   "Key": "Key",
   "Keys must start with a letter or underscore and contain only letters, numbers, and underscores.": "Keys must start with a letter or underscore and contain only letters, numbers, and underscores.",
