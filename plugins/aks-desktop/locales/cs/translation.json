@@ -23,7 +23,6 @@
   "Registering": "Probíhá registrace",
   "Register Cluster": "Zaregistrovat cluster",
   "Initiating Azure login": "Zahajuje se přihlášení k Azure.",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Dokončete prosím ověření v prohlížeči. Toto okno se po dokončení přihlášení automaticky přesměruje.",
   "Login successful! Redirecting": "Přihlášení bylo úspěšné. Přesměrování",
   "Login timeout. Please try again.": "Vypršel časový limit přihlášení. Zkuste to prosím znovu.",
   "Waiting for login completion... ({{minutes}} minutes remaining)": "Čeká se na dokončení přihlášení... (zbývající počet minut: {{minutes}})",

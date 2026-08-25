@@ -23,7 +23,6 @@
   "Registering": "Wird registriert",
   "Register Cluster": "Cluster registrieren",
   "Initiating Azure login": "Die Azure-Anmeldung wird initiiert",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Schließen Sie die Authentifizierung in Ihrem Browser ab. Dieses Fenster wird automatisch umgeleitet, sobald die Anmeldung abgeschlossen ist.",
   "Login successful! Redirecting": "Die Anmeldung war erfolgreich! Umleitung",
   "Login timeout. Please try again.": "Anmeldetimeout. Versuchen Sie es bitte noch mal.",
   "Waiting for login completion... ({{minutes}} minutes remaining)": "Es wird auf den Abschluss der Anmeldung gewartet... ({{minutes}} Minuten verbleibend)",

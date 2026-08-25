@@ -23,7 +23,6 @@
   "Registering": "Registrering",
   "Register Cluster": "Registrera kluster",
   "Initiating Azure login": "Initierar Azure-inloggning",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Slutför autentiseringen i webbläsaren. Det här fönstret omdirigeras automatiskt när inloggningen är klar.",
   "Login successful! Redirecting": "Inloggningen lyckades! Omdirigering",
   "Login timeout. Please try again.": "Inloggningstiden gick ut. Försök igen.",
   "Waiting for login completion... ({{minutes}} minutes remaining)": "Väntar på att inloggningen ska slutföras... ({{minutes}} minuter kvar)",

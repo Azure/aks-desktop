@@ -23,7 +23,6 @@
   "Registering": "Registrando",
   "Register Cluster": "Registrar clúster",
   "Initiating Azure login": "Iniciando sesión en Azure",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Complete la autenticación en su navegador. Esta ventana se redirigirá automáticamente cuando finalice el inicio de sesión.",
   "Login successful! Redirecting": "Inicio de sesión correcto Redirigiendo",
   "Login timeout. Please try again.": "Se agotó el tiempo de expiración de inicio de sesión. Inténtelo de nuevo.",
   "Waiting for login completion... ({{minutes}} minutes remaining)": "Esperando a que se complete el inicio de sesión... ({{minutes}}\u00a0minutos restantes)",

@@ -23,7 +23,6 @@
   "Registering": "登録しています",
   "Register Cluster": "クラスターの登録",
   "Initiating Azure login": "Azure ログインを開始しています",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "ブラウザーで認証を完了してください。ログイン完了後、このウィンドウは自動的にリダイレクトされます。",
   "Login successful! Redirecting": "ログインに成功しました。リダイレクトしています",
   "Login timeout. Please try again.": "ログインがタイムアウトしました。もう一度お試しください。",
   "Waiting for login completion... ({{minutes}} minutes remaining)": "ログインの完了を待機しています...(残り {{minutes}} 分)",

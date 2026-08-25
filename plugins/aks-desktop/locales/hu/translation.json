@@ -23,7 +23,6 @@
   "Registering": "Regisztrálás folyamatban",
   "Register Cluster": "Fürt regisztrálása",
   "Initiating Azure login": "Azure-bejelentkezés kezdeményezése",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Végezze el a hitelesítést a böngészőben. Ez az ablak automatikusan átirányítja a bejelentkezés befejezése után.",
   "Login successful! Redirecting": "Sikeres bejelentkezés! Átirányítás",
   "Login timeout. Please try again.": "Bejelentkezési időtúllépés. Próbálkozzon újra.",
   "Waiting for login completion... ({{minutes}} minutes remaining)": "Várakozás a bejelentkezés befejezésére... ({{minutes}} perc van hátra)",

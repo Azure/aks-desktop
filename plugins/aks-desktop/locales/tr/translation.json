@@ -23,7 +23,6 @@
   "Registering": "Kaydediliyor",
   "Register Cluster": "Kümeyi Kaydet",
   "Initiating Azure login": "Azure oturumu açma başlatılıyor",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Lütfen kimlik doğrulamasını tarayıcınızda tamamlayın. Oturum açma tamamlandığında bu pencere otomatik olarak yeniden yönlendirilir.",
   "Login successful! Redirecting": "Oturum açıldı! Yeniden yönlendiriyor",
   "Login timeout. Please try again.": "Oturum açma zaman aşımı. Lütfen yeniden deneyin.",
   "Waiting for login completion... ({{minutes}} minutes remaining)": "Oturum açma işleminin tamamlanması bekleniyor... ({{minutes}} dakika kaldı)",

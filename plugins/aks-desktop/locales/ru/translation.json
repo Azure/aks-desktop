@@ -23,7 +23,6 @@
   "Registering": "Выполняется регистрация",
   "Register Cluster": "Регистрация кластера",
   "Initiating Azure login": "Инициируется вход в Azure",
-  "Please complete the authentication in your browser. This window will automatically redirect once login is complete.": "Завершите проверку подлинности в браузере. Это окно будет автоматически перенаправлено после входа.",
   "Login successful! Redirecting": "Вход успешно выполнен! Выполняется перенаправление",
   "Login timeout. Please try again.": "Время ожидания входа истекло. Повторите попытку.",
   "Waiting for login completion... ({{minutes}} minutes remaining)": "Ждем завершения входа... ( осталось{{minutes}} мин.)",
