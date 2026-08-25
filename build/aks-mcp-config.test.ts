@@ -11,6 +11,8 @@ import { afterEach, test } from 'node:test';
 import {
   aksMcpBinaryName,
   aksMcpBinaryPath,
+  ensureExecutable,
+  isExecutable,
   isSupportedAksMcpArch,
   matchesChecksum,
   parseTargetArgs,
@@ -183,4 +185,29 @@ test('matches a checksum only for an existing file with the same digest', () => 
   assert.equal(matchesChecksum(filePath, digest), true);
   assert.equal(matchesChecksum(filePath, 'not-the-digest'), false);
   assert.equal(matchesChecksum(path.join(rootDir, 'missing'), digest), false);
+});
+
+test('treats a file without the executable bit as not executable', {
+  skip: process.platform === 'win32' ? 'file modes are not enforced on Windows' : false,
+}, () => {
+  const rootDir = createRoot();
+  const filePath = path.join(rootDir, 'binary');
+  fs.writeFileSync(filePath, 'aks-mcp', { mode: 0o644 });
+
+  assert.equal(isExecutable(filePath, 'linux'), false);
+  // Windows packages have no executable bit to check.
+  assert.equal(isExecutable(filePath, 'win32'), true);
+  assert.equal(isExecutable(path.join(rootDir, 'missing'), 'linux'), false);
+});
+
+test('restores an executable bit dropped by a cache or archive', {
+  skip: process.platform === 'win32' ? 'file modes are not enforced on Windows' : false,
+}, () => {
+  const rootDir = createRoot();
+  const filePath = path.join(rootDir, 'binary');
+  fs.writeFileSync(filePath, 'aks-mcp', { mode: 0o644 });
+
+  ensureExecutable(filePath, 'linux');
+
+  assert.equal(isExecutable(filePath, 'linux'), true);
 });

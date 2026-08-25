@@ -21,6 +21,7 @@ import * as https from 'https';
 import { createHash } from 'crypto';
 import {
   aksMcpBinaryPath,
+  ensureExecutable,
   isSupportedAksMcpArch,
   matchesChecksum,
   parseTargetArgs,
@@ -88,6 +89,7 @@ async function main(): Promise<void> {
   writeStagedTarget(ROOT_DIR, { platform, arch, checksum: expectedChecksum });
 
   if (matchesChecksum(targetPath, expectedChecksum)) {
+    ensureExecutable(targetPath, platform);
     console.log(`aks-mcp ${version} (${platform}/${arch}) already up to date at: ${targetPath}`);
     return;
   }
@@ -101,9 +103,7 @@ async function main(): Promise<void> {
     throw new Error(`Checksum mismatch for aks-mcp: expected ${expectedChecksum}, got ${actual}`);
   }
 
-  if (platform !== 'win32') {
-    fs.chmodSync(targetPath, 0o755);
-  }
+  ensureExecutable(targetPath, platform);
 
   console.log(`aks-mcp ${version} (${platform}/${arch}) installed to: ${targetPath}`);
 }

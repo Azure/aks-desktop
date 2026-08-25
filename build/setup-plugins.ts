@@ -9,6 +9,7 @@ import { execSync } from 'child_process';
 import { copyShippedPlugin } from './plugin-packaging';
 import {
   aksMcpBinaryPath,
+  isExecutable,
   isSupportedAksMcpArch,
   matchesChecksum,
   parseTargetArgs,
@@ -58,7 +59,10 @@ function isAksMcpStagedForTarget(): boolean {
     return !fs.existsSync(aksMcpBinaryPath(ROOT_DIR, targetPlatform));
   }
   const aksMcp = resolveAksMcpTarget(ROOT_DIR, targetPlatform, targetArch);
-  return matchesChecksum(aksMcp.targetPath, aksMcp.expectedChecksum);
+  return (
+    matchesChecksum(aksMcp.targetPath, aksMcp.expectedChecksum) &&
+    isExecutable(aksMcp.targetPath, targetPlatform)
+  );
 }
 
 const aksMcpStaged = isAksMcpStagedForTarget();

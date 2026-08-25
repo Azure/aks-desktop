@@ -139,6 +139,25 @@ export function matchesChecksum(filePath: string, expectedChecksum: string): boo
   return actual === expectedChecksum;
 }
 
+/** Windows has no executable bit, and a Windows host cannot set one. */
+export function requiresExecutableBit(platform: string): boolean {
+  return platform !== 'win32' && process.platform !== 'win32';
+}
+
+export function isExecutable(filePath: string, platform: string): boolean {
+  if (!requiresExecutableBit(platform)) {
+    return true;
+  }
+  return fs.existsSync(filePath) && (fs.statSync(filePath).mode & 0o111) === 0o111;
+}
+
+/** Restores the executable bit, which build caches and archives often drop. */
+export function ensureExecutable(filePath: string, platform: string): void {
+  if (!isExecutable(filePath, platform)) {
+    fs.chmodSync(filePath, 0o755);
+  }
+}
+
 export function writeStagedTarget(rootDir: string, target: StagedAksMcpTarget): void {
   const markerPath = path.join(rootDir, STAGED_TARGET_FILE);
   fs.mkdirSync(path.dirname(markerPath), { recursive: true });
