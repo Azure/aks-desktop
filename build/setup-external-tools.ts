@@ -75,6 +75,31 @@ if (fs.existsSync(KUBELOGIN_SCRIPT)) {
   console.log('');
 }
 
+// Install aks-mcp binary
+console.log('==========================================');
+console.log('Installing aks-mcp...');
+console.log('==========================================');
+
+// Forward --platform/--arch so cross-architecture packaging stages the right binary.
+const targetArgs = process.argv
+  .slice(2)
+  .filter(argument => /^--(platform|arch)=[a-z0-9_]+$/.test(argument));
+
+try {
+  execSync(
+    `npx --yes tsx "${path.join(SCRIPT_DIR, 'download-aks-mcp.ts')}" ${targetArgs.join(' ')}`.trim(),
+    {
+      stdio: 'inherit',
+      cwd: ROOT_DIR
+    }
+  );
+} catch (error) {
+  console.error('❌ ERROR: Failed to install aks-mcp');
+  process.exit(1);
+}
+
+console.log('');
+
 console.log('==========================================');
 console.log('✅ External tools setup complete!');
 console.log('==========================================');
@@ -94,6 +119,11 @@ if (fs.existsSync(azPath)) {
 const kubeloginScriptPath = path.join(EXTERNAL_TOOLS_BIN, 'az-kubelogin.py');
 if (fs.existsSync(kubeloginScriptPath)) {
   console.log(`  - az-kubelogin.py (${kubeloginScriptPath})`);
+}
+
+const aksMcpPath = path.join(EXTERNAL_TOOLS_BIN, PLATFORM === 'win32' ? 'aks-mcp.exe' : 'aks-mcp');
+if (fs.existsSync(aksMcpPath)) {
+  console.log(`  - aks-mcp (${aksMcpPath})`);
 }
 
 console.log('');
