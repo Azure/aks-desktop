@@ -53,6 +53,17 @@ export default function DeleteButton(props: DeleteButtonProps) {
   const { t } = useTranslation(['translation']);
   const dispatchDeleteEvent = useEventCallback(HeadlampEventType.DELETE_RESOURCE);
 
+  // Deleting only warrants navigating away when the page being viewed *is* the
+  // object's own details page, which would 404 once the object is gone. From a
+  // list, a project view, or a details pane, the user asked to delete a row —
+  // not to leave the page they are on.
+  const fallbackUrl = React.useMemo(() => {
+    const detailsLink = item?.getDetailsLink();
+    return detailsLink && location.pathname === detailsLink
+      ? item!.getListLink()
+      : location.pathname;
+  }, [item, location.pathname]);
+
   const deleteFunc = React.useCallback(
     () => {
       if (!item) {
@@ -76,14 +87,14 @@ export default function DeleteButton(props: DeleteButtonProps) {
             successMessage: t('Deleted item {{ itemName }}.', { itemName }),
             errorMessage: t('Error deleting item {{ itemName }}.', { itemName }),
             cancelUrl: location.pathname,
-            startUrl: item!.getListLink(),
-            errorUrl: item!.getListLink(),
+            startUrl: fallbackUrl,
+            errorUrl: fallbackUrl,
             ...options,
           })
         );
     },
     // eslint-disable-next-line
-    [item, forceDelete]
+    [item, forceDelete, fallbackUrl]
   );
 
   if (!item) {

@@ -24,6 +24,7 @@ import {
   HeaderActionType,
 } from '../../../../redux/actionButtonsSlice';
 import { useTypedSelector } from '../../../../redux/hooks';
+import { Activity, useActivity } from '../../../activity/Activity';
 import ErrorBoundary from '../../ErrorBoundary';
 import SectionHeader, { HeaderStyle } from '../../SectionHeader';
 import CopyButton from '../CopyButton';
@@ -31,6 +32,24 @@ import DeleteButton from '../DeleteButton';
 import EditButton from '../EditButton';
 import { RestartButton } from '../RestartButton';
 import ScaleButton from '../ScaleButton';
+
+/**
+ * The details view can be rendered either as a route or inside an activity (the
+ * split-right details pane). In the latter case the pane is showing an object
+ * that is on its way out, so deleting should dismiss it. Route-level details
+ * pages render outside any activity, where this is a no-op.
+ */
+function DetailsDeleteButton<T extends KubeObject>({ item }: { item: T }) {
+  const [activity] = useActivity();
+  const activityId = activity?.id;
+
+  return (
+    <DeleteButton
+      item={item}
+      afterConfirm={activityId ? () => Activity.close(activityId) : undefined}
+    />
+  );
+}
 
 export interface MainInfoHeaderProps<T extends KubeObject> {
   resource: T | null;
@@ -68,7 +87,7 @@ export function MainInfoHeader<T extends KubeObject>(props: MainInfoHeaderProps<
           Action = EditButton;
           break;
         case DefaultHeaderAction.DELETE:
-          Action = DeleteButton;
+          Action = DetailsDeleteButton;
           break;
         default:
           break;
