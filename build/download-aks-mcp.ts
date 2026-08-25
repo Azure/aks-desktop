@@ -9,6 +9,8 @@
  * PATH at startup. The AI Assistant plugin preconfigures an "aks-mcp" MCP
  * server with the bare command name, so it resolves from that PATH entry.
  *
+ * Accepts --platform=<node platform> and --arch=<node arch> so packaging can
+ * stage the binary matching the package target rather than the build host.
  * Running this repeatedly is safe: an already installed binary is downloaded
  * again only when its checksum no longer matches the pinned configuration.
  */
@@ -17,7 +19,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
 import { createHash } from 'crypto';
-import { matchesChecksum, resolveAksMcpTarget } from './aks-mcp-config';
+import {
+  aksMcpBinaryPath,
+  isSupportedAksMcpArch,
+  matchesChecksum,
+  parseTargetArgs,
+  resolveAksMcpTarget,
+  resolveTargetArch,
+  writeStagedTarget,
+} from './aks-mcp-config';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
@@ -52,10 +62,33 @@ function download(url: string, destination: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const { version, downloadUrl, targetPath, expectedChecksum } = resolveAksMcpTarget(ROOT_DIR);
+  const args = parseTargetArgs(process.argv.slice(2));
+  const platform = args.platform ?? process.platform;
+  const arch = resolveTargetArch(args.arch);
+
+  // The bin directory is shared between targets, so drop the binary staged for
+  // the other platform to keep it out of this package.
+  const foreignBinary = aksMcpBinaryPath(ROOT_DIR, platform === 'win32' ? 'linux' : 'win32');
+  fs.rmSync(foreignBinary, { force: true });
+
+  // No release asset exists for architectures such as armv7l, so drop any
+  // previously staged binary instead of packaging one for the wrong CPU.
+  if (!isSupportedAksMcpArch(arch)) {
+    fs.rmSync(aksMcpBinaryPath(ROOT_DIR, platform), { force: true });
+    writeStagedTarget(ROOT_DIR, { platform, arch });
+    console.warn(`No aks-mcp release asset for ${platform}/${arch}; skipping it for this target.`);
+    return;
+  }
+
+  const { version, downloadUrl, targetPath, expectedChecksum } = resolveAksMcpTarget(
+    ROOT_DIR,
+    platform,
+    arch
+  );
+  writeStagedTarget(ROOT_DIR, { platform, arch, checksum: expectedChecksum });
 
   if (matchesChecksum(targetPath, expectedChecksum)) {
-    console.log(`aks-mcp ${version} already up to date at: ${targetPath}`);
+    console.log(`aks-mcp ${version} (${platform}/${arch}) already up to date at: ${targetPath}`);
     return;
   }
 
@@ -68,11 +101,11 @@ async function main(): Promise<void> {
     throw new Error(`Checksum mismatch for aks-mcp: expected ${expectedChecksum}, got ${actual}`);
   }
 
-  if (process.platform !== 'win32') {
+  if (platform !== 'win32') {
     fs.chmodSync(targetPath, 0o755);
   }
 
-  console.log(`aks-mcp ${version} installed to: ${targetPath}`);
+  console.log(`aks-mcp ${version} (${platform}/${arch}) installed to: ${targetPath}`);
 }
 
 main().catch(error => {

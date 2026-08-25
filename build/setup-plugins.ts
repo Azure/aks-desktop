@@ -7,7 +7,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { copyShippedPlugin } from './plugin-packaging';
-import { matchesChecksum, resolveAksMcpTarget } from './aks-mcp-config';
+import {
+  aksMcpBinaryPath,
+  isSupportedAksMcpArch,
+  matchesChecksum,
+  parseTargetArgs,
+  readStagedTarget,
+  resolveAksMcpTarget,
+  resolveTargetArch,
+} from './aks-mcp-config';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
@@ -24,24 +32,45 @@ const externalToolsDir = path.join(
   'resources',
   'external-tools'
 );
+// Packaging passes the electron-builder target here so cross-architecture
+// builds stage the matching binaries instead of the build host's.
+const targetArgs = parseTargetArgs(process.argv.slice(2));
+const targetPlatform = targetArgs.platform ?? process.platform;
+const targetArch = resolveTargetArch(targetArgs.arch);
+// The values reach a shell command below, so keep them to plain identifiers.
+for (const value of [targetPlatform, targetArch]) {
+  if (!/^[a-z0-9_]+$/.test(value)) {
+    console.error(`Invalid build target value: ${value}`);
+    process.exit(1);
+  }
+}
+console.log(`Target: ${targetPlatform}/${targetArch}`);
+
 // Individual tools are checked against their pinned checksum, so incremental
-// builds also pick up tools that were added or whose version changed since the
-// last setup, without deleting the whole directory.
-const aksMcp = resolveAksMcpTarget(ROOT_DIR);
-const outdatedExternalTools = [aksMcp].filter(
-  tool => !matchesChecksum(tool.targetPath, tool.expectedChecksum)
-);
-if (!fs.existsSync(externalToolsDir) || outdatedExternalTools.length > 0) {
-  if (outdatedExternalTools.length > 0 && fs.existsSync(externalToolsDir)) {
-    console.log(
-      `Missing or outdated external tools: ${outdatedExternalTools
-        .map(tool => tool.targetPath)
-        .join(', ')}`
-    );
+// builds also pick up tools that were added or whose version or target
+// architecture changed since the last setup, without deleting the directory.
+function isAksMcpStagedForTarget(): boolean {
+  const staged = readStagedTarget(ROOT_DIR);
+  if (staged?.platform !== targetPlatform || staged?.arch !== targetArch) {
+    return false;
+  }
+  if (!isSupportedAksMcpArch(targetArch)) {
+    return !fs.existsSync(aksMcpBinaryPath(ROOT_DIR, targetPlatform));
+  }
+  const aksMcp = resolveAksMcpTarget(ROOT_DIR, targetPlatform, targetArch);
+  return matchesChecksum(aksMcp.targetPath, aksMcp.expectedChecksum);
+}
+
+const aksMcpStaged = isAksMcpStagedForTarget();
+
+if (!fs.existsSync(externalToolsDir) || !aksMcpStaged) {
+  if (!aksMcpStaged && fs.existsSync(externalToolsDir)) {
+    console.log(`aks-mcp is missing or not staged for ${targetPlatform}/${targetArch}.`);
   }
   console.log('Setting up external tools...');
   execSync(
-    `npx --yes tsx "${path.join(SCRIPT_DIR, 'setup-external-tools.ts')}"`,
+    `npx --yes tsx "${path.join(SCRIPT_DIR, 'setup-external-tools.ts')}" ` +
+      `--platform=${targetPlatform} --arch=${targetArch}`,
     {
       stdio: 'inherit',
     }

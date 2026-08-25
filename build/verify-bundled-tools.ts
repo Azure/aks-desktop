@@ -11,11 +11,20 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { matchesChecksum, resolveAksMcpTarget } from './aks-mcp-config';
+import {
+  aksMcpBinaryName,
+  isSupportedAksMcpArch,
+  matchesChecksum,
+  readStagedTarget,
+  resolveAksMcpTarget,
+  resolveTargetArch,
+} from './aks-mcp-config';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
 const CURRENT_PLATFORM = process.platform;
+const STAGED_TARGET = readStagedTarget(ROOT_DIR);
+const TARGET_ARCH = STAGED_TARGET?.arch ?? resolveTargetArch();
 
 // Read product name from headlamp app package.json
 const HEADLAMP_PACKAGE_JSON = path.join(ROOT_DIR, 'headlamp', 'app', 'package.json');
@@ -28,34 +37,29 @@ try {
   console.warn(`Warning: Could not read product name from ${HEADLAMP_PACKAGE_JSON}, using default: ${PRODUCT_NAME}`);
 }
 
-// Determine the correct build output directory based on platform
+// Determine the correct build output directory based on platform. Packaging a
+// non-host architecture puts the output in an arch-suffixed directory, so the
+// staged target decides which one to inspect.
+const DIST_DIR = path.join(ROOT_DIR, 'headlamp', 'app', 'dist');
+
+function findPlatformDir(candidates: string[], fallback: string): string {
+  return candidates.find(dir => fs.existsSync(path.join(DIST_DIR, dir))) ?? fallback;
+}
+
 let PLATFORM_DIR: string = '';
 
 if (CURRENT_PLATFORM === 'win32') {
-  PLATFORM_DIR = 'win-unpacked';
+  PLATFORM_DIR = findPlatformDir([`win-${TARGET_ARCH}-unpacked`, 'win-unpacked'], 'win-unpacked');
 } else if (CURRENT_PLATFORM === 'darwin') {
-  // For macOS, electron-builder creates architecture-specific directories
-  // Try to find the actual build directory
-  const distDir = path.join(ROOT_DIR, 'headlamp', 'app', 'dist');
-  const possibleDirs = ['mac-arm64', 'mac-x64', 'mac'];
-
-  for (const dir of possibleDirs) {
-    const fullPath = path.join(distDir, dir);
-    if (fs.existsSync(fullPath)) {
-      PLATFORM_DIR = dir;
-      break;
-    }
-  }
-
-  // Fallback to default if no directory found
-  if (!PLATFORM_DIR) {
-    PLATFORM_DIR = 'mac';
-  }
+  PLATFORM_DIR = findPlatformDir([`mac-${TARGET_ARCH}`, 'mac-arm64', 'mac-x64', 'mac'], 'mac');
 } else {
-  PLATFORM_DIR = 'linux-unpacked';
+  PLATFORM_DIR = findPlatformDir(
+    [`linux-${TARGET_ARCH}-unpacked`, 'linux-unpacked'],
+    'linux-unpacked'
+  );
 }
 
-const BUILD_DIST_DIR = path.join(ROOT_DIR, 'headlamp', 'app', 'dist', PLATFORM_DIR);
+const BUILD_DIST_DIR = path.join(DIST_DIR, PLATFORM_DIR);
 
 // On macOS, the app is bundled in a .app directory structure
 let EXTERNAL_TOOLS_DIR: string;
@@ -480,9 +484,22 @@ function testKubeloginScript(): void {
  */
 function testAksMcpBinary(): void {
   const binDir = path.join(EXTERNAL_TOOLS_DIR, 'bin');
-  const aksMcpBinary = path.join(binDir, CURRENT_PLATFORM === 'win32' ? 'aks-mcp.exe' : 'aks-mcp');
-
+  const aksMcpBinary = path.join(binDir, aksMcpBinaryName(CURRENT_PLATFORM));
   const exists = fs.existsSync(aksMcpBinary);
+
+  // No release asset exists for architectures such as armv7l, so shipping
+  // nothing is correct there and shipping something means it is the wrong CPU.
+  if (!isSupportedAksMcpArch(TARGET_ARCH)) {
+    addResult(
+      'aks-mcp binary',
+      !exists,
+      exists
+        ? `Unexpected binary at ${aksMcpBinary} for unsupported architecture ${TARGET_ARCH}`
+        : `Correctly omitted for unsupported architecture ${TARGET_ARCH}`
+    );
+    return;
+  }
+
   addResult(
     'aks-mcp binary',
     exists,
@@ -496,14 +513,18 @@ function testAksMcpBinary(): void {
   // The checksum is architecture specific, so this also catches a binary built
   // for the wrong CPU during cross-architecture packaging.
   try {
-    const { version, expectedChecksum } = resolveAksMcpTarget(ROOT_DIR, CURRENT_PLATFORM);
+    const { version, expectedChecksum } = resolveAksMcpTarget(
+      ROOT_DIR,
+      CURRENT_PLATFORM,
+      TARGET_ARCH
+    );
     const matches = matchesChecksum(aksMcpBinary, expectedChecksum);
     addResult(
       'aks-mcp checksum',
       matches,
       matches
-        ? `Matches pinned ${version} checksum`
-        : `Does not match the pinned ${version} checksum for this platform/architecture`
+        ? `Matches pinned ${version} checksum for ${CURRENT_PLATFORM}/${TARGET_ARCH}`
+        : `Does not match the pinned ${version} checksum for ${CURRENT_PLATFORM}/${TARGET_ARCH}`
     );
   } catch (error) {
     addResult(

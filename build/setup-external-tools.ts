@@ -80,11 +80,19 @@ console.log('==========================================');
 console.log('Installing aks-mcp...');
 console.log('==========================================');
 
+// Forward --platform/--arch so cross-architecture packaging stages the right binary.
+const targetArgs = process.argv
+  .slice(2)
+  .filter(argument => /^--(platform|arch)=[a-z0-9_]+$/.test(argument));
+
 try {
-  execSync(`npx --yes tsx "${path.join(SCRIPT_DIR, 'download-aks-mcp.ts')}"`, {
-    stdio: 'inherit',
-    cwd: ROOT_DIR
-  });
+  execSync(
+    `npx --yes tsx "${path.join(SCRIPT_DIR, 'download-aks-mcp.ts')}" ${targetArgs.join(' ')}`.trim(),
+    {
+      stdio: 'inherit',
+      cwd: ROOT_DIR
+    }
+  );
 } catch (error) {
   console.error('❌ ERROR: Failed to install aks-mcp');
   process.exit(1);
