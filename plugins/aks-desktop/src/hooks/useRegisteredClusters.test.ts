@@ -64,6 +64,15 @@ describe('useRegisteredClusters', () => {
     );
   });
 
+  test('normalizes kubeconfig cluster names for case-insensitive membership', () => {
+    mockUseClustersConf.mockReturnValue({ MyCluster: {} });
+
+    const { result } = renderHook(() => useRegisteredClusters());
+
+    expect(result.current.registeredClusters).toEqual(new Set(['mycluster']));
+    expect(mockReconcileRegisteredClusterNames).toHaveBeenCalledWith(new Set(['mycluster']));
+  });
+
   test('updates when clustersConf changes', () => {
     mockUseClustersConf.mockReturnValue({ 'cluster-a': {} });
 

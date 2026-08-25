@@ -188,6 +188,24 @@ describe('useRegisterCluster', () => {
     );
   });
 
+  test('matches active cluster state case-insensitively', async () => {
+    mockRegisteredClustersState.registeredClusters.add('aks-prod');
+    mockRegisterAKSCluster.mockResolvedValue({ success: false, message: 'scope conflict' });
+    const { result } = renderHook(() => useRegisterCluster('AKS-Prod', 'rg-prod', 'sub-123'));
+
+    await act(async () => {
+      await result.current.handleRegister();
+    });
+
+    expect(mockRegisterAKSCluster).toHaveBeenCalledWith(
+      'sub-123',
+      'rg-prod',
+      'AKS-Prod',
+      undefined,
+      true
+    );
+  });
+
   test('handleRegister does not call registerAKSCluster when cluster is empty', async () => {
     const { result } = renderHook(() => useRegisterCluster('', 'rg-prod', 'sub-123'));
 

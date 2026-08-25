@@ -11,6 +11,7 @@ import { DiscoveredNamespace, useNamespaceDiscovery } from '../../hooks/useNames
 import { useRegisteredClusters } from '../../hooks/useRegisteredClusters';
 import { trackError, trackFeature } from '../../telemetry';
 import { registerAKSCluster } from '../../utils/azure/aks';
+import { normalizeClusterName } from '../../utils/kubernetes/k8sNames';
 import { applyProjectLabels } from '../../utils/kubernetes/namespaceUtils';
 import { getClusterSettings, setClusterSettings } from '../../utils/shared/clusterSettings';
 import AzureAuthGuard from '../AzureAuth/AzureAuthGuard';
@@ -265,7 +266,8 @@ function ImportAKSProjectsContent() {
         // Re-registering with a managedNamespace param overwrites the kubeconfig
         // with namespace-scoped credentials, which would break access to
         // previously imported namespaces on this cluster.
-        if (registeredClusters.has(clusterName) && subscriptionId && resourceGroup) {
+        const clusterIsRegistered = registeredClusters.has(normalizeClusterName(clusterName));
+        if (clusterIsRegistered && subscriptionId && resourceGroup) {
           const registeredScope = getClusterSettings(clusterName).azureRegistration;
           const scopeMatches =
             typeof registeredScope?.subscriptionId === 'string' &&
@@ -286,7 +288,7 @@ function ImportAKSProjectsContent() {
             }
             continue;
           }
-        } else if (!registeredClusters.has(clusterName)) {
+        } else if (!clusterIsRegistered) {
           // Non-managed namespaces lack Azure metadata, so we can't register the cluster
           // on their behalf. The cluster must already be registered.
           if (!subscriptionId || !resourceGroup) {

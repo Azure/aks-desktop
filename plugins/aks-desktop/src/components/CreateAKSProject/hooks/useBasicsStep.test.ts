@@ -382,6 +382,23 @@ describe('useBasicsStep', () => {
     expect(result.current.isClusterMissing).toBe(false);
   });
 
+  test('validates an active cluster with different name casing', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'AKS-PROD' } });
+    const props = makeProps({
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'aks-prod',
+        resourceGroup: 'rg-prod',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(result.current.isClusterMissing).toBe(false);
+    expect(result.current.clusterScopeConflict).toBe(false);
+  });
+
   test('isClusterMissing is true when a same-name active cluster has another Azure scope', () => {
     mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'aks-prod' } });
     mockGetClusterSettings.mockReturnValue({

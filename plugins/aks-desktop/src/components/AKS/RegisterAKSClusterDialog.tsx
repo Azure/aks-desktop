@@ -11,6 +11,7 @@ import { trackAksFeature } from '../../telemetry/aksFeature';
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { getAKSClusters, getSubscriptions, registerAKSCluster } from '../../utils/azure/aks';
 import { getClusterCapabilities } from '../../utils/azure/az-clusters';
+import { normalizeClusterName } from '../../utils/kubernetes/k8sNames';
 import type { AKSCluster, Subscription, Tenant } from './RegisterAKSClusterDialogPure';
 import RegisterAKSClusterDialogPure from './RegisterAKSClusterDialogPure';
 
@@ -402,7 +403,7 @@ export default function RegisterAKSClusterDialog({
         selectedCluster.resourceGroup,
         selectedCluster.name,
         undefined,
-        registeredClusters.has(selectedCluster.name)
+        registeredClusters.has(normalizeClusterName(selectedCluster.name))
       );
       if (registrationRequestId !== registrationRequestIdRef.current) {
         return;

@@ -27,6 +27,18 @@ describe('clusterSettings', () => {
       expect(settings.theme).toBe('dark');
     });
 
+    test('reads settings through a case-insensitive cluster name', () => {
+      localStorage.setItem(
+        'cluster_settings.MyCluster',
+        JSON.stringify({ azureRegistration: { subscriptionId: 'sub-1', resourceGroup: 'rg-1' } })
+      );
+
+      expect(getClusterSettings('mycluster').azureRegistration).toEqual({
+        subscriptionId: 'sub-1',
+        resourceGroup: 'rg-1',
+      });
+    });
+
     test('returns empty object for invalid JSON', () => {
       localStorage.setItem('cluster_settings.my-cluster', 'not-json{{{');
 
@@ -83,6 +95,18 @@ describe('clusterSettings', () => {
       const settings = getClusterSettings('my-cluster');
       expect(settings.allowedNamespaces).toEqual(['ns-2']);
       expect(settings.newKey).toBe(true);
+    });
+
+    test('preserves an existing case-variant storage key', () => {
+      localStorage.setItem(
+        'cluster_settings.MyCluster',
+        JSON.stringify({ allowedNamespaces: ['ns-1'] })
+      );
+
+      setClusterSettings('mycluster', { allowedNamespaces: ['ns-2'] });
+
+      expect(localStorage.getItem('cluster_settings.mycluster')).toBeNull();
+      expect(getClusterSettings('MYCLUSTER').allowedNamespaces).toEqual(['ns-2']);
     });
   });
 });

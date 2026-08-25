@@ -5,6 +5,7 @@ import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useRef, useState } from 'react';
 import { useRegisteredClusters } from '../../../hooks/useRegisteredClusters';
 import { registerAKSCluster } from '../../../utils/azure/aks';
+import { normalizeClusterName } from '../../../utils/kubernetes/k8sNames';
 
 /** Set to `true` locally to enable verbose debug logging. Never enable in production. */
 const DEBUG = false;
@@ -95,7 +96,7 @@ export function useRegisterCluster(
         resourceGroup,
         cluster,
         undefined,
-        registeredClusters.has(cluster)
+        registeredClusters.has(normalizeClusterName(cluster))
       );
       if (registrationAttempt !== registrationAttemptRef.current) {
         return;

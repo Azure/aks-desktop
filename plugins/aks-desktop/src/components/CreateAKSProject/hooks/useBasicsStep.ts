@@ -4,6 +4,7 @@
 import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useRef } from 'react';
 import { useAzureAuth } from '../../../hooks/useAzureAuth';
+import { normalizeClusterName } from '../../../utils/kubernetes/k8sNames';
 import { getClusterSettings } from '../../../utils/shared/clusterSettings';
 import type { SearchableSelectOption } from '../components/SearchableSelect';
 import type { AzureCluster, AzureSubscription, FormData } from '../types';
@@ -188,7 +189,9 @@ export function getClusterRegistrationState(
   resourceGroup: string
 ): ClusterRegistrationState {
   const activeCluster = Object.values(headlampClusters || {}).find(
-    (cluster: any) => cluster.name === clusterName
+    (cluster: any) =>
+      typeof cluster.name === 'string' &&
+      normalizeClusterName(cluster.name) === normalizeClusterName(clusterName)
   );
   if (!activeCluster) return 'missing';
 

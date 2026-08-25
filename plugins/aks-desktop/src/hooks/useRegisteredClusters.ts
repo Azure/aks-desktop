@@ -4,6 +4,7 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useMemo } from 'react';
 import { reconcileRegisteredClusterNames } from '../utils/azure/aks';
+import { normalizeClusterName } from '../utils/kubernetes/k8sNames';
 
 /** Authoritative registered-cluster membership derived from Headlamp configuration. */
 export interface RegisteredClustersState {
@@ -24,7 +25,7 @@ export function useRegisteredClusters(): RegisteredClustersState {
 
   const registeredClusters = useMemo(() => {
     if (!clustersConf) return new Set<string>();
-    return new Set(Object.keys(clustersConf));
+    return new Set(Object.keys(clustersConf).map(normalizeClusterName));
   }, [clustersConf]);
 
   useEffect(() => {
