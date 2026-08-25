@@ -4,10 +4,30 @@
 import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useRef } from 'react';
 import { useAzureAuth } from '../../../hooks/useAzureAuth';
+import type { ClusterState } from '../../../utils/azure/clusterState';
+import {
+  getClusterStateLabel,
+  isAksHybridEdgeOnline,
+  isClusterFailed as isProvisioningFailed,
+} from '../../../utils/azure/clusterState';
 import { normalizeClusterName } from '../../../utils/kubernetes/k8sNames';
 import { getClusterSettings } from '../../../utils/shared/clusterSettings';
 import type { SearchableSelectOption } from '../components/SearchableSelect';
 import type { AzureCluster, AzureSubscription, FormData } from '../types';
+
+/**
+ * Adapts an {@link AzureCluster} to the shared {@link ClusterState} shape. The
+ * two cluster lists in this plugin name the ARM provisioning state differently
+ * (`status` here, `provisioningState` in the Add Cluster dialog), so the shared
+ * state rules take one canonical shape and each caller maps into it.
+ */
+function toClusterState(cluster: AzureCluster): ClusterState {
+  return {
+    clusterType: cluster.clusterType,
+    provisioningState: cluster.status,
+    connectivityStatus: cluster.connectivityStatus,
+  };
+}
 
 /**
  * The subset of {@link BasicsStepProps} that {@link useBasicsStep} actually
@@ -81,17 +101,6 @@ export function isClusterNonReady(cluster: AzureCluster): boolean {
     nonReadyProvisioningStates.includes(provisioningState) ||
     nonReadyPowerStates.includes(powerState)
   );
-}
-
-/**
- * Returns `true` when the cluster's provisioning state is `Failed`. Failed
- * clusters are not deployable, so they are disabled (non-selectable) in the
- * cluster dropdown by default.
- *
- * @param cluster - The Azure cluster to inspect.
- */
-export function isClusterFailed(cluster: AzureCluster): boolean {
-  return (cluster.status?.toLowerCase() || '') === 'failed';
 }
 
 /**
@@ -299,22 +308,32 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     };
   });
 
-  const clusterOptions: SearchableSelectOption[] = clusters.map(cluster => ({
-    value: getClusterOptionValue(cluster),
-    label: cluster.name,
-    subtitle: `${t('Resource Group')}: ${cluster.resourceGroup} • ${cluster.location} • ${
-      cluster.version
-    } • ${t('{{count}} nodes', { count: cluster.nodeCount })} • ${cluster.status}`,
-    // Clusters in a Failed provisioning state are not deployable — disable them
-    // (non-selectable) in the dropdown by default. The subtitle already shows the
-    // "Failed" status so the reason is visible.
-    disabled: isClusterFailed(cluster),
-    // Tag Arc-connected clusters so they stand out in the dropdown, matching the
-    // "AKS Hybrid & Edge" chip used in the Add Cluster dialog.
-    ...(cluster.clusterType === 'aksarc'
-      ? { chip: { label: t('AKS Hybrid & Edge'), icon: 'mdi:server', color: 'info' as const } }
-      : {}),
-  }));
+  const clusterOptions: SearchableSelectOption[] = clusters.map(cluster => {
+    const state = toClusterState(cluster);
+    const offline = !isAksHybridEdgeOnline(state);
+    return {
+      value: getClusterOptionValue(cluster),
+      label: cluster.name,
+      subtitle: `${t('Resource Group')}: ${cluster.resourceGroup} • ${cluster.location} • ${
+        cluster.version
+      } • ${t('{{count}} nodes', { count: cluster.nodeCount })} • ${getClusterStateLabel(state)}`,
+      // Clusters in a Failed provisioning state are not deployable, and an Arc
+      // cluster whose agent is offline cannot be reached at all — disable both
+      // (non-selectable) in the dropdown. The subtitle shows "Failed"/"Offline"
+      // so the reason is visible.
+      disabled: isProvisioningFailed(state) || offline,
+      // Tag Arc-connected clusters so they stand out in the dropdown, matching the
+      // "AKS Hybrid & Edge" and "Offline" chips used in the Add Cluster dialog.
+      chips: [
+        ...(cluster.clusterType === 'aksarc'
+          ? [{ label: t('AKS Hybrid & Edge'), icon: 'mdi:server', color: 'info' as const }]
+          : []),
+        ...(offline
+          ? [{ label: t('Offline'), icon: 'mdi:cloud-off-outline', color: 'default' as const }]
+          : []),
+      ],
+    };
+  });
 
   const clusterHelperText = getClusterHelperText(
     t,

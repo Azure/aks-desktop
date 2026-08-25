@@ -35,7 +35,6 @@ import {
   getClusterHelperText,
   getClusterOptionValue,
   getClusterStateMessage,
-  isClusterFailed,
   isClusterNonReady,
   useBasicsStep,
 } from './useBasicsStep';
@@ -65,6 +64,20 @@ const CLUSTER_RUNNING = {
 const CLUSTER_UPDATING = {
   ...CLUSTER_RUNNING,
   status: 'Updating',
+};
+
+const ARC_ONLINE = {
+  ...CLUSTER_RUNNING,
+  name: 'arc-online',
+  nodeCount: 0,
+  clusterType: 'aksarc' as const,
+  connectivityStatus: 'Connected',
+};
+
+const ARC_OFFLINE = {
+  ...ARC_ONLINE,
+  name: 'arc-offline',
+  connectivityStatus: 'Offline',
 };
 
 function makeProps(overrides: Partial<BasicsStepProps> = {}): BasicsStepProps {
@@ -175,18 +188,6 @@ describe('isClusterNonReady', () => {
   });
 });
 
-describe('isClusterFailed', () => {
-  test('is true for a Failed provisioning state (case-insensitive)', () => {
-    expect(isClusterFailed({ ...CLUSTER_RUNNING, status: 'Failed' })).toBe(true);
-    expect(isClusterFailed({ ...CLUSTER_RUNNING, status: 'FAILED' })).toBe(true);
-  });
-
-  test('is false for non-failed states', () => {
-    expect(isClusterFailed(CLUSTER_RUNNING)).toBe(false);
-    expect(isClusterFailed({ ...CLUSTER_RUNNING, status: 'Updating' })).toBe(false);
-  });
-});
-
 describe('getClusterStateMessage', () => {
   test('returns updating message for Updating provisioning state', () => {
     const msg = getClusterStateMessage({ ...CLUSTER_RUNNING, status: 'Updating' }, t);
@@ -283,6 +284,40 @@ describe('useBasicsStep', () => {
     const options = result.current.clusterOptions;
     expect(options.find(o => o.label === 'aks-prod')?.disabled).toBe(false);
     expect(options.find(o => o.label === 'aks-broken')?.disabled).toBe(true);
+  });
+
+  test('disables an offline Arc cluster and shows Offline, not its stale Succeeded state', () => {
+    // An Arc cluster's `status` (provisioningState) stays Succeeded once created,
+    // however sick the cluster gets, so the heartbeat is the only signal here.
+    const props = makeProps({ clusters: [ARC_ONLINE, ARC_OFFLINE] });
+    const { result } = renderHook(() => useBasicsStep(props));
+    const online = result.current.clusterOptions.find(o => o.label === 'arc-online');
+    const offline = result.current.clusterOptions.find(o => o.label === 'arc-offline');
+
+    expect(online?.disabled).toBe(false);
+    expect(online?.subtitle).toContain('Succeeded');
+    expect(online?.chips?.map(c => c.label)).toEqual(['AKS Hybrid & Edge']);
+
+    expect(offline?.disabled).toBe(true);
+    expect(offline?.subtitle).toContain('Offline');
+    expect(offline?.subtitle).not.toContain('Succeeded');
+    expect(offline?.chips?.map(c => c.label)).toEqual(['AKS Hybrid & Edge', 'Offline']);
+  });
+
+  test('an offline Arc cluster that also failed provisioning reads Failed', () => {
+    const props = makeProps({
+      clusters: [{ ...ARC_OFFLINE, name: 'arc-broken', status: 'Failed' }],
+    });
+    const { result } = renderHook(() => useBasicsStep(props));
+    const option = result.current.clusterOptions[0];
+    expect(option.disabled).toBe(true);
+    expect(option.subtitle).toContain('Failed');
+  });
+
+  test('managed clusters carry no heartbeat and are never marked offline', () => {
+    const { result } = renderHook(() => useBasicsStep(makeProps()));
+    expect(result.current.clusterOptions[0].disabled).toBe(false);
+    expect(result.current.clusterOptions[0].chips).toEqual([]);
   });
 
   test('selectedSubscription is undefined when no subscription is selected', () => {
