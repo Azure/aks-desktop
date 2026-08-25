@@ -64,10 +64,12 @@ export const useAzureResources = () => {
         getConnectedClusters(subscriptionId),
         getClusterCount(subscriptionId),
       ]);
-      // Tag managed clusters explicitly. Map Arc clusters into the AzureCluster
-      // shape without carrying the Arc heartbeat (connectivityStatus) into state —
-      // accessibility is verified with a live API probe at submit time, not from a
-      // cached heartbeat.
+      // Tag managed clusters explicitly. Arc clusters carry their heartbeat
+      // (connectivityStatus) into state because their `status` — the connected
+      // cluster's provisioningState — stays `Succeeded` even once the cluster has
+      // gone offline, so it is the only signal the dropdown can show or gate on.
+      // Reachability of a *connected* Arc cluster is still settled by a live API
+      // probe once it is selected, not by this cached heartbeat.
       const managed: AzureCluster[] = aksClusters.map((c: AzureCluster) => ({
         ...c,
         clusterType: 'aks',
@@ -81,6 +83,8 @@ export const useAzureResources = () => {
         resourceGroup: c.resourceGroup,
         powerState: c.powerState,
         clusterType: 'aksarc' as const,
+        connectivityStatus: c.connectivityStatus,
+        azureRbacEnabled: c.azureRbacEnabled,
       }));
       const clusterList: AzureCluster[] = [...managed, ...arc];
       let arcDiscoveryUnavailable = false;

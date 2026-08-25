@@ -6,9 +6,10 @@ import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { TextField } from '@mui/material';
 import { Box, Button, FormControl, Grid, IconButton, MenuItem, Typography } from '@mui/material';
 import React, { useEffect, useRef } from 'react';
+import { isEntraObjectId, isUserPrincipalName } from '../../../utils/shared/entraIdentifiers';
 import type { AccessStepProps, RoleType, UserAssignment } from '../types';
 import { AVAILABLE_ROLES } from '../types';
-import { isValidObjectId } from '../validators';
+import type { UserSelection } from './UserSearchField';
 import { UserSearchField } from './UserSearchField';
 
 function getRoleDescription(t: (key: string) => string, role: RoleType): string {
@@ -33,12 +34,14 @@ function getRoleDescription(t: (key: string) => string, role: RoleType): string 
 }
 
 /**
- * Access step component for user assignment management
+ * Manages user assignments and keeps each display label aligned with its Entra
+ * object ID and UPN, clearing stale labels when either identifier changes.
  */
 export const AccessStep: React.FC<AccessStepProps> = ({
   formData,
   onFormDataChange,
   loading = false,
+  requiresUpn = false,
 }) => {
   const { t } = useTranslation();
   const lastAssigneeRef = useRef<HTMLInputElement>(null);
@@ -54,18 +57,35 @@ export const AccessStep: React.FC<AccessStepProps> = ({
     prevCountRef.current = formData.userAssignments.length;
   }, [formData.userAssignments.length]);
 
-  const handleAssignmentChange = (index: number, objectId: string, displayName?: string) => {
+  const handleAssignmentChange = (index: number, selection: UserSelection) => {
     const updatedAssignments = [...formData.userAssignments];
     const prevAssignment = updatedAssignments[index];
+    const nextUpn =
+      requiresUpn && selection.upn === undefined ? prevAssignment?.upn : selection.upn;
 
-    // Keep explicit displayName; clear stale one when objectId changes; otherwise preserve
+    const identityChanged =
+      prevAssignment?.objectId !== selection.objectId || prevAssignment?.upn !== nextUpn;
+    // Keep an explicit display name; otherwise clear it when either identifier changes.
     const nextDisplayName =
-      displayName ?? (prevAssignment?.objectId !== objectId ? '' : prevAssignment?.displayName);
+      selection.displayName ?? (identityChanged ? '' : prevAssignment?.displayName);
 
     updatedAssignments[index] = {
       ...prevAssignment,
-      objectId,
+      objectId: selection.objectId,
+      upn: nextUpn,
       displayName: nextDisplayName,
+    };
+    onFormDataChange({ userAssignments: updatedAssignments });
+  };
+
+  const handleUpnChange = (index: number, upn: string) => {
+    const updatedAssignments = [...formData.userAssignments];
+    const prevAssignment = updatedAssignments[index];
+    updatedAssignments[index] = {
+      ...prevAssignment,
+      upn,
+      displayName:
+        prevAssignment.displayName === prevAssignment.upn ? upn : prevAssignment.displayName,
     };
     onFormDataChange({ userAssignments: updatedAssignments });
   };
@@ -91,10 +111,30 @@ export const AccessStep: React.FC<AccessStepProps> = ({
     });
   };
 
-  const hasInvalidAssignments = formData.userAssignments.some(assignment => {
-    const trimmedId = assignment.objectId.trim();
-    return trimmedId === '' || !isValidObjectId(trimmedId);
-  });
+  const assigneeError = (assignment: UserAssignment): string => {
+    if (assignment.objectId.trim() === '' && !assignment.upn?.trim()) {
+      return t('Search for a user or remove this entry');
+    }
+    if (!isEntraObjectId(assignment.objectId)) {
+      // Required for every grant: managed namespaces key role assignments on it,
+      // and Arc needs it for the connectivity role. Without it the assignment is
+      // dropped after the project is created, which is far worse than a form error.
+      return t('Select a user from the search results, or enter their object ID');
+    }
+    return '';
+  };
+
+  const upnError = (assignment: UserAssignment): string => {
+    if (requiresUpn && !isUserPrincipalName(assignment.upn)) {
+      // An object ID cannot name a RoleBinding subject — it would grant nothing.
+      return t("This cluster needs this user's sign-in name (e.g. someone@contoso.com)");
+    }
+    return '';
+  };
+
+  const hasInvalidAssignments = formData.userAssignments.some(
+    assignment => assigneeError(assignment) !== '' || upnError(assignment) !== ''
+  );
 
   return (
     <Box>
@@ -107,34 +147,37 @@ export const AccessStep: React.FC<AccessStepProps> = ({
       <Grid container spacing={3}>
         {formData.userAssignments.map((assignment, idx) => (
           <React.Fragment key={idx}>
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} md={requiresUpn ? 4 : 6}>
               <FormControl fullWidth>
                 <UserSearchField
                   label={`${t('Assignee')} ${idx + 1}`}
                   value={assignment.objectId}
                   displayName={assignment.displayName}
-                  onChange={(objectId, displayName) =>
-                    handleAssignmentChange(idx, objectId, displayName)
-                  }
+                  onChange={selection => handleAssignmentChange(idx, selection)}
                   disabled={loading}
-                  error={
-                    assignment.objectId.trim() === '' ||
-                    !isValidObjectId(assignment.objectId.trim())
-                  }
-                  helperText={
-                    assignment.objectId.trim() === ''
-                      ? t('Search for a user or remove this entry')
-                      : !isValidObjectId(assignment.objectId.trim())
-                      ? t('Select a user from the search results or enter a valid object ID (UUID)')
-                      : ''
-                  }
+                  error={assigneeError(assignment) !== ''}
+                  helperText={assigneeError(assignment)}
                   inputRef={
                     idx === formData.userAssignments.length - 1 ? lastAssigneeRef : undefined
                   }
                 />
               </FormControl>
             </Grid>
-            <Grid item xs={10} md={5}>
+            {requiresUpn && (
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  variant="outlined"
+                  label={`${t('Assignee')} ${idx + 1} UPN`}
+                  value={assignment.upn ?? ''}
+                  onChange={event => handleUpnChange(idx, event.target.value)}
+                  disabled={loading}
+                  error={upnError(assignment) !== ''}
+                  helperText={upnError(assignment)}
+                />
+              </Grid>
+            )}
+            <Grid item xs={10} md={requiresUpn ? 3 : 5}>
               <TextField
                 fullWidth
                 select

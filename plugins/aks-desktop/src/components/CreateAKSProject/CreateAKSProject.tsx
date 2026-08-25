@@ -77,7 +77,7 @@ function CreateAKSProject() {
       case 2:
         return <ComputeStep {...commonProps} />;
       case 3:
-        return <AccessStep {...commonProps} />;
+        return <AccessStep {...commonProps} requiresUpn={wizard.requiresUpn} />;
       case 4:
         return (
           <ReviewStep

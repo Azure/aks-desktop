@@ -5,6 +5,8 @@ import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { PageGrid, SectionBox } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import {
+  Alert,
+  AlertTitle,
   Box,
   Button,
   Card,
@@ -72,6 +74,8 @@ export interface CreateAKSProjectPureProps {
   creationProgress: string;
   /** Error message when creation failed; `null` otherwise (shows alertdialog overlay). */
   creationError: string | null;
+  /** Non-fatal problems from a project that was still created. */
+  creationWarnings: string[];
   /** `true` when creation succeeded and the success dialog should be shown. */
   showSuccessDialog: boolean;
   /** Name of the first application entered in the success dialog. */
@@ -126,6 +130,7 @@ export default function CreateAKSProjectPure({
   isCreating,
   creationProgress,
   creationError,
+  creationWarnings,
   showSuccessDialog,
   applicationName,
   setApplicationName,
@@ -405,6 +410,21 @@ export default function CreateAKSProjectPure({
                 projectName,
               })}
             </Typography>
+            {/* The project exists, but part of the access grant did not complete or
+                could not be confirmed. Shown here rather than as an error because
+                nothing needs undoing — the missing grants can be retried later. */}
+            {creationWarnings.length > 0 && (
+              <Alert severity="warning" sx={{ mb: 3, textAlign: 'left' }}>
+                <AlertTitle>{t('Some access was not granted')}</AlertTitle>
+                <Box component="ul" sx={{ pl: 2, m: 0 }}>
+                  {creationWarnings.map(warning => (
+                    <Typography component="li" variant="body2" key={warning}>
+                      {warning}
+                    </Typography>
+                  ))}
+                </Box>
+              </Alert>
+            )}
             {/* MUI: https://mui.com/material-ui/react-text-field/#accessibility
                 autoFocus moves keyboard focus into the dialog when it opens. MUI Dialog handles
                 focus trapping; autoFocus on the first interactive element ensures keyboard and

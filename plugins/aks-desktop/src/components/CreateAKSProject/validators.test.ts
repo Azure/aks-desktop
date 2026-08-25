@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import type { FormData } from './types';
-import { validateBasicsStep } from './validators';
+import { validateBasicsStep, validateForm } from './validators';
 
 /**
  * Minimal valid form data for the basics step.
@@ -346,5 +346,70 @@ describe('validateBasicsStep with capabilities', () => {
 
       expect(result.warnings).toHaveLength(0);
     }
+  });
+});
+
+describe('assignee validation', () => {
+  const OID = '38927c93-a0fd-4b06-b21a-69b8ed1e208c';
+  const UPN = 'sannagaraj@microsoft.com';
+
+  /** Builds full form data so only assignment errors can surface. */
+  const formWith = (userAssignments: FormData['userAssignments']): FormData =>
+    ({
+      ...validFormData,
+      description: '',
+      ingress: 'AllowSameNamespace',
+      egress: 'AllowAll',
+      cpuRequest: 2000,
+      memoryRequest: 4096,
+      cpuLimit: 2000,
+      memoryLimit: 4096,
+      userAssignments,
+    } as FormData);
+
+  const assignmentErrors = (
+    userAssignments: FormData['userAssignments'],
+    isArc?: boolean
+  ): string[] => validateForm(formWith(userAssignments), isArc).fieldErrors.assignments ?? [];
+
+  it('requires an object ID, since a sign-in name alone cannot be granted', () => {
+    // Managed namespaces key their role assignments on the object ID, and Arc
+    // needs it for the connectivity role every project grants. Without it the
+    // managed path filters the assignee out silently and the Arc path reports a
+    // failure — both after the project already exists.
+    expect(assignmentErrors([{ objectId: OID, role: 'Writer' }])).toEqual([]);
+    expect(assignmentErrors([{ objectId: '', upn: UPN, role: 'Writer' }])[0]).toMatch(
+      /valid Azure AD object ID/i
+    );
+  });
+
+  it('rejects an assignee with neither identifier', () => {
+    expect(assignmentErrors([{ objectId: '  ', role: 'Writer' }])[0]).toMatch(/select a user/i);
+  });
+
+  it('rejects a malformed identifier', () => {
+    expect(assignmentErrors([{ objectId: 'not-a-uuid', role: 'Writer' }])[0]).toMatch(
+      /valid Azure AD object ID/i
+    );
+  });
+
+  it('requires a sign-in name when the grant is a RoleBinding', () => {
+    // The RoleBinding subject must be the UPN; an object ID grants nothing.
+    expect(assignmentErrors([{ objectId: OID, role: 'Writer' }], true)[0]).toMatch(/sign-in name/i);
+  });
+
+  it('accepts an object-ID-only assignee when the grant is an Azure role assignment', () => {
+    // Covers managed AKS and Arc clusters using Azure RBAC — both key on the
+    // object ID, so demanding a UPN there would block a valid assignee.
+    expect(assignmentErrors([{ objectId: OID, role: 'Writer' }], false)).toEqual([]);
+  });
+
+  it('accepts an assignee carrying both identifiers under either model', () => {
+    expect(assignmentErrors([{ objectId: OID, upn: UPN, role: 'Writer' }], true)).toEqual([]);
+    expect(assignmentErrors([{ objectId: OID, upn: UPN, role: 'Writer' }], false)).toEqual([]);
+  });
+
+  it('treats an empty assignment list as valid', () => {
+    expect(assignmentErrors([])).toEqual([]);
   });
 });

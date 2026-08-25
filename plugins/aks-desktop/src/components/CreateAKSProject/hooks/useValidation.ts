@@ -23,7 +23,9 @@ export const useValidation = (
   isClusterMissing?: boolean,
   capabilities?: ClusterCapabilities | null,
   isArc?: boolean,
-  clusterAccess?: { checking: boolean; accessible: boolean | null }
+  clusterAccess?: { checking: boolean; accessible: boolean | null },
+  /** True when the grant will be a RoleBinding, so every assignee needs a UPN. */
+  requiresUpn?: boolean
 ) => {
   const validation = useMemo((): ValidationState => {
     const result = validateStep(
@@ -37,7 +39,8 @@ export const useValidation = (
       capabilities,
       isArc,
       clusterAccess?.checking,
-      clusterAccess?.accessible
+      clusterAccess?.accessible,
+      requiresUpn
     );
     return {
       ...result,
@@ -55,11 +58,12 @@ export const useValidation = (
     isArc,
     clusterAccess?.checking,
     clusterAccess?.accessible,
+    requiresUpn,
   ]);
 
   const fieldValidation = useMemo((): FormValidationResult => {
-    return validateForm(formData);
-  }, [formData]);
+    return validateForm(formData, requiresUpn);
+  }, [formData, requiresUpn]);
 
   return {
     ...validation,

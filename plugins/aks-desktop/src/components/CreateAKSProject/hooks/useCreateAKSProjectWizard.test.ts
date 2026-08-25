@@ -8,6 +8,9 @@ const mockTrackFeature = vi.hoisted(() => vi.fn());
 const mockTrackError = vi.hoisted(() => vi.fn());
 const mockCheckNamespaceViaK8s = vi.hoisted(() => vi.fn());
 const mockCheckClusterAccessible = vi.hoisted(() => vi.fn());
+const mockAssignAzureRoles = vi.hoisted(() => vi.fn());
+const mockReviewNamespaceAccess = vi.hoisted(() => vi.fn());
+const mockApplyNamespaceManifest = vi.hoisted(() => vi.fn());
 const mockAzureResourcesState = vi.hoisted(() => ({ clusters: [] as any[] }));
 const mockClustersConf = vi.hoisted(() => ({
   current: null as Record<string, { name: string }> | null,
@@ -40,6 +43,19 @@ vi.mock('@kinvolk/headlamp-plugin/lib', async () => {
 
 vi.mock('../../../utils/azure/aksHybridEdgeProxy', () => ({
   checkClusterAccessible: mockCheckClusterAccessible,
+}));
+
+vi.mock('../../../utils/azure/az-identity', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../utils/azure/az-identity')>()),
+  assignAzureRoles: mockAssignAzureRoles,
+}));
+
+vi.mock('../../../utils/kubernetes/accessReview', () => ({
+  reviewNamespaceAccess: mockReviewNamespaceAccess,
+}));
+
+vi.mock('../../../utils/kubernetes/namespaceUtils', () => ({
+  applyNamespaceManifest: mockApplyNamespaceManifest,
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -146,6 +162,9 @@ describe('useCreateAKSProjectWizard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCheckClusterAccessible.mockResolvedValue({ accessible: true });
+    mockAssignAzureRoles.mockResolvedValue({ success: true, results: [] });
+    mockReviewNamespaceAccess.mockResolvedValue({ allowed: true });
+    mockApplyNamespaceManifest.mockResolvedValue({ success: true });
     mockAzureResourcesState.clusters = [];
     mockClustersConf.current = null;
     mockTrackFeature.mockImplementation(() => {});
@@ -445,6 +464,58 @@ describe('useCreateAKSProjectWizard', () => {
   });
 
   describe('PII redaction in non-debug error logging', () => {
+    it('logs only an aggregate count for Arc project warnings', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockAzureResourcesState.clusters = [
+        {
+          name: 'arc-cluster',
+          resourceGroup: 'arc-rg',
+          clusterType: 'aksarc',
+          azureRbacEnabled: false,
+        },
+      ];
+      vi.mocked(useFormData).mockReturnValue({
+        formData: {
+          ...defaultFormData,
+          subscription: '11111111-2222-3333-4444-555555555555',
+          cluster: 'arc-cluster',
+          resourceGroup: 'arc-rg',
+          clusterType: 'aksarc',
+          userAssignments: [
+            {
+              objectId: '38927c93-a0fd-4b06-b21a-69b8ed1e208c',
+              upn: 'admin@contoso.com',
+              role: 'Writer',
+            },
+          ],
+        },
+        updateFormData: vi.fn(),
+        resetFormData: vi.fn(),
+        setFormDataField: vi.fn(),
+      } as any);
+      mockAssignAzureRoles.mockResolvedValue({
+        success: false,
+        results: [],
+        error: 'Azure denied access for admin@contoso.com',
+      });
+
+      const { result } = renderHook(() => useCreateAKSProjectWizard());
+
+      await act(async () => {
+        await result.current.handleSubmit();
+      });
+
+      expect(mockApplyNamespaceManifest).toHaveBeenCalledOnce();
+      expect(result.current.creationError).toBeNull();
+      expect(mockAssignAzureRoles).toHaveBeenCalledOnce();
+      expect(result.current.creationWarnings.join(' ')).toContain('admin@contoso.com');
+      expect(result.current.creationWarnings.join(' ')).toContain('Azure denied access');
+      expect(consoleSpy).toHaveBeenCalledWith('[CreateAKSProject] Project created with warnings', {
+        warningCount: 1,
+      });
+      expect(JSON.stringify(consoleSpy.mock.calls)).not.toMatch(/admin@contoso\.com|Azure denied/);
+    });
+
     it('redacts email addresses from the error message before logging', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(createManagedNamespace).mockRejectedValue(

@@ -22,8 +22,8 @@ export interface SearchableSelectOption {
   label: string;
   subtitle?: string;
   disabled?: boolean;
-  /** When set, a small chip is rendered next to the option label. */
-  chip?: SearchableSelectOptionChip;
+  /** Small chips rendered next to the option label, in order. */
+  chips?: SearchableSelectOptionChip[];
 }
 
 export interface SearchableSelectProps {
@@ -134,19 +134,16 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Typography variant="body1">{option.label}</Typography>
-                  {option.chip && (
+                  {option.chips?.map(chip => (
                     <Chip
-                      label={option.chip.label}
+                      key={chip.label}
+                      label={chip.label}
                       size="small"
-                      color={option.chip.color ?? 'info'}
+                      color={chip.color ?? 'info'}
                       variant="outlined"
-                      icon={
-                        option.chip.icon ? (
-                          <Icon icon={option.chip.icon} aria-hidden="true" />
-                        ) : undefined
-                      }
+                      icon={chip.icon ? <Icon icon={chip.icon} aria-hidden="true" /> : undefined}
                     />
-                  )}
+                  ))}
                 </Box>
                 {option.subtitle && (
                   <Typography variant="caption" color="text.secondary">
