@@ -20,24 +20,25 @@ const CLUSTER_SETTINGS_PREFIX = 'cluster_settings.';
 
 /**
  * Resolves the stored settings key for a case-insensitive cluster identity.
+ * Throws when legacy storage contains multiple case variants so callers fail closed.
  *
  * @param clusterName - Cluster name whose settings key should be resolved.
  * @returns The existing case-preserving key, or the requested key when none exists.
  */
 function findClusterSettingsKey(clusterName: string): string {
   const exactKey = `${CLUSTER_SETTINGS_PREFIX}${clusterName}`;
-  if (localStorage.getItem(exactKey) !== null) {
-    return exactKey;
-  }
-
   const normalizedKey = exactKey.toLowerCase();
+  const matchingKeys: string[] = [];
   for (let index = 0; index < localStorage.length; index++) {
     const key = localStorage.key(index);
     if (key?.toLowerCase() === normalizedKey) {
-      return key;
+      matchingKeys.push(key);
     }
   }
-  return exactKey;
+  if (matchingKeys.length > 1) {
+    throw new Error(`Multiple settings entries exist for cluster '${clusterName}'.`);
+  }
+  return matchingKeys[0] ?? exactKey;
 }
 
 /**
