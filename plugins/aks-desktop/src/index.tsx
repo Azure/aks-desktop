@@ -25,6 +25,7 @@ import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
 import ClusterCapabilityCard from './components/ClusterCapabilityCard/ClusterCapabilityCard';
 import ConfigurePipelineButton from './components/ConfigurePipeline/ConfigurePipelineButton';
+import ContactUsButton from './components/ContactUs/ContactUsButton';
 import CreateAKSProject from './components/CreateAKSProject/CreateAKSProject';
 import CreateNamespace from './components/CreateNamespace/CreateNamespace';
 import AKSProjectDeleteButton from './components/DeleteAKSProject/AKSProjectDeleteButton';
@@ -51,6 +52,7 @@ import { setTelemetryEnabled } from './telemetry';
 import { registerReduxCallback } from './telemetry/setup';
 import type { ProjectDefinition } from './types/project';
 import { getLoginStatus } from './utils/azure/az-auth';
+import { CONTACT_US_URL } from './utils/constants/contactUs';
 import { AZURE_ACCOUNT_POLL_INTERVAL_MS } from './utils/constants/timing';
 import {
   isAksProject,
@@ -74,13 +76,14 @@ Headlamp.setAppMenu(menus => {
       };
     }
 
-    // Replace Open Issue link
+    // Replace Open Issue link with Contact us, pointing at the same destination
+    // as the app bar button so there is one front door rather than two.
     const issueIndex = helpMenu.submenu.findIndex(item => item.id === 'original-open-issue');
     if (issueIndex !== -1) {
       helpMenu.submenu[issueIndex] = {
-        label: 'Open an Issue',
-        id: 'aks-open-issue',
-        url: 'https://github.com/Azure/aks-desktop/issues',
+        label: 'Contact us',
+        id: 'aks-contact-us',
+        url: CONTACT_US_URL,
       };
     }
   }
@@ -98,6 +101,14 @@ if (Headlamp.isRunningAsApp()) {
 
   // boot App Insights telemetry once on first render
   registerAppBarAction(() => <TelemetryBoot />);
+
+  // Contact us button in the top app bar — present wherever the app bar renders.
+  // Deliberately not wrapped in TelemetryErrorBoundary: Headlamp already wraps
+  // every app-bar action in its own ErrorBoundary, and this one's fallback is a
+  // visible MUI Alert, which in an app bar would be worse than a missing icon.
+  // Neither boundary covers the onClick path — React error boundaries do not
+  // catch throws from event handlers.
+  registerAppBarAction({ id: 'aksd.contact-us', action: () => <ContactUsButton /> });
 
   // register azure logo
   registerAppLogo(AzureLogo);
