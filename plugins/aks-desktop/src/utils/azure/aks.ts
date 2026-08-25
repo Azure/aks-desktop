@@ -34,6 +34,8 @@ interface RegistrationScopeReservation {
   pendingCount: number;
   /** Whether native registration completed successfully in this session. */
   registered: boolean;
+  /** Whether a malformed native response left the registration outcome unknown. */
+  indeterminate: boolean;
   /** Whether live Headlamp configuration has contained the registered cluster name. */
   observedActive: boolean;
 }
@@ -54,6 +56,8 @@ export function reconcileRegisteredClusterNames(clusterNames: Iterable<string>):
   for (const [clusterName, reservation] of registrationScopes) {
     if (activeNames.has(clusterName)) {
       reservation.observedActive = true;
+    } else if (reservation.indeterminate && reservation.pendingCount === 0) {
+      registrationScopes.delete(clusterName);
     } else if (
       reservation.registered &&
       reservation.observedActive &&
@@ -228,11 +232,18 @@ export async function registerAKSCluster(
       message: `Cluster '${clusterName}' is already registered from a different or unknown Azure scope.`,
     };
   }
+  if (existingReservation?.indeterminate) {
+    return {
+      success: false,
+      message: `Cluster '${clusterName}' registration has an unknown outcome. Wait for cluster configuration to refresh before retrying.`,
+    };
+  }
   const reservation = existingReservation ?? {
     subscriptionId,
     resourceGroup,
     pendingCount: 0,
     registered: clusterAlreadyRegistered,
+    indeterminate: false,
     observedActive: clusterAlreadyRegistered,
   };
   reservation.pendingCount++;
@@ -291,6 +302,7 @@ export async function registerAKSCluster(
       typeof (result as { success?: unknown }).success !== 'boolean' ||
       typeof (result as { message?: unknown }).message !== 'string'
     ) {
+      reservation.indeterminate = true;
       return {
         success: false,
         message: 'Cluster registration returned an invalid response.',
@@ -317,7 +329,7 @@ export async function registerAKSCluster(
     };
   } finally {
     reservation.pendingCount--;
-    if (reservation.pendingCount === 0 && !reservation.registered) {
+    if (reservation.pendingCount === 0 && !reservation.registered && !reservation.indeterminate) {
       registrationScopes.delete(reservationKey);
     }
     releaseRegistration();

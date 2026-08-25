@@ -390,12 +390,47 @@ describe('Azure AKS utilities', () => {
     });
   });
 
-  test('reports a malformed desktop registration response', async () => {
+  test('retains malformed registration outcomes when live state observes the cluster', async () => {
     desktopRegisterAKSCluster.mockResolvedValue(undefined);
 
     await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
       success: false,
       message: 'Cluster registration returned an invalid response.',
     });
+    await expect(registerAKSCluster('sub-2', 'rg-2', 'cluster-1')).resolves.toEqual({
+      success: false,
+      message: "Cluster 'cluster-1' is already registered from a different or unknown Azure scope.",
+    });
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'cluster-1' registration has an unknown outcome. Wait for cluster configuration to refresh before retrying.",
+    });
+
+    reconcileRegisteredClusterNames(['cluster-1']);
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'cluster-1' registration has an unknown outcome. Wait for cluster configuration to refresh before retrying.",
+    });
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(1);
+    expect(mocks.setClusterSettings).not.toHaveBeenCalled();
+  });
+
+  test('releases a malformed registration outcome after live state confirms absence', async () => {
+    desktopRegisterAKSCluster.mockResolvedValueOnce(undefined).mockResolvedValueOnce(successResult);
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'absent-cluster')).resolves.toEqual({
+      success: false,
+      message: 'Cluster registration returned an invalid response.',
+    });
+
+    reconcileRegisteredClusterNames([]);
+
+    await expect(registerAKSCluster('sub-2', 'rg-2', 'absent-cluster')).resolves.toEqual(
+      successResult
+    );
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(2);
   });
 });
