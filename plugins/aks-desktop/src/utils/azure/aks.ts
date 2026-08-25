@@ -86,6 +86,42 @@ function scopeMatches(
 }
 
 /**
+ * Saves the Azure scope required to validate later same-name registrations.
+ *
+ * @param clusterName - Kubeconfig cluster name whose settings are updated.
+ * @param subscriptionId - Azure subscription containing the cluster.
+ * @param resourceGroup - Azure resource group containing the cluster.
+ * @returns Nothing.
+ */
+function persistRegistrationScope(
+  clusterName: string,
+  subscriptionId: string,
+  resourceGroup: string
+): void {
+  const settings = getClusterSettings(clusterName);
+  setClusterSettings(clusterName, {
+    ...settings,
+    azureRegistration: { subscriptionId, resourceGroup },
+  });
+}
+
+/**
+ * Builds the recoverable result returned when native registration succeeds but scope storage fails.
+ *
+ * @param clusterName - Cluster whose registration metadata could not be saved.
+ * @returns A failed result instructing the caller to retry metadata persistence.
+ */
+function registrationScopePersistenceFailure(clusterName: string): {
+  success: false;
+  message: string;
+} {
+  return {
+    success: false,
+    message: `Cluster '${clusterName}' was registered, but its Azure scope could not be saved. Retry to save the registration metadata.`,
+  };
+}
+
+/**
  * Get list of Azure subscriptions
  */
 export async function getSubscriptions(): Promise<{
@@ -210,6 +246,19 @@ export async function registerAKSCluster(
   await previousRegistration;
 
   try {
+    if (reservation.registered) {
+      try {
+        persistRegistrationScope(clusterName, subscriptionId, resourceGroup);
+        return {
+          success: true,
+          message: `Cluster '${clusterName}' is already registered from this Azure scope.`,
+        };
+      } catch (error) {
+        console.warn('[AKS] Failed to persist cluster registration scope:', error);
+        return registrationScopePersistenceFailure(clusterName);
+      }
+    }
+
     console.debug(
       '[AKS] Registering cluster:',
       clusterName,
@@ -253,13 +302,10 @@ export async function registerAKSCluster(
     if (registrationResult.success) {
       reservation.registered = true;
       try {
-        const settings = getClusterSettings(clusterName);
-        setClusterSettings(clusterName, {
-          ...settings,
-          azureRegistration: { subscriptionId, resourceGroup },
-        });
+        persistRegistrationScope(clusterName, subscriptionId, resourceGroup);
       } catch (error) {
         console.warn('[AKS] Failed to persist cluster registration scope:', error);
+        return registrationScopePersistenceFailure(clusterName);
       }
     }
     return registrationResult;

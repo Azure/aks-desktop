@@ -36,9 +36,12 @@ describe('Azure AKS utilities', () => {
     };
     vi.spyOn(console, 'debug').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
+    reconcileRegisteredClusterNames(desktopRegisterAKSCluster.mock.calls.map(call => call[2]));
+    reconcileRegisteredClusterNames([]);
     delete (window as any).desktopApi;
     vi.restoreAllMocks();
   });
@@ -196,6 +199,28 @@ describe('Azure AKS utilities', () => {
         resourceGroup: 'rg-1',
       },
     });
+  });
+
+  test('reports scope persistence failure and retries without native registration', async () => {
+    desktopRegisterAKSCluster.mockResolvedValue(successResult);
+    mocks.setClusterSettings
+      .mockImplementationOnce(() => {
+        throw new Error('localStorage full');
+      })
+      .mockImplementationOnce(() => {});
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'metadata-retry')).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'metadata-retry' was registered, but its Azure scope could not be saved. Retry to save the registration metadata.",
+    });
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'metadata-retry')).resolves.toEqual({
+      success: true,
+      message: "Cluster 'metadata-retry' is already registered from this Azure scope.",
+    });
+
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(1);
+    expect(mocks.setClusterSettings).toHaveBeenCalledTimes(2);
   });
 
   test('reports when the desktop registration API is unavailable', async () => {
