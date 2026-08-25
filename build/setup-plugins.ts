@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { copyShippedPlugin } from './plugin-packaging';
+import { matchesChecksum, resolveAksMcpTarget } from './aks-mcp-config';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
@@ -23,15 +24,20 @@ const externalToolsDir = path.join(
   'resources',
   'external-tools'
 );
-// Individual tools are checked too, so checkouts created before a tool was
-// added still get it installed without deleting the whole directory.
-const requiredExternalTools = [
-  path.join(externalToolsDir, 'bin', process.platform === 'win32' ? 'aks-mcp.exe' : 'aks-mcp'),
-];
-const missingExternalTools = requiredExternalTools.filter(tool => !fs.existsSync(tool));
-if (!fs.existsSync(externalToolsDir) || missingExternalTools.length > 0) {
-  if (missingExternalTools.length > 0 && fs.existsSync(externalToolsDir)) {
-    console.log(`Missing external tools: ${missingExternalTools.join(', ')}`);
+// Individual tools are checked against their pinned checksum, so incremental
+// builds also pick up tools that were added or whose version changed since the
+// last setup, without deleting the whole directory.
+const aksMcp = resolveAksMcpTarget(ROOT_DIR);
+const outdatedExternalTools = [aksMcp].filter(
+  tool => !matchesChecksum(tool.targetPath, tool.expectedChecksum)
+);
+if (!fs.existsSync(externalToolsDir) || outdatedExternalTools.length > 0) {
+  if (outdatedExternalTools.length > 0 && fs.existsSync(externalToolsDir)) {
+    console.log(
+      `Missing or outdated external tools: ${outdatedExternalTools
+        .map(tool => tool.targetPath)
+        .join(', ')}`
+    );
   }
   console.log('Setting up external tools...');
   execSync(

@@ -8,80 +8,19 @@
  * external-tools/bin directory, which the Electron main process prepends to
  * PATH at startup. The AI Assistant plugin preconfigures an "aks-mcp" MCP
  * server with the bare command name, so it resolves from that PATH entry.
+ *
+ * Running this repeatedly is safe: an already installed binary is downloaded
+ * again only when its checksum no longer matches the pinned configuration.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
+import { createHash } from 'crypto';
+import { matchesChecksum, resolveAksMcpTarget } from './aks-mcp-config';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
-const EXTERNAL_TOOLS_BIN = path.join(
-  ROOT_DIR,
-  'headlamp',
-  'app',
-  'resources',
-  'external-tools',
-  'bin'
-);
-const PACKAGE_JSON_PATH = path.join(ROOT_DIR, 'package.json');
-
-const PLATFORM = process.platform;
-
-const ASSET_PLATFORM: Record<string, string> = {
-  linux: 'linux',
-  darwin: 'darwin',
-  win32: 'windows',
-};
-
-/** Release assets are published for these architectures only. */
-const ASSET_ARCH: Record<string, string> = {
-  arm64: 'arm64',
-  x64: 'amd64',
-};
-
-if (!ASSET_PLATFORM[PLATFORM]) {
-  console.error(`Unsupported platform for aks-mcp: ${PLATFORM}`);
-  process.exit(1);
-}
-
-if (!ASSET_ARCH[process.arch]) {
-  console.error(
-    `Unsupported architecture for aks-mcp: ${process.arch} ` +
-      `(supported: ${Object.keys(ASSET_ARCH).join(', ')})`
-  );
-  process.exit(1);
-}
-
-const ARCH = ASSET_ARCH[process.arch];
-
-const packageJson = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf-8'));
-const aksMcpConfig = packageJson.config?.externalTools?.aksMcp ?? {};
-const VERSION: string = aksMcpConfig.version ?? '';
-const EXPECTED_CHECKSUM: string | undefined =
-  aksMcpConfig[PLATFORM]?.[ARCH]?.checksum ?? aksMcpConfig[PLATFORM]?.checksum;
-
-if (!VERSION || VERSION === 'latest') {
-  console.error(
-    'config.externalTools.aksMcp.version must be pinned to a release tag ' +
-      '(for example "v0.0.20") so builds are reproducible.'
-  );
-  process.exit(1);
-}
-
-if (!EXPECTED_CHECKSUM) {
-  console.error(
-    `No sha256 checksum configured for aks-mcp ${VERSION} on ${PLATFORM}/${ARCH}. ` +
-      `Add config.externalTools.aksMcp.${PLATFORM}.${ARCH}.checksum to package.json.`
-  );
-  process.exit(1);
-}
-
-const suffix = PLATFORM === 'win32' ? '.exe' : '';
-const assetName = `aks-mcp-${ASSET_PLATFORM[PLATFORM]}-${ARCH}${suffix}`;
-const downloadUrl = `https://github.com/Azure/aks-mcp/releases/download/${VERSION}/${assetName}`;
-
-const targetPath = path.join(EXTERNAL_TOOLS_BIN, `aks-mcp${suffix}`);
 
 /** Downloads a URL to disk, following GitHub release redirects. */
 function download(url: string, destination: string): Promise<void> {
@@ -113,21 +52,27 @@ function download(url: string, destination: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  fs.mkdirSync(EXTERNAL_TOOLS_BIN, { recursive: true });
-  await download(downloadUrl, targetPath);
+  const { version, downloadUrl, targetPath, expectedChecksum } = resolveAksMcpTarget(ROOT_DIR);
 
-  const { createHash } = await import('crypto');
-  const actual = createHash('sha256').update(fs.readFileSync(targetPath)).digest('hex');
-  if (actual !== EXPECTED_CHECKSUM) {
-    fs.rmSync(targetPath, { force: true });
-    throw new Error(`Checksum mismatch for aks-mcp: expected ${EXPECTED_CHECKSUM}, got ${actual}`);
+  if (matchesChecksum(targetPath, expectedChecksum)) {
+    console.log(`aks-mcp ${version} already up to date at: ${targetPath}`);
+    return;
   }
 
-  if (PLATFORM !== 'win32') {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  await download(downloadUrl, targetPath);
+
+  const actual = createHash('sha256').update(fs.readFileSync(targetPath)).digest('hex');
+  if (actual !== expectedChecksum) {
+    fs.rmSync(targetPath, { force: true });
+    throw new Error(`Checksum mismatch for aks-mcp: expected ${expectedChecksum}, got ${actual}`);
+  }
+
+  if (process.platform !== 'win32') {
     fs.chmodSync(targetPath, 0o755);
   }
 
-  console.log(`aks-mcp ${VERSION} installed to: ${targetPath}`);
+  console.log(`aks-mcp ${version} installed to: ${targetPath}`);
 }
 
 main().catch(error => {
