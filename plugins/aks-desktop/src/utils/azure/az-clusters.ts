@@ -178,6 +178,11 @@ export async function getConnectedClusters(subscriptionId: string): Promise<any[
       connectivityStatus: cluster.connectivityStatus || 'Unknown',
       nodeCount: 0,
       clusterType: 'aksarc',
+      // Which authorization model the cluster was created with. `false` (or
+      // absent) means Entra ID auth + native Kubernetes RBAC, so project access
+      // is granted with RoleBindings; `true` means Azure RBAC via the `guard`
+      // webhook, where it is granted with Azure role assignments instead.
+      azureRbacEnabled: cluster.aadProfile?.enableAzureRbac === true,
     });
   });
 

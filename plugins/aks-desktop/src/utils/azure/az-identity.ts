@@ -107,6 +107,36 @@ export function buildClusterScope(
   return `/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.ContainerService/managedClusters/${clusterName}`;
 }
 
+/**
+ * ARM scope of an Arc-connected (AKS Hybrid & Edge) cluster.
+ *
+ * Deliberately a different provider from {@link buildClusterScope}: Arc roles act
+ * on `Microsoft.Kubernetes/connectedClusters/*`, and the AKS roles that act on
+ * `Microsoft.ContainerService/managedClusters/*` are assignable to an Arc cluster
+ * yet completely inert there — their actions never match.
+ */
+export function buildConnectedClusterScope(
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterName: string
+): string {
+  return `/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Kubernetes/connectedClusters/${clusterName}`;
+}
+
+/**
+ * ARM scope of a single namespace on an Arc-connected cluster — where the
+ * `Azure Arc Kubernetes Viewer/Writer/Admin` roles are assigned when the cluster
+ * authorizes through Azure RBAC.
+ *
+ * @param connectedClusterScope - Result of {@link buildConnectedClusterScope}.
+ */
+export function buildArcNamespaceScope(
+  connectedClusterScope: string,
+  namespaceName: string
+): string {
+  return `${connectedClusterScope}/namespaces/${namespaceName}`;
+}
+
 // --- Role assignment types ---
 
 export interface RoleAssignment {
@@ -122,7 +152,15 @@ export interface AssignRolesResult {
 }
 
 /**
- * Assigns multiple Azure RBAC roles to a managed identity.
+ * The kind of Entra principal a role is being assigned to. Azure requires this
+ * to be stated explicitly so it does not have to resolve the object ID against
+ * the directory — which a tenant may block.
+ */
+export type PrincipalType = 'ServicePrincipal' | 'User' | 'Group';
+
+/**
+ * Assigns multiple Azure RBAC roles to a principal (a managed identity by
+ * default, or a user/group when `principalType` says so).
  * Treats `RoleAssignmentExists` as success (idempotent).
  * Roles are assigned sequentially to avoid Azure ARM rate-limiting (429s).
  */
@@ -130,8 +168,10 @@ export async function assignAzureRoles(options: {
   principalId: string;
   subscriptionId: string;
   roles: RoleAssignment[];
+  /** Defaults to `ServicePrincipal` — the managed-identity case. */
+  principalType?: PrincipalType;
 }): Promise<AssignRolesResult> {
-  const { principalId, subscriptionId, roles } = options;
+  const { principalId, subscriptionId, roles, principalType = 'ServicePrincipal' } = options;
 
   if (!isValidGuid(subscriptionId) || !isValidGuid(principalId)) {
     return {
@@ -152,7 +192,7 @@ export async function assignAzureRoles(options: {
         '--assignee-object-id',
         principalId,
         '--assignee-principal-type',
-        'ServicePrincipal',
+        principalType,
         '--role',
         role,
         '--scope',

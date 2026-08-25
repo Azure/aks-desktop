@@ -1,7 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { buildClusterScope, type RoleAssignment } from './az-identity';
+import {
+  buildArcNamespaceScope,
+  buildClusterScope,
+  buildConnectedClusterScope,
+  type RoleAssignment,
+} from './az-identity';
 
 // Azure built-in role names
 const ACR_PUSH = 'AcrPush';
@@ -9,6 +14,16 @@ const ACR_TASKS_CONTRIBUTOR = 'Container Registry Tasks Contributor';
 const AKS_CLUSTER_USER = 'Azure Kubernetes Service Cluster User Role';
 const AKS_RBAC_WRITER = 'Azure Kubernetes Service RBAC Writer';
 const AKS_NAMESPACE_USER = 'Azure Kubernetes Service Namespace User';
+
+// Arc built-in role names. These act on `Microsoft.Kubernetes/connectedClusters/*`
+// and are NOT interchangeable with the `AKS_*` names above, which act on
+// `Microsoft.ContainerService/managedClusters/*`: the AKS roles are assignable to
+// an Arc cluster but their actions never match, so they grant nothing at all.
+/** Grants `listClusterUserCredential` — what `az connectedk8s proxy` needs to open. */
+const ARC_CLUSTER_USER = 'Azure Arc Enabled Kubernetes Cluster User Role';
+const ARC_K8S_VIEWER = 'Azure Arc Kubernetes Viewer';
+const ARC_K8S_WRITER = 'Azure Arc Kubernetes Writer';
+const ARC_K8S_ADMIN = 'Azure Arc Kubernetes Admin';
 
 interface IdentityRoleContextBase {
   subscriptionId: string;
@@ -83,6 +98,74 @@ export function computeRequiredRoles(ctx: IdentityRoleContext): RoleAssignment[]
       // See: https://learn.microsoft.com/azure/aks/manage-azure-rbac
       roles.push({ role: AKS_RBAC_WRITER, scope: clusterScope });
     }
+  }
+
+  return roles;
+}
+
+/**
+ * Maps a wizard role (`Reader`/`Writer`/`Admin`) to the Arc built-in that grants
+ * it on the Kubernetes objects in a namespace.
+ *
+ * Note it is **Viewer**, not Reader — `Azure Kubernetes Service RBAC Reader` is
+ * an AKS role and is inert on an Arc cluster.
+ */
+export function mapUIRoleToArcRole(uiRole: string): string {
+  const roleMap: Record<string, string> = {
+    Admin: ARC_K8S_ADMIN,
+    Writer: ARC_K8S_WRITER,
+    Reader: ARC_K8S_VIEWER,
+  };
+  return roleMap[uiRole] ?? ARC_K8S_VIEWER;
+}
+
+export interface ArcProjectRoleContext {
+  subscriptionId: string;
+  resourceGroup: string;
+  clusterName: string;
+  namespaceName: string;
+  /** The wizard role granted to this user: `Reader` | `Writer` | `Admin`. */
+  uiRole: string;
+  /**
+   * `aadProfile.enableAzureRbac` on the connected cluster — fixed at cluster
+   * creation and not changeable afterwards.
+   *
+   * - `false` → Entra ID auth + **native Kubernetes RBAC**. Authorization comes
+   *   from a RoleBinding in the applied namespace manifest, so only the
+   *   connectivity role is needed here.
+   * - `true` → Entra ID auth + **Azure RBAC**, enforced by the `guard` webhook.
+   *   Authorization is an Azure role assignment at namespace scope, and no
+   *   RoleBinding is emitted.
+   */
+  azureRbacEnabled: boolean;
+}
+
+/**
+ * Computes the Azure role assignments a user needs for a project on an
+ * Arc-connected (AKS Hybrid & Edge) cluster.
+ *
+ * The connectivity role is required under **both** authorization models, because
+ * authorization does not grant reachability — they are independent permissions.
+ * Without it `az connectedk8s proxy` refuses to open, so the user never reaches
+ * the point where their view/edit grant would be evaluated.
+ */
+export function computeArcProjectRoles(ctx: ArcProjectRoleContext): RoleAssignment[] {
+  const clusterScope = buildConnectedClusterScope(
+    ctx.subscriptionId,
+    ctx.resourceGroup,
+    ctx.clusterName
+  );
+
+  // Always: reachability. AKS Desktop connects through `az connectedk8s proxy`,
+  // so this is the proxy-mode role (`listClusterUserCredential`) rather than the
+  // direct-mode `Azure Kubernetes Service Arc Cluster User`.
+  const roles: RoleAssignment[] = [{ role: ARC_CLUSTER_USER, scope: clusterScope }];
+
+  if (ctx.azureRbacEnabled) {
+    roles.push({
+      role: mapUIRoleToArcRole(ctx.uiRole),
+      scope: buildArcNamespaceScope(clusterScope, ctx.namespaceName),
+    });
   }
 
   return roles;
