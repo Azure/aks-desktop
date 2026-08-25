@@ -147,6 +147,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
     clusterHelperText,
     selectedCluster,
     isClusterMissing,
+    clusterScopeConflict,
     nonReadyCluster,
     handleInputChange,
     handleClusterChange,
@@ -306,7 +307,16 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
         />
 
         {/* Register cluster if it's missing from the kubeconfig */}
-        {formData.subscription && selectedCluster && isClusterMissing && (
+        {formData.subscription && selectedCluster && clusterScopeConflict && (
+          <ValidationAlert
+            type="error"
+            message={t(
+              'A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.'
+            )}
+          />
+        )}
+
+        {formData.subscription && selectedCluster && isClusterMissing && !clusterScopeConflict && (
           <RegisterCluster
             cluster={selectedCluster.name}
             resourceGroup={selectedCluster.resourceGroup}

@@ -18,6 +18,14 @@ export const Error: StoryFn<ValidationAlertProps> = () => (
   <ValidationAlert type="error" message="Namespace creation failed: insufficient quota" />
 );
 
+/** Active same-name cluster belongs to a different or unknown Azure scope. */
+export const RegisteredClusterScopeConflict: StoryFn<ValidationAlertProps> = () => (
+  <ValidationAlert
+    type="error"
+    message="A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing."
+  />
+);
+
 /** Warning alert. */
 export const Warning: StoryFn<ValidationAlertProps> = () => (
   <ValidationAlert type="warning" message="Cluster resources are running low" />

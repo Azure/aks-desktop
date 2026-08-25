@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const mockUseClustersConf = vi.hoisted(() => vi.fn());
 const mockUseAzureAuth = vi.hoisted(() => vi.fn());
+const mockGetClusterSettings = vi.hoisted(() => vi.fn());
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   K8s: {
@@ -22,6 +23,10 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
 
 vi.mock('../../../hooks/useAzureAuth', () => ({
   useAzureAuth: mockUseAzureAuth,
+}));
+
+vi.mock('../../../utils/shared/clusterSettings', () => ({
+  getClusterSettings: mockGetClusterSettings,
 }));
 
 // Import after mocks are in place
@@ -223,6 +228,9 @@ describe('useBasicsStep', () => {
     vi.clearAllMocks();
     // Default: no clusters in headlamp kubeconfig
     mockUseClustersConf.mockReturnValue({});
+    mockGetClusterSettings.mockReturnValue({
+      azureRegistration: { subscriptionId: 'sub-123', resourceGroup: 'rg-prod' },
+    });
     // Default: not logged in, no subscriptionId
     mockUseAzureAuth.mockReturnValue({ isLoggedIn: false, isChecking: false });
   });
@@ -333,6 +341,44 @@ describe('useBasicsStep', () => {
     });
     const { result } = renderHook(() => useBasicsStep(props));
     expect(result.current.isClusterMissing).toBe(false);
+  });
+
+  test('isClusterMissing is true when a same-name active cluster has another Azure scope', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'aks-prod' } });
+    mockGetClusterSettings.mockReturnValue({
+      azureRegistration: { subscriptionId: 'other-sub', resourceGroup: 'other-rg' },
+    });
+    const props = makeProps({
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'aks-prod',
+        resourceGroup: 'rg-prod',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(result.current.isClusterMissing).toBe(true);
+    expect(result.current.clusterScopeConflict).toBe(true);
+  });
+
+  test('isClusterMissing is true when a same-name active cluster has unknown Azure scope', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'aks-prod' } });
+    mockGetClusterSettings.mockReturnValue({});
+    const props = makeProps({
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'aks-prod',
+        resourceGroup: 'rg-prod',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(result.current.isClusterMissing).toBe(true);
+    expect(result.current.clusterScopeConflict).toBe(true);
   });
 
   test('nonReadyCluster is null for a healthy running cluster', () => {

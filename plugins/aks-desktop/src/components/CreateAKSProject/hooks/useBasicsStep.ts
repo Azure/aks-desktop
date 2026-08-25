@@ -4,6 +4,7 @@
 import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useRef } from 'react';
 import { useAzureAuth } from '../../../hooks/useAzureAuth';
+import { getClusterSettings } from '../../../utils/shared/clusterSettings';
 import type { SearchableSelectOption } from '../components/SearchableSelect';
 import type { AzureCluster, AzureSubscription, FormData } from '../types';
 
@@ -138,6 +139,8 @@ export interface UseBasicsStepResult {
    * kubeconfig — the user must register it before proceeding.
    */
   isClusterMissing: boolean;
+  /** `true` when the active same-name cluster belongs to another or unknown Azure scope. */
+  clusterScopeConflict: boolean;
   /**
    * When the selected cluster is in a non-ready state, contains the cluster
    * object and a pre-translated warning message. `null` otherwise.
@@ -153,6 +156,37 @@ export interface UseBasicsStepResult {
    * together so they stay in sync.
    */
   handleClusterChange: (clusterName: string) => void;
+}
+
+export type ClusterRegistrationState = 'missing' | 'registered' | 'scope-conflict';
+
+/**
+ * Resolves whether a selected Azure cluster matches the active kubeconfig entry.
+ *
+ * @param headlampClusters - Current Headlamp cluster configuration, if available.
+ * @param clusterName - Selected Azure cluster name.
+ * @param subscriptionId - Selected Azure subscription ID.
+ * @param resourceGroup - Selected Azure resource group.
+ * @returns Whether the cluster is missing, registered in scope, or conflicts by scope.
+ */
+export function getClusterRegistrationState(
+  headlampClusters: Record<string, unknown> | null | undefined,
+  clusterName: string,
+  subscriptionId: string,
+  resourceGroup: string
+): ClusterRegistrationState {
+  const activeCluster = Object.values(headlampClusters || {}).find(
+    (cluster: any) => cluster.name === clusterName
+  );
+  if (!activeCluster) return 'missing';
+
+  const registeredScope = getClusterSettings(clusterName).azureRegistration;
+  const scopeMatches =
+    typeof registeredScope?.subscriptionId === 'string' &&
+    typeof registeredScope.resourceGroup === 'string' &&
+    registeredScope.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
+    registeredScope.resourceGroup.toLowerCase() === resourceGroup.toLowerCase();
+  return scopeMatches ? 'registered' : 'scope-conflict';
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +209,7 @@ export interface UseBasicsStepResult {
  *   delegate to `props.onFormDataChange`.
  *
  * @param props - The fields from {@link UseBasicsStepInput} that the hook needs.
+ * @returns Derived Basics-step state and handlers for the current form data.
  */
 export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
   const { t } = useTranslation();
@@ -257,10 +292,17 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     ? clusters.find(c => c.name === formData.cluster)
     : undefined;
 
+  const clusterRegistrationState = selectedCluster
+    ? getClusterRegistrationState(
+        headlampClusters,
+        selectedCluster.name,
+        formData.subscription,
+        selectedCluster.resourceGroup
+      )
+    : undefined;
   const isClusterMissing =
-    selectedCluster !== undefined &&
-    Object.values(headlampClusters || {}).find((it: any) => it.name === selectedCluster.name) ===
-      undefined;
+    clusterRegistrationState === 'missing' || clusterRegistrationState === 'scope-conflict';
+  const clusterScopeConflict = clusterRegistrationState === 'scope-conflict';
 
   const nonReadyCluster: UseBasicsStepResult['nonReadyCluster'] =
     selectedCluster && isClusterNonReady(selectedCluster)
@@ -297,6 +339,7 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     selectedSubscription,
     selectedCluster,
     isClusterMissing,
+    clusterScopeConflict,
     nonReadyCluster,
     handleInputChange,
     handleClusterChange,

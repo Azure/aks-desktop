@@ -18,6 +18,7 @@ import {
 } from '../../../utils/constants/projectLabels';
 import { STEPS } from '../types';
 import { useAzureResources } from './useAzureResources';
+import { getClusterRegistrationState } from './useBasicsStep';
 import { useClusterCapabilities } from './useClusterCapabilities';
 import { useExtensionCheck } from './useExtensionCheck';
 import { useFormData } from './useFormData';
@@ -155,11 +156,16 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   const namespaceCheck = useNamespaceCheck();
 
   const clustersConf = K8s.useClustersConf();
-  const isClusterMissing =
-    formData.cluster &&
-    Object.values(clustersConf).find((it: any) => it.name === formData.cluster) === undefined
+  const isClusterMissing = formData.cluster
+    ? getClusterRegistrationState(
+        clustersConf,
+        formData.cluster,
+        formData.subscription,
+        formData.resourceGroup
+      ) !== 'registered'
       ? true
-      : undefined;
+      : undefined
+    : undefined;
 
   const validation = useValidation(
     activeStep,
