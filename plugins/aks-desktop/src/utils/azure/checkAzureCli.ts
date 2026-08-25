@@ -40,10 +40,13 @@ export async function checkAzureCliAndAksPreview(): Promise<{
       if (versionData['azure-cli']) {
         cliVersion = versionData['azure-cli'];
         const [major, minor] = cliVersion.split('.').map(Number);
-        cliVersionOk = major > 2 || (major === 2 && minor >= 76);
+        // 2.85.0 fixed the location logic for the managed namespace update
+        // operation, which this plugin relies on; managed namespaces are
+        // unreliable below it.
+        cliVersionOk = major > 2 || (major === 2 && minor >= 85);
         if (!cliVersionOk) {
           suggestions.push(
-            'Update Azure CLI to version 2.76 or newer: https://docs.microsoft.com/cli/azure/install-azure-cli'
+            'Update Azure CLI to version 2.85 or newer: https://docs.microsoft.com/cli/azure/install-azure-cli'
           );
         }
       } else {
@@ -52,14 +55,8 @@ export async function checkAzureCliAndAksPreview(): Promise<{
         );
       }
 
-      // Check aks-preview extension from JSON
-      if (versionData.extensions && versionData.extensions['aks-preview']) {
-        aksPreviewInstalled = true;
-      } else {
-        suggestions.push(
-          'Install the az aks-preview extension: az extension add --name aks-preview'
-        );
-      }
+      // Report aks-preview presence for diagnostics only; it is no longer required.
+      aksPreviewInstalled = Boolean(versionData.extensions?.['aks-preview']);
     } catch (parseError) {
       // Fallback if JSON parsing fails
       suggestions.push(
