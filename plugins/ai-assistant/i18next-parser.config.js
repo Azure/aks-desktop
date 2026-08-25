@@ -1,22 +1,12 @@
-import path from 'node:path';
-
-const pluginDir = process.cwd();
-const localesDir = path.join(pluginDir, 'locales');
+import headlampConfig from '@kinvolk/headlamp-plugin/config/i18next-parser.config.js';
 
 export default {
-  lexers: {
-    default: ['JsxLexer'],
-  },
-  namespaceSeparator: '|',
-  keySeparator: false,
-  output: path.join(localesDir, '$LOCALE/$NAMESPACE.json'),
-  locales: ['en'],
-  contextSeparator: '//context:',
-  defaultValue: (locale, _namespace, key) => {
-    if (locale !== 'en') {
-      return '';
-    }
-    const contextSeparatorIndex = key.indexOf('//context:');
-    return contextSeparatorIndex >= 0 ? key.substring(0, contextSeparatorIndex) : key;
-  },
+  ...headlampConfig,
+  input: [
+    'src/**/*.{ts,tsx}',
+    'packages/ai-ui/src/**/*.{ts,tsx}',
+    '!**/*.{test,stories}.{ts,tsx}',
+    '!packages/ai-ui/src/testing/**',
+  ],
+  createOldCatalogs: false,
 };

@@ -21,6 +21,7 @@ import LangChainAssistantSession from '@headlamp-k8s/ai-common/assistant/LangCha
 import type { ConversationMessage } from '@headlamp-k8s/ai-common/conversation/types';
 import { getProviderById } from '@headlamp-k8s/ai-common/providers/catalog';
 import {
+  BrowserSkillCache,
   createFetchHttpClient,
   createNoopFileSystem,
 } from '@headlamp-k8s/ai-common/skills/adapters/browser';
@@ -32,8 +33,13 @@ import { createMockKubernetesToolManager } from '@headlamp-k8s/ai-common/tools/t
 import AIAssistantHeader from '@headlamp-k8s/ai-ui/components/assistant/AIAssistantHeader';
 import type { ChatMode } from '@headlamp-k8s/ai-ui/components/assistant/AllInputSection';
 import HolmesSetupGuide from '@headlamp-k8s/ai-ui/components/assistant/HolmesSetupGuide';
-import { PromptSuggestions } from '@headlamp-k8s/ai-ui/components/assistant/PromptSuggestions';
+import {
+  type PromptSuggestion,
+  PromptSuggestions,
+} from '@headlamp-k8s/ai-ui/components/assistant/PromptSuggestions';
 import ApiConfirmationDialog from '@headlamp-k8s/ai-ui/components/common/ApiConfirmationDialog';
+import { electronMCPClient } from '@headlamp-k8s/ai-ui/mcp/electron-client';
+import { isAksDesktopHost } from '@headlamp-k8s/ai-ui/mcp/host';
 import {
   getProviderModels,
   parseSuggestionsFromResponse,
@@ -44,7 +50,21 @@ import { runCommand, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 
 // pluginRunCommand is injected as a scope variable by Headlamp's plugin runner.
 declare const pluginRunCommand: typeof runCommand;
+import {
+  type CommandRunner,
+  refreshAzureOpenAIKey,
+  refreshGitHubToken,
+} from '@headlamp-k8s/ai-common/providers/detectProvider';
+import {
+  getActiveConfig,
+  getSavedConfigurations,
+  isSameStoredConfig,
+  type ProviderSettings,
+  StoredProviderConfig,
+} from '@headlamp-k8s/ai-common/providers/savedConfigs';
+import { getEnabledToolIds } from '@headlamp-k8s/ai-common/tools/settings/enabledTools';
 import ProactiveDiagnosisSection from '@headlamp-k8s/ai-ui/components/assistant/ProactiveDiagnosisSection';
+import { usePromptWidth } from '@headlamp-k8s/ai-ui/contexts/PromptWidthContext';
 import {
   type DiagnosisStepCallback,
   ProactiveDiagnosisManager,
@@ -66,41 +86,10 @@ import { checkHolmesAgentHealth } from './holmesClient';
 import { HolmesHealthRequestGate } from './holmesHealthRequestGate';
 import { useKubernetesToolUI } from './hooks/useKubernetesToolUI';
 import { fetchClusterWarnings, fetchWarningEventsForClusters } from './kubernetes/EventFetcher';
+import { createPluginCommandRunner } from './pluginCommandRunner';
 import { getSettingsURL, type PluginConfig, useGlobalState } from './pluginState';
 import { useDynamicPrompts } from './prompts/promptGenerator';
 import { resolveRuntimeProviderConfig } from './resolveRuntimeProviderConfig';
-
-// Operation type constants for translation
-const OPERATION_TYPES = {
-  CREATION: 'creation',
-  UPDATE: 'update',
-  DELETION: 'deletion',
-  GENERIC: 'operation',
-} as const;
-import {
-  type CommandRunner,
-  refreshAzureOpenAIKey,
-  refreshGitHubToken,
-} from '@headlamp-k8s/ai-common/providers/detectProvider';
-import {
-  getActiveConfig,
-  getSavedConfigurations,
-  isSameStoredConfig,
-  type ProviderSettings,
-  StoredProviderConfig,
-} from '@headlamp-k8s/ai-common/providers/savedConfigs';
-import { getEnabledToolIds } from '@headlamp-k8s/ai-common/tools/settings/enabledTools';
-import { usePromptWidth } from '@headlamp-k8s/ai-ui/contexts/PromptWidthContext';
-
-interface CommandProcess {
-  /** Standard output stream emitted by the injected command. */
-  stdout: {
-    /** Registers a listener for command output chunks. */
-    on: (event: 'data', listener: (chunk: unknown) => void) => void;
-  };
-  /** Registers a listener for process exit. */
-  on: (event: 'exit', listener: (code: number | null) => void) => void;
-}
 
 interface HolmesTextEvent {
   /** Streamed message identifier. */
@@ -116,11 +105,8 @@ interface HolmesToolEvent {
   toolCallName?: string;
 }
 
-type PluginCommandRunner = (
-  command: string,
-  args: string[],
-  options: Record<string, unknown>
-) => CommandProcess;
+/** Stable fallback so a missing cluster config does not change identity each render. */
+const NO_CLUSTERS: NonNullable<ReturnType<typeof useClustersConf>> = {};
 
 export default function AIPrompt(props: {
   openPopup: boolean;
@@ -136,13 +122,9 @@ export default function AIPrompt(props: {
   const commandRunnerRef = React.useRef<CommandRunner | null>(null);
   React.useEffect(() => {
     if (typeof pluginRunCommand !== 'undefined') {
-      commandRunnerRef.current = (command: string, args: string[]) =>
-        new Promise<{ stdout: string; exitCode: number }>(resolve => {
-          const proc = (pluginRunCommand as unknown as PluginCommandRunner)(command, args, {});
-          let out = '';
-          proc.stdout.on('data', chunk => (out += String(chunk)));
-          proc.on('exit', (code: number | null) => resolve({ stdout: out, exitCode: code ?? -1 }));
-        });
+      commandRunnerRef.current = createPluginCommandRunner((command, args, options) =>
+        pluginRunCommand(command as Parameters<typeof pluginRunCommand>[0], args, options)
+      );
     }
   }, []);
 
@@ -165,9 +147,9 @@ export default function AIPrompt(props: {
   // const { enabledTools, setEnabledTools } = _pluginSetting;
   const [enabledTools, setEnabledTools] = React.useState<string[]>([]);
   const [promptHistory, setPromptHistory] = React.useState<ConversationMessage[]>([]);
-  const [suggestions, setSuggestions] = React.useState<string[]>([]);
+  const [suggestions, setSuggestions] = React.useState<PromptSuggestion[]>([]);
   const selectedClusters = useSelectedClusters();
-  const clusters = useClustersConf() || {};
+  const clusters = useClustersConf() || NO_CLUSTERS;
   const dynamicPrompts = useDynamicPrompts();
   const prompWidthContext = usePromptWidth();
   const { t } = useTranslation();
@@ -207,6 +189,10 @@ export default function AIPrompt(props: {
   // latest value without forcing the useCallback to re-create.
   const clusterNamesRef = useRef(clusterNames);
   clusterNamesRef.current = clusterNames;
+
+  // Effects key off this instead of the array so a new array with the same
+  // clusters does not re-trigger event fetching.
+  const clusterNamesKey = clusterNames.join(',');
 
   // Fetch cluster warnings on-demand for context generation (replaces
   // the continuous useClusterWarnings hook).
@@ -350,6 +336,9 @@ export default function AIPrompt(props: {
   // Test mode detection
   const isTestMode = isTestModeCheck() || pluginSettings?.testMode === true;
 
+  // AKS Desktop ships its own agent, so Holmes is not offered there.
+  const holmesEnabled = React.useMemo(() => !isAksDesktopHost(), []);
+
   // Agent mode state — default to chat mode; agent mode is only enabled
   // explicitly by the user or when Holmes is confirmed available.
   const [isAgentMode, setIsAgentMode] = React.useState(false);
@@ -364,6 +353,7 @@ export default function AIPrompt(props: {
   const [showHolmesSetup, setShowHolmesSetup] = React.useState(false);
   const [isHolmesRetrying, setIsHolmesRetrying] = React.useState(false);
   const holmesHealthRequestGateRef = React.useRef(new HolmesHealthRequestGate());
+  const userSelectedChatRef = React.useRef(false);
 
   const [showEditor, setShowEditor] = React.useState(false);
   const [editorContent, setEditorContent] = React.useState('');
@@ -600,7 +590,7 @@ export default function AIPrompt(props: {
           enabledTools,
           pluginSettings?.devOptions?.enableMockTools
             ? { toolManager: createMockKubernetesToolManager() }
-            : undefined
+            : { mcpClient: electronMCPClient }
         );
         setAiManager(newManager);
       } catch (error: unknown) {
@@ -641,6 +631,7 @@ export default function AIPrompt(props: {
     // Reuse existing SkillManager instance to preserve its in-memory cache
     if (!skillManagerRef.current) {
       skillManagerRef.current = new SkillManager(createNoopFileSystem(), createFetchHttpClient());
+      skillManagerRef.current.setSkillCache(new BrowserSkillCache());
     }
     (aiManager as LangChainAssistantSession).setSkillManager(skillManagerRef.current, skillsConfig);
   }, [aiManager, pluginSettings]);
@@ -683,7 +674,7 @@ export default function AIPrompt(props: {
             enabledTools,
             pluginSettings?.devOptions?.enableMockTools
               ? { toolManager: createMockKubernetesToolManager() }
-              : undefined
+              : { mcpClient: electronMCPClient }
           );
           // LangChain doesn't stream intermediate events, so just report start/end
           onStep?.({
@@ -741,7 +732,7 @@ export default function AIPrompt(props: {
 
         // Update suggestions if this is the latest assistant response
         if (index === aiManager.history.length - 1 && suggestions.length > 0) {
-          setSuggestions(suggestions);
+          setSuggestions(suggestions.map(prompt => ({ label: prompt, prompt })));
         }
 
         // Return the prompt with cleaned content (without the SUGGESTIONS line)
@@ -814,21 +805,21 @@ export default function AIPrompt(props: {
       resourceInfo?: { kind?: string; name?: string; namespace?: string }
     ) => {
       // Determine the operation type from the error or method
-      let operation: string = OPERATION_TYPES.GENERIC;
+      let operation = t('operation');
       if (operationType) {
         switch (operationType.toLowerCase()) {
           case 'post':
-            operation = OPERATION_TYPES.CREATION;
+            operation = t('creation');
             break;
           case 'put':
           case 'patch':
-            operation = OPERATION_TYPES.UPDATE;
+            operation = t('update');
             break;
           case 'delete':
-            operation = OPERATION_TYPES.DELETION;
+            operation = t('deletion');
             break;
           default:
-            operation = OPERATION_TYPES.GENERIC;
+            operation = t('operation');
         }
       }
 
@@ -843,7 +834,7 @@ export default function AIPrompt(props: {
 
       // Build error content
       let errorContent = t('Resource {{operation}} failed: {{errorMessage}}', {
-        operation: t(operation),
+        operation,
         errorMessage,
       });
 
@@ -1468,8 +1459,10 @@ export default function AIPrompt(props: {
   const handleToggleAgentModeRequest = React.useCallback(
     (enabled: boolean) => {
       if (enabled) {
+        userSelectedChatRef.current = false;
         void handleUseHolmes();
       } else {
+        userSelectedChatRef.current = true;
         holmesHealthRequestGateRef.current.invalidate();
         setIsHolmesRetrying(false);
         setShowHolmesSetup(false);
@@ -1485,7 +1478,8 @@ export default function AIPrompt(props: {
   // default to it regardless of whether a chat provider is also configured.
   // Fall back to chat mode only when Holmes is not reachable.
   React.useEffect(() => {
-    if (isAgentMode || holmesAgentRef.current) return;
+    if (!holmesEnabled) return;
+    if (userSelectedChatRef.current || isAgentMode || holmesAgentRef.current) return;
 
     // If mock agent is enabled, skip health check and go straight to agent mode
     if (pluginSettings?.devOptions?.enableMockAgent) {
@@ -1510,7 +1504,7 @@ export default function AIPrompt(props: {
         holmesHealthRequestGateRef.current.invalidate();
       }
     };
-  }, [handleToggleAgentMode, isAgentMode, pluginSettings]);
+  }, [handleToggleAgentMode, isAgentMode, pluginSettings, holmesEnabled]);
 
   // Agent mode: send a message to Holmes via the ag-ui HolmesAgent.
   // Events (text streaming, tool calls, errors) are handled by the subscriber
@@ -1744,15 +1738,14 @@ export default function AIPrompt(props: {
         }
         aiManager.setContext(fullContext);
       });
+  }, [_pluginSetting.event, aiManager, clusterNamesKey]);
 
-    // Configure AI manager with tools
-    if (aiManager.configureTools) {
-      aiManager.configureTools(
-        [], // No longer need to pass the tool definitions manually
-        kubernetesContext
-      );
-    }
-  }, [_pluginSetting.event, aiManager, clusterNames, selectedClusters, kubernetesContext]);
+  React.useEffect(() => {
+    aiManager?.configureTools?.(
+      [], // No longer need to pass the tool definitions manually
+      kubernetesContext
+    );
+  }, [aiManager, kubernetesContext]);
 
   useEffect(() => {
     if (openPopup && aiManager) {
@@ -1828,7 +1821,7 @@ export default function AIPrompt(props: {
   // their cluster and configure the connection in Settings. Shown regardless of
   // provider config or agent-mode state so users are never stuck in a dead
   // agent mode.
-  if (showHolmesSetup) {
+  if (showHolmesSetup && holmesEnabled) {
     return (
       <HolmesSetupGuide
         onOpenSettings={() => {
@@ -1838,6 +1831,7 @@ export default function AIPrompt(props: {
         onRetry={handleUseHolmes}
         isRetrying={isHolmesRetrying}
         onDismiss={() => {
+          userSelectedChatRef.current = true;
           holmesHealthRequestGateRef.current.invalidate();
           setIsHolmesRetrying(false);
           setShowHolmesSetup(false);
@@ -1855,11 +1849,13 @@ export default function AIPrompt(props: {
     return (
       <Box
         sx={{
-          height: '100vh',
+          height: '100%',
+          minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
+          overflow: 'hidden',
           p: 3,
           textAlign: 'center',
         }}
@@ -1871,7 +1867,7 @@ export default function AIPrompt(props: {
           {t(
             'To use the AI Assistant, please configure your AI provider credentials in the settings page.'
           )}{' '}
-          {t('Or switch to Holmes Agent mode.')}
+          {holmesEnabled && t('Or switch to Holmes Agent mode.')}
         </Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
           <Button
@@ -1884,26 +1880,29 @@ export default function AIPrompt(props: {
           >
             {t('Go to Settings')}
           </Button>
-          <Button
-            variant="outlined"
-            startIcon={<Icon icon="mdi:robot" />}
-            disabled={agentModeStatus === 'checking'}
-            onClick={() => {
-              handleUseHolmes();
-            }}
-          >
-            {agentModeStatus === 'checking' ? t('Checking for Holmes…') : t('Use Holmes Agent')}
-          </Button>
+          {holmesEnabled && (
+            <Button
+              variant="outlined"
+              startIcon={<Icon icon="mdi:robot" />}
+              disabled={agentModeStatus === 'checking'}
+              onClick={() => {
+                handleUseHolmes();
+              }}
+            >
+              {agentModeStatus === 'checking' ? t('Checking for Holmes…') : t('Use Holmes Agent')}
+            </Button>
+          )}
         </Box>
       </Box>
     );
   }
 
   return (
-    <div ref={rootRef}>
+    <div ref={rootRef} style={{ height: '100%', minHeight: 0 }}>
       <Box
         sx={{
-          height: '100vh',
+          height: '100%',
+          minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden', // Prevent horizontal overflow
@@ -1928,7 +1927,8 @@ export default function AIPrompt(props: {
           justifyContent="flex-end"
           alignItems="stretch"
           sx={{
-            height: '100%',
+            flex: '1 1 0',
+            minHeight: 0,
             padding: 1,
             overflow: 'hidden', // Prevent overflow
             maxWidth: '100%',
@@ -1942,9 +1942,10 @@ export default function AIPrompt(props: {
             item
             xs
             sx={{
-              height: '100%',
-              overflowY: 'auto',
-              overflowX: 'auto', // Allow horizontal scrolling when needed
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
               maxWidth: '100%',
               minWidth: 0,
             }}
@@ -1983,10 +1984,10 @@ export default function AIPrompt(props: {
               suggestions={suggestions}
               apiError={apiError}
               loading={loading || isDiagnosisRunning}
-              onPromptSelect={prompt => setPromptVal(prompt)}
-              onPromptSend={prompt => {
+              onPromptSelect={suggestion => setPromptVal(suggestion.prompt)}
+              onPromptSend={suggestion => {
                 if (isDiagnosisRunning) return;
-                AnalyzeResourceBasedOnPrompt(prompt).catch(error => {
+                AnalyzeResourceBasedOnPrompt(suggestion.prompt).catch(error => {
                   setApiError(error.message);
                 });
               }}
@@ -2034,18 +2035,22 @@ export default function AIPrompt(props: {
                 handleChangeConfig(config, model);
               }}
               onTestModeResponse={handleTestModeResponse}
-              onToggleAgentMode={handleToggleAgentModeRequest}
+              onToggleAgentMode={holmesEnabled ? handleToggleAgentModeRequest : undefined}
               onToolsChange={newEnabledTools => {
                 setEnabledTools(newEnabledTools);
                 // Recreate AI manager with new tools
                 handleChangeConfig(activeConfig, selectedModel);
               }}
               chatMode={chatMode}
-              onChatModeChange={mode => {
-                setChatMode(mode);
-                setPromptHistory([]);
-                setApiError(null);
-              }}
+              onChatModeChange={
+                holmesEnabled
+                  ? mode => {
+                      setChatMode(mode);
+                      setPromptHistory([]);
+                      setApiError(null);
+                    }
+                  : undefined
+              }
             />
           </Grid>
         </Grid>
