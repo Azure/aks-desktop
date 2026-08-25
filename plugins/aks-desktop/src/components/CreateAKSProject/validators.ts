@@ -186,7 +186,6 @@ export const validateNetworkingPolicies = (
  */
 export const validateBasicsStep = (
   formData: Pick<FormData, 'projectName' | 'subscription' | 'cluster' | 'resourceGroup'>,
-  extensionInstalled: boolean | null,
   namespaceExists: boolean | null,
   checkingNamespace: boolean,
   namespaceError: string | null,
@@ -203,25 +202,18 @@ export const validateBasicsStep = (
     errors.push('Selected cluster is not registered');
   }
 
-  // The aks-preview extension is only required to create *managed* namespaces
-  // (`az aks namespace add`). Arc (AKS Hybrid & Edge) clusters apply a native
-  // manifest via the K8s API, so this managed-only prerequisite does not gate
-  // them — but the Arc cluster must actually be reachable (a live API probe, not
-  // a cached heartbeat), so an unreachable one blocks the step even when Azure
-  // reports it as "Succeeded".
-  if (!isArc) {
-    // Check extension installation
-    if (extensionInstalled !== true) {
-      errors.push('AKS Preview Extension must be installed');
-    }
-  } else if (!isClusterMissing) {
-    // Arc cluster is connected — gate on live reachability.
+  // Arc (AKS Hybrid & Edge) clusters apply a native manifest via the K8s API, so
+  // the cluster must actually be reachable (a live API probe, not a cached
+  // heartbeat) — an unreachable one blocks the step even when Azure reports it as
+  // "Succeeded". Managed clusters have no equivalent gate here.
+  if (isArc && !isClusterMissing) {
     if (arcAccessChecking) {
       errors.push('Checking cluster accessibility...');
     } else if (arcAccessible === false) {
       errors.push('Selected cluster is not accessible (no response from its Kubernetes API)');
     }
   }
+
   // Validate project name
   const projectNameValidation = validateProjectName(formData.projectName);
   if (!projectNameValidation.isValid) {
@@ -360,7 +352,6 @@ export const validateForm = (
 export const validateStep = (
   step: number,
   formData: FormData,
-  extensionInstalled?: boolean | null,
   namespaceExists?: boolean | null,
   checkingNamespace?: boolean,
   namespaceError?: string | null,
@@ -381,7 +372,6 @@ export const validateStep = (
     case 0: // Basics
       return validateBasicsStep(
         formData,
-        extensionInstalled ?? null,
         namespaceExists ?? null,
         checkingNamespace ?? false,
         namespaceError ?? null,

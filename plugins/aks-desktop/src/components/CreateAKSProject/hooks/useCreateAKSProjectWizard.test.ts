@@ -109,18 +109,6 @@ vi.mock('./useClusterCapabilities', () => ({
   }),
 }));
 
-vi.mock('./useExtensionCheck', () => ({
-  useExtensionCheck: () => ({
-    installed: true,
-    installing: false,
-    error: null,
-    showSuccess: false,
-    installExtension: vi.fn(),
-    checkExtension: vi.fn(),
-    clearError: vi.fn(),
-  }),
-}));
-
 vi.mock('./useNamespaceCheck', () => ({
   useNamespaceCheck: () => ({
     exists: false,

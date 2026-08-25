@@ -85,12 +85,10 @@ const BASE_PROPS: BasicsStepProps = {
   loadingClusters: false,
   clusterError: null,
   totalClusterCount: null,
-  extensionStatus: { installed: true, installing: false, error: null, showSuccess: false },
   namespaceStatus: { exists: null, checking: false, error: null },
   clusterAccessStatus: { checking: false, accessible: null },
   clusterCapabilities: null,
   capabilitiesLoading: false,
-  onInstallExtension: async () => {},
   onRetrySubscriptions: async () => {},
   onRetryClusters: async () => {},
   onRefreshCapabilities: () => {},
@@ -188,39 +186,6 @@ ClusterNotReady.args = {
   },
   clusters: [{ ...CLUSTERS[0], status: 'Updating' }, CLUSTERS[1]],
   totalClusterCount: 2,
-};
-
-/**
- * AKS Preview extension is not installed.
- * Shows the yellow warning banner with the "Install Extension" button.
- */
-export const ExtensionNotInstalled = Template.bind({});
-ExtensionNotInstalled.args = {
-  ...BASE_PROPS,
-  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
-  extensionStatus: { installed: false, installing: false, error: null, showSuccess: false },
-};
-
-/**
- * AKS Preview extension is currently being installed.
- * The "Install Extension" button shows a spinner and is disabled.
- */
-export const ExtensionInstalling = Template.bind({});
-ExtensionInstalling.args = {
-  ...BASE_PROPS,
-  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
-  extensionStatus: { installed: false, installing: true, error: null, showSuccess: false },
-};
-
-/**
- * AKS Preview extension install succeeded.
- * Shows the green success alert.
- */
-export const ExtensionInstallSuccess = Template.bind({});
-ExtensionInstallSuccess.args = {
-  ...BASE_PROPS,
-  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
-  extensionStatus: { installed: true, installing: false, error: null, showSuccess: true },
 };
 
 /**

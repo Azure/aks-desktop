@@ -29,7 +29,6 @@ import { STEPS } from '../types';
 import { useAzureResources } from './useAzureResources';
 import { getClusterRegistrationState } from './useBasicsStep';
 import { useClusterCapabilities } from './useClusterCapabilities';
-import { useExtensionCheck } from './useExtensionCheck';
 import { useFormData } from './useFormData';
 import { useNamespaceCheck } from './useNamespaceCheck';
 import { useValidation } from './useValidation';
@@ -114,8 +113,6 @@ export interface UseCreateAKSProjectWizardResult {
   updateFormData: ReturnType<typeof useFormData>['updateFormData'];
   /** Subscriptions, clusters, loading states, and fetch actions for Azure resources. */
   azureResources: ReturnType<typeof useAzureResources>;
-  /** Extension install status and action for the aks-preview CLI extension. */
-  extensionStatus: ReturnType<typeof useExtensionCheck>;
   /** Namespace existence check state and action. */
   namespaceCheck: ReturnType<typeof useNamespaceCheck>;
   /** Cluster capability flags (SKU, network policy, add-on status). */
@@ -193,7 +190,6 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   const { formData, updateFormData } = useFormData();
   const azureResources = useAzureResources();
   const clusterCapabilities = useClusterCapabilities();
-  const extensionStatus = useExtensionCheck();
   const namespaceCheck = useNamespaceCheck();
 
   const clustersConf = K8s.useClustersConf();
@@ -233,7 +229,6 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   const validation = useValidation(
     activeStep,
     formData,
-    extensionStatus,
     namespaceCheck,
     isClusterMissing,
     clusterCapabilities.capabilities,
@@ -889,7 +884,6 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     formData,
     updateFormData,
     azureResources,
-    extensionStatus,
     namespaceCheck,
     clusterCapabilities,
     validation,

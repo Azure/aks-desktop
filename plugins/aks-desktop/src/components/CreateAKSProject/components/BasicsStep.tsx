@@ -234,8 +234,8 @@ function ConnectArcCluster({ cluster, resourceGroup, subscription }: ConnectArcC
  * Basics step of the Create AKS Project wizard.
  *
  * Collects the project name, description, Azure subscription, and AKS cluster.
- * Also surfaces pre-flight warnings and errors for the AKS Preview extension,
- * cluster readiness, cluster capabilities, and namespace name availability.
+ * Also surfaces pre-flight warnings and errors for cluster readiness, cluster
+ * capabilities, and namespace name availability.
  *
  * All stateful logic (focus management, auto-select, option mapping, cluster
  * state derivation) lives in {@link useBasicsStep}. The `RegisterCluster`
@@ -251,12 +251,10 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
     loadingClusters,
     clusterError,
     arcDiscoveryUnavailable,
-    extensionStatus,
     namespaceStatus,
     clusterAccessStatus,
     clusterCapabilities,
     capabilitiesLoading,
-    onInstallExtension,
     onRetrySubscriptions,
     onRetryClusters,
     onRefreshCapabilities,
@@ -285,58 +283,6 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       {error && <ValidationAlert type="error" message={error} onClose={() => {}} />}
-
-      {/* AKS Preview Extension check (managed namespaces only) */}
-      {!isArc && extensionStatus.installed === false && (
-        <ValidationAlert
-          type="warning"
-          message={
-            <Box>
-              <Typography variant="body2">
-                <strong>{t('AKS Preview Extension Required')}:</strong>{' '}
-                {t(
-                  'The aks-preview extension is required to create managed namespaces. Please install it to continue.'
-                )}
-              </Typography>
-              {extensionStatus.error && (
-                <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
-                  {extensionStatus.error}
-                </Typography>
-              )}
-            </Box>
-          }
-          action={
-            /* aria-busy signals to AT that this button is performing an async operation.
-               The CircularProgress spinner is hidden with aria-hidden because the button
-               text ("Installing...") already conveys the busy state to screen readers.
-               MDN: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Attributes/aria-busy
-               MDN: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Attributes/aria-hidden */
-            <Button
-              color="inherit"
-              size="small"
-              onClick={onInstallExtension}
-              disabled={extensionStatus.installing}
-              aria-busy={extensionStatus.installing || undefined}
-            >
-              {extensionStatus.installing ? (
-                <Box display="flex" alignItems="center" gap={1}>
-                  <CircularProgress size={16} color="inherit" aria-hidden="true" />
-                  {`${t('Installing')}...`}
-                </Box>
-              ) : (
-                t('Install Extension')
-              )}
-            </Button>
-          }
-        />
-      )}
-
-      {!isArc && extensionStatus.showSuccess && (
-        <ValidationAlert
-          type="success"
-          message={'✓ ' + t('AKS Preview Extension installed successfully!')}
-        />
-      )}
 
       <Box sx={{ display: 'flex', gap: 3, flexDirection: 'column' }}>
         {/* Project Name */}
