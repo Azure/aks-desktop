@@ -214,7 +214,9 @@ describe('Azure AKS utilities', () => {
       message:
         "Cluster 'metadata-retry' was registered, but its Azure scope could not be saved. Retry to save the registration metadata.",
     });
-    await expect(registerAKSCluster('sub-1', 'rg-1', 'metadata-retry')).resolves.toEqual({
+    await expect(
+      registerAKSCluster('sub-1', 'rg-1', 'metadata-retry', undefined, true)
+    ).resolves.toEqual({
       success: true,
       message: "Cluster 'metadata-retry' is already registered from this Azure scope.",
     });

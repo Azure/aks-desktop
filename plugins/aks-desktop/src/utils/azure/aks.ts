@@ -214,16 +214,6 @@ export async function registerAKSCluster(
   success: boolean;
   message: string;
 }> {
-  if (clusterAlreadyRegistered) {
-    const registeredScope = getClusterSettings(clusterName).azureRegistration;
-    if (!scopeMatches(registeredScope, subscriptionId, resourceGroup)) {
-      return {
-        success: false,
-        message: `Cluster '${clusterName}' is already registered from a different or unknown Azure scope.`,
-      };
-    }
-  }
-
   const reservationKey = clusterName.toLowerCase();
   const existingReservation = registrationScopes.get(reservationKey);
   if (existingReservation && !scopeMatches(existingReservation, subscriptionId, resourceGroup)) {
@@ -237,6 +227,15 @@ export async function registerAKSCluster(
       success: false,
       message: `Cluster '${clusterName}' registration has an unknown outcome. Wait for cluster configuration to refresh before retrying.`,
     };
+  }
+  if (clusterAlreadyRegistered && !existingReservation?.registered) {
+    const registeredScope = getClusterSettings(clusterName).azureRegistration;
+    if (!scopeMatches(registeredScope, subscriptionId, resourceGroup)) {
+      return {
+        success: false,
+        message: `Cluster '${clusterName}' is already registered from a different or unknown Azure scope.`,
+      };
+    }
   }
   const reservation = existingReservation ?? {
     subscriptionId,
