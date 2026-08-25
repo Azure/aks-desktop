@@ -95,6 +95,27 @@ UnresolvedResources.args = {
   clusters: [],
 };
 
+/** Same-name clusters resolve by resource group so review shows the selected scope. */
+export const SameNameClusterScopes = Template.bind({});
+SameNameClusterScopes.args = {
+  ...BASE_PROPS,
+  formData: {
+    ...BASE_FORM_DATA,
+    cluster: 'shared-aks',
+    resourceGroup: 'rg-apps',
+  },
+  clusters: [
+    { ...CLUSTER, name: 'shared-aks', resourceGroup: 'rg-platform' },
+    {
+      ...CLUSTER,
+      name: 'shared-aks',
+      resourceGroup: 'rg-apps',
+      location: 'westus',
+      version: '1.29.2',
+    },
+  ],
+};
+
 /**
  * Single assignee with Writer role.
  */

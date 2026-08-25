@@ -143,6 +143,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
     clusterOptions,
     clusterHelperText,
     selectedCluster,
+    selectedClusterValue,
     isClusterMissing,
     clusterScopeConflict,
     nonReadyCluster,
@@ -282,7 +283,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
         {/* Cluster */}
         <SearchableSelect
           label={t('Cluster')}
-          value={formData.cluster}
+          value={selectedClusterValue}
           onChange={handleClusterChange}
           options={clusterOptions}
           loading={loadingClusters}

@@ -33,6 +33,7 @@ vi.mock('../../../utils/shared/clusterSettings', () => ({
 import type { BasicsStepProps } from '../types';
 import {
   getClusterHelperText,
+  getClusterOptionValue,
   getClusterStateMessage,
   isClusterNonReady,
   useBasicsStep,
@@ -250,7 +251,7 @@ describe('useBasicsStep', () => {
     const { result } = renderHook(() => useBasicsStep(makeProps()));
     expect(result.current.clusterOptions).toHaveLength(1);
     expect(result.current.clusterOptions[0]).toMatchObject({
-      value: 'aks-prod',
+      value: getClusterOptionValue(CLUSTER_RUNNING),
       label: 'aks-prod',
     });
     expect(result.current.clusterOptions[0].subtitle).toContain('eastus');
@@ -297,6 +298,44 @@ describe('useBasicsStep', () => {
     });
     const { result } = renderHook(() => useBasicsStep(props));
     expect(result.current.selectedCluster).toEqual(CLUSTER_RUNNING);
+    expect(result.current.selectedClusterValue).toBe(getClusterOptionValue(CLUSTER_RUNNING));
+  });
+
+  test('selects and validates same-name clusters by resource group', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'aks-prod' } });
+    const otherScopeCluster = {
+      ...CLUSTER_RUNNING,
+      location: 'westus',
+      resourceGroup: 'rg-other',
+    };
+    const onFormDataChange = vi.fn();
+    const props = makeProps({
+      clusters: [CLUSTER_RUNNING, otherScopeCluster],
+      onFormDataChange,
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'aks-prod',
+        resourceGroup: 'rg-other',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(new Set(result.current.clusterOptions.map(option => option.value)).size).toBe(2);
+    expect(result.current.clusterOptions.map(option => option.subtitle)).toEqual([
+      expect.stringContaining('rg-prod'),
+      expect.stringContaining('rg-other'),
+    ]);
+    expect(result.current.selectedCluster).toEqual(otherScopeCluster);
+    expect(result.current.selectedClusterValue).toBe(getClusterOptionValue(otherScopeCluster));
+    expect(result.current.clusterScopeConflict).toBe(true);
+
+    act(() => result.current.handleClusterChange(getClusterOptionValue(CLUSTER_RUNNING)));
+    expect(onFormDataChange).toHaveBeenCalledWith({
+      cluster: 'aks-prod',
+      resourceGroup: 'rg-prod',
+    });
   });
 
   test('isClusterMissing is true when cluster is selected but absent from headlamp', () => {
@@ -438,7 +477,7 @@ describe('useBasicsStep', () => {
   test('handleClusterChange updates both cluster and resourceGroup', () => {
     const onFormDataChange = vi.fn();
     const { result } = renderHook(() => useBasicsStep(makeProps({ onFormDataChange })));
-    act(() => result.current.handleClusterChange('aks-prod'));
+    act(() => result.current.handleClusterChange(getClusterOptionValue(CLUSTER_RUNNING)));
     expect(onFormDataChange).toHaveBeenCalledWith({
       cluster: 'aks-prod',
       resourceGroup: 'rg-prod',

@@ -114,6 +114,16 @@ export function getClusterStateMessage(cluster: AzureCluster, t: (key: string) =
   return '';
 }
 
+/**
+ * Returns a collision-free select value without changing the cluster name stored in form data.
+ *
+ * @param cluster - Azure cluster whose option identity is required.
+ * @returns A serialized tuple containing the cluster name and resource group.
+ */
+export function getClusterOptionValue(cluster: AzureCluster): string {
+  return JSON.stringify([cluster.name, cluster.resourceGroup]);
+}
+
 // ---------------------------------------------------------------------------
 // Hook return type
 // ---------------------------------------------------------------------------
@@ -134,6 +144,8 @@ export interface UseBasicsStepResult {
   selectedSubscription: AzureSubscription | undefined;
   /** The currently selected Azure cluster object, or `undefined` if none. */
   selectedCluster: AzureCluster | undefined;
+  /** Composite select value for the selected cluster and resource group. */
+  selectedClusterValue: string;
   /**
    * `true` when a cluster is selected but is not present in the headlamp
    * kubeconfig — the user must register it before proceeding.
@@ -270,11 +282,11 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
   });
 
   const clusterOptions: SearchableSelectOption[] = clusters.map(cluster => ({
-    value: cluster.name,
+    value: getClusterOptionValue(cluster),
     label: cluster.name,
-    subtitle: `${cluster.location} • ${cluster.version} • ${t('{{count}} nodes', {
-      count: cluster.nodeCount,
-    })} • ${cluster.status}`,
+    subtitle: `${t('Resource Group')}: ${cluster.resourceGroup} • ${cluster.location} • ${
+      cluster.version
+    } • ${t('{{count}} nodes', { count: cluster.nodeCount })} • ${cluster.status}`,
   }));
 
   const clusterHelperText = getClusterHelperText(
@@ -289,8 +301,9 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     : undefined;
 
   const selectedCluster = formData.cluster
-    ? clusters.find(c => c.name === formData.cluster)
+    ? clusters.find(c => c.name === formData.cluster && c.resourceGroup === formData.resourceGroup)
     : undefined;
+  const selectedClusterValue = selectedCluster ? getClusterOptionValue(selectedCluster) : '';
 
   const clusterRegistrationState = selectedCluster
     ? getClusterRegistrationState(
@@ -320,14 +333,14 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     onFormDataChange({ [field]: value } as Pick<FormData, K>);
   };
 
-  const handleClusterChange = (clusterName: string) => {
-    if (!clusterName) {
+  const handleClusterChange = (clusterValue: string) => {
+    if (!clusterValue) {
       onFormDataChange({ cluster: '', resourceGroup: '' });
       return;
     }
-    const found = clusters.find(c => c.name === clusterName);
+    const found = clusters.find(c => getClusterOptionValue(c) === clusterValue);
     if (found) {
-      onFormDataChange({ cluster: clusterName, resourceGroup: found.resourceGroup });
+      onFormDataChange({ cluster: found.name, resourceGroup: found.resourceGroup });
     }
   };
 
@@ -338,6 +351,7 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     clusterHelperText,
     selectedSubscription,
     selectedCluster,
+    selectedClusterValue,
     isClusterMissing,
     clusterScopeConflict,
     nonReadyCluster,
