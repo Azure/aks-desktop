@@ -66,6 +66,7 @@ import {
   isAksProject,
   isAksProjectWithResourceGroup,
   isArmManagedProject,
+  isAzureRbacProject,
 } from './utils/shared/isAksProject';
 import { azureTheme } from './utils/shared/theme';
 
@@ -450,12 +451,15 @@ if (Headlamp.isRunningAsApp()) {
     ),
   });
 
-  // Override built-in Access tab with Azure role assignments for ARM-managed projects
+  // Override the built-in Access tab (which lists Roles/RoleBindings) wherever the
+  // grants actually live in Azure — managed namespaces, and Arc clusters created
+  // with Azure RBAC. Arc clusters using native Kubernetes RBAC keep the built-in
+  // tab, because there the RoleBindings genuinely are the access.
   registerProjectDetailsTab({
     id: 'headlamp-projects.tabs.access',
     label: 'Access',
     icon: 'mdi:account-lock',
-    isEnabled: isArmManagedProject,
+    isEnabled: isAzureRbacProject,
     component: ({ project }) => (
       <TelemetryErrorBoundary>
         <AccessTab project={project} />

@@ -3,6 +3,7 @@
 
 import { quoteForPlatform } from '../shared/quoteForPlatform';
 import { debugLog, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
+import { buildArcNamespaceScope, buildConnectedClusterScope } from './az-identity';
 import { checkNamespaceStatus } from './az-namespaces';
 
 export async function checkNamespaceExists(
@@ -328,16 +329,39 @@ export interface NamespaceRoleAssignment {
   scope: string;
 }
 
-/** Lists Azure role assignments on a provided managed namespace. */
+/**
+ * Lists Azure role assignments scoped to a project's namespace.
+ *
+ * Works for both cluster kinds, which differ only in how the namespace scope is
+ * obtained:
+ *
+ * - **Managed AKS** — the managed namespace is a real ARM resource, so its ID is
+ *   read with `az aks namespace show`.
+ * - **Arc** — there is no namespace resource to look up; the scope is a path under
+ *   the connected cluster and is constructed directly, saving a round trip.
+ */
 export async function listNamespaceRoleAssignments(options: {
   clusterName: string;
   resourceGroup: string;
   namespaceName: string;
   subscriptionId?: string;
+  /** Set for Arc (AKS Hybrid & Edge) clusters. Requires `subscriptionId`. */
+  isArcCluster?: boolean;
 }): Promise<{ success: boolean; assignments: NamespaceRoleAssignment[]; error?: string }> {
-  const { clusterName, resourceGroup, namespaceName, subscriptionId } = options;
+  const { clusterName, resourceGroup, namespaceName, subscriptionId, isArcCluster } = options;
 
   try {
+    if (isArcCluster) {
+      if (!subscriptionId) {
+        return { success: false, assignments: [], error: 'Missing subscription for Arc cluster' };
+      }
+      const arcScope = buildArcNamespaceScope(
+        buildConnectedClusterScope(subscriptionId, resourceGroup, clusterName),
+        namespaceName
+      );
+      return listRoleAssignmentsAtScope(arcScope, subscriptionId);
+    }
+
     /** Fetch ARM ID of managed namespace */
     const nsArgs = [
       'aks',
@@ -389,47 +413,63 @@ export async function listNamespaceRoleAssignments(options: {
       };
     }
 
-    /** Fetch role assignments */
-    const roleArgs = [
-      'role',
-      'assignment',
-      'list',
-      '--scope',
-      namespaceResourceId,
-      '--query',
-      '[].{principalName:principalName,principalType:principalType,roleDefinitionName:roleDefinitionName,scope:scope}',
-      '--output',
-      'json',
-    ];
-    if (subscriptionId) {
-      roleArgs.push('--subscription', subscriptionId);
-    }
+    return listRoleAssignmentsAtScope(namespaceResourceId, subscriptionId);
+  } catch (error) {
+    debugLog('Role assignment list threw:', error);
+    return { success: false, assignments: [], error: 'Failed to load role assignments' };
+  }
+}
 
-    debugLog('Listing role assignments:', 'az', roleArgs.join(' '));
-    const { stdout, stderr } = await runCommandAsync('az', roleArgs);
+/** Runs `az role assignment list` against an already-resolved ARM scope. */
+async function listRoleAssignmentsAtScope(
+  scope: string,
+  subscriptionId?: string
+): Promise<{ success: boolean; assignments: NamespaceRoleAssignment[]; error?: string }> {
+  const roleArgs = [
+    'role',
+    'assignment',
+    'list',
+    '--scope',
+    scope,
+    '--query',
+    '[].{principalName:principalName,principalType:principalType,roleDefinitionName:roleDefinitionName,scope:scope}',
+    '--output',
+    'json',
+  ];
+  if (subscriptionId) {
+    roleArgs.push('--subscription', subscriptionId);
+  }
 
-    if (stderr && needsRelogin(stderr)) {
-      debugLog('Role assignment list requires re-login:', stderr);
-      return {
-        success: false,
-        assignments: [],
-        error: 'Azure login required',
-      };
-    }
+  debugLog('Listing role assignments:', 'az', roleArgs.join(' '));
+  let stdout: string;
+  let stderr: string;
+  try {
+    ({ stdout, stderr } = await runCommandAsync('az', roleArgs));
+  } catch (error) {
+    // The command itself failed to run — a missing executable or a spawn error.
+    // Callers `return` this helper's promise from inside their own try, which does
+    // not catch a rejection, so the failure has to become a result here.
+    debugLog('Role assignment list could not run:', error);
+    return { success: false, assignments: [], error: 'Failed to load role assignments' };
+  }
 
-    if (stderr && isAzError(stderr)) {
-      debugLog('Role assignment list failed:', stderr);
-      return {
-        success: false,
-        assignments: [],
-        error: 'Failed to load role assignments',
-      };
-    }
+  if (stderr && needsRelogin(stderr)) {
+    debugLog('Role assignment list requires re-login:', stderr);
+    return { success: false, assignments: [], error: 'Azure login required' };
+  }
 
+  if (stderr && isAzError(stderr)) {
+    debugLog('Role assignment list failed:', stderr);
+    return { success: false, assignments: [], error: 'Failed to load role assignments' };
+  }
+
+  try {
     const assignments: NamespaceRoleAssignment[] = stdout ? JSON.parse(stdout) : [];
     return { success: true, assignments };
   } catch (error) {
-    debugLog('Role assignment list threw:', error);
+    // `az` returned a zero exit code but unparseable output — treat as a failure
+    // rather than letting the SyntaxError escape to the caller.
+    debugLog('Role assignment list returned invalid JSON:', error);
     return { success: false, assignments: [], error: 'Failed to load role assignments' };
   }
 }
