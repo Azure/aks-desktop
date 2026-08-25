@@ -55,9 +55,16 @@ vi.mock('@kinvolk/headlamp-plugin/lib', async () => {
 import {
   __getPendingEventCountForTests,
   __resetForTests,
+  beginConsentTransition,
   createTelemetryInitializer,
+  emitConsentEvent,
+  endConsentTransition,
+  flushTelemetry,
   initTelemetry,
+  isCurrentConsentGeneration,
   isTelemetryInitialized,
+  resetInitAttempted,
+  setConsentPredicate,
   setTelemetryEnabled,
   trackClusterShape,
   trackError,
@@ -447,6 +454,103 @@ describe('trackError', () => {
     trackError({ area: 'deploy', errorClass: 'TimeoutError', phase: 'failed' });
     expect(trackEvent).toHaveBeenCalledTimes(6);
   });
+
+  it('does not spend the per-key quota on errors dropped by a closed consent gate', () => {
+    const gen = beginConsentTransition();
+    for (let count = 0; count < 5; count += 1) {
+      trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    }
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    endConsentTransition(gen);
+    trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('live consent predicate', () => {
+  beforeEach(() => {
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    trackEvent.mockClear();
+  });
+
+  it('drops ordinary events as soon as the predicate reports opt-out', () => {
+    // No beginConsentTransition here on purpose: this is the window between
+    // the config store write and TelemetryBoot's effect running revokeConsent.
+    setConsentPredicate(() => false);
+    trackFeature({ feature: 'headlamp.list-view', status: 'succeeded' });
+    trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it('resumes ordinary events when the predicate reports opt-in again', () => {
+    let enabled = false;
+    setConsentPredicate(() => enabled);
+    trackFeature({ feature: 'headlamp.list-view', status: 'succeeded' });
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    enabled = true;
+    trackFeature({ feature: 'headlamp.list-view', status: 'succeeded' });
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when the predicate throws', () => {
+    setConsentPredicate(() => {
+      throw new Error('synthetic predicate failure');
+    });
+    expect(() =>
+      trackFeature({ feature: 'headlamp.list-view', status: 'succeeded' })
+    ).not.toThrow();
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it('still delivers the consent event while the predicate reports opt-out', () => {
+    // The revoke path depends on this: by the time revokeConsent runs, the
+    // store already reads disabled. Routing the consent event through `emit`
+    // would drop it and opt-out rate would read zero forever.
+    setConsentPredicate(() => false);
+    emitConsentEvent('revoked');
+    expect(trackEvent).toHaveBeenCalledWith({
+      name: 'headlamp.telemetry-consent',
+      properties: { appVersion: SESSION_PROPS.appVersion, consent: 'revoked' },
+    });
+  });
+
+  it('still delivers session-start while the predicate reports opt-out', () => {
+    // Same bypass, for the mid-session grant case: initTelemetry runs before
+    // the store write has propagated anywhere observable.
+    setConsentPredicate(() => false);
+    trackSessionStart(SESSION_PROPS);
+    expect(trackEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'headlamp.session-start' })
+    );
+  });
+
+  it('does not spend the error quota on events the predicate rejects', () => {
+    setConsentPredicate(() => false);
+    for (let count = 0; count < 5; count += 1) {
+      trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    }
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    setConsentPredicate(() => true);
+    trackError({ area: 'deploy', errorClass: 'NetworkError', phase: 'failed' });
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not mark a cluster-shape dedupe key the predicate rejected', () => {
+    setConsentPredicate(() => false);
+    trackClusterShape(SHAPE_KEY, FULL_SHAPE);
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    setConsentPredicate(() => true);
+    trackClusterShape(SHAPE_KEY, FULL_SHAPE);
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('trackClusterShape null-guard', () => {
@@ -611,5 +715,221 @@ describe('error swallowing', () => {
       trackError({ area: 'plugin-ui', errorClass: 'UnknownError', phase: 'failed' })
     ).not.toThrow();
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('consent transition primitives', () => {
+  beforeEach(() => {
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    trackEvent.mockClear();
+  });
+
+  it('closes the ordinary-event gate once a transition begins, but still lets the consent event through', () => {
+    beginConsentTransition();
+    trackFeature({ feature: 'headlamp.logs', status: 'opened' });
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    emitConsentEvent('revoked');
+    expect(trackEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'headlamp.telemetry-consent',
+        properties: expect.objectContaining({ consent: 'revoked' }),
+      })
+    );
+  });
+
+  it('reopens the gate only when the ending generation is still current', () => {
+    const gen1 = beginConsentTransition();
+    const gen2 = beginConsentTransition(); // supersedes gen1
+    expect(isCurrentConsentGeneration(gen1)).toBe(false);
+    expect(isCurrentConsentGeneration(gen2)).toBe(true);
+
+    endConsentTransition(gen1); // stale end: must not reopen
+    trackFeature({ feature: 'headlamp.logs', status: 'opened' });
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    endConsentTransition(gen2); // current end: reopens
+    trackFeature({ feature: 'headlamp.logs', status: 'opened' });
+    expect(trackEvent).toHaveBeenCalledWith(expect.objectContaining({ name: 'headlamp.feature' }));
+  });
+
+  it('reopens the gate when the ending generation matches the current one', () => {
+    const gen = beginConsentTransition();
+    endConsentTransition(gen);
+
+    trackFeature({ feature: 'headlamp.logs', status: 'opened' });
+    expect(trackEvent).toHaveBeenCalledWith(expect.objectContaining({ name: 'headlamp.feature' }));
+  });
+
+  it('trackSessionStart still emits while the consent gate is closed', () => {
+    // trackSessionStart is initTelemetry's last step, and the grant side of
+    // a consent transition closes the gate before calling initTelemetry.
+    // If trackSessionStart routed through the gated `emit`, every
+    // mid-session grant would silently drop session-start.
+    beginConsentTransition();
+    trackSessionStart(SESSION_PROPS);
+    expect(trackEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'headlamp.session-start' })
+    );
+  });
+
+  it('emitConsentEvent is a no-op when telemetry is disabled', () => {
+    setTelemetryEnabled(false);
+    emitConsentEvent('revoked');
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it('emitConsentEvent drops an unrecognized consent value instead of emitting it', () => {
+    // sanitizeConsent returns undefined for unknown input; emitConsentEvent
+    // must not fabricate a value in its place.
+    emitConsentEvent('revoked');
+    trackEvent.mockClear();
+    emitConsentEvent('maybe' as unknown as 'granted');
+    expect(trackEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('consent gate interaction with trackClusterShape dedupe', () => {
+  beforeEach(() => {
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    trackEvent.mockClear();
+  });
+
+  it('does not mark dedupeKey as seen when the consent gate is closed, so the event still fires once the gate reopens', () => {
+    // Regression: trackClusterShape must not add dedupeKey to
+    // emittedShapeFor when emit() is going to be dropped by the closed
+    // gate, or the cluster's shape is permanently suppressed even after
+    // consent is restored.
+    const gen = beginConsentTransition();
+    trackClusterShape(SHAPE_KEY, FULL_SHAPE);
+    expect(trackEvent).not.toHaveBeenCalled();
+
+    endConsentTransition(gen);
+    trackClusterShape(SHAPE_KEY, FULL_SHAPE);
+    expect(trackEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'headlamp.cluster-shape' })
+    );
+  });
+});
+
+describe('flushTelemetry', () => {
+  it('resolves immediately when ai is null', async () => {
+    __resetForTests();
+    await expect(flushTelemetry()).resolves.toBeUndefined();
+  });
+
+  it('resolves once the flush callback fires', async () => {
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    const ai = ApplicationInsightsCtor.mock.results.at(-1)!.value;
+    const flushMock = vi.fn((_async: boolean, cb?: () => void) => cb?.());
+    ai.flush = flushMock;
+
+    await expect(flushTelemetry()).resolves.toBeUndefined();
+    expect(flushMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves on timeout when the flush callback never fires', async () => {
+    vi.useFakeTimers();
+    try {
+      initTelemetry({
+        connectionString: 'InstrumentationKey=test',
+        installId: VALID_INSTALL_ID,
+        sessionProps: SESSION_PROPS,
+      });
+      const ai = ApplicationInsightsCtor.mock.results.at(-1)!.value;
+      ai.flush = vi.fn(); // never invokes the callback
+
+      const pending = flushTelemetry(50);
+      let resolved = false;
+      pending.then(() => {
+        resolved = true;
+      });
+      await vi.advanceTimersByTimeAsync(60);
+      expect(resolved).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resolves even when ai.flush throws synchronously', async () => {
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    const ai = ApplicationInsightsCtor.mock.results.at(-1)!.value;
+    ai.flush = vi.fn(() => {
+      throw new Error('synthetic transport failure');
+    });
+
+    await expect(flushTelemetry()).resolves.toBeUndefined();
+  });
+});
+
+describe('resetInitAttempted', () => {
+  it('lets initTelemetry run again after the latch is cleared', () => {
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    expect(ApplicationInsightsCtor).toHaveBeenCalledTimes(1);
+
+    resetInitAttempted();
+    expect(isTelemetryInitialized()).toBe(false);
+
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    expect(ApplicationInsightsCtor).toHaveBeenCalledTimes(2);
+  });
+
+  it('unloads a still-loaded SDK instead of orphaning it', () => {
+    // The interleaving: a grant arrives while a revoke's flush is still
+    // pending, so the previous SDK has not been unloaded yet. Without the
+    // unload in resetInitAttempted, initTelemetry overwrites `ai` and the
+    // first instance leaks with its send queue.
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    expect(ApplicationInsightsCtor).toHaveBeenCalledTimes(1);
+    unload.mockClear();
+
+    resetInitAttempted();
+
+    expect(unload).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('__resetForTests resets consent state', () => {
+  it('reopens the gate and resets the generation', () => {
+    beginConsentTransition();
+    __resetForTests();
+    setTelemetryEnabled(true);
+    initTelemetry({
+      connectionString: 'InstrumentationKey=test',
+      installId: VALID_INSTALL_ID,
+      sessionProps: SESSION_PROPS,
+    });
+    trackEvent.mockClear();
+
+    trackFeature({ feature: 'headlamp.logs', status: 'opened' });
+    expect(trackEvent).toHaveBeenCalledWith(expect.objectContaining({ name: 'headlamp.feature' }));
   });
 });

@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
+import { useFeatureAttemptState } from '../../hooks/useFeatureAttemptState';
 import { useTelemetryFeatureOpened } from '../../hooks/useTelemetryFeatureOpened';
 import { trackError } from '../../telemetry';
 import { trackAksFeature } from '../../telemetry/aksFeature';
@@ -48,48 +49,6 @@ function getStepLabel(t: (key: string) => string, step: NamespaceStepName): stri
 
 const NAMESPACE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 
-type NamespaceCreationAttemptOutcome = 'active' | 'cancelled' | 'failed' | 'succeeded';
-
-interface NamespaceCreationAttemptState {
-  cancel: () => boolean;
-  finish: (
-    generation: number,
-    outcome: Extract<NamespaceCreationAttemptOutcome, 'failed' | 'succeeded'>
-  ) => boolean;
-  invalidate: () => void;
-  is: (generation: number, outcome: NamespaceCreationAttemptOutcome) => boolean;
-  start: () => number;
-}
-
-function createNamespaceCreationAttemptState(): NamespaceCreationAttemptState {
-  let generation = 0;
-  let outcome: NamespaceCreationAttemptOutcome = 'active';
-
-  return {
-    cancel: () => {
-      if (outcome !== 'active') return false;
-      outcome = 'cancelled';
-      generation += 1;
-      return true;
-    },
-    finish: (attemptGeneration, attemptOutcome) => {
-      if (generation !== attemptGeneration || outcome !== 'active') return false;
-      outcome = attemptOutcome;
-      return true;
-    },
-    invalidate: () => {
-      generation += 1;
-    },
-    is: (attemptGeneration, attemptOutcome) =>
-      generation === attemptGeneration && outcome === attemptOutcome,
-    start: () => {
-      generation += 1;
-      outcome = 'active';
-      return generation;
-    },
-  };
-}
-
 function CreateNamespaceContent() {
   const history = useHistory();
   const { t } = useTranslation();
@@ -104,15 +63,10 @@ function CreateNamespaceContent() {
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [applicationName, setApplicationName] = useState('');
   const stepContentRef = useRef<HTMLDivElement>(null);
-  const attemptStateRef = useRef<NamespaceCreationAttemptState | null>(null);
+  const attemptState = useFeatureAttemptState();
   const isMountedRef = useRef(true);
   const submissionInFlightRef = useRef(false);
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  if (attemptStateRef.current === null) {
-    attemptStateRef.current = createNamespaceCreationAttemptState();
-  }
-  const attemptState = attemptStateRef.current;
 
   useTelemetryFeatureOpened('aksd.namespace-create');
 
