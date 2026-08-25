@@ -5,7 +5,10 @@
   "private": true,
   "scripts": {
     "build": "npx --yes tsx ./build/build-host-platform.ts",
-    "build:linux": "npx --yes tsx ./build/setup-plugins.ts --platform=linux --arch=x64 && cd headlamp && make app-build && cd app && npm run package -- --linux --x64",
+    "build:linux": "npm run build:linux:x64 && npm run build:linux:arm64 && npm run build:linux:armv7l",
+    "build:linux:x64": "npx --yes tsx ./build/setup-plugins.ts --platform=linux --arch=x64 && cd headlamp && make app-build && cd app && npm run package -- --linux --x64",
+    "build:linux:arm64": "npx --yes tsx ./build/setup-plugins.ts --platform=linux --arch=arm64 && cd headlamp && make app-build && cd app && npm run package -- --linux AppImage tar.gz --arm64",
+    "build:linux:armv7l": "npx --yes tsx ./build/setup-plugins.ts --platform=linux --arch=armv7l && cd headlamp && make app-build && cd app && npm run package -- --linux AppImage tar.gz --armv7l",
     "build:mac": "npm run plugin:setup && cd headlamp && make app-mac",
     "build:win": "npm run build:win:x64 && npm run build:win:arm64",
     "build:win:x64": "npx --yes tsx ./build/setup-plugins.ts --platform=win32 --arch=x64 && cd headlamp && make app-win-x64",
