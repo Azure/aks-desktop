@@ -184,6 +184,34 @@ describe('TelemetryBoot', () => {
     await waitFor(() => expect(mocks.initTelemetry).toHaveBeenCalledTimes(1));
   });
 
+  it('does not initialize when opt-out lands while the appConfig handshake is pending', async () => {
+    // The launch race: initialize() is parked on the ~1.5s handshake when the
+    // user opts out. The passive revoke effect has not disabled telemetry yet,
+    // so without a live re-check initTelemetry would run and emit session-start
+    // through the deliberate emitInternal bypass — transmitting after opt-out.
+    let onAppConfig: ((config: { appVersion?: string }) => void) | undefined;
+    (window as { desktopApi?: unknown }).desktopApi = {
+      receive: vi.fn((_channel, callback) => {
+        onAppConfig = callback;
+        return vi.fn();
+      }),
+      send: vi.fn(),
+    };
+
+    const { rerender } = render(<TelemetryBoot />);
+    expect(mocks.initTelemetry).not.toHaveBeenCalled();
+
+    // User opts out while the handshake is still outstanding.
+    mocks.storeConfig.enabled = false;
+    rerender(<TelemetryBoot />);
+
+    // Handshake now lands, resuming the parked initialize().
+    onAppConfig?.({ appVersion: '0.5.0' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(mocks.initTelemetry).not.toHaveBeenCalled();
+  });
+
   it('does not call grantConsent on initial mount even when enabled', async () => {
     render(<TelemetryBoot />);
     await waitFor(() => expect(mocks.initTelemetry).toHaveBeenCalledTimes(1));

@@ -177,7 +177,15 @@ export default function TelemetryBoot(): null {
       // the consent gate closed for the rest of the process. Pinned by
       // consent.test.ts, 'an initialize that resolves without building a
       // client still completes the transition'.
-      if (!mountedRef.current) return;
+      //
+      // The live store re-check closes the launch race: initialize() can sit
+      // on the ~1.5s appConfig handshake while the user opts out, and the
+      // passive revoke effect may not have disabled telemetry yet. Building
+      // the client here would emit session-start through initTelemetry's
+      // deliberate emitInternal bypass — which no gate or predicate covers —
+      // transmitting after opt-out. Read the store rather than `enabled`:
+      // this closure captures the value from the render that scheduled it.
+      if (!mountedRef.current || !isTelemetryEnabled()) return;
       try {
         const installId = getOrCreateInstallId();
         const appInfo = getAppInfo();
