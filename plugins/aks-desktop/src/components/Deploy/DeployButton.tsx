@@ -5,6 +5,8 @@ import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Button, Dialog } from '@mui/material';
 import React, { useEffect, useRef } from 'react';
+import { useAzureContext } from '../../hooks/useAzureContext';
+import { useNamespaceCapabilities } from '../../hooks/useNamespaceCapabilities';
 import { trackFeature } from '../../telemetry';
 import DeployWizard from '../DeployWizard/DeployWizard';
 import { useDeployUrlParams } from './hooks/useDeployUrlParams';
@@ -39,6 +41,49 @@ interface DeployButtonProps {
   project: Project;
 }
 
+interface DeployDialogContentProps {
+  cluster?: string;
+  namespace?: string;
+  initialApplicationName?: string;
+  onClose: () => void;
+}
+
+function DeployDialogContent({
+  cluster,
+  namespace,
+  initialApplicationName,
+  onClose,
+}: DeployDialogContentProps) {
+  const { azureContext, error: azureContextError } = useAzureContext(cluster);
+  const { isManagedNamespace, azureRbacEnabled } = useNamespaceCapabilities({
+    subscriptionId: azureContext?.subscriptionId,
+    resourceGroup: azureContext?.resourceGroup,
+    clusterName: cluster,
+    namespace: namespace ?? 'default',
+  });
+
+  return (
+    <DeployWizard
+      cluster={cluster}
+      namespace={namespace}
+      initialApplicationName={initialApplicationName}
+      onClose={onClose}
+      azureContext={
+        azureContext && cluster
+          ? {
+              subscriptionId: azureContext.subscriptionId,
+              resourceGroup: azureContext.resourceGroup,
+              clusterName: cluster,
+              isManagedNamespace,
+              azureRbacEnabled,
+            }
+          : undefined
+      }
+      azureContextError={azureContextError ?? undefined}
+    />
+  );
+}
+
 /**
  * Renders a button that opens the deploy wizard dialog.
  *
@@ -49,6 +94,8 @@ function DeployButton({ project }: DeployButtonProps) {
   const urlParams = useDeployUrlParams();
   const dialogState = useDialogState();
   const handledUrlOpenRef = useRef(false);
+  const cluster = project.clusters?.[0] || undefined;
+  const namespace = project.namespaces?.[0] || undefined;
 
   // Open dialog when URL parameters indicate we should
   useEffect(() => {
@@ -105,12 +152,14 @@ function DeployButton({ project }: DeployButtonProps) {
           },
         }}
       >
-        <DeployWizard
-          cluster={project.clusters?.[0] || undefined}
-          namespace={project.namespaces?.[0] || undefined}
-          initialApplicationName={dialogState.initialApplicationName}
-          onClose={handleClose}
-        />
+        {dialogState.open && (
+          <DeployDialogContent
+            cluster={cluster}
+            namespace={namespace}
+            initialApplicationName={dialogState.initialApplicationName}
+            onClose={handleClose}
+          />
+        )}
       </Dialog>
     </>
   );
