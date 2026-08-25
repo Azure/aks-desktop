@@ -6,6 +6,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { trackError, trackFeature } from '../../../telemetry';
 import { checkClusterAccessible } from '../../../utils/azure/aksHybridEdgeProxy';
+import { debugLog } from '../../../utils/azure/az-cli-core';
+import { registerContainerServiceProvider } from '../../../utils/azure/az-extensions';
 import { assignAzureRoles } from '../../../utils/azure/az-identity';
 import { checkNamespaceExists } from '../../../utils/azure/az-namespace-access';
 import { createManagedNamespace } from '../../../utils/azure/az-namespaces';
@@ -261,6 +263,17 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   useEffect(() => {
     if (formData.subscription) {
       azureResources.fetchClusters(formData.subscription);
+
+      // Microsoft.ContainerService must be registered on the selected subscription
+      // before managed namespaces can be created there. Fire-and-forget: registration
+      // is idempotent and slow, and a real failure resurfaces as a clearer creation error.
+      // The helper never rejects — it resolves { success: false, error } — so inspect the
+      // result rather than attaching a catch that can never fire.
+      void registerContainerServiceProvider(formData.subscription).then(result => {
+        if (!result.success) {
+          debugLog('Microsoft.ContainerService registration failed:', result.error);
+        }
+      });
     } else {
       azureResources.clearClusters();
     }

@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockTrackFeature = vi.hoisted(() => vi.fn());
@@ -82,6 +82,16 @@ vi.mock('../../../utils/azure/checkAzureCli', () => ({
   checkAzureCliAndAksPreview: vi.fn().mockResolvedValue({ suggestions: [] }),
 }));
 
+vi.mock('../../../utils/azure/az-cli-core', () => ({
+  debugLog: vi.fn(),
+}));
+
+vi.mock('../../../utils/azure/az-extensions', () => ({
+  registerContainerServiceProvider: vi
+    .fn()
+    .mockResolvedValue({ success: true, stdout: '', stderr: '' }),
+}));
+
 vi.mock('./useAzureResources', () => ({
   useAzureResources: () => ({
     subscriptions: [],
@@ -128,6 +138,8 @@ vi.mock('./useValidation', () => ({
   useValidation: () => ({ isValid: true, errors: {}, warnings: [], fieldErrors: {} }),
 }));
 
+import { debugLog } from '../../../utils/azure/az-cli-core';
+import { registerContainerServiceProvider } from '../../../utils/azure/az-extensions';
 import {
   checkNamespaceExists,
   createNamespaceRoleAssignment,
@@ -168,6 +180,11 @@ describe('useCreateAKSProjectWizard', () => {
     // Individual tests that need to assert on console.error output create their
     // own spy on top and restore it themselves before this one is cleaned up.
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(registerContainerServiceProvider).mockResolvedValue({
+      success: true,
+      stdout: '',
+      stderr: '',
+    } as any);
     vi.mocked(useFormData).mockReturnValue({
       formData: defaultFormData,
       updateFormData: vi.fn(),
@@ -276,6 +293,69 @@ describe('useCreateAKSProjectWizard', () => {
   it('initial isCreating is false', () => {
     const { result } = renderHook(() => useCreateAKSProjectWizard());
     expect(result.current.isCreating).toBe(false);
+  });
+
+  it('registers the Microsoft.ContainerService provider for the selected subscription', async () => {
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, subscription: 'sub-123' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    renderHook(() => useCreateAKSProjectWizard());
+    await waitFor(() => {
+      expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123');
+    });
+  });
+
+  // Regression guard for the dead `.catch()` this replaced: registerContainerServiceProvider
+  // resolves { success: false, error } and never rejects, so a catch handler could never fire
+  // and failures were unobservable. Assert the resolved failure is actually inspected.
+  it('logs a diagnostic when provider registration fails, without throwing', async () => {
+    vi.mocked(registerContainerServiceProvider).mockResolvedValue({
+      success: false,
+      error: 'boom',
+    } as any);
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, subscription: 'sub-123' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    expect(() => renderHook(() => useCreateAKSProjectWizard())).not.toThrow();
+
+    await waitFor(() => {
+      expect(debugLog).toHaveBeenCalledWith(
+        'Microsoft.ContainerService registration failed:',
+        'boom'
+      );
+    });
+  });
+
+  it('does not log a registration diagnostic when provider registration succeeds', async () => {
+    vi.mocked(registerContainerServiceProvider).mockResolvedValue({
+      success: true,
+      stdout: '',
+      stderr: '',
+    } as any);
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, subscription: 'sub-123' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    renderHook(() => useCreateAKSProjectWizard());
+
+    await waitFor(() => {
+      expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123');
+    });
+    expect(debugLog).not.toHaveBeenCalledWith(
+      'Microsoft.ContainerService registration failed:',
+      expect.anything()
+    );
   });
 
   it('handleSubmit success path: sets showSuccessDialog after success and timer', async () => {

@@ -142,3 +142,39 @@ export async function configureAzureCliExtensions(): Promise<{
     };
   }
 }
+
+async function runRegistrationCommand(
+  args: string[],
+  label: string
+): Promise<{ success: boolean; stdout: string; stderr: string; error?: string }> {
+  try {
+    debugLog(`Registering ${label}...`);
+    const { stdout, stderr } = await runCommandAsync('az', args);
+
+    if (stderr && isAzError(stderr)) {
+      return {
+        success: false,
+        stdout,
+        stderr,
+        error: `Failed to register ${label}: ${stderr}`,
+      };
+    }
+
+    return { success: true, stdout, stderr };
+  } catch (error) {
+    return {
+      success: false,
+      stdout: '',
+      stderr: '',
+      error: `Failed to register ${label}: ${getErrorMessage(error)}`,
+    };
+  }
+}
+
+export function registerContainerServiceProvider(subscriptionId?: string) {
+  const args = ['provider', 'register', '-n', 'Microsoft.ContainerService'];
+  if (subscriptionId) {
+    args.push('--subscription', subscriptionId);
+  }
+  return runRegistrationCommand(args, 'Microsoft.ContainerService provider');
+}
