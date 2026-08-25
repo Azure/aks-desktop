@@ -160,7 +160,15 @@ export async function registerAKSCluster(
   }
 
   const reservationKey = clusterName.toLowerCase();
-  const existingReservation = registrationScopes.get(reservationKey);
+  let existingReservation = registrationScopes.get(reservationKey);
+  if (
+    existingReservation?.registered &&
+    existingReservation.pendingCount === 0 &&
+    !clusterAlreadyRegistered
+  ) {
+    registrationScopes.delete(reservationKey);
+    existingReservation = undefined;
+  }
   if (existingReservation && !scopeMatches(existingReservation, subscriptionId, resourceGroup)) {
     return {
       success: false,

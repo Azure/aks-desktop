@@ -302,6 +302,27 @@ describe('Azure AKS utilities', () => {
     await expect(first).resolves.toEqual({ success: true, message: 'registered' });
   });
 
+  test('releases a completed reservation after the cluster name is removed', async () => {
+    desktopRegisterAKSCluster.mockResolvedValue(successResult);
+
+    await expect(
+      registerAKSCluster('first-sub', 'first-rg', 'removed-cluster-name')
+    ).resolves.toEqual(successResult);
+    await expect(
+      registerAKSCluster('second-sub', 'second-rg', 'removed-cluster-name', undefined, false)
+    ).resolves.toEqual(successResult);
+
+    expect(desktopRegisterAKSCluster).toHaveBeenNthCalledWith(
+      2,
+      'second-sub',
+      'second-rg',
+      'removed-cluster-name',
+      false,
+      undefined,
+      'aks'
+    );
+  });
+
   test('continues the queue after a desktop registration rejects', async () => {
     desktopRegisterAKSCluster
       .mockRejectedValueOnce(new Error('registration failed'))
