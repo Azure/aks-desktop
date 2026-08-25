@@ -126,7 +126,7 @@ export interface AssignRolesResult {
  * Treats `RoleAssignmentExists` as success (idempotent).
  * Roles are assigned sequentially to avoid Azure ARM rate-limiting (429s).
  */
-export async function assignRolesToIdentity(options: {
+export async function assignAzureRoles(options: {
   principalId: string;
   subscriptionId: string;
   roles: RoleAssignment[];
@@ -176,7 +176,7 @@ export async function assignRolesToIdentity(options: {
 
     if (!result.success) {
       console.error(
-        `[assignRolesToIdentity] Failed to assign role "${role}" at scope "${scope}":`,
+        `[assignAzureRoles] Failed to assign role "${role}" at scope "${scope}":`,
         result.error
       );
     }

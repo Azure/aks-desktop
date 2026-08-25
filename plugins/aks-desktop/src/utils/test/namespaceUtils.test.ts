@@ -135,7 +135,9 @@ describe('applyNamespaceManifest', () => {
     ingressPolicy: 'AllowSameNamespace' as const,
     egressPolicy: 'AllowAll' as const,
     labels: { 'headlamp.dev/project-id': 'my-project' },
-    userAssignments: [{ objectId: '11111111-1111-1111-1111-111111111111', role: 'Admin' }],
+    userAssignments: [
+      { objectId: '11111111-1111-1111-1111-111111111111', upn: 'ada@contoso.com', role: 'Admin' },
+    ],
   };
 
   test('applies every object in order to the given cluster via apply()', async () => {
