@@ -103,6 +103,7 @@ export const AKS_FEATURE_TYPES = [
   'aksd.cluster-add',
   'aksd.namespace-create',
   'aksd.project-delete',
+  'aksd.feedback',
 ] as const;
 
 export type AksFeatureType = (typeof AKS_FEATURE_TYPES)[number];
