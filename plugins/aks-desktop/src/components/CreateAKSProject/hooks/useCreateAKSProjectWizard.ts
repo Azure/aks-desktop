@@ -22,6 +22,7 @@ import {
   RESOURCE_GROUP_LABEL,
   SUBSCRIPTION_LABEL,
 } from '../../../utils/constants/projectLabels';
+import { reviewNamespaceAccess } from '../../../utils/kubernetes/accessReview';
 import { applyNamespaceManifest } from '../../../utils/kubernetes/namespaceUtils';
 import { isEntraObjectId } from '../../../utils/shared/entraIdentifiers';
 import { STEPS } from '../types';
@@ -525,6 +526,51 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
                 t('Could not grant cluster access to {{user}}: {{message}}', {
                   user: who,
                   message: detail || t('Unknown error'),
+                })
+              );
+            }
+          }
+
+          // Confirm the grants actually took effect. A RoleBinding cannot fail
+          // loudly — a subject the authenticator never produces applies cleanly
+          // and grants nothing — so ask the apiserver rather than assume.
+          if (formData.userAssignments.length > 0) {
+            setCreationProgress(`${t('Verifying access')}...`);
+          }
+          for (const assignment of formData.userAssignments) {
+            if (aborted) return;
+            const subject = assignment.upn || assignment.objectId;
+            if (!subject) {
+              continue;
+            }
+            const review = await reviewNamespaceAccess(
+              formData.cluster,
+              subject,
+              assignment.objectId || undefined,
+              formData.projectName
+            );
+            if (review.allowed === false && azureRbacEnabled) {
+              // A brand-new Azure role assignment reads as denied until the
+              // apiserver's webhook cache expires. Measured at roughly a minute:
+              // it is the *unauthorized* TTL that applies to a new grant
+              // (--authorization-webhook-cache-unauthorized-ttl, 30s by default),
+              // not the 5-minute authorized TTL — that one governs how long a
+              // revocation takes to bite. Expected, not a failure.
+              arcWarnings.push(
+                t('Access for {{user}} may take a minute to take effect', { user: subject })
+              );
+            } else if (review.allowed === false) {
+              arcWarnings.push(
+                t('{{user}} was granted {{role}} but cannot access the namespace yet', {
+                  user: subject,
+                  role: assignment.role,
+                })
+              );
+            } else if (review.allowed === null) {
+              arcWarnings.push(
+                t('Could not verify access for {{user}}: {{message}}', {
+                  user: subject,
+                  message: review.error || t('Unknown error'),
                 })
               );
             }
