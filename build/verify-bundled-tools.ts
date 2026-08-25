@@ -51,7 +51,7 @@ let PLATFORM_DIR: string = '';
 if (CURRENT_PLATFORM === 'win32') {
   PLATFORM_DIR = findPlatformDir([`win-${TARGET_ARCH}-unpacked`, 'win-unpacked'], 'win-unpacked');
 } else if (CURRENT_PLATFORM === 'darwin') {
-  PLATFORM_DIR = findPlatformDir([`mac-${TARGET_ARCH}`, 'mac-arm64', 'mac-x64', 'mac'], 'mac');
+  PLATFORM_DIR = findPlatformDir([`mac-${TARGET_ARCH}`, 'mac'], 'mac');
 } else {
   PLATFORM_DIR = findPlatformDir(
     [`linux-${TARGET_ARCH}-unpacked`, 'linux-unpacked'],
