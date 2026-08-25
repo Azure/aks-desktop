@@ -18,7 +18,7 @@
     "build:unpacked:linux": "npm run plugin:setup && cd headlamp && make app-build",
     "build:unpacked:mac": "npm run plugin:setup && cd headlamp && make app-build",
     "build:unpacked:win": "npm run plugin:setup && cd headlamp && make app-build",
-    "test:build": "npx --yes tsx --test build/plugin-packaging.test.ts build/aks-mcp-config.test.ts build/azure-cli-verification.test.ts",
+    "test:build": "npx --yes tsx --test build/plugin-packaging.test.ts build/aks-mcp-config.test.ts build/azure-cli-verification.test.ts build/az-cli-config.test.ts",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
     "test:post-build": "npx --yes tsx ./build/verify-bundled-tools.ts",
     "plugin:setup": "npx --yes tsx ./build/setup-plugins.ts",

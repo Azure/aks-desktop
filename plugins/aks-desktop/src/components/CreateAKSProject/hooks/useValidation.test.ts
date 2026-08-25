@@ -31,7 +31,7 @@ describe('useValidation', () => {
   it('revalidates assignments when the UPN requirement changes', () => {
     const { result, rerender } = renderHook(
       ({ requiresUpn }) =>
-        useValidation(0, formData, undefined, undefined, false, null, true, undefined, requiresUpn),
+        useValidation(0, formData, undefined, false, null, true, undefined, requiresUpn),
       { initialProps: { requiresUpn: true } }
     );
 

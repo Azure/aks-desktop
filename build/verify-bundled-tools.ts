@@ -19,6 +19,7 @@ import {
   resolveAksMcpTarget,
   resolveTargetArch,
 } from './aks-mcp-config';
+import { readAzureCliConfig, resolveAzCliVersion } from './az-cli-config';
 import {
   getExtensionTimeoutResult,
   readRequiredAzureCliExtensions,
@@ -39,6 +40,17 @@ try {
   PRODUCT_NAME = packageJson.productName || PRODUCT_NAME;
 } catch (error) {
   console.warn(`Warning: Could not read product name from ${HEADLAMP_PACKAGE_JSON}, using default: ${PRODUCT_NAME}`);
+}
+
+// Read the pinned Azure CLI version from the repo's package.json so the
+// invocation test can catch a bundle left over from before a version bump.
+const ROOT_PACKAGE_JSON = path.join(ROOT_DIR, 'package.json');
+let AZURE_CLI_PINNED_VERSION = '';
+
+try {
+  AZURE_CLI_PINNED_VERSION = resolveAzCliVersion(readAzureCliConfig(ROOT_DIR), CURRENT_PLATFORM) || '';
+} catch (error) {
+  console.warn(`Warning: Could not read Azure CLI version pin from ${ROOT_PACKAGE_JSON}`);
 }
 
 // Determine the correct build output directory based on platform. Packaging a
@@ -383,6 +395,30 @@ function testAzureCliInvocation(): void {
         ? `All required extensions bundled: ${requiredExtensions.join(', ')}`
         : `Missing required extension(s): ${missingExtensions.join(', ')}`
     );
+
+    // aks-preview shadows the core `az aks namespace` implementation the
+    // plugin now depends on, so it must never be bundled.
+    const aksPreviewVersion = versionData.extensions?.['aks-preview'];
+    addResult(
+      'aks-preview extension absent',
+      !aksPreviewVersion,
+      aksPreviewVersion
+        ? `aks-preview extension ${aksPreviewVersion} is bundled and shadows the core "az aks namespace" command`
+        : 'aks-preview extension is not bundled, as expected'
+    );
+
+    if (AZURE_CLI_PINNED_VERSION) {
+      const versionMatchesPin = azureCliVersion === AZURE_CLI_PINNED_VERSION;
+      addResult(
+        'Azure CLI version matches pin',
+        versionMatchesPin,
+        versionMatchesPin
+          ? `Bundled version ${azureCliVersion} matches the pinned ${AZURE_CLI_PINNED_VERSION}`
+          : `Bundled version ${azureCliVersion} does not match the pinned ${AZURE_CLI_PINNED_VERSION}; the external-tools directory may be stale and need to be removed and rebuilt`
+      );
+    } else {
+      logWarning('  Could not determine pinned Azure CLI version, skipping version match check');
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     // Don't fail the test on timeout in CI, just warn

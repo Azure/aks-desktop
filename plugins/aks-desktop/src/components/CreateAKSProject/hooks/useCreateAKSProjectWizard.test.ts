@@ -79,17 +79,15 @@ vi.mock('../../../utils/azure/az-namespaces', () => ({
 }));
 
 vi.mock('../../../utils/azure/checkAzureCli', () => ({
-  checkAzureCliAndAksPreview: vi.fn().mockResolvedValue({ suggestions: [] }),
+  checkAzureCli: vi.fn().mockResolvedValue({ suggestions: [] }),
 }));
 
 vi.mock('../../../utils/azure/az-cli-core', () => ({
   debugLog: vi.fn(),
 }));
 
-vi.mock('../../../utils/azure/az-extensions', () => ({
-  registerContainerServiceProvider: vi
-    .fn()
-    .mockResolvedValue({ success: true, stdout: '', stderr: '' }),
+vi.mock('../../../utils/azure/az-resource-providers', () => ({
+  registerContainerServiceProvider: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 vi.mock('./useAzureResources', () => ({
@@ -139,13 +137,13 @@ vi.mock('./useValidation', () => ({
 }));
 
 import { debugLog } from '../../../utils/azure/az-cli-core';
-import { registerContainerServiceProvider } from '../../../utils/azure/az-extensions';
 import {
   checkNamespaceExists,
   createNamespaceRoleAssignment,
   verifyNamespaceAccess,
 } from '../../../utils/azure/az-namespace-access';
 import { createManagedNamespace } from '../../../utils/azure/az-namespaces';
+import { registerContainerServiceProvider } from '../../../utils/azure/az-resource-providers';
 import { useCreateAKSProjectWizard } from './useCreateAKSProjectWizard';
 import { useFormData } from './useFormData';
 
@@ -182,8 +180,6 @@ describe('useCreateAKSProjectWizard', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(registerContainerServiceProvider).mockResolvedValue({
       success: true,
-      stdout: '',
-      stderr: '',
     } as any);
     vi.mocked(useFormData).mockReturnValue({
       formData: defaultFormData,
@@ -337,8 +333,6 @@ describe('useCreateAKSProjectWizard', () => {
   it('does not log a registration diagnostic when provider registration succeeds', async () => {
     vi.mocked(registerContainerServiceProvider).mockResolvedValue({
       success: true,
-      stdout: '',
-      stderr: '',
     } as any);
     vi.mocked(useFormData).mockReturnValue({
       formData: { ...defaultFormData, subscription: 'sub-123' },
@@ -357,6 +351,53 @@ describe('useCreateAKSProjectWizard', () => {
       expect.anything()
     );
   });
+
+  // Regression guard for fire-and-forget registration: handleSubmit must await the
+  // in-flight registration promise before calling createManagedNamespace. A deferred
+  // promise proves this — if handleSubmit merely kicked off registration without
+  // retaining/awaiting it (the old behaviour), createManagedNamespace would already
+  // have been called before we ever resolve the registration promise below.
+  it('handleSubmit does not create the namespace until provider registration settles', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    let resolveRegistration!: (value: { success: boolean }) => void;
+    vi.mocked(registerContainerServiceProvider).mockReturnValue(
+      new Promise(resolve => {
+        resolveRegistration = resolve;
+      }) as any
+    );
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, subscription: 'sub-123' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+    vi.mocked(createManagedNamespace).mockResolvedValue({ success: true } as any);
+    vi.mocked(checkNamespaceExists).mockResolvedValue({ exists: true } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+
+    // The subscription effect runs synchronously during render and kicks off
+    // registration immediately (the promise itself is left unresolved here).
+    expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123');
+
+    let submitPromise!: Promise<void>;
+    await act(async () => {
+      submitPromise = result.current.handleSubmit();
+      // Flush microtasks without resolving registration.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(createManagedNamespace).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveRegistration({ success: true });
+      await vi.advanceTimersByTimeAsync(7000);
+      await submitPromise;
+    });
+
+    expect(createManagedNamespace).toHaveBeenCalled();
+  }, 10000);
 
   it('handleSubmit success path: sets showSuccessDialog after success and timer', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false });

@@ -83,8 +83,8 @@ export interface CreateAKSProjectPureProps {
   /** Setter for {@link applicationName}. */
   setApplicationName: React.Dispatch<React.SetStateAction<string>>;
   /**
-   * CLI warning messages from `checkAzureCliAndAksPreview`.
-   * Non-empty when the Azure CLI or required extensions are missing.
+   * CLI warning messages from `checkAzureCli`.
+   * Non-empty when the Azure CLI is missing or outdated.
    */
   cliSuggestions: string[];
   /** Per-step validation result; gates the "Next" / "Create Project" button. */

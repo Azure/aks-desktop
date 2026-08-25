@@ -42,8 +42,6 @@
   "AKS Cluster": "AKS-kluster",
   "AKS desktop logo": "AKS Desktop-logotyp",
   "AKS Managed": "AKS-hanterad",
-  "AKS Preview Extension installed successfully!": "AKS Preview-tillägget har installerats!",
-  "AKS Preview Extension Required": "AKS Preview-tillägg krävs",
   "AKS Project?": "AKS-projekt?",
   "All selected addons have been enabled successfully.": "Alla valda tillägg har aktiverats.",
   "All verifications completed successfully!": "Alla verifieringar har slutförts!",
@@ -74,7 +72,6 @@
   "Avg Response Time": "Genomsnittlig svarstid",
   "Azure Account": "Azure-konto",
   "Azure Authentication": "Azure-autentisering",
-  "Azure CLI/aks-preview requirements not met": "Kraven för Azure CLI/aks-preview har inte uppfyllts",
   "Azure Monitor Metrics (Managed Prometheus)": "Azure Monitor-mått (hanterad Prometheus)",
   "Azure Role Assignments": "Azure-rolltilldelningar",
   "Azure sign-in is required to configure workload identity.": "Azure-inloggning krävs för att konfigurera arbetsbelastningsidentitet.",
@@ -324,9 +321,7 @@
   "Initializing...": "Initierar...",
   "Initiating Azure login": "Initierar Azure-inloggning",
   "Initiating managed namespace creation": "Initierar skapande av hanterad namnrymd",
-  "Install Extension": "Installera tillägg",
   "Install GitHub App": "Installera GitHub-app",
-  "Installing": "Installerar",
   "Internal only": "Endast internt",
   "Invalid YAML": "Ogiltig YAML",
   "Invalid YAML: List item missing required field (kind)": "Ogiltig YAML: Listobjektet saknar obligatoriskt fält (typ)",
@@ -621,7 +616,6 @@
   "The agent has created the deployment PR. Review the generated files and merge to start the deployment pipeline.": "Agenten har skapat en pull-begäran för distribution. Granska de genererade filerna och slå ihop dem för att starta distributionskanalen.",
   "The agent is creating the setup PR to enable the Copilot agent.": "Agenten skapar en konfigurations-PR för att aktivera Copilot-agenten.",
   "The AKS Desktop GitHub App must be installed on {{repoName}} to continue.": "GitHub-appen AKS Desktop måste vara installerad på {{repoName}} för att det ska gå att fortsätta.",
-  "The aks-preview extension is required to create managed namespaces. Please install it to continue.": "Tillägget aks-preview krävs för att skapa hanterade namnrymder. Installera det om du vill fortsätta.",
   "The Copilot coding agent is analyzing your repo and generating a deployment PR with Dockerfile, Kubernetes manifests and a GitHub Actions workflow.": "Copilot-kodningsagenten analyserar din lagringsplats och genererar en pull-begäran för distribution med Dockerfile, Kubernetes-manifest och ett GitHub Actions-arbetsflöde.",
   "The following addons can be enabled on this cluster:": "Följande tillägg kan aktiveras på det här klustret:",
   "The following Azure resources will be created to enable your GitHub Actions pipeline to authenticate with your AKS cluster:": "Följande Azure-resurser skapas så att din GitHub Actions-pipeline kan autentiseras med AKS-klustret:",
@@ -758,5 +752,6 @@
   "someone@contoso.com or 00000000-0000-0000-0000-000000000000": "",
   "This cluster needs this user's sign-in name (e.g. someone@contoso.com)": "",
   "User search is not available. Enter the sign-in name (user principal name) or the Azure AD object ID directly — some clusters require the sign-in name. Find both in Azure Portal > Microsoft Entra ID > Users > select user.": "",
-  "Verifying access": ""
+  "Verifying access": "",
+  "Azure CLI requirements not met": ""
 }

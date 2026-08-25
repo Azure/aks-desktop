@@ -43,7 +43,6 @@ describe('validateBasicsStep Arc (AKS Hybrid & Edge) accessibility gating', () =
   it('blocks the step while the accessibility probe is running', () => {
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -62,7 +61,6 @@ describe('validateBasicsStep Arc (AKS Hybrid & Edge) accessibility gating', () =
   it('blocks the step when the Arc cluster is unreachable', () => {
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -81,7 +79,6 @@ describe('validateBasicsStep Arc (AKS Hybrid & Edge) accessibility gating', () =
   it('allows the step when the Arc cluster is reachable', () => {
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -97,7 +94,6 @@ describe('validateBasicsStep Arc (AKS Hybrid & Edge) accessibility gating', () =
   it('does not apply the accessibility gate to managed (non-Arc) clusters', () => {
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,

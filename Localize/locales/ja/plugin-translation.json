@@ -42,8 +42,6 @@
   "AKS Cluster": "AKS クラスター",
   "AKS desktop logo": "AKS デスクトップ ロゴ",
   "AKS Managed": "AKS マネージド",
-  "AKS Preview Extension installed successfully!": "AKS Preview 拡張機能が正常にインストールされました。",
-  "AKS Preview Extension Required": "AKS Preview 拡張機能が必要です",
   "AKS Project?": "AKS プロジェクトですか?",
   "All selected addons have been enabled successfully.": "選択したすべてのアドオンが正常に有効になりました。",
   "All verifications completed successfully!": "すべての検証が正常に完了しました。",
@@ -74,7 +72,6 @@
   "Avg Response Time": "平均応答時間",
   "Azure Account": "Azure アカウント",
   "Azure Authentication": "Azure 認証",
-  "Azure CLI/aks-preview requirements not met": "Azure CLI/aks-preview の要件が満たされていません",
   "Azure Monitor Metrics (Managed Prometheus)": "Azure Monitor のメトリック (マネージド Prometheus)",
   "Azure Role Assignments": "Azure ロールの割り当て",
   "Azure sign-in is required to configure workload identity.": "ワークロード ID を構成するには、Azure へのサインインが必要です。",
@@ -324,9 +321,7 @@
   "Initializing...": "初期化しています...",
   "Initiating Azure login": "Azure ログインを開始しています",
   "Initiating managed namespace creation": "マネージド名前空間の作成を開始しています",
-  "Install Extension": "拡張機能のインストール",
   "Install GitHub App": "GitHub アプリのインストール",
-  "Installing": "インストール中",
   "Internal only": "内部のみ",
   "Invalid YAML": "YAML が無効です",
   "Invalid YAML: List item missing required field (kind)": "無効な YAML: リスト アイテムに必須フィールド (kind) がありません",
@@ -621,7 +616,6 @@
   "The agent has created the deployment PR. Review the generated files and merge to start the deployment pipeline.": "エージェントがデプロイ PR を作成しました。生成されたファイルを確認し、マージしてデプロイ パイプラインを開始してください。",
   "The agent is creating the setup PR to enable the Copilot agent.": "エージェントは Copilot エージェントを有効にするためのセットアップ PR を作成しています。",
   "The AKS Desktop GitHub App must be installed on {{repoName}} to continue.": "続けるには、AKS デスクトップ GitHub アプリを {{repoName}} にインストールする必要があります。",
-  "The aks-preview extension is required to create managed namespaces. Please install it to continue.": "マネージド名前空間を作成するには、aks-preview 拡張機能が必要です。続行するには、インストールしてください。",
   "The Copilot coding agent is analyzing your repo and generating a deployment PR with Dockerfile, Kubernetes manifests and a GitHub Actions workflow.": "Copilot コーディング エージェントは、Dockerfile、Kubernetes マニフェスト、GitHub Actions ワークフローを使用して、リポジトリの分析とデプロイ PR の生成を行っています。",
   "The following addons can be enabled on this cluster:": "このクラスターでは、次のアドオンを有効にできます。",
   "The following Azure resources will be created to enable your GitHub Actions pipeline to authenticate with your AKS cluster:": "GitHub Actions パイプラインが AKS クラスターで認証できるように、次の Azure リソースが作成されます。",
@@ -758,5 +752,6 @@
   "someone@contoso.com or 00000000-0000-0000-0000-000000000000": "",
   "This cluster needs this user's sign-in name (e.g. someone@contoso.com)": "",
   "User search is not available. Enter the sign-in name (user principal name) or the Azure AD object ID directly — some clusters require the sign-in name. Find both in Azure Portal > Microsoft Entra ID > Users > select user.": "",
-  "Verifying access": ""
+  "Verifying access": "",
+  "Azure CLI requirements not met": ""
 }

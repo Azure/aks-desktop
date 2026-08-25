@@ -4,22 +4,20 @@
 import { runCommandAsync } from './az-cli-core';
 
 /**
- * Checks Azure CLI version and aks-preview extension status.
+ * Checks Azure CLI version.
  * Provides suggestions if requirements are not met.
  * Returns an object with status and suggestions.
  */
 
-export async function checkAzureCliAndAksPreview(): Promise<{
+export async function checkAzureCli(): Promise<{
   cliInstalled: boolean;
   cliVersion: string | null;
   cliVersionOk: boolean;
-  aksPreviewInstalled: boolean;
   suggestions: string[];
 }> {
   let cliInstalled = false;
   let cliVersion: string | null = null;
   let cliVersionOk = false;
-  let aksPreviewInstalled = false;
   const suggestions: string[] = [];
 
   // Check Azure CLI version using JSON output
@@ -54,9 +52,6 @@ export async function checkAzureCliAndAksPreview(): Promise<{
           'Could not determine Azure CLI version. Please ensure Azure CLI is installed.'
         );
       }
-
-      // Report aks-preview presence for diagnostics only; it is no longer required.
-      aksPreviewInstalled = Boolean(versionData.extensions?.['aks-preview']);
     } catch (parseError) {
       // Fallback if JSON parsing fails
       suggestions.push(
@@ -69,7 +64,6 @@ export async function checkAzureCliAndAksPreview(): Promise<{
     cliInstalled,
     cliVersion,
     cliVersionOk,
-    aksPreviewInstalled,
     suggestions,
   };
 }

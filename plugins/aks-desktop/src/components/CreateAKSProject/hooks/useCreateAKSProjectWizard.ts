@@ -7,11 +7,11 @@ import { useHistory } from 'react-router-dom';
 import { trackError, trackFeature } from '../../../telemetry';
 import { checkClusterAccessible } from '../../../utils/azure/aksHybridEdgeProxy';
 import { debugLog } from '../../../utils/azure/az-cli-core';
-import { registerContainerServiceProvider } from '../../../utils/azure/az-extensions';
 import { assignAzureRoles } from '../../../utils/azure/az-identity';
 import { checkNamespaceExists } from '../../../utils/azure/az-namespace-access';
 import { createManagedNamespace } from '../../../utils/azure/az-namespaces';
-import { checkAzureCliAndAksPreview } from '../../../utils/azure/checkAzureCli';
+import { registerContainerServiceProvider } from '../../../utils/azure/az-resource-providers';
+import { checkAzureCli } from '../../../utils/azure/checkAzureCli';
 import { computeArcProjectRoles } from '../../../utils/azure/identityRoles';
 import { assignRolesToNamespace } from '../../../utils/azure/roleAssignment';
 import {
@@ -103,8 +103,8 @@ export interface UseCreateAKSProjectWizardResult {
 
   // ── CLI suggestions ───────────────────────────────────────────────────────
   /**
-   * Warning messages returned by `checkAzureCliAndAksPreview` on mount.
-   * Non-empty when the Azure CLI or required extensions are missing.
+   * Warning messages returned by `checkAzureCli` on mount.
+   * Non-empty when the Azure CLI is missing or outdated.
    */
   cliSuggestions: string[];
 
@@ -181,6 +181,11 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   }>({ checking: false, accessible: null });
   const stepContentRef = useRef<HTMLDivElement>(null);
 
+  // Retains the in-flight Microsoft.ContainerService registration promise so
+  // handleSubmit can await it before creating the namespace. See the comment
+  // on the subscription effect below for what this does and doesn't guarantee.
+  const registrationRef = useRef<Promise<void> | null>(null);
+
   // Track the 2-second success-dialog delay timer so it can be cleared on unmount,
   // preventing a setState call on an unmounted component (React warning / memory leak).
   const successTimeoutRef = useRef<number | undefined>(undefined);
@@ -247,7 +252,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     let cancelled = false;
 
     (async () => {
-      const azureCheck = await checkAzureCliAndAksPreview();
+      const azureCheck = await checkAzureCli();
       if (cancelled) {
         return;
       }
@@ -265,16 +270,25 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
       azureResources.fetchClusters(formData.subscription);
 
       // Microsoft.ContainerService must be registered on the selected subscription
-      // before managed namespaces can be created there. Fire-and-forget: registration
-      // is idempotent and slow, and a real failure resurfaces as a clearer creation error.
-      // The helper never rejects — it resolves { success: false, error } — so inspect the
-      // result rather than attaching a catch that can never fire.
-      void registerContainerServiceProvider(formData.subscription).then(result => {
-        if (!result.success) {
-          debugLog('Microsoft.ContainerService registration failed:', result.error);
+      // before managed namespaces can be created there. The registration itself is
+      // not awaited here — it's idempotent and can be slow — but handleSubmit awaits
+      // this retained promise before creating the namespace. Without `--wait`, the
+      // command completing only means Azure accepted the request; the provider may
+      // still report `Registering`. That's acceptable because the wizard requires an
+      // existing AKS cluster (validators.ts pushes 'Cluster must be selected'), and a
+      // subscription with a live AKS cluster already has the provider registered — so
+      // this is defence-in-depth, not the primary guarantee. The helper never rejects
+      // — it resolves { success: false, error } — so inspect the result rather than
+      // attaching a catch that can never fire.
+      registrationRef.current = registerContainerServiceProvider(formData.subscription).then(
+        result => {
+          if (!result.success) {
+            debugLog('Microsoft.ContainerService registration failed:', result.error);
+          }
         }
-      });
+      );
     } else {
+      registrationRef.current = null;
       azureResources.clearClusters();
     }
     clusterCapabilities.clearCapabilities();
@@ -604,6 +618,17 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
 
           setCreationProgress(t('Project creation completed successfully!'));
           return;
+        }
+
+        // Wait for any in-flight Microsoft.ContainerService registration to settle
+        // before creating the namespace. Normally a no-op, since registration
+        // completes long before the form is filled in. This sits inside the promise
+        // raced against timeoutPromise so a stalled `az provider register` trips the
+        // creation timeout rather than leaving the wizard stuck in isCreating. Arc
+        // clusters return above - they apply a manifest directly and never call the
+        // managed-namespace API, so provider registration does not apply to them.
+        if (registrationRef.current) {
+          await registrationRef.current;
         }
 
         setCreationProgress(`${t('Initiating managed namespace creation')}...`);
