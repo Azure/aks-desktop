@@ -33,7 +33,11 @@ export interface AksMcpTarget {
 export function resolveAksMcpTarget(
   rootDir: string,
   platform: string = process.platform,
-  arch: string = process.arch
+  // electron-builder cross-builds are driven by these npm config vars, so they
+  // describe the package target while process.arch only describes the host.
+  arch: string = process.env.npm_config_target_arch ||
+    process.env.npm_config_arch ||
+    process.arch
 ): AksMcpTarget {
   if (!ASSET_PLATFORM[platform]) {
     throw new Error(`Unsupported platform for aks-mcp: ${platform}`);
