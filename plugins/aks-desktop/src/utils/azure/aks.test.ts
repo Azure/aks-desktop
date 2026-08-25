@@ -17,7 +17,12 @@ vi.mock('../shared/clusterSettings', () => ({
   setClusterSettings: mocks.setClusterSettings,
 }));
 
-import { getAKSClusters, getSubscriptions, registerAKSCluster } from './aks';
+import {
+  getAKSClusters,
+  getSubscriptions,
+  reconcileRegisteredClusterNames,
+  registerAKSCluster,
+} from './aks';
 
 const desktopRegisterAKSCluster = vi.fn();
 const successResult = { success: true, message: 'registered' };
@@ -302,12 +307,24 @@ describe('Azure AKS utilities', () => {
     await expect(first).resolves.toEqual({ success: true, message: 'registered' });
   });
 
-  test('releases a completed reservation after the cluster name is removed', async () => {
+  test('retains a completed reservation until live state confirms removal', async () => {
     desktopRegisterAKSCluster.mockResolvedValue(successResult);
 
     await expect(
       registerAKSCluster('first-sub', 'first-rg', 'removed-cluster-name')
     ).resolves.toEqual(successResult);
+
+    await expect(
+      registerAKSCluster('second-sub', 'second-rg', 'removed-cluster-name', undefined, false)
+    ).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'removed-cluster-name' is already registered from a different or unknown Azure scope.",
+    });
+
+    reconcileRegisteredClusterNames(['removed-cluster-name']);
+    reconcileRegisteredClusterNames([]);
+
     await expect(
       registerAKSCluster('second-sub', 'second-rg', 'removed-cluster-name', undefined, false)
     ).resolves.toEqual(successResult);

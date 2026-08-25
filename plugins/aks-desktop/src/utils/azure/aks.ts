@@ -34,10 +34,35 @@ interface RegistrationScopeReservation {
   pendingCount: number;
   /** Whether native registration completed successfully in this session. */
   registered: boolean;
+  /** Whether live Headlamp configuration has contained the registered cluster name. */
+  observedActive: boolean;
 }
 
 /** Scopes reserved by registrations started during this application session. */
 const registrationScopes = new Map<string, RegistrationScopeReservation>();
+
+/**
+ * Reconciles session reservations with Headlamp's live kubeconfig cluster names.
+ * A completed reservation is released only after the name was observed active
+ * and a later authoritative update no longer contains it.
+ *
+ * @param clusterNames - Cluster names from authoritative live Headlamp configuration.
+ * @returns Nothing.
+ */
+export function reconcileRegisteredClusterNames(clusterNames: Iterable<string>): void {
+  const activeNames = new Set(Array.from(clusterNames, name => name.toLowerCase()));
+  for (const [clusterName, reservation] of registrationScopes) {
+    if (activeNames.has(clusterName)) {
+      reservation.observedActive = true;
+    } else if (
+      reservation.registered &&
+      reservation.observedActive &&
+      reservation.pendingCount === 0
+    ) {
+      registrationScopes.delete(clusterName);
+    }
+  }
+}
 
 /**
  * Checks whether persisted or reserved Azure scope metadata matches a requested scope.
@@ -160,15 +185,7 @@ export async function registerAKSCluster(
   }
 
   const reservationKey = clusterName.toLowerCase();
-  let existingReservation = registrationScopes.get(reservationKey);
-  if (
-    existingReservation?.registered &&
-    existingReservation.pendingCount === 0 &&
-    !clusterAlreadyRegistered
-  ) {
-    registrationScopes.delete(reservationKey);
-    existingReservation = undefined;
-  }
+  const existingReservation = registrationScopes.get(reservationKey);
   if (existingReservation && !scopeMatches(existingReservation, subscriptionId, resourceGroup)) {
     return {
       success: false,
@@ -180,6 +197,7 @@ export async function registerAKSCluster(
     resourceGroup,
     pendingCount: 0,
     registered: clusterAlreadyRegistered,
+    observedActive: clusterAlreadyRegistered,
   };
   reservation.pendingCount++;
   registrationScopes.set(reservationKey, reservation);
