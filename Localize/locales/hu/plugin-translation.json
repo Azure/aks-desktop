@@ -42,7 +42,6 @@
   "AI improvement suggestions in progress": "Folyamatban lévő AI-fejlesztési javaslatok",
   "AKS Cluster": "AKS-fürt",
   "AKS desktop logo": "AKS asztal embléma",
-  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.": "Az AKS Desktop álnevesített használati adatokat (funkcióhasználat, alkalmazásverzió, operációs rendszer, hibaosztályok) küld, hogy segítsen nekünk a termék továbbfejlesztésében. Az eszközön tárolt, véletlenszerűen generált álnevesített telepítési azonosítót is továbbítja, hogy az ugyanahhoz a telepítéshez tartozó munkamenetek száma meghatározható legyen. Soha nem küld fürtneveket, névtereket, erőforrásneveket, hibaüzeneteket vagy hívásláncokat. A telemetria módosításai a következő indításkor lépnek érvénybe.",
   "AKS Managed": "AKS által felügyelt",
   "AKS Preview Extension installed successfully!": "Az előzetes verziójú AKS-bővítmény sikeresen telepítve!",
   "AKS Preview Extension Required": "Előzetes verziójú AKS-bővítmény szükséges",
@@ -543,7 +542,6 @@
   "Resources to be deployed ({{count}} object)_one": "Üzembe helyezendő erőforrások ({{count}} objektum)",
   "Resources to be deployed ({{count}} object)_other": "Üzembe helyezendő erőforrások ({{count}} objektum)",
   "Response Time": "Válaszidő",
-  "Restart AKS Desktop for this change to take effect.": "A módosítás érvénybe léptetéséhez indítsa újra az AKS Desktopot.",
   "Restarts": "Újraindítások",
   "Retry": "Újrapróbálkozás",
   "Review": "Felülvizsgálat",
@@ -579,7 +577,6 @@
   "Select an AKS cluster": "AKS-fürt kiválasztása",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "Válasszon ki egy Azure Container Registry-adatbázist tárolórendszerképek létrehozásához és leküldéséhez, vagy hozzon létre egy újat.",
   "Select an Azure subscription": "Válasszon ki egy Azure-előfizetést",
-  "Select an Azure tenant": "Azure-bérlő kiválasztása",
   "Select an option": "Válasszon egy lehetőséget",
   "Select Deployment": "Üzemelő példány kiválasztása",
   "Select managed identity": "Felügyelt identitás kiválasztása",
@@ -588,7 +585,6 @@
   "Select Source": "Forrás kiválasztása",
   "Selected Cluster Details": "Kijelölt fürt részletei",
   "Selected cluster is missing from the kubeconfig. Register it before proceeding.": "A kiválasztott fürt hiányzik a kubeconfig állományból. A folytatás előtt regisztrálja.",
-  "Send pseudonymous usage data": "Álnevesített használati adatok küldése",
   "Service Account": "Szolgáltatásfiók",
   "Service port": "Szolgáltatásport",
   "Service type": "Szolgáltatástípus",
@@ -715,6 +711,9 @@
   "You need to be logged in to Azure to register AKS clusters.": "Az AKS-fürtök regisztrálásához be kell jelentkeznie az Azure-ba.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "A(z) {{projectName}} AKS-projekt létrejött, és használatra kész.",
   "Your project \"{{projectName}}\" is ready to use.": "A(z) {{projectName}} projekt használatra kész.",
+  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "",
   "Contact us": "",
-  "Get help, share feedback, or reach the AKS Desktop team": ""
+  "Get help, share feedback, or reach the AKS Desktop team": "",
+  "Select an Azure tenant": "",
+  "Send pseudonymous usage data": ""
 }

@@ -42,7 +42,6 @@
   "AI improvement suggestions in progress": "Yapay zeka geliştirme önerileri devam ediyor",
   "AKS Cluster": "AKS Kümesi",
   "AKS desktop logo": "AKS masaüstü logosu",
-  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.": "AKS Desktop, ürünü geliştirmemize yardımcı olmak için bulanıklaştırılmış kullanım verileri (özellik kullanımı, uygulama sürümü, işletim sistemi, hata sınıfları) gönderir. Aynı yüklemedeki oturumların hesaba katılabilmesi için bu cihazda depolanan bir rastgele bulanıklaştırılmış yükleme tanımlayıcısı eklenir. Hiçbir küme adı, ad alanı, kaynak adı, hata iletisi veya yığın izi gönderilmez. Telemetri değişiklikleri bir sonraki başlatmada geçerli olur.",
   "AKS Managed": "AKS Tarafından Yönetilen",
   "AKS Preview Extension installed successfully!": "AKS Preview Uzantısı başarıyla yüklendi!",
   "AKS Preview Extension Required": "AKS Preview Uzantısı Gerekiyor",
@@ -543,7 +542,6 @@
   "Resources to be deployed ({{count}} object)_one": "Dağıtılacak kaynaklar ({{count}} nesne)",
   "Resources to be deployed ({{count}} object)_other": "Dağıtılacak kaynaklar ({{count}} nesne)",
   "Response Time": "Yanıt Süresi",
-  "Restart AKS Desktop for this change to take effect.": "Bu değişikliğin geçerli olması için AKS Desktop'ı yeniden başlatın.",
   "Restarts": "Yeniden başlatmalar",
   "Retry": "Yeniden dene",
   "Review": "Gözden Geçir",
@@ -579,7 +577,6 @@
   "Select an AKS cluster": "AKS kümesi seçin",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "Kapsayıcı görüntülerini oluşturmak ve göndermek için bir Azure Container Registry seçin veya yeni bir tane oluşturun.",
   "Select an Azure subscription": "Bir Azure aboneliği seçin",
-  "Select an Azure tenant": "Bir Azure kiracısı seçin",
   "Select an option": "Bir seçenek belirtin",
   "Select Deployment": "Dağıtım Seç",
   "Select managed identity": "Yönetilen kimliği seçin",
@@ -588,7 +585,6 @@
   "Select Source": "Kaynak Seçin",
   "Selected Cluster Details": "Seçili Küme Ayrıntıları",
   "Selected cluster is missing from the kubeconfig. Register it before proceeding.": "Seçilen küme kubeconfig dosyasında yok. Devam etmeden önce dosyaya kaydedin.",
-  "Send pseudonymous usage data": "Bulanıklaştırılmış kullanım verilerini gönder",
   "Service Account": "Hizmet Hesabı",
   "Service port": "Hizmet bağlantı noktası",
   "Service type": "Hizmet türü",
@@ -715,6 +711,9 @@
   "You need to be logged in to Azure to register AKS clusters.": "AKS kümelerini kaydetmek için Azure hesabınızda oturum açmanız gerekir.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "\"{{projectName}}\" AKS projeniz oluşturuldu ve kullanıma hazır.",
   "Your project \"{{projectName}}\" is ready to use.": "\"{{projectName}}\" projeniz kullanıma hazır.",
+  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "",
   "Contact us": "",
-  "Get help, share feedback, or reach the AKS Desktop team": ""
+  "Get help, share feedback, or reach the AKS Desktop team": "",
+  "Select an Azure tenant": "",
+  "Send pseudonymous usage data": ""
 }

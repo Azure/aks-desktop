@@ -42,7 +42,6 @@
   "AI improvement suggestions in progress": "Saran penyempurnaan AI dalam proses",
   "AKS Cluster": "Kluster AKS",
   "AKS desktop logo": "Logo AKS desktop",
-  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.": "AKS Desktop mengirimkan data penggunaan pseudonim (penggunaan fitur, versi aplikasi, OS, kelas kesalahan) untuk membantu kami meningkatkan produk. Pengidentifikasi penginstalan pseudonim acak yang disimpan di perangkat ini disertakan agar sesi dari penginstalan yang sama dapat dihitung. Tidak ada nama kluster, namespace, nama sumber daya, pesan kesalahan, atau jejak tumpukan yang pernah dikirim. Perubahan telemetri akan diterapkan pada peluncuran berikutnya.",
   "AKS Managed": "Dikelola AKS",
   "AKS Preview Extension installed successfully!": "Ekstensi Pratinjau AKS berhasil diinstal!",
   "AKS Preview Extension Required": "Ekstensi Pratinjau AKS Diperlukan",
@@ -543,7 +542,6 @@
   "Resources to be deployed ({{count}} object)_one": "Sumber daya yang akan disebarkan ({{count}} objek)",
   "Resources to be deployed ({{count}} object)_other": "Sumber daya yang akan disebarkan ({{count}} objek)",
   "Response Time": "Waktu Respons",
-  "Restart AKS Desktop for this change to take effect.": "Mulai ulang AKS Desktop agar perubahan ini diterapkan.",
   "Restarts": "Mulaia Ulang",
   "Retry": "Coba lagi",
   "Review": "Tinjauan",
@@ -579,7 +577,6 @@
   "Select an AKS cluster": "Pilih kluster AKS",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "Pilih Azure Container Registry untuk membuat dan mendorong gambar kontainer, atau buat yang baru.",
   "Select an Azure subscription": "Pilih langganan Azure",
-  "Select an Azure tenant": "Pilih penyewa Azure",
   "Select an option": "Pilih salah satu opsi",
   "Select Deployment": "Pilih Penyebaran",
   "Select managed identity": "Pilih identitas terkelola",
@@ -588,7 +585,6 @@
   "Select Source": "Pilih Sumber",
   "Selected Cluster Details": "Detail Kluster yang Dipilih",
   "Selected cluster is missing from the kubeconfig. Register it before proceeding.": "Kluster yang dipilih hilang dari kubeconfig. Daftarkan sebelum melanjutkan.",
-  "Send pseudonymous usage data": "Kirim data penggunaan pseudonim",
   "Service Account": "Akun Layanan",
   "Service port": "Port layanan",
   "Service type": "Tipe layanan",
@@ -715,6 +711,9 @@
   "You need to be logged in to Azure to register AKS clusters.": "Anda harus masuk ke Azure untuk mendaftarkan kluster AKS.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Proyek AKS Anda \"{{projectName}}\" telah dibuat dan siap digunakan.",
   "Your project \"{{projectName}}\" is ready to use.": "Proyek \"{{projectName}}\" Anda siap digunakan.",
+  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "",
   "Contact us": "",
-  "Get help, share feedback, or reach the AKS Desktop team": ""
+  "Get help, share feedback, or reach the AKS Desktop team": "",
+  "Select an Azure tenant": "",
+  "Send pseudonymous usage data": ""
 }

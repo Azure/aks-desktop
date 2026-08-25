@@ -42,7 +42,6 @@
   "AI improvement suggestions in progress": "AI の改善提案が処理中です",
   "AKS Cluster": "AKS クラスター",
   "AKS desktop logo": "AKS デスクトップ ロゴ",
-  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.": "AKS デスクトップは、製品の改善に役立てるため、仮名化された使用データ (機能の使用状況、アプリのバージョン、OS、エラー クラス) を送信します。同じインストールからのセッションをカウントできるよう、このデバイスに格納されているランダムな仮名化されたインストール識別子も含められます。クラスター名、名前空間、リソース名、エラー メッセージ、またはスタック トレースは送信されません。テレメトリの変更は、次回の起動時に有効になります。",
   "AKS Managed": "AKS マネージド",
   "AKS Preview Extension installed successfully!": "AKS Preview 拡張機能が正常にインストールされました。",
   "AKS Preview Extension Required": "AKS Preview 拡張機能が必要です",
@@ -543,7 +542,6 @@
   "Resources to be deployed ({{count}} object)_one": "デプロイするリソース ({{count}} 個のオブジェクト)",
   "Resources to be deployed ({{count}} object)_other": "デプロイするリソース ({{count}} 個のオブジェクト)",
   "Response Time": "応答時間",
-  "Restart AKS Desktop for this change to take effect.": "この変更を有効にするには、AKS デスクトップを再起動してください。",
   "Restarts": "再起動します",
   "Retry": "再試行",
   "Review": "レビュー",
@@ -579,7 +577,6 @@
   "Select an AKS cluster": "AKS クラスターを選択する",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "コンテナー イメージをビルドしてプッシュするための Azure Container Registry を選ぶか、新しいものを作成します。",
   "Select an Azure subscription": "Azure サブスクリプションを選択します",
-  "Select an Azure tenant": "Azure テナントの選択",
   "Select an option": "オプションを選択する",
   "Select Deployment": "デプロイの選択",
   "Select managed identity": "マネージド ID の選択",
@@ -588,7 +585,6 @@
   "Select Source": "ソースの選択",
   "Selected Cluster Details": "選択したクラスターの詳細",
   "Selected cluster is missing from the kubeconfig. Register it before proceeding.": "選択したクラスターが kubeconfig にありません。続行する前に登録してください。",
-  "Send pseudonymous usage data": "仮名化された使用データを送信する",
   "Service Account": "サービス アカウント",
   "Service port": "サービス ポート",
   "Service type": "サービスの種類",
@@ -715,6 +711,9 @@
   "You need to be logged in to Azure to register AKS clusters.": "AKS クラスターを登録するには、Azure にログインする必要があります。",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "AKS プロジェクト \"{{projectName}}\" が作成され、使用する準備ができました。",
   "Your project \"{{projectName}}\" is ready to use.": "プロジェクト \"{{projectName}}\" が使用できる状態です。",
+  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "",
   "Contact us": "",
-  "Get help, share feedback, or reach the AKS Desktop team": ""
+  "Get help, share feedback, or reach the AKS Desktop team": "",
+  "Select an Azure tenant": "",
+  "Send pseudonymous usage data": ""
 }

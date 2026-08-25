@@ -42,7 +42,6 @@
   "AI improvement suggestions in progress": "AI 改進建議進行中",
   "AKS Cluster": "AKS 叢集",
   "AKS desktop logo": "AKS Desktop 標誌",
-  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.": "AKS Desktop 會傳送假名使用資料 (功能使用方式、應用程式版本、作業系統、錯誤類別)，以協助我們改善產品。系統也會包含儲存在此裝置上的隨機假名安裝識別碼，讓我們可以計算來自相同安裝的工作階段。絕不會傳送叢集名稱、命名空間、資源名稱、錯誤訊息或堆疊追蹤。遙測變更會在下次啟動時生效。",
   "AKS Managed": "AKS 管理",
   "AKS Preview Extension installed successfully!": "已成功安裝 AKS Preview 延伸模組!",
   "AKS Preview Extension Required": "需要 AKS Preview 延伸模組",
@@ -543,7 +542,6 @@
   "Resources to be deployed ({{count}} object)_one": "要部署的資源 ({{count}} 個物件)",
   "Resources to be deployed ({{count}} object)_other": "要部署的資源 ({{count}} 個物件)",
   "Response Time": "回應時間",
-  "Restart AKS Desktop for this change to take effect.": "重新啟動 AKS Desktop，讓這項變更生效。",
   "Restarts": "重新啟動",
   "Retry": "重試",
   "Review": "檢閱",
@@ -579,7 +577,6 @@
   "Select an AKS cluster": "選取 AKS 叢集",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "選取 Azure Container Registry 以用於建置和推送容器映像，或建立新映像。",
   "Select an Azure subscription": "選取 Azure 訂用帳戶",
-  "Select an Azure tenant": "選取 Azure 租用戶",
   "Select an option": "選取選項",
   "Select Deployment": "選取部署",
   "Select managed identity": "選取受控識別",
@@ -588,7 +585,6 @@
   "Select Source": "選取來源",
   "Selected Cluster Details": "已選取的叢集詳細資料",
   "Selected cluster is missing from the kubeconfig. Register it before proceeding.": "kubeconfig 遺漏已選取的叢集。在繼續之前請先註冊。",
-  "Send pseudonymous usage data": "傳送假名使用量資料",
   "Service Account": "服務帳戶",
   "Service port": "服務連接埠",
   "Service type": "服務類型",
@@ -715,6 +711,9 @@
   "You need to be logged in to Azure to register AKS clusters.": "您必須登入 Azure 以註冊 AKS 叢集。",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "已建立您的 AKS 專案「{{projectName}}」且已隨時可用。",
   "Your project \"{{projectName}}\" is ready to use.": "您的專案「{{projectName}}」已可供使用。",
+  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "",
   "Contact us": "",
-  "Get help, share feedback, or reach the AKS Desktop team": ""
+  "Get help, share feedback, or reach the AKS Desktop team": "",
+  "Select an Azure tenant": "",
+  "Send pseudonymous usage data": ""
 }
