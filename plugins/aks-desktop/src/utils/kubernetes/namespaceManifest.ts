@@ -3,6 +3,8 @@
 
 import YAML from 'yaml';
 
+const DNS_LABEL_MAX_LENGTH = 63;
+
 /**
  * Namespace network traffic policy, mirroring the AKS managed-namespace
  * `--ingress-policy` / `--egress-policy` options.
@@ -15,8 +17,18 @@ export type NamespaceTrafficPolicy = 'AllowSameNamespace' | 'AllowAll' | 'DenyAl
 
 /** A single RBAC assignment: an Azure AD object ID (or any K8s user name) and a UI role. */
 export interface NamespaceUserAssignment {
-  /** The subject name used in the RoleBinding (Azure AD object ID / UUID). */
+  /** Azure AD object ID. Not a usable RoleBinding subject — see {@link upn}. */
   objectId: string;
+  /**
+   * The subject name used in the RoleBinding: the user's UPN.
+   *
+   * `kube-aad-proxy` authenticates the Entra token and impersonates the user to
+   * the apiserver **by UPN** — the object ID arrives only as an `Extra: oid`
+   * attribute, which RBAC subjects never match. A binding naming the object ID
+   * therefore applies cleanly and grants nothing, silently. Assignments without a
+   * UPN are skipped rather than bound to a name that cannot authorize.
+   */
+  upn?: string;
   /** UI role name: `Admin`, `Writer`, or `Reader`. */
   role: string;
 }
@@ -49,6 +61,14 @@ export interface GenerateNamespaceManifestOptions {
   annotations?: Record<string, string>;
   /** RBAC assignments turned into per-user RoleBindings. */
   userAssignments?: NamespaceUserAssignment[];
+  /**
+   * Whether to emit RoleBindings for {@link userAssignments}. Defaults to `true`.
+   *
+   * Pass `false` for a cluster created with Azure RBAC (`enableAzureRbac: true`),
+   * where the `guard` webhook authorizes from Azure role assignments instead —
+   * bindings there would duplicate the grant and could outlive it.
+   */
+  includeRoleBindings?: boolean;
 }
 
 /**
@@ -62,11 +82,12 @@ export interface GenerateNamespaceManifestOptions {
  * Unknown roles fall back to `view` (least privilege).
  *
  * These built-in ClusterRoles are the intended equivalents of the Azure RBAC
- * `Reader`/`Writer`/`Admin` roles used by managed namespaces. On AKS Hybrid &
- * Edge (Arc) clusters authorization is native Kubernetes RBAC (there is no Azure
- * authorization webhook), so access is granted with a RoleBinding to these
- * roles rather than an Azure role assignment. See the rationale and the verified
- * permission comparison in `docs/rbac-role-mapping.md`.
+ * `Reader`/`Writer`/`Admin` roles used by managed namespaces. This mapping is for
+ * Arc clusters whose authorization is native Kubernetes RBAC
+ * (`aadProfile.enableAzureRbac: false`), where access is granted with a
+ * RoleBinding to these roles. Arc clusters using Azure RBAC authorize through the
+ * `guard` webhook instead and get namespace-scoped Azure role assignments, with
+ * no RoleBinding written — emitting both would grant the same access twice.
  */
 export function mapUIRoleToClusterRole(uiRole: string): string {
   const roleMap: Record<string, string> = {
@@ -152,6 +173,38 @@ export interface NamespaceManifestEntry {
  *
  * @param options - See {@link GenerateNamespaceManifestOptions}.
  */
+/**
+ * Turns a UPN into the identifying part of a RoleBinding name.
+ *
+ * Uses the local part (before `@`), which is what a reader recognises — the
+ * namespace already implies the tenant. Kubernetes names are RFC 1123
+ * subdomains (lowercase alphanumeric, `-` and `.`), while Entra additionally
+ * allows uppercase and `_ ! # ^ ~ '`; guest accounts like
+ * `someone_gmail.com#EXT#@contoso.onmicrosoft.com` hit several of those at once,
+ * so anything illegal is folded to `-`.
+ *
+ * The result is deliberately not unique — two tenants can share a local part.
+ * Callers reserve room for and append a positional suffix, which makes
+ * collisions impossible without needing a dedupe pass.
+ */
+function upnToNameFragment(upn: string, maxLength: number): string {
+  const localPart = upn.trim().toLowerCase().split('@')[0];
+  const sanitized = localPart
+    .replace(/[^a-z0-9.-]/g, '-')
+    .replace(/[-.]{2,}/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+    .slice(0, maxLength)
+    .replace(/[-.]+$/g, '');
+  // A UPN of only illegal characters would otherwise yield an invalid empty name.
+  return sanitized || 'user';
+}
+
+function roleBindingName(upn: string, clusterRole: string, position: number): string {
+  const suffix = `-${clusterRole}-${position}`;
+  const fragment = upnToNameFragment(upn, DNS_LABEL_MAX_LENGTH - suffix.length);
+  return `${fragment}${suffix}`;
+}
+
 export function generateNamespaceManifestEntries(
   options: GenerateNamespaceManifestOptions
 ): NamespaceManifestEntry[] {
@@ -166,6 +219,7 @@ export function generateNamespaceManifestEntries(
     labels = {},
     annotations = {},
     userAssignments = [],
+    includeRoleBindings = true,
   } = options;
 
   const entries: NamespaceManifestEntry[] = [];
@@ -243,7 +297,11 @@ export function generateNamespaceManifestEntries(
   }
 
   // --- 4. RoleBindings ------------------------------------------------------
-  const validAssignments = userAssignments.filter(a => a.objectId.trim() !== '');
+  // Only assignments carrying a UPN can be bound: it is the name the apiserver
+  // sees for the user, and there is no fallback — an object ID here would bind a
+  // subject that matches nothing. Callers validate this up front, so anything
+  // dropped at this point would already have been reported.
+  const validAssignments = includeRoleBindings ? userAssignments.filter(a => !!a.upn?.trim()) : [];
   validAssignments.forEach((assignment, index) => {
     const clusterRole = mapUIRoleToClusterRole(assignment.role);
     entries.push({
@@ -252,13 +310,13 @@ export function generateNamespaceManifestEntries(
         apiVersion: 'rbac.authorization.k8s.io/v1',
         kind: 'RoleBinding',
         metadata: {
-          name: `${namespaceName}-${clusterRole}-${index + 1}`,
+          name: roleBindingName(assignment.upn!, clusterRole, index + 1),
           namespace: namespaceName,
         },
         subjects: [
           {
             kind: 'User',
-            name: assignment.objectId.trim(),
+            name: assignment.upn!.trim(),
             apiGroup: 'rbac.authorization.k8s.io',
           },
         ],

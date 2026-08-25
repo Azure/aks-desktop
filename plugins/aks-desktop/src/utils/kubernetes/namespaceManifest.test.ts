@@ -41,8 +41,12 @@ describe('generateNamespaceManifestYaml', () => {
     },
     annotations: { 'headlamp.dev/project-description': 'demo' },
     userAssignments: [
-      { objectId: '11111111-1111-1111-1111-111111111111', role: 'Admin' },
-      { objectId: '22222222-2222-2222-2222-222222222222', role: 'Reader' },
+      { objectId: '11111111-1111-1111-1111-111111111111', upn: 'ada@contoso.com', role: 'Admin' },
+      {
+        objectId: '22222222-2222-2222-2222-222222222222',
+        upn: 'grace@contoso.com',
+        role: 'Reader',
+      },
     ],
   };
 
@@ -103,8 +107,57 @@ describe('generateNamespaceManifestYaml', () => {
     const bindings = docs.filter(d => d.kind === 'RoleBinding');
     expect(bindings).toHaveLength(2);
     expect(bindings[0].roleRef.name).toBe('admin');
-    expect(bindings[0].subjects[0].name).toBe('11111111-1111-1111-1111-111111111111');
     expect(bindings[1].roleRef.name).toBe('view');
+  });
+
+  it('names each RoleBinding after the user, role and position', () => {
+    const docs = parseDocs(generateNamespaceManifestYaml(baseOptions));
+    const bindings = docs.filter(d => d.kind === 'RoleBinding');
+    expect(bindings.map(b => b.metadata.name)).toEqual(['ada-admin-1', 'grace-view-2']);
+  });
+
+  it('reserves space for the role and position within the DNS label limit', () => {
+    const yaml = generateNamespaceManifestYaml({
+      namespaceName: 'ns',
+      userAssignments: [{ objectId: 'x', upn: `${'a'.repeat(80)}@contoso.com`, role: 'Writer' }],
+    });
+    const name = parseDocs(yaml).find(d => d.kind === 'RoleBinding').metadata.name;
+
+    expect(name).toBe(`${'a'.repeat(56)}-edit-1`);
+    expect(name).toHaveLength(63);
+    expect(name).toMatch(/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/);
+  });
+
+  it('folds characters Entra allows but Kubernetes names forbid', () => {
+    // Guest accounts are the awkward case: `_` and `#` are legal in a UPN and
+    // illegal in an RFC 1123 subdomain.
+    const yaml = generateNamespaceManifestYaml({
+      namespaceName: 'ns',
+      userAssignments: [
+        { objectId: 'x', upn: 'Someone_gmail.com#EXT#@contoso.onmicrosoft.com', role: 'Writer' },
+      ],
+    });
+    const name = parseDocs(yaml).find(d => d.kind === 'RoleBinding').metadata.name;
+    expect(name).toBe('someone-gmail.com-ext-edit-1');
+    expect(name).toMatch(/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/);
+  });
+
+  it('names the subject by UPN — the object ID would match nothing', () => {
+    const docs = parseDocs(generateNamespaceManifestYaml(baseOptions));
+    const bindings = docs.filter(d => d.kind === 'RoleBinding');
+    expect(bindings[0].subjects[0]).toMatchObject({ kind: 'User', name: 'ada@contoso.com' });
+    expect(bindings[1].subjects[0].name).toBe('grace@contoso.com');
+  });
+
+  it('skips assignments with no UPN rather than binding an unmatched subject', () => {
+    // The apiserver never sees the object ID as a username, so a binding naming it
+    // would apply cleanly and grant nothing.
+    const yaml = generateNamespaceManifestYaml({
+      namespaceName: 'x',
+      userAssignments: [{ objectId: '11111111-1111-1111-1111-111111111111', role: 'Writer' }],
+    });
+    const bindings = parseDocs(yaml).filter(d => d.kind === 'RoleBinding');
+    expect(bindings).toHaveLength(0);
   });
 
   it('skips assignments with empty object IDs', () => {
@@ -112,6 +165,12 @@ describe('generateNamespaceManifestYaml', () => {
       namespaceName: 'x',
       userAssignments: [{ objectId: '  ', role: 'Writer' }],
     });
+    const bindings = parseDocs(yaml).filter(d => d.kind === 'RoleBinding');
+    expect(bindings).toHaveLength(0);
+  });
+
+  it('omits RoleBindings entirely when the cluster authorizes through Azure RBAC', () => {
+    const yaml = generateNamespaceManifestYaml({ ...baseOptions, includeRoleBindings: false });
     const bindings = parseDocs(yaml).filter(d => d.kind === 'RoleBinding');
     expect(bindings).toHaveLength(0);
   });
@@ -133,7 +192,9 @@ describe('generateNamespaceManifestObjects', () => {
     ingressPolicy: 'AllowSameNamespace' as const,
     egressPolicy: 'AllowAll' as const,
     labels: { 'headlamp.dev/project-id': 'my-project' },
-    userAssignments: [{ objectId: '11111111-1111-1111-1111-111111111111', role: 'Admin' }],
+    userAssignments: [
+      { objectId: '11111111-1111-1111-1111-111111111111', upn: 'ada@contoso.com', role: 'Admin' },
+    ],
   };
 
   it('returns plain objects in apply order (Namespace first)', () => {
