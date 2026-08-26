@@ -87,9 +87,7 @@ const validateAssignments = (
     if (assignment.objectId.trim() === '' && !assignment.upn?.trim()) {
       errors.push(`Assignee ${index + 1}: Please select a user or remove this entry`);
     } else if (!isValidAssignee(assignment)) {
-      errors.push(
-        `Assignee ${index + 1}: Please enter a valid Azure AD object ID (UUID) or sign-in name`
-      );
+      errors.push(`Assignee ${index + 1}: Please enter a valid Azure AD object ID (UUID)`);
     } else if (requiresUpn && !isUserPrincipalName(assignment.upn)) {
       // Only when the grant is a RoleBinding, whose subject must be the UPN — an
       // object ID there applies cleanly and matches nothing.

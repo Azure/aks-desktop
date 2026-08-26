@@ -372,9 +372,10 @@ if (Headlamp.isRunningAsApp()) {
   // - AKS Hybrid & Edge clusters are differentiated on the Home list by a distinct
   //   name badge (server icon + Azure-blue accent) set via the shared cluster
   //   appearance settings at registration time — no custom status column.
-  // - A menu item starts/stops the local `az connectedk8s proxy`. The proxy is
-  //   not persisted across app restarts, so this is how connectivity is
-  //   re-established after a reload.
+  // - A menu item reports whether the cluster is reachable and starts the local
+  //   `az connectedk8s proxy` when it is not. There is no Stop: arcProxy is a
+  //   machine-wide daemon shared by every connected cluster. Proxies are torn
+  //   down when the app exits, not on renderer reload.
   // - A dialog drives the start flow and verifies the cluster becomes reachable.
   // - A pre-open hook auto-starts and verifies the proxy when the user opens an
   //   AKS Hybrid & Edge cluster, so connecting is seamless (no manual menu step);

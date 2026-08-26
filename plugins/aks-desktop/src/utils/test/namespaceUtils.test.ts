@@ -5,9 +5,10 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Mock the K8s API. These are declared with vi.hoisted so the vi.mock factory
 // (hoisted above imports) can safely reference them.
-const { mockGet, mockPut } = vi.hoisted(() => ({
+const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPut: vi.fn(),
+  mockPost: vi.fn(),
 }));
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
@@ -17,14 +18,15 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
         apiEndpoint: {
           get: (...args: any[]) => mockGet(...args),
           put: (...args: any[]) => mockPut(...args),
+          post: (...args: any[]) => mockPost(...args),
         },
       },
     },
   },
 }));
 
-// applyNamespaceManifest applies each object via Headlamp's generic apply() helper
-// (create-or-update), imported from the public ApiProxy entry — mock that.
+// applyNamespaceManifest creates the Namespace with create-only semantics and
+// applies the namespaced children with the generic apply() helper.
 const mockApply = vi.hoisted(() => vi.fn());
 vi.mock('@kinvolk/headlamp-plugin/lib/ApiProxy', () => ({
   apply: (...args: any[]) => mockApply(...args),
@@ -124,6 +126,7 @@ describe('fetchNamespaceData', () => {
 describe('applyNamespaceManifest', () => {
   beforeEach(() => {
     mockApply.mockReset();
+    mockPost.mockReset();
   });
 
   const baseOptions = {
@@ -140,24 +143,41 @@ describe('applyNamespaceManifest', () => {
     ],
   };
 
-  test('applies every object in order to the given cluster via apply()', async () => {
+  test('creates the Namespace create-only, then applies its children', async () => {
+    // `apply` is create-or-update, which would adopt someone else's namespace and
+    // stamp it with this project's labels if the wizard's pre-check lost a race.
+    mockPost.mockResolvedValue({});
     mockApply.mockResolvedValue({});
 
     const result = await applyNamespaceManifest('arc-cluster', baseOptions);
 
     expect(result).toEqual({ success: true });
-    // Namespace first, then the namespaced children.
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    expect(mockPost.mock.calls[0][0].kind).toBe('Namespace');
+    expect(mockPost.mock.calls[0][2]).toBe('arc-cluster');
+
     const appliedKinds = mockApply.mock.calls.map(call => call[0].kind);
-    expect(appliedKinds).toEqual(['Namespace', 'ResourceQuota', 'NetworkPolicy', 'RoleBinding']);
-    // Every apply targets the cluster context (2nd positional arg).
+    expect(appliedKinds).toEqual(['ResourceQuota', 'NetworkPolicy', 'RoleBinding']);
     for (const call of mockApply.mock.calls) {
       expect(call[1]).toBe('arc-cluster');
     }
   });
 
+  test('reports the collision when the namespace already exists', async () => {
+    mockPost.mockRejectedValue(new Error('namespaces "my-project" already exists'));
+
+    const result = await applyNamespaceManifest('arc-cluster', baseOptions);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Namespace');
+    // Nothing is applied into a namespace we do not own.
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
   test('fails fast and reports the failing kind on error', async () => {
     // Namespace succeeds, ResourceQuota rejects.
-    mockApply.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('quota exceeded'));
+    mockPost.mockResolvedValue({});
+    mockApply.mockRejectedValueOnce(new Error('quota exceeded'));
 
     const result = await applyNamespaceManifest('arc-cluster', baseOptions);
 
@@ -165,7 +185,8 @@ describe('applyNamespaceManifest', () => {
     expect(result.error).toContain('ResourceQuota');
     expect(result.error).toContain('quota exceeded');
     // Stopped after the failure — NetworkPolicy/RoleBinding were not attempted.
-    expect(mockApply).toHaveBeenCalledTimes(2);
+    // Only one apply: the Namespace is created through the endpoint, not applied.
+    expect(mockApply).toHaveBeenCalledTimes(1);
   });
 });
 

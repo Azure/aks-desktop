@@ -31,7 +31,14 @@ export function fetchNamespaceData(name: string, cluster: string): Promise<KubeN
       },
       (err: any) => {
         void cancelFn.then(cancel => cancel()).catch(() => {});
-        reject(new Error(`Failed to fetch namespace: ${err}`));
+        // Keep the status: callers need to tell "no such namespace" apart from
+        // "could not ask" — a permission error or timeout is not evidence that
+        // the name is free.
+        const error = new Error(`Failed to fetch namespace: ${err}`) as Error & {
+          status?: number;
+        };
+        error.status = typeof err?.status === 'number' ? err.status : undefined;
+        reject(error);
       },
       {},
       cluster
@@ -74,11 +81,15 @@ export async function createNamespaceAsProject(
  * the same wizard inputs are turned into native objects and applied through the
  * cluster's kubeconfig context.
  *
- * Each object is applied with Headlamp's own `apply()` helper — the same one its
- * "apply YAML" flow uses — which resolves the API endpoint from the object's
- * `apiVersion`/`kind` (so any kind works, no hand-maintained kind map) and does
- * create-or-update (POST, then PUT on a 409/403 conflict). Re-applying an
- * existing project therefore updates rather than failing on a conflict.
+ * The `Namespace` is created, not applied: a collision fails instead of adopting
+ * a namespace that already exists, which would otherwise stamp someone else's
+ * namespace with this project's labels and then apply quotas and policies into
+ * it. This function is therefore not idempotent — re-running it for an existing
+ * project fails on the Namespace.
+ *
+ * Its children are applied with Headlamp's own `apply()` helper — the same one
+ * its "apply YAML" flow uses — which resolves the API endpoint from the object's
+ * `apiVersion`/`kind` (so any kind works, no hand-maintained kind map).
  *
  * Objects are applied in manifest order — the `Namespace` first, then its
  * namespaced children — and the call fails fast on the first error, so a failure
@@ -96,7 +107,20 @@ export async function applyNamespaceManifest(
 
   for (const obj of objects) {
     try {
-      await apply(obj as any, clusterName);
+      if (obj.kind === 'Namespace') {
+        // Create-only for the Namespace itself. `apply` is create-or-update, which
+        // would silently adopt a namespace someone else owns — stamping it with
+        // this project's labels and then applying quotas and policies into it —
+        // whenever the wizard's pre-check was stale or lost a race. A collision
+        // must fail here instead.
+        await (K8s.ResourceClasses.Namespace.apiEndpoint as ApiClient<KubeNamespace>).post(
+          obj as any,
+          {},
+          clusterName
+        );
+      } else {
+        await apply(obj as any, clusterName);
+      }
     } catch (error) {
       const kind = (obj.kind as string) || 'resource';
       const name = (obj.metadata as { name?: string })?.name ?? '';

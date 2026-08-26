@@ -279,6 +279,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   }, [formData.cluster, formData.subscription, formData.resourceGroup, isArcCluster]);
 
   useEffect(() => {
+    namespaceCheck.clearStatus();
     const timeoutId = setTimeout(() => {
       if (!formData.projectName || !formData.cluster) {
         return;

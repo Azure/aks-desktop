@@ -174,8 +174,22 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
 
       setInputValue(newInputValue);
 
+      // Drops a search queued for the previous, shorter text. Without this it
+      // fires after the transition below, bumps the request id — invalidating the
+      // resolver started here — and replaces the options with stale results. The
+      // spinner is cleared too: a superseded search's own cleanup is skipped
+      // precisely because it is no longer the current request.
+      const abandonQueuedSearch = () => {
+        if (debounceTimer.current) {
+          clearTimeout(debounceTimer.current);
+          debounceTimer.current = null;
+        }
+        setLoading(false);
+      };
+
       // If the user types a complete identifier directly, accept it immediately
       if (isEntraObjectId(newInputValue) || isUserPrincipalName(newInputValue)) {
+        abandonQueuedSearch();
         applyTypedValue(newInputValue);
         setOptions([]);
         return;
@@ -187,14 +201,15 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
         // a `resolveAzureADUser` started a moment ago would otherwise land after
         // this and repopulate the assignee the user just cleared.
         requestIdRef.current += 1;
-        if (debounceTimer.current) {
-          clearTimeout(debounceTimer.current);
-          debounceTimer.current = null;
-        }
+        abandonQueuedSearch();
         onChange({ objectId: '' });
         setOptions([]);
         return;
       }
+
+      // Partial input supersedes a resolver started for the previous complete
+      // identifier immediately, including when directory search is unavailable.
+      requestIdRef.current += 1;
 
       // If search is known to be unavailable, only propagate valid UUIDs
       // (non-UUID intermediate text stays local to avoid parent validation errors)

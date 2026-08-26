@@ -11,10 +11,12 @@ const mockCheckClusterAccessible = vi.hoisted(() => vi.fn());
 const mockAssignAzureRoles = vi.hoisted(() => vi.fn());
 const mockReviewNamespaceAccess = vi.hoisted(() => vi.fn());
 const mockApplyNamespaceManifest = vi.hoisted(() => vi.fn());
+const mockGetClusterSettings = vi.hoisted(() => vi.fn());
 const mockAzureResourcesState = vi.hoisted(() => ({ clusters: [] as any[] }));
 const mockClustersConf = vi.hoisted(() => ({
   current: null as Record<string, { name: string }> | null,
 }));
+const mockClearNamespaceStatus = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../telemetry', () => ({
   trackFeature: mockTrackFeature,
@@ -56,6 +58,10 @@ vi.mock('../../../utils/kubernetes/accessReview', () => ({
 
 vi.mock('../../../utils/kubernetes/namespaceUtils', () => ({
   applyNamespaceManifest: mockApplyNamespaceManifest,
+}));
+
+vi.mock('../../../utils/shared/clusterSettings', () => ({
+  getClusterSettings: mockGetClusterSettings,
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -122,7 +128,7 @@ vi.mock('./useNamespaceCheck', () => ({
     error: null,
     checkNamespace: vi.fn(),
     checkNamespaceViaK8s: mockCheckNamespaceViaK8s,
-    clearStatus: vi.fn(),
+    clearStatus: mockClearNamespaceStatus,
   }),
 }));
 
@@ -161,6 +167,7 @@ const defaultFormData = {
 describe('useCreateAKSProjectWizard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetClusterSettings.mockReturnValue({});
     mockCheckClusterAccessible.mockResolvedValue({ accessible: true });
     mockAssignAzureRoles.mockResolvedValue({ success: true, results: [] });
     mockReviewNamespaceAccess.mockResolvedValue({ allowed: true });
@@ -207,6 +214,11 @@ describe('useCreateAKSProjectWizard', () => {
     mockAzureResourcesState.clusters = [
       { name: 'arc-a', resourceGroup: 'rg-a', clusterType: 'aksarc' },
     ];
+    mockGetClusterSettings.mockReturnValue({
+      clusterType: 'aksarc',
+      subscriptionId: 'sub-a',
+      resourceGroup: 'rg-a',
+    });
     vi.mocked(useFormData).mockReturnValue({
       formData: arcFormData,
       updateFormData: vi.fn(),
@@ -223,6 +235,22 @@ describe('useCreateAKSProjectWizard', () => {
     await act(() => vi.advanceTimersByTimeAsync(500));
 
     expect(mockCheckNamespaceViaK8s).toHaveBeenCalledWith('arc-a', 'test-project');
+  });
+
+  it('invalidates namespace status immediately when lookup inputs change', () => {
+    vi.useFakeTimers();
+    const { rerender } = renderHook(() => useCreateAKSProjectWizard());
+    mockClearNamespaceStatus.mockClear();
+
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, projectName: 'changed-project' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+    rerender();
+
+    expect(mockClearNamespaceStatus).toHaveBeenCalledOnce();
   });
   it('handleNext increments activeStep', () => {
     const { result } = renderHook(() => useCreateAKSProjectWizard());

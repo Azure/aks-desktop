@@ -69,15 +69,24 @@ export const isAksProjectWithResourceGroup = async ({
   );
 };
 
-/** Checks if the given project is an AKS Desktop + ARM-managed namespace. */
+/**
+ * Whether the plugin owns this project's deletion.
+ *
+ * True for the namespaces the plugin creates, whichever kind: an ARM-managed
+ * namespace on managed AKS, or an Arc project, which has no ARM resource and so
+ * carries the authorization model we stamp instead of the ARM marker. Arc
+ * projects need this as much as managed ones — more so, since deleting them
+ * requires native Kubernetes calls rather than `az aks namespace delete`.
+ */
 export const isArmManagedProject = ({ project }: { project: ProjectRef }): Promise<boolean> =>
   new Promise<boolean>(resolve => {
     const cancelFn = (K8s.ResourceClasses.Namespace.apiEndpoint as ApiClient<KubeNamespace>).get(
       project.namespaces[0],
       ns => {
+        const labels = ns.metadata?.labels ?? {};
         resolve(
-          ns.metadata?.labels?.[PROJECT_MANAGED_BY_LABEL] === PROJECT_MANAGED_BY_VALUE &&
-            ns.metadata?.labels?.[MANAGED_BY_ARM_LABEL] === 'true'
+          labels[PROJECT_MANAGED_BY_LABEL] === PROJECT_MANAGED_BY_VALUE &&
+            (labels[MANAGED_BY_ARM_LABEL] === 'true' || !!labels[AUTHZ_MODEL_LABEL])
         );
         void cancelFn.then(cancel => cancel()).catch(() => {});
       },

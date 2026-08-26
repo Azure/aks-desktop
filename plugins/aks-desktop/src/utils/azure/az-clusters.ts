@@ -156,7 +156,7 @@ export async function getConnectedClusters(subscriptionId: string): Promise<any[
     // clusters — a kind/k3s/Azure-Local cluster merely attached via
     // `az connectedk8s connect` — have `kind: null` and are NOT AKS Hybrid &
     // Edge, so they must not be offered, tagged `aksarc`, badged, or given the
-    // proxy Start/Stop actions.
+    // proxy Start action.
     if (cluster.kind !== 'ProvisionedCluster') {
       debugLog(
         'Skipping non-AKS-Arc connected cluster:',
