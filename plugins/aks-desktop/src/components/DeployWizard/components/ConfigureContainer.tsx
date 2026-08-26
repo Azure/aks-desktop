@@ -25,6 +25,8 @@ interface ConfigureContainerProps {
   azureContext?: DeployAzureContext;
   /** Error message from resolving the Azure context, if any. */
   azureContextError?: string;
+  /** True while the Azure context is still being resolved. */
+  azureContextLoading?: boolean;
   /** Target namespace for workload identity setup */
   namespace?: string;
 }
@@ -34,6 +36,7 @@ export default function ConfigureContainer({
   requireContainerImage = true,
   azureContext,
   azureContextError,
+  azureContextLoading,
   namespace,
 }: ConfigureContainerProps) {
   const { t } = useTranslation();
@@ -96,6 +99,7 @@ export default function ConfigureContainer({
               containerConfig={containerConfig}
               azureContext={azureContext}
               azureContextError={azureContextError}
+              azureContextLoading={azureContextLoading}
               namespace={namespace}
             />
           </StepContent>
