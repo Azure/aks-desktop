@@ -10,7 +10,8 @@ import { useHistory } from 'react-router-dom';
 import { DiscoveredNamespace, useNamespaceDiscovery } from '../../hooks/useNamespaceDiscovery';
 import { useRegisteredClusters } from '../../hooks/useRegisteredClusters';
 import { trackError, trackFeature } from '../../telemetry';
-import { getSubscriptions, registerAKSCluster } from '../../utils/azure/aks';
+import { registerAKSCluster } from '../../utils/azure/aks';
+import { normalizeClusterName } from '../../utils/kubernetes/k8sNames';
 import { applyProjectLabels } from '../../utils/kubernetes/namespaceUtils';
 import { getClusterSettings, setClusterSettings } from '../../utils/shared/clusterSettings';
 import AzureAuthGuard from '../AzureAuth/AzureAuthGuard';
@@ -19,6 +20,21 @@ import { ConversionDialog } from './components/ConversionDialog';
 interface ImportSelection {
   namespace: DiscoveredNamespace;
   selected: boolean;
+}
+
+/**
+ * Builds a stable selection identity across Azure scope, cluster, and namespace.
+ *
+ * @param namespace - Discovered namespace whose selection key is required.
+ * @returns A null-delimited identity that remains unique across same-name resources.
+ */
+function namespaceSelectionKey(namespace: DiscoveredNamespace): string {
+  return [
+    namespace.subscriptionId,
+    namespace.resourceGroup,
+    namespace.clusterName,
+    namespace.name,
+  ].join('\0');
 }
 
 function safelyTrackFeature(properties: Parameters<typeof trackFeature>[0]) {
@@ -36,7 +52,7 @@ function safelyTrackError(properties: Parameters<typeof trackError>[0]) {
 function ImportAKSProjectsContent() {
   const history = useHistory();
   const { t } = useTranslation();
-  const registeredClusters = useRegisteredClusters();
+  const { registeredClusters, isReady: registeredClustersReady } = useRegisteredClusters();
   const terminalTrackedRef = useRef(false);
 
   const [error, setError] = useState('');
@@ -62,7 +78,7 @@ function ImportAKSProjectsContent() {
   // Derive selectable list from discovered namespaces
   const namespaces: ImportSelection[] = discovered.map(ns => ({
     namespace: ns,
-    selected: selections.has(`${ns.clusterName}/${ns.name}`),
+    selected: selections.has(namespaceSelectionKey(ns)),
   }));
 
   const selectedNamespaces = namespaces.filter(ns => ns.selected);
@@ -84,7 +100,7 @@ function ImportAKSProjectsContent() {
 
   const toggleSelection = (ns: DiscoveredNamespace) => {
     setSelections(prev => {
-      const key = `${ns.clusterName}/${ns.name}`;
+      const key = namespaceSelectionKey(ns);
       const next = new Set(prev);
       if (next.has(key)) {
         next.delete(key);
@@ -96,7 +112,7 @@ function ImportAKSProjectsContent() {
   };
 
   const selectAll = () => {
-    setSelections(new Set(discovered.map(ns => `${ns.clusterName}/${ns.name}`)));
+    setSelections(new Set(discovered.map(namespaceSelectionKey)));
   };
 
   const deselectAll = () => {
@@ -113,6 +129,9 @@ function ImportAKSProjectsContent() {
 
   /** Called when user clicks "Import Selected" */
   const handleImportClick = () => {
+    if (!registeredClustersReady) {
+      return;
+    }
     if (selectedCount === 0) {
       setError(t('Please select at least one namespace to import'));
       return;
@@ -133,6 +152,9 @@ function ImportAKSProjectsContent() {
 
   /** Process the import (called after confirmation if conversion needed) */
   const processImport = async () => {
+    if (!registeredClustersReady) {
+      return;
+    }
     safelyTrackFeature({ feature: 'aksd.project-import', status: 'started' });
     setShowConversionDialog(false);
     setImporting(true);
@@ -147,31 +169,27 @@ function ImportAKSProjectsContent() {
       message: string;
     }> = [];
 
-    // Build a subscription -> tenant lookup for multi-tenant token support
-    const tenantBySubscription = new Map<string, string>();
-    try {
-      const subsResult = await getSubscriptions();
-      if (subsResult.success && subsResult.subscriptions) {
-        for (const sub of subsResult.subscriptions) {
-          tenantBySubscription.set(sub.id, sub.tenantId);
-        }
-      } else if (!subsResult.success) {
-        console.warn('Failed to fetch subscriptions for tenant lookup:', subsResult.message);
-      }
-    } catch (err) {
-      console.warn('Failed to fetch subscriptions for tenant lookup', err);
-    }
-
     // Build a lookup of cluster -> Azure metadata from ALL discovered namespaces
     // (not just selected). This ensures we have Azure metadata for clusters even
     // when the user only selects namespaces that were discovered via K8s API.
     const clusterAzureMeta = new Map<string, { resourceGroup: string; subscriptionId: string }>();
+    const ambiguousAzureMetadataNames = new Set<string>();
     for (const ns of discovered) {
-      if (ns.resourceGroup && ns.subscriptionId && !clusterAzureMeta.has(ns.clusterName)) {
-        clusterAzureMeta.set(ns.clusterName, {
-          resourceGroup: ns.resourceGroup,
-          subscriptionId: ns.subscriptionId,
-        });
+      if (ns.resourceGroup && ns.subscriptionId) {
+        const normalizedClusterName = normalizeClusterName(ns.clusterName);
+        const existing = clusterAzureMeta.get(normalizedClusterName);
+        if (
+          existing &&
+          (existing.resourceGroup !== ns.resourceGroup ||
+            existing.subscriptionId !== ns.subscriptionId)
+        ) {
+          ambiguousAzureMetadataNames.add(normalizedClusterName);
+        } else if (!existing) {
+          clusterAzureMeta.set(normalizedClusterName, {
+            resourceGroup: ns.resourceGroup,
+            subscriptionId: ns.subscriptionId,
+          });
+        }
       }
     }
 
@@ -183,16 +201,34 @@ function ImportAKSProjectsContent() {
         namespaces: DiscoveredNamespace[];
       }
     >();
+    const clusterKeyByName = new Map<string, string>();
+    const conflictingClusterNames = new Set<string>();
     for (const item of selectedNamespaces) {
       const ns = item.namespace;
-      const meta = clusterAzureMeta.get(ns.clusterName);
-      const existing = clusterMap.get(ns.clusterName);
+      const normalizedClusterName = normalizeClusterName(ns.clusterName);
+      const meta = clusterAzureMeta.get(normalizedClusterName);
+      if (
+        (!ns.resourceGroup || !ns.subscriptionId) &&
+        ambiguousAzureMetadataNames.has(normalizedClusterName)
+      ) {
+        conflictingClusterNames.add(normalizedClusterName);
+      }
+      const resourceGroup = ns.resourceGroup || meta?.resourceGroup || '';
+      const subscriptionId = ns.subscriptionId || meta?.subscriptionId || '';
+      const clusterKey = `${subscriptionId}\0${resourceGroup}\0${normalizedClusterName}`;
+      const existingClusterKey = clusterKeyByName.get(normalizedClusterName);
+      if (existingClusterKey && existingClusterKey !== clusterKey) {
+        conflictingClusterNames.add(normalizedClusterName);
+      } else if (!existingClusterKey) {
+        clusterKeyByName.set(normalizedClusterName, clusterKey);
+      }
+      const existing = clusterMap.get(clusterKey);
       if (!existing) {
-        clusterMap.set(ns.clusterName, {
+        clusterMap.set(clusterKey, {
           key: {
             clusterName: ns.clusterName,
-            resourceGroup: ns.resourceGroup || meta?.resourceGroup || '',
-            subscriptionId: ns.subscriptionId || meta?.subscriptionId || '',
+            resourceGroup,
+            subscriptionId,
           },
           namespaces: [ns],
         });
@@ -214,11 +250,47 @@ function ImportAKSProjectsContent() {
       namespaces: namespacesInCluster,
     } of clusterMap.values()) {
       try {
+        if (conflictingClusterNames.has(normalizeClusterName(clusterName))) {
+          for (const ns of namespacesInCluster) {
+            results.push({
+              namespace: `${ns.name} (${clusterName})`,
+              clusterName,
+              success: false,
+              message: t(
+                'Cannot import projects with the same cluster name in different Azure scopes because their kubeconfig entries would overwrite each other.'
+              ),
+            });
+          }
+          continue;
+        }
+
         // 2a: Register the cluster if it's not already registered in Headlamp.
         // Re-registering with a managedNamespace param overwrites the kubeconfig
         // with namespace-scoped credentials, which would break access to
         // previously imported namespaces on this cluster.
-        if (!registeredClusters.has(clusterName)) {
+        const clusterIsRegistered = registeredClusters.has(normalizeClusterName(clusterName));
+        if (clusterIsRegistered && subscriptionId && resourceGroup) {
+          const registeredScope = getClusterSettings(clusterName).azureRegistration;
+          const scopeMatches =
+            typeof registeredScope?.subscriptionId === 'string' &&
+            typeof registeredScope.resourceGroup === 'string' &&
+            registeredScope.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
+            registeredScope.resourceGroup.toLowerCase() === resourceGroup.toLowerCase();
+          if (!scopeMatches) {
+            for (const ns of namespacesInCluster) {
+              results.push({
+                namespace: `${ns.name} (${clusterName})`,
+                clusterName,
+                success: false,
+                message: t(
+                  'Cluster {{clusterName}} is already registered from a different or unknown Azure scope. Remove and register it again before importing these projects.',
+                  { clusterName }
+                ),
+              });
+            }
+            continue;
+          }
+        } else if (!clusterIsRegistered) {
           // Non-managed namespaces lack Azure metadata, so we can't register the cluster
           // on their behalf. The cluster must already be registered.
           if (!subscriptionId || !resourceGroup) {
@@ -246,9 +318,7 @@ function ImportAKSProjectsContent() {
           const registerResult = await registerAKSCluster(
             subscriptionId,
             resourceGroup,
-            clusterName,
-            undefined, // managedNamespace
-            tenantBySubscription.get(subscriptionId)
+            clusterName
           );
 
           if (!registerResult.success) {
@@ -564,7 +634,7 @@ function ImportAKSProjectsContent() {
                   variant="contained"
                   color="primary"
                   onClick={handleImportClick}
-                  disabled={selectedCount === 0 || importing}
+                  disabled={selectedCount === 0 || importing || !registeredClustersReady}
                   sx={{ ml: 'auto' }}
                   startIcon={
                     importing ? <CircularProgress size={20} /> : <Icon icon="mdi:import" />

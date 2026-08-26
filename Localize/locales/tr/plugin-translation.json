@@ -715,5 +715,13 @@
   "Contact us": "",
   "Get help, share feedback, or reach the AKS Desktop team": "",
   "Select an Azure tenant": "",
-  "Send pseudonymous usage data": ""
+  "Send pseudonymous usage data": "",
+  "A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.": "",
+  "Cannot import projects with the same cluster name in different Azure scopes because their kubeconfig entries would overwrite each other.": "",
+  "Cluster {{clusterName}} is already registered from a different or unknown Azure scope. Remove and register it again before importing these projects.": "",
+  "{{count}} new Azure subscription(s) loaded._one": "",
+  "{{count}} new Azure subscription(s) loaded._other": "",
+  "Azure subscription list updated.": "",
+  "Showing cached Azure subscriptions because the refresh failed.": "",
+  "Showing cached Azure subscriptions while checking for updates.": ""
 }

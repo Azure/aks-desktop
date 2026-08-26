@@ -14,7 +14,9 @@ import { formatCpuValue, formatMemoryValue } from '../validators';
 export const ReviewStep: React.FC<ReviewStepProps> = ({ formData, subscriptions, clusters }) => {
   const { t } = useTranslation();
   const selectedSubscription = subscriptions.find(sub => sub.id === formData.subscription);
-  const selectedCluster = clusters.find(c => c.name === formData.cluster);
+  const selectedCluster = clusters.find(
+    c => c.name === formData.cluster && c.resourceGroup === formData.resourceGroup
+  );
 
   const sectionTitleSx = { color: 'text.primary' };
   const sectionDescriptionSx = { mb: 2, color: 'text.secondary' };

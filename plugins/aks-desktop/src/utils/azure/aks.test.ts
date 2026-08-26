@@ -1,0 +1,447 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the Apache 2.0.
+
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+  getClusterSettings: vi.fn(),
+  getClusters: vi.fn(),
+  getSubscriptions: vi.fn(),
+  setClusterSettings: vi.fn(),
+}));
+
+vi.mock('./az-clusters', () => ({ getClusters: mocks.getClusters }));
+vi.mock('./az-subscriptions', () => ({ getSubscriptions: mocks.getSubscriptions }));
+vi.mock('../shared/clusterSettings', () => ({
+  getClusterSettings: mocks.getClusterSettings,
+  setClusterSettings: mocks.setClusterSettings,
+}));
+
+import {
+  getAKSClusters,
+  getSubscriptions,
+  reconcileRegisteredClusterNames,
+  registerAKSCluster,
+} from './aks';
+
+const desktopRegisterAKSCluster = vi.fn();
+const successResult = { success: true, message: 'registered' };
+
+describe('Azure AKS utilities', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getClusterSettings.mockReturnValue({ allowedNamespaces: ['existing'] });
+    (window as any).desktopApi = {
+      registerAKSCluster: desktopRegisterAKSCluster,
+    };
+    vi.spyOn(console, 'debug').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    reconcileRegisteredClusterNames(desktopRegisterAKSCluster.mock.calls.map(call => call[2]));
+    reconcileRegisteredClusterNames([]);
+    delete (window as any).desktopApi;
+    vi.restoreAllMocks();
+  });
+
+  test('maps subscriptions and supplies legacy fallbacks', async () => {
+    mocks.getSubscriptions.mockResolvedValue([
+      {
+        id: 'sub-1',
+        name: 'Primary',
+        status: 'Enabled',
+        tenant: 'tenant-1',
+        tenantName: 'Primary tenant',
+      },
+      { id: 'sub-2', name: 'Guest', tenant: 'tenant-2' },
+    ]);
+
+    await expect(getSubscriptions()).resolves.toEqual({
+      success: true,
+      message: 'Subscriptions retrieved successfully',
+      subscriptions: [
+        {
+          id: 'sub-1',
+          name: 'Primary',
+          state: 'Enabled',
+          tenantId: 'tenant-1',
+          tenantName: 'Primary tenant',
+          isDefault: false,
+        },
+        {
+          id: 'sub-2',
+          name: 'Guest',
+          state: 'Unknown',
+          tenantId: 'tenant-2',
+          tenantName: 'tenant-2',
+          isDefault: false,
+        },
+      ],
+    });
+    expect(mocks.getSubscriptions).toHaveBeenCalledWith(false);
+  });
+
+  test('requests refreshed Azure subscriptions when required', async () => {
+    mocks.getSubscriptions.mockResolvedValue([]);
+
+    await expect(getSubscriptions(true)).resolves.toMatchObject({ success: true });
+
+    expect(mocks.getSubscriptions).toHaveBeenCalledWith(true);
+  });
+
+  test.each([
+    [new Error('subscription failure'), 'subscription failure'],
+    ['subscription failure', 'Unknown error'],
+  ])('reports subscription errors without throwing', async (error, message) => {
+    mocks.getSubscriptions.mockRejectedValue(error);
+
+    await expect(getSubscriptions()).resolves.toEqual({ success: false, message });
+  });
+
+  test('maps clusters and detects Azure RBAC configuration', async () => {
+    mocks.getClusters.mockResolvedValue([
+      {
+        name: 'cluster-1',
+        resourceGroup: 'rg-1',
+        location: 'eastus',
+        version: '1.32.0',
+        status: 'Succeeded',
+        aadProfile: { enableAzureRbac: true },
+      },
+      {
+        name: 'cluster-2',
+        resourceGroup: 'rg-2',
+        location: 'westus',
+        version: '1.31.0',
+        status: 'Updating',
+        aadProfile: { enableAzureRbac: false },
+      },
+      {
+        name: 'cluster-3',
+        resourceGroup: 'rg-3',
+        location: 'centralus',
+        version: '1.30.0',
+        status: 'Succeeded',
+        aadProfile: null,
+      },
+      {
+        name: 'cluster-4',
+        resourceGroup: 'rg-4',
+        location: 'northcentralus',
+        version: '1.29.0',
+        status: 'Succeeded',
+      },
+    ]);
+
+    await expect(getAKSClusters('sub-1')).resolves.toEqual({
+      success: true,
+      message: 'AKS clusters retrieved successfully',
+      clusters: [
+        {
+          name: 'cluster-1',
+          resourceGroup: 'rg-1',
+          location: 'eastus',
+          kubernetesVersion: '1.32.0',
+          provisioningState: 'Succeeded',
+          fqdn: '',
+          isAzureRBACEnabled: true,
+        },
+        {
+          name: 'cluster-2',
+          resourceGroup: 'rg-2',
+          location: 'westus',
+          kubernetesVersion: '1.31.0',
+          provisioningState: 'Updating',
+          fqdn: '',
+          isAzureRBACEnabled: false,
+        },
+        {
+          name: 'cluster-3',
+          resourceGroup: 'rg-3',
+          location: 'centralus',
+          kubernetesVersion: '1.30.0',
+          provisioningState: 'Succeeded',
+          fqdn: '',
+          isAzureRBACEnabled: false,
+        },
+        {
+          name: 'cluster-4',
+          resourceGroup: 'rg-4',
+          location: 'northcentralus',
+          kubernetesVersion: '1.29.0',
+          provisioningState: 'Succeeded',
+          fqdn: '',
+          isAzureRBACEnabled: false,
+        },
+      ],
+    });
+  });
+
+  test.each([
+    [new Error('cluster failure'), 'cluster failure'],
+    ['cluster failure', 'Unknown error'],
+  ])('reports cluster errors without throwing', async (error, message) => {
+    mocks.getClusters.mockRejectedValue(error);
+
+    await expect(getAKSClusters('sub-1')).resolves.toEqual({ success: false, message });
+  });
+
+  test('passes the AKS cluster type to the desktop API', async () => {
+    desktopRegisterAKSCluster.mockResolvedValue(successResult);
+
+    await registerAKSCluster('sub-1', 'rg-1', 'cluster-1', 'namespace-1');
+
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledWith(
+      'sub-1',
+      'rg-1',
+      'cluster-1',
+      false,
+      'namespace-1',
+      'aks'
+    );
+    expect(mocks.setClusterSettings).toHaveBeenCalledWith('cluster-1', {
+      allowedNamespaces: ['existing'],
+      azureRegistration: {
+        subscriptionId: 'sub-1',
+        resourceGroup: 'rg-1',
+      },
+    });
+  });
+
+  test('reports scope persistence failure and retries without native registration', async () => {
+    desktopRegisterAKSCluster.mockResolvedValue(successResult);
+    mocks.setClusterSettings
+      .mockImplementationOnce(() => {
+        throw new Error('localStorage full');
+      })
+      .mockImplementationOnce(() => {});
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'metadata-retry')).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'metadata-retry' was registered, but its Azure scope could not be saved. Retry to save the registration metadata.",
+    });
+    await expect(
+      registerAKSCluster('sub-1', 'rg-1', 'metadata-retry', undefined, true)
+    ).resolves.toEqual({
+      success: true,
+      message: "Cluster 'metadata-retry' is already registered from this Azure scope.",
+    });
+
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(1);
+    expect(mocks.setClusterSettings).toHaveBeenCalledTimes(2);
+  });
+
+  test('reports when the desktop registration API is unavailable', async () => {
+    delete (window as any).desktopApi;
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
+      success: false,
+      message: 'Desktop API not available. This feature is only available in desktop mode.',
+    });
+  });
+
+  test('rejects an active same-name cluster from another Azure scope', async () => {
+    mocks.getClusterSettings.mockReturnValue({
+      azureRegistration: { subscriptionId: 'old-sub', resourceGroup: 'old-rg' },
+    });
+
+    await expect(
+      registerAKSCluster('new-sub', 'new-rg', 'shared-name', undefined, true)
+    ).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'shared-name' is already registered from a different or unknown Azure scope.",
+    });
+    expect(desktopRegisterAKSCluster).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { azureRegistration: { resourceGroup: 'rg-1' } },
+    { azureRegistration: { subscriptionId: 'sub-1' } },
+    { azureRegistration: { subscriptionId: { id: 'sub-1' }, resourceGroup: 'rg-1' } },
+    { azureRegistration: { subscriptionId: 'sub-1', resourceGroup: 42 } },
+  ])('treats malformed active scope metadata as unknown: %s', async settings => {
+    mocks.getClusterSettings.mockReturnValue(settings);
+
+    await expect(
+      registerAKSCluster('sub-1', 'rg-1', 'shared-name', undefined, true)
+    ).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'shared-name' is already registered from a different or unknown Azure scope.",
+    });
+    expect(desktopRegisterAKSCluster).not.toHaveBeenCalled();
+  });
+
+  test('allows stale scope metadata when the cluster name is not active', async () => {
+    mocks.getClusterSettings.mockReturnValue({
+      azureRegistration: { subscriptionId: 'old-sub', resourceGroup: 'old-rg' },
+    });
+    desktopRegisterAKSCluster.mockResolvedValue(successResult);
+
+    await expect(
+      registerAKSCluster('new-sub', 'new-rg', 'shared-name', undefined, false)
+    ).resolves.toEqual(successResult);
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(1);
+  });
+
+  test('prevents concurrent registrations from losing a kubeconfig update', async () => {
+    let registeredClusters: string[] = [];
+    let markFirstStarted!: () => void;
+    let releaseFirst!: () => void;
+    const firstStarted = new Promise<void>(resolve => {
+      markFirstStarted = resolve;
+    });
+    const firstMayFinish = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    desktopRegisterAKSCluster.mockImplementation(
+      async (_subscriptionId: string, _resourceGroup: string, clusterName: string) => {
+        const existingClusters = [...registeredClusters];
+        if (clusterName === 'cluster-1') {
+          markFirstStarted();
+          await firstMayFinish;
+        }
+        registeredClusters = [...existingClusters, clusterName];
+        return successResult;
+      }
+    );
+
+    const first = registerAKSCluster('sub-1', 'rg-1', 'cluster-1');
+    await firstStarted;
+    const second = registerAKSCluster('sub-2', 'rg-2', 'cluster-2');
+
+    expect(registeredClusters).toEqual([]);
+    releaseFirst();
+
+    await Promise.all([first, second]);
+    expect(registeredClusters).toEqual(['cluster-1', 'cluster-2']);
+  });
+
+  test('rejects conflicting scopes while a first-time same-name registration is queued', async () => {
+    let resolveFirst!: (value: { success: boolean; message: string }) => void;
+    desktopRegisterAKSCluster.mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveFirst = resolve;
+      })
+    );
+
+    const first = registerAKSCluster('first-sub', 'first-rg', 'shared-queued-name');
+    const second = registerAKSCluster('second-sub', 'second-rg', 'shared-queued-name');
+
+    await expect(second).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'shared-queued-name' is already registered from a different or unknown Azure scope.",
+    });
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(1);
+
+    resolveFirst({ success: true, message: 'registered' });
+    await expect(first).resolves.toEqual({ success: true, message: 'registered' });
+  });
+
+  test('retains a completed reservation until live state confirms removal', async () => {
+    desktopRegisterAKSCluster.mockResolvedValue(successResult);
+
+    await expect(
+      registerAKSCluster('first-sub', 'first-rg', 'removed-cluster-name')
+    ).resolves.toEqual(successResult);
+
+    await expect(
+      registerAKSCluster('second-sub', 'second-rg', 'removed-cluster-name', undefined, false)
+    ).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'removed-cluster-name' is already registered from a different or unknown Azure scope.",
+    });
+
+    reconcileRegisteredClusterNames(['removed-cluster-name']);
+    reconcileRegisteredClusterNames([]);
+
+    await expect(
+      registerAKSCluster('second-sub', 'second-rg', 'removed-cluster-name', undefined, false)
+    ).resolves.toEqual(successResult);
+
+    expect(desktopRegisterAKSCluster).toHaveBeenNthCalledWith(
+      2,
+      'second-sub',
+      'second-rg',
+      'removed-cluster-name',
+      false,
+      undefined,
+      'aks'
+    );
+  });
+
+  test('continues the queue after a desktop registration rejects', async () => {
+    desktopRegisterAKSCluster
+      .mockRejectedValueOnce(new Error('registration failed'))
+      .mockResolvedValueOnce(successResult);
+
+    const first = registerAKSCluster('sub-1', 'rg-1', 'cluster-1');
+    const second = registerAKSCluster('sub-2', 'rg-2', 'cluster-2');
+
+    await expect(first).resolves.toEqual({
+      success: false,
+      message: 'registration failed',
+    });
+    await expect(second).resolves.toEqual(successResult);
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(2);
+  });
+
+  test('normalizes non-Error desktop failures', async () => {
+    desktopRegisterAKSCluster.mockRejectedValue('registration failed');
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
+      success: false,
+      message: 'Unknown error',
+    });
+  });
+
+  test('retains malformed registration outcomes when live state observes the cluster', async () => {
+    desktopRegisterAKSCluster.mockResolvedValue(undefined);
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
+      success: false,
+      message: 'Cluster registration returned an invalid response.',
+    });
+    await expect(registerAKSCluster('sub-2', 'rg-2', 'cluster-1')).resolves.toEqual({
+      success: false,
+      message: "Cluster 'cluster-1' is already registered from a different or unknown Azure scope.",
+    });
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'cluster-1' registration has an unknown outcome. Wait for cluster configuration to refresh before retrying.",
+    });
+
+    reconcileRegisteredClusterNames(['cluster-1']);
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'cluster-1' registration has an unknown outcome. Wait for cluster configuration to refresh before retrying.",
+    });
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(1);
+    expect(mocks.setClusterSettings).not.toHaveBeenCalled();
+  });
+
+  test('releases a malformed registration outcome after live state confirms absence', async () => {
+    desktopRegisterAKSCluster.mockResolvedValueOnce(undefined).mockResolvedValueOnce(successResult);
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'absent-cluster')).resolves.toEqual({
+      success: false,
+      message: 'Cluster registration returned an invalid response.',
+    });
+
+    reconcileRegisteredClusterNames([]);
+
+    await expect(registerAKSCluster('sub-2', 'rg-2', 'absent-cluster')).resolves.toEqual(
+      successResult
+    );
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(2);
+  });
+});

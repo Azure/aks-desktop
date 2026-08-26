@@ -24,8 +24,18 @@ export async function getSubscriptionIds(): Promise<string[]> {
   return stdout.trim().split(/\r?\n/).filter(Boolean);
 }
 
-export async function getSubscriptions(): Promise<any[]> {
-  const { stdout, stderr } = await runCommandAsync('az', ['account', 'list', '-o', 'json']);
+/**
+ * Retrieves Azure subscriptions and resolves tenant display names.
+ *
+ * @param refresh - Whether Azure CLI should retrieve current subscriptions from the server.
+ * @returns Cached or refreshed subscriptions, including disabled entries and tenant metadata.
+ * @throws When Azure CLI returns no subscription payload.
+ */
+export async function getSubscriptions(refresh = false): Promise<any[]> {
+  const args = ['account', 'list', '--all'];
+  if (refresh) args.push('--refresh');
+  args.push('-o', 'json');
+  const { stdout, stderr } = await runCommandAsync('az', args);
   if (!stdout) throw new Error(stderr || 'Failed to get subscriptions');
   const subscriptions = JSON.parse(stdout).map((sub: any) => ({
     id: sub.id,

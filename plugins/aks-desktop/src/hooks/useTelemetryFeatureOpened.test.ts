@@ -23,4 +23,12 @@ describe('useTelemetryFeatureOpened', () => {
     expect(mockTrackAksFeature).toHaveBeenCalledTimes(1);
     expect(mockTrackAksFeature).toHaveBeenCalledWith('aksd.cluster-add', 'opened');
   });
+
+  test('does not throw when opened-event telemetry fails', () => {
+    mockTrackAksFeature.mockImplementation(() => {
+      throw new Error('telemetry unavailable');
+    });
+
+    expect(() => renderHook(() => useTelemetryFeatureOpened('aksd.cluster-add'))).not.toThrow();
+  });
 });

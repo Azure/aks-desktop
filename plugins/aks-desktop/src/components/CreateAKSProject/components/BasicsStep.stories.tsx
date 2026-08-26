@@ -64,6 +64,16 @@ const CLUSTERS = [
   },
 ];
 
+const SAME_NAME_CLUSTERS = [
+  { ...CLUSTERS[0], name: 'shared-aks', resourceGroup: 'rg-platform' },
+  {
+    ...CLUSTERS[1],
+    name: 'shared-aks',
+    resourceGroup: 'rg-apps',
+    location: 'westus',
+  },
+];
+
 const BASE_PROPS: BasicsStepProps = {
   formData: BASE_FORM_DATA,
   onFormDataChange: () => {},
@@ -143,6 +153,23 @@ HiddenClusters.args = {
   formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
   clusters: CLUSTERS,
   totalClusterCount: 5,
+};
+
+/**
+ * Same-name clusters in separate resource groups remain distinct options.
+ * Open the Cluster dropdown to inspect each resource-group subtitle.
+ */
+export const SameNameClustersByResourceGroup = Template.bind({});
+SameNameClustersByResourceGroup.args = {
+  ...BASE_PROPS,
+  formData: {
+    ...BASE_FORM_DATA,
+    subscription: 'sub-123',
+    cluster: 'shared-aks',
+    resourceGroup: 'rg-apps',
+  },
+  clusters: SAME_NAME_CLUSTERS,
+  totalClusterCount: 2,
 };
 
 /**

@@ -27,6 +27,32 @@ describe('clusterSettings', () => {
       expect(settings.theme).toBe('dark');
     });
 
+    test('reads settings through a case-insensitive cluster name', () => {
+      localStorage.setItem(
+        'cluster_settings.MyCluster',
+        JSON.stringify({ azureRegistration: { subscriptionId: 'sub-1', resourceGroup: 'rg-1' } })
+      );
+
+      expect(getClusterSettings('mycluster').azureRegistration).toEqual({
+        subscriptionId: 'sub-1',
+        resourceGroup: 'rg-1',
+      });
+    });
+
+    test('returns empty settings when case-variant keys are ambiguous', () => {
+      localStorage.setItem(
+        'cluster_settings.MyCluster',
+        JSON.stringify({ azureRegistration: { subscriptionId: 'sub-1', resourceGroup: 'rg-1' } })
+      );
+      localStorage.setItem(
+        'cluster_settings.mycluster',
+        JSON.stringify({ azureRegistration: { subscriptionId: 'sub-2', resourceGroup: 'rg-2' } })
+      );
+
+      expect(getClusterSettings('MyCluster')).toEqual({});
+      expect(getClusterSettings('mycluster')).toEqual({});
+    });
+
     test('returns empty object for invalid JSON', () => {
       localStorage.setItem('cluster_settings.my-cluster', 'not-json{{{');
 
@@ -83,6 +109,39 @@ describe('clusterSettings', () => {
       const settings = getClusterSettings('my-cluster');
       expect(settings.allowedNamespaces).toEqual(['ns-2']);
       expect(settings.newKey).toBe(true);
+    });
+
+    test('preserves an existing case-variant storage key', () => {
+      localStorage.setItem(
+        'cluster_settings.MyCluster',
+        JSON.stringify({ allowedNamespaces: ['ns-1'] })
+      );
+
+      setClusterSettings('mycluster', { allowedNamespaces: ['ns-2'] });
+
+      expect(localStorage.getItem('cluster_settings.mycluster')).toBeNull();
+      expect(getClusterSettings('MYCLUSTER').allowedNamespaces).toEqual(['ns-2']);
+    });
+
+    test('rejects writes when case-variant keys are ambiguous', () => {
+      localStorage.setItem(
+        'cluster_settings.MyCluster',
+        JSON.stringify({ allowedNamespaces: ['ns-1'] })
+      );
+      localStorage.setItem(
+        'cluster_settings.mycluster',
+        JSON.stringify({ allowedNamespaces: ['ns-2'] })
+      );
+
+      expect(() => setClusterSettings('MYCLUSTER', { allowedNamespaces: ['ns-3'] })).toThrow(
+        "Multiple settings entries exist for cluster 'MYCLUSTER'."
+      );
+      expect(JSON.parse(localStorage.getItem('cluster_settings.MyCluster')!)).toEqual({
+        allowedNamespaces: ['ns-1'],
+      });
+      expect(JSON.parse(localStorage.getItem('cluster_settings.mycluster')!)).toEqual({
+        allowedNamespaces: ['ns-2'],
+      });
     });
   });
 });

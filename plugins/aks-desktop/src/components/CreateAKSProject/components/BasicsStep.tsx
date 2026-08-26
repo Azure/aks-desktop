@@ -43,7 +43,6 @@ interface RegisterClusterProps {
   cluster: string;
   resourceGroup: string;
   subscription: string;
-  tenantId?: string;
 }
 
 /**
@@ -52,14 +51,10 @@ interface RegisterClusterProps {
  *
  * All async logic lives in {@link useRegisterCluster}.
  */
-function RegisterCluster({ cluster, resourceGroup, subscription, tenantId }: RegisterClusterProps) {
+function RegisterCluster({ cluster, resourceGroup, subscription }: RegisterClusterProps) {
   const { t } = useTranslation();
-  const { loading, error, success, handleRegister, clearError, clearSuccess } = useRegisterCluster(
-    cluster,
-    resourceGroup,
-    subscription,
-    tenantId
-  );
+  const { loading, clusterConfigReady, error, success, handleRegister, clearError, clearSuccess } =
+    useRegisterCluster(cluster, resourceGroup, subscription);
 
   return (
     <Box display="flex" flexDirection="column" gap={2}>
@@ -98,7 +93,7 @@ function RegisterCluster({ cluster, resourceGroup, subscription, tenantId }: Reg
               <Icon icon="mdi:plus" aria-hidden="true" />
             )
           }
-          disabled={loading}
+          disabled={loading || !clusterConfigReady}
           aria-busy={loading || undefined}
         >
           {loading ? `${t('Registering cluster')}...` : t('Register Cluster')}
@@ -147,9 +142,10 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
     subscriptionOptions,
     clusterOptions,
     clusterHelperText,
-    selectedSubscription,
     selectedCluster,
+    selectedClusterValue,
     isClusterMissing,
+    clusterScopeConflict,
     nonReadyCluster,
     handleInputChange,
     handleClusterChange,
@@ -287,7 +283,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
         {/* Cluster */}
         <SearchableSelect
           label={t('Cluster')}
-          value={formData.cluster}
+          value={selectedClusterValue}
           onChange={handleClusterChange}
           options={clusterOptions}
           loading={loadingClusters}
@@ -309,12 +305,20 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
         />
 
         {/* Register cluster if it's missing from the kubeconfig */}
-        {formData.subscription && selectedCluster && isClusterMissing && (
+        {formData.subscription && selectedCluster && clusterScopeConflict && (
+          <ValidationAlert
+            type="error"
+            message={t(
+              'A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.'
+            )}
+          />
+        )}
+
+        {formData.subscription && selectedCluster && isClusterMissing && !clusterScopeConflict && (
           <RegisterCluster
             cluster={selectedCluster.name}
             resourceGroup={selectedCluster.resourceGroup}
             subscription={formData.subscription}
-            tenantId={selectedSubscription?.tenant}
           />
         )}
 

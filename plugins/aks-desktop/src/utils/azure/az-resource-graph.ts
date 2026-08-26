@@ -147,7 +147,8 @@ export async function getClustersViaGraph(
         location,
         version = tostring(properties.kubernetesVersion),
         status = tostring(properties.provisioningState),
-        powerState = tostring(properties.powerState.code)
+        powerState = tostring(properties.powerState.code),
+        azureRbacEnabled = tobool(properties.aadProfile.enableAzureRbac)
     | order by name asc
   `;
 
@@ -181,6 +182,10 @@ export async function getClustersViaGraph(
     status: cluster.status,
     powerState: cluster.powerState || 'Unknown',
     nodeCount: cluster.nodeCount || 0,
+    aadProfile:
+      typeof cluster.azureRbacEnabled === 'boolean'
+        ? { enableAzureRbac: cluster.azureRbacEnabled }
+        : undefined,
   }));
 }
 

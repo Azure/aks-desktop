@@ -41,16 +41,30 @@ export interface AKSCluster {
   provisioningState: string;
 }
 
+/** User-visible state of background Azure subscription discovery. */
+export interface SubscriptionRefreshState {
+  /** Current background refresh phase. */
+  status: 'idle' | 'refreshing' | 'updated' | 'failed';
+  /** Number of subscription IDs added by the refreshed list. */
+  addedCount: number;
+}
+
 export interface RegisterAKSClusterDialogPureProps {
   open: boolean;
   isChecking: boolean;
   isLoggedIn: boolean;
   loading: boolean;
   loadingSubscriptions: boolean;
+  /** Background refresh state shown after cached subscriptions become available. */
+  subscriptionRefresh: SubscriptionRefreshState;
   loadingClusters: boolean;
   capabilitiesLoading: boolean;
   error: string;
   success: string;
+  /** Whether registration completed successfully in the current dialog session. */
+  registrationSucceeded?: boolean;
+  /** Whether Headlamp's live cluster configuration is authoritative. */
+  clusterConfigReady?: boolean;
   subscriptions: Subscription[];
   selectedSubscription: Subscription | null;
   subscriptionInputValue: string;
@@ -82,10 +96,13 @@ export default function RegisterAKSClusterDialogPure({
   isLoggedIn,
   loading,
   loadingSubscriptions,
+  subscriptionRefresh,
   loadingClusters,
   capabilitiesLoading,
   error,
   success,
+  registrationSucceeded,
+  clusterConfigReady = true,
   subscriptions,
   selectedSubscription,
   subscriptionInputValue,
@@ -111,6 +128,7 @@ export default function RegisterAKSClusterDialogPure({
   onConfigured,
 }: RegisterAKSClusterDialogPureProps) {
   const { t } = useTranslation();
+  const registrationCompleted = registrationSucceeded ?? Boolean(success);
 
   return (
     <Dialog
@@ -140,6 +158,28 @@ export default function RegisterAKSClusterDialogPure({
           {success && (
             <Alert severity="success" onClose={onDismissSuccess}>
               {success}
+            </Alert>
+          )}
+
+          {subscriptionRefresh.status === 'refreshing' && (
+            <Alert severity="info">
+              {t('Showing cached Azure subscriptions while checking for updates.')}
+            </Alert>
+          )}
+
+          {subscriptionRefresh.status === 'updated' && (
+            <Alert severity="success">
+              {subscriptionRefresh.addedCount > 0
+                ? t('{{count}} new Azure subscription(s) loaded.', {
+                    count: subscriptionRefresh.addedCount,
+                  })
+                : t('Azure subscription list updated.')}
+            </Alert>
+          )}
+
+          {subscriptionRefresh.status === 'failed' && (
+            <Alert severity="warning">
+              {t('Showing cached Azure subscriptions because the refresh failed.')}
             </Alert>
           )}
 
@@ -220,7 +260,9 @@ export default function RegisterAKSClusterDialogPure({
                 getOptionKey={option => option.id}
                 getOptionLabel={option => option.name}
                 isOptionEqualToValue={(option, value) => option.id === value.id}
-                disabled={loadingSubscriptions || tenants.length <= 1}
+                disabled={
+                  loading || registrationCompleted || loadingSubscriptions || tenants.length <= 1
+                }
                 renderInput={params => (
                   <TextField
                     {...params}
@@ -257,7 +299,12 @@ export default function RegisterAKSClusterDialogPure({
                   `${option.name}${option.state !== 'Enabled' ? ` (${option.state})` : ''}`
                 }
                 isOptionEqualToValue={(option, value) => option.id === value.id}
-                disabled={loadingSubscriptions || (tenants.length > 1 && !selectedTenant)}
+                disabled={
+                  loading ||
+                  registrationCompleted ||
+                  loadingSubscriptions ||
+                  (tenants.length > 1 && !selectedTenant)
+                }
                 loading={loadingSubscriptions}
                 renderInput={params => (
                   <TextField
@@ -327,6 +374,7 @@ export default function RegisterAKSClusterDialogPure({
                   isOptionEqualToValue={(option, value) =>
                     option.name === value.name && option.resourceGroup === value.resourceGroup
                   }
+                  disabled={loading || registrationCompleted}
                   renderInput={params => (
                     <TextField
                       {...params}
@@ -348,31 +396,34 @@ export default function RegisterAKSClusterDialogPure({
                 />
               )}
 
-              {selectedCluster && clusterInputValue === selectedCluster.name && !success && (
-                <Box
-                  p={2}
-                  bgcolor="action.hover"
-                  borderRadius={1}
-                  role="region"
-                  aria-label={t('Selected Cluster Details')}
-                >
-                  <Typography variant="subtitle2" component="p" gutterBottom>
-                    {t('Selected Cluster Details')}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Name')}:</strong> {selectedCluster.name}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Resource Group')}:</strong> {selectedCluster.resourceGroup}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Location')}:</strong> {selectedCluster.location}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Kubernetes Version')}:</strong> {selectedCluster.kubernetesVersion}
-                  </Typography>
-                </Box>
-              )}
+              {selectedCluster &&
+                clusterInputValue === selectedCluster.name &&
+                !registrationCompleted && (
+                  <Box
+                    p={2}
+                    bgcolor="action.hover"
+                    borderRadius={1}
+                    role="region"
+                    aria-label={t('Selected Cluster Details')}
+                  >
+                    <Typography variant="subtitle2" component="p" gutterBottom>
+                      {t('Selected Cluster Details')}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Name')}:</strong> {selectedCluster.name}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Resource Group')}:</strong> {selectedCluster.resourceGroup}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Location')}:</strong> {selectedCluster.location}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Kubernetes Version')}:</strong>{' '}
+                      {selectedCluster.kubernetesVersion}
+                    </Typography>
+                  </Box>
+                )}
             </>
           )}
           {/* Persistent live region for loading status announcements.
@@ -408,7 +459,7 @@ export default function RegisterAKSClusterDialogPure({
       </DialogContent>
 
       <DialogActions>
-        {success ? (
+        {registrationCompleted ? (
           <Button onClick={onDone} variant="contained">
             {t('Done')}
           </Button>
@@ -421,7 +472,9 @@ export default function RegisterAKSClusterDialogPure({
               onClick={onRegister}
               variant="contained"
               color="primary"
-              disabled={!selectedCluster || loading || !isLoggedIn || isChecking}
+              disabled={
+                !selectedCluster || loading || !isLoggedIn || isChecking || !clusterConfigReady
+              }
               startIcon={
                 loading ? (
                   <CircularProgress size={20} aria-hidden="true" />

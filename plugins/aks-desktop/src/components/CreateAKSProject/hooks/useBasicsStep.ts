@@ -4,6 +4,8 @@
 import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useRef } from 'react';
 import { useAzureAuth } from '../../../hooks/useAzureAuth';
+import { normalizeClusterName } from '../../../utils/kubernetes/k8sNames';
+import { getClusterSettings } from '../../../utils/shared/clusterSettings';
 import type { SearchableSelectOption } from '../components/SearchableSelect';
 import type { AzureCluster, AzureSubscription, FormData } from '../types';
 
@@ -113,6 +115,16 @@ export function getClusterStateMessage(cluster: AzureCluster, t: (key: string) =
   return '';
 }
 
+/**
+ * Returns a collision-free select value without changing the cluster name stored in form data.
+ *
+ * @param cluster - Azure cluster whose option identity is required.
+ * @returns A serialized tuple containing the cluster name and resource group.
+ */
+export function getClusterOptionValue(cluster: AzureCluster): string {
+  return JSON.stringify([cluster.name, cluster.resourceGroup]);
+}
+
 // ---------------------------------------------------------------------------
 // Hook return type
 // ---------------------------------------------------------------------------
@@ -133,11 +145,15 @@ export interface UseBasicsStepResult {
   selectedSubscription: AzureSubscription | undefined;
   /** The currently selected Azure cluster object, or `undefined` if none. */
   selectedCluster: AzureCluster | undefined;
+  /** Composite select value for the selected cluster and resource group. */
+  selectedClusterValue: string;
   /**
    * `true` when a cluster is selected but is not present in the headlamp
    * kubeconfig — the user must register it before proceeding.
    */
   isClusterMissing: boolean;
+  /** `true` when the active same-name cluster belongs to another or unknown Azure scope. */
+  clusterScopeConflict: boolean;
   /**
    * When the selected cluster is in a non-ready state, contains the cluster
    * object and a pre-translated warning message. `null` otherwise.
@@ -153,6 +169,39 @@ export interface UseBasicsStepResult {
    * together so they stay in sync.
    */
   handleClusterChange: (clusterName: string) => void;
+}
+
+export type ClusterRegistrationState = 'missing' | 'registered' | 'scope-conflict';
+
+/**
+ * Resolves whether a selected Azure cluster matches the active kubeconfig entry.
+ *
+ * @param headlampClusters - Current Headlamp cluster configuration, if available.
+ * @param clusterName - Selected Azure cluster name.
+ * @param subscriptionId - Selected Azure subscription ID.
+ * @param resourceGroup - Selected Azure resource group.
+ * @returns Whether the cluster is missing, registered in scope, or conflicts by scope.
+ */
+export function getClusterRegistrationState(
+  headlampClusters: Record<string, unknown> | null | undefined,
+  clusterName: string,
+  subscriptionId: string,
+  resourceGroup: string
+): ClusterRegistrationState {
+  const activeCluster = Object.values(headlampClusters || {}).find(
+    (cluster: any) =>
+      typeof cluster.name === 'string' &&
+      normalizeClusterName(cluster.name) === normalizeClusterName(clusterName)
+  );
+  if (!activeCluster) return 'missing';
+
+  const registeredScope = getClusterSettings(clusterName).azureRegistration;
+  const scopeMatches =
+    typeof registeredScope?.subscriptionId === 'string' &&
+    typeof registeredScope.resourceGroup === 'string' &&
+    registeredScope.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
+    registeredScope.resourceGroup.toLowerCase() === resourceGroup.toLowerCase();
+  return scopeMatches ? 'registered' : 'scope-conflict';
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +224,7 @@ export interface UseBasicsStepResult {
  *   delegate to `props.onFormDataChange`.
  *
  * @param props - The fields from {@link UseBasicsStepInput} that the hook needs.
+ * @returns Derived Basics-step state and handlers for the current form data.
  */
 export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
   const { t } = useTranslation();
@@ -235,11 +285,11 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
   });
 
   const clusterOptions: SearchableSelectOption[] = clusters.map(cluster => ({
-    value: cluster.name,
+    value: getClusterOptionValue(cluster),
     label: cluster.name,
-    subtitle: `${cluster.location} • ${cluster.version} • ${t('{{count}} nodes', {
-      count: cluster.nodeCount,
-    })} • ${cluster.status}`,
+    subtitle: `${t('Resource Group')}: ${cluster.resourceGroup} • ${cluster.location} • ${
+      cluster.version
+    } • ${t('{{count}} nodes', { count: cluster.nodeCount })} • ${cluster.status}`,
   }));
 
   const clusterHelperText = getClusterHelperText(
@@ -254,13 +304,21 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     : undefined;
 
   const selectedCluster = formData.cluster
-    ? clusters.find(c => c.name === formData.cluster)
+    ? clusters.find(c => c.name === formData.cluster && c.resourceGroup === formData.resourceGroup)
     : undefined;
+  const selectedClusterValue = selectedCluster ? getClusterOptionValue(selectedCluster) : '';
 
+  const clusterRegistrationState = selectedCluster
+    ? getClusterRegistrationState(
+        headlampClusters,
+        selectedCluster.name,
+        formData.subscription,
+        selectedCluster.resourceGroup
+      )
+    : undefined;
   const isClusterMissing =
-    selectedCluster !== undefined &&
-    Object.values(headlampClusters || {}).find((it: any) => it.name === selectedCluster.name) ===
-      undefined;
+    clusterRegistrationState === 'missing' || clusterRegistrationState === 'scope-conflict';
+  const clusterScopeConflict = clusterRegistrationState === 'scope-conflict';
 
   const nonReadyCluster: UseBasicsStepResult['nonReadyCluster'] =
     selectedCluster && isClusterNonReady(selectedCluster)
@@ -278,14 +336,14 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     onFormDataChange({ [field]: value } as Pick<FormData, K>);
   };
 
-  const handleClusterChange = (clusterName: string) => {
-    if (!clusterName) {
+  const handleClusterChange = (clusterValue: string) => {
+    if (!clusterValue) {
       onFormDataChange({ cluster: '', resourceGroup: '' });
       return;
     }
-    const found = clusters.find(c => c.name === clusterName);
+    const found = clusters.find(c => getClusterOptionValue(c) === clusterValue);
     if (found) {
-      onFormDataChange({ cluster: clusterName, resourceGroup: found.resourceGroup });
+      onFormDataChange({ cluster: found.name, resourceGroup: found.resourceGroup });
     }
   };
 
@@ -296,7 +354,9 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     clusterHelperText,
     selectedSubscription,
     selectedCluster,
+    selectedClusterValue,
     isClusterMissing,
+    clusterScopeConflict,
     nonReadyCluster,
     handleInputChange,
     handleClusterChange,

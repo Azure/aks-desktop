@@ -30,6 +30,7 @@ const baseArgs: RegisterAKSClusterDialogPureProps = {
   isLoggedIn: true,
   loading: false,
   loadingSubscriptions: false,
+  subscriptionRefresh: { status: 'idle', addedCount: 0 },
   loadingClusters: false,
   capabilitiesLoading: false,
   error: '',
@@ -145,5 +146,70 @@ describe('RegisterAKSClusterDialogPure tenant options', () => {
     );
 
     expect(screen.getByRole('combobox', { name: 'Tenant' })).toBeDisabled();
+  });
+
+  test('disables all cluster identity controls while registration is in flight', () => {
+    const selectedSubscription = {
+      id: 'sub-1',
+      name: 'Production',
+      state: 'Enabled',
+      tenantId: TENANT_A,
+    };
+    const selectedCluster = {
+      name: 'aks-prod',
+      resourceGroup: 'rg-prod',
+      location: 'eastus',
+      kubernetesVersion: '1.32.0',
+      provisioningState: 'Succeeded',
+    };
+    render(
+      <RegisterAKSClusterDialogPure
+        {...baseArgs}
+        loading
+        tenants={[
+          { id: TENANT_A, name: 'Contoso' },
+          { id: TENANT_B, name: 'Fabrikam' },
+        ]}
+        selectedTenant={{ id: TENANT_A, name: 'Contoso' }}
+        tenantInputValue="Contoso"
+        subscriptions={[selectedSubscription]}
+        selectedSubscription={selectedSubscription}
+        subscriptionInputValue="Production"
+        clusters={[selectedCluster]}
+        filteredClusters={[selectedCluster]}
+        selectedCluster={selectedCluster}
+        clusterInputValue="aks-prod"
+      />
+    );
+
+    expect(screen.getByRole('combobox', { name: 'Tenant' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Subscription' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'AKS Cluster' })).toBeDisabled();
+  });
+});
+
+describe('RegisterAKSClusterDialogPure subscription refresh notices', () => {
+  afterEach(cleanup);
+
+  test.each([
+    ['refreshing', /showing cached azure subscriptions/i],
+    ['updated', /new azure subscription/i],
+    ['failed', /showing cached azure subscriptions because the refresh failed/i],
+  ] as const)('shows the %s notice', (status, expectedText) => {
+    render(
+      <RegisterAKSClusterDialogPure
+        {...baseArgs}
+        subscriptionRefresh={{ status, addedCount: status === 'updated' ? 1 : 0 }}
+      />
+    );
+
+    expect(screen.getByText(expectedText)).toBeInTheDocument();
+  });
+
+  test('shows no refresh notice when cached and refreshed subscriptions match', () => {
+    render(<RegisterAKSClusterDialogPure {...baseArgs} />);
+
+    expect(screen.queryByText(/cached azure subscriptions/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/subscription list updated/i)).not.toBeInTheDocument();
   });
 });

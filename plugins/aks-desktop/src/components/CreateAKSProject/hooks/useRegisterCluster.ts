@@ -2,8 +2,10 @@
 // Licensed under the Apache 2.0.
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useRegisteredClusters } from '../../../hooks/useRegisteredClusters';
 import { registerAKSCluster } from '../../../utils/azure/aks';
+import { normalizeClusterName } from '../../../utils/kubernetes/k8sNames';
 
 /** Set to `true` locally to enable verbose debug logging. Never enable in production. */
 const DEBUG = false;
@@ -18,6 +20,8 @@ const DEBUG = false;
 export interface UseRegisterClusterResult {
   /** `true` while the `az aks get-credentials` call is in flight. */
   loading: boolean;
+  /** `true` once Headlamp's live cluster configuration is authoritative. */
+  clusterConfigReady: boolean;
   /** Error message from the last failed registration attempt, or `undefined`. */
   error: string | undefined;
   /** Success message once registration completes, or `undefined`. */
@@ -45,23 +49,41 @@ export interface UseRegisterClusterResult {
  * @param cluster - The AKS cluster name to register.
  * @param resourceGroup - The resource group the cluster belongs to.
  * @param subscription - The Azure subscription ID.
- * @param tenantId - Optional tenant ID for multi-tenant environments.
+ * @returns Registration state and actions for the selected cluster.
  */
 export function useRegisterCluster(
   cluster: string,
   resourceGroup: string,
-  subscription: string,
-  tenantId?: string
+  subscription: string
 ): UseRegisterClusterResult {
   const { t } = useTranslation();
+  const { registeredClusters, isReady: clusterConfigReady } = useRegisteredClusters();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [success, setSuccess] = useState<string | undefined>(undefined);
+  /** Synchronous guard for repeated calls before loading state renders. */
+  const registrationInFlightRef = useRef(false);
+  /** Identifies the active attempt so obsolete completions cannot update state. */
+  const registrationAttemptRef = useRef(0);
+
+  useEffect(() => {
+    registrationAttemptRef.current++;
+    setError(undefined);
+    setSuccess(undefined);
+  }, [cluster, resourceGroup, subscription]);
 
   const handleRegister = async () => {
-    if (!cluster || !resourceGroup || !subscription) {
+    if (
+      registrationInFlightRef.current ||
+      !clusterConfigReady ||
+      !cluster ||
+      !resourceGroup ||
+      !subscription
+    ) {
       return;
     }
+    registrationInFlightRef.current = true;
+    const registrationAttempt = ++registrationAttemptRef.current;
 
     setLoading(true);
     setError(undefined);
@@ -74,8 +96,11 @@ export function useRegisterCluster(
         resourceGroup,
         cluster,
         undefined,
-        tenantId
+        registeredClusters.has(normalizeClusterName(cluster))
       );
+      if (registrationAttempt !== registrationAttemptRef.current) {
+        return;
+      }
       if (DEBUG) console.debug('[AKS] Register cluster result:', result.success);
 
       if (!result.success) {
@@ -86,6 +111,9 @@ export function useRegisterCluster(
       if (DEBUG) console.debug('[AKS] Cluster registered successfully.', result.message);
       setSuccess(t("Cluster '{{cluster}}' successfully merged in kubeconfig", { cluster }));
     } catch (err) {
+      if (registrationAttempt !== registrationAttemptRef.current) {
+        return;
+      }
       console.error('Error registering AKS cluster:', err);
       setError(
         t('Failed to register cluster: {{message}}', {
@@ -93,12 +121,14 @@ export function useRegisterCluster(
         })
       );
     } finally {
+      registrationInFlightRef.current = false;
       setLoading(false);
     }
   };
 
   return {
     loading,
+    clusterConfigReady,
     error,
     success,
     handleRegister,

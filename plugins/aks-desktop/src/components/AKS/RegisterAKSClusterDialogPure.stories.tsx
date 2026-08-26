@@ -75,6 +75,7 @@ const baseArgs: RegisterAKSClusterDialogPureProps = {
   isLoggedIn: true,
   loading: false,
   loadingSubscriptions: false,
+  subscriptionRefresh: { status: 'idle', addedCount: 0 },
   loadingClusters: false,
   capabilitiesLoading: false,
   error: '',
@@ -142,6 +143,28 @@ LoadingSubscriptions.args = {
   subscriptions: [],
 };
 
+/** Cached subscriptions are usable while Azure refreshes the list in the background. */
+export const CachedSubscriptionsRefreshing = Template.bind({});
+CachedSubscriptionsRefreshing.args = {
+  ...baseArgs,
+  subscriptionRefresh: { status: 'refreshing', addedCount: 0 },
+};
+
+/** Azure refresh discovered subscriptions that were absent from the cached list. */
+export const NewSubscriptionsLoaded = Template.bind({});
+NewSubscriptionsLoaded.args = {
+  ...baseArgs,
+  subscriptions: [...baseArgs.subscriptions, SAMPLE_SUBSCRIPTIONS[1]],
+  subscriptionRefresh: { status: 'updated', addedCount: 1 },
+};
+
+/** Refresh failed, so the cached subscription list remains available. */
+export const SubscriptionRefreshFailed = Template.bind({});
+SubscriptionRefreshFailed.args = {
+  ...baseArgs,
+  subscriptionRefresh: { status: 'failed', addedCount: 0 },
+};
+
 /** Subscription selected, loading clusters. */
 export const LoadingClusters = Template.bind({});
 LoadingClusters.args = {
@@ -178,6 +201,13 @@ ClusterSelected.args = {
   clusterInputValue: SAMPLE_CLUSTERS[0].name,
 };
 
+/** Cluster selected while Headlamp cluster configuration is still loading. */
+export const ClusterConfigurationLoading = Template.bind({});
+ClusterConfigurationLoading.args = {
+  ...ClusterSelected.args,
+  clusterConfigReady: false,
+};
+
 /** Registration in progress — Register button shows spinner and "Registering...". */
 export const Registering = Template.bind({});
 Registering.args = {
@@ -187,6 +217,13 @@ Registering.args = {
   filteredClusters: SAMPLE_CLUSTERS,
   selectedCluster: SAMPLE_CLUSTERS[0],
   clusterInputValue: SAMPLE_CLUSTERS[0].name,
+  loading: true,
+};
+
+/** Registration in progress with tenant, subscription, and cluster selection locked. */
+export const SelectionControlsLockedDuringRegistration = Template.bind({});
+SelectionControlsLockedDuringRegistration.args = {
+  ...ClusterSelected.args,
   loading: true,
 };
 
@@ -200,6 +237,20 @@ Success.args = {
   selectedCluster: SAMPLE_CLUSTERS[0],
   clusterInputValue: SAMPLE_CLUSTERS[0].name,
   success: "Cluster 'prod-aks-cluster' successfully merged in kubeconfig",
+};
+
+/** Successful registration keeps selection controls locked and exposes the terminal action. */
+export const SelectionControlsLockedAfterSuccess = Template.bind({});
+SelectionControlsLockedAfterSuccess.args = {
+  ...Success.args,
+};
+
+/** Success alert dismissed while the dialog remains terminal with only Done available. */
+export const DismissedSuccessRemainsTerminal = Template.bind({});
+DismissedSuccessRemainsTerminal.args = {
+  ...ClusterSelected.args,
+  registrationSucceeded: true,
+  success: '',
 };
 
 /** Registration failed — error alert displayed. */

@@ -2,18 +2,37 @@
 // Licensed under the Apache 2.0.
 
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
+import { reconcileRegisteredClusterNames } from '../utils/azure/aks';
+import { normalizeClusterName } from '../utils/kubernetes/k8sNames';
+
+/** Authoritative registered-cluster membership derived from Headlamp configuration. */
+export interface RegisteredClustersState {
+  /** Canonical lowercase names currently registered in Headlamp. */
+  registeredClusters: Set<string>;
+  /** Whether Headlamp has supplied authoritative cluster configuration. */
+  isReady: boolean;
+}
 
 /**
- * Returns a Set of cluster names already registered in Headlamp.
- * Used to avoid re-registering clusters (which would overwrite kubeconfig
- * with namespace-scoped credentials).
+ * Returns registered cluster names once Headlamp's cluster config is authoritative.
+ *
+ * @returns Canonical cluster membership and whether the source configuration is ready.
  */
-export function useRegisteredClusters(): Set<string> {
+export function useRegisteredClusters(): RegisteredClustersState {
   const clustersConf = K8s.useClustersConf();
+  const isReady = clustersConf !== null && clustersConf !== undefined;
 
-  return useMemo(() => {
+  const registeredClusters = useMemo(() => {
     if (!clustersConf) return new Set<string>();
-    return new Set(Object.keys(clustersConf));
+    return new Set(Object.keys(clustersConf).map(normalizeClusterName));
   }, [clustersConf]);
+
+  useEffect(() => {
+    if (isReady) {
+      reconcileRegisteredClusterNames(registeredClusters);
+    }
+  }, [isReady, registeredClusters]);
+
+  return { registeredClusters, isReady };
 }
