@@ -30,6 +30,7 @@ const baseArgs: RegisterAKSClusterDialogPureProps = {
   isLoggedIn: true,
   loading: false,
   loadingSubscriptions: false,
+  subscriptionRefresh: { status: 'idle', addedCount: 0 },
   loadingClusters: false,
   capabilitiesLoading: false,
   error: '',
@@ -184,5 +185,31 @@ describe('RegisterAKSClusterDialogPure tenant options', () => {
     expect(screen.getByRole('combobox', { name: 'Tenant' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Subscription' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'AKS Cluster' })).toBeDisabled();
+  });
+});
+
+describe('RegisterAKSClusterDialogPure subscription refresh notices', () => {
+  afterEach(cleanup);
+
+  test.each([
+    ['refreshing', /showing cached azure subscriptions/i],
+    ['updated', /new azure subscription/i],
+    ['failed', /showing cached azure subscriptions because the refresh failed/i],
+  ] as const)('shows the %s notice', (status, expectedText) => {
+    render(
+      <RegisterAKSClusterDialogPure
+        {...baseArgs}
+        subscriptionRefresh={{ status, addedCount: status === 'updated' ? 1 : 0 }}
+      />
+    );
+
+    expect(screen.getByText(expectedText)).toBeInTheDocument();
+  });
+
+  test('shows no refresh notice when cached and refreshed subscriptions match', () => {
+    render(<RegisterAKSClusterDialogPure {...baseArgs} />);
+
+    expect(screen.queryByText(/cached azure subscriptions/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/subscription list updated/i)).not.toBeInTheDocument();
   });
 });

@@ -12,8 +12,51 @@ import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { getAKSClusters, getSubscriptions, registerAKSCluster } from '../../utils/azure/aks';
 import { getClusterCapabilities } from '../../utils/azure/az-clusters';
 import { normalizeClusterName } from '../../utils/kubernetes/k8sNames';
-import type { AKSCluster, Subscription, Tenant } from './RegisterAKSClusterDialogPure';
+import type {
+  AKSCluster,
+  Subscription,
+  SubscriptionRefreshState,
+  Tenant,
+} from './RegisterAKSClusterDialogPure';
 import RegisterAKSClusterDialogPure from './RegisterAKSClusterDialogPure';
+
+interface SubscriptionListChanges {
+  /** Whether IDs or user-visible subscription metadata differ. */
+  differs: boolean;
+  /** Number of subscription IDs absent from the cached list. */
+  addedCount: number;
+}
+
+/**
+ * Compares cached and refreshed subscription snapshots without depending on list order.
+ *
+ * @param cached - Subscription snapshot returned from Azure CLI cache.
+ * @param refreshed - Subscription snapshot retrieved from Azure.
+ * @returns Whether snapshots differ and how many subscription IDs were added.
+ */
+function compareSubscriptionLists(
+  cached: Subscription[],
+  refreshed: Subscription[]
+): SubscriptionListChanges {
+  const signature = (subscription: Subscription) =>
+    JSON.stringify([
+      subscription.name,
+      subscription.state,
+      subscription.tenantId,
+      subscription.tenantName ?? '',
+    ]);
+  const cachedById = new Map(
+    cached.map(subscription => [subscription.id, signature(subscription)])
+  );
+  const refreshedById = new Map(
+    refreshed.map(subscription => [subscription.id, signature(subscription)])
+  );
+  const addedCount = [...refreshedById.keys()].filter(id => !cachedById.has(id)).length;
+  const differs =
+    cachedById.size !== refreshedById.size ||
+    [...refreshedById].some(([id, value]) => cachedById.get(id) !== value);
+  return { differs, addedCount };
+}
 
 /**
  * Records a cluster-registration lifecycle status without disrupting the dialog.
@@ -59,6 +102,10 @@ export default function RegisterAKSClusterDialog({
   const { registeredClusters, isReady: registeredClustersReady } = useRegisteredClusters();
   const [loading, setLoading] = useState(false);
   const [loadingSubscriptions, setLoadingSubscriptions] = useState(false);
+  const [subscriptionRefresh, setSubscriptionRefresh] = useState<SubscriptionRefreshState>({
+    status: 'idle',
+    addedCount: 0,
+  });
   const [loadingClusters, setLoadingClusters] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -74,6 +121,32 @@ export default function RegisterAKSClusterDialog({
   const [capabilities, setCapabilities] = useState<ClusterCapabilities | null>(null);
   const [capabilitiesLoading, setCapabilitiesLoading] = useState(false);
   const isMountedRef = useRef(true);
+  const selectedSubscriptionRef = useRef<Subscription | null>(null);
+  const selectedTenantRef = useRef<Tenant | null>(null);
+  selectedSubscriptionRef.current = selectedSubscription;
+  selectedTenantRef.current = selectedTenant;
+
+  /**
+   * Updates the selected tenant and its refresh-safe reference together.
+   *
+   * @param value - Tenant to select, or `null` to clear the selection.
+   * @returns Nothing.
+   */
+  const updateSelectedTenant = (value: Tenant | null) => {
+    selectedTenantRef.current = value;
+    setSelectedTenant(value);
+  };
+
+  /**
+   * Updates the selected subscription and its refresh-safe reference together.
+   *
+   * @param value - Subscription to select, or `null` to clear the selection.
+   * @returns Nothing.
+   */
+  const updateSelectedSubscription = (value: Subscription | null) => {
+    selectedSubscriptionRef.current = value;
+    setSelectedSubscription(value);
+  };
   /** Identifies the latest cluster-list request so stale responses are ignored. */
   const clusterRequestIdRef = useRef(0);
   /** Identifies the latest capability request so stale responses are ignored. */
@@ -137,14 +210,16 @@ export default function RegisterAKSClusterDialog({
       registrationRequestIdRef.current++;
       setLoading(registrationInFlightRef.current);
       setLoadingSubscriptions(false);
+      setSubscriptionRefresh({ status: 'idle', addedCount: 0 });
       setLoadingClusters(false);
       setCapabilitiesLoading(false);
       setError('');
       setSuccess('');
+      setSubscriptionRefresh({ status: 'idle', addedCount: 0 });
       setRegistrationSucceeded(false);
       setSubscriptions([]);
-      setSelectedSubscription(null);
-      setSelectedTenant(null);
+      updateSelectedSubscription(null);
+      updateSelectedTenant(null);
       setTenantInputValue('');
       setClusters([]);
       setSelectedCluster(null);
@@ -164,8 +239,8 @@ export default function RegisterAKSClusterDialog({
       setError('');
       setSuccess('');
       setSubscriptions([]);
-      setSelectedSubscription(null);
-      setSelectedTenant(null);
+      updateSelectedSubscription(null);
+      updateSelectedTenant(null);
       setTenantInputValue('');
       setSubscriptionInputValue('');
       setClusters([]);
@@ -183,9 +258,10 @@ export default function RegisterAKSClusterDialog({
         setLoading(registrationInFlightRef.current);
         setError('');
         setSuccess('');
+        setSubscriptionRefresh({ status: 'idle', addedCount: 0 });
         setSubscriptions([]);
-        setSelectedSubscription(null);
-        setSelectedTenant(null);
+        updateSelectedSubscription(null);
+        updateSelectedTenant(null);
         setTenantInputValue('');
         setSubscriptionInputValue('');
         setClusters([]);
@@ -219,7 +295,9 @@ export default function RegisterAKSClusterDialog({
 
   const loadSubscriptions = async (isCurrent: () => boolean) => {
     setLoadingSubscriptions(true);
+    setSubscriptionRefresh({ status: 'idle', addedCount: 0 });
     setError('');
+    let cached: Subscription[];
 
     try {
       const result = await getSubscriptions();
@@ -230,23 +308,24 @@ export default function RegisterAKSClusterDialog({
 
       if (!result.success) {
         setError(result.message);
+        setLoadingSubscriptions(false);
         return;
       }
 
-      const subs = result.subscriptions || [];
-      setSubscriptions(subs);
+      cached = result.subscriptions || [];
+      setSubscriptions(cached);
 
       // Auto-select tenant when all subscriptions belong to the same tenant.
-      const uniqueTenants = extractTenants(subs);
+      const uniqueTenants = extractTenants(cached);
       if (uniqueTenants.length === 1) {
-        setSelectedTenant(uniqueTenants[0]);
+        updateSelectedTenant(uniqueTenants[0]);
         setTenantInputValue(uniqueTenants[0].name);
       }
 
       // Auto-select if only one subscription
-      if (subs.length === 1) {
-        const sub = subs[0];
-        setSelectedSubscription(sub);
+      if (cached.length === 1) {
+        const sub = cached[0];
+        updateSelectedSubscription(sub);
         setSubscriptionInputValue(`${sub.name}${sub.state !== 'Enabled' ? ` (${sub.state})` : ''}`);
       }
     } catch (err) {
@@ -255,10 +334,49 @@ export default function RegisterAKSClusterDialog({
       }
       console.error('Error loading subscriptions:', err);
       setError(t('Failed to load subscriptions'));
-    } finally {
-      if (isCurrent()) {
-        setLoadingSubscriptions(false);
+      setLoadingSubscriptions(false);
+      return;
+    }
+
+    if (!isCurrent()) return;
+    setLoadingSubscriptions(false);
+    setSubscriptionRefresh({ status: 'refreshing', addedCount: 0 });
+
+    try {
+      const refreshedResult = await getSubscriptions(true);
+      if (!isCurrent()) return;
+      if (!refreshedResult.success) {
+        setSubscriptionRefresh({ status: 'failed', addedCount: 0 });
+        return;
       }
+
+      const refreshed = refreshedResult.subscriptions || [];
+      const changes = compareSubscriptionLists(cached, refreshed);
+      if (!changes.differs) {
+        setSubscriptionRefresh({ status: 'idle', addedCount: 0 });
+        return;
+      }
+
+      setSubscriptions(refreshed);
+      const currentTenant = selectedTenantRef.current;
+      if (currentTenant && !refreshed.some(sub => sub.tenantId === currentTenant.id)) {
+        updateSelectedTenant(null);
+        setTenantInputValue('');
+      }
+      const currentSubscription = selectedSubscriptionRef.current;
+      if (currentSubscription) {
+        const replacement = refreshed.find(sub => sub.id === currentSubscription.id) ?? null;
+        updateSelectedSubscription(replacement);
+        if (!replacement) {
+          setSubscriptionInputValue('');
+          resetClusterState();
+        }
+      }
+      setSubscriptionRefresh({ status: 'updated', addedCount: changes.addedCount });
+    } catch (err) {
+      if (!isCurrent()) return;
+      console.warn('Failed to refresh Azure subscriptions:', err);
+      setSubscriptionRefresh({ status: 'failed', addedCount: 0 });
     }
   };
 
@@ -315,9 +433,9 @@ export default function RegisterAKSClusterDialog({
   }, [clusters, clusterInputValue]);
 
   const handleTenantChange = (_event: React.SyntheticEvent, value: Tenant | null) => {
-    setSelectedTenant(value);
+    updateSelectedTenant(value);
     setTenantInputValue(value ? value.name : '');
-    setSelectedSubscription(null);
+    updateSelectedSubscription(null);
     setSubscriptionInputValue('');
     resetClusterState();
   };
@@ -326,8 +444,8 @@ export default function RegisterAKSClusterDialog({
     if (reason === 'input' || reason === 'clear') {
       setTenantInputValue(value);
       if (reason === 'clear') {
-        setSelectedTenant(null);
-        setSelectedSubscription(null);
+        updateSelectedTenant(null);
+        updateSelectedSubscription(null);
         setSubscriptionInputValue('');
         resetClusterState();
       }
@@ -335,7 +453,7 @@ export default function RegisterAKSClusterDialog({
   };
 
   const handleSubscriptionChange = (event: React.SyntheticEvent, value: Subscription | null) => {
-    setSelectedSubscription(value);
+    updateSelectedSubscription(value);
     setSubscriptionInputValue(
       value ? `${value.name}${value.state !== 'Enabled' ? ` (${value.state})` : ''}` : ''
     );
@@ -349,7 +467,7 @@ export default function RegisterAKSClusterDialog({
   ) => {
     if (reason === 'input' || reason === 'clear') {
       setSubscriptionInputValue(value);
-      setSelectedSubscription(null);
+      updateSelectedSubscription(null);
       resetClusterState();
     }
   };
@@ -510,6 +628,7 @@ export default function RegisterAKSClusterDialog({
       isLoggedIn={authStatus.isLoggedIn}
       loading={loading}
       loadingSubscriptions={loadingSubscriptions}
+      subscriptionRefresh={subscriptionRefresh}
       loadingClusters={loadingClusters}
       capabilitiesLoading={capabilitiesLoading}
       error={error}

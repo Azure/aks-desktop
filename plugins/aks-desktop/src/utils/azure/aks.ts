@@ -126,15 +126,18 @@ function registrationScopePersistenceFailure(clusterName: string): {
 }
 
 /**
- * Get list of Azure subscriptions
+ * Gets cached or refreshed Azure subscriptions for the registration dialog.
+ *
+ * @param refresh - Whether Azure CLI should retrieve current subscriptions from the server.
+ * @returns Subscription discovery result with mapped tenant and status fields.
  */
-export async function getSubscriptions(): Promise<{
+export async function getSubscriptions(refresh = false): Promise<{
   success: boolean;
   message: string;
   subscriptions?: Subscription[];
 }> {
   try {
-    const subs = await getAzSubscriptions();
+    const subs = await getAzSubscriptions(refresh);
 
     return {
       success: true,

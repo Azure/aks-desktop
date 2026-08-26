@@ -41,12 +41,22 @@ export interface AKSCluster {
   provisioningState: string;
 }
 
+/** User-visible state of background Azure subscription discovery. */
+export interface SubscriptionRefreshState {
+  /** Current background refresh phase. */
+  status: 'idle' | 'refreshing' | 'updated' | 'failed';
+  /** Number of subscription IDs added by the refreshed list. */
+  addedCount: number;
+}
+
 export interface RegisterAKSClusterDialogPureProps {
   open: boolean;
   isChecking: boolean;
   isLoggedIn: boolean;
   loading: boolean;
   loadingSubscriptions: boolean;
+  /** Background refresh state shown after cached subscriptions become available. */
+  subscriptionRefresh: SubscriptionRefreshState;
   loadingClusters: boolean;
   capabilitiesLoading: boolean;
   error: string;
@@ -86,6 +96,7 @@ export default function RegisterAKSClusterDialogPure({
   isLoggedIn,
   loading,
   loadingSubscriptions,
+  subscriptionRefresh,
   loadingClusters,
   capabilitiesLoading,
   error,
@@ -147,6 +158,28 @@ export default function RegisterAKSClusterDialogPure({
           {success && (
             <Alert severity="success" onClose={onDismissSuccess}>
               {success}
+            </Alert>
+          )}
+
+          {subscriptionRefresh.status === 'refreshing' && (
+            <Alert severity="info">
+              {t('Showing cached Azure subscriptions while checking for updates.')}
+            </Alert>
+          )}
+
+          {subscriptionRefresh.status === 'updated' && (
+            <Alert severity="success">
+              {subscriptionRefresh.addedCount > 0
+                ? t('{{count}} new Azure subscription(s) loaded.', {
+                    count: subscriptionRefresh.addedCount,
+                  })
+                : t('Azure subscription list updated.')}
+            </Alert>
+          )}
+
+          {subscriptionRefresh.status === 'failed' && (
+            <Alert severity="warning">
+              {t('Showing cached Azure subscriptions because the refresh failed.')}
             </Alert>
           )}
 

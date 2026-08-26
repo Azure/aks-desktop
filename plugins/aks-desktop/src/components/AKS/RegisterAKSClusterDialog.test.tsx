@@ -413,6 +413,73 @@ describe('RegisterAKSClusterDialog telemetry', () => {
     });
   });
 
+  test('shows cached subscriptions while a background refresh is pending', async () => {
+    let resolveRefresh!: (value: {
+      success: boolean;
+      subscriptions: (typeof subscription)[];
+    }) => void;
+    mocks.getSubscriptions.mockImplementation((refresh = false) =>
+      refresh
+        ? new Promise(resolve => {
+            resolveRefresh = resolve;
+          })
+        : Promise.resolve({ success: true, subscriptions: [subscription] })
+    );
+
+    renderDialog();
+
+    await waitFor(() => expect(currentDialogProps().subscriptions).toEqual([subscription]));
+    expect(currentDialogProps()).toMatchObject({
+      loadingSubscriptions: false,
+      subscriptionRefresh: { status: 'refreshing', addedCount: 0 },
+    });
+
+    await act(async () => {
+      resolveRefresh({ success: true, subscriptions: [subscription] });
+    });
+    expect(currentDialogProps().subscriptionRefresh).toEqual({ status: 'idle', addedCount: 0 });
+  });
+
+  test('updates and reports only when refreshed subscriptions differ', async () => {
+    const addedSubscription = {
+      ...subscription,
+      id: 'new-subscription-id',
+      name: 'New Subscription',
+    };
+    mocks.getSubscriptions.mockImplementation((refresh = false) =>
+      Promise.resolve({
+        success: true,
+        subscriptions: refresh ? [subscription, addedSubscription] : [subscription],
+      })
+    );
+
+    renderDialog();
+
+    await waitFor(() =>
+      expect(currentDialogProps().subscriptions).toEqual([subscription, addedSubscription])
+    );
+    expect(currentDialogProps().subscriptionRefresh).toEqual({
+      status: 'updated',
+      addedCount: 1,
+    });
+  });
+
+  test('retains cached subscriptions and reports a failed refresh', async () => {
+    mocks.getSubscriptions.mockImplementation((refresh = false) =>
+      refresh
+        ? Promise.reject(new Error('refresh unavailable'))
+        : Promise.resolve({ success: true, subscriptions: [subscription] })
+    );
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    renderDialog();
+
+    await waitFor(() =>
+      expect(currentDialogProps().subscriptionRefresh).toEqual({ status: 'failed', addedCount: 0 })
+    );
+    expect(currentDialogProps().subscriptions).toEqual([subscription]);
+  });
+
   test.each([
     [{ success: false, message: 'subscription unavailable' }, 'subscription unavailable'],
     [new Error('subscription exception'), 'Failed to load subscriptions'],
@@ -440,17 +507,20 @@ describe('RegisterAKSClusterDialog telemetry', () => {
       success: boolean;
       subscriptions: (typeof subscription)[];
     }) => void;
-    mocks.getSubscriptions
-      .mockReturnValueOnce(
-        new Promise(resolve => {
-          resolveFirst = resolve;
-        })
-      )
-      .mockReturnValueOnce(
-        new Promise(resolve => {
-          resolveSecond = resolve;
-        })
-      );
+    let cachedCall = 0;
+    mocks.getSubscriptions.mockImplementation((refresh = false) => {
+      if (refresh) {
+        return Promise.resolve({ success: true, subscriptions: [secondSubscription] });
+      }
+      cachedCall++;
+      return cachedCall === 1
+        ? new Promise(resolve => {
+            resolveFirst = resolve;
+          })
+        : new Promise(resolve => {
+            resolveSecond = resolve;
+          });
+    });
     const rendered = renderDialog();
     rendered.rerender(
       <RegisterAKSClusterDialog
@@ -470,7 +540,9 @@ describe('RegisterAKSClusterDialog telemetry', () => {
         onRegistrationStarted={mocks.onRegistrationStarted}
       />
     );
-    await waitFor(() => expect(mocks.getSubscriptions).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(mocks.getSubscriptions.mock.calls.filter(call => call[0] !== true)).toHaveLength(2)
+    );
 
     await act(async () => {
       resolveSecond({ success: true, subscriptions: [secondSubscription] });
@@ -568,9 +640,15 @@ describe('RegisterAKSClusterDialog telemetry', () => {
       { ...subscription, id: 'next-subscription-1', tenantId: 'next-tenant-1' },
       { ...subscription, id: 'next-subscription-2', tenantId: 'next-tenant-2' },
     ];
-    mocks.getSubscriptions
-      .mockResolvedValueOnce({ success: true, subscriptions: [previousSubscription] })
-      .mockResolvedValueOnce({ success: true, subscriptions: nextSubscriptions });
+    let cachedCall = 0;
+    let currentSubscriptions: (typeof subscription)[] = [];
+    mocks.getSubscriptions.mockImplementation((refresh = false) => {
+      if (!refresh) {
+        currentSubscriptions = cachedCall === 0 ? [previousSubscription] : nextSubscriptions;
+        cachedCall++;
+      }
+      return Promise.resolve({ success: true, subscriptions: currentSubscriptions });
+    });
     const rendered = renderDialog();
     await waitFor(() =>
       expect(currentDialogProps().selectedSubscription).toEqual(previousSubscription)
@@ -587,7 +665,7 @@ describe('RegisterAKSClusterDialog telemetry', () => {
       />
     );
     await waitFor(() => expect(currentDialogProps().isLoggedIn).toBe(false));
-    expect(mocks.getSubscriptions).toHaveBeenCalledTimes(1);
+    expect(mocks.getSubscriptions.mock.calls.filter(call => call[0] !== true)).toHaveLength(1);
 
     mocks.authStatus.isLoggedIn = true;
     rendered.rerender(
@@ -599,11 +677,9 @@ describe('RegisterAKSClusterDialog telemetry', () => {
         onRegistrationStarted={mocks.onRegistrationStarted}
       />
     );
-    await waitFor(() => expect(mocks.getSubscriptions).toHaveBeenCalledTimes(2));
-    await expect(mocks.getSubscriptions.mock.results[1].value).resolves.toEqual({
-      success: true,
-      subscriptions: nextSubscriptions,
-    });
+    await waitFor(() =>
+      expect(mocks.getSubscriptions.mock.calls.filter(call => call[0] !== true)).toHaveLength(2)
+    );
     await waitFor(() => expect(currentDialogProps().subscriptions).toEqual(nextSubscriptions));
 
     expect(currentDialogProps()).toMatchObject({
@@ -621,9 +697,15 @@ describe('RegisterAKSClusterDialog telemetry', () => {
       { ...subscription, id: 'next-subscription-2', tenantId: 'next-tenant-2' },
     ];
     mocks.authStatus.subscriptionId = previousSubscription.id;
-    mocks.getSubscriptions
-      .mockResolvedValueOnce({ success: true, subscriptions: [previousSubscription] })
-      .mockResolvedValueOnce({ success: true, subscriptions: nextSubscriptions });
+    let cachedCall = 0;
+    let currentSubscriptions: (typeof subscription)[] = [];
+    mocks.getSubscriptions.mockImplementation((refresh = false) => {
+      if (!refresh) {
+        currentSubscriptions = cachedCall === 0 ? [previousSubscription] : nextSubscriptions;
+        cachedCall++;
+      }
+      return Promise.resolve({ success: true, subscriptions: currentSubscriptions });
+    });
     const rendered = renderDialog();
     await waitFor(() =>
       expect(currentDialogProps().selectedSubscription).toEqual(previousSubscription)
@@ -640,7 +722,9 @@ describe('RegisterAKSClusterDialog telemetry', () => {
       />
     );
 
-    await waitFor(() => expect(mocks.getSubscriptions).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(mocks.getSubscriptions.mock.calls.filter(call => call[0] !== true)).toHaveLength(2)
+    );
     await waitFor(() => expect(currentDialogProps().subscriptions).toEqual(nextSubscriptions));
     expect(currentDialogProps()).toMatchObject({
       selectedTenant: null,

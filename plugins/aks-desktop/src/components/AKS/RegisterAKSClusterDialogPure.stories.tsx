@@ -75,6 +75,7 @@ const baseArgs: RegisterAKSClusterDialogPureProps = {
   isLoggedIn: true,
   loading: false,
   loadingSubscriptions: false,
+  subscriptionRefresh: { status: 'idle', addedCount: 0 },
   loadingClusters: false,
   capabilitiesLoading: false,
   error: '',
@@ -140,6 +141,28 @@ LoadingSubscriptions.args = {
   ...baseArgs,
   loadingSubscriptions: true,
   subscriptions: [],
+};
+
+/** Cached subscriptions are usable while Azure refreshes the list in the background. */
+export const CachedSubscriptionsRefreshing = Template.bind({});
+CachedSubscriptionsRefreshing.args = {
+  ...baseArgs,
+  subscriptionRefresh: { status: 'refreshing', addedCount: 0 },
+};
+
+/** Azure refresh discovered subscriptions that were absent from the cached list. */
+export const NewSubscriptionsLoaded = Template.bind({});
+NewSubscriptionsLoaded.args = {
+  ...baseArgs,
+  subscriptions: [...baseArgs.subscriptions, SAMPLE_SUBSCRIPTIONS[1]],
+  subscriptionRefresh: { status: 'updated', addedCount: 1 },
+};
+
+/** Refresh failed, so the cached subscription list remains available. */
+export const SubscriptionRefreshFailed = Template.bind({});
+SubscriptionRefreshFailed.args = {
+  ...baseArgs,
+  subscriptionRefresh: { status: 'failed', addedCount: 0 },
 };
 
 /** Subscription selected, loading clusters. */

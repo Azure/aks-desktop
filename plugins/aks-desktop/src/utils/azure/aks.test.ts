@@ -80,6 +80,15 @@ describe('Azure AKS utilities', () => {
         },
       ],
     });
+    expect(mocks.getSubscriptions).toHaveBeenCalledWith(false);
+  });
+
+  test('requests refreshed Azure subscriptions when required', async () => {
+    mocks.getSubscriptions.mockResolvedValue([]);
+
+    await expect(getSubscriptions(true)).resolves.toMatchObject({ success: true });
+
+    expect(mocks.getSubscriptions).toHaveBeenCalledWith(true);
   });
 
   test.each([

@@ -67,6 +67,58 @@ describe('getSubscriptions tenant name resolution', () => {
     expect(tenantListCalls()).toHaveLength(0);
   });
 
+  it('returns all cached subscriptions without requesting a server refresh', async () => {
+    mockAz([
+      {
+        id: 'cached-sub-id',
+        name: 'Cached Subscription',
+        tenantId: TENANT_A,
+        tenantDisplayName: 'Microsoft',
+        state: 'Enabled',
+      },
+    ]);
+
+    await getSubscriptions();
+
+    expect(mockRunCommandAsync).toHaveBeenCalledWith('az', [
+      'account',
+      'list',
+      '--all',
+      '-o',
+      'json',
+    ]);
+  });
+
+  it('refreshes all subscriptions before returning a selected-tenant subscription', async () => {
+    mockAz([
+      {
+        id: 'refreshed-sub-id',
+        name: 'Refreshed Subscription',
+        tenantId: TENANT_A,
+        tenantDisplayName: 'Microsoft',
+        state: 'Enabled',
+      },
+    ]);
+
+    await expect(getSubscriptions(true)).resolves.toEqual([
+      {
+        id: 'refreshed-sub-id',
+        name: 'Refreshed Subscription',
+        tenant: TENANT_A,
+        tenantName: 'Microsoft',
+        status: 'Enabled',
+      },
+    ]);
+    expect(mockRunCommandAsync).toHaveBeenCalledWith('az', [
+      'account',
+      'list',
+      '--all',
+      '--refresh',
+      '-o',
+      'json',
+    ]);
+  });
+
   it('resolves a missing tenantDisplayName from az account tenant list', async () => {
     mockAz(
       [
