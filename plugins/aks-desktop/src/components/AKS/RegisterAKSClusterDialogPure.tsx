@@ -66,6 +66,8 @@ export interface RegisterAKSClusterDialogPureProps {
   loadingClusters: boolean;
   capabilitiesLoading: boolean;
   error: string;
+  /** Non-blocking message, shown as an info alert. */
+  notice?: string;
   success: string;
   /** Whether registration completed successfully in the current dialog session. */
   registrationSucceeded?: boolean;
@@ -106,6 +108,7 @@ export default function RegisterAKSClusterDialogPure({
   loadingClusters,
   capabilitiesLoading,
   error,
+  notice,
   success,
   registrationSucceeded,
   clusterConfigReady = true,
@@ -161,6 +164,8 @@ export default function RegisterAKSClusterDialogPure({
               {error}
             </Alert>
           )}
+
+          {notice && <Alert severity="info">{notice}</Alert>}
 
           {success && (
             <Alert severity="success" onClose={onDismissSuccess}>

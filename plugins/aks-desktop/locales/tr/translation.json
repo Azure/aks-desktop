@@ -42,6 +42,7 @@
   "Resource Group": "Kaynak Grubu",
   "Location": "Konum",
   "Kubernetes Version": "Kubernetes Sürümü",
+  "AKS Hybrid & Edge clusters are not listed: the Azure CLI \"connectedk8s\" extension is required. Install it with: az extension add --name connectedk8s": "AKS Hybrid & Edge clusters are not listed: the Azure CLI \"connectedk8s\" extension is required. Install it with: az extension add --name connectedk8s",
   "AKS Hybrid & Edge (Arc-connected)": "",
   "Done": "Bitti",
   "Cancel": "İptal",

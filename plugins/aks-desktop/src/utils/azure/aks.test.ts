@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getClusters: vi.fn(),
   getConnectedClusters: vi.fn(),
   getSubscriptions: vi.fn(),
+  isExtensionInstalled: vi.fn(),
   setClusterSettings: vi.fn(),
 }));
 
@@ -19,6 +20,10 @@ vi.mock('./az-subscriptions', () => ({ getSubscriptions: mocks.getSubscriptions 
 vi.mock('../shared/clusterSettings', () => ({
   getClusterSettings: mocks.getClusterSettings,
   setClusterSettings: mocks.setClusterSettings,
+}));
+
+vi.mock('./az-extensions', () => ({
+  isExtensionInstalled: mocks.isExtensionInstalled,
 }));
 
 import {
@@ -36,6 +41,7 @@ describe('Azure AKS utilities', () => {
     vi.clearAllMocks();
     mocks.getClusterSettings.mockReturnValue({ allowedNamespaces: ['existing'] });
     mocks.getConnectedClusters.mockResolvedValue([]);
+    mocks.isExtensionInstalled.mockResolvedValue({ installed: true });
     (window as any).desktopApi = {
       registerAKSCluster: desktopRegisterAKSCluster,
     };
@@ -504,5 +510,32 @@ describe('Azure AKS utilities', () => {
       successResult
     );
     expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(2);
+  });
+
+  test('reports why Arc discovery found nothing when the CLI extension is missing', async () => {
+    // Without this the empty list is indistinguishable from a subscription with
+    // no Arc clusters, and the install guidance sits behind selecting a cluster
+    // that cannot appear.
+    mocks.getClusters.mockResolvedValue([]);
+    mocks.getConnectedClusters.mockResolvedValue([]);
+    mocks.isExtensionInstalled.mockResolvedValue({ installed: false });
+
+    const result = await getAKSClusters('sub-a');
+
+    expect(result.success).toBe(true);
+    expect(result.arcDiscoveryUnavailable).toBeTruthy();
+  });
+
+  test('says nothing when Arc clusters were found', async () => {
+    mocks.getClusters.mockResolvedValue([]);
+    mocks.getConnectedClusters.mockResolvedValue([
+      { name: 'arc-1', resourceGroup: 'rg', location: 'eastus', clusterType: 'aksarc' },
+    ]);
+
+    const result = await getAKSClusters('sub-a');
+
+    expect(result.arcDiscoveryUnavailable).toBeUndefined();
+    // The extension is plainly present if discovery returned clusters — no extra az call.
+    expect(mocks.isExtensionInstalled).not.toHaveBeenCalled();
   });
 });

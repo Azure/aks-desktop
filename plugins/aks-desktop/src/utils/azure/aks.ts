@@ -1,5 +1,6 @@
 import { getClusterSettings, setClusterSettings } from '../shared/clusterSettings';
 import { getClusters, getConnectedClusters } from './az-clusters';
+import { isExtensionInstalled } from './az-extensions';
 import { getSubscriptions as getAzSubscriptions } from './az-subscriptions';
 
 export interface Subscription {
@@ -177,6 +178,16 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
   success: boolean;
   message: string;
   clusters?: AKSCluster[];
+  /**
+   * Why no AKS Hybrid & Edge clusters are listed, when the reason is actionable.
+   *
+   * Arc discovery needs the `connectedk8s` CLI extension and resolves to an empty
+   * list without it — indistinguishable from a subscription that simply has none.
+   * The register dialog's install guidance only runs once an Arc cluster has been
+   * selected, so without this the user on a fresh installation sees no Arc
+   * clusters and has no way to reach the instructions that would fix it.
+   */
+  arcDiscoveryUnavailable?: string;
 }> {
   try {
     const aksClusters = await getClusters(subscriptionId);
@@ -195,11 +206,27 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
       );
     }
 
+    // Only when discovery came up empty is the extension worth checking: an empty
+    // Arc list is the ambiguous case, and this keeps the extra `az` call off the
+    // common path where clusters were found.
+    let arcDiscoveryUnavailable: string | undefined;
+    if (arcClusters.length === 0) {
+      try {
+        const ext = await isExtensionInstalled('connectedk8s');
+        if (!ext.installed) {
+          arcDiscoveryUnavailable = ext.error || 'connectedk8s-extension-missing';
+        }
+      } catch (extError) {
+        console.warn('Could not determine connectedk8s extension state:', extError);
+      }
+    }
+
     const clusters = [...aksClusters, ...arcClusters];
 
     return {
       success: true,
       message: 'AKS clusters retrieved successfully',
+      arcDiscoveryUnavailable,
       clusters: clusters.map((cluster: any) => ({
         name: cluster.name,
         resourceGroup: cluster.resourceGroup,

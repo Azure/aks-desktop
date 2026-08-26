@@ -117,6 +117,7 @@ vi.mock('../../telemetry', () => ({
 
 vi.mock('./RegisterAKSClusterDialogPure', () => ({
   default: (props: {
+    notice?: string;
     onClusterChange: (event: React.SyntheticEvent, value: typeof cluster) => void;
     onClose: () => void;
     onConfigured: () => void;
@@ -140,6 +141,7 @@ vi.mock('./RegisterAKSClusterDialogPure', () => ({
         <button onClick={props.onClose}>Close</button>
         <button onClick={props.onDone}>Done</button>
         <button onClick={props.onConfigured}>Configured</button>
+        {props.notice && <div>{props.notice}</div>}
       </div>
     );
   },
@@ -196,6 +198,34 @@ describe('RegisterAKSClusterDialog telemetry', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  test('shows install guidance when Arc discovery reports the extension missing', async () => {
+    mocks.getAKSClusters.mockResolvedValue({
+      success: true,
+      clusters: [],
+      arcDiscoveryUnavailable: 'connectedk8s-extension-missing',
+    });
+    renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select subscription' }));
+
+    expect(await screen.findByText(/az extension add --name connectedk8s/i)).toBeTruthy();
+  });
+
+  test('shows the runtime reason instead of install guidance when extension checking fails', async () => {
+    const reason = 'Authentication required. Please log in to Azure CLI: az login';
+    mocks.getAKSClusters.mockResolvedValue({
+      success: true,
+      clusters: [],
+      arcDiscoveryUnavailable: reason,
+    });
+    renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select subscription' }));
+
+    expect(await screen.findByText(reason)).toBeTruthy();
+    expect(screen.queryByText(/az extension add --name connectedk8s/i)).toBeNull();
   });
 
   test('emits started only after required selection validation', async () => {

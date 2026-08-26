@@ -43,6 +43,7 @@
   "Resource Group": "Gruppo di risorse",
   "Location": "Posizione",
   "Kubernetes Version": "Versione Kubernetes",
+  "AKS Hybrid & Edge clusters are not listed: the Azure CLI \"connectedk8s\" extension is required. Install it with: az extension add --name connectedk8s": "AKS Hybrid & Edge clusters are not listed: the Azure CLI \"connectedk8s\" extension is required. Install it with: az extension add --name connectedk8s",
   "AKS Hybrid & Edge (Arc-connected)": "",
   "Done": "Fine",
   "Cancel": "Annulla",

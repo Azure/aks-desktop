@@ -131,6 +131,7 @@ export default function RegisterAKSClusterDialog({
   });
   const [loadingClusters, setLoadingClusters] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [success, setSuccess] = useState('');
   const [registrationSucceeded, setRegistrationSucceeded] = useState(false);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -407,6 +408,7 @@ export default function RegisterAKSClusterDialog({
     const requestId = ++clusterRequestIdRef.current;
     setLoadingClusters(true);
     setError('');
+    setNotice('');
     setClusters([]);
     setSelectedCluster(null);
     setClusterInputValue('');
@@ -424,6 +426,17 @@ export default function RegisterAKSClusterDialog({
       }
 
       setClusters(result.clusters || []);
+      // Without saying so, a missing extension looks like a subscription with no
+      // Arc clusters, and the install guidance sits behind a cluster that cannot
+      // be selected.
+      const arcDiscoveryIssue = result.arcDiscoveryUnavailable;
+      setNotice(
+        arcDiscoveryIssue === 'connectedk8s-extension-missing'
+          ? t(
+              'AKS Hybrid & Edge clusters are not listed: the Azure CLI "connectedk8s" extension is required. Install it with: az extension add --name connectedk8s'
+            )
+          : arcDiscoveryIssue || ''
+      );
     } catch (err) {
       if (requestId !== clusterRequestIdRef.current) {
         return;
@@ -793,6 +806,7 @@ export default function RegisterAKSClusterDialog({
       onTenantInputChange={handleTenantInputChange}
       onClusterChange={handleClusterChange}
       onClusterInputChange={handleClusterInputChange}
+      notice={notice}
       onRegister={handleRegister}
       onDone={handleDone}
       onDismissError={() => setError('')}
