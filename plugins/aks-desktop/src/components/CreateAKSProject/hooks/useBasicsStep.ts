@@ -139,10 +139,10 @@ export function getClusterStateMessage(cluster: AzureCluster, t: (key: string) =
  * Returns a collision-free select value without changing the cluster name stored in form data.
  *
  * @param cluster - Azure cluster whose option identity is required.
- * @returns A serialized tuple containing the cluster name and resource group.
+ * @returns A serialized tuple containing the cluster kind, resource group, and name.
  */
 export function getClusterOptionValue(cluster: AzureCluster): string {
-  return JSON.stringify([cluster.name, cluster.resourceGroup]);
+  return JSON.stringify([cluster.clusterType ?? 'aks', cluster.resourceGroup, cluster.name]);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,14 +159,17 @@ export interface UseBasicsStepResult {
   subscriptionOptions: SearchableSelectOption[];
   /** Cluster list formatted for {@link SearchableSelect}. */
   clusterOptions: SearchableSelectOption[];
+  /**
+   * Value identifying the current selection among {@link clusterOptions}. Not the
+   * cluster name: names repeat across resource groups and cluster kinds.
+   */
+  selectedClusterValue: string;
   /** Helper text shown below the Cluster select field. */
   clusterHelperText: string;
   /** The currently selected Azure subscription object, or `undefined` if none. */
   selectedSubscription: AzureSubscription | undefined;
   /** The currently selected Azure cluster object, or `undefined` if none. */
   selectedCluster: AzureCluster | undefined;
-  /** Composite select value for the selected cluster and resource group. */
-  selectedClusterValue: string;
   /**
    * `true` when a cluster is selected but is not present in the headlamp
    * kubeconfig — the user must register it before proceeding.
@@ -347,7 +350,13 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     : undefined;
 
   const selectedCluster = formData.cluster
-    ? clusters.find(c => c.name === formData.cluster && c.resourceGroup === formData.resourceGroup)
+    ? clusters.find(
+        c =>
+          c.name === formData.cluster &&
+          c.resourceGroup === formData.resourceGroup &&
+          // Older form state has no kind recorded; fall back to name+group there.
+          (formData.clusterType === undefined || c.clusterType === formData.clusterType)
+      )
     : undefined;
   const selectedClusterValue = selectedCluster ? getClusterOptionValue(selectedCluster) : '';
 
@@ -381,12 +390,16 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
 
   const handleClusterChange = (clusterValue: string) => {
     if (!clusterValue) {
-      onFormDataChange({ cluster: '', resourceGroup: '' });
+      onFormDataChange({ cluster: '', resourceGroup: '', clusterType: undefined });
       return;
     }
     const found = clusters.find(c => getClusterOptionValue(c) === clusterValue);
     if (found) {
-      onFormDataChange({ cluster: found.name, resourceGroup: found.resourceGroup });
+      onFormDataChange({
+        cluster: found.name,
+        resourceGroup: found.resourceGroup,
+        clusterType: found.clusterType,
+      });
     }
   };
 

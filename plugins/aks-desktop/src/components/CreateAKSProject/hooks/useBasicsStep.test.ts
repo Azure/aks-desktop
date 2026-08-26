@@ -265,6 +265,9 @@ describe('useBasicsStep', () => {
   test('maps clusters to SearchableSelectOption format', () => {
     const { result } = renderHook(() => useBasicsStep(makeProps()));
     expect(result.current.clusterOptions).toHaveLength(1);
+    // Keyed by kind + resource group + name: names repeat across resource groups
+    // and cluster kinds, and a duplicate option value would resolve to whichever
+    // came first — potentially the wrong creation path.
     expect(result.current.clusterOptions[0]).toMatchObject({
       value: getClusterOptionValue(CLUSTER_RUNNING),
       label: 'aks-prod',
@@ -274,6 +277,32 @@ describe('useBasicsStep', () => {
     expect(result.current.clusterOptions[0].subtitle).toContain('nodes');
     // A Succeeded cluster is selectable.
     expect(result.current.clusterOptions[0].disabled).toBe(false);
+  });
+
+  test('keeps a managed and an Arc cluster of the same name distinguishable', () => {
+    // Names are scoped by resource group and resource type, so this collision is
+    // legal in Azure. Keyed by name alone the two options would be identical and
+    // selecting either would resolve to the first — running the managed creation
+    // path against an Arc cluster, or the reverse.
+    const managed = { ...CLUSTER_RUNNING, name: 'shared', resourceGroup: 'rg-a' };
+    const arc = {
+      ...CLUSTER_RUNNING,
+      name: 'shared',
+      resourceGroup: 'rg-b',
+      clusterType: 'aksarc' as const,
+      connectivityStatus: 'Connected',
+    };
+    const onFormDataChange = vi.fn();
+    const props = makeProps({ clusters: [managed, arc], onFormDataChange });
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    const values = result.current.clusterOptions.map(o => o.value);
+    expect(new Set(values).size).toBe(2);
+
+    act(() => result.current.handleClusterChange(values[1]));
+    expect(onFormDataChange).toHaveBeenCalledWith(
+      expect.objectContaining({ cluster: 'shared', resourceGroup: 'rg-b', clusterType: 'aksarc' })
+    );
   });
 
   test('disables cluster options in a Failed provisioning state', () => {
@@ -565,7 +594,7 @@ describe('useBasicsStep', () => {
   test('handleClusterChange does nothing when the cluster name is not in the list', () => {
     const onFormDataChange = vi.fn();
     const { result } = renderHook(() => useBasicsStep(makeProps({ onFormDataChange })));
-    act(() => result.current.handleClusterChange('nonexistent-cluster'));
+    act(() => result.current.handleClusterChange('aks|rg-prod|nonexistent-cluster'));
     expect(onFormDataChange).not.toHaveBeenCalled();
   });
 

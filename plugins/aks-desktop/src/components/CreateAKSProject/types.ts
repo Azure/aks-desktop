@@ -4,6 +4,7 @@
 // Types for CreateAKSProject component and its sub-components
 
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
+import type { ClusterType } from '../../utils/azure/aks';
 
 export interface AzureSubscription {
   id: string;
@@ -78,8 +79,16 @@ export interface FormData {
   projectName: string;
   description: string;
   subscription: string;
+  /** Cluster name, which is also its kubeconfig context name. */
   cluster: string;
   resourceGroup: string;
+  /**
+   * Which kind of cluster was chosen. A managed AKS cluster and an Arc-connected
+   * one can share a name — names are scoped by resource group and resource type —
+   * so name alone cannot resolve the selection, and picking the wrong one would
+   * run the wrong creation path.
+   */
+  clusterType?: ClusterType;
 
   // Networking Policies
   ingress: 'AllowSameNamespace' | 'AllowAll' | 'DenyAll';

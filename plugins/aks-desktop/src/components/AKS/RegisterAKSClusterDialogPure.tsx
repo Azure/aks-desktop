@@ -381,11 +381,19 @@ export default function RegisterAKSClusterDialogPure({
                   inputValue={clusterInputValue}
                   onInputChange={onClusterInputChange}
                   filterOptions={x => x}
-                  getOptionKey={option => `${option.resourceGroup}/${option.name}`}
+                  // Identity includes the cluster kind: a managed AKS cluster and an
+                  // Arc-connected one are different resource types, so they may share
+                  // a name and resource group. Without it the two are the same option
+                  // and the wrong kind can be selected and registered.
+                  getOptionKey={option =>
+                    `${option.clusterType ?? 'aks'}/${option.resourceGroup}/${option.name}`
+                  }
                   getOptionLabel={option => option.name}
                   getOptionDisabled={option => !isAksHybridEdgeOnline(option)}
                   isOptionEqualToValue={(option, value) =>
-                    option.name === value.name && option.resourceGroup === value.resourceGroup
+                    option.name === value.name &&
+                    option.resourceGroup === value.resourceGroup &&
+                    (option.clusterType ?? 'aks') === (value.clusterType ?? 'aks')
                   }
                   disabled={loading || registrationCompleted}
                   renderInput={params => (
@@ -398,7 +406,12 @@ export default function RegisterAKSClusterDialogPure({
                   renderOption={(props, option) => {
                     const offline = !isAksHybridEdgeOnline(option);
                     return (
-                      <li {...props} key={`${option.resourceGroup}/${option.name}`}>
+                      <li
+                        {...props}
+                        key={`${option.clusterType ?? 'aks'}/${option.resourceGroup}/${
+                          option.name
+                        }`}
+                      >
                         <Box width="100%">
                           <Box display="flex" alignItems="center" gap={1}>
                             <Typography variant="body1">{option.name}</Typography>

@@ -212,8 +212,16 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   // Arc clusters have no `az aks namespace` surface, so the wizard applies a native
   // Kubernetes manifest via the K8s API instead of creating a managed namespace, and
   // the `az`-only preflight side-effects below are skipped for them.
+  // Resolved by kind and resource group as well as name: a managed AKS cluster and
+  // an Arc one can share a name, and matching the wrong one here would send the
+  // project down the wrong creation path entirely.
   const selectedClusterObj = formData.cluster
-    ? azureResources.clusters.find(c => c.name === formData.cluster)
+    ? azureResources.clusters.find(
+        c =>
+          c.name === formData.cluster &&
+          c.resourceGroup === formData.resourceGroup &&
+          (formData.clusterType === undefined || c.clusterType === formData.clusterType)
+      )
     : undefined;
   const isArcCluster = selectedClusterObj?.clusterType === 'aksarc';
   // Which authorization model the selected cluster uses. Only a cluster granting
