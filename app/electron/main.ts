@@ -54,6 +54,7 @@ import {
   getPluginBinDirectories,
   PluginManager,
 } from './plugin-management';
+import { killAllProxies } from './proxies';
 import { addRunCmdConsent, removeRunCmdConsent, runScript, setupRunCmdHandlers } from './runCmd';
 import { setupSecureStorageHandlers } from './secure-storage';
 import { cleanupHeadlampTray, createHeadlampTray } from './tray';
@@ -2120,6 +2121,7 @@ async function startElectron() {
 
   app.once('before-quit', async () => {
     isQuitting = true;
+    killAllProxies();
     cleanupHeadlampTray();
     hasTray = false;
     saveZoomFactor(cachedZoom);

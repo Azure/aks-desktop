@@ -163,20 +163,27 @@ export default function ClusterContextMenu({ cluster }: ClusterContextMenuProps)
         >
           <ListItemText>{t('translation|Settings')}</ListItemText>
         </MenuItem>
-        {(!menuItems || menuItems.length === 0) &&
-          ((cluster.meta_data?.source === 'dynamic_cluster' &&
-            (helpers.isElectron() || isDynamicClusterEnabled)) ||
-            (cluster.meta_data?.source === 'kubeconfig' &&
-              (helpers.isElectron() || allowKubeconfigChanges))) && (
-            <MenuItem
-              onClick={() => {
-                setOpenConfirmDialog('deleteDynamic');
-                handleMenuClose();
-              }}
-            >
-              <ListItemText>{t('translation|Delete')}</ListItemText>
-            </MenuItem>
-          )}
+        {/*
+          Portions (c) Microsoft Corp.: the built-in Delete used to be gated on
+          `(!menuItems || menuItems.length === 0)`, which hid it for every cluster
+          as soon as any plugin registered a cluster menu item (e.g. the AKS
+          Hybrid & Edge start/stop-proxy action). Plugin menu items are additive
+          and don't provide their own delete, so Delete is shown based purely on
+          the cluster source/permissions instead.
+        */}
+        {((cluster.meta_data?.source === 'dynamic_cluster' &&
+          (helpers.isElectron() || isDynamicClusterEnabled)) ||
+          (cluster.meta_data?.source === 'kubeconfig' &&
+            (helpers.isElectron() || allowKubeconfigChanges))) && (
+          <MenuItem
+            onClick={() => {
+              setOpenConfirmDialog('deleteDynamic');
+              handleMenuClose();
+            }}
+          >
+            <ListItemText>{t('translation|Delete')}</ListItemText>
+          </MenuItem>
+        )}
         {menuItems.map((Item, index) => {
           return (
             <Item

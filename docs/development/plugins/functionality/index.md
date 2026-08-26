@@ -125,6 +125,23 @@ Set a cluster dynamically, instead of from a configuration file, with
 - Example plugin: [How To Dynamically Set a Cluster](https://github.com/kubernetes-sigs/headlamp/tree/main/plugins/examples/dynamic-clusters)
 - API reference: [Headlamp.setCluster](../../api/plugin/lib/classes/Headlamp.md#setcluster)
 
+### Cluster Pre-Open Hooks
+
+Prepare a cluster before Headlamp renders its views with
+[registerClusterProviderPreOpen](../../api/plugin/registry/functions/registerclusterproviderpreopen).
+Pre-open hooks can start a proxy or tunnel, refresh credentials, warm a cache, or
+perform another asynchronous prerequisite. While hooks run, Headlamp displays a
+connecting dialog. Rejecting a hook shows its error with a retry action.
+
+Hooks run sequentially whenever a single cluster is opened. Combined
+multi-cluster views currently skip pre-open hooks. Hooks that apply only to some
+clusters should inspect the supplied context and resolve immediately for other
+clusters. Long-running work should use the supplied `AbortSignal`, and hooks can
+report status text through `reportProgress`.
+
+- Example plugin: [Dynamic Clusters](https://github.com/kubernetes-sigs/headlamp/tree/main/plugins/examples/dynamic-clusters)
+- API reference: [registerClusterProviderPreOpen](../../api/plugin/registry/functions/registerclusterproviderpreopen)
+
 ### Route
 
 Show a component in the main area at a given URL with

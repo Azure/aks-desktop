@@ -30,6 +30,12 @@ const GITHUB_OAUTH_CALLBACK = 'github-oauth-callback';
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('desktopApi', {
+  startClusterProxy: (data: {
+    cluster: string;
+    subscriptionId: string;
+    resourceGroup: string;
+  }): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('start-cluster-proxy', data),
   send: (channel: string, data: unknown) => {
     // allowed channels
     const validChannels = [
