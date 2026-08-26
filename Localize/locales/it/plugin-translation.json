@@ -42,7 +42,6 @@
   "AI improvement suggestions in progress": "Suggerimenti per il miglioramento dell'IA in corso",
   "AKS Cluster": "Cluster del servizio Azure Kubernetes",
   "AKS desktop logo": "Logo del desktop del servizio Azure Kubernetes",
-  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.": "Il desktop del servizio Azure Kubernetes invia dati di utilizzo pseudonimi (utilizzo delle funzionalità, versione dell'app, sistema operativo, classi di errore) per contribuire al miglioramento del prodotto. Un identificatore di installazione pseudonimo casuale archiviato in questo dispositivo è incluso in modo che le sessioni della stessa installazione possano essere conteggiate. Non vengono mai inviati nomi di cluster, spazi dei nomi, nomi di risorse, messaggi di errore o analisi dello stack. Le modifiche alla telemetria diventano effettive al prossimo avvio.",
   "AKS Managed": "Gestito dal servizio Azure Kubernetes",
   "AKS Preview Extension installed successfully!": "L'estensione AKS Preview è stata installata.",
   "AKS Preview Extension Required": "Estensione AKS Preview obbligatoria",
@@ -543,7 +542,6 @@
   "Resources to be deployed ({{count}} object)_one": "Risorse da distribuire ({{count}} oggetto)",
   "Resources to be deployed ({{count}} object)_other": "Risorse da distribuire ({{count}} oggetto)",
   "Response Time": "Tempo di risposta",
-  "Restart AKS Desktop for this change to take effect.": "Riavviare il desktop del servizio Azure Kubernetes per rendere effettiva questa modifica.",
   "Restarts": "Riavvii",
   "Retry": "Riprova",
   "Review": "Verifica",
@@ -579,7 +577,6 @@
   "Select an AKS cluster": "Selezionare un cluster del servizio Azure Kubernetes",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "Selezionare un Registro Azure Container per la creazione e il push di immagini del contenitore oppure crearne uno nuovo.",
   "Select an Azure subscription": "Consente di selezionare una sottoscrizione di Azure",
-  "Select an Azure tenant": "Seleziona un tenant di Azure",
   "Select an option": "Selezionare un'opzione",
   "Select Deployment": "Seleziona distribuzione",
   "Select managed identity": "Seleziona identità gestita",
@@ -588,7 +585,6 @@
   "Select Source": "Seleziona origine",
   "Selected Cluster Details": "Dettagli cluster selezionato",
   "Selected cluster is missing from the kubeconfig. Register it before proceeding.": "Cluster selezionato mancante da kubeconfig. Registrarlo prima di procedere.",
-  "Send pseudonymous usage data": "Inviare dati di utilizzo pseudonimi",
   "Service Account": "Account del servizio",
   "Service port": "Porta del servizio",
   "Service type": "Tipo di servizio",
@@ -715,6 +711,9 @@
   "You need to be logged in to Azure to register AKS clusters.": "È necessario accedere ad Azure per registrare i cluster del servizio Azure Kubernetes.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Il progetto del servizio Azure Kubernetes \"{{projectName}}\" è stato creato ed è pronto per l'uso.",
   "Your project \"{{projectName}}\" is ready to use.": "Il progetto \"{{projectName}}\" è pronto per l'uso.",
+  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "",
   "Contact us": "",
-  "Get help, share feedback, or reach the AKS Desktop team": ""
+  "Get help, share feedback, or reach the AKS Desktop team": "",
+  "Select an Azure tenant": "",
+  "Send pseudonymous usage data": ""
 }

@@ -42,7 +42,6 @@
   "AI improvement suggestions in progress": "AI-verbeteringssuggesties worden uitgevoerd",
   "AKS Cluster": "AKS-cluster",
   "AKS desktop logo": "AKS-desktoplogo",
-  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.": "AKS Desktop verzendt pseudonieme gebruiksgegevens (functiegebruik, app-versie, besturingssysteem, foutklassen) om ons te helpen het product te verbeteren. Er wordt een willekeurige pseudonieme installatie-id die op dit apparaat is opgeslagen, opgenomen, zodat sessies van dezelfde installatie kunnen worden geteld. Er worden nooit clusternamen, naamruimten, resourcenamen, foutberichten of stack-traces verzonden. Wijzigingen in telemetrie worden van kracht bij het opnieuw starten.",
   "AKS Managed": "Door AKS beheerd",
   "AKS Preview Extension installed successfully!": "De AKS Preview-extensie is geïnstalleerd.",
   "AKS Preview Extension Required": "AKS Preview-extensie vereist",
@@ -543,7 +542,6 @@
   "Resources to be deployed ({{count}} object)_one": "Resources die moeten worden geïmplementeerd ({{count}} object)",
   "Resources to be deployed ({{count}} object)_other": "Resources die moeten worden geïmplementeerd ({{count}} object)",
   "Response Time": "Reactietijd",
-  "Restart AKS Desktop for this change to take effect.": "Start AKS Desktop opnieuw op zodat deze wijziging van kracht wordt.",
   "Restarts": "Opnieuw opstarten",
   "Retry": "Opnieuw proberen",
   "Review": "Beoordelen",
@@ -579,7 +577,6 @@
   "Select an AKS cluster": "Een AKS-cluster selecteren",
   "Select an Azure Container Registry for building and pushing container images, or create a new one.": "Selecteer een Azure Container Registry om containerinstallatiekopieën te bouwen en te pushen, of maak een nieuwe aan.",
   "Select an Azure subscription": "Selecteer een Azure-abonnement",
-  "Select an Azure tenant": "Een Azure-tenant selecteren",
   "Select an option": "Een optie selecteren",
   "Select Deployment": "Implementatie selecteren",
   "Select managed identity": "Beheerde identiteit selecteren",
@@ -588,7 +585,6 @@
   "Select Source": "Bron selecteren",
   "Selected Cluster Details": "Details van geselecteerde cluster",
   "Selected cluster is missing from the kubeconfig. Register it before proceeding.": "Het geselecteerde cluster ontbreekt in de kubeconfig. Registreer het voordat je verdergaat.",
-  "Send pseudonymous usage data": "Pseudonieme gebruiksgegevens verzenden",
   "Service Account": "Serviceaccount",
   "Service port": "Servicepoort",
   "Service type": "Servicetype",
@@ -715,6 +711,9 @@
   "You need to be logged in to Azure to register AKS clusters.": "Je moet zijn aangemeld bij Azure om AKS-clusters te registreren.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Je AKS-project {{projectName}} is gemaakt en is klaar voor gebruik.",
   "Your project \"{{projectName}}\" is ready to use.": "Je project '{{projectName}}' is klaar voor gebruik.",
+  "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "",
   "Contact us": "",
-  "Get help, share feedback, or reach the AKS Desktop team": ""
+  "Get help, share feedback, or reach the AKS Desktop team": "",
+  "Select an Azure tenant": "",
+  "Send pseudonymous usage data": ""
 }

@@ -59,6 +59,23 @@ function positiveNumberOr(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+const isForwardSlash = (char: string): boolean => char === '/';
+const isPathSeparator = (char: string): boolean => char === '/' || char === '\\';
+
+/** Character scan avoids the backtracking cost of anchored `+` separator regexes. */
+function trimTrailing(value: string, isSeparator: (char: string) => boolean): string {
+  let end = value.length;
+  while (end > 0 && isSeparator(value[end - 1])) end -= 1;
+  return value.slice(0, end);
+}
+
+/** Character scan avoids the backtracking cost of anchored `+` separator regexes. */
+function trimLeading(value: string, isSeparator: (char: string) => boolean): string {
+  let start = 0;
+  while (start < value.length && isSeparator(value[start])) start += 1;
+  return value.slice(start);
+}
+
 /**
  * Normalizes a filesystem path or Git URL used as a skill source location.
  *
@@ -71,34 +88,21 @@ export function normalizeSkillSourceUrl(value: string, type: SkillSource['type']
   if (type === 'git') {
     try {
       const parsed = new URL(trimmed);
-      const pathname = removeGitSuffix(trimTrailingSeparators(parsed.pathname, '/'));
+      const pathname = removeGitSuffix(trimTrailing(parsed.pathname, isForwardSlash));
       return `${parsed.origin}${pathname}`;
     } catch {
-      return removeGitSuffix(trimTrailingSeparators(trimmed, '/'));
+      return removeGitSuffix(trimTrailing(trimmed, isForwardSlash));
     }
   }
   if (trimmed === '/' || isWindowsDriveRoot(trimmed)) return trimmed;
-  return trimTrailingSeparators(trimmed, '/\\');
+  return trimTrailing(trimmed, isPathSeparator);
 }
 
 /** @returns Canonical optional Git subdirectory without surrounding separators. */
 export function normalizeSkillSourcePath(value: string | undefined): string | undefined {
-  const normalized = trimSurroundingSeparators(value?.trim() ?? '', '/\\');
+  const trimmed = value?.trim() ?? '';
+  const normalized = trimLeading(trimTrailing(trimmed, isPathSeparator), isPathSeparator);
   return normalized || undefined;
-}
-
-function trimTrailingSeparators(value: string, separators: string): string {
-  let end = value.length;
-  while (end > 0 && separators.includes(value[end - 1])) end--;
-  return value.slice(0, end);
-}
-
-function trimSurroundingSeparators(value: string, separators: string): string {
-  let start = 0;
-  let end = value.length;
-  while (start < end && separators.includes(value[start])) start++;
-  while (end > start && separators.includes(value[end - 1])) end--;
-  return value.slice(start, end);
 }
 
 function removeGitSuffix(value: string): string {
