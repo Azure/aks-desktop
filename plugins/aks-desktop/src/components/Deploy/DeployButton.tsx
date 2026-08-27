@@ -54,7 +54,11 @@ function DeployDialogContent({
   initialApplicationName,
   onClose,
 }: DeployDialogContentProps) {
-  const { azureContext, error: azureContextError } = useAzureContext(cluster);
+  const {
+    azureContext,
+    error: azureContextError,
+    isLoading: azureContextLoading,
+  } = useAzureContext(cluster);
   const { isManagedNamespace, azureRbacEnabled } = useNamespaceCapabilities({
     subscriptionId: azureContext?.subscriptionId,
     resourceGroup: azureContext?.resourceGroup,
@@ -80,6 +84,7 @@ function DeployDialogContent({
           : undefined
       }
       azureContextError={azureContextError ?? undefined}
+      azureContextLoading={azureContextLoading}
     />
   );
 }

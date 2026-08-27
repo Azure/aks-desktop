@@ -82,7 +82,11 @@ interface ClusterDeployCardProps {
 
 export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: ClusterDeployCardProps) {
   const { t } = useTranslation();
-  const { azureContext } = useAzureContext(cluster);
+  const {
+    azureContext,
+    error: azureContextError,
+    isLoading: azureContextLoading,
+  } = useAzureContext(cluster);
   const pipelineStatus = usePipelineStatus(cluster, namespace);
   // Pipeline actions stay behind the preview flag; with them disabled there is
   // no GitHubAuthProvider above this card, so nothing may open a dialog that
@@ -301,6 +305,8 @@ export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: Clust
                 }
               : undefined
           }
+          azureContextError={azureContextError ?? undefined}
+          azureContextLoading={azureContextLoading}
         />
       </Dialog>
 

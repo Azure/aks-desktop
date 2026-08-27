@@ -36,6 +36,8 @@ interface WorkloadIdentityStepProps {
   azureContext?: DeployAzureContext;
   /** Error message from resolving the Azure context, if any. */
   azureContextError?: string;
+  /** True while the Azure context is still being resolved. */
+  azureContextLoading?: boolean;
   namespace?: string;
 }
 
@@ -43,6 +45,7 @@ export default function WorkloadIdentityStep({
   containerConfig,
   azureContext,
   azureContextError,
+  azureContextLoading,
   namespace,
 }: WorkloadIdentityStepProps) {
   const { t } = useTranslation();
@@ -118,9 +121,17 @@ export default function WorkloadIdentityStep({
         }
       />
       {!azureContext && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 5 }}>
-          {azureContextError ?? t('Azure sign-in is required to configure workload identity.')}
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 5 }}>
+          {azureContextLoading && <CircularProgress size={14} />}
+          <Typography
+            variant="caption"
+            color={!azureContextLoading && azureContextError ? 'error' : 'text.secondary'}
+          >
+            {azureContextLoading
+              ? t('Loading Azure context...')
+              : azureContextError ?? t('Azure sign-in is required to configure workload identity.')}
+          </Typography>
+        </Box>
       )}
       {containerConfig.config.enableWorkloadIdentity && azureContext && (
         <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
