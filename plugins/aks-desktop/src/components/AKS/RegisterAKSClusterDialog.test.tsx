@@ -19,7 +19,10 @@ const mocks = vi.hoisted(() => ({
   registeredClusters: new Set<string>(),
   getAKSClusters: vi.fn(),
   getClusterCapabilities: vi.fn(),
+  getClusterSettings: vi.fn(),
   getSubscriptions: vi.fn(),
+  isExtensionInstalled: vi.fn(),
+  markAksHybridEdgeAppearance: vi.fn(),
   onClose: vi.fn(),
   onClusterRegistered: vi.fn(),
   onRegistrationFinished: vi.fn(),
@@ -27,8 +30,11 @@ const mocks = vi.hoisted(() => ({
   registerAKSCluster: vi.fn(),
   renderPure: vi.fn(),
   replace: vi.fn(),
+  setClusterSettings: vi.fn(),
+  startProxy: vi.fn(),
   trackAksFeature: vi.fn(),
   trackError: vi.fn(),
+  verifyAksHybridEdgeCluster: vi.fn(),
 }));
 
 const subscription = {
@@ -45,6 +51,9 @@ const cluster = {
   kubernetesVersion: '1.32.0',
   provisioningState: 'Succeeded',
 };
+
+const arcCluster = { ...cluster, clusterType: 'aksarc' as const };
+const selection: { current: typeof cluster | typeof arcCluster } = { current: cluster };
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   useTranslation: () => ({
@@ -83,6 +92,21 @@ vi.mock('../../utils/azure/az-clusters', () => ({
   getClusterCapabilities: mocks.getClusterCapabilities,
 }));
 
+vi.mock('../../utils/azure/aksHybridEdgeProxy', () => ({
+  startProxy: mocks.startProxy,
+  verifyAksHybridEdgeCluster: mocks.verifyAksHybridEdgeCluster,
+}));
+
+vi.mock('../../utils/azure/az-extensions', () => ({
+  isExtensionInstalled: mocks.isExtensionInstalled,
+}));
+
+vi.mock('../../utils/shared/clusterSettings', () => ({
+  getClusterSettings: mocks.getClusterSettings,
+  markAksHybridEdgeAppearance: mocks.markAksHybridEdgeAppearance,
+  setClusterSettings: mocks.setClusterSettings,
+}));
+
 vi.mock('../../telemetry/aksFeature', () => ({
   trackAksFeature: mocks.trackAksFeature,
 }));
@@ -93,6 +117,7 @@ vi.mock('../../telemetry', () => ({
 
 vi.mock('./RegisterAKSClusterDialogPure', () => ({
   default: (props: {
+    notice?: string;
     onClusterChange: (event: React.SyntheticEvent, value: typeof cluster) => void;
     onClose: () => void;
     onConfigured: () => void;
@@ -107,13 +132,16 @@ vi.mock('./RegisterAKSClusterDialogPure', () => ({
         <button onClick={event => props.onSubscriptionChange(event, subscription)}>
           Select subscription
         </button>
-        <button onClick={event => props.onClusterChange(event, cluster)}>Select cluster</button>
+        <button onClick={event => props.onClusterChange(event, selection.current)}>
+          Select cluster
+        </button>
         <button onClick={props.onRegister} disabled={props.clusterConfigReady === false}>
           Register
         </button>
         <button onClick={props.onClose}>Close</button>
         <button onClick={props.onDone}>Done</button>
         <button onClick={props.onConfigured}>Configured</button>
+        {props.notice && <div>{props.notice}</div>}
       </div>
     );
   },
@@ -160,6 +188,8 @@ describe('RegisterAKSClusterDialog telemetry', () => {
     });
     mocks.clusterConfigReady = true;
     mocks.registeredClusters.clear();
+    selection.current = cluster;
+    mocks.getClusterSettings.mockReturnValue({});
     mocks.getAKSClusters.mockResolvedValue({ success: true, clusters: [] });
     mocks.getSubscriptions.mockResolvedValue({ success: true, subscriptions: [] });
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -168,6 +198,34 @@ describe('RegisterAKSClusterDialog telemetry', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  test('shows install guidance when Arc discovery reports the extension missing', async () => {
+    mocks.getAKSClusters.mockResolvedValue({
+      success: true,
+      clusters: [],
+      arcDiscoveryUnavailable: 'connectedk8s-extension-missing',
+    });
+    renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select subscription' }));
+
+    expect(await screen.findByText(/az extension add --name connectedk8s/i)).toBeTruthy();
+  });
+
+  test('shows the runtime reason instead of install guidance when extension checking fails', async () => {
+    const reason = 'Authentication required. Please log in to Azure CLI: az login';
+    mocks.getAKSClusters.mockResolvedValue({
+      success: true,
+      clusters: [],
+      arcDiscoveryUnavailable: reason,
+    });
+    renderDialog();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select subscription' }));
+
+    expect(await screen.findByText(reason)).toBeTruthy();
+    expect(screen.queryByText(/az extension add --name connectedk8s/i)).toBeNull();
   });
 
   test('emits started only after required selection validation', async () => {
@@ -1064,5 +1122,46 @@ describe('RegisterAKSClusterDialog telemetry', () => {
 
     await waitFor(() => expect(mocks.getClusterCapabilities).toHaveBeenCalledTimes(1));
     expect(currentDialogProps().capabilities).toBeNull();
+  });
+
+  test('reports a succeeded outcome when an Arc cluster connects', async () => {
+    selection.current = arcCluster;
+    mocks.isExtensionInstalled.mockResolvedValue({ installed: true });
+    mocks.startProxy.mockResolvedValue({ success: true });
+    mocks.verifyAksHybridEdgeCluster.mockResolvedValue({ success: true });
+    renderDialog();
+    selectRequiredValues();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+
+    await waitFor(() =>
+      expect(mocks.trackAksFeature).toHaveBeenCalledWith('aksd.cluster-add', 'succeeded')
+    );
+    expect(mocks.onRegistrationFinished).toHaveBeenCalledWith('succeeded');
+    expect(mocks.registerAKSCluster).not.toHaveBeenCalled();
+  });
+
+  test('reports a failed outcome when an Arc cluster is unreachable', async () => {
+    selection.current = arcCluster;
+    mocks.isExtensionInstalled.mockResolvedValue({ installed: true });
+    mocks.startProxy.mockResolvedValue({ success: true });
+    mocks.verifyAksHybridEdgeCluster.mockResolvedValue({
+      success: false,
+      error: 'unreachable',
+    });
+    renderDialog();
+    selectRequiredValues();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+
+    await waitFor(() =>
+      expect(mocks.trackAksFeature).toHaveBeenCalledWith('aksd.cluster-add', 'failed')
+    );
+    expect(mocks.trackError).toHaveBeenCalledWith({
+      area: 'cluster-add',
+      errorClass: 'UnknownError',
+      phase: 'failed',
+    });
+    expect(mocks.onRegistrationFinished).toHaveBeenCalledWith('failed');
   });
 });

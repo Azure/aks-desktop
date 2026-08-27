@@ -4,10 +4,30 @@
 import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useRef } from 'react';
 import { useAzureAuth } from '../../../hooks/useAzureAuth';
+import type { ClusterState } from '../../../utils/azure/clusterState';
+import {
+  getClusterStateLabel,
+  isAksHybridEdgeOnline,
+  isClusterFailed as isProvisioningFailed,
+} from '../../../utils/azure/clusterState';
 import { normalizeClusterName } from '../../../utils/kubernetes/k8sNames';
 import { getClusterSettings } from '../../../utils/shared/clusterSettings';
 import type { SearchableSelectOption } from '../components/SearchableSelect';
 import type { AzureCluster, AzureSubscription, FormData } from '../types';
+
+/**
+ * Adapts an {@link AzureCluster} to the shared {@link ClusterState} shape. The
+ * two cluster lists in this plugin name the ARM provisioning state differently
+ * (`status` here, `provisioningState` in the Add Cluster dialog), so the shared
+ * state rules take one canonical shape and each caller maps into it.
+ */
+function toClusterState(cluster: AzureCluster): ClusterState {
+  return {
+    clusterType: cluster.clusterType,
+    provisioningState: cluster.status,
+    connectivityStatus: cluster.connectivityStatus,
+  };
+}
 
 /**
  * The subset of {@link BasicsStepProps} that {@link useBasicsStep} actually
@@ -119,10 +139,10 @@ export function getClusterStateMessage(cluster: AzureCluster, t: (key: string) =
  * Returns a collision-free select value without changing the cluster name stored in form data.
  *
  * @param cluster - Azure cluster whose option identity is required.
- * @returns A serialized tuple containing the cluster name and resource group.
+ * @returns A serialized tuple containing the cluster kind, resource group, and name.
  */
 export function getClusterOptionValue(cluster: AzureCluster): string {
-  return JSON.stringify([cluster.name, cluster.resourceGroup]);
+  return JSON.stringify([cluster.clusterType ?? 'aks', cluster.resourceGroup, cluster.name]);
 }
 
 // ---------------------------------------------------------------------------
@@ -139,14 +159,17 @@ export interface UseBasicsStepResult {
   subscriptionOptions: SearchableSelectOption[];
   /** Cluster list formatted for {@link SearchableSelect}. */
   clusterOptions: SearchableSelectOption[];
+  /**
+   * Value identifying the current selection among {@link clusterOptions}. Not the
+   * cluster name: names repeat across resource groups and cluster kinds.
+   */
+  selectedClusterValue: string;
   /** Helper text shown below the Cluster select field. */
   clusterHelperText: string;
   /** The currently selected Azure subscription object, or `undefined` if none. */
   selectedSubscription: AzureSubscription | undefined;
   /** The currently selected Azure cluster object, or `undefined` if none. */
   selectedCluster: AzureCluster | undefined;
-  /** Composite select value for the selected cluster and resource group. */
-  selectedClusterValue: string;
   /**
    * `true` when a cluster is selected but is not present in the headlamp
    * kubeconfig — the user must register it before proceeding.
@@ -195,7 +218,11 @@ export function getClusterRegistrationState(
   );
   if (!activeCluster) return 'missing';
 
-  const registeredScope = getClusterSettings(clusterName).azureRegistration;
+  const settings = getClusterSettings(clusterName);
+  const registeredScope =
+    settings.clusterType === 'aksarc'
+      ? { subscriptionId: settings.subscriptionId, resourceGroup: settings.resourceGroup }
+      : settings.azureRegistration;
   const scopeMatches =
     typeof registeredScope?.subscriptionId === 'string' &&
     typeof registeredScope.resourceGroup === 'string' &&
@@ -284,13 +311,32 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     };
   });
 
-  const clusterOptions: SearchableSelectOption[] = clusters.map(cluster => ({
-    value: getClusterOptionValue(cluster),
-    label: cluster.name,
-    subtitle: `${t('Resource Group')}: ${cluster.resourceGroup} • ${cluster.location} • ${
-      cluster.version
-    } • ${t('{{count}} nodes', { count: cluster.nodeCount })} • ${cluster.status}`,
-  }));
+  const clusterOptions: SearchableSelectOption[] = clusters.map(cluster => {
+    const state = toClusterState(cluster);
+    const offline = !isAksHybridEdgeOnline(state);
+    return {
+      value: getClusterOptionValue(cluster),
+      label: cluster.name,
+      subtitle: `${t('Resource Group')}: ${cluster.resourceGroup} • ${cluster.location} • ${
+        cluster.version
+      } • ${t('{{count}} nodes', { count: cluster.nodeCount })} • ${getClusterStateLabel(state)}`,
+      // Clusters in a Failed provisioning state are not deployable, and an Arc
+      // cluster whose agent is offline cannot be reached at all — disable both
+      // (non-selectable) in the dropdown. The subtitle shows "Failed"/"Offline"
+      // so the reason is visible.
+      disabled: isProvisioningFailed(state) || offline,
+      // Tag Arc-connected clusters so they stand out in the dropdown, matching the
+      // "AKS Hybrid & Edge" and "Offline" chips used in the Add Cluster dialog.
+      chips: [
+        ...(cluster.clusterType === 'aksarc'
+          ? [{ label: t('AKS Hybrid & Edge'), icon: 'mdi:server', color: 'info' as const }]
+          : []),
+        ...(offline
+          ? [{ label: t('Offline'), icon: 'mdi:cloud-off-outline', color: 'default' as const }]
+          : []),
+      ],
+    };
+  });
 
   const clusterHelperText = getClusterHelperText(
     t,
@@ -304,7 +350,13 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     : undefined;
 
   const selectedCluster = formData.cluster
-    ? clusters.find(c => c.name === formData.cluster && c.resourceGroup === formData.resourceGroup)
+    ? clusters.find(
+        c =>
+          c.name === formData.cluster &&
+          c.resourceGroup === formData.resourceGroup &&
+          // Older form state has no kind recorded; fall back to name+group there.
+          (formData.clusterType === undefined || c.clusterType === formData.clusterType)
+      )
     : undefined;
   const selectedClusterValue = selectedCluster ? getClusterOptionValue(selectedCluster) : '';
 
@@ -338,12 +390,16 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
 
   const handleClusterChange = (clusterValue: string) => {
     if (!clusterValue) {
-      onFormDataChange({ cluster: '', resourceGroup: '' });
+      onFormDataChange({ cluster: '', resourceGroup: '', clusterType: undefined });
       return;
     }
     const found = clusters.find(c => getClusterOptionValue(c) === clusterValue);
     if (found) {
-      onFormDataChange({ cluster: found.name, resourceGroup: found.resourceGroup });
+      onFormDataChange({
+        cluster: found.name,
+        resourceGroup: found.resourceGroup,
+        clusterType: found.clusterType,
+      });
     }
   };
 

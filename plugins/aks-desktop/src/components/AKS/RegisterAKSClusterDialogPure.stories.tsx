@@ -69,6 +69,27 @@ const SAMPLE_CLUSTERS = [
   },
 ];
 
+const SAMPLE_ARC_CLUSTERS = [
+  {
+    name: 'prod-aks-cluster',
+    resourceGroup: 'edge-rg',
+    location: 'eastus',
+    kubernetesVersion: '1.28.5',
+    provisioningState: 'Succeeded',
+    clusterType: 'aksarc' as const,
+    connectivityStatus: 'Connected',
+  },
+  {
+    name: 'factory-edge-cluster',
+    resourceGroup: 'factory-rg',
+    location: 'westus2',
+    kubernetesVersion: '1.27.7',
+    provisioningState: 'Succeeded',
+    clusterType: 'aksarc' as const,
+    connectivityStatus: 'Offline',
+  },
+];
+
 const baseArgs: RegisterAKSClusterDialogPureProps = {
   open: true,
   isChecking: false,
@@ -188,6 +209,34 @@ WithClusters.args = {
   selectedSubscription: SAMPLE_SUBSCRIPTIONS[0],
   clusters: SAMPLE_CLUSTERS,
   filteredClusters: SAMPLE_CLUSTERS,
+};
+
+/** Managed and Arc clusters, including duplicate names across resource groups and kinds. */
+export const WithManagedAndArcClusters = Template.bind({});
+WithManagedAndArcClusters.args = {
+  ...baseArgs,
+  selectedSubscription: SAMPLE_SUBSCRIPTIONS[0],
+  clusters: [...SAMPLE_CLUSTERS, ...SAMPLE_ARC_CLUSTERS],
+  filteredClusters: [...SAMPLE_CLUSTERS, ...SAMPLE_ARC_CLUSTERS],
+};
+
+/** Arc discovery is unavailable, while managed clusters remain selectable. */
+export const ArcDiscoveryUnavailable = Template.bind({});
+ArcDiscoveryUnavailable.args = {
+  ...WithClusters.args,
+  notice:
+    'AKS Hybrid & Edge clusters are not listed: the Azure CLI "connectedk8s" extension is required.',
+};
+
+/** An offline Arc cluster is selected so its connectivity warning is visible. */
+export const OfflineArcClusterSelected = Template.bind({});
+OfflineArcClusterSelected.args = {
+  ...baseArgs,
+  selectedSubscription: SAMPLE_SUBSCRIPTIONS[0],
+  clusters: SAMPLE_ARC_CLUSTERS,
+  filteredClusters: SAMPLE_ARC_CLUSTERS,
+  selectedCluster: SAMPLE_ARC_CLUSTERS[1],
+  clusterInputValue: SAMPLE_ARC_CLUSTERS[1].name,
 };
 
 /** Cluster selected — shows cluster details and enabled Register button. */

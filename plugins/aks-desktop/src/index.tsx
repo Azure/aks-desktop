@@ -7,6 +7,9 @@ import {
   registerAppBarAction,
   registerAppLogo,
   registerAppTheme,
+  registerClusterProviderDialog,
+  registerClusterProviderMenuItem,
+  registerClusterProviderPreOpen,
   registerCustomCreateProject,
   registerPluginSettings,
   registerProjectDeleteButton,
@@ -21,6 +24,11 @@ import React from 'react';
 import { Redirect } from 'react-router-dom';
 import AccessTab from './components/AccessTab/AccessTab';
 import RegisterAKSClusterPage from './components/AKS/RegisterAKSClusterPage';
+import { aksHybridEdgePreOpenHook } from './components/AksHybridEdge/aksHybridEdgePreOpen';
+import {
+  AksHybridEdgeProxyMenuItem,
+  AksHybridEdgeProxyStartDialog,
+} from './components/AksHybridEdge/AksHybridEdgeProxyControls';
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
 import ClusterCapabilityCard from './components/ClusterCapabilityCard/ClusterCapabilityCard';
@@ -58,6 +66,7 @@ import {
   isAksProject,
   isAksProjectWithResourceGroup,
   isArmManagedProject,
+  isAzureRbacProject,
 } from './utils/shared/isAksProject';
 import { azureTheme } from './utils/shared/theme';
 
@@ -359,6 +368,22 @@ if (Headlamp.isRunningAsApp()) {
     noAuthRequired: true,
   });
 
+  // AKS Hybrid & Edge (Arc-connected) cluster list integration.
+  // - AKS Hybrid & Edge clusters are differentiated on the Home list by a distinct
+  //   name badge (server icon + Azure-blue accent) set via the shared cluster
+  //   appearance settings at registration time — no custom status column.
+  // - A menu item reports whether the cluster is reachable and starts the local
+  //   `az connectedk8s proxy` when it is not. There is no Stop: arcProxy is a
+  //   machine-wide daemon shared by every connected cluster. Proxies are torn
+  //   down when the app exits, not on renderer reload.
+  // - A dialog drives the start flow and verifies the cluster becomes reachable.
+  // - A pre-open hook auto-starts and verifies the proxy when the user opens an
+  //   AKS Hybrid & Edge cluster, so connecting is seamless (no manual menu step);
+  //   the menu item/dialog remain as an explicit fallback.
+  registerClusterProviderMenuItem(AksHybridEdgeProxyMenuItem);
+  registerClusterProviderDialog(AksHybridEdgeProxyStartDialog);
+  registerClusterProviderPreOpen(aksHybridEdgePreOpenHook);
+
   // Project details tabs wrap in TelemetryErrorBoundary, which reports
   // through the telemetry chokepoint. Telemetry is only booted in the
   // app context (TelemetryBoot is registered via registerAppBarAction
@@ -427,12 +452,15 @@ if (Headlamp.isRunningAsApp()) {
     ),
   });
 
-  // Override built-in Access tab with Azure role assignments for ARM-managed projects
+  // Override the built-in Access tab (which lists Roles/RoleBindings) wherever the
+  // grants actually live in Azure — managed namespaces, and Arc clusters created
+  // with Azure RBAC. Arc clusters using native Kubernetes RBAC keep the built-in
+  // tab, because there the RoleBindings genuinely are the access.
   registerProjectDetailsTab({
     id: 'headlamp-projects.tabs.access',
     label: 'Access',
     icon: 'mdi:account-lock',
-    isEnabled: isArmManagedProject,
+    isEnabled: isAzureRbacProject,
     component: ({ project }) => (
       <TelemetryErrorBoundary>
         <AccessTab project={project} />

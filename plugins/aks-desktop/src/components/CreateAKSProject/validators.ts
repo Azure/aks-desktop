@@ -5,19 +5,32 @@
 // These functions are easily testable and don't depend on React
 
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
+import { isEntraObjectId, isUserPrincipalName } from '../../utils/shared/entraIdentifiers';
 import { FormData, FormValidationResult, UserAssignment, ValidationResult } from './types';
 
 /**
- * Validates Azure AD object ID format (UUID/GUID)
+ * Whether an assignee carries the identifiers their grant actually needs.
+ *
+ * The object ID is required in every case: managed namespaces key their role
+ * assignments on it, and an Arc cluster needs it for the connectivity role that
+ * every project grants regardless of authorization model. Without it the grant
+ * does not merely degrade — the managed path filters the assignee out silently
+ * and the Arc path reports that access could not be granted, in both cases after
+ * the project already exists.
+ *
+ * A UPN is required *in addition* on clusters that authorize with native
+ * Kubernetes RBAC, where the grant is a RoleBinding whose subject must be the
+ * sign-in name; pass `requiresUpn` there.
+ *
+ * Directory search yields both identifiers. A hand-typed value yields one and
+ * `resolveAzureADUser` fills in the other, so this only bites when that lookup
+ * is unavailable too — in which case the field explains where to find both.
  */
-export const isValidObjectId = (objectId: string): boolean => {
-  if (!objectId || typeof objectId !== 'string') {
-    return false;
-  }
-
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(objectId.trim());
-};
+export const isValidAssignee = (
+  assignment: Pick<UserAssignment, 'objectId' | 'upn'>,
+  requiresUpn = false
+): boolean =>
+  isEntraObjectId(assignment.objectId) && (!requiresUpn || isUserPrincipalName(assignment.upn));
 
 /**
  * Validates project name
@@ -53,7 +66,10 @@ const validateProjectName = (projectName: string): ValidationResult => {
 /**
  * Validates user assignments
  */
-const validateAssignments = (assignments: UserAssignment[]): ValidationResult => {
+const validateAssignments = (
+  assignments: UserAssignment[],
+  requiresUpn: boolean = false
+): ValidationResult => {
   const errors: string[] = [];
 
   if (!Array.isArray(assignments)) {
@@ -66,15 +82,19 @@ const validateAssignments = (assignments: UserAssignment[]): ValidationResult =>
     return { isValid: true, errors: [], warnings: [] };
   }
 
-  // If there are assignments, ALL of them must have valid, non-empty object IDs
+  // If there are assignments, ALL of them must identify a real user
   assignments.forEach((assignment, index) => {
-    const trimmedId = assignment.objectId.trim();
-    if (trimmedId === '') {
+    if (assignment.objectId.trim() === '' && !assignment.upn?.trim()) {
+      errors.push(`Assignee ${index + 1}: Please select a user or remove this entry`);
+    } else if (!isValidAssignee(assignment)) {
+      errors.push(`Assignee ${index + 1}: Please enter a valid Azure AD object ID (UUID)`);
+    } else if (requiresUpn && !isUserPrincipalName(assignment.upn)) {
+      // Only when the grant is a RoleBinding, whose subject must be the UPN — an
+      // object ID there applies cleanly and matches nothing.
       errors.push(
-        `Assignee ${index + 1}: Please enter a valid Azure AD object ID or remove this entry`
+        `Assignee ${index + 1}: this cluster needs the user's sign-in name (UPN); ` +
+          'an object ID on its own cannot be granted access'
       );
-    } else if (!isValidObjectId(trimmedId)) {
-      errors.push(`Assignee ${index + 1}: Please enter a valid Azure AD object ID (UUID format)`);
     }
   });
 
@@ -171,7 +191,10 @@ export const validateBasicsStep = (
   checkingNamespace: boolean,
   namespaceError: string | null,
   isClusterMissing?: boolean,
-  capabilities?: ClusterCapabilities | null
+  capabilities?: ClusterCapabilities | null,
+  isArc?: boolean,
+  arcAccessChecking?: boolean,
+  arcAccessible?: boolean | null
 ): ValidationResult => {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -180,11 +203,25 @@ export const validateBasicsStep = (
     errors.push('Selected cluster is not registered');
   }
 
-  // Check extension installation
-  if (extensionInstalled !== true) {
-    errors.push('AKS Preview Extension must be installed');
+  // The aks-preview extension is only required to create *managed* namespaces
+  // (`az aks namespace add`). Arc (AKS Hybrid & Edge) clusters apply a native
+  // manifest via the K8s API, so this managed-only prerequisite does not gate
+  // them — but the Arc cluster must actually be reachable (a live API probe, not
+  // a cached heartbeat), so an unreachable one blocks the step even when Azure
+  // reports it as "Succeeded".
+  if (!isArc) {
+    // Check extension installation
+    if (extensionInstalled !== true) {
+      errors.push('AKS Preview Extension must be installed');
+    }
+  } else if (!isClusterMissing) {
+    // Arc cluster is connected — gate on live reachability.
+    if (arcAccessChecking) {
+      errors.push('Checking cluster accessibility...');
+    } else if (arcAccessible === false) {
+      errors.push('Selected cluster is not accessible (no response from its Kubernetes API)');
+    }
   }
-
   // Validate project name
   const projectNameValidation = validateProjectName(formData.projectName);
   if (!projectNameValidation.isValid) {
@@ -250,14 +287,21 @@ export const validateBasicsStep = (
 /**
  * Validates the access step
  */
-const validateAccessStep = (assignments: UserAssignment[]): ValidationResult => {
-  return validateAssignments(assignments);
+const validateAccessStep = (
+  assignments: UserAssignment[],
+  requiresUpn: boolean = false
+): ValidationResult => {
+  return validateAssignments(assignments, requiresUpn);
 };
 
 /**
  * Validates the entire form
  */
-export const validateForm = (formData: FormData): FormValidationResult => {
+export const validateForm = (
+  formData: FormData,
+  /** True when the grant will be a RoleBinding, so a UPN is mandatory. */
+  requiresUpn: boolean = false
+): FormValidationResult => {
   const fieldErrors: Record<string, string[]> = {};
   const allErrors: string[] = [];
 
@@ -269,7 +313,7 @@ export const validateForm = (formData: FormData): FormValidationResult => {
   }
 
   // Validate assignments
-  const assignmentsValidation = validateAssignments(formData.userAssignments);
+  const assignmentsValidation = validateAssignments(formData.userAssignments, requiresUpn);
   if (!assignmentsValidation.isValid) {
     fieldErrors.assignments = assignmentsValidation.errors;
     allErrors.push(...assignmentsValidation.errors);
@@ -321,7 +365,17 @@ export const validateStep = (
   checkingNamespace?: boolean,
   namespaceError?: string | null,
   isClusterMissing?: boolean,
-  capabilities?: ClusterCapabilities | null
+  capabilities?: ClusterCapabilities | null,
+  isArc?: boolean,
+  arcAccessChecking?: boolean,
+  arcAccessible?: boolean | null,
+  /**
+   * True when the grant will be a Kubernetes RoleBinding (an Arc cluster using
+   * native RBAC), which makes a UPN mandatory for every assignee. False for
+   * managed AKS and for Arc clusters authorizing through Azure RBAC, where the
+   * grant keys on the object ID instead.
+   */
+  requiresUpn?: boolean
 ): ValidationResult => {
   switch (step) {
     case 0: // Basics
@@ -332,7 +386,10 @@ export const validateStep = (
         checkingNamespace ?? false,
         namespaceError ?? null,
         isClusterMissing,
-        capabilities
+        capabilities,
+        isArc,
+        arcAccessChecking,
+        arcAccessible
       );
     case 1: // Networking
       return validateNetworkingPolicies({
@@ -347,7 +404,7 @@ export const validateStep = (
         memoryLimit: formData.memoryLimit,
       });
     case 3: // Access
-      return validateAccessStep(formData.userAssignments);
+      return validateAccessStep(formData.userAssignments, requiresUpn);
     case 4: // Review
       return { isValid: true, errors: [], warnings: [] }; // Review step is always valid
     default:

@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import {
-  assignRolesToIdentity,
+  assignAzureRoles,
   getKubeletIdentityObjectId,
   getManagedNamespaceResourceId,
 } from './az-identity';
@@ -121,7 +121,7 @@ export async function ensureIdentityWithRoles(
     });
   })();
 
-  const roleResult = await assignRolesToIdentity({
+  const roleResult = await assignAzureRoles({
     principalId: identity.principalId,
     subscriptionId,
     roles,
@@ -158,7 +158,7 @@ export async function ensureIdentityWithRoles(
       clusterName,
     });
     if (kubeletResult.success && kubeletResult.objectId) {
-      const kubeletRoleResult = await assignRolesToIdentity({
+      const kubeletRoleResult = await assignAzureRoles({
         principalId: kubeletResult.objectId,
         subscriptionId: acrSubscriptionId,
         roles: [{ role: 'AcrPull', scope: acrResourceId }],

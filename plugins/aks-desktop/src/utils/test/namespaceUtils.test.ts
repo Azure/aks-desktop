@@ -3,9 +3,13 @@
 
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-// Mock the K8s API
-const mockGet = vi.fn();
-const mockPut = vi.fn();
+// Mock the K8s API. These are declared with vi.hoisted so the vi.mock factory
+// (hoisted above imports) can safely reference them.
+const { mockGet, mockPut, mockPost } = vi.hoisted(() => ({
+  mockGet: vi.fn(),
+  mockPut: vi.fn(),
+  mockPost: vi.fn(),
+}));
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   K8s: {
@@ -14,10 +18,18 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
         apiEndpoint: {
           get: (...args: any[]) => mockGet(...args),
           put: (...args: any[]) => mockPut(...args),
+          post: (...args: any[]) => mockPost(...args),
         },
       },
     },
   },
+}));
+
+// applyNamespaceManifest creates the Namespace with create-only semantics and
+// applies the namespaced children with the generic apply() helper.
+const mockApply = vi.hoisted(() => vi.fn());
+vi.mock('@kinvolk/headlamp-plugin/lib/ApiProxy', () => ({
+  apply: (...args: any[]) => mockApply(...args),
 }));
 
 // Mock the Azure CLI
@@ -26,7 +38,11 @@ vi.mock('../azure/az-cli-core', () => ({
   runCommandAsync: (...args: any[]) => mockRunCommandAsync(...args),
 }));
 
-import { applyProjectLabels, fetchNamespaceData } from '../kubernetes/namespaceUtils';
+import {
+  applyNamespaceManifest,
+  applyProjectLabels,
+  fetchNamespaceData,
+} from '../kubernetes/namespaceUtils';
 
 /**
  * Helper: creates a mockGet implementation that calls the success callback
@@ -104,6 +120,73 @@ describe('fetchNamespaceData', () => {
 
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(mockCancel).toHaveBeenCalled();
+  });
+});
+
+describe('applyNamespaceManifest', () => {
+  beforeEach(() => {
+    mockApply.mockReset();
+    mockPost.mockReset();
+  });
+
+  const baseOptions = {
+    namespaceName: 'my-project',
+    cpuRequest: 2000,
+    cpuLimit: 4000,
+    memoryRequest: 4096,
+    memoryLimit: 8192,
+    ingressPolicy: 'AllowSameNamespace' as const,
+    egressPolicy: 'AllowAll' as const,
+    labels: { 'headlamp.dev/project-id': 'my-project' },
+    userAssignments: [
+      { objectId: '11111111-1111-1111-1111-111111111111', upn: 'ada@contoso.com', role: 'Admin' },
+    ],
+  };
+
+  test('creates the Namespace create-only, then applies its children', async () => {
+    // `apply` is create-or-update, which would adopt someone else's namespace and
+    // stamp it with this project's labels if the wizard's pre-check lost a race.
+    mockPost.mockResolvedValue({});
+    mockApply.mockResolvedValue({});
+
+    const result = await applyNamespaceManifest('arc-cluster', baseOptions);
+
+    expect(result).toEqual({ success: true });
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    expect(mockPost.mock.calls[0][0].kind).toBe('Namespace');
+    expect(mockPost.mock.calls[0][2]).toBe('arc-cluster');
+
+    const appliedKinds = mockApply.mock.calls.map(call => call[0].kind);
+    expect(appliedKinds).toEqual(['ResourceQuota', 'NetworkPolicy', 'RoleBinding']);
+    for (const call of mockApply.mock.calls) {
+      expect(call[1]).toBe('arc-cluster');
+    }
+  });
+
+  test('reports the collision when the namespace already exists', async () => {
+    mockPost.mockRejectedValue(new Error('namespaces "my-project" already exists'));
+
+    const result = await applyNamespaceManifest('arc-cluster', baseOptions);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Namespace');
+    // Nothing is applied into a namespace we do not own.
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  test('fails fast and reports the failing kind on error', async () => {
+    // Namespace succeeds, ResourceQuota rejects.
+    mockPost.mockResolvedValue({});
+    mockApply.mockRejectedValueOnce(new Error('quota exceeded'));
+
+    const result = await applyNamespaceManifest('arc-cluster', baseOptions);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('ResourceQuota');
+    expect(result.error).toContain('quota exceeded');
+    // Stopped after the failure — NetworkPolicy/RoleBinding were not attempted.
+    // Only one apply: the Namespace is created through the endpoint, not applied.
+    expect(mockApply).toHaveBeenCalledTimes(1);
   });
 });
 

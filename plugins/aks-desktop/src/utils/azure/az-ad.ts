@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { isEntraObjectId, isUserPrincipalName } from '../shared/entraIdentifiers';
 import { quoteForPlatform } from '../shared/quoteForPlatform';
 import { runAzCommand } from './az-cli-core';
 
@@ -67,4 +68,48 @@ export async function searchAzureADUsers(
   );
 
   return { success: result.success, users: result.data ?? [], error: result.error };
+}
+
+/**
+ * Resolves a single Entra user from either identifier and returns both.
+ *
+ * Both are needed and neither substitutes for the other: Azure role assignments
+ * key on the **object ID**, while a Kubernetes RoleBinding subject must be the
+ * **UPN** (the apiserver sees the OID only as an unmatched `Extra: oid`
+ * attribute). Users picked from search already carry both; this fills the gap
+ * for values typed by hand when directory search is blocked.
+ *
+ * `az ad user show --id` accepts an object ID or a UPN, so one call covers both
+ * entry paths.
+ */
+export async function resolveAzureADUser(
+  idOrUpn: string
+): Promise<{ success: boolean; user?: AzureADUser; error?: string }> {
+  const trimmed = idOrUpn.trim();
+
+  if (!isUserPrincipalName(trimmed) && !isEntraObjectId(trimmed)) {
+    return { success: false, error: 'Not a valid object ID or user principal name' };
+  }
+
+  const result = await runAzCommand<AzureADUser>(
+    [
+      'ad',
+      'user',
+      'show',
+      '--id',
+      trimmed,
+      '--query',
+      '{id:id,displayName:displayName,mail:mail,userPrincipalName:userPrincipalName}',
+      '--output',
+      'json',
+    ],
+    'Resolving Azure AD user:',
+    'resolve Azure AD user',
+    stdout => JSON.parse(stdout || 'null')
+  );
+
+  if (!result.success || !result.data) {
+    return { success: false, error: result.error };
+  }
+  return { success: true, user: result.data };
 }

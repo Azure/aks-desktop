@@ -66,6 +66,20 @@ const CLUSTER_UPDATING = {
   status: 'Updating',
 };
 
+const ARC_ONLINE = {
+  ...CLUSTER_RUNNING,
+  name: 'arc-online',
+  nodeCount: 0,
+  clusterType: 'aksarc' as const,
+  connectivityStatus: 'Connected',
+};
+
+const ARC_OFFLINE = {
+  ...ARC_ONLINE,
+  name: 'arc-offline',
+  connectivityStatus: 'Offline',
+};
+
 function makeProps(overrides: Partial<BasicsStepProps> = {}): BasicsStepProps {
   return {
     formData: {
@@ -93,6 +107,7 @@ function makeProps(overrides: Partial<BasicsStepProps> = {}): BasicsStepProps {
     totalClusterCount: null,
     extensionStatus: { installed: true, installing: false, error: null, showSuccess: false },
     namespaceStatus: { exists: null, checking: false, error: null },
+    clusterAccessStatus: { checking: false, accessible: null },
     clusterCapabilities: null,
     capabilitiesLoading: false,
     onInstallExtension: vi.fn(),
@@ -250,6 +265,9 @@ describe('useBasicsStep', () => {
   test('maps clusters to SearchableSelectOption format', () => {
     const { result } = renderHook(() => useBasicsStep(makeProps()));
     expect(result.current.clusterOptions).toHaveLength(1);
+    // Keyed by kind + resource group + name: names repeat across resource groups
+    // and cluster kinds, and a duplicate option value would resolve to whichever
+    // came first — potentially the wrong creation path.
     expect(result.current.clusterOptions[0]).toMatchObject({
       value: getClusterOptionValue(CLUSTER_RUNNING),
       label: 'aks-prod',
@@ -257,6 +275,78 @@ describe('useBasicsStep', () => {
     expect(result.current.clusterOptions[0].subtitle).toContain('eastus');
     expect(result.current.clusterOptions[0].subtitle).toContain('1.28.5');
     expect(result.current.clusterOptions[0].subtitle).toContain('nodes');
+    // A Succeeded cluster is selectable.
+    expect(result.current.clusterOptions[0].disabled).toBe(false);
+  });
+
+  test('keeps a managed and an Arc cluster of the same name distinguishable', () => {
+    // Names are scoped by resource group and resource type, so this collision is
+    // legal in Azure. Keyed by name alone the two options would be identical and
+    // selecting either would resolve to the first — running the managed creation
+    // path against an Arc cluster, or the reverse.
+    const managed = { ...CLUSTER_RUNNING, name: 'shared', resourceGroup: 'rg-a' };
+    const arc = {
+      ...CLUSTER_RUNNING,
+      name: 'shared',
+      resourceGroup: 'rg-b',
+      clusterType: 'aksarc' as const,
+      connectivityStatus: 'Connected',
+    };
+    const onFormDataChange = vi.fn();
+    const props = makeProps({ clusters: [managed, arc], onFormDataChange });
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    const values = result.current.clusterOptions.map(o => o.value);
+    expect(new Set(values).size).toBe(2);
+
+    act(() => result.current.handleClusterChange(values[1]));
+    expect(onFormDataChange).toHaveBeenCalledWith(
+      expect.objectContaining({ cluster: 'shared', resourceGroup: 'rg-b', clusterType: 'aksarc' })
+    );
+  });
+
+  test('disables cluster options in a Failed provisioning state', () => {
+    const props = makeProps({
+      clusters: [CLUSTER_RUNNING, { ...CLUSTER_RUNNING, name: 'aks-broken', status: 'Failed' }],
+    });
+    const { result } = renderHook(() => useBasicsStep(props));
+    const options = result.current.clusterOptions;
+    expect(options.find(o => o.label === 'aks-prod')?.disabled).toBe(false);
+    expect(options.find(o => o.label === 'aks-broken')?.disabled).toBe(true);
+  });
+
+  test('disables an offline Arc cluster and shows Offline, not its stale Succeeded state', () => {
+    // An Arc cluster's `status` (provisioningState) stays Succeeded once created,
+    // however sick the cluster gets, so the heartbeat is the only signal here.
+    const props = makeProps({ clusters: [ARC_ONLINE, ARC_OFFLINE] });
+    const { result } = renderHook(() => useBasicsStep(props));
+    const online = result.current.clusterOptions.find(o => o.label === 'arc-online');
+    const offline = result.current.clusterOptions.find(o => o.label === 'arc-offline');
+
+    expect(online?.disabled).toBe(false);
+    expect(online?.subtitle).toContain('Succeeded');
+    expect(online?.chips?.map(c => c.label)).toEqual(['AKS Hybrid & Edge']);
+
+    expect(offline?.disabled).toBe(true);
+    expect(offline?.subtitle).toContain('Offline');
+    expect(offline?.subtitle).not.toContain('Succeeded');
+    expect(offline?.chips?.map(c => c.label)).toEqual(['AKS Hybrid & Edge', 'Offline']);
+  });
+
+  test('an offline Arc cluster that also failed provisioning reads Failed', () => {
+    const props = makeProps({
+      clusters: [{ ...ARC_OFFLINE, name: 'arc-broken', status: 'Failed' }],
+    });
+    const { result } = renderHook(() => useBasicsStep(props));
+    const option = result.current.clusterOptions[0];
+    expect(option.disabled).toBe(true);
+    expect(option.subtitle).toContain('Failed');
+  });
+
+  test('managed clusters carry no heartbeat and are never marked offline', () => {
+    const { result } = renderHook(() => useBasicsStep(makeProps()));
+    expect(result.current.clusterOptions[0].disabled).toBe(false);
+    expect(result.current.clusterOptions[0].chips).toEqual([]);
   });
 
   test('selectedSubscription is undefined when no subscription is selected', () => {
@@ -504,7 +594,7 @@ describe('useBasicsStep', () => {
   test('handleClusterChange does nothing when the cluster name is not in the list', () => {
     const onFormDataChange = vi.fn();
     const { result } = renderHook(() => useBasicsStep(makeProps({ onFormDataChange })));
-    act(() => result.current.handleClusterChange('nonexistent-cluster'));
+    act(() => result.current.handleClusterChange('aks|rg-prod|nonexistent-cluster'));
     expect(onFormDataChange).not.toHaveBeenCalled();
   });
 

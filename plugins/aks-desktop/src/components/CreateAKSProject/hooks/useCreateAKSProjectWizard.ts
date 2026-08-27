@@ -5,17 +5,26 @@ import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import React, { useEffect, useRef, useState } from 'react';
 import { useHistory } from 'react-router-dom';
 import { trackError, trackFeature } from '../../../telemetry';
+import { checkClusterAccessible } from '../../../utils/azure/aksHybridEdgeProxy';
+import { assignAzureRoles } from '../../../utils/azure/az-identity';
 import { checkNamespaceExists } from '../../../utils/azure/az-namespace-access';
 import { createManagedNamespace } from '../../../utils/azure/az-namespaces';
 import { checkAzureCliAndAksPreview } from '../../../utils/azure/checkAzureCli';
+import { computeArcProjectRoles } from '../../../utils/azure/identityRoles';
 import { assignRolesToNamespace } from '../../../utils/azure/roleAssignment';
 import {
+  AUTHZ_MODEL_AZURE_RBAC,
+  AUTHZ_MODEL_KUBERNETES_RBAC,
+  AUTHZ_MODEL_LABEL,
   PROJECT_ID_LABEL,
   PROJECT_MANAGED_BY_LABEL,
   PROJECT_MANAGED_BY_VALUE,
   RESOURCE_GROUP_LABEL,
   SUBSCRIPTION_LABEL,
 } from '../../../utils/constants/projectLabels';
+import { reviewNamespaceAccess } from '../../../utils/kubernetes/accessReview';
+import { applyNamespaceManifest } from '../../../utils/kubernetes/namespaceUtils';
+import { isEntraObjectId } from '../../../utils/shared/entraIdentifiers';
 import { STEPS } from '../types';
 import { useAzureResources } from './useAzureResources';
 import { getClusterRegistrationState } from './useBasicsStep';
@@ -73,6 +82,11 @@ export interface UseCreateAKSProjectWizardResult {
   creationProgress: string;
   /** Error message if creation failed, or `null` when not in an error state. */
   creationError: string | null;
+  /**
+   * Non-fatal problems from a project that was still created — a grant that could
+   * not be made, or one that could not be verified. Empty on a clean run.
+   */
+  creationWarnings: string[];
   /** Direct setter for {@link creationError} (used by the connector to dismiss the overlay). */
   setCreationError: React.Dispatch<React.SetStateAction<string | null>>;
   /** Direct setter for {@link creationProgress} (used by the connector to clear on dismiss). */
@@ -113,6 +127,23 @@ export interface UseCreateAKSProjectWizardResult {
    * cluster registry, `undefined` when no cluster is selected.
    */
   isClusterMissing: boolean | undefined;
+  /**
+   * True when the selected cluster is Arc (AKS Hybrid & Edge).
+   */
+  isArcCluster: boolean;
+  /**
+   * True when the grant will be a Kubernetes RoleBinding, making a UPN mandatory
+   * for every assignee. False for managed AKS and for Arc clusters authorizing
+   * through Azure RBAC, both of which key on the object ID.
+   */
+  requiresUpn: boolean;
+  /**
+   * Live reachability of the selected Arc (AKS Hybrid & Edge) cluster. `accessible`
+   * is `null` when not applicable (managed cluster, none selected, or not connected),
+   * `true`/`false` once the API probe resolves. Used by the Basics step to explain a
+   * disabled "Next" button.
+   */
+  clusterAccess: { checking: boolean; accessible: boolean | null };
   /** Ref object for the step content container, used to manage focus and scroll position. */
   stepContentRef: React.RefObject<HTMLDivElement>;
 }
@@ -135,10 +166,20 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   const [isCreating, setIsCreating] = useState(false);
   const [creationProgress, setCreationProgress] = useState('');
   const [creationError, setCreationError] = useState<string | null>(null);
+  // Non-fatal problems from a project that was still created — e.g. a grant that
+  // could not be made or could not be verified.
+  const [creationWarnings, setCreationWarnings] = useState<string[]>([]);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [applicationName, setApplicationName] = useState('');
   const terminalTrackedRef = useRef(false);
   const [cliSuggestions, setCliSuggestions] = useState<string[]>([]);
+  // Live accessibility of the selected Arc (AKS Hybrid & Edge) cluster, determined
+  // by a real Kubernetes API probe rather than a cached Arc heartbeat. `accessible`
+  // is `null` when not applicable (managed cluster, none selected, or not connected).
+  const [clusterAccess, setClusterAccess] = useState<{
+    checking: boolean;
+    accessible: boolean | null;
+  }>({ checking: false, accessible: null });
   const stepContentRef = useRef<HTMLDivElement>(null);
 
   // Track the 2-second success-dialog delay timer so it can be cleared on unmount,
@@ -167,13 +208,38 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
       : undefined
     : undefined;
 
+  // Whether the selected cluster is an Arc-connected (AKS Hybrid & Edge) cluster.
+  // Arc clusters have no `az aks namespace` surface, so the wizard applies a native
+  // Kubernetes manifest via the K8s API instead of creating a managed namespace, and
+  // the `az`-only preflight side-effects below are skipped for them.
+  // Resolved by kind and resource group as well as name: a managed AKS cluster and
+  // an Arc one can share a name, and matching the wrong one here would send the
+  // project down the wrong creation path entirely.
+  const selectedClusterObj = formData.cluster
+    ? azureResources.clusters.find(
+        c =>
+          c.name === formData.cluster &&
+          c.resourceGroup === formData.resourceGroup &&
+          (formData.clusterType === undefined || c.clusterType === formData.clusterType)
+      )
+    : undefined;
+  const isArcCluster = selectedClusterObj?.clusterType === 'aksarc';
+  // Which authorization model the selected cluster uses. Only a cluster granting
+  // through native Kubernetes RBAC writes a RoleBinding, and only that grant needs
+  // a UPN — Azure RBAC keys on the object ID instead.
+  const azureRbacEnabled = selectedClusterObj?.azureRbacEnabled === true;
+  const requiresUpn = isArcCluster && !azureRbacEnabled;
+
   const validation = useValidation(
     activeStep,
     formData,
     extensionStatus,
     namespaceCheck,
     isClusterMissing,
-    clusterCapabilities.capabilities
+    clusterCapabilities.capabilities,
+    isArcCluster,
+    clusterAccess,
+    requiresUpn
   );
 
   useEffect(() => {
@@ -207,7 +273,9 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   }, [formData.subscription]);
 
   useEffect(() => {
-    if (formData.cluster && formData.subscription && formData.resourceGroup) {
+    // Cluster capabilities come from `az aks show`, which does not apply to Arc
+    // (AKS Hybrid & Edge) clusters — skip the fetch for them.
+    if (!isArcCluster && formData.cluster && formData.subscription && formData.resourceGroup) {
       clusterCapabilities.fetchCapabilities(
         formData.subscription,
         formData.resourceGroup,
@@ -216,16 +284,21 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     } else {
       clusterCapabilities.clearCapabilities();
     }
-  }, [formData.cluster, formData.subscription, formData.resourceGroup]);
+  }, [formData.cluster, formData.subscription, formData.resourceGroup, isArcCluster]);
 
   useEffect(() => {
+    namespaceCheck.clearStatus();
     const timeoutId = setTimeout(() => {
-      if (
-        formData.projectName &&
-        formData.cluster &&
-        formData.resourceGroup &&
-        formData.subscription
-      ) {
+      if (!formData.projectName || !formData.cluster) {
+        return;
+      }
+      if (isArcCluster) {
+        if (isClusterMissing) {
+          return;
+        }
+        // Arc clusters: check existence directly via the Kubernetes API.
+        namespaceCheck.checkNamespaceViaK8s(formData.cluster, formData.projectName);
+      } else if (formData.resourceGroup && formData.subscription) {
         namespaceCheck.checkNamespace(
           formData.cluster,
           formData.resourceGroup,
@@ -236,7 +309,40 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [formData.projectName, formData.cluster, formData.resourceGroup, formData.subscription]);
+  }, [
+    formData.projectName,
+    formData.cluster,
+    formData.resourceGroup,
+    formData.subscription,
+    isArcCluster,
+    isClusterMissing,
+  ]);
+
+  // Verify an Arc (AKS Hybrid & Edge) cluster is actually reachable with a live
+  // Kubernetes API probe when it's selected — a cluster can report a `Succeeded`
+  // state in Azure yet be unreachable (proxy down / cluster offline). The result
+  // gates the "Next" button (via validation) so the user can't proceed with an
+  // unreachable cluster. Only applies to Arc clusters that are already connected;
+  // managed clusters create their namespace through Azure ARM, which doesn't need
+  // the cluster's API to be reachable from here.
+  useEffect(() => {
+    if (!isArcCluster || isClusterMissing || !formData.cluster) {
+      setClusterAccess({ checking: false, accessible: null });
+      return;
+    }
+    let cancelled = false;
+    setClusterAccess({ checking: true, accessible: null });
+    checkClusterAccessible(formData.cluster)
+      .then(res => {
+        if (!cancelled) setClusterAccess({ checking: false, accessible: res.accessible });
+      })
+      .catch(() => {
+        if (!cancelled) setClusterAccess({ checking: false, accessible: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [formData.cluster, isArcCluster, isClusterMissing]);
 
   // Clear the success-dialog delay timer when the hook unmounts so we never call
   // setState after the component has been removed from the tree.
@@ -295,6 +401,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
 
       setIsCreating(true);
       setCreationError(null);
+      setCreationWarnings([]);
       setCreationProgress(`${t('Starting project creation')}...`);
 
       // Guard flag: set to true if the timeout wins the race so the still-running
@@ -316,6 +423,181 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
       });
 
       const creationPromise = (async () => {
+        // Arc (AKS Hybrid & Edge) clusters have no managed-namespace API. Apply a
+        // native Kubernetes manifest (Namespace + ResourceQuota + NetworkPolicy +
+        // RoleBindings) through the cluster's kubeconfig context instead. RBAC is
+        // baked into the manifest as RoleBindings, so no separate az role assignment.
+        if (isArcCluster) {
+          // Confirm the cluster is actually reachable with a live Kubernetes API
+          // probe (retried up to 3 times) rather than trusting a cached Arc
+          // heartbeat. If every probe fails, the cluster is inaccessible and we
+          // stop before attempting to apply anything.
+          setCreationProgress(`${t('Checking cluster accessibility')}...`);
+          const access = await checkClusterAccessible(formData.cluster);
+          if (aborted) return;
+          if (!access.accessible) {
+            throw new Error(
+              t('Cluster "{{cluster}}" is not accessible: {{message}}', {
+                cluster: formData.cluster,
+                message: access.error || t('no response after 3 attempts'),
+              })
+            );
+          }
+
+          // The authorization model decides where the grant lives: native
+          // Kubernetes RBAC puts it in a RoleBinding in the manifest, Azure RBAC
+          // puts it in an Azure role assignment and the manifest carries no
+          // bindings at all.
+          const manifestOptions = {
+            namespaceName: formData.projectName,
+            cpuRequest: formData.cpuRequest,
+            cpuLimit: formData.cpuLimit,
+            memoryRequest: formData.memoryRequest,
+            memoryLimit: formData.memoryLimit,
+            ingressPolicy: formData.ingress,
+            egressPolicy: formData.egress,
+            labels: {
+              [PROJECT_ID_LABEL]: formData.projectName,
+              [PROJECT_MANAGED_BY_LABEL]: PROJECT_MANAGED_BY_VALUE,
+              // Azure coordinates, so the project can be tied back to its cluster
+              // resource later without re-deriving them. Managed namespaces get
+              // these from `applyProjectLabels`; an Arc namespace is applied
+              // directly through the K8s API, so they are set here.
+              [SUBSCRIPTION_LABEL]: formData.subscription,
+              [RESOURCE_GROUP_LABEL]: formData.resourceGroup,
+              // Records where this project's grants actually live. The Access tab
+              // reads it to decide whether to list Azure role assignments or
+              // Kubernetes RoleBindings — it cannot be re-derived from the
+              // namespace, since the model is a property of the cluster.
+              [AUTHZ_MODEL_LABEL]: azureRbacEnabled
+                ? AUTHZ_MODEL_AZURE_RBAC
+                : AUTHZ_MODEL_KUBERNETES_RBAC,
+            },
+            userAssignments: formData.userAssignments,
+            includeRoleBindings: !azureRbacEnabled,
+          };
+
+          setCreationProgress(`${t('Applying namespace manifest')}...`);
+          const applyResult = await applyNamespaceManifest(formData.cluster, manifestOptions);
+
+          if (aborted) return;
+
+          if (!applyResult.success) {
+            throw new Error(
+              t('Namespace creation failed: {{message}}', {
+                message: applyResult.error || t('Unknown error'),
+              })
+            );
+          }
+
+          // Authorization does not grant reachability: every assignee also needs
+          // the Arc connectivity role, or `az connectedk8s proxy` refuses to open
+          // for them and they never reach the grant above. The namespace already
+          // exists at this point and the operator may not hold
+          // Microsoft.Authorization/roleAssignments/write, so failures here are
+          // reported as warnings rather than failing the project.
+          const arcWarnings: string[] = [];
+          if (formData.userAssignments.length > 0) {
+            setCreationProgress(`${t('Granting cluster access')}...`);
+          }
+          for (const assignment of formData.userAssignments) {
+            if (aborted) return;
+            const who = assignment.upn || assignment.displayName || assignment.objectId;
+            if (!isEntraObjectId(assignment.objectId)) {
+              arcWarnings.push(
+                t('Could not grant cluster access to {{user}}: no object ID available', {
+                  user: who,
+                })
+              );
+              continue;
+            }
+            const roleResult = await assignAzureRoles({
+              principalId: assignment.objectId.trim(),
+              subscriptionId: formData.subscription,
+              principalType: 'User',
+              roles: computeArcProjectRoles({
+                subscriptionId: formData.subscription,
+                resourceGroup: formData.resourceGroup,
+                clusterName: formData.cluster,
+                namespaceName: formData.projectName,
+                uiRole: assignment.role,
+                azureRbacEnabled,
+              }),
+            });
+            if (!roleResult.success) {
+              const detail =
+                roleResult.error ??
+                roleResult.results
+                  .filter(r => !r.success)
+                  .map(r => `${r.role}: ${r.error}`)
+                  .join('; ');
+              arcWarnings.push(
+                t('Could not grant cluster access to {{user}}: {{message}}', {
+                  user: who,
+                  message: detail || t('Unknown error'),
+                })
+              );
+            }
+          }
+
+          // Confirm the grants actually took effect. A RoleBinding cannot fail
+          // loudly — a subject the authenticator never produces applies cleanly
+          // and grants nothing — so ask the apiserver rather than assume.
+          if (formData.userAssignments.length > 0) {
+            setCreationProgress(`${t('Verifying access')}...`);
+          }
+          for (const assignment of formData.userAssignments) {
+            if (aborted) return;
+            const subject = assignment.upn || assignment.objectId;
+            if (!subject) {
+              continue;
+            }
+            const review = await reviewNamespaceAccess(
+              formData.cluster,
+              subject,
+              assignment.objectId || undefined,
+              formData.projectName
+            );
+            if (review.allowed === false && azureRbacEnabled) {
+              // A brand-new Azure role assignment reads as denied until the
+              // apiserver's webhook cache expires. Measured at roughly a minute:
+              // it is the *unauthorized* TTL that applies to a new grant
+              // (--authorization-webhook-cache-unauthorized-ttl, 30s by default),
+              // not the 5-minute authorized TTL — that one governs how long a
+              // revocation takes to bite. Expected, not a failure.
+              arcWarnings.push(
+                t('Access for {{user}} may take a minute to take effect', { user: subject })
+              );
+            } else if (review.allowed === false) {
+              arcWarnings.push(
+                t('{{user}} was granted {{role}} but cannot access the namespace yet', {
+                  user: subject,
+                  role: assignment.role,
+                })
+              );
+            } else if (review.allowed === null) {
+              arcWarnings.push(
+                t('Could not verify access for {{user}}: {{message}}', {
+                  user: subject,
+                  message: review.error || t('Unknown error'),
+                })
+              );
+            }
+          }
+
+          if (aborted) return;
+
+          if (arcWarnings.length > 0) {
+            console.warn('[CreateAKSProject] Project created with warnings', {
+              warningCount: arcWarnings.length,
+            });
+            setCreationWarnings(arcWarnings);
+          }
+
+          setCreationProgress(t('Project creation completed successfully!'));
+          return;
+        }
+
         setCreationProgress(`${t('Initiating managed namespace creation')}...`);
         const namespaceResult = await createManagedNamespace({
           clusterName: formData.cluster,
@@ -595,6 +877,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     onBack,
     isCreating,
     creationProgress,
+    creationWarnings,
     creationError,
     setCreationError,
     setCreationProgress,
@@ -611,6 +894,9 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     clusterCapabilities,
     validation,
     isClusterMissing,
+    isArcCluster,
+    requiresUpn,
+    clusterAccess,
     stepContentRef,
   };
 }

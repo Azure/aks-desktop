@@ -4,17 +4,36 @@
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Autocomplete, Box, CircularProgress, TextField, Typography } from '@mui/material';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { searchAzureADUsers } from '../../../utils/azure/az-ad';
-import { isValidObjectId } from '../validators';
+import { resolveAzureADUser, searchAzureADUsers } from '../../../utils/azure/az-ad';
+import { isEntraObjectId, isUserPrincipalName } from '../../../utils/shared/entraIdentifiers';
 
-interface UserSearchFieldProps {
-  value: string;
+/** What the field resolves a user to. See {@link UserAssignment} for why both. */
+export interface UserSelection {
+  /** Entra object ID used for Azure role assignments. */
+  objectId: string;
+  /** Display label for these identifiers, omitted when the selection is cleared. */
   displayName?: string;
-  onChange: (objectId: string, displayName?: string) => void;
+  /** User principal name used by native Kubernetes RoleBindings. */
+  upn?: string;
+}
+
+/** Props for {@link UserSearchField}. */
+interface UserSearchFieldProps {
+  /** Selected Entra object ID or unresolved typed identifier. */
+  value: string;
+  /** Display name shown for an already resolved selection. */
+  displayName?: string;
+  /** Called when an identifier resolves to a user selection. */
+  onChange: (selection: UserSelection) => void;
+  /** Whether the autocomplete input is disabled. */
   disabled?: boolean;
+  /** Whether the input should show an error state. */
   error?: boolean;
+  /** Supporting or validation text displayed below the input. */
   helperText?: string;
+  /** Accessible and visible input label. */
   label: string;
+  /** Optional ref forwarded to the underlying input element. */
   inputRef?: React.Ref<HTMLInputElement>;
 }
 
@@ -22,6 +41,11 @@ interface UserOption {
   id: string;
   displayName: string;
   email: string;
+  /**
+   * Kept distinct from `email`: `mail` and the UPN can differ, and only the UPN
+   * matches what the Arc apiserver sees as the username.
+   */
+  userPrincipalName: string;
   label: string;
 }
 
@@ -52,13 +76,14 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
   useEffect(() => {
     if (displayName) {
       setInputValue(displayName);
-    } else if (value && isValidObjectId(value)) {
+    } else if (value && isEntraObjectId(value)) {
       setInputValue(value);
     }
   }, [value, displayName]);
 
   const performSearch = useCallback(async (query: string) => {
-    if (query.length < 2 || isValidObjectId(query)) {
+    // A complete identifier is taken at face value rather than searched for.
+    if (query.length < 2 || isEntraObjectId(query) || isUserPrincipalName(query)) {
       setOptions([]);
       return;
     }
@@ -89,6 +114,7 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
             id: user.id,
             displayName: user.displayName,
             email: user.mail || user.userPrincipalName,
+            userPrincipalName: user.userPrincipalName,
             label: user.displayName,
           }))
         );
@@ -105,6 +131,39 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
     }
   }, []);
 
+  /**
+   * Accepts a hand-typed identifier and fills in whichever one is missing.
+   *
+   * The value is applied immediately so the field stays usable, then a directory
+   * lookup upgrades it — the Azure and Kubernetes sides need different
+   * identifiers, and typing gives only one of them. If the lookup is blocked the
+   * partial selection stands, and validation decides whether it is enough.
+   */
+  const applyTypedValue = useCallback(
+    (raw: string) => {
+      const typed = raw.trim();
+      const typedIsUpn = isUserPrincipalName(typed);
+      onChange(typedIsUpn ? { objectId: '', upn: typed, displayName: typed } : { objectId: typed });
+
+      const thisRequestId = ++requestIdRef.current;
+      resolveAzureADUser(typed)
+        .then(res => {
+          if (thisRequestId !== requestIdRef.current || !res.success || !res.user) {
+            return;
+          }
+          onChange({
+            objectId: res.user.id,
+            upn: res.user.userPrincipalName,
+            displayName: res.user.displayName,
+          });
+        })
+        .catch(() => {
+          /* keep the partial selection; validation reports what is missing */
+        });
+    },
+    [onChange]
+  );
+
   const handleInputChange = useCallback(
     (_event: React.SyntheticEvent, newInputValue: string, reason: string) => {
       // MUI fires onInputChange with reason="reset" after an option is selected.
@@ -115,19 +174,42 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
 
       setInputValue(newInputValue);
 
-      // If user types a valid UUID directly, accept it immediately
-      if (isValidObjectId(newInputValue.trim())) {
-        onChange(newInputValue.trim());
+      // Drops a search queued for the previous, shorter text. Without this it
+      // fires after the transition below, bumps the request id — invalidating the
+      // resolver started here — and replaces the options with stale results. The
+      // spinner is cleared too: a superseded search's own cleanup is skipped
+      // precisely because it is no longer the current request.
+      const abandonQueuedSearch = () => {
+        if (debounceTimer.current) {
+          clearTimeout(debounceTimer.current);
+          debounceTimer.current = null;
+        }
+        setLoading(false);
+      };
+
+      // If the user types a complete identifier directly, accept it immediately
+      if (isEntraObjectId(newInputValue) || isUserPrincipalName(newInputValue)) {
+        abandonQueuedSearch();
+        applyTypedValue(newInputValue);
         setOptions([]);
         return;
       }
 
       // If user clears the field
       if (!newInputValue.trim()) {
-        onChange('');
+        // Abandon anything already in flight for the previous value: a search or
+        // a `resolveAzureADUser` started a moment ago would otherwise land after
+        // this and repopulate the assignee the user just cleared.
+        requestIdRef.current += 1;
+        abandonQueuedSearch();
+        onChange({ objectId: '' });
         setOptions([]);
         return;
       }
+
+      // Partial input supersedes a resolver started for the previous complete
+      // identifier immediately, including when directory search is unavailable.
+      requestIdRef.current += 1;
 
       // If search is known to be unavailable, only propagate valid UUIDs
       // (non-UUID intermediate text stays local to avoid parent validation errors)
@@ -143,26 +225,31 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
         performSearch(newInputValue);
       }, 350);
     },
-    [onChange, performSearch, searchAvailable]
+    [applyTypedValue, onChange, performSearch, searchAvailable]
   );
 
   const handleOptionSelect = useCallback(
     (_event: React.SyntheticEvent, option: UserOption | string | null) => {
       if (!option) {
-        onChange('');
+        onChange({ objectId: '' });
         return;
       }
       if (typeof option === 'string') {
         // freeSolo: user pressed enter on typed text
-        if (isValidObjectId(option.trim())) {
-          onChange(option.trim());
+        if (isEntraObjectId(option) || isUserPrincipalName(option)) {
+          applyTypedValue(option);
         }
         return;
       }
-      onChange(option.id, option.displayName);
+      // Search results carry both identifiers, so no lookup is needed.
+      onChange({
+        objectId: option.id,
+        displayName: option.displayName,
+        upn: option.userPrincipalName,
+      });
       setInputValue(option.displayName);
     },
-    [onChange]
+    [applyTypedValue, onChange]
   );
 
   // Clean up debounce timer
@@ -208,7 +295,7 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
             helperText={helperText}
             placeholder={
               showFallbackMessage
-                ? t('00000000-0000-0000-0000-000000000000')
+                ? t('someone@contoso.com or 00000000-0000-0000-0000-000000000000')
                 : t('Search by name or email...')
             }
             inputRef={inputRef}
@@ -253,7 +340,7 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
         <Alert severity="info" sx={{ mt: 1, py: 0 }}>
           <Typography variant="caption">
             {t(
-              'User search is not available. Enter the Azure AD object ID (UUID) directly. Find it in Azure Portal > Microsoft Entra ID > Users > select user > Object ID.'
+              'User search is not available. Enter the sign-in name (user principal name) or the Azure AD object ID directly — some clusters require the sign-in name. Find both in Azure Portal > Microsoft Entra ID > Users > select user.'
             )}
           </Typography>
         </Alert>

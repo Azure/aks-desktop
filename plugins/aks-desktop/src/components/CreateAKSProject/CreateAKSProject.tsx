@@ -44,8 +44,10 @@ function CreateAKSProject() {
             totalClusterCount={wizard.azureResources.totalClusterCount}
             loadingClusters={wizard.azureResources.loadingClusters}
             clusterError={wizard.azureResources.clusterError}
+            arcDiscoveryUnavailable={wizard.azureResources.arcDiscoveryUnavailable}
             extensionStatus={wizard.extensionStatus}
             namespaceStatus={wizard.namespaceCheck}
+            clusterAccessStatus={wizard.clusterAccess}
             clusterCapabilities={wizard.clusterCapabilities.capabilities}
             capabilitiesLoading={wizard.clusterCapabilities.loading}
             onInstallExtension={wizard.extensionStatus.installExtension}
@@ -75,7 +77,7 @@ function CreateAKSProject() {
       case 2:
         return <ComputeStep {...commonProps} />;
       case 3:
-        return <AccessStep {...commonProps} />;
+        return <AccessStep {...commonProps} requiresUpn={wizard.requiresUpn} />;
       case 4:
         return (
           <ReviewStep

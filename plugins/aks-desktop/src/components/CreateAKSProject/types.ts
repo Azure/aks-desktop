@@ -4,6 +4,7 @@
 // Types for CreateAKSProject component and its sub-components
 
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
+import type { ClusterType } from '../../utils/azure/aks';
 
 export interface AzureSubscription {
   id: string;
@@ -21,11 +22,55 @@ export interface AzureCluster {
   status: string;
   resourceGroup: string;
   powerState?: string;
+  /**
+   * `'aks'` for managed clusters, `'aksarc'` for Arc-connected (AKS Hybrid & Edge)
+   * clusters. Absence implies a managed AKS cluster. Drives whether the wizard
+   * creates a managed namespace (`az aks namespace add`) or applies a native
+   * Kubernetes namespace manifest via the Headlamp K8s API.
+   */
+  clusterType?: 'aks' | 'aksarc';
+  /**
+   * Arc agent heartbeat for AKS Hybrid & Edge clusters (`'Connected'` |
+   * `'Offline'` | `'Expired'`…); `undefined` for managed AKS.
+   *
+   * Needed because `status` (the connected cluster's `provisioningState`) is
+   * frozen at `Succeeded` once the ARM deployment finishes and never degrades —
+   * so for an Arc cluster it says nothing about whether the cluster is up. This
+   * is what tells the dropdown an Arc cluster is offline, matching the Add
+   * Cluster dialog.
+   *
+   * It is a *cached* heartbeat, so it only gates the dropdown. Whether a
+   * connected Arc cluster is actually usable is still settled by a live
+   * Kubernetes API probe (`checkClusterAccessible`) once it is selected.
+   */
+  connectivityStatus?: string;
+  /**
+   * For Arc clusters: `aadProfile.enableAzureRbac`. Selects how project access is
+   * granted — `false` (the default) means native Kubernetes RBAC via RoleBindings
+   * in the applied manifest, `true` means Azure role assignments at namespace
+   * scope. Fixed at cluster creation and not changeable afterwards.
+   */
+  azureRbacEnabled?: boolean;
 }
 
 export interface UserAssignment {
+  /**
+   * Entra object ID. What Azure role assignments key on
+   * (`az role assignment create --assignee-object-id`).
+   */
   objectId: string;
   displayName?: string;
+  /**
+   * Entra user principal name. What a Kubernetes RoleBinding subject must be
+   * named on an Arc cluster — `kube-aad-proxy` impersonates the user by UPN, and
+   * the object ID reaches the apiserver only as an `Extra: oid` attribute, which
+   * RBAC subjects never match. A binding naming the object ID applies cleanly and
+   * grants nothing.
+   *
+   * Populated from directory search; may be absent when a bare object ID was
+   * typed by hand and the directory could not be read.
+   */
+  upn?: string;
   role: string;
 }
 
@@ -34,8 +79,16 @@ export interface FormData {
   projectName: string;
   description: string;
   subscription: string;
+  /** Cluster name, which is also its kubeconfig context name. */
   cluster: string;
   resourceGroup: string;
+  /**
+   * Which kind of cluster was chosen. A managed AKS cluster and an Arc-connected
+   * one can share a name — names are scoped by resource group and resource type —
+   * so name alone cannot resolve the selection, and picking the wrong one would
+   * run the wrong creation path.
+   */
+  clusterType?: ClusterType;
 
   // Networking Policies
   ingress: 'AllowSameNamespace' | 'AllowAll' | 'DenyAll';
@@ -71,6 +124,14 @@ export interface NamespaceStatus {
   error: string | null;
 }
 
+/** Live API reachability state for the selected cluster. */
+export interface ClusterAccessStatus {
+  /** Whether a reachability probe is currently running. */
+  checking: boolean;
+  /** Probe result, or `null` when reachability is not applicable or not known. */
+  accessible: boolean | null;
+}
+
 export interface AzureResourceState {
   subscriptions: AzureSubscription[];
   clusters: AzureCluster[];
@@ -79,6 +140,7 @@ export interface AzureResourceState {
   loadingClusters: boolean;
   error: string | null;
   clusterError: string | null;
+  arcDiscoveryUnavailable: boolean;
 }
 
 export interface StepProps {
@@ -90,18 +152,38 @@ export interface StepProps {
 }
 
 export interface BasicsStepProps extends StepProps {
+  /** Azure subscriptions available to the signed-in user. */
   subscriptions: AzureSubscription[];
+  /** Managed and Arc clusters available for the selected subscription. */
   clusters: AzureCluster[];
+  /** Cluster count before unsupported clusters are filtered out. */
   totalClusterCount: number | null;
+  /** Whether clusters are being loaded for the selected subscription. */
   loadingClusters: boolean;
+  /** Non-fatal cluster discovery error. */
   clusterError: string | null;
+  /** Whether Arc discovery is unavailable because `connectedk8s` is missing. */
+  arcDiscoveryUnavailable?: boolean;
+  /** Installation state for the AKS Preview Azure CLI extension. */
   extensionStatus: ExtensionStatus;
+  /** Availability state for the requested project namespace. */
   namespaceStatus: NamespaceStatus;
+  /**
+   * Live reachability of the selected Arc (AKS Hybrid & Edge) cluster. `accessible`
+   * is `null` when not applicable. Used to explain a disabled "Next" button.
+   */
+  clusterAccessStatus: ClusterAccessStatus;
+  /** Capabilities reported by the selected cluster. */
   clusterCapabilities: ClusterCapabilities | null;
+  /** Whether selected-cluster capabilities are being loaded. */
   capabilitiesLoading: boolean;
+  /** Installs the AKS Preview Azure CLI extension. */
   onInstallExtension: () => Promise<void>;
+  /** Retries loading Azure subscriptions. */
   onRetrySubscriptions: () => Promise<void>;
+  /** Retries loading clusters for the selected subscription. */
   onRetryClusters: () => Promise<void>;
+  /** Refreshes capabilities for the selected cluster. */
   onRefreshCapabilities?: () => void;
 }
 
@@ -114,7 +196,13 @@ export interface ComputeStepProps extends StepProps {
 }
 
 export interface AccessStepProps extends StepProps {
-  // No additional props needed for access step
+  /**
+   * True when the grant will be a Kubernetes RoleBinding — an Arc cluster using
+   * native RBAC. Its subject must be the user's UPN, so an assignee known only by
+   * object ID has to be rejected here. False for managed AKS and for Arc clusters
+   * authorizing through Azure RBAC, which key on the object ID instead.
+   */
+  requiresUpn?: boolean;
 }
 
 export interface ReviewStepProps extends StepProps {

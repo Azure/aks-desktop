@@ -1,5 +1,6 @@
 import { getClusterSettings, setClusterSettings } from '../shared/clusterSettings';
-import { getClusters } from './az-clusters';
+import { getClusters, getConnectedClusters } from './az-clusters';
+import { isExtensionInstalled } from './az-extensions';
 import { getSubscriptions as getAzSubscriptions } from './az-subscriptions';
 
 export interface Subscription {
@@ -11,6 +12,9 @@ export interface Subscription {
   isDefault: boolean;
 }
 
+/** Discriminator distinguishing managed AKS clusters from Arc-connected AKS Hybrid & Edge clusters. */
+export type ClusterType = 'aks' | 'aksarc';
+
 export interface AKSCluster {
   name: string;
   resourceGroup: string;
@@ -19,6 +23,13 @@ export interface AKSCluster {
   provisioningState: string;
   fqdn: string;
   isAzureRBACEnabled: boolean;
+  /** `'aks'` for managed clusters, `'aksarc'` for Arc-connected (AKS Hybrid & Edge) clusters. */
+  clusterType: ClusterType;
+  /**
+   * For AKS Hybrid & Edge (`aksarc`) clusters: the Azure Arc agent heartbeat status
+   * (`'Connected'` when online). Undefined for managed AKS clusters.
+   */
+  connectivityStatus?: string;
 }
 
 /** Tail promise used to serialize native kubeconfig updates. */
@@ -167,21 +178,65 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
   success: boolean;
   message: string;
   clusters?: AKSCluster[];
+  /**
+   * Why no AKS Hybrid & Edge clusters are listed, when the reason is actionable.
+   *
+   * Arc discovery needs the `connectedk8s` CLI extension and resolves to an empty
+   * list without it — indistinguishable from a subscription that simply has none.
+   * The register dialog's install guidance only runs once an Arc cluster has been
+   * selected, so without this the user on a fresh installation sees no Arc
+   * clusters and has no way to reach the instructions that would fix it.
+   */
+  arcDiscoveryUnavailable?: string;
 }> {
   try {
-    const clusters = await getClusters(subscriptionId);
+    const aksClusters = await getClusters(subscriptionId);
+
+    // AKS Hybrid & Edge (Arc-connected) discovery is additive and best-effort: a
+    // failure here must never prevent the managed AKS clusters from listing.
+    // getConnectedClusters already swallows its own errors, but we guard again
+    // so the AKS path is resilient regardless of that contract.
+    let arcClusters: any[] = [];
+    try {
+      arcClusters = await getConnectedClusters(subscriptionId);
+    } catch (arcError) {
+      console.warn(
+        'AKS Hybrid & Edge cluster discovery failed; continuing with AKS clusters only:',
+        arcError
+      );
+    }
+
+    // Only when discovery came up empty is the extension worth checking: an empty
+    // Arc list is the ambiguous case, and this keeps the extra `az` call off the
+    // common path where clusters were found.
+    let arcDiscoveryUnavailable: string | undefined;
+    if (arcClusters.length === 0) {
+      try {
+        const ext = await isExtensionInstalled('connectedk8s');
+        if (!ext.installed) {
+          arcDiscoveryUnavailable = ext.error || 'connectedk8s-extension-missing';
+        }
+      } catch (extError) {
+        console.warn('Could not determine connectedk8s extension state:', extError);
+      }
+    }
+
+    const clusters = [...aksClusters, ...arcClusters];
 
     return {
       success: true,
       message: 'AKS clusters retrieved successfully',
+      arcDiscoveryUnavailable,
       clusters: clusters.map((cluster: any) => ({
         name: cluster.name,
         resourceGroup: cluster.resourceGroup,
         location: cluster.location,
-        kubernetesVersion: cluster.version,
+        kubernetesVersion: cluster.version || '',
         provisioningState: cluster.status,
         fqdn: '', // Not returned by getClusters
         isAzureRBACEnabled: cluster.aadProfile?.enableAzureRbac === true,
+        clusterType: (cluster.clusterType as ClusterType) || 'aks',
+        connectivityStatus: cluster.connectivityStatus,
       })),
     };
   } catch (error) {

@@ -6,6 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockTrackFeature = vi.hoisted(() => vi.fn());
 const mockTrackError = vi.hoisted(() => vi.fn());
+const mockCheckNamespaceViaK8s = vi.hoisted(() => vi.fn());
+const mockCheckClusterAccessible = vi.hoisted(() => vi.fn());
+const mockAssignAzureRoles = vi.hoisted(() => vi.fn());
+const mockReviewNamespaceAccess = vi.hoisted(() => vi.fn());
+const mockApplyNamespaceManifest = vi.hoisted(() => vi.fn());
+const mockGetClusterSettings = vi.hoisted(() => vi.fn());
+const mockAzureResourcesState = vi.hoisted(() => ({ clusters: [] as any[] }));
+const mockClustersConf = vi.hoisted(() => ({
+  current: null as Record<string, { name: string }> | null,
+}));
+const mockClearNamespaceStatus = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../telemetry', () => ({
   trackFeature: mockTrackFeature,
@@ -29,8 +40,29 @@ vi.mock('@kinvolk/headlamp-plugin/lib', async () => {
       returnEmptyString: false,
     });
   }
-  return { useTranslation, K8s: { useClustersConf: () => ({}) } };
+  return { useTranslation, K8s: { useClustersConf: () => mockClustersConf.current } };
 });
+
+vi.mock('../../../utils/azure/aksHybridEdgeProxy', () => ({
+  checkClusterAccessible: mockCheckClusterAccessible,
+}));
+
+vi.mock('../../../utils/azure/az-identity', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../utils/azure/az-identity')>()),
+  assignAzureRoles: mockAssignAzureRoles,
+}));
+
+vi.mock('../../../utils/kubernetes/accessReview', () => ({
+  reviewNamespaceAccess: mockReviewNamespaceAccess,
+}));
+
+vi.mock('../../../utils/kubernetes/namespaceUtils', () => ({
+  applyNamespaceManifest: mockApplyNamespaceManifest,
+}));
+
+vi.mock('../../../utils/shared/clusterSettings', () => ({
+  getClusterSettings: mockGetClusterSettings,
+}));
 
 vi.mock('react-router-dom', () => ({
   useHistory: () => ({ push: vi.fn() }),
@@ -53,7 +85,7 @@ vi.mock('../../../utils/azure/checkAzureCli', () => ({
 vi.mock('./useAzureResources', () => ({
   useAzureResources: () => ({
     subscriptions: [],
-    clusters: [],
+    clusters: mockAzureResourcesState.clusters,
     loading: false,
     error: null,
     clusterError: null,
@@ -95,7 +127,8 @@ vi.mock('./useNamespaceCheck', () => ({
     checking: false,
     error: null,
     checkNamespace: vi.fn(),
-    clearStatus: vi.fn(),
+    checkNamespaceViaK8s: mockCheckNamespaceViaK8s,
+    clearStatus: mockClearNamespaceStatus,
   }),
 }));
 
@@ -134,6 +167,13 @@ const defaultFormData = {
 describe('useCreateAKSProjectWizard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetClusterSettings.mockReturnValue({});
+    mockCheckClusterAccessible.mockResolvedValue({ accessible: true });
+    mockAssignAzureRoles.mockResolvedValue({ success: true, results: [] });
+    mockReviewNamespaceAccess.mockResolvedValue({ allowed: true });
+    mockApplyNamespaceManifest.mockResolvedValue({ success: true });
+    mockAzureResourcesState.clusters = [];
+    mockClustersConf.current = null;
     mockTrackFeature.mockImplementation(() => {});
     mockTrackError.mockImplementation(() => {});
     // Silence console.error so error-path tests don't pollute the test output.
@@ -162,6 +202,56 @@ describe('useCreateAKSProjectWizard', () => {
     });
   });
 
+  it('checks an Arc namespace only after the cluster context is connected', async () => {
+    vi.useFakeTimers();
+    const arcFormData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'arc-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aksarc' as const,
+    };
+    mockAzureResourcesState.clusters = [
+      { name: 'arc-a', resourceGroup: 'rg-a', clusterType: 'aksarc' },
+    ];
+    mockGetClusterSettings.mockReturnValue({
+      clusterType: 'aksarc',
+      subscriptionId: 'sub-a',
+      resourceGroup: 'rg-a',
+    });
+    vi.mocked(useFormData).mockReturnValue({
+      formData: arcFormData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { rerender } = renderHook(() => useCreateAKSProjectWizard());
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(mockCheckNamespaceViaK8s).not.toHaveBeenCalled();
+
+    mockClustersConf.current = { 'arc-a': { name: 'arc-a' } };
+    rerender();
+    await act(() => vi.advanceTimersByTimeAsync(500));
+
+    expect(mockCheckNamespaceViaK8s).toHaveBeenCalledWith('arc-a', 'test-project');
+  });
+
+  it('invalidates namespace status immediately when lookup inputs change', () => {
+    vi.useFakeTimers();
+    const { rerender } = renderHook(() => useCreateAKSProjectWizard());
+    mockClearNamespaceStatus.mockClear();
+
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, projectName: 'changed-project' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+    rerender();
+
+    expect(mockClearNamespaceStatus).toHaveBeenCalledOnce();
+  });
   it('handleNext increments activeStep', () => {
     const { result } = renderHook(() => useCreateAKSProjectWizard());
     act(() => {
@@ -402,6 +492,58 @@ describe('useCreateAKSProjectWizard', () => {
   });
 
   describe('PII redaction in non-debug error logging', () => {
+    it('logs only an aggregate count for Arc project warnings', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockAzureResourcesState.clusters = [
+        {
+          name: 'arc-cluster',
+          resourceGroup: 'arc-rg',
+          clusterType: 'aksarc',
+          azureRbacEnabled: false,
+        },
+      ];
+      vi.mocked(useFormData).mockReturnValue({
+        formData: {
+          ...defaultFormData,
+          subscription: '11111111-2222-3333-4444-555555555555',
+          cluster: 'arc-cluster',
+          resourceGroup: 'arc-rg',
+          clusterType: 'aksarc',
+          userAssignments: [
+            {
+              objectId: '38927c93-a0fd-4b06-b21a-69b8ed1e208c',
+              upn: 'admin@contoso.com',
+              role: 'Writer',
+            },
+          ],
+        },
+        updateFormData: vi.fn(),
+        resetFormData: vi.fn(),
+        setFormDataField: vi.fn(),
+      } as any);
+      mockAssignAzureRoles.mockResolvedValue({
+        success: false,
+        results: [],
+        error: 'Azure denied access for admin@contoso.com',
+      });
+
+      const { result } = renderHook(() => useCreateAKSProjectWizard());
+
+      await act(async () => {
+        await result.current.handleSubmit();
+      });
+
+      expect(mockApplyNamespaceManifest).toHaveBeenCalledOnce();
+      expect(result.current.creationError).toBeNull();
+      expect(mockAssignAzureRoles).toHaveBeenCalledOnce();
+      expect(result.current.creationWarnings.join(' ')).toContain('admin@contoso.com');
+      expect(result.current.creationWarnings.join(' ')).toContain('Azure denied access');
+      expect(consoleSpy).toHaveBeenCalledWith('[CreateAKSProject] Project created with warnings', {
+        warningCount: 1,
+      });
+      expect(JSON.stringify(consoleSpy.mock.calls)).not.toMatch(/admin@contoso\.com|Azure denied/);
+    });
+
     it('redacts email addresses from the error message before logging', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(createManagedNamespace).mockRejectedValue(

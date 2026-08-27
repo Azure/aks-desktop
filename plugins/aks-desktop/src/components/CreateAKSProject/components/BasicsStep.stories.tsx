@@ -87,6 +87,7 @@ const BASE_PROPS: BasicsStepProps = {
   totalClusterCount: null,
   extensionStatus: { installed: true, installing: false, error: null, showSuccess: false },
   namespaceStatus: { exists: null, checking: false, error: null },
+  clusterAccessStatus: { checking: false, accessible: null },
   clusterCapabilities: null,
   capabilitiesLoading: false,
   onInstallExtension: async () => {},
@@ -265,6 +266,16 @@ ClusterError.args = {
   formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
   clusters: [],
   clusterError: 'Failed to load clusters: network timeout',
+};
+
+/** Managed clusters remain usable when the `connectedk8s` extension cannot discover Arc clusters. */
+export const ArcDiscoveryUnavailable = Template.bind({});
+ArcDiscoveryUnavailable.args = {
+  ...BASE_PROPS,
+  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
+  clusters: CLUSTERS,
+  totalClusterCount: CLUSTERS.length,
+  arcDiscoveryUnavailable: true,
 };
 
 /**

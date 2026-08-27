@@ -19,6 +19,10 @@ import {
   resolveAksMcpTarget,
   resolveTargetArch,
 } from './aks-mcp-config';
+import {
+  getExtensionTimeoutResult,
+  readRequiredAzureCliExtensions,
+} from './azure-cli-verification';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
@@ -345,6 +349,8 @@ function testAzureCliInvocation(): void {
     return;
   }
 
+  const requiredExtensions = readRequiredAzureCliExtensions(ROOT_DIR);
+
   try {
     // Try to get version with increased timeout for CI environments
     const version = execSync(`"${azExecutable}" version --output json`, {
@@ -363,12 +369,20 @@ function testAzureCliInvocation(): void {
       `Successfully invoked, version: ${azureCliVersion}`
     );
 
-    // Check for aks-preview extension
-    if (versionData.extensions && versionData.extensions['aks-preview']) {
-      logSuccess(`  aks-preview extension found: ${versionData.extensions['aks-preview']}`);
-    } else {
-      logWarning('  aks-preview extension not found in version output');
-    }
+    // Every extension the build configures must actually be there. Installation
+    // failures are non-fatal in download-az-cli.ts, so without checking here a
+    // release can ship missing one: without `connectedk8s`, for instance, no AKS
+    // Hybrid & Edge cluster can be discovered or connected at all.
+    const bundledExtensions = versionData.extensions ?? {};
+    const missingExtensions = requiredExtensions.filter(name => !bundledExtensions[name]);
+
+    addResult(
+      'Azure CLI extensions',
+      missingExtensions.length === 0,
+      missingExtensions.length === 0
+        ? `All required extensions bundled: ${requiredExtensions.join(', ')}`
+        : `Missing required extension(s): ${missingExtensions.join(', ')}`
+    );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     // Don't fail the test on timeout in CI, just warn
@@ -379,6 +393,8 @@ function testAzureCliInvocation(): void {
         true,
         'Skipped due to timeout (executable exists and is valid)'
       );
+      const extensionResult = getExtensionTimeoutResult(requiredExtensions);
+      addResult(extensionResult.name, extensionResult.passed, extensionResult.message);
     } else {
       addResult(
         'Azure CLI invocation',

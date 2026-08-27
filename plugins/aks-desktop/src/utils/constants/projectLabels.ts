@@ -18,3 +18,18 @@ export const RESOURCE_GROUP_LABEL = 'aks-desktop/project-resource-group';
 
 /** Kubernetes label key: whether the namespace is managed by ARM. */
 export const MANAGED_BY_ARM_LABEL = 'kubernetes.azure.com/managedByArm';
+
+/**
+ * Kubernetes label key: which authorization model grants access to this project.
+ *
+ * Only set on Arc (AKS Hybrid & Edge) projects, where the model is a property of
+ * the cluster rather than something derivable from the namespace. Managed AKS
+ * needs no equivalent — AKS stamps {@link MANAGED_BY_ARM_LABEL} itself.
+ */
+export const AUTHZ_MODEL_LABEL = 'aks-desktop/project-authz-model';
+
+/** Access is granted by Azure role assignments, enforced by the `guard` webhook. */
+export const AUTHZ_MODEL_AZURE_RBAC = 'azure-rbac';
+
+/** Access is granted by Kubernetes RoleBindings in the namespace. */
+export const AUTHZ_MODEL_KUBERNETES_RBAC = 'kubernetes-rbac';
