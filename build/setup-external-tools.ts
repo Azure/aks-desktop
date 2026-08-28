@@ -43,11 +43,18 @@ console.log('==========================================');
 console.log('Installing Azure CLI...');
 console.log('==========================================');
 
+// Forward --platform/--arch so each package target stages matching tools.
+const targetArgs = process.argv
+  .slice(2)
+  .filter(argument => /^--(platform|arch)=[a-z0-9_]+$/.test(argument));
+
 try {
-  execSync(`npx --yes tsx "${path.join(SCRIPT_DIR, 'download-az-cli.ts')}"`, {
+  execSync(
+    `npx --yes tsx "${path.join(SCRIPT_DIR, 'download-az-cli.ts')}" ${targetArgs.join(' ')}`.trim(), {
     stdio: 'inherit',
     cwd: ROOT_DIR
-  });
+    }
+  );
 } catch (error) {
   console.error('❌ ERROR: Failed to install Azure CLI');
   process.exit(1);
@@ -82,11 +89,6 @@ if (fs.existsSync(KUBELOGIN_SCRIPT)) {
 console.log('==========================================');
 console.log('Installing aks-mcp...');
 console.log('==========================================');
-
-// Forward --platform/--arch so cross-architecture packaging stages the right binary.
-const targetArgs = process.argv
-  .slice(2)
-  .filter(argument => /^--(platform|arch)=[a-z0-9_]+$/.test(argument));
 
 try {
   execSync(

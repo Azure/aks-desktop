@@ -39,6 +39,8 @@ extends:
       - stage: Build_arm64
         displayName: 'Build (arm64)'
         dependsOn: []  # Explicitly no dependencies - run in parallel with x64
+        # The bundled Azure CLI and Python runtime are currently x64-only.
+        condition: eq(1, 0)
         jobs:
           - job: BuildJob_arm64
             displayName: 'Build macOS Application (Apple Silicon)'

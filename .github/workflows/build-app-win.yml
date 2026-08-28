@@ -16,7 +16,15 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
     defaults:
       run:
         shell: bash
@@ -45,7 +53,7 @@ jobs:
           npm ci
 
       - name: Setup AKS desktop and Build Headlamp (Windows)
-        run: npm run build:win-ci
+        run: npm run build:win:${{ matrix.arch }}
         shell: bash
 
       - name: Validate the packaged application
@@ -55,5 +63,5 @@ jobs:
       - name: Upload Windows build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: aks-desktop-win
+          name: aks-desktop-win-${{ matrix.arch }}
           path: node_modules/@headlamp-k8s/headlamp-source/source/app/dist/aks-desktop*.*

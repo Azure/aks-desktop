@@ -21,7 +21,6 @@ interface PackageTarget {
 const PACKAGE_ARGS: Record<string, string[]> = {
   'linux:x64': ['--linux', '--x64'],
   'linux:arm64': ['--linux', 'AppImage', 'tar.gz', '--arm64'],
-  'linux:armv7l': ['--linux', 'AppImage', 'tar.gz', '--armv7l'],
   'darwin:x64': ['--mac', '--x64'],
   'darwin:arm64': ['--mac', '--arm64'],
   'win32:x64': ['--win', '--x64'],
@@ -34,6 +33,21 @@ export function packageArguments(platform: NodeJS.Platform, arch: string): strin
     throw new Error(`Unsupported package target: ${platform}/${arch}`);
   }
   return [...args];
+}
+
+export function validatePackageHost(
+  target: PackageTarget,
+  hostPlatform: NodeJS.Platform = process.platform,
+  hostArch: string = process.arch
+): void {
+  if (target.platform !== hostPlatform) {
+    throw new Error(`Cannot package ${target.platform}/${target.arch} from ${hostPlatform}/${hostArch}`);
+  }
+  if (target.platform !== 'win32' && target.arch !== hostArch) {
+    throw new Error(
+      `${target.platform} ${target.arch} packages require a native ${target.arch} build host`
+    );
+  }
 }
 
 export function npmExecutable(platform: NodeJS.Platform = process.platform): string {
@@ -54,11 +68,7 @@ export function packageTarget(
   target: PackageTarget,
   rootDir = ROOT_DIR
 ): void {
-  if (target.platform !== process.platform) {
-    throw new Error(
-      `Cannot package ${target.platform}/${target.arch} from ${process.platform}`
-    );
-  }
+  validatePackageHost(target);
 
   const { sourceDir, appDir } = resolveInstalledHeadlampPaths(rootDir);
   const targetArgs = [
@@ -67,16 +77,19 @@ export function packageTarget(
   ];
   const buildEnv = {
     ...process.env,
+    GOARCH: target.arch === 'x64' ? 'amd64' : target.arch,
     HEADLAMP_BUILD_MANIFEST: BUILD_MANIFEST,
     npm_config_arch: target.arch,
+    npm_config_platform: target.platform,
     npm_config_target_arch: target.arch,
   };
 
-  runNpm(['run', 'headlamp:install'], rootDir);
+  runNpm(['run', 'headlamp:install'], rootDir, buildEnv);
   runNpm(['run', 'headlamp:tools', '--', ...targetArgs], rootDir);
   runNpm(['run', 'headlamp:translations'], rootDir);
   runNpm(['run', 'plugin:setup'], rootDir);
   runNpm(['run', 'headlamp:manifest'], rootDir);
+  runNpm(['run', 'headlamp:frontend-env'], rootDir);
   runNpm(['run', 'app:build'], sourceDir, buildEnv);
   runNpm(['run', 'package', '--', ...packageArguments(target.platform, target.arch)], appDir, buildEnv);
 }

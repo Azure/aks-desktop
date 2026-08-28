@@ -40,6 +40,10 @@ To build the application after installing dependencies:
 npm run build
 ```
 
+The default build targets the host architecture. Release targets can also be
+built explicitly with `npm run build:linux:arm64`, `npm run build:mac:arm64`,
+or `npm run build:win:arm64` on the corresponding host platform.
+
 ## Documentation
 
 - [Cluster Requirements](docs/cluster-requirements.md) — What your AKS cluster needs for the best AKS desktop experience

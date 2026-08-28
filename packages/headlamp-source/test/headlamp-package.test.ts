@@ -213,12 +213,11 @@ test('the root package supports the standard npm start command', () => {
   assert.equal(typeof rootManifest.scripts.dev, 'string');
 });
 
-test('root builds package host architectures independently', () => {
+test('root builds package supported host targets independently', () => {
   assert.equal(rootManifest.scripts.build, 'tsx ./build/build-host-platform.ts');
   for (const target of [
     'linux:x64',
     'linux:arm64',
-    'linux:armv7l',
     'mac:x64',
     'mac:arm64',
     'win:x64',
@@ -226,6 +225,28 @@ test('root builds package host architectures independently', () => {
   ]) {
     assert.match(rootManifest.scripts[`build:${target}`], /build\/package-target\.ts/);
   }
+  assert.equal(rootManifest.scripts['build:linux:armv7l'], undefined);
+});
+
+test('ARM64 package targets have verified external tool runtimes', () => {
+  for (const platform of ['linux', 'darwin']) {
+    assert.match(rootManifest.config.externalTools.python[platform].arm64.url, /aarch64/);
+    assert.match(
+      rootManifest.config.externalTools.python[platform].arm64.checksum,
+      /^[0-9a-f]{64}$/
+    );
+  }
+  const azureCli = rootManifest.config.externalTools.azureCli;
+  assert.equal(azureCli.version, '2.89.0');
+  const windowsArm = azureCli.win32.arm64;
+  assert.equal(
+    new URL(windowsArm.url).pathname.split('/').at(-1),
+    `azure-cli-${azureCli.version}-x64.zip`
+  );
+  assert.equal(windowsArm.url, azureCli.win32.x64.url);
+  assert.equal(windowsArm.checksum, azureCli.win32.x64.checksum);
+  assert.match(windowsArm.checksum, /^[0-9a-f]{64}$/);
+  assert.equal(windowsArm.runtimeArch, 'x64');
 });
 
 test('all shipped plugin workspaces are packaged and installed', () => {
