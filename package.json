@@ -3,25 +3,31 @@
   "version": "0.10.0",
   "description": "AKS desktop - Headlamp Plugin Monorepo",
   "private": true,
+  "packageManager": "npm@12.0.1",
+  "engines": {
+    "node": ">=22.22.2",
+    "npm": ">=12.0.0"
+  },
   "scripts": {
-    "build": "npx --yes tsx ./build/build-host-platform.ts",
-    "build:linux": "npm run build:linux:x64 && npm run build:linux:arm64 && npm run build:linux:armv7l",
-    "build:linux:x64": "npx --yes tsx ./build/setup-plugins.ts --platform=linux --arch=x64 && cd headlamp && make app-build && cd app && npm run package -- --linux --x64",
-    "build:linux:arm64": "npx --yes tsx ./build/setup-plugins.ts --platform=linux --arch=arm64 && cd headlamp && make app-build && cd app && npm run package -- --linux AppImage tar.gz --arm64",
-    "build:linux:armv7l": "npx --yes tsx ./build/setup-plugins.ts --platform=linux --arch=armv7l && cd headlamp && make app-build && cd app && npm run package -- --linux AppImage tar.gz --armv7l",
-    "build:mac": "npm run plugin:setup && cd headlamp && make app-mac",
-    "build:win": "npm run build:win:x64 && npm run build:win:arm64",
-    "build:win:x64": "npx --yes tsx ./build/setup-plugins.ts --platform=win32 --arch=x64 && cd headlamp && make app-win-x64",
-    "build:win:arm64": "npx --yes tsx ./build/setup-plugins.ts --platform=win32 --arch=arm64 && cd headlamp && make app-win-arm64",
+    "start": "npm run dev",
+    "postinstall": "npm run install:all",
+    "build": "npm run headlamp:install && npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:app",
+    "build:linux": "npm run headlamp:install && npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:app:linux",
+    "build:mac": "npm run headlamp:install && npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:app:mac",
+    "build:win": "npm run headlamp:install && npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:app:win",
     "build:win-ci": "npm run build:win",
-    "build:unpacked": "npm run plugin:setup && cd headlamp && make app-build",
-    "build:unpacked:linux": "npm run plugin:setup && cd headlamp && make app-build",
-    "build:unpacked:mac": "npm run plugin:setup && cd headlamp && make app-build",
-    "build:unpacked:win": "npm run plugin:setup && cd headlamp && make app-build",
-    "test:build": "npx --yes tsx --test build/plugin-packaging.test.ts build/aks-mcp-config.test.ts build/azure-cli-verification.test.ts build/az-cli-config.test.ts",
+    "build:unpacked": "npm run headlamp:install && npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:app:unpacked",
+    "build:unpacked:linux": "npm run build:unpacked",
+    "build:unpacked:mac": "npm run build:unpacked",
+    "build:unpacked:win": "npm run build:unpacked",
+    "build:container": "npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:container",
+    "test:build": "npm --prefix packages/headlamp-source run test:helpers && tsx --test build/az-cli-config.test.ts build/product-manifest-verification.test.ts",
+    "test:headlamp-package": "npm --prefix packages/headlamp-source run test:package",
+    "test:headlamp-patches": "npm run headlamp:patches -- --check && npm patch ls && npm run test:headlamp-package",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
-    "test:post-build": "npx --yes tsx ./build/verify-bundled-tools.ts",
-    "plugin:setup": "npx --yes tsx ./build/setup-plugins.ts",
+    "test:post-build": "tsx ./build/verify-bundled-tools.ts",
+    "test:distribution": "npm run test:post-build && npm run headlamp:smoke --",
+    "plugin:setup": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run bundle:plugins",
     "plugin:install": "cd plugins/aks-desktop && npm install",
     "plugin:build": "cd plugins/aks-desktop && npm run build",
     "plugin:start": "cd plugins/aks-desktop && npm start",
@@ -36,11 +42,20 @@
     "ai-assistant:test": "cd plugins/ai-assistant && npm test",
     "ai-assistant:lint": "cd plugins/ai-assistant && npm run lint",
     "ai-assistant:format": "cd plugins/ai-assistant && npm run format",
-    "headlamp:install": "cd headlamp/frontend && npm install && cd ../app && npm install",
-    "headlamp:build": "cd headlamp && make backend && make frontend",
+    "headlamp:manifest": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run manifest:generate",
+    "headlamp:patches": "npm --prefix packages/headlamp-source run patches:compose --",
+    "headlamp:prepare": "node --experimental-strip-types packages/headlamp-source/scripts/update-source.ts --prepare --root .",
+    "headlamp:assemble": "npm run headlamp:tools && npm run plugin:setup && npm run headlamp:manifest",
+    "headlamp:doctor": "npm run test:headlamp-package && npm --prefix node_modules/@headlamp-k8s/headlamp-source run manifest:check",
+    "headlamp:source": "npm --prefix packages/headlamp-source run source:update --",
+    "headlamp:smoke": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run smoke:app --",
+    "headlamp:tools": "tsx ./build/setup-external-tools.ts",
+    "headlamp:install": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run install:all",
+    "headlamp:build": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run build",
     "install:all": "npm run headlamp:install && npm run plugin:install && npm run ai-assistant:install",
     "build:all": "npm run headlamp:build && npm run plugin:build && npm run ai-assistant:build",
-    "dev": "concurrently --kill-others --names \"PLUGIN,AI-ASSISTANT,BACKEND,FRONTEND,APP\" -c \"cyan,blue,green,yellow,magenta\" \"npm run plugin:start\" \"npm run ai-assistant:start\" \"cd headlamp && make run-backend\" \"cd headlamp && make run-frontend\" \"cd headlamp && make run-only-app\"",
+    "predev": "npm run headlamp:install && npm run headlamp:assemble",
+    "dev": "cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json concurrently --kill-others --names \"PLUGIN,AI-ASSISTANT,BACKEND,FRONTEND,APP\" -c \"cyan,blue,green,yellow,magenta\" \"npm run plugin:start\" \"npm run ai-assistant:start\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:backend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:frontend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:app\"",
     "prepare": "husky",
     "knip": "knip",
     "i18n:collect": "node Localize/translation-manager.mjs collect",
@@ -98,14 +113,268 @@
       }
     }
   },
+  "headlampSource": {
+    "repository": "https://github.com/kubernetes-sigs/headlamp.git",
+    "ref": "refs/heads/main",
+    "commit": "9ea6b30cfe42d7fc82880d552e926107c0d4a8bd",
+    "previousCommit": "e2de219412db83480b3a6ed2e0e77ce4eaa12e94"
+  },
+  "headlampSourceTagsToo": {
+    "baseTag": "v0.44.0"
+  },
+  "headlamp": {
+    "product": {
+      "name": "aks-desktop",
+      "productName": "AKS Desktop",
+      "appId": "com.microsoft.aksdesktop",
+      "artifactName": "aks-desktop-${version}-${os}-${arch}.${ext}",
+      "protocols": {
+        "name": "AKS Desktop",
+        "schemes": [
+          "aks-desktop"
+        ]
+      }
+    },
+    "checkForUpdates": false,
+    "legalDocuments": [
+      {
+        "id": "license",
+        "title": "AKS Desktop license",
+        "file": "AKS_DESKTOP_LICENSE.txt"
+      },
+      {
+        "id": "notices",
+        "title": "AKS Desktop notices",
+        "file": "AKS_DESKTOP_NOTICE.md"
+      }
+    ],
+    "platforms": {
+      "linux": {
+        "executableName": "aks-desktop"
+      },
+      "mac": {
+        "appId": "com.microsoft.aksdesktop",
+        "executableName": "aks-desktop"
+      },
+      "win": {
+        "executableName": "aks-desktop"
+      }
+    },
+    "build": {
+      "manifest": ".aks-desktop/product-manifest.json",
+      "resources": [
+        {
+          "base": "headlampApp",
+          "from": "resources/external-tools",
+          "to": "external-tools"
+        },
+        {
+          "base": "project",
+          "from": "LICENSE.txt",
+          "to": "AKS_DESKTOP_LICENSE.txt"
+        },
+        {
+          "base": "project",
+          "from": "NOTICE.md",
+          "to": "AKS_DESKTOP_NOTICE.md"
+        }
+      ],
+      "externalTools": [
+        {
+          "id": "az",
+          "platforms": {
+            "linux": {
+              "file": "resources/external-tools/az-cli/linux/bin/az",
+              "path": "external-tools/az-cli/linux/bin/az",
+              "verificationPath": "external-tools/az-cli/linux/bin/az-wrapper"
+            },
+            "darwin": {
+              "file": "resources/external-tools/az-cli/darwin/bin/az",
+              "path": "external-tools/az-cli/darwin/bin/az",
+              "verificationPath": "external-tools/az-cli/darwin/bin/az-wrapper"
+            },
+            "win32": {
+              "file": "resources/external-tools/az-cli/win32/bin/az.cmd",
+              "path": "external-tools/az-cli/win32/bin/az.cmd"
+            }
+          }
+        },
+        {
+          "id": "az-kubelogin",
+          "platforms": {
+            "linux": {
+              "file": "resources/external-tools/bin/az-kubelogin.py",
+              "path": "external-tools/bin/az-kubelogin.py"
+            },
+            "darwin": {
+              "file": "resources/external-tools/bin/az-kubelogin.py",
+              "path": "external-tools/bin/az-kubelogin.py"
+            },
+            "win32": {
+              "file": "resources/external-tools/bin/az-kubelogin.py",
+              "path": "external-tools/bin/az-kubelogin.py"
+            }
+          }
+        }
+      ]
+    },
+    "plugins": [
+      {
+        "name": "aks-desktop",
+        "packageName": "aks-desktop",
+        "source": "plugins/aks-desktop",
+        "enabledByDefault": true,
+        "capabilities": {
+          "runCommands": [
+            {
+              "tool": "az",
+              "args": [
+                "account"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "acr"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "aks"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "alerts-management"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "config"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "connectedk8s"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "extension"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "feature"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "graph"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "group"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "login"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "logout"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "monitor"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "role"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "version"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "tool": "az",
+              "args": [
+                "vm"
+              ],
+              "allowTrailingArgs": true
+            },
+            {
+              "command": "kubectl",
+              "args": [
+                "config"
+              ],
+              "allowTrailingArgs": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "ai-assistant",
+        "packageName": "@headlamp-k8s/ai-assistant",
+        "source": "plugins/ai-assistant",
+        "enabledByDefault": true
+      },
+      {
+        "name": "insights-plugin",
+        "packageName": "insights-plugin",
+        "source": "plugins/insights-plugin",
+        "enabledByDefault": true
+      }
+    ]
+  },
   "devDependencies": {
+    "@headlamp-k8s/headlamp-source": "0.0.0-main.9ea6b30c",
     "@types/node": "^26.1.1",
     "concurrently": "^9.1.2",
+    "cross-env": "10.1.0",
     "husky": "^9.0.0",
     "knip": "^6.24.0",
     "lint-staged": "^17.0.8",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3"
+  },
+  "patchedDependencies": {
+    "@headlamp-k8s/headlamp-source@0.0.0-main.9ea6b30c": "patches/headlamp-source@0.0.0-main.9ea6b30c.patch"
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
@@ -133,5 +402,8 @@
     "plugin"
   ],
   "author": "Microsoft",
-  "license": "MIT"
+  "license": "MIT",
+  "allowScripts": {
+    "esbuild": false
+  }
 }

@@ -1,0 +1,59 @@
+{
+  "name": "@headlamp-k8s/headlamp-source",
+  "version": "0.0.0-main.9ea6b30c",
+  "description": "Headlamp source assembly and npm build entry points",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kubernetes-sigs/headlamp.git",
+    "commit": "9ea6b30cfe42d7fc82880d552e926107c0d4a8bd"
+  },
+  "engines": {
+    "node": ">=22.22.2",
+    "npm": ">=12.0.0"
+  },
+  "files": [
+    "source",
+    "scripts"
+  ],
+  "dependencies": {
+    "tsx": "4.23.1"
+  },
+  "scripts": {
+    "prepare": "node --experimental-strip-types scripts/update-source.ts --prepare --root ../..",
+    "install:all": "npm --prefix source run install:all",
+    "build": "npm --prefix source run build",
+    "build:backend": "npm --prefix source run backend:build",
+    "build:frontend": "npm --prefix source run frontend:build",
+    "build:app": "npm --prefix source run app:package",
+    "build:app:linux": "npm --prefix source run app:package:linux",
+    "build:app:mac": "npm --prefix source run app:package:mac",
+    "build:app:win": "npm --prefix source run app:package:win",
+    "build:app:unpacked": "npm --prefix source run app:build",
+    "build:container": "docker buildx build --pull --platform=local --build-arg HEADLAMP_SOURCE_COMMIT=9ea6b30cfe42d7fc82880d552e926107c0d4a8bd --build-arg HEADLAMP_BUILD_MANIFEST -t ghcr.io/headlamp-k8s/headlamp:0.0.0-main.9ea6b30c -f source/Dockerfile source",
+    "build:plugins-container": "docker buildx build --pull --platform=local -t ghcr.io/headlamp-k8s/plugins:0.0.0-main.9ea6b30c -f source/Dockerfile.plugins source",
+    "start": "npm --prefix source run start:with-app",
+    "start:backend": "npm --prefix source run start:backend",
+    "start:frontend": "npm --prefix source run start:frontend",
+    "start:app": "npm --prefix source run app:start:client",
+    "bundle:plugins": "tsx scripts/bundle-plugins.ts",
+    "manifest:generate": "tsx scripts/generate-product-manifest.ts",
+    "manifest:check": "tsx scripts/generate-product-manifest.ts --check",
+    "patches:compose": "tsx scripts/compose-patches.ts",
+    "smoke:app": "tsx scripts/smoke-app.ts",
+    "source:prepare": "tsx scripts/update-source.ts --prepare",
+    "source:update": "tsx scripts/update-source.ts",
+    "test:helpers": "npm run tsc:helpers && tsx --test test/*.test.ts",
+    "test:package": "npm run tsc:helpers && tsx --test test/headlamp-package.test.ts",
+    "tsc:helpers": "tsc --noEmit -p tsconfig.json",
+    "test": "npm --prefix source test",
+    "lint": "npm --prefix source run lint",
+    "tsc": "npm --prefix source run frontend:tsc && npm --prefix source run app:tsc",
+    "verify:images": "npm --prefix source run image:verify-image-digests"
+  },
+  "headlampSource": {
+    "ref": "refs/heads/main",
+    "previousCommit": "e2de219412db83480b3a6ed2e0e77ce4eaa12e94",
+    "commit": "9ea6b30cfe42d7fc82880d552e926107c0d4a8bd"
+  }
+}

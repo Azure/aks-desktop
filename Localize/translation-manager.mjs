@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-// Collects translation keys from the in-repo plugins, headlamp/frontend, and
-// the external headlamp-plugins repository into JSON files for the translation
+// Collects translation keys from the in-repo plugins, installed Headlamp source,
+// and external headlamp-plugins repository into JSON files for the translation
 // team, and distributes completed translations back to their locale directories.
 //
 // Usage:
@@ -49,8 +49,14 @@ function localPluginLocales(name) {
 const SOURCES = [
   {
     name: "frontend",
-    sourceDir: path.join(ROOT, "headlamp/frontend/src/i18n/locales"),
-    replaceDir: path.join(ROOT, "headlamp/frontend/src/i18n/locales"),
+    sourceDir: path.join(
+      ROOT,
+      "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales",
+    ),
+    replaceDir: path.join(
+      ROOT,
+      "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales",
+    ),
     namespaces: ["translation", "glossary", "app"],
   },
   {
