@@ -74,6 +74,7 @@ consumer-only `build` field.
 | Field | Required | Description |
 | --- | --- | --- |
 | `build.manifest` | Yes | Path to the generated product manifest, relative to the materialized Headlamp app directory. The path must remain inside that directory. |
+| `build.frontendEnvironment` | No | Public `REACT_APP_*` string values written to the materialized frontend's `.env.local` before development or packaging builds. Never place secrets in this object. |
 | `build.resources` | Yes | Resources copied into the application. Each entry has `base`, `from`, and `to`. |
 | `build.resources[].base` | Yes | `headlampApp` resolves `from` from the Headlamp app directory; `project` resolves it from the consumer repository root. |
 | `build.resources[].from` | Yes | Source path beneath the selected base directory. |
