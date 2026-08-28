@@ -69,6 +69,12 @@ test('npm owns and verifies the Headlamp patch', () => {
   const selector = `@headlamp-k8s/headlamp-source@${VERSION}`;
   const patchPath = `patches/headlamp-source@${VERSION}.patch`;
   assert.equal(rootManifest.patchedDependencies[selector], patchPath);
+  const trackedPatch = spawnSync(
+    'git',
+    ['ls-files', '--error-unmatch', patchPath],
+    { cwd: ROOT_DIR, encoding: 'utf8' }
+  );
+  assert.equal(trackedPatch.status, 0, trackedPatch.stderr);
   const lockEntry =
     packageLock.packages['node_modules/@headlamp-k8s/headlamp-source'];
   assert.equal(lockEntry.version, VERSION);

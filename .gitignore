@@ -459,10 +459,7 @@ FodyWeavers.xsd
 # Old translation files
 **/locales/**/*_old.json
 
-# The package skeleton is tracked; setup materializes pinned upstream source.
+# The package skeleton is tracked; installation materializes pinned upstream source.
 !packages/headlamp-source/**
 packages/headlamp-source/.source-*
 packages/headlamp-source/source/
-
-# npm accepts one patch per package, so setup generates this from patches/series.
-patches/headlamp-source@*.patch

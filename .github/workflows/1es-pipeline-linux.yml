@@ -157,7 +157,6 @@ extends:
                   npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
                   echo "##vso[task.prependpath]$npm_root/node_modules/.bin"
                   export PATH="$npm_root/node_modules/.bin:$PATH"
-                  npm run headlamp:prepare
                   npm ci
                   echo "Building AKS desktop Linux application..."
                   if ! npm run build:linux || \

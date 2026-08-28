@@ -32,7 +32,6 @@ jobs:
           npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
           echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
           export PATH="$npm_root/node_modules/.bin:$PATH"
-          npm run headlamp:prepare
           npm ci
 
       - name: Run plugin packaging tests
@@ -57,7 +56,6 @@ jobs:
           npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
           echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
           export PATH="$npm_root/node_modules/.bin:$PATH"
-          npm run headlamp:prepare
           npm ci
 
       - name: Test the package CLI

@@ -19,7 +19,6 @@ AKS desktop requires Node.js 22 or newer. The repository's `.nvmrc` selects the
 tested version.
 
 ```bash
-npm run headlamp:prepare
 npm install
 npm start
 ```
