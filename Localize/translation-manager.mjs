@@ -21,7 +21,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const OUTPUT_DIR = path.join(ROOT, "Localize/locales");
@@ -38,6 +38,18 @@ function externalPluginLocales(name) {
 /* Locales dir of a plugin vendored in this repo. */
 function localPluginLocales(name) {
   return path.join(ROOT, "plugins", name, "locales");
+}
+
+const HEADLAMP_LOCALES = {
+  "pt-BR": "pt-br",
+  "pt-PT": "pt-pt",
+  "zh-Hans": "zh",
+  "zh-Hant": "zh-tw",
+};
+
+/* Converts OneLoc language names to the directories used by Headlamp. */
+function headlampLocaleName(lang) {
+  return HEADLAMP_LOCALES[lang] ?? lang;
 }
 
 /*
@@ -58,6 +70,7 @@ const SOURCES = [
       ROOT,
       "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales",
     ),
+    replaceLocaleName: headlampLocaleName,
     required: true,
     namespaces: ["translation", "glossary", "app"],
   },
@@ -169,6 +182,7 @@ function collect() {
   let totalFiles = 0;
 
   for (const source of SOURCES) {
+    const translationMemory = collectTranslationMemory(source);
     for (const ns of source.namespaces) {
       const srcPath = path.join(source.sourceDir, "en", `${ns}.json`);
       const data = readJson(srcPath);
@@ -198,7 +212,12 @@ function collect() {
       totalKeys += Object.keys(data).length;
       totalFiles++;
 
-      totalFiles += scaffoldLanguages(source.name, ns, sortedEntries);
+      totalFiles += scaffoldLanguages(
+        source.name,
+        ns,
+        sortedEntries,
+        translationMemory
+      );
     }
   }
 
@@ -206,8 +225,34 @@ function collect() {
   console.log(`Output: ${path.relative(ROOT, OUTPUT_DIR)}/en/`);
 }
 
+/* Snapshots unambiguous translations across sibling namespaces before scaffolding rewrites them. */
+function collectTranslationMemory(source) {
+  const memory = {};
+  for (const lang of languageDirs()) {
+    const translations = {};
+    const conflicts = new Set();
+    for (const ns of source.namespaces) {
+      const existing = readJson(
+        path.join(OUTPUT_DIR, lang, collectedFileName(source.name, ns))
+      );
+      for (const [key, value] of Object.entries(existing ?? {})) {
+        if (!value || conflicts.has(key)) continue;
+        if (key in translations && translations[key] !== value) {
+          delete translations[key];
+          conflicts.add(key);
+        } else {
+          translations[key] = value;
+        }
+      }
+    }
+    memory[lang] = translations;
+  }
+  return memory;
+}
+
 /* Language directories under Localize/locales, excluding the English source. */
 function languageDirs() {
+  if (!fs.existsSync(OUTPUT_DIR)) return [];
   return fs
     .readdirSync(OUTPUT_DIR, { withFileTypes: true })
     .filter((e) => e.isDirectory() && e.name !== "en")
@@ -219,7 +264,7 @@ function languageDirs() {
  * translation team already provided and leaving new keys blank. Existing key
  * order is preserved so re-collecting stays a minimal diff.
  */
-function scaffoldLanguages(sourceName, ns, sortedEntries) {
+function scaffoldLanguages(sourceName, ns, sortedEntries, translationMemory = {}) {
   let written = 0;
   const englishKeys = sortedEntries.map(([key]) => key);
   const englishKeySet = new Set(englishKeys);
@@ -237,7 +282,7 @@ function scaffoldLanguages(sourceName, ns, sortedEntries) {
       if (englishKeySet.has(key)) output[key] = existing[key];
     }
     for (const key of englishKeys) {
-      if (!(key in output)) output[key] = "";
+      if (!(key in output)) output[key] = translationMemory[lang]?.[key] ?? "";
     }
 
     writeJson(filePath, output, detectEol(filePath, "\r\n"));
@@ -252,7 +297,7 @@ function scaffoldLanguages(sourceName, ns, sortedEntries) {
  * directories. `replaceDir` targets are fully rewritten; `mergeDir` targets
  * keep every translation they already have and only gain the missing ones.
  */
-function distribute() {
+function distribute(sourceNames) {
   if (!fs.existsSync(OUTPUT_DIR)) {
     console.error(`No collected translations found at ${OUTPUT_DIR}`);
     process.exit(1);
@@ -265,6 +310,7 @@ function distribute() {
 
   for (const lang of languages) {
     for (const source of SOURCES) {
+      if (sourceNames && !sourceNames.has(source.name)) continue;
       for (const ns of source.namespaces) {
         const collectedPath = path.join(
           OUTPUT_DIR,
@@ -277,8 +323,9 @@ function distribute() {
         const translations = stripComments(collected);
 
         if (source.replaceDir) {
+          const replaceLang = source.replaceLocaleName?.(lang) ?? lang;
           writeJson(
-            path.join(source.replaceDir, lang, `${ns}.json`),
+            path.join(source.replaceDir, replaceLang, `${ns}.json`),
             translations
           );
           replaced++;
@@ -372,19 +419,23 @@ function main() {
     collect();
   } else if (command === "distribute") {
     distribute();
+  } else if (command === "distribute-headlamp") {
+    distribute(new Set(["frontend"]));
   } else {
     console.log("Usage:");
     console.log("  node Localize/translation-manager.mjs collect");
     console.log("  node Localize/translation-manager.mjs distribute");
+    console.log("  node Localize/translation-manager.mjs distribute-headlamp");
     process.exit(1);
   }
 }
 
 if (
   process.argv[1] &&
-  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+  fs.realpathSync(fileURLToPath(import.meta.url)) ===
+    fs.realpathSync(path.resolve(process.argv[1]))
 ) {
   main();
 }
 
-export { mergeMissing };
+export { headlampLocaleName, mergeMissing };
