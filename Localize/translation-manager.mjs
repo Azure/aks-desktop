@@ -16,8 +16,8 @@
 //     are still missing there, so community translations always win.
 //
 // The external plugins repo is expected as a sibling checkout ("../plugins");
-// override with the HEADLAMP_PLUGINS_DIR environment variable. Sources whose
-// directories are missing are skipped.
+// override with the HEADLAMP_PLUGINS_DIR environment variable. Missing external
+// plugin directories are skipped; the installed Headlamp source is required.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -45,6 +45,7 @@ function localPluginLocales(name) {
  * sourceDir  - locales dir the English source keys are read from
  * replaceDir - locales dir fully overwritten on distribute (owned by this repo)
  * mergeDir   - locales dir that only receives keys it is still missing
+ * required   - fail collection when an in-repo source is unavailable
  */
 const SOURCES = [
   {
@@ -57,6 +58,7 @@ const SOURCES = [
       ROOT,
       "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales",
     ),
+    required: true,
     namespaces: ["translation", "glossary", "app"],
   },
   {
@@ -170,7 +172,12 @@ function collect() {
     for (const ns of source.namespaces) {
       const srcPath = path.join(source.sourceDir, "en", `${ns}.json`);
       const data = readJson(srcPath);
-      if (!data) continue;
+      if (!data) {
+        if (source.required) {
+          throw new Error(`Required translation source is missing: ${srcPath}`);
+        }
+        continue;
+      }
 
       const output = {};
       const sortedEntries = Object.entries(data).sort(([a], [b]) =>

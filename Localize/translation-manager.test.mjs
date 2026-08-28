@@ -27,6 +27,24 @@ test("collect preserves existing translations while scaffolding new keys", (t) =
     managerPath,
     fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
   );
+  for (const namespace of ["translation", "glossary", "app"]) {
+    writeFile(
+      path.join(
+        root,
+        "node_modules",
+        "@headlamp-k8s",
+        "headlamp-source",
+        "source",
+        "frontend",
+        "src",
+        "i18n",
+        "locales",
+        "en",
+        `${namespace}.json`
+      ),
+      "{}"
+    );
+  }
   writeFile(
     path.join(
       root,
@@ -56,6 +74,22 @@ test("collect preserves existing translations while scaffolding new keys", (t) =
     existing: "Vorhanden",
     added: "",
   });
+});
+
+test("collect rejects a missing installed Headlamp translation source", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(
+    managerPath,
+    fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
+  );
+
+  const result = spawnSync(process.execPath, [managerPath, "collect"], {
+    encoding: "utf-8",
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Required translation source is missing/);
 });
 
 test("collected Prometheus metric count uses correct English plurals", () => {

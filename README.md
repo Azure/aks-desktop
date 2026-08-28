@@ -15,8 +15,17 @@ Please download the latest release for your platform from the [Releases](https:/
 
 ## Development
 
-AKS desktop requires Node.js 22 or newer. The repository's `.nvmrc` selects the
-tested version.
+AKS desktop requires Node.js 22.22.2 or newer and npm 12 or newer. The
+repository's `.nvmrc` selects the tested Node.js version, and `packageManager`
+pins npm. Bootstrap that npm version once after selecting Node.js:
+
+```bash
+nvm use
+corepack enable
+corepack install
+```
+
+The regular development workflow is then:
 
 ```bash
 npm install
