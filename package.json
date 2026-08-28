@@ -27,7 +27,7 @@
     "build:unpacked:mac": "npm run build:unpacked",
     "build:unpacked:win": "npm run build:unpacked",
     "build:container": "npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:container",
-  "test:build": "npm --prefix packages/headlamp-source run test:helpers && tsx --test build/aks-mcp-config.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/package-target.test.ts build/product-manifest-verification.test.ts test/integration/*.test.ts",
+    "test:build": "npm --prefix packages/headlamp-source run test:helpers && tsx --test build/aks-mcp-config.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/generate-frontend-environment.test.ts build/package-target.test.ts build/product-manifest-verification.test.ts test/integration/*.test.ts",
     "test:headlamp-package": "npm --prefix packages/headlamp-source run test:package",
     "test:headlamp-patches": "npm run headlamp:patches -- --check && npm patch ls && npm run test:headlamp-package",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
@@ -50,9 +50,10 @@
     "ai-assistant:lint": "cd plugins/ai-assistant && npm run lint",
     "ai-assistant:format": "cd plugins/ai-assistant && npm run format",
     "headlamp:manifest": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run manifest:generate",
+    "headlamp:frontend-env": "tsx ./build/generate-frontend-environment.ts",
     "headlamp:patches": "npm --prefix packages/headlamp-source run patches:compose --",
     "headlamp:prepare": "node --experimental-strip-types packages/headlamp-source/scripts/update-source.ts --prepare --root .",
-    "headlamp:assemble": "npm run headlamp:tools && npm run headlamp:translations && npm run plugin:setup && npm run headlamp:manifest",
+    "headlamp:assemble": "npm run headlamp:tools && npm run headlamp:translations && npm run plugin:setup && npm run headlamp:manifest && npm run headlamp:frontend-env",
     "headlamp:doctor": "npm run test:headlamp-package && npm --prefix node_modules/@headlamp-k8s/headlamp-source run manifest:check",
     "headlamp:source": "npm --prefix packages/headlamp-source run source:update --",
     "headlamp:smoke": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run smoke:app --",
@@ -191,6 +192,10 @@
     },
     "build": {
       "manifest": ".aks-desktop/product-manifest.json",
+      "frontendEnvironment": {
+        "REACT_APP_HEADLAMP_ERROR_PAGE_TITLE": "AKS Desktop encountered an error",
+        "REACT_APP_HEADLAMP_NOT_FOUND_PAGE_TITLE": "Page not found in AKS Desktop"
+      },
       "resources": [
         {
           "base": "headlampApp",
