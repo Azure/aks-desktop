@@ -210,6 +210,34 @@ test('the root package supports the standard npm start command', () => {
   assert.equal(typeof rootManifest.scripts.dev, 'string');
 });
 
+test('root builds package host architectures independently', () => {
+  assert.equal(rootManifest.scripts.build, 'tsx ./build/build-host-platform.ts');
+  for (const target of [
+    'linux:x64',
+    'linux:arm64',
+    'linux:armv7l',
+    'mac:x64',
+    'mac:arm64',
+    'win:x64',
+    'win:arm64',
+  ]) {
+    assert.match(rootManifest.scripts[`build:${target}`], /build\/package-target\.ts/);
+  }
+});
+
+test('all shipped plugin workspaces are packaged and installed', () => {
+  const catalog = rootManifest.headlamp.plugins.find(
+    plugin => plugin.name === 'plugin-catalog'
+  );
+  assert.deepEqual(catalog, {
+    name: 'plugin-catalog',
+    packageName: '@headlamp-k8s/plugin-catalog',
+    source: 'plugins/plugin-catalog',
+    enabledByDefault: true,
+  });
+  assert.match(rootManifest.scripts['install:all'], /plugin-catalog:install/);
+});
+
 test('container builds do not require repository metadata', () => {
   const dockerfile = fs.readFileSync(
     path.join(HEADLAMP_SOURCE_DIR, 'Dockerfile'),

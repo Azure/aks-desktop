@@ -274,21 +274,18 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: |
+            package-lock.json
             plugins/aks-desktop/package-lock.json
             plugins/ai-assistant/package-lock.json
             plugins/plugin-catalog/package-lock.json
 
-      - name: Install dependencies (aks-desktop)
-        working-directory: plugins/aks-desktop
-        run: npm ci
-
-      - name: Install dependencies (ai-assistant)
-        working-directory: plugins/ai-assistant
-        run: npm ci
-
-      - name: Install dependencies (plugin-catalog)
-        working-directory: plugins/plugin-catalog
-        run: npm ci
+      - name: Install dependencies
+        run: |
+          npm_root="$(mktemp -d "$RUNNER_TEMP/npm.XXXXXX")"
+          npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
+          echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$npm_root/node_modules/.bin:$PATH"
+          npm ci
 
       - name: Generate English locale (aks-desktop)
         working-directory: plugins/aks-desktop

@@ -229,7 +229,7 @@ extends:
                   while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
                     echo "Build attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES for $(ARCH)..."
 
-                    if npm run build:mac && npm run test:distribution; then
+                    if npm run "build:mac:$(ARCH)" && npm run test:distribution; then
                       SUCCESS=true
                       echo "✅ Build complete for $(ARCH_DISPLAY)"
                     else
@@ -730,7 +730,7 @@ extends:
                   while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
                     echo "Build attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES for $(ARCH)..."
 
-                    if npm run build:mac && npm run test:distribution; then
+                    if npm run "build:mac:$(ARCH)" && npm run test:distribution; then
                       SUCCESS=true
                       echo "✅ Build complete for $(ARCH_DISPLAY)"
                     else

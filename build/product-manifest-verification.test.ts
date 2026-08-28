@@ -3,7 +3,11 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { productIdentityMatches } from './product-manifest-verification';
+import {
+  legalDocumentIdentitiesMatch,
+  pluginIdentitiesMatch,
+  productIdentityMatches,
+} from './product-manifest-verification';
 
 const expected = {
   name: 'aks-desktop',
@@ -28,4 +32,36 @@ test('rejects mismatched product names and missing identities', () => {
     false
   );
   assert.equal(productIdentityMatches(undefined, expected), false);
+});
+
+test('compares configured plugin identities without depending on order', () => {
+  const plugins = [
+    { name: 'aks-desktop', packageName: 'aks-desktop' },
+    { name: 'catalog', packageName: '@headlamp-k8s/plugin-catalog' },
+  ];
+  assert.equal(pluginIdentitiesMatch([...plugins].reverse(), plugins), true);
+  assert.equal(
+    pluginIdentitiesMatch(
+      [{ name: 'replacement', packageName: 'replacement' }, plugins[1]],
+      plugins
+    ),
+    false
+  );
+  assert.equal(pluginIdentitiesMatch(undefined, undefined), false);
+});
+
+test('compares configured legal document IDs and files', () => {
+  const documents = [
+    { id: 'license', file: 'LICENSE.txt' },
+    { id: 'notices', file: 'NOTICE.md' },
+  ];
+  assert.equal(legalDocumentIdentitiesMatch([...documents].reverse(), documents), true);
+  assert.equal(
+    legalDocumentIdentitiesMatch(
+      [{ id: 'privacy', file: 'PRIVACY.md' }, documents[1]],
+      documents
+    ),
+    false
+  );
+  assert.equal(legalDocumentIdentitiesMatch(undefined, undefined), false);
 });

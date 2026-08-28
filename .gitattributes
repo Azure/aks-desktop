@@ -1,3 +1,4 @@
 *.sh text eol=lf
+Localize/locales/**/*.json whitespace=cr-at-eol
 patches/*.patch -whitespace
 patches/headlamp-source@*.patch -diff

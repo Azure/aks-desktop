@@ -24,7 +24,11 @@ import {
   getExtensionTimeoutResult,
   readRequiredAzureCliExtensions,
 } from './azure-cli-verification';
-import { productIdentityMatches } from './product-manifest-verification';
+import {
+  legalDocumentIdentitiesMatch,
+  pluginIdentitiesMatch,
+  productIdentityMatches,
+} from './product-manifest-verification';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
@@ -176,13 +180,14 @@ function testProductAssembly(): void {
       JSON.parse(fs.readFileSync(pluginPackage, 'utf8')).name !== plugin.packageName
     );
   });
-  const pluginsMatch = invalidPlugins.length === 0 && plugins.length === expectedPlugins.length;
+  const pluginsMatch =
+    invalidPlugins.length === 0 && pluginIdentitiesMatch(plugins, expectedPlugins);
   addResult(
     'Product plugins',
     pluginsMatch,
     pluginsMatch
       ? `Found all ${plugins.length} declared plugins`
-      : `Expected ${expectedPlugins.length}, found ${plugins.length}; invalid: ${
+      : `Expected ${expectedPlugins.length}, found ${plugins.length}; identity mismatch or invalid: ${
           invalidPlugins.map((plugin: { name: string }) => plugin.name).join(', ') || 'none'
         }`
   );
@@ -195,13 +200,14 @@ function testProductAssembly(): void {
     (document: { file: string }) => !fs.existsSync(path.join(RESOURCES_DIR, document.file))
   );
   const documentsMatch =
-    missingDocuments.length === 0 && legalDocuments.length === expectedDocuments.length;
+    missingDocuments.length === 0 &&
+    legalDocumentIdentitiesMatch(legalDocuments, expectedDocuments);
   addResult(
     'Legal documents',
     documentsMatch,
     documentsMatch
       ? `Found all ${legalDocuments.length} declared documents`
-      : `Expected ${expectedDocuments.length}, found ${legalDocuments.length}; missing: ${
+      : `Expected ${expectedDocuments.length}, found ${legalDocuments.length}; identity mismatch or missing: ${
           missingDocuments.map((document: { file: string }) => document.file).join(', ') || 'none'
         }`
   );
