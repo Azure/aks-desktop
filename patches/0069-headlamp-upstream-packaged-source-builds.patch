@@ -1,4 +1,4 @@
-From 38d15bf191f45e91227df206cf46d29db1650230 Mon Sep 17 00:00:00 2001
+From 0d0a2899e7af3d4e1b3940befd766c43546de49c Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Tue, 25 Aug 2026 11:18:14 +0200
 Subject: [PATCH 1/5] frontend: make-env: Cover product metadata generation
@@ -6,11 +6,69 @@ Subject: [PATCH 1/5] frontend: make-env: Cover product metadata generation
 Exercise manifest overrides, package fallbacks, source commit overrides, and
 Git failure so packaged-source builds keep accurate frontend metadata.
 ---
- frontend/src/make-env.test.js | 332 ++++++++++++++++++++++++++++++++--
- 1 file changed, 312 insertions(+), 20 deletions(-)
+ frontend/scripts/precompress-build.test.ts |  33 +-
+ frontend/src/make-env.test.js              | 332 +++++++++++++++++++--
+ frontend/src/packageScripts.test.js        |  51 ++++
+ 3 files changed, 395 insertions(+), 21 deletions(-)
+ create mode 100644 frontend/src/packageScripts.test.js
 
+diff --git a/frontend/scripts/precompress-build.test.ts b/frontend/scripts/precompress-build.test.ts
+index 9ea9de65b..80af47498 100644
+--- a/frontend/scripts/precompress-build.test.ts
++++ b/frontend/scripts/precompress-build.test.ts
+@@ -14,11 +14,11 @@
+  * limitations under the License.
+  */
+ 
++import { spawnSync } from 'child_process';
+ import fs from 'fs';
+ import os from 'os';
+ import path from 'path';
+ import { afterEach, describe, expect, it } from 'vitest';
+-
+ import { runPrecompressBuild } from './precompress-build';
+ 
+ const tempDirs: string[] = [];
+@@ -37,6 +37,37 @@ function makeTempDir(): string {
+ }
+ 
+ describe('precompress-build', () => {
++  it('runs from an installed package with tsx', () => {
++    const packageRoot = path.join(makeTempDir(), 'node_modules', 'headlamp');
++    const scriptDirectory = path.join(packageRoot, 'frontend', 'scripts');
++    const buildDirectory = path.join(packageRoot, 'frontend', 'build');
++    const installedScript = path.join(scriptDirectory, 'precompress-build.ts');
++    const tsxCli = path.resolve(__dirname, '../node_modules/tsx/dist/cli.mjs');
++
++    fs.mkdirSync(scriptDirectory, { recursive: true });
++    fs.mkdirSync(buildDirectory, { recursive: true });
++    fs.copyFileSync(
++      path.resolve(__dirname, '../package.json'),
++      path.join(packageRoot, 'frontend/package.json')
++    );
++    fs.copyFileSync(path.join(__dirname, 'precompress-build.ts'), installedScript);
++    fs.writeFileSync(path.join(buildDirectory, 'main.js'), 'x'.repeat(2048));
++
++    const nodeResult = spawnSync(
++      process.execPath,
++      ['--experimental-strip-types', installedScript, buildDirectory],
++      { encoding: 'utf8' }
++    );
++    expect(nodeResult.status).not.toBe(0);
++    expect(nodeResult.stderr).toContain('ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING');
++
++    const tsxResult = spawnSync(process.execPath, [tsxCli, installedScript, buildDirectory], {
++      encoding: 'utf8',
++    });
++    expect(tsxResult.status, tsxResult.stderr).toBe(0);
++    expect(fs.existsSync(path.join(buildDirectory, 'main.js.br'))).toBe(true);
++  });
++
+   it('removes orphan .br sidecars', async () => {
+     const buildDir = makeTempDir();
+     const orphan = path.join(buildDir, 'assets', 'stale.js.br');
 diff --git a/frontend/src/make-env.test.js b/frontend/src/make-env.test.js
-index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..fd34a1bde9707d1e404dc3f162b962c2f39488d9 100644
+index 4ab03cc28..fd34a1bde 100644
 --- a/frontend/src/make-env.test.js
 +++ b/frontend/src/make-env.test.js
 @@ -17,35 +17,327 @@
@@ -361,11 +419,65 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..fd34a1bde9707d1e404dc3f162b962c2
 +    publishWorkflow.indexOf('HEADLAMP_SOURCE_COMMIT=$(git rev-parse HEAD)')
 +  );
  });
--- 
-2.54.0
+diff --git a/frontend/src/packageScripts.test.js b/frontend/src/packageScripts.test.js
+new file mode 100644
+index 000000000..5f9157756
+--- /dev/null
++++ b/frontend/src/packageScripts.test.js
+@@ -0,0 +1,51 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++const fs = require('fs');
++const path = require('path');
++
++const frontendDirectory = path.resolve(__dirname, '..');
++const repositoryDirectory = path.resolve(frontendDirectory, '..');
++
++/**
++ * Read a JSON file.
++ *
++ * @param {string} filePath Path to the JSON file.
++ * @returns {object} Parsed JSON value.
++ */
++function readJson(filePath) {
++  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
++}
++
++test('packaged-source scripts use package-owned tsx', () => {
++  const rootPackage = readJson(path.join(repositoryDirectory, 'package.json'));
++  const frontendPackage = readJson(path.join(frontendDirectory, 'package.json'));
++  const dependencySync = fs.readFileSync(
++    path.join(repositoryDirectory, 'plugins/headlamp-plugin/dependencies-sync.js'),
++    'utf8'
++  );
++
++  expect(rootPackage.devDependencies).toHaveProperty('tsx');
++  expect(rootPackage.scripts['app:build']).toContain('tsx ./scripts/setup-plugins.ts');
++  expect(rootPackage.scripts['app:build:dir']).toContain('tsx ./scripts/setup-plugins.ts');
++  expect(rootPackage.scripts['app:start']).toContain('tsx ./scripts/setup-plugins.ts');
++  expect(frontendPackage.dependencies).toHaveProperty('tsx');
++  expect(frontendPackage.scripts.postbuild).toBe('tsx ./scripts/precompress-build.ts build');
++  expect(frontendPackage.scripts['postbuild:rsbuild']).toBe(
++    'tsx ./scripts/precompress-build.ts build'
++  );
++  expect(dependencySync).toMatch(/dependenciesToNotCopy = \[[\s\S]*?'tsx'/);
++});
 
-
-From 3bbe40b5524d38778386d14848e586b16cbc3aa5 Mon Sep 17 00:00:00 2001
+From 934a2568e813127dbb35d8f0a85a29899f41fb8b Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Tue, 25 Aug 2026 11:18:46 +0200
 Subject: [PATCH 2/5] app: e2e-tests: Verify frontend product metadata
@@ -378,7 +490,7 @@ packaged builds retain their configured identity and source revision.
  2 files changed, 48 insertions(+)
 
 diff --git a/app/e2e-tests/playwright.electron.config.ts b/app/e2e-tests/playwright.electron.config.ts
-index d66a86a4e7388c700540b09968f2616663f80505..9fca96bb1f8021987f06747c424c2700ff829efa 100644
+index c2b7e3d24..778394a9d 100644
 --- a/app/e2e-tests/playwright.electron.config.ts
 +++ b/app/e2e-tests/playwright.electron.config.ts
 @@ -28,6 +28,7 @@ export default defineConfig({
@@ -390,7 +502,7 @@ index d66a86a4e7388c700540b09968f2616663f80505..9fca96bb1f8021987f06747c424c2700
      'namespaces.spec.ts',
      'clusterAutoConnect.spec.ts',
 diff --git a/app/e2e-tests/tests/buildManifestProduct.spec.ts b/app/e2e-tests/tests/buildManifestProduct.spec.ts
-index bd2facd4ec9e76895cc40fd3bbf3fb821cf6443e..5ca5e2cd3c9c15b6657009533bf446dff0b85b06 100644
+index bd2facd4e..5ca5e2cd3 100644
 --- a/app/e2e-tests/tests/buildManifestProduct.spec.ts
 +++ b/app/e2e-tests/tests/buildManifestProduct.spec.ts
 @@ -21,6 +21,7 @@ import os from 'node:os';
@@ -451,11 +563,8 @@ index bd2facd4ec9e76895cc40fd3bbf3fb821cf6443e..5ca5e2cd3c9c15b6657009533bf446df
 +    fs.rmSync(manifestDirectory, { recursive: true, force: true });
 +  }
 +});
--- 
-2.54.0
 
-
-From 8df777ca03cf62e56e2716e48db6cc06961503ea Mon Sep 17 00:00:00 2001
+From 6d3a9d095b80a4e147caa6e90aae282d92d9102a Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Mon, 3 Aug 2026 13:33:42 +0200
 Subject: [PATCH 3/5] docs: frontend: Validate packaged-source metadata
@@ -468,16 +577,16 @@ fields before writing them, and document path and fallback behavior.
 
 Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 ---
- docs/development/app.md      |  53 ++++++++++++--
+ docs/development/app.md      |  57 +++++++++++++--
  docs/development/frontend.md |   7 +-
  frontend/make-env.js         | 136 +++++++++++++++++++++++++++++++++--
- 3 files changed, 182 insertions(+), 14 deletions(-)
+ 3 files changed, 186 insertions(+), 14 deletions(-)
 
 diff --git a/docs/development/app.md b/docs/development/app.md
-index ee63e3f110e6a824a8879b07f124a30dd299db4b..9f62a26e25aee68dc302b531141a880b636d1ea9 100644
+index ee63e3f11..6c053a9fb 100644
 --- a/docs/development/app.md
 +++ b/docs/development/app.md
-@@ -133,14 +133,57 @@ npm run app:package:mac      # macOS
+@@ -133,14 +133,61 @@ npm run app:package:mac      # macOS
  npm run app:package:win:msi  # Windows MSI installer
  ```
  
@@ -529,7 +638,11 @@ index ee63e3f110e6a824a8879b07f124a30dd299db4b..9f62a26e25aee68dc302b531141a880b
 +The manifest must remain available throughout the frontend and app packaging
 +steps. An unreadable manifest, a non-object `product`, non-string
 +`productName`/`version` fields, or values containing newlines stop the frontend
-+build rather than silently using an inconsistent product identity.
++build rather than silently using an inconsistent product identity. The frontend
++environment generator also rejects values containing both a single quote and a
++backtick when they additionally contain either a double quote or a literal
++backslash-`n`/backslash-`r` sequence, because no dotenv quote delimiter can
++represent them without changing the value.
 +
 +### Build manifest resources
  
@@ -541,7 +654,7 @@ index ee63e3f110e6a824a8879b07f124a30dd299db4b..9f62a26e25aee68dc302b531141a880b
  ```json
  {
 diff --git a/docs/development/frontend.md b/docs/development/frontend.md
-index b7079e6666ac1e2b5632776dc7921946280632f6..79c3d5021157a075d4fc7c8ae5290eefab2cecec 100644
+index b7079e666..79c3d5021 100644
 --- a/docs/development/frontend.md
 +++ b/docs/development/frontend.md
 @@ -36,6 +36,10 @@ This command starts the Vite development server for the frontend
@@ -577,7 +690,7 @@ index b7079e6666ac1e2b5632776dc7921946280632f6..79c3d5021157a075d4fc7c8ae5290eef
  
  We are using [fast-check](https://fast-check.dev/) for property testing.
 diff --git a/frontend/make-env.js b/frontend/make-env.js
-index 5d6f3a9921b9c0eab986b915b103800e6bb9b7a6..c3f74c3f768cba45552fb4ac90703c7faa344b0f 100644
+index 5d6f3a992..c3f74c3f7 100644
 --- a/frontend/make-env.js
 +++ b/frontend/make-env.js
 @@ -18,22 +18,144 @@
@@ -732,11 +845,8 @@ index 5d6f3a9921b9c0eab986b915b103800e6bb9b7a6..c3f74c3f768cba45552fb4ac90703c7f
    });
  
    return text;
--- 
-2.54.0
 
-
-From fb7f64fa0ba9ad21e831c46a2daeef60e532d46f Mon Sep 17 00:00:00 2001
+From 933020438cb168c65f237a0e5ba5975bd2ba658c Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 10:21:01 +0200
 Subject: [PATCH 4/5] build: Dockerfile: Support containers from packaged
@@ -758,7 +868,7 @@ bind app metadata read-only only while the frontend build runs.
  7 files changed, 29 insertions(+), 8 deletions(-)
 
 diff --git a/.github/workflows/build-other-arch.yml b/.github/workflows/build-other-arch.yml
-index 24eaae8eb44830ca67fefa393931a8fab3a1f2ed..ecae684e9baeac886567154afcd1c0a5bf5c08d6 100644
+index 24eaae8eb..ecae684e9 100644
 --- a/.github/workflows/build-other-arch.yml
 +++ b/.github/workflows/build-other-arch.yml
 @@ -65,6 +65,8 @@ jobs:
@@ -771,7 +881,7 @@ index 24eaae8eb44830ca67fefa393931a8fab3a1f2ed..ecae684e9baeac886567154afcd1c0a5
            load: true
            platforms: linux/${{ matrix.arch }}
 diff --git a/.github/workflows/container-publish.yml b/.github/workflows/container-publish.yml
-index fa9209509e2ae0166be9aaacb80d8053d122d4e1..10c22f3ef7cfd57a7e9d017fb1c785b10e0b1744 100644
+index fa9209509..10c22f3ef 100644
 --- a/.github/workflows/container-publish.yml
 +++ b/.github/workflows/container-publish.yml
 @@ -70,6 +70,7 @@ jobs:
@@ -792,7 +902,7 @@ index fa9209509e2ae0166be9aaacb80d8053d122d4e1..10c22f3ef7cfd57a7e9d017fb1c785b1
          pull: true
          platforms: linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 diff --git a/.github/workflows/nightly-build.yml b/.github/workflows/nightly-build.yml
-index 439a660ec469b74b0fd227e5c67531da48045cd8..23a75c4957ca2f7fdacb5842971d210c009fc69b 100644
+index 439a660ec..23a75c495 100644
 --- a/.github/workflows/nightly-build.yml
 +++ b/.github/workflows/nightly-build.yml
 @@ -40,6 +40,8 @@ jobs:
@@ -805,7 +915,7 @@ index 439a660ec469b74b0fd227e5c67531da48045cd8..23a75c4957ca2f7fdacb5842971d210c
            pull: true
            platforms: linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 diff --git a/Dockerfile b/Dockerfile
-index aa352caaf534294f72781377466525b4421aea93..9d579a4dffc22ad6e8715f9d40359b3f31581804 100644
+index aa352caaf..9d579a4df 100644
 --- a/Dockerfile
 +++ b/Dockerfile
 @@ -28,23 +28,24 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
@@ -841,7 +951,7 @@ index aa352caaf534294f72781377466525b4421aea93..9d579a4dffc22ad6e8715f9d40359b3f
  RUN echo "*** Built Headlamp with version: ***"
  RUN cat ./frontend/.env
 diff --git a/Makefile b/Makefile
-index 7a4e5de9a4b5aa88240462dc91fd56d2fa1f5725..6befd1bc7d3bfa5301d07a3aebe188ab7805fac3 100644
+index 7a4e5de9a..6befd1bc7 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -9,6 +9,7 @@ DOCKER_EXT_REPO ?= docker.io/headlamp
@@ -861,7 +971,7 @@ index 7a4e5de9a4b5aa88240462dc91fd56d2fa1f5725..6befd1bc7d3bfa5301d07a3aebe188ab
  	--push=$(DOCKER_PUSH) \
  	-t $(DOCKER_REPO)/$(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) \
 diff --git a/docs/development/app.md b/docs/development/app.md
-index 9f62a26e25aee68dc302b531141a880b636d1ea9..2d598d98b97f228e9e29d4bb5f497113022a0fc1 100644
+index 6c053a9fb..e8dce28b8 100644
 --- a/docs/development/app.md
 +++ b/docs/development/app.md
 @@ -174,6 +174,17 @@ example above selects `app/product/app-build-manifest.json` for both consumers.
@@ -883,7 +993,7 @@ index 9f62a26e25aee68dc302b531141a880b636d1ea9..2d598d98b97f228e9e29d4bb5f497113
  steps. An unreadable manifest, a non-object `product`, non-string
  `productName`/`version` fields, or values containing newlines stop the frontend
 diff --git a/package.json b/package.json
-index 5002a49360637933a11f7a221aeefb4d86a8c57d..40750e7a7818d3e0012a5ca52d04c498b07a9aef 100644
+index 5002a4936..40750e7a7 100644
 --- a/package.json
 +++ b/package.json
 @@ -85,7 +85,7 @@
@@ -895,26 +1005,504 @@ index 5002a49360637933a11f7a221aeefb4d86a8c57d..40750e7a7818d3e0012a5ca52d04c498
      "image:verify-image-digests": "node tools/verify-image-digests.js"
    },
    "devDependencies": {
--- 
-2.54.0
 
-
-From a3982142e0d60430ca800b4d9035d2bb59ce15c4 Mon Sep 17 00:00:00 2001
+From 8d7e6afd2eab7370b68037f2618a3f157dd30885 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Fri, 28 Aug 2026 12:13:26 +0200
-Subject: [PATCH 5/5] build: Run TypeScript scripts from packaged source
+Subject: [PATCH 5/5] build: scripts: Run TypeScript from packaged source
 
+Use tsx because Node's built-in type stripping rejects TypeScript beneath
+node_modules with ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING.
+
+Keep tsx in the root package for app scripts and in the frontend package for
+independently installed frontend lifecycle scripts.
 ---
- frontend/package.json |   4 +-
- package-lock.json     | 491 +++++++++++++++++++++++++++++++++++++++++-
- package.json          |   9 +-
- 3 files changed, 497 insertions(+), 7 deletions(-)
+ frontend/package-lock.json                   | 448 +++++++++++++++++
+ frontend/package.json                        |   5 +-
+ package-lock.json                            | 491 ++++++++++++++++++-
+ package.json                                 |   9 +-
+ plugins/headlamp-plugin/dependencies-sync.js |   1 +
+ 5 files changed, 947 insertions(+), 7 deletions(-)
 
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index a3577dd28..6ba901700 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -86,6 +86,7 @@
+         "shx": "^0.4.0",
+         "simple-eval": "^2.0.0",
+         "spacetime": "^7.4.0",
++        "tsx": "4.23.1",
+         "typescript": "5.6.2",
+         "vite": "^6.4.1",
+         "vite-plugin-node-polyfills": "^0.23.0",
+@@ -16723,6 +16724,453 @@
+       "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
+       "license": "0BSD"
+     },
++    "node_modules/tsx": {
++      "version": "4.23.1",
++      "integrity": "sha1-FwPaAC7kQyuaBTkXQx+RRi/KI1s=",
++      "license": "MIT",
++      "dependencies": {
++        "esbuild": "~0.28.0"
++      },
++      "bin": {
++        "tsx": "dist/cli.mjs"
++      },
++      "engines": {
++        "node": ">=18.0.0"
++      },
++      "optionalDependencies": {
++        "fsevents": "~2.3.3"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/aix-ppc64": {
++      "version": "0.28.2",
++      "integrity": "sha1-v24QMDvPLnxoaXX6Uvk37Cco2Lw=",
++      "cpu": [
++        "ppc64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "aix"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/android-arm": {
++      "version": "0.28.2",
++      "integrity": "sha1-LYTs5qTiaE2SvibuE9QnV9gxw4E=",
++      "cpu": [
++        "arm"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/android-arm64": {
++      "version": "0.28.2",
++      "integrity": "sha1-DGJGvI0sTRcqrC2z+xGQ1yvWVQQ=",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/android-x64": {
++      "version": "0.28.2",
++      "integrity": "sha1-/DjU1jWNjcHPU/CfdYn+Q262SAE=",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/darwin-arm64": {
++      "version": "0.28.2",
++      "integrity": "sha1-+Dr+6sHX2sAcei/QErPkUaBZH8w=",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/darwin-x64": {
++      "version": "0.28.2",
++      "integrity": "sha1-UQFHwFWnlViNu+FP1rG4rQovMN4=",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/freebsd-arm64": {
++      "version": "0.28.2",
++      "integrity": "sha1-CTuSAOzwsRW6Tl4kinSFycX4vV4=",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/freebsd-x64": {
++      "version": "0.28.2",
++      "integrity": "sha1-C+Irbfkl0hPoQeqHEjr134Cw+vc=",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/linux-arm": {
++      "version": "0.28.2",
++      "integrity": "sha1-vrEq1yuE9y0oSIzBuO6ffrFB11M=",
++      "cpu": [
++        "arm"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/linux-arm64": {
++      "version": "0.28.2",
++      "integrity": "sha1-G9vGUc2pupmVxT7ZxxzqplCUdi0=",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/linux-ia32": {
++      "version": "0.28.2",
++      "integrity": "sha1-uB+dVVKbRcIGpGoTghSxqmh5aWs=",
++      "cpu": [
++        "ia32"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/linux-loong64": {
++      "version": "0.28.2",
++      "integrity": "sha1-WYZnJBoEyZt27W75QKxQA4xBn5g=",
++      "cpu": [
++        "loong64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/linux-mips64el": {
++      "version": "0.28.2",
++      "integrity": "sha1-HFHrnOqQP1PZe1rzsYQdtw9Vlso=",
++      "cpu": [
++        "mips64el"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/linux-ppc64": {
++      "version": "0.28.2",
++      "integrity": "sha1-Y91h8XzrMagSJ/QT/qyKcbwsUfI=",
++      "cpu": [
++        "ppc64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/linux-riscv64": {
++      "version": "0.28.2",
++      "integrity": "sha1-N2Owj95c8lqx+suOd1Lt/kX7/Cc=",
++      "cpu": [
++        "riscv64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/linux-s390x": {
++      "version": "0.28.2",
++      "integrity": "sha1-GhN/8pOoKQbrMXY4W9fo4OXPt8s=",
++      "cpu": [
++        "s390x"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/linux-x64": {
++      "version": "0.28.2",
++      "integrity": "sha1-Jos2IRwUbKVPj+EsV4qNbviXlIU=",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/netbsd-arm64": {
++      "version": "0.28.2",
++      "integrity": "sha1-Ilca2VHWK7aszILY0frVyMGsC6E=",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "netbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/netbsd-x64": {
++      "version": "0.28.2",
++      "integrity": "sha1-QvzFcpfrCgyj9fxHUpH0waP3wN4=",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "netbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/openbsd-arm64": {
++      "version": "0.28.2",
++      "integrity": "sha1-nrMq8QSsPaz07coB9ZZmSqsMc+8=",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/openbsd-x64": {
++      "version": "0.28.2",
++      "integrity": "sha1-/r7SQC1giCJekfIPtM4lIq0KTv0=",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/openharmony-arm64": {
++      "version": "0.28.2",
++      "integrity": "sha1-hWQcPUZkKL+8zqXyHCaDZmP+9c4=",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openharmony"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/sunos-x64": {
++      "version": "0.28.2",
++      "integrity": "sha1-pzb52JYkgQRfxMPlT1R58iyHD7Q=",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "sunos"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/win32-arm64": {
++      "version": "0.28.2",
++      "integrity": "sha1-7lq0D60YYgG2UqM/il6xSenkJTI=",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/win32-ia32": {
++      "version": "0.28.2",
++      "integrity": "sha1-xA0optmaEn2mcR8q/XSxHLY7Bqc=",
++      "cpu": [
++        "ia32"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/@esbuild/win32-x64": {
++      "version": "0.28.2",
++      "integrity": "sha1-shr/uATMFnwTPZX0WzodwTI7moc=",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/tsx/node_modules/esbuild": {
++      "version": "0.28.2",
++      "integrity": "sha1-D0O9G62VW3LSTiJh46vllXzPCBY=",
++      "hasInstallScript": true,
++      "license": "MIT",
++      "bin": {
++        "esbuild": "bin/esbuild"
++      },
++      "engines": {
++        "node": ">=18"
++      },
++      "optionalDependencies": {
++        "@esbuild/aix-ppc64": "0.28.2",
++        "@esbuild/android-arm": "0.28.2",
++        "@esbuild/android-arm64": "0.28.2",
++        "@esbuild/android-x64": "0.28.2",
++        "@esbuild/darwin-arm64": "0.28.2",
++        "@esbuild/darwin-x64": "0.28.2",
++        "@esbuild/freebsd-arm64": "0.28.2",
++        "@esbuild/freebsd-x64": "0.28.2",
++        "@esbuild/linux-arm": "0.28.2",
++        "@esbuild/linux-arm64": "0.28.2",
++        "@esbuild/linux-ia32": "0.28.2",
++        "@esbuild/linux-loong64": "0.28.2",
++        "@esbuild/linux-mips64el": "0.28.2",
++        "@esbuild/linux-ppc64": "0.28.2",
++        "@esbuild/linux-riscv64": "0.28.2",
++        "@esbuild/linux-s390x": "0.28.2",
++        "@esbuild/linux-x64": "0.28.2",
++        "@esbuild/netbsd-arm64": "0.28.2",
++        "@esbuild/netbsd-x64": "0.28.2",
++        "@esbuild/openbsd-arm64": "0.28.2",
++        "@esbuild/openbsd-x64": "0.28.2",
++        "@esbuild/openharmony-arm64": "0.28.2",
++        "@esbuild/sunos-x64": "0.28.2",
++        "@esbuild/win32-arm64": "0.28.2",
++        "@esbuild/win32-ia32": "0.28.2",
++        "@esbuild/win32-x64": "0.28.2"
++      }
++    },
+     "node_modules/tty-browserify": {
+       "version": "0.0.1",
+       "resolved": "https://registry.npmjs.org/tty-browserify/-/tty-browserify-0.0.1.tgz",
 diff --git a/frontend/package.json b/frontend/package.json
-index 75736ee023bf3df377fca52abd40865cd2a86c84..5924a078a337efb0c8d6509e557771ad97dfad4c 100644
+index 75736ee02..3fa9299aa 100644
 --- a/frontend/package.json
 +++ b/frontend/package.json
-@@ -112,7 +112,7 @@
+@@ -87,6 +87,7 @@
+     "shx": "^0.4.0",
+     "simple-eval": "^2.0.0",
+     "spacetime": "^7.4.0",
++    "tsx": "4.23.1",
+     "typescript": "5.6.2",
+     "vite": "^6.4.1",
+     "vite-plugin-node-polyfills": "^0.23.0",
+@@ -112,7 +113,7 @@
      "preview": "vite preview",
      "prebuild": "npm run make-version",
      "build": "cross-env PUBLIC_URL=./ NODE_OPTIONS=--max-old-space-size=8096 vite build && npx shx rm -f build/frontend/index.baseUrl.html",
@@ -923,7 +1511,7 @@ index 75736ee023bf3df377fca52abd40865cd2a86c84..5924a078a337efb0c8d6509e557771ad
      "pretest": "npm run make-version",
      "test": "vitest",
      "test:a11y": "npm run build-storybook && node test-a11y-with-baseline.mjs",
-@@ -129,7 +129,7 @@
+@@ -129,7 +130,7 @@
      "make-version": "node ./make-env.js",
      "star": "cross-env REACT_APP_HEADLAMP_BACKEND_TOKEN=headlamp rsbuild dev",
      "build:rsbuild": "rsbuild build",
@@ -933,7 +1521,7 @@ index 75736ee023bf3df377fca52abd40865cd2a86c84..5924a078a337efb0c8d6509e557771ad
    "browserslist": {
      "production": [
 diff --git a/package-lock.json b/package-lock.json
-index 43251b320c14ee723d006ba18827e7b55ac87651..e7afa1ecb0f26a2248b02d8b791302d014b402b6 100644
+index 43251b320..e7afa1ecb 100644
 --- a/package-lock.json
 +++ b/package-lock.json
 @@ -9,7 +9,8 @@
@@ -1463,7 +2051,7 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..e7afa1ecb0f26a2248b02d8b791302d0
        "version": "7.0.0",
        "resolved": "https://registry.npmjs.org/wrap-ansi/-/wrap-ansi-7.0.0.tgz",
 diff --git a/package.json b/package.json
-index 40750e7a7818d3e0012a5ca52d04c498b07a9aef..8752536ad16c5d53f2b729a275f044e50659a56c 100644
+index 40750e7a7..8752536ad 100644
 --- a/package.json
 +++ b/package.json
 @@ -57,8 +57,8 @@
@@ -1496,6 +2084,15 @@ index 40750e7a7818d3e0012a5ca52d04c498b07a9aef..8752536ad16c5d53f2b729a275f044e5
    },
    "keywords": [
      "kubernetes",
--- 
-2.54.0
-
+diff --git a/plugins/headlamp-plugin/dependencies-sync.js b/plugins/headlamp-plugin/dependencies-sync.js
+index d04e2bf2e..eff10bd71 100755
+--- a/plugins/headlamp-plugin/dependencies-sync.js
++++ b/plugins/headlamp-plugin/dependencies-sync.js
+@@ -76,6 +76,7 @@ const dependenciesToNotCopy = [
+   'remark-gfm',
+   '@typescript/native-preview',
+   '@chanzuckerberg/axe-storybook-testing',
++  'tsx',
+ ];
+ 
+ // Dependencies that can have different versions

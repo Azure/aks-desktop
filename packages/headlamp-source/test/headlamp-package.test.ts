@@ -147,7 +147,7 @@ test('source builds use explicit, reviewed install scripts', () => {
       'utf8'
     )
   );
-  assert.equal(frontendManifest.dependencies.tsx, undefined);
+  assert.equal(frontendManifest.dependencies.tsx, '4.23.1');
   assert.equal(frontendManifest.allowScripts, undefined);
   assert.equal(frontendManifest.scripts.postbuild, 'tsx ./scripts/precompress-build.ts build');
   assert.equal(
