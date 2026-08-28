@@ -7,6 +7,7 @@ import {
   registerAppBarAction,
   registerAppLogo,
   registerAppTheme,
+  registerClusterEmptyState,
   registerClusterProviderDialog,
   registerClusterProviderMenuItem,
   registerClusterProviderPreOpen,
@@ -31,6 +32,7 @@ import {
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
 import ClusterCapabilityCard from './components/ClusterCapabilityCard/ClusterCapabilityCard';
+import AKSClusterEmptyState from './components/ClusterEmptyState/AKSClusterEmptyState';
 import ConfigurePipelineButton from './components/ConfigurePipeline/ConfigurePipelineButton';
 import ContactUsButton from './components/ContactUs/ContactUsButton';
 import CreateAKSProject from './components/CreateAKSProject/CreateAKSProject';
@@ -148,6 +150,7 @@ if (Headlamp.isRunningAsApp()) {
 
   // register azure logo
   registerAppLogo(AzureLogo);
+  registerClusterEmptyState(AKSClusterEmptyState);
 
   // register the theme and make it default
   registerAppTheme(azureTheme, { default: true });

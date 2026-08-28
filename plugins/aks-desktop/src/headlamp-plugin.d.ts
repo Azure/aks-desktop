@@ -28,6 +28,10 @@ declare module '@kinvolk/headlamp-plugin/lib' {
   /** Register a theme and optionally select it when the user has no saved preference. */
   export function registerAppTheme(theme: AppTheme, options?: { default?: boolean }): void;
 
+  export function registerClusterEmptyState(
+    component: (props: { defaultContent: React.ReactNode }) => React.ReactNode
+  ): void;
+
   /** Context passed to a pre-open hook when a cluster is about to be opened. */
   export interface ClusterPreOpenContext {
     /** The name of the cluster being opened. */
