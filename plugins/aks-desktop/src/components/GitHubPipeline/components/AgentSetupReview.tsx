@@ -26,6 +26,8 @@ interface AgentSetupReviewProps {
   containerConfig?: {
     config: ContainerConfig;
     setConfig: React.Dispatch<React.SetStateAction<ContainerConfig>>;
+    /** Highest step reached so far; steps up to it stay navigable. */
+    furthestStep: number;
   };
 }
 
