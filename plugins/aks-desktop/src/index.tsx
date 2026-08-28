@@ -150,11 +150,7 @@ if (Headlamp.isRunningAsApp()) {
   registerAppLogo(AzureLogo);
 
   // register the theme and make it default
-  registerAppTheme(azureTheme);
-  if (!localStorage.getItem('headlampThemePreference')) {
-    localStorage.setItem('headlampThemePreference', 'Azure Theme');
-    localStorage.setItem('cached-current-theme', `${azureTheme}`);
-  }
+  registerAppTheme(azureTheme, { default: true });
 
   // Initialize Azure auth status on window object for Headlamp integration
   (window as any).__azureAuthStatus = {
