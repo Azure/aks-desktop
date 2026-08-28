@@ -95,7 +95,7 @@ test('all named source-script functions have complete TSDoc', () => {
     visit(sourceFile);
   }
 
-  assert.equal(functionCount, 62);
+  assert.equal(functionCount, 63);
   assert.deepEqual(errors, []);
 });
 

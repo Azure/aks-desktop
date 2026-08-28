@@ -1,16 +1,15 @@
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
+const net = require('node:net');
 const path = require('node:path');
 
-/** Purpose displayed by the script's help output. */
 const SCRIPT_PURPOSE =
   'Launch a packaged Headlamp application headlessly and verify HTTP readiness.';
-/** Usage displayed by the script's help output. */
 const SCRIPT_USAGE = `Usage: smoke-app.ts [options]
 
   --dist <path>        Application distribution directory.
   --executable <path>  Packaged executable; auto-detected when omitted.
-  --port <number>      Local readiness port (default: 4466).
+  --port <number>      Local readiness port (default: an available port).
   --timeout <ms>       Maximum readiness wait (default: 30000).
   --no-sandbox         Pass Electron's --no-sandbox option.
   --help               Show this help text.`;
@@ -111,6 +110,35 @@ function resolvePackagedExecutable(dist) {
 }
 
 /**
+ * Exclusively reserves a local port until the caller is ready to launch.
+ *
+ * @param requestedPort - Requested port, or zero to let the OS select one.
+ * @returns The selected port and an async function that releases it.
+ */
+function reserveReadinessPort(requestedPort = 0) {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.once('error', reject);
+    server.listen({ host: '127.0.0.1', port: requestedPort, exclusive: true }, () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close();
+        reject(new Error('Could not reserve a local readiness port'));
+        return;
+      }
+      resolve({
+        port: address.port,
+        release: () =>
+          new Promise<void>((done, fail) =>
+            server.close(error => (error ? fail(error) : done()))
+          ),
+      });
+    });
+  });
+}
+
+/**
  * Lists descendant process IDs in child-first termination order.
  *
  * @param rootPid - Process ID whose descendants are discovered.
@@ -177,6 +205,25 @@ async function terminateProcessTree(child) {
 }
 
 /**
+ * Fetches and consumes an HTML response within a bounded interval.
+ *
+ * @param url - HTTP endpoint to probe.
+ * @param timeout - Maximum request and body duration in milliseconds.
+ * @param fetchFn - Fetch implementation, injectable for tests.
+ * @returns Whether the endpoint returned a successful response containing HTML.
+ */
+async function fetchHtmlWithin(url, timeout, fetchFn = fetch) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1, timeout));
+  try {
+    const response = await fetchFn(url, { signal: controller.signal });
+    return response.ok && (await response.text()).includes('<html');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Launches a packaged application and waits for its local HTTP endpoint.
  *
  * @param executable - Packaged application executable.
@@ -186,7 +233,10 @@ async function terminateProcessTree(child) {
  * @returns A promise that resolves when the smoke check passes.
  */
 async function smoke(executable, port, timeout, disableSandbox) {
-  const args = ['--headless', '--disable-gpu', '--port', String(port)];
+  const reservation: any = await reserveReadinessPort(port);
+  const readinessPort = reservation.port;
+  await reservation.release();
+  const args = ['--headless', '--disable-gpu', '--port', String(readinessPort)];
   if (disableSandbox) {
     args.unshift('--no-sandbox');
   }
@@ -212,13 +262,21 @@ async function smoke(executable, port, timeout, disableSandbox) {
         throw new Error(`Packaged application exited before becoming ready:\n${output}`);
       }
       try {
-        const response = await fetch(`http://127.0.0.1:${port}`);
-        if (response.ok && (await response.text()).includes('<html')) {
-          console.log(`Packaged application smoke check passed on port ${port}.`);
+        const remainingMs = deadline - Date.now();
+        if (
+          await fetchHtmlWithin(
+            `http://127.0.0.1:${readinessPort}`,
+            remainingMs
+          )
+        ) {
+          console.log(`Packaged application smoke check passed on port ${readinessPort}.`);
           return;
         }
       } catch {}
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const retryDelayMs = Math.min(500, deadline - Date.now());
+      if (retryDelayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      }
     }
     throw new Error(`Packaged application did not become ready within ${timeout}ms:\n${output}`);
   } finally {
@@ -235,7 +293,7 @@ if (require.main === module) {
     const executable = option(args, '--executable') || resolvePackagedExecutable(dist);
     smoke(
       executable,
-      Number(option(args, '--port') || 4466),
+      Number(option(args, '--port') || 0),
       Number(option(args, '--timeout') || 30_000),
       args.includes('--no-sandbox')
     ).catch(error => {
@@ -249,6 +307,8 @@ module.exports = {
   SCRIPT_PURPOSE,
   SCRIPT_USAGE,
   packagedExecutableCandidates,
+  fetchHtmlWithin,
+  reserveReadinessPort,
   resolvePackagedExecutable,
   smoke,
 };
