@@ -229,6 +229,11 @@ test('root builds package supported host targets independently', () => {
     assert.match(rootManifest.scripts[`build:${target}`], /build\/package-target\.ts/);
   }
   assert.equal(rootManifest.scripts['build:linux:armv7l'], undefined);
+  assert.equal(
+    rootManifest.scripts['headlamp:translations'],
+    'node Localize/translation-manager.mjs distribute-headlamp'
+  );
+  assert.match(rootManifest.scripts['headlamp:assemble'], /headlamp:translations/);
 });
 
 test('ARM64 package targets have verified external tool runtimes', () => {

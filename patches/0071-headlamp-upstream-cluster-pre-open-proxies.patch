@@ -1,7 +1,7 @@
-From ed37e60621547f8233facdd877a6aefe06842701 Mon Sep 17 00:00:00 2001
+From d35b9c5f94044df2f71db92cfc6751f21166c866 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:44:44 +0200
-Subject: [PATCH 01/10] app: proxies: Cover secure Azure proxy lifecycle
+Subject: [PATCH 01/11] app: proxies: Cover secure Azure proxy lifecycle
 
 Verify capability checks, Windows entry points, readiness failures, handler
 
@@ -553,10 +553,10 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..320471d79574a109b4282e7d24d515df
 2.54.0
 
 
-From 5602618eb8a152c566da7342fe3f9823430eb548 Mon Sep 17 00:00:00 2001
+From a66ed57bce477231fbd18320719fd8ad35d03c9c Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:44:52 +0200
-Subject: [PATCH 02/10] frontend: e2e-tests: Cover scoped cluster pre-open flow
+Subject: [PATCH 02/11] frontend: e2e-tests: Cover scoped cluster pre-open flow
 
 Verify only the Azure plugin receives proxy startup and preparation gates
 
@@ -708,10 +708,10 @@ index 0000000000000000000000000000000000000000..78f8417b49b15892d12cc39a6d5179e6
 2.54.0
 
 
-From 2f9ea4c6ddea40e574c25b4a6098d4a716a2e71e Mon Sep 17 00:00:00 2001
+From b743d4eb8bb8ce6813fc6a6e18326be8264a9745 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 14:03:45 +0530
-Subject: [PATCH 03/10] app: proxies: Add scoped Azure proxy lifecycle
+Subject: [PATCH 03/11] app: proxies: Add scoped Azure proxy lifecycle
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -1317,10 +1317,10 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..02bcbcdc8ddcf0b2bf4635e9f653e4b7
 2.54.0
 
 
-From 498763345757e52b7b3bce910c65c92bce8d39c1 Mon Sep 17 00:00:00 2001
+From 186c394dbc7839456d8dce8ecfcf46b4f0439a84 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:45:12 +0200
-Subject: [PATCH 04/10] frontend: ClusterPreOpenGate: Cover preparation
+Subject: [PATCH 04/11] frontend: ClusterPreOpenGate: Cover preparation
  lifecycle
 
 Verify config loading, outer request gating, retries, route lifetime, aborts,
@@ -2085,10 +2085,10 @@ index c672c506aa63dbfc5a5b87a1e19b38f418b2c925..8aa95ff2ce28186edf13e3228a51a3e4
 2.54.0
 
 
-From 743826253e0e8b31099eaf622cb4f310043da2ad Mon Sep 17 00:00:00 2001
+From c75176d79f97d108cc02aa964e481fb53f730849 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 13:58:15 +0530
-Subject: [PATCH 05/10] frontend: clusterProviderSlice: Add cluster pre-open
+Subject: [PATCH 05/11] frontend: clusterProviderSlice: Add cluster pre-open
  hooks
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -2995,10 +2995,10 @@ index d7500ebb5af9aaa4f10ff5aa035d3754966e6b9e..bc1b598fad985903e5a4b409792d878d
 2.54.0
 
 
-From b8c00fe112a1985562c4e2cc98931e87dad7c068 Mon Sep 17 00:00:00 2001
+From 7882236709e77c95ba93d5d3047ddd446a7b159f Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 13:58:34 +0530
-Subject: [PATCH 06/10] frontend: i18n: Regenerate cluster pre-open locales
+Subject: [PATCH 06/11] frontend: i18n: Regenerate cluster pre-open locales
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -3590,10 +3590,10 @@ index 7761ba94522e0fe7b2e5b4f3f9f68aa5250eb33a..f7b48e15fbb855ac66dd40b3dd125cd9
 2.54.0
 
 
-From c4a2e3af2a6d0cfe45148388389ce735aea93bef Mon Sep 17 00:00:00 2001
+From 2c1d524e81e3082824d6a7e702834c9f5d4b1625 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:45:44 +0200
-Subject: [PATCH 07/10] frontend: ClusterTable: Cover additive cluster actions
+Subject: [PATCH 07/11] frontend: ClusterTable: Cover additive cluster actions
 
 Ensure plugin-provided menu items do not replace Headlamp cluster actions.
 ---
@@ -3658,10 +3658,10 @@ index 746f7d2b74f16b9dedfa262d73c6d606009fada0..a49a4ad2193bd16fd791c1a2f112ac1a
 2.54.0
 
 
-From 35740d22e25ccae7d6e456248f5319de69128b79 Mon Sep 17 00:00:00 2001
+From b908e7658a6b8b21b11ef4d987a3279a6c2d0e3d Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 14:04:30 +0530
-Subject: [PATCH 08/10] frontend: ClusterContextMenu: Keep built-in Delete
+Subject: [PATCH 08/11] frontend: ClusterContextMenu: Keep built-in Delete
  action
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -3718,10 +3718,10 @@ index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..f8bd763a3907d9b8b51baa0485aad423
 2.54.0
 
 
-From 355fce06cdf2e042327226412590ff2452930e4a Mon Sep 17 00:00:00 2001
+From 72750216565250bda6b349df9943e73b4b30e5f0 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Tue, 25 Aug 2026 18:04:32 +0530
-Subject: [PATCH 09/10] frontend: stories: Add cluster pre-open states
+Subject: [PATCH 09/11] frontend: stories: Add cluster pre-open states
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -4013,10 +4013,10 @@ index 0000000000000000000000000000000000000000..c1e434674036690300d4a3fb0ba0f69a
 2.54.0
 
 
-From ed769573586c331578f0012f91aab1f7f1cd6977 Mon Sep 17 00:00:00 2001
+From 07acae2e3ae4e36a37ed54094a0c98a08d86947f Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:46:21 +0200
-Subject: [PATCH 10/10] docs: api: Document cluster pre-open hooks
+Subject: [PATCH 10/11] docs: api: Document cluster pre-open hooks
 
 Publish the interface, hook, and registration API in the committed TypeDoc
 
@@ -4229,6 +4229,408 @@ index b895617af9abd1bcbdb8756107d8f4540432bf3d..d6b855e83767bcdc4ac64010b031fd41
  ### Route
  
  Show a component in the main area at a given URL with
+-- 
+2.54.0
+
+
+From 14fd4c7548d7e308cc7f97583a75c83e1bd9b124 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Fri, 28 Aug 2026 12:50:13 +0200
+Subject: [PATCH 11/11] frontend: Enforce shipped plugin command capabilities
+
+---
+ app/electron/runCmd.test.ts                   | 12 +++
+ app/electron/runCmd.ts                        |  3 +-
+ frontend/src/components/App/runCommand.ts     |  2 +-
+ frontend/src/plugin/clusterProxy.test.ts      | 11 ++-
+ frontend/src/plugin/clusterProxy.ts           | 18 +++++
+ .../src/plugin/commandCapabilities.test.ts    | 55 +++++++++++++
+ frontend/src/plugin/commandCapabilities.ts    | 78 +++++++++++++++++++
+ frontend/src/plugin/index.ts                  | 66 ++++++++++++++--
+ frontend/src/plugin/pluginsSlice.ts           | 10 +++
+ 9 files changed, 244 insertions(+), 11 deletions(-)
+ create mode 100644 frontend/src/plugin/commandCapabilities.test.ts
+ create mode 100644 frontend/src/plugin/commandCapabilities.ts
+
+diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
+index 320471d79574a109b4282e7d24d515df2fb863d9..d6ad8511a196433ebde5c4cf7a07eae292a250b8 100644
+--- a/app/electron/runCmd.test.ts
++++ b/app/electron/runCmd.test.ts
+@@ -281,6 +281,18 @@ describe('validateCommandData', () => {
+     ).toBe(true);
+   });
+ 
++  it('returns true for a valid kubectl command', () => {
++    expect(
++      validateCommandData({
++        id: 'test-id',
++        command: 'kubectl',
++        args: ['config', 'view'],
++        options: {},
++        permissionSecrets: { 'runCmd-kubectl': 1 },
++      })[0]
++    ).toBe(true);
++  });
++
+   it('returns true for valid scriptjs command', () => {
+     expect(
+       validateCommandData({
+diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
+index 28744a0e0acd8dd073d52239f0443720bfe8eeba..9e6b922ffe3acc55510b37ca7ef0e030fd579107 100644
+--- a/app/electron/runCmd.ts
++++ b/app/electron/runCmd.ts
+@@ -436,6 +436,7 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
+     'runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js': cryptoRandom(),
+     'runCmd-gh': cryptoRandom(),
+     'runCmd-az': cryptoRandom(),
++    'runCmd-kubectl': cryptoRandom(),
+     'runCmd-scriptjs-azure-aks/azure-api.js': cryptoRandom(),
+     startClusterProxy: cryptoRandom(),
+   };
+@@ -505,7 +506,7 @@ export function validateCommandData(eventData: CommandDataPartial): [boolean, st
+     }
+   }
+ 
+-  const validCommands = ['minikube', 'az', 'scriptjs', 'gh'];
++  const validCommands = ['minikube', 'az', 'scriptjs', 'gh', 'kubectl'];
+ 
+   if (!validCommands.includes(eventData.command)) {
+     return [
+diff --git a/frontend/src/components/App/runCommand.ts b/frontend/src/components/App/runCommand.ts
+index 31234ca194487cbd1425a92544c588c702e4c7d9..7ff0686b4eedd345ce7bf8ef3da906992eae1233 100644
+--- a/frontend/src/components/App/runCommand.ts
++++ b/frontend/src/components/App/runCommand.ts
+@@ -48,7 +48,7 @@
+  * ```
+  */
+ export function runCommand(
+-  command: 'minikube' | 'az' | 'scriptjs' | 'gh',
++  command: 'minikube' | 'az' | 'scriptjs' | 'gh' | 'kubectl',
+   args: string[],
+   options: {},
+   permissionSecrets?: Record<string, number>,
+diff --git a/frontend/src/plugin/clusterProxy.test.ts b/frontend/src/plugin/clusterProxy.test.ts
+index 78f8417b49b15892d12cc39a6d5179e636cdfdc0..125c99a54c8663322535082044a4a1bdcbb5ab91 100644
+--- a/frontend/src/plugin/clusterProxy.test.ts
++++ b/frontend/src/plugin/clusterProxy.test.ts
+@@ -15,7 +15,16 @@
+  */
+ 
+ import { describe, expect, it, vi } from 'vitest';
+-import { getClusterProxyArgValues } from './clusterProxy';
++import { getClusterProxyArgValues, isTrustedClusterProxyPlugin } from './clusterProxy';
++
++describe('isTrustedClusterProxyPlugin', () => {
++  it('accepts only the shipped AKS Desktop identity', () => {
++    expect(isTrustedClusterProxyPlugin('aks-desktop', 'static-plugins/aks-desktop', 'shipped')).toBe(true);
++    expect(isTrustedClusterProxyPlugin('aks-desktop', '.plugins/aks-desktop', undefined, 'shipped')).toBe(true);
++    expect(isTrustedClusterProxyPlugin('aks-desktop', 'user-plugins/aks-desktop', 'user')).toBe(false);
++    expect(isTrustedClusterProxyPlugin('other', 'static-plugins/aks-desktop', 'shipped')).toBe(false);
++  });
++});
+ 
+ describe('getClusterProxyArgValues', () => {
+   it('injects a proxy starter with the private capability for Azure AKS', async () => {
+diff --git a/frontend/src/plugin/clusterProxy.ts b/frontend/src/plugin/clusterProxy.ts
+index c410b854110957bafbc33b3b458f5711d25efedd..193a199ae7ebf9ac022ace191865c6512953c475 100644
+--- a/frontend/src/plugin/clusterProxy.ts
++++ b/frontend/src/plugin/clusterProxy.ts
+@@ -40,6 +40,24 @@ type DesktopStartClusterProxy = (
+   capabilitySecret: number
+ ) => Promise<StartClusterProxyResult>;
+ 
++/** Whether package identity, source, and path identify the shipped AKS Desktop plugin. */
++export function isTrustedClusterProxyPlugin(
++  pluginName: string,
++  pluginPath: string,
++  source?: string,
++  type?: string
++): boolean {
++  const normalizedPath = pluginPath.replaceAll('\\', '/');
++  const shipped = source === 'shipped' || type === 'shipped';
++  return (
++    shipped &&
++    pluginName === 'aks-desktop' &&
++    ['plugins/aks-desktop', 'static-plugins/aks-desktop', '.plugins/aks-desktop'].some(suffix =>
++      normalizedPath.endsWith(suffix)
++    )
++  );
++}
++
+ /**
+  * Builds plugin arguments for the scoped Azure proxy capability.
+  *
+diff --git a/frontend/src/plugin/commandCapabilities.test.ts b/frontend/src/plugin/commandCapabilities.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..93a106d057896952a66b314ae09597964d494fee
+--- /dev/null
++++ b/frontend/src/plugin/commandCapabilities.test.ts
+@@ -0,0 +1,55 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { describe, expect, it } from 'vitest';
++import { commandCapabilitySecrets, commandGrants, commandMatchesGrant } from './commandCapabilities';
++import { PluginInfo } from './pluginsSlice';
++
++const shippedPlugin = {
++  name: 'aks-desktop',
++  description: '',
++  homepage: '',
++  source: 'shipped',
++  headlamp: {
++    capabilities: {
++      runCommands: [
++        { tool: 'az', args: ['aks'], allowTrailingArgs: true },
++        { command: 'kubectl', args: ['config'], allowTrailingArgs: true },
++      ],
++    },
++  },
++} as PluginInfo;
++
++describe('command capabilities', () => {
++  it('returns secrets only for commands granted to a shipped plugin', () => {
++    expect(commandCapabilitySecrets(shippedPlugin, {
++      'runCmd-az': 1,
++      'runCmd-kubectl': 2,
++      'runCmd-gh': 3,
++    })).toEqual({ 'runCmd-az': 1, 'runCmd-kubectl': 2 });
++  });
++
++  it('does not trust capability metadata from a user plugin', () => {
++    expect(commandGrants({ ...shippedPlugin, source: 'user', type: 'user' })).toEqual([]);
++  });
++
++  it('matches exact prefixes and respects trailing-argument policy', () => {
++    expect(commandMatchesGrant(shippedPlugin.headlamp!.capabilities!.runCommands![0], 'az', ['aks', 'show'])).toBe(true);
++    expect(commandMatchesGrant(shippedPlugin.headlamp!.capabilities!.runCommands![0], 'az', ['group', 'list'])).toBe(false);
++    expect(commandMatchesGrant({ tool: 'az', args: ['version'] }, 'az', ['version'])).toBe(true);
++    expect(commandMatchesGrant({ tool: 'az', args: ['version'] }, 'az', ['version', '--output', 'json'])).toBe(false);
++  });
++});
+diff --git a/frontend/src/plugin/commandCapabilities.ts b/frontend/src/plugin/commandCapabilities.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3cf58819996d9a34c41a8345eb35f7fca2efe054
+--- /dev/null
++++ b/frontend/src/plugin/commandCapabilities.ts
+@@ -0,0 +1,78 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { PluginInfo } from './pluginsSlice';
++
++export interface PluginCommandGrant {
++  tool?: string;
++  command?: string;
++  args: string[];
++  allowTrailingArgs?: boolean;
++}
++
++function isShippedPlugin(plugin: PluginInfo): boolean {
++  return plugin.source === 'shipped' || plugin.type === 'shipped';
++}
++
++export function commandGrants(plugin: PluginInfo): PluginCommandGrant[] {
++  if (!isShippedPlugin(plugin)) {
++    return [];
++  }
++  const grants = plugin.headlamp?.capabilities?.runCommands;
++  if (!Array.isArray(grants)) {
++    return [];
++  }
++  return grants.filter(grant => {
++    const command = grant?.tool ?? grant?.command;
++    return (
++      typeof command === 'string' &&
++      command.length > 0 &&
++      Array.isArray(grant.args) &&
++      grant.args.every(arg => typeof arg === 'string') &&
++      (grant.allowTrailingArgs === undefined || typeof grant.allowTrailingArgs === 'boolean')
++    );
++  });
++}
++
++export function commandMatchesGrant(
++  grant: PluginCommandGrant,
++  command: string,
++  args: string[]
++): boolean {
++  const grantedCommand = grant.tool ?? grant.command;
++  if (grantedCommand !== command || args.length < grant.args.length) {
++    return false;
++  }
++  if (!grant.args.every((arg, index) => args[index] === arg)) {
++    return false;
++  }
++  return grant.allowTrailingArgs === true || args.length === grant.args.length;
++}
++
++export function commandCapabilitySecrets(
++  plugin: PluginInfo,
++  secrets: Record<string, number>
++): Record<string, number> {
++  const allowed: Record<string, number> = {};
++  for (const grant of commandGrants(plugin)) {
++    const command = grant.tool ?? grant.command;
++    const secretName = `runCmd-${command}`;
++    if (typeof secrets[secretName] === 'number') {
++      allowed[secretName] = secrets[secretName];
++    }
++  }
++  return allowed;
++}
+diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
+index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..58c5b3acfce4d4c1a20acbb7507d5b21f0815fbb 100644
+--- a/frontend/src/plugin/index.ts
++++ b/frontend/src/plugin/index.ts
+@@ -53,7 +53,12 @@ import * as Utils from '../lib/util';
+ import { eventAction, HeadlampEventType } from '../redux/headlampEventSlice';
+ import store from '../redux/stores/store';
+ import * as stateless from '../stateless/index';
+-import { getClusterProxyArgValues } from './clusterProxy';
++import {
++  commandCapabilitySecrets,
++  commandGrants,
++  commandMatchesGrant,
++} from './commandCapabilities';
++import { getClusterProxyArgValues, isTrustedClusterProxyPlugin } from './clusterProxy';
+ import { Headlamp, Plugin } from './lib';
+ import { changePluginLanguage, initializePluginI18n } from './pluginI18n';
+ import { useTranslation } from './pluginI18n';
+@@ -617,6 +622,7 @@ export async function fetchAndExecutePlugins(
+         handleError: handlePluginRunError,
+         getAllowedPermissions: (pluginName, pluginPath, secrets): Record<string, number> => {
+           const secretsToReturn: Record<string, number> = {};
++          const packageInfo = packageInfosToExecute[index];
+           const isPackage = identifyPackages(pluginPath, pluginName, isDevelopmentMode);
+           if (isPackage['az-auth']) {
+             secretsToReturn['runCmd-scriptjs-az-auth/azure-api.js'] =
+@@ -645,11 +651,25 @@ export async function fetchAndExecutePlugins(
+             secretsToReturn.startClusterProxy = secrets.startClusterProxy;
+           }
+ 
++          Object.assign(secretsToReturn, commandCapabilitySecrets(packageInfo, secrets));
++          if (
++            isTrustedClusterProxyPlugin(
++              pluginName,
++              pluginPath,
++              packageInfo.source,
++              packageInfo.type
++            )
++          ) {
++            secretsToReturn.startClusterProxy = secrets.startClusterProxy;
++          }
++
+           return secretsToReturn;
+         },
+         getArgValues: (pluginName, pluginPath, allowedPermissions) => {
+           const argumentNames: string[] = [];
+           const argumentValues: unknown[] = [];
++          const packageInfo = packageInfosToExecute[index];
++          const grants = commandGrants(packageInfo);
+           // allowedPermissions is the return value of getAllowedPermissions
+           const isPackage = identifyPackages(pluginPath, pluginName, isDevelopmentMode);
+           if (isPackage['@headlamp-k8s/minikube']) {
+@@ -710,15 +730,45 @@ export async function fetchAndExecutePlugins(
+             }
+             argumentNames.push('pluginRunCommand', 'pluginPath');
+             argumentValues.push(pluginRunCommand, pluginPath);
+-            const [proxyArgs, proxyValues] = getClusterProxyArgValues(
+-              true,
+-              pluginStartClusterProxy,
+-              allowedPermissions
+-            );
+-            argumentNames.push(...proxyArgs);
+-            argumentValues.push(...proxyValues);
+           }
+ 
++          if (grants.length > 0) {
++            function pluginRunCommand(
++              command: Parameters<typeof internalRunCommand>[0],
++              args: string[],
++              options: {}
++            ): ReturnType<typeof internalRunCommand> {
++              if (!grants.some(grant => commandMatchesGrant(grant, command, args))) {
++                throw new Error(
++                  `Command is not granted to ${pluginName}: ${command} ${args.join(' ')}`
++                );
++              }
++              return internalRunCommand(
++                command,
++                args,
++                options,
++                allowedPermissions,
++                pluginDesktopApiSend,
++                pluginDesktopApiReceive
++              );
++            }
++            argumentNames.push('pluginRunCommand', 'pluginPath');
++            argumentValues.push(pluginRunCommand, pluginPath);
++          }
++
++          const [proxyArgs, proxyValues] = getClusterProxyArgValues(
++            isTrustedClusterProxyPlugin(
++              pluginName,
++              pluginPath,
++              packageInfo.source,
++              packageInfo.type
++            ),
++            pluginStartClusterProxy,
++            allowedPermissions
++          );
++          argumentNames.push(...proxyArgs);
++          argumentValues.push(...proxyValues);
++
+           const storageNamespace = secureStorageNamespaces[index];
+           const storageCapability = storageNamespace
+             ? secureStorageCapabilities[storageNamespace]
+diff --git a/frontend/src/plugin/pluginsSlice.ts b/frontend/src/plugin/pluginsSlice.ts
+index 6038fb3c1625c31686cc484c5dfa3d884c229e5e..f8f490f6a86aeecd66b64fbbf68b51706fef3711 100644
+--- a/frontend/src/plugin/pluginsSlice.ts
++++ b/frontend/src/plugin/pluginsSlice.ts
+@@ -46,6 +46,16 @@ export type PluginSettingsComponentType =
+ export interface PluginPackageHeadlampConfig {
+   /** Whether a shipped plugin is enabled when first discovered. */
+   enabledByDefault?: boolean;
++  /** Reviewed capabilities granted to this shipped plugin. */
++  capabilities?: {
++    /** Local command prefixes the plugin may execute. */
++    runCommands?: Array<{
++      tool?: string;
++      command?: string;
++      args: string[];
++      allowTrailingArgs?: boolean;
++    }>;
++  };
+   /** Array of supported locales for i18n. */
+   i18n?: string[];
+ }
 -- 
 2.54.0
 

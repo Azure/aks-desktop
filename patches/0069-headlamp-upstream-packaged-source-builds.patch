@@ -1,19 +1,19 @@
-From 7525844a8cb2d57e3f49aadaa7af9d862b76db5e Mon Sep 17 00:00:00 2001
+From 38d15bf191f45e91227df206cf46d29db1650230 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Tue, 25 Aug 2026 11:18:14 +0200
-Subject: [PATCH 1/4] frontend: make-env: Cover product metadata generation
+Subject: [PATCH 1/5] frontend: make-env: Cover product metadata generation
 
 Exercise manifest overrides, package fallbacks, source commit overrides, and
 Git failure so packaged-source builds keep accurate frontend metadata.
 ---
- frontend/src/make-env.test.js | 286 +++++++++++++++++++++++++++++++---
- 1 file changed, 266 insertions(+), 20 deletions(-)
+ frontend/src/make-env.test.js | 332 ++++++++++++++++++++++++++++++++--
+ 1 file changed, 312 insertions(+), 20 deletions(-)
 
 diff --git a/frontend/src/make-env.test.js b/frontend/src/make-env.test.js
-index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..691b2223b55cbda167482fa0104f54de5d04c9e9 100644
+index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..fd34a1bde9707d1e404dc3f162b962c2f39488d9 100644
 --- a/frontend/src/make-env.test.js
 +++ b/frontend/src/make-env.test.js
-@@ -17,35 +17,281 @@
+@@ -17,35 +17,327 @@
  const os = require('os');
  const path = require('path');
  const { execFileSync } = require('child_process');
@@ -141,10 +141,13 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..691b2223b55cbda167482fa0104f54de
 +    fs.rmSync(tempDirectory, { recursive: true, force: true });
 +  }
 +}
-+
+ 
+-    const [key, val] = line.trim().split('=');
 +test('writes the default product metadata without requiring Git', async () => {
 +  const env = await createEnv({ sourceCommit: 'source-commit' });
-+
+ 
+-    expect(key.trim()).toBeDefined();
+-    expect(val.trim()).toBeDefined();
 +  expect(env).toMatchObject({
 +    REACT_APP_HEADLAMP_VERSION: appInfo.version,
 +    REACT_APP_HEADLAMP_GIT_VERSION: 'source-commit',
@@ -171,13 +174,18 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..691b2223b55cbda167482fa0104f54de
 +    REACT_APP_HEADLAMP_PRODUCT_NAME: 'Headlamp',
 +  });
 +});
-+
+ 
+-    envObj[key] = val;
 +test('resolves a relative custom manifest from the app directory', async () => {
 +  const env = await createStandaloneEnv({
 +    manifest: { product: { productName: 'Relative Product', version: '3.4.5' } },
 +    manifestPath: 'product/app-build-manifest.json',
-+  });
-+
+   });
+ 
+-  const keys = Object.keys(envObj);
+-  expect(keys).toContain('REACT_APP_HEADLAMP_VERSION');
+-  expect(keys).toContain('REACT_APP_HEADLAMP_GIT_VERSION');
+-  expect(keys).toContain('REACT_APP_HEADLAMP_PRODUCT_NAME');
 +  expect(env).toMatchObject({
 +    REACT_APP_HEADLAMP_VERSION: '3.4.5',
 +    REACT_APP_HEADLAMP_PRODUCT_NAME: 'Relative Product',
@@ -194,8 +202,7 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..691b2223b55cbda167482fa0104f54de
 +    },
 +    sourceCommit: '0123456789abcdef',
 +  });
- 
--    const [key, val] = line.trim().split('=');
++
 +  expect(env).toMatchObject({
 +    REACT_APP_HEADLAMP_VERSION: '1.2.3',
 +    REACT_APP_HEADLAMP_GIT_VERSION: '0123456789abcdef',
@@ -215,6 +222,18 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..691b2223b55cbda167482fa0104f54de
 +  });
 +});
 +
++test('falls back to package metadata for empty product fields', async () => {
++  const env = await createEnv({
++    manifest: { product: { productName: '', version: '' } },
++    sourceCommit: 'source-commit',
++  });
++
++  expect(env).toMatchObject({
++    REACT_APP_HEADLAMP_VERSION: appInfo.version,
++    REACT_APP_HEADLAMP_PRODUCT_NAME: appInfo.productName,
++  });
++});
++
 +test('falls back to package metadata when a manifest has no product', async () => {
 +  const env = await createEnv({
 +    manifest: {},
@@ -226,9 +245,7 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..691b2223b55cbda167482fa0104f54de
 +    REACT_APP_HEADLAMP_PRODUCT_NAME: appInfo.productName,
 +  });
 +});
- 
--    expect(key.trim()).toBeDefined();
--    expect(val.trim()).toBeDefined();
++
 +test.each([
 +  ['a non-object manifest', []],
 +  ['a non-object product', { product: 'Example Desktop' }],
@@ -248,13 +265,12 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..691b2223b55cbda167482fa0104f54de
 +    },
 +    sourceCommit: 'source=commit',
 +  });
- 
--    envObj[key] = val;
++
 +  expect(env).toMatchObject({
 +    REACT_APP_HEADLAMP_VERSION: '1.2.3=build',
 +    REACT_APP_HEADLAMP_GIT_VERSION: 'source=commit',
 +    REACT_APP_HEADLAMP_PRODUCT_NAME: 'C# $HOME O\'Reilly "Desktop" \\path',
-   });
++  });
 +});
 +
 +test.each([
@@ -303,26 +319,56 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..691b2223b55cbda167482fa0104f54de
 +  const dockerfile = fs.readFileSync(path.join(repositoryDirectory, 'Dockerfile'), 'utf8');
 +  const dependencyInstall = dockerfile.indexOf('RUN cd ./frontend && npm ci --only=prod');
 +  const sourceCommitArgument = dockerfile.indexOf('ARG HEADLAMP_SOURCE_COMMIT');
- 
--  const keys = Object.keys(envObj);
--  expect(keys).toContain('REACT_APP_HEADLAMP_VERSION');
--  expect(keys).toContain('REACT_APP_HEADLAMP_GIT_VERSION');
--  expect(keys).toContain('REACT_APP_HEADLAMP_PRODUCT_NAME');
++
 +  expect(makeOutput).toContain(`--build-arg HEADLAMP_SOURCE_COMMIT=${sourceCommit}`);
 +  expect(rootPackage.scripts['image:build']).toContain(
 +    '--build-arg HEADLAMP_SOURCE_COMMIT=$(git rev-parse HEAD)'
 +  );
 +  expect(dependencyInstall).toBeGreaterThan(-1);
 +  expect(sourceCommitArgument).toBeGreaterThan(dependencyInstall);
++  expect(dockerfile).not.toMatch(/^COPY (?:\.\/)?app(?:\/| )/m);
++  expect(dockerfile).toContain(
++    'RUN --mount=type=bind,source=app,target=/headlamp/app,ro \\\n    cd ./frontend && npm run build'
++  );
++});
++
++test('container workflows pass the checked-out source revision', () => {
++  const workflowsDirectory = path.join(repositoryDirectory, '.github/workflows');
++  const dockerWorkflows = fs
++    .readdirSync(workflowsDirectory)
++    .filter(fileName => /\.ya?ml$/.test(fileName))
++    .map(fileName => ({
++      fileName,
++      contents: fs.readFileSync(path.join(workflowsDirectory, fileName), 'utf8'),
++    }))
++    .filter(({ contents }) => contents.includes('docker/build-push-action@'));
++
++  expect(dockerWorkflows.map(({ fileName }) => fileName).sort()).toEqual([
++    'build-other-arch.yml',
++    'container-publish.yml',
++    'nightly-build.yml',
++  ]);
++  for (const { fileName, contents } of dockerWorkflows) {
++    expect(contents, fileName).toMatch(
++      /build-args:\s*\|?\s*\n\s+HEADLAMP_SOURCE_COMMIT=\$\{\{ (?:github\.sha|env\.HEADLAMP_SOURCE_COMMIT) \}\}/
++    );
++  }
++
++  const publishWorkflow = dockerWorkflows.find(
++    ({ fileName }) => fileName === 'container-publish.yml'
++  ).contents;
++  expect(publishWorkflow.indexOf('git checkout ${{ env.BUILD_TAG }}')).toBeLessThan(
++    publishWorkflow.indexOf('HEADLAMP_SOURCE_COMMIT=$(git rev-parse HEAD)')
++  );
  });
 -- 
 2.54.0
 
 
-From 024b29d7e650c8ca2b40fe079e8a7352a6e7bdbd Mon Sep 17 00:00:00 2001
+From 3bbe40b5524d38778386d14848e586b16cbc3aa5 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Tue, 25 Aug 2026 11:18:46 +0200
-Subject: [PATCH 2/4] app: e2e-tests: Verify frontend product metadata
+Subject: [PATCH 2/5] app: e2e-tests: Verify frontend product metadata
 
 Run the product manifest scenario through the frontend environment generator so
 packaged builds retain their configured identity and source revision.
@@ -409,10 +455,10 @@ index bd2facd4ec9e76895cc40fd3bbf3fb821cf6443e..5ca5e2cd3c9c15b6657009533bf446df
 2.54.0
 
 
-From c93d6828b96a2dfd50b104c1311ecf8ab61a3f08 Mon Sep 17 00:00:00 2001
+From 8df777ca03cf62e56e2716e48db6cc06961503ea Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Mon, 3 Aug 2026 13:33:42 +0200
-Subject: [PATCH 3/4] docs: frontend: Validate packaged-source metadata
+Subject: [PATCH 3/5] docs: frontend: Validate packaged-source metadata
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -428,7 +474,7 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
  3 files changed, 182 insertions(+), 14 deletions(-)
 
 diff --git a/docs/development/app.md b/docs/development/app.md
-index ee63e3f110e6a824a8879b07f124a30dd299db4b..736a3f058e22df1b98e37d7269c772e9977983a8 100644
+index ee63e3f110e6a824a8879b07f124a30dd299db4b..9f62a26e25aee68dc302b531141a880b636d1ea9 100644
 --- a/docs/development/app.md
 +++ b/docs/development/app.md
 @@ -133,14 +133,57 @@ npm run app:package:mac      # macOS
@@ -448,7 +494,7 @@ index ee63e3f110e6a824a8879b07f124a30dd299db4b..736a3f058e22df1b98e37d7269c772e9
 +
 +The manifest's `product.productName` and `product.version` fields configure the
 +identity displayed by the frontend as well as the packaged desktop app. Missing
-+fields retain the values from `app/package.json`.
++or empty fields retain the values from `app/package.json`.
 +
 +For example:
  
@@ -531,7 +577,7 @@ index b7079e6666ac1e2b5632776dc7921946280632f6..79c3d5021157a075d4fc7c8ae5290eef
  
  We are using [fast-check](https://fast-check.dev/) for property testing.
 diff --git a/frontend/make-env.js b/frontend/make-env.js
-index 5d6f3a9921b9c0eab986b915b103800e6bb9b7a6..c8c188eee30cb6def8a49ff0e2a4b3978c86f1fb 100644
+index 5d6f3a9921b9c0eab986b915b103800e6bb9b7a6..c3f74c3f768cba45552fb4ac90703c7faa344b0f 100644
 --- a/frontend/make-env.js
 +++ b/frontend/make-env.js
 @@ -18,22 +18,144 @@
@@ -635,9 +681,9 @@ index 5d6f3a9921b9c0eab986b915b103800e6bb9b7a6..c8c188eee30cb6def8a49ff0e2a4b397
 -  REACT_APP_HEADLAMP_VERSION: appInfo.version,
 -  REACT_APP_HEADLAMP_GIT_VERSION: gitVersion,
 -  REACT_APP_HEADLAMP_PRODUCT_NAME: appInfo.productName,
-+  REACT_APP_HEADLAMP_VERSION: productInfo.version ?? appInfo.version,
++  REACT_APP_HEADLAMP_VERSION: productInfo.version || appInfo.version,
 +  REACT_APP_HEADLAMP_GIT_VERSION: readGitVersion(),
-+  REACT_APP_HEADLAMP_PRODUCT_NAME: productInfo.productName ?? appInfo.productName,
++  REACT_APP_HEADLAMP_PRODUCT_NAME: productInfo.productName || appInfo.productName,
    REACT_APP_ENABLE_REACT_QUERY_DEVTOOLS: 'false',
 -  REACT_APP_HEADLAMP_SIDEBAR_DEFAULT_OPEN: 'true'
 +  REACT_APP_HEADLAMP_SIDEBAR_DEFAULT_OPEN: 'true',
@@ -690,29 +736,79 @@ index 5d6f3a9921b9c0eab986b915b103800e6bb9b7a6..c8c188eee30cb6def8a49ff0e2a4b397
 2.54.0
 
 
-From a17e12bcbfb26cfc3fcb7ec5783c3bf18872cf96 Mon Sep 17 00:00:00 2001
+From fb7f64fa0ba9ad21e831c46a2daeef60e532d46f Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 10:21:01 +0200
-Subject: [PATCH 4/4] build: Dockerfile: Support containers from packaged
+Subject: [PATCH 4/5] build: Dockerfile: Support containers from packaged
  source
 
-Stop copying the Git repository into frontend image builds so packaged source
-can use the same Dockerfile and cache source layers independently.
+Stop copying Git and app trees into frontend image layers so packaged source
+uses the same Dockerfile without invalidating the dependency cache.
 
-Pass the source revision through standard image entry points and document the
-build arguments required by direct Docker callers.
+Pass source revisions through local and GitHub Actions image entry points, and
+bind app metadata read-only only while the frontend build runs.
 ---
- Dockerfile              | 10 ++++++----
- Makefile                |  2 ++
- docs/development/app.md | 10 ++++++++++
- package.json            |  2 +-
- 4 files changed, 19 insertions(+), 5 deletions(-)
+ .github/workflows/build-other-arch.yml  |  2 ++
+ .github/workflows/container-publish.yml |  3 +++
+ .github/workflows/nightly-build.yml     |  2 ++
+ Dockerfile                              | 15 ++++++++-------
+ Makefile                                |  2 ++
+ docs/development/app.md                 | 11 +++++++++++
+ package.json                            |  2 +-
+ 7 files changed, 29 insertions(+), 8 deletions(-)
 
+diff --git a/.github/workflows/build-other-arch.yml b/.github/workflows/build-other-arch.yml
+index 24eaae8eb44830ca67fefa393931a8fab3a1f2ed..ecae684e9baeac886567154afcd1c0a5bf5c08d6 100644
+--- a/.github/workflows/build-other-arch.yml
++++ b/.github/workflows/build-other-arch.yml
+@@ -65,6 +65,8 @@ jobs:
+         uses: docker/build-push-action@0a97817b6ade9f46837855d676c4cca3a2471fc9 # v4.2.1
+         with:
+           context: .
++          build-args: |
++            HEADLAMP_SOURCE_COMMIT=${{ github.sha }}
+           push: false
+           load: true
+           platforms: linux/${{ matrix.arch }}
+diff --git a/.github/workflows/container-publish.yml b/.github/workflows/container-publish.yml
+index fa9209509e2ae0166be9aaacb80d8053d122d4e1..10c22f3ef7cfd57a7e9d017fb1c785b10e0b1744 100644
+--- a/.github/workflows/container-publish.yml
++++ b/.github/workflows/container-publish.yml
+@@ -70,6 +70,7 @@ jobs:
+       run: |
+         git fetch --tags --force origin
+         git checkout ${{ env.BUILD_TAG }}
++        echo "HEADLAMP_SOURCE_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
+     - name: Log in to the Container registry
+       uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc # v2.2.0
+       with:
+@@ -80,6 +81,8 @@ jobs:
+       uses: docker/build-push-action@0a97817b6ade9f46837855d676c4cca3a2471fc9 # v4.2.1
+       with:
+         context: .
++        build-args: |
++          HEADLAMP_SOURCE_COMMIT=${{ env.HEADLAMP_SOURCE_COMMIT }}
+         push: true
+         pull: true
+         platforms: linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
+diff --git a/.github/workflows/nightly-build.yml b/.github/workflows/nightly-build.yml
+index 439a660ec469b74b0fd227e5c67531da48045cd8..23a75c4957ca2f7fdacb5842971d210c009fc69b 100644
+--- a/.github/workflows/nightly-build.yml
++++ b/.github/workflows/nightly-build.yml
+@@ -40,6 +40,8 @@ jobs:
+         uses: docker/build-push-action@0a97817b6ade9f46837855d676c4cca3a2471fc9 # v4.2.1
+         with:
+           context: .
++          build-args: |
++            HEADLAMP_SOURCE_COMMIT=${{ github.sha }}
+           push: true
+           pull: true
+           platforms: linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 diff --git a/Dockerfile b/Dockerfile
-index aa352caaf534294f72781377466525b4421aea93..6381ba71edd066198cbe17ca9f98eabb0237171e 100644
+index aa352caaf534294f72781377466525b4421aea93..9d579a4dffc22ad6e8715f9d40359b3f31581804 100644
 --- a/Dockerfile
 +++ b/Dockerfile
-@@ -28,10 +28,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
+@@ -28,23 +28,24 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
  
  FROM --platform=${BUILDPLATFORM} node:22@sha256:0557ac14e0d45d02ed563067b82856ca5e7aa3437fa28d98d4350ea9c3d9494a AS frontend-build
  
@@ -720,10 +816,11 @@ index aa352caaf534294f72781377466525b4421aea93..6381ba71edd066198cbe17ca9f98eabb
 -# that's generated when building the frontend.
 -COPY .git/ ./headlamp/.git/
 -
- COPY app/package.json /headlamp/app/package.json
- 
+-COPY app/package.json /headlamp/app/package.json
+-
  # Keep npm install separated so source changes don't trigger install
-@@ -40,7 +36,13 @@ WORKDIR /headlamp
+ COPY frontend/package*.json /headlamp/frontend/
+ WORKDIR /headlamp
  RUN cd ./frontend && npm ci --only=prod
  
  FROM frontend-build AS frontend
@@ -733,10 +830,16 @@ index aa352caaf534294f72781377466525b4421aea93..6381ba71edd066198cbe17ca9f98eabb
 +    HEADLAMP_BUILD_MANIFEST=${HEADLAMP_BUILD_MANIFEST}
 +
  COPY ./frontend /headlamp/frontend
-+COPY ./app /headlamp/app
  
  WORKDIR /headlamp
  
+-RUN cd ./frontend && npm run build
++# Expose app metadata and manifests only while generating the frontend build.
++RUN --mount=type=bind,source=app,target=/headlamp/app,ro \
++    cd ./frontend && npm run build
+ 
+ RUN echo "*** Built Headlamp with version: ***"
+ RUN cat ./frontend/.env
 diff --git a/Makefile b/Makefile
 index 7a4e5de9a4b5aa88240462dc91fd56d2fa1f5725..6befd1bc7d3bfa5301d07a3aebe188ab7805fac3 100644
 --- a/Makefile
@@ -758,19 +861,20 @@ index 7a4e5de9a4b5aa88240462dc91fd56d2fa1f5725..6befd1bc7d3bfa5301d07a3aebe188ab
  	--push=$(DOCKER_PUSH) \
  	-t $(DOCKER_REPO)/$(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) \
 diff --git a/docs/development/app.md b/docs/development/app.md
-index 736a3f058e22df1b98e37d7269c772e9977983a8..8cb2b0a186195d6803967f3aae51d15f55bce4b4 100644
+index 9f62a26e25aee68dc302b531141a880b636d1ea9..2d598d98b97f228e9e29d4bb5f497113022a0fc1 100644
 --- a/docs/development/app.md
 +++ b/docs/development/app.md
-@@ -174,6 +174,16 @@ example above selects `app/product/app-build-manifest.json` for both consumers.
+@@ -174,6 +174,17 @@ example above selects `app/product/app-build-manifest.json` for both consumers.
  Use an absolute manifest path when invoking either consumer directly from a
  different working directory.
  
 +The standard `make image` and `npm run image:build` commands pass the current
-+Git revision to container builds. Direct Docker callers building packaged source
-+without `.git` should pass it explicitly:
++Git revision to container builds. Direct Docker callers selecting a custom
++product manifest should pass both the manifest path and source revision:
 +
 +```bash
 +docker buildx build \
++  --build-arg HEADLAMP_BUILD_MANIFEST=./product/app-build-manifest.json \
 +  --build-arg HEADLAMP_SOURCE_COMMIT=0123456789abcdef \
 +  -f Dockerfile .
 +```
@@ -794,16 +898,17 @@ index 5002a49360637933a11f7a221aeefb4d86a8c57d..40750e7a7818d3e0012a5ca52d04c498
 -- 
 2.54.0
 
-From b8f5a2ac58d78cff8e6189dcbbc99fd5cac01816 Mon Sep 17 00:00:00 2001
+
+From a3982142e0d60430ca800b4d9035d2bb59ce15c4 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Fri, 28 Aug 2026 12:13:26 +0200
-Subject: [PATCH] build: Run TypeScript scripts from packaged source
+Subject: [PATCH 5/5] build: Run TypeScript scripts from packaged source
 
 ---
  frontend/package.json |   4 +-
- package-lock.json     | 520 +++++++++++++++++++++++++++++++++++++++++-
+ package-lock.json     | 491 +++++++++++++++++++++++++++++++++++++++++-
  package.json          |   9 +-
- 3 files changed, 526 insertions(+), 7 deletions(-)
+ 3 files changed, 497 insertions(+), 7 deletions(-)
 
 diff --git a/frontend/package.json b/frontend/package.json
 index 75736ee023bf3df377fca52abd40865cd2a86c84..5924a078a337efb0c8d6509e557771ad97dfad4c 100644
@@ -828,7 +933,7 @@ index 75736ee023bf3df377fca52abd40865cd2a86c84..5924a078a337efb0c8d6509e557771ad
    "browserslist": {
      "production": [
 diff --git a/package-lock.json b/package-lock.json
-index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dda561d24e 100644
+index 43251b320c14ee723d006ba18827e7b55ac87651..e7afa1ecb0f26a2248b02d8b791302d014b402b6 100644
 --- a/package-lock.json
 +++ b/package-lock.json
 @@ -9,7 +9,8 @@
@@ -841,13 +946,12 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
        },
        "engines": {
          "node": ">=22.6.0",
-@@ -26,6 +27,448 @@
+@@ -26,6 +27,422 @@
          "node": ">=6.9.0"
        }
      },
 +    "node_modules/@esbuild/aix-ppc64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-12.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/aix-ppc64/-/aix-ppc64-0.28.2.tgz",
 +      "integrity": "sha1-v24QMDvPLnxoaXX6Uvk37Cco2Lw=",
 +      "cpu": [
 +        "ppc64"
@@ -864,7 +968,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/android-arm": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-2.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/android-arm/-/android-arm-0.28.2.tgz",
 +      "integrity": "sha1-LYTs5qTiaE2SvibuE9QnV9gxw4E=",
 +      "cpu": [
 +        "arm"
@@ -881,7 +984,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/android-arm64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/android-arm64/-/android-arm64-0.28.2.tgz",
 +      "integrity": "sha1-DGJGvI0sTRcqrC2z+xGQ1yvWVQQ=",
 +      "cpu": [
 +        "arm64"
@@ -898,7 +1000,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/android-x64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-12.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/android-x64/-/android-x64-0.28.2.tgz",
 +      "integrity": "sha1-/DjU1jWNjcHPU/CfdYn+Q262SAE=",
 +      "cpu": [
 +        "x64"
@@ -915,7 +1016,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/darwin-arm64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/darwin-arm64/-/darwin-arm64-0.28.2.tgz",
 +      "integrity": "sha1-+Dr+6sHX2sAcei/QErPkUaBZH8w=",
 +      "cpu": [
 +        "arm64"
@@ -932,7 +1032,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/darwin-x64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-17.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/darwin-x64/-/darwin-x64-0.28.2.tgz",
 +      "integrity": "sha1-UQFHwFWnlViNu+FP1rG4rQovMN4=",
 +      "cpu": [
 +        "x64"
@@ -949,7 +1048,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/freebsd-arm64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-17.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/freebsd-arm64/-/freebsd-arm64-0.28.2.tgz",
 +      "integrity": "sha1-CTuSAOzwsRW6Tl4kinSFycX4vV4=",
 +      "cpu": [
 +        "arm64"
@@ -966,7 +1064,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/freebsd-x64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-17.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/freebsd-x64/-/freebsd-x64-0.28.2.tgz",
 +      "integrity": "sha1-C+Irbfkl0hPoQeqHEjr134Cw+vc=",
 +      "cpu": [
 +        "x64"
@@ -983,7 +1080,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/linux-arm": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-2.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/linux-arm/-/linux-arm-0.28.2.tgz",
 +      "integrity": "sha1-vrEq1yuE9y0oSIzBuO6ffrFB11M=",
 +      "cpu": [
 +        "arm"
@@ -1000,7 +1096,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/linux-arm64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-2.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/linux-arm64/-/linux-arm64-0.28.2.tgz",
 +      "integrity": "sha1-G9vGUc2pupmVxT7ZxxzqplCUdi0=",
 +      "cpu": [
 +        "arm64"
@@ -1017,7 +1112,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/linux-ia32": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/linux-ia32/-/linux-ia32-0.28.2.tgz",
 +      "integrity": "sha1-uB+dVVKbRcIGpGoTghSxqmh5aWs=",
 +      "cpu": [
 +        "ia32"
@@ -1034,7 +1128,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/linux-loong64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-2.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/linux-loong64/-/linux-loong64-0.28.2.tgz",
 +      "integrity": "sha1-WYZnJBoEyZt27W75QKxQA4xBn5g=",
 +      "cpu": [
 +        "loong64"
@@ -1051,7 +1144,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/linux-mips64el": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-2.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/linux-mips64el/-/linux-mips64el-0.28.2.tgz",
 +      "integrity": "sha1-HFHrnOqQP1PZe1rzsYQdtw9Vlso=",
 +      "cpu": [
 +        "mips64el"
@@ -1068,7 +1160,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/linux-ppc64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-2.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/linux-ppc64/-/linux-ppc64-0.28.2.tgz",
 +      "integrity": "sha1-Y91h8XzrMagSJ/QT/qyKcbwsUfI=",
 +      "cpu": [
 +        "ppc64"
@@ -1085,7 +1176,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/linux-riscv64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-17.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/linux-riscv64/-/linux-riscv64-0.28.2.tgz",
 +      "integrity": "sha1-N2Owj95c8lqx+suOd1Lt/kX7/Cc=",
 +      "cpu": [
 +        "riscv64"
@@ -1102,7 +1192,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/linux-s390x": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/linux-s390x/-/linux-s390x-0.28.2.tgz",
 +      "integrity": "sha1-GhN/8pOoKQbrMXY4W9fo4OXPt8s=",
 +      "cpu": [
 +        "s390x"
@@ -1119,7 +1208,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/linux-x64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-2.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/linux-x64/-/linux-x64-0.28.2.tgz",
 +      "integrity": "sha1-Jos2IRwUbKVPj+EsV4qNbviXlIU=",
 +      "cpu": [
 +        "x64"
@@ -1136,7 +1224,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/netbsd-arm64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-12.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/netbsd-arm64/-/netbsd-arm64-0.28.2.tgz",
 +      "integrity": "sha1-Ilca2VHWK7aszILY0frVyMGsC6E=",
 +      "cpu": [
 +        "arm64"
@@ -1153,7 +1240,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/netbsd-x64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-2.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/netbsd-x64/-/netbsd-x64-0.28.2.tgz",
 +      "integrity": "sha1-QvzFcpfrCgyj9fxHUpH0waP3wN4=",
 +      "cpu": [
 +        "x64"
@@ -1170,7 +1256,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/openbsd-arm64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-2.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/openbsd-arm64/-/openbsd-arm64-0.28.2.tgz",
 +      "integrity": "sha1-nrMq8QSsPaz07coB9ZZmSqsMc+8=",
 +      "cpu": [
 +        "arm64"
@@ -1187,7 +1272,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/openbsd-x64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-17.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/openbsd-x64/-/openbsd-x64-0.28.2.tgz",
 +      "integrity": "sha1-/r7SQC1giCJekfIPtM4lIq0KTv0=",
 +      "cpu": [
 +        "x64"
@@ -1204,7 +1288,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/openharmony-arm64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-12.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/openharmony-arm64/-/openharmony-arm64-0.28.2.tgz",
 +      "integrity": "sha1-hWQcPUZkKL+8zqXyHCaDZmP+9c4=",
 +      "cpu": [
 +        "arm64"
@@ -1221,7 +1304,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/sunos-x64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-12.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/sunos-x64/-/sunos-x64-0.28.2.tgz",
 +      "integrity": "sha1-pzb52JYkgQRfxMPlT1R58iyHD7Q=",
 +      "cpu": [
 +        "x64"
@@ -1238,7 +1320,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/win32-arm64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/win32-arm64/-/win32-arm64-0.28.2.tgz",
 +      "integrity": "sha1-7lq0D60YYgG2UqM/il6xSenkJTI=",
 +      "cpu": [
 +        "arm64"
@@ -1255,7 +1336,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/win32-ia32": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-17.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/win32-ia32/-/win32-ia32-0.28.2.tgz",
 +      "integrity": "sha1-xA0optmaEn2mcR8q/XSxHLY7Bqc=",
 +      "cpu": [
 +        "ia32"
@@ -1272,7 +1352,6 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
 +    },
 +    "node_modules/@esbuild/win32-x64": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@esbuild/win32-x64/-/win32-x64-0.28.2.tgz",
 +      "integrity": "sha1-shr/uATMFnwTPZX0WzodwTI7moc=",
 +      "cpu": [
 +        "x64"
@@ -1290,13 +1369,12 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
      "node_modules/ansi-regex": {
        "version": "5.0.1",
        "resolved": "https://registry.npmjs.org/ansi-regex/-/ansi-regex-5.0.1.tgz",
-@@ -169,6 +612,48 @@
+@@ -169,6 +586,47 @@
        "dev": true,
        "license": "MIT"
      },
 +    "node_modules/esbuild": {
 +      "version": "0.28.2",
-+      "resolved": "https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/esbuild/-/esbuild-0.28.2.tgz",
 +      "integrity": "sha1-D0O9G62VW3LSTiJh46vllXzPCBY=",
 +      "dev": true,
 +      "hasInstallScript": true,
@@ -1339,13 +1417,12 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
      "node_modules/escalade": {
        "version": "3.2.0",
        "resolved": "https://registry.npmjs.org/escalade/-/escalade-3.2.0.tgz",
-@@ -179,6 +664,20 @@
+@@ -179,6 +637,19 @@
          "node": ">=6"
        }
      },
 +    "node_modules/fsevents": {
 +      "version": "2.3.3",
-+      "resolved": "https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/fsevents/-/fsevents-2.3.3.tgz",
 +      "integrity": "sha1-ysZAd4XQNnWipeGlMFxpezR9kNY=",
 +      "dev": true,
 +      "license": "MIT",
@@ -1360,13 +1437,12 @@ index 43251b320c14ee723d006ba18827e7b55ac87651..8bbf352373375d15133cfeaf265f17dd
      "node_modules/get-caller-file": {
        "version": "2.0.5",
        "resolved": "https://registry.npmjs.org/get-caller-file/-/get-caller-file-2.0.5.tgz",
-@@ -316,6 +815,25 @@
+@@ -316,6 +787,24 @@
        "dev": true,
        "license": "0BSD"
      },
 +    "node_modules/tsx": {
 +      "version": "4.23.1",
-+      "resolved": "https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/tsx/-/tsx-4.23.1.tgz",
 +      "integrity": "sha1-FwPaAC7kQyuaBTkXQx+RRi/KI1s=",
 +      "dev": true,
 +      "license": "MIT",
