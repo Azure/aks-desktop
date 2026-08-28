@@ -11,13 +11,13 @@ declare module '@kinvolk/headlamp-plugin/lib' {
   /** Context passed to a pre-open hook when a cluster is about to be opened. */
   export interface ClusterPreOpenContext {
     /** The name of the cluster being opened. */
-    cluster: string;
+    readonly cluster: string;
     /** The cluster's configuration, if known. */
-    clusterConf?: any;
+    readonly clusterConf: unknown;
     /** Aborts when cluster preparation is no longer needed. */
-    signal?: AbortSignal;
+    readonly signal?: AbortSignal;
     /** Reports progress text to the connecting popup shown while preparing. */
-    reportProgress?: (message: string) => void;
+    readonly reportProgress?: (message: string) => void;
   }
 
   /**

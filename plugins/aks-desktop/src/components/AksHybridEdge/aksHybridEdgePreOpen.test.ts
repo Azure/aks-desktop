@@ -118,6 +118,7 @@ describe('aksHybridEdgePreOpenHook — cancellation', () => {
 
     const preparation = aksHybridEdgePreOpenHook({
       cluster: 'arc-cluster',
+      clusterConf: null,
       signal: controller.signal,
     });
     controller.abort();
@@ -134,7 +135,11 @@ describe('aksHybridEdgePreOpenHook — cancellation', () => {
     mockVerify.mockRejectedValue(new DOMException('Aborted', 'AbortError'));
 
     await expect(
-      aksHybridEdgePreOpenHook({ cluster: 'arc-cluster', signal: controller.signal })
+      aksHybridEdgePreOpenHook({
+        cluster: 'arc-cluster',
+        clusterConf: null,
+        signal: controller.signal,
+      })
     ).rejects.toMatchObject({ name: 'AbortError' });
     expect(mockVerify).toHaveBeenCalledWith(
       'arc-cluster',

@@ -6,19 +6,19 @@ import { getErrorMessage, runAzCommand } from './az-cli-core';
 
 // Proxy lifecycle is owned by the app (main) layer. There is no stop intent:
 // arcProxy is a machine-wide daemon shared by every connected cluster, and it
-// is torn down when the app quits.
-// `desktopApi` is declared `any` globally by the app types, so we read it via a
-// narrowly-typed cast rather than redeclaring the Window interface.
+// is torn down when the app quits. Headlamp injects this capability as a private
+// lexical argument only while executing the trusted AKS Desktop plugin bundle.
 type DesktopApiStartProxy = (target: {
   cluster: string;
   subscriptionId: string;
   resourceGroup: string;
 }) => Promise<StartProxyResult>;
-function getDesktopApiStartProxy(): DesktopApiStartProxy | undefined {
-  const api = (window as any)?.desktopApi;
-  return typeof api?.startClusterProxy === 'function'
-    ? (api.startClusterProxy as DesktopApiStartProxy)
-    : undefined;
+
+declare const startClusterProxy: DesktopApiStartProxy | undefined;
+
+/** Returns the private proxy capability injected by Headlamp's plugin loader. */
+export function getStartClusterProxyCapability(): DesktopApiStartProxy | undefined {
+  return typeof startClusterProxy === 'function' ? startClusterProxy : undefined;
 }
 
 /** Identifies an AKS Hybrid & Edge (Arc-connected) cluster the proxy can target. */
@@ -70,12 +70,12 @@ export function azurePortalClusterUrl(
  * @param target - The cluster to proxy to.
  */
 export async function startProxy(target: ProxyTarget): Promise<StartProxyResult> {
-  const startClusterProxy = getDesktopApiStartProxy();
-  if (!startClusterProxy) {
-    return { success: false, error: 'Desktop bridge is not available.' };
+  const startProxyCapability = getStartClusterProxyCapability();
+  if (!startProxyCapability) {
+    return { success: false, error: 'Desktop proxy capability is not available.' };
   }
   try {
-    return await startClusterProxy({
+    return await startProxyCapability({
       cluster: target.clusterName,
       subscriptionId: target.subscriptionId,
       resourceGroup: target.resourceGroup,
