@@ -3,6 +3,14 @@
 
 /// <reference types="@kinvolk/headlamp-plugin" />
 
+import type { KubeObject } from '@kinvolk/headlamp-plugin/lib/lib/k8s/cluster';
+
+// Runtime export added in Headlamp PR 6886. Remove this declaration once the
+// published plugin SDK includes WorkloadLogs.
+declare module '@kinvolk/headlamp-plugin/lib/CommonComponents' {
+  export function WorkloadLogs(props: { item: KubeObject }): React.ReactNode;
+}
+
 // Local type augmentation for the `registerClusterProviderPreOpen` extension
 // point added to Headlamp core (frontend `plugin/registry`). It is available on
 // the runtime plugin lib, but the pinned `@kinvolk/headlamp-plugin` types do not
