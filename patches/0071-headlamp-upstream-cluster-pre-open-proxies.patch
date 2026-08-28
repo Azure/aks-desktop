@@ -1,0 +1,4161 @@
+From 49da84fdc993f79f3ba858f40b179a81c41302c2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 26 Aug 2026 20:26:37 +0200
+Subject: [PATCH 01/14] app: proxies: Cover secure Azure proxy lifecycle
+
+Define capability, validation, Windows entry-point, serialization, and
+
+shutdown behavior before porting the proxy implementation.
+---
+ app/electron/proxies.test.ts | 271 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 271 insertions(+)
+ create mode 100644 app/electron/proxies.test.ts
+
+diff --git a/app/electron/proxies.test.ts b/app/electron/proxies.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7cd6afab5288be3be717ab713d741eb02276ffe9
+--- /dev/null
++++ b/app/electron/proxies.test.ts
+@@ -0,0 +1,271 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { ChildProcessWithoutNullStreams, spawn as actualSpawn } from 'child_process';
++import { EventEmitter } from 'events';
++import { mkdtemp, writeFile } from 'fs/promises';
++import { tmpdir } from 'os';
++import path from 'path';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++
++const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
++
++vi.mock('child_process', async importOriginal => ({
++  ...(await importOriginal<typeof import('child_process')>()),
++  spawn: spawnMock,
++}));
++
++import {
++  buildProxySpawnSpec,
++  killAllProxies,
++  setupProxyHandlers,
++  StartProxyResult,
++} from './proxies';
++
++/** Runs an operation with a temporary process platform value. */
++async function withPlatform(platform: NodeJS.Platform, operation: () => Promise<void> | void) {
++  const originalPlatform = process.platform;
++  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
++  try {
++    await operation();
++  } finally {
++    Object.defineProperty(process, 'platform', {
++      value: originalPlatform,
++      configurable: true,
++    });
++  }
++}
++
++/** Creates a controllable child process stand-in. */
++function proxyChild(pid = 4242): ChildProcessWithoutNullStreams {
++  const child = new EventEmitter() as ChildProcessWithoutNullStreams;
++  child.stdout = new EventEmitter() as ChildProcessWithoutNullStreams['stdout'];
++  child.stderr = new EventEmitter() as ChildProcessWithoutNullStreams['stderr'];
++  child.stdin = new EventEmitter() as ChildProcessWithoutNullStreams['stdin'];
++  Object.defineProperty(child, 'pid', { value: pid, configurable: true });
++  child.kill = vi.fn();
++  return child;
++}
++
++/** Registers proxy handlers and returns the start handler. */
++function startHandler(capabilitySecret = 731) {
++  const handlers: Record<string, (...args: any[]) => Promise<StartProxyResult>> = {};
++  const ipcMain = {
++    handle: (channel: string, handler: (...args: any[]) => Promise<StartProxyResult>) => {
++      handlers[channel] = handler;
++    },
++  } as Electron.IpcMain;
++  setupProxyHandlers({ id: 1 } as Electron.BrowserWindow, ipcMain, capabilitySecret, async () => ({
++    PATH: '/test/bin',
++  }));
++  return handlers['start-cluster-proxy'];
++}
++
++/** Returns a valid proxy request. */
++function proxyRequest(cluster: string, capabilitySecret = 731) {
++  return {
++    cluster,
++    subscriptionId: '00000000-0000-0000-0000-000000000000',
++    resourceGroup: 'valid-rg',
++    capabilitySecret,
++  };
++}
++
++describe('buildProxySpawnSpec', () => {
++  it('runs az directly without a shell on POSIX', () => {
++    const spec = buildProxySpawnSpec(proxyRequest('cluster-a'), 'linux');
++
++    expect(spec).toEqual({
++      command: 'az',
++      args: [
++        'connectedk8s',
++        'proxy',
++        '--subscription',
++        '00000000-0000-0000-0000-000000000000',
++        '--resource-group',
++        'valid-rg',
++        '--name',
++        'cluster-a',
++      ],
++      options: { detached: true, shell: false, windowsHide: true },
++    });
++  });
++
++  it('uses cmd.exe explicitly for the Azure CLI Windows entry point', () => {
++    const spec = buildProxySpawnSpec(proxyRequest('cluster-a'), 'win32', 'C:\\Windows\\cmd.exe');
++
++    expect(spec).toEqual({
++      command: 'C:\\Windows\\cmd.exe',
++      args: [
++        '/d',
++        '/s',
++        '/c',
++        'az.cmd connectedk8s proxy --subscription 00000000-0000-0000-0000-000000000000 --resource-group valid-rg --name cluster-a',
++      ],
++      options: { detached: true, shell: false, windowsHide: true },
++    });
++  });
++
++  it.runIf(process.platform === 'win32')('executes a real .cmd entry point', async () => {
++    const directory = await mkdtemp(path.join(tmpdir(), 'headlamp-az-cmd-'));
++    await writeFile(path.join(directory, 'az.cmd'), '@echo off\r\necho %*\r\n');
++    const spec = buildProxySpawnSpec(proxyRequest('cluster-a'));
++
++    const stdout = await new Promise<string>((resolve, reject) => {
++      const child = actualSpawn(spec.command, spec.args, {
++        ...spec.options,
++        env: { ...process.env, PATH: `${directory}${path.delimiter}${process.env.PATH}` },
++      });
++      let output = '';
++      child.stdout?.on('data', data => (output += data.toString()));
++      child.once('error', reject);
++      child.once('exit', code =>
++        code === 0 ? resolve(output) : reject(new Error(`exit ${code}`))
++      );
++    });
++
++    expect(stdout).toContain('connectedk8s proxy');
++    expect(stdout).toContain('--name cluster-a');
++  });
++});
++
++describe('cluster proxy handler', () => {
++  beforeEach(() => {
++    spawnMock.mockReset();
++    spawnMock.mockReturnValue(proxyChild());
++  });
++
++  afterEach(() => {
++    killAllProxies();
++    vi.restoreAllMocks();
++  });
++
++  it('rejects callers without the scoped capability', async () => {
++    const start = startHandler();
++
++    await expect(
++      start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a', 999))
++    ).resolves.toEqual({
++      success: false,
++      error: 'Cluster proxy capability is invalid.',
++    });
++    expect(spawnMock).not.toHaveBeenCalled();
++  });
++
++  it.each([
++    { ...proxyRequest('cluster;calc'), cluster: 'cluster;calc' },
++    { ...proxyRequest('cluster-a'), subscriptionId: 'sub && calc' },
++    { ...proxyRequest('cluster-a'), resourceGroup: 'rg | calc' },
++  ])('rejects an unsafe target before spawning', async request => {
++    const start = startHandler();
++
++    await expect(start({} as Electron.IpcMainInvokeEvent, request)).resolves.toEqual({
++      success: false,
++      error: 'Cluster proxy target is invalid.',
++    });
++    expect(spawnMock).not.toHaveBeenCalled();
++  });
++
++  it('rejects an incomplete target before spawning', async () => {
++    const start = startHandler();
++
++    await expect(
++      start({} as Electron.IpcMainInvokeEvent, { capabilitySecret: 731 })
++    ).resolves.toEqual({
++      success: false,
++      error: 'Cluster proxy target is incomplete.',
++    });
++    expect(spawnMock).not.toHaveBeenCalled();
++  });
++
++  it('coalesces duplicate starts for the same cluster', async () => {
++    const child = proxyChild();
++    Object.defineProperty(child, 'pid', { value: undefined, configurable: true });
++    spawnMock.mockReturnValue(child);
++    const start = startHandler();
++
++    const first = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++    const duplicate = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
++    child.emit('spawn');
++
++    await expect(Promise.all([first, duplicate])).resolves.toEqual([
++      { success: true },
++      { success: true },
++    ]);
++    expect(spawnMock).toHaveBeenCalledTimes(1);
++  });
++
++  it('serializes different clusters until the first proxy reports ready', async () => {
++    const firstChild = proxyChild(1111);
++    const secondChild = proxyChild(2222);
++    spawnMock.mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild);
++    const start = startHandler();
++
++    await start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++    const second = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-b'));
++    await Promise.resolve();
++    expect(spawnMock).toHaveBeenCalledTimes(1);
++
++    firstChild.stdout.emit('data', 'Start sending kub');
++    firstChild.stdout.emit('data', "ectl requests on 'cluster-a' context\n");
++    await second;
++
++    expect(spawnMock).toHaveBeenCalledTimes(2);
++  });
++
++  it('returns a spawn failure and releases the queue', async () => {
++    const failedChild = proxyChild();
++    Object.defineProperty(failedChild, 'pid', { value: undefined, configurable: true });
++    const secondChild = proxyChild(2222);
++    spawnMock.mockReturnValueOnce(failedChild).mockReturnValueOnce(secondChild);
++    const start = startHandler();
++
++    const first = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++    const second = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-b'));
++    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
++    failedChild.emit('error', new Error('spawn az ENOENT'));
++
++    await expect(first).resolves.toEqual({ success: false, error: 'spawn az ENOENT' });
++    await expect(second).resolves.toEqual({ success: true });
++    expect(spawnMock).toHaveBeenCalledTimes(2);
++  });
++
++  it('kills the POSIX process group on shutdown', async () => {
++    await withPlatform('linux', async () => {
++      const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
++      const start = startHandler();
++      await start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++
++      killAllProxies();
++
++      expect(kill).toHaveBeenCalledWith(-4242, 'SIGKILL');
++    });
++  });
++
++  it('kills the Windows child tree on shutdown', async () => {
++    await withPlatform('win32', async () => {
++      const start = startHandler();
++      await start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++      spawnMock.mockClear();
++      spawnMock.mockReturnValue(new EventEmitter());
++
++      killAllProxies();
++
++      expect(spawnMock).toHaveBeenCalledWith('taskkill', ['/pid', '4242', '/T', '/F']);
++    });
++  });
++});
+-- 
+2.54.0
+
+
+From 05f000bc67d96ab61530cd2e49380ebdf08cbec1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 26 Aug 2026 20:27:45 +0200
+Subject: [PATCH 02/14] app: frontend: e2e-tests: Cover scoped cluster pre-open
+ flow
+
+Lock proxy startup to the Azure plugin and verify that preparation gates
+
+cluster rendering before the implementation is introduced.
+---
+ app/electron/preload.test.ts             | 15 ++++++
+ e2e-tests/tests/clusterPreOpen.spec.ts   | 65 ++++++++++++++++++++++++
+ frontend/src/plugin/clusterProxy.test.ts | 59 +++++++++++++++++++++
+ 3 files changed, 139 insertions(+)
+ create mode 100644 e2e-tests/tests/clusterPreOpen.spec.ts
+ create mode 100644 frontend/src/plugin/clusterProxy.test.ts
+
+diff --git a/app/electron/preload.test.ts b/app/electron/preload.test.ts
+index 03d3c0834bf5b6b15db4ac27585a45da5e9ba28f..b3ca3c3d49edf0215b97be965fc73fcb4060961d 100644
+--- a/app/electron/preload.test.ts
++++ b/app/electron/preload.test.ts
+@@ -52,6 +52,21 @@ describe('desktop preload API', () => {
+     expect(desktopApi.platform).toBe(process.platform);
+   });
+ 
++  it('requires the renderer to provide the scoped cluster proxy capability', async () => {
++    electronMocks.invoke.mockResolvedValue({ success: true });
++    const target = {
++      cluster: 'cluster-a',
++      subscriptionId: '00000000-0000-0000-0000-000000000000',
++      resourceGroup: 'valid-rg',
++    };
++
++    await expect(desktopApi.startClusterProxy(target, 731)).resolves.toEqual({ success: true });
++    expect(electronMocks.invoke).toHaveBeenCalledWith('start-cluster-proxy', {
++      ...target,
++      capabilitySecret: 731,
++    });
++  });
++
+   it('sends messages only on allowed channels', () => {
+     desktopApi.send('locale', 'en');
+     desktopApi.send('not-allowed', 'ignored');
+diff --git a/e2e-tests/tests/clusterPreOpen.spec.ts b/e2e-tests/tests/clusterPreOpen.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8b5f23855245f3fb6c07223e2386153449fba53d
+--- /dev/null
++++ b/e2e-tests/tests/clusterPreOpen.spec.ts
+@@ -0,0 +1,65 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { expect, test } from "@playwright/test";
++
++test("cluster pre-open preparation gates cluster rendering", async ({
++  page,
++}) => {
++  await page.addInitScript(() => {
++    Object.defineProperty(window, "pluginLib", {
++      configurable: true,
++      set(pluginLib) {
++        Object.defineProperty(window, "pluginLib", {
++          configurable: true,
++          writable: true,
++          value: pluginLib,
++        });
++        let finishPreparation: () => void;
++        const preparation = new Promise<void>((resolve) => {
++          finishPreparation = resolve;
++        });
++        (window as any).__finishClusterPreparation = finishPreparation!;
++        pluginLib.registerClusterProviderPreOpen(
++          async ({
++            reportProgress,
++          }: {
++            reportProgress?: (message: string) => void;
++          }) => {
++            reportProgress?.("Starting secure cluster proxy");
++            await preparation;
++          }
++        );
++      },
++    });
++  });
++
++  await page.goto("/c/test");
++
++  await expect(
++    page.getByRole("dialog", { name: 'Connecting to "test"' })
++  ).toBeVisible();
++  await expect(page.getByRole("status")).toHaveText(
++    "Starting secure cluster proxy"
++  );
++
++  await page.evaluate(() => (window as any).__finishClusterPreparation());
++
++  await expect(
++    page.getByRole("dialog", { name: 'Connecting to "test"' })
++  ).toHaveCount(0);
++  await expect(page.locator("main > *").first()).toBeVisible();
++});
+diff --git a/frontend/src/plugin/clusterProxy.test.ts b/frontend/src/plugin/clusterProxy.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..78f8417b49b15892d12cc39a6d5179e636cdfdc0
+--- /dev/null
++++ b/frontend/src/plugin/clusterProxy.test.ts
+@@ -0,0 +1,59 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { describe, expect, it, vi } from 'vitest';
++import { getClusterProxyArgValues } from './clusterProxy';
++
++describe('getClusterProxyArgValues', () => {
++  it('injects a proxy starter with the private capability for Azure AKS', async () => {
++    const invokeProxy = vi.fn().mockResolvedValue({ success: true });
++    const [args, values] = getClusterProxyArgValues(true, invokeProxy, {
++      startClusterProxy: 731,
++    });
++
++    expect(args).toEqual(['startClusterProxy']);
++    await expect(
++      (values[0] as Function)({
++        cluster: 'cluster-a',
++        subscriptionId: '00000000-0000-0000-0000-000000000000',
++        resourceGroup: 'valid-rg',
++      })
++    ).resolves.toEqual({ success: true });
++    expect(invokeProxy).toHaveBeenCalledWith(
++      {
++        cluster: 'cluster-a',
++        subscriptionId: '00000000-0000-0000-0000-000000000000',
++        resourceGroup: 'valid-rg',
++      },
++      731
++    );
++  });
++
++  it('does not expose proxy startup to another plugin', () => {
++    const invokeProxy = vi.fn();
++
++    expect(getClusterProxyArgValues(false, invokeProxy, { startClusterProxy: 731 })).toEqual([
++      [],
++      [],
++    ]);
++    expect(invokeProxy).not.toHaveBeenCalled();
++  });
++
++  it('does not create a capability without a preload bridge or secret', () => {
++    expect(getClusterProxyArgValues(true, undefined, { startClusterProxy: 731 })).toEqual([[], []]);
++    expect(getClusterProxyArgValues(true, vi.fn(), {})).toEqual([[], []]);
++  });
++});
+-- 
+2.54.0
+
+
+From c7b6239babe0ad2d2f5c39bd6be1e0a8df8fa1a2 Mon Sep 17 00:00:00 2001
+From: yolossn <sannagaraj@microsoft.com>
+Date: Wed, 22 Jul 2026 14:03:45 +0530
+Subject: [PATCH 03/14] app: proxies: Add scoped Azure proxy lifecycle
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Start and serialize AKS Hybrid proxy processes without exposing authenticated
+
+startup to unrelated plugins, and preserve Windows az.cmd execution.
+
+Co-authored-by: René Dudfield <renedudfield@microsoft.com>
+---
+ app/electron/main.ts                |   2 +
+ app/electron/preload.ts             |   7 +
+ app/electron/proxies.ts             | 301 ++++++++++++++++++++++++++++
+ app/electron/runCmd.ts              |  12 ++
+ frontend/src/plugin/clusterProxy.ts |  64 ++++++
+ frontend/src/plugin/index.ts        |  10 +
+ 6 files changed, 396 insertions(+)
+ create mode 100644 app/electron/proxies.ts
+ create mode 100644 frontend/src/plugin/clusterProxy.ts
+
+diff --git a/app/electron/main.ts b/app/electron/main.ts
+index fcf57802a3bf892c214529ebe542f68901efbc6b..50aeece99aab47ebb912413a0c2578e70f91b96a 100644
+--- a/app/electron/main.ts
++++ b/app/electron/main.ts
+@@ -62,6 +62,7 @@ import {
+ } from './plugin-management';
+ import { readProtocolScheme } from './protocol';
+ import { createProtocolHandler } from './protocolHandler';
++import { killAllProxies } from './proxies';
+ import {
+   addRunCmdConsent,
+   environmentOverrides,
+@@ -1840,6 +1841,7 @@ function startElectron() {
+ 
+   app.once('before-quit', async () => {
+     isQuitting = true;
++    killAllProxies();
+     // Persist any zoom change still waiting on the debounced save.
+     flushZoomFactorSave();
+     cleanupHeadlampTray();
+diff --git a/app/electron/preload.ts b/app/electron/preload.ts
+index 6ea9ab737dad506978db6d17c95b50c927d4673b..bb0cb8b95c125cd1c0a093044491f31281301ca5 100644
+--- a/app/electron/preload.ts
++++ b/app/electron/preload.ts
+@@ -16,6 +16,7 @@
+ 
+ import { contextBridge, ipcRenderer } from 'electron';
+ import type { LegalDocumentResult, LegalDocumentSummary } from './legal-documents';
++import type { ClusterProxyTarget, StartProxyResult } from './proxies';
+ 
+ // Keeps the mapping between a caller-provided listener and the wrapped one we
+ // actually register with ipcRenderer, so removeListener can still unsubscribe
+@@ -32,6 +33,12 @@ const wrappedListeners = new WeakMap<
+ // Expose protected methods that allow the renderer process to use
+ // the ipcRenderer without exposing the entire object
+ contextBridge.exposeInMainWorld('desktopApi', {
++  /** Starts a proxy only when the caller supplies its scoped plugin capability. */
++  startClusterProxy: (
++    target: ClusterProxyTarget,
++    capabilitySecret: number
++  ): Promise<StartProxyResult> =>
++    ipcRenderer.invoke('start-cluster-proxy', { ...target, capabilitySecret }),
+   send: (channel: string, data: unknown) => {
+     // allowed channels
+     const validChannels = [
+diff --git a/app/electron/proxies.ts b/app/electron/proxies.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..fb236bc9e2412ae99237176ec449901e57f909e6
+--- /dev/null
++++ b/app/electron/proxies.ts
+@@ -0,0 +1,301 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { ChildProcessWithoutNullStreams, spawn, SpawnOptions } from 'child_process';
++import type { BrowserWindow } from 'electron';
++
++/** A cluster target accepted by `az connectedk8s proxy`. */
++export interface ClusterProxyTarget {
++  /** Kubeconfig cluster name. */
++  cluster: string;
++  /** Azure subscription UUID containing the cluster. */
++  subscriptionId: string;
++  /** Azure resource group containing the cluster. */
++  resourceGroup: string;
++}
++
++/** A proxy request carrying the renderer capability. */
++export interface StartProxyRequest extends ClusterProxyTarget {
++  /** Unpredictable capability injected only into the authorized plugin. */
++  capabilitySecret: number;
++}
++
++/** Result returned to the authorized renderer plugin. */
++export interface StartProxyResult {
++  /** Whether the proxy process started or was already running. */
++  success: boolean;
++  /** Stable failure detail when startup was rejected or failed. */
++  error?: string;
++}
++
++/** Executable, arguments, and fixed options used to launch a proxy. */
++export interface ProxySpawnSpec {
++  /** Executable passed to Node's process launcher. */
++  command: string;
++  /** Arguments passed without shell interpolation. */
++  args: string[];
++  /** Process options required for lifecycle management. */
++  options: SpawnOptions;
++}
++
++interface ProxyChildEntry {
++  child: ChildProcessWithoutNullStreams;
++  group: boolean;
++  cluster: string;
++}
++
++const proxyChildren = new Set<ProxyChildEntry>();
++const startingProxies = new Map<string, Promise<StartProxyResult>>();
++let proxyStartQueue: Promise<unknown> = Promise.resolve();
++let isShuttingDown = false;
++
++const READY_MATCH_TAIL_CHARS = 256;
++const PROXY_READY_TIMEOUT_MS = 30_000;
++const SUBSCRIPTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
++const RESOURCE_GROUP_PATTERN = /^[A-Za-z0-9_().-]{1,90}$/;
++const CLUSTER_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/;
++
++/**
++ * Builds the platform-specific proxy process invocation.
++ *
++ * Windows installs Azure CLI as `az.cmd`, which Node cannot execute directly.
++ * The validated target values contain no shell metacharacters, so an explicit
++ * `cmd.exe` invocation can execute that entry point without accepting arbitrary
++ * shell input.
++ *
++ * @param target - Validated Azure cluster target.
++ * @param platform - Host platform, overridable for tests.
++ * @param commandShell - Windows command interpreter path.
++ * @returns Process launch specification.
++ */
++export function buildProxySpawnSpec(
++  target: ClusterProxyTarget,
++  platform: NodeJS.Platform = process.platform,
++  commandShell: string = process.env.ComSpec || 'cmd.exe'
++): ProxySpawnSpec {
++  const proxyArgs = [
++    'connectedk8s',
++    'proxy',
++    '--subscription',
++    target.subscriptionId,
++    '--resource-group',
++    target.resourceGroup,
++    '--name',
++    target.cluster,
++  ];
++  const options = { detached: true, shell: false, windowsHide: true };
++
++  if (platform === 'win32') {
++    return {
++      command: commandShell,
++      args: ['/d', '/s', '/c', ['az.cmd', ...proxyArgs].join(' ')],
++      options,
++    };
++  }
++
++  return { command: 'az', args: proxyArgs, options };
++}
++
++/** Returns a live child associated with a cluster. */
++function liveChildForCluster(cluster: string): ProxyChildEntry | undefined {
++  for (const entry of proxyChildren) {
++    if (entry.cluster === cluster) {
++      return entry;
++    }
++  }
++  return undefined;
++}
++
++/** Waits until a proxy is ready, exits, errors, or reaches its timeout. */
++function waitForProxyReady(
++  child: ChildProcessWithoutNullStreams,
++  timeoutMs = PROXY_READY_TIMEOUT_MS
++): Promise<void> {
++  return new Promise(resolve => {
++    let settled = false;
++    let tail = '';
++
++    function cleanup() {
++      clearTimeout(timer);
++      child.stdout.off('data', onData);
++      child.off('exit', finish);
++      child.off('error', finish);
++    }
++
++    function finish() {
++      if (settled) {
++        return;
++      }
++      settled = true;
++      cleanup();
++      resolve();
++    }
++
++    function onData(data: string | Buffer) {
++      tail = (tail + data.toString()).slice(-READY_MATCH_TAIL_CHARS);
++      if (/Start sending kubectl requests/i.test(tail)) {
++        finish();
++      }
++    }
++
++    const timer = setTimeout(finish, timeoutMs);
++    timer.unref?.();
++    child.stdout.on('data', onData);
++    child.once('exit', finish);
++    child.once('error', finish);
++  });
++}
++
++/** Signals a proxy child and the daemon process tree it owns. */
++function signalChildEntry({ child, group }: ProxyChildEntry, signal: NodeJS.Signals): void {
++  const pid = child.pid;
++  if (!pid) {
++    return;
++  }
++  try {
++    if (process.platform === 'win32') {
++      const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F']);
++      killer.on('error', () => {});
++    } else if (group) {
++      process.kill(-pid, signal);
++    } else {
++      child.kill(signal);
++    }
++  } catch (error) {
++    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
++      console.error(`[AKS][main] failed to ${signal} proxy pid ${pid}:`, error);
++    }
++  }
++}
++
++/** Starts and tracks one validated proxy process. */
++async function startProxy(
++  target: ClusterProxyTarget,
++  getEnvironment: () => Promise<NodeJS.ProcessEnv>
++): Promise<StartProxyResult> {
++  const spec = buildProxySpawnSpec(target);
++  let child: ChildProcessWithoutNullStreams;
++  try {
++    child = spawn(spec.command, spec.args, {
++      ...spec.options,
++      env: await getEnvironment(),
++    }) as ChildProcessWithoutNullStreams;
++  } catch (error) {
++    return { success: false, error: error instanceof Error ? error.message : String(error) };
++  }
++
++  const entry = { child, group: !!spec.options.detached, cluster: target.cluster };
++  if (isShuttingDown) {
++    signalChildEntry(entry, 'SIGKILL');
++    return { success: false, error: 'The app is shutting down.' };
++  }
++  proxyChildren.add(entry);
++  const untrack = () => proxyChildren.delete(entry);
++  child.once('exit', untrack);
++  child.once('error', untrack);
++
++  if (child.pid) {
++    return { success: true };
++  }
++
++  return new Promise(resolve => {
++    child.once('spawn', () => resolve({ success: true }));
++    child.once('error', error => resolve({ success: false, error: error.message }));
++  });
++}
++
++/**
++ * Kills all proxies and their shared daemon when the desktop app quits.
++ *
++ * @returns Nothing.
++ */
++export function killAllProxies(): void {
++  isShuttingDown = true;
++  for (const entry of proxyChildren) {
++    signalChildEntry(entry, 'SIGKILL');
++  }
++  proxyChildren.clear();
++}
++
++/**
++ * Registers the capability-protected cluster proxy IPC handler.
++ *
++ * @param mainWindow - Desktop window owning the authorized renderer.
++ * @param ipcMain - Electron IPC registrar.
++ * @param capabilitySecret - Secret injected only into the Azure AKS plugin.
++ * @param getEnvironment - Resolves the user's shell environment.
++ * @returns Nothing.
++ */
++export function setupProxyHandlers(
++  mainWindow: BrowserWindow,
++  ipcMain: Electron.IpcMain,
++  capabilitySecret: number,
++  getEnvironment: () => Promise<NodeJS.ProcessEnv>
++): void {
++  isShuttingDown = false;
++  proxyStartQueue = Promise.resolve();
++
++  ipcMain.handle('start-cluster-proxy', async (_event, request): Promise<StartProxyResult> => {
++    const data = (request ?? {}) as Partial<StartProxyRequest>;
++    if (data.capabilitySecret !== capabilitySecret) {
++      return { success: false, error: 'Cluster proxy capability is invalid.' };
++    }
++    if (!data.cluster || !data.subscriptionId || !data.resourceGroup) {
++      return { success: false, error: 'Cluster proxy target is incomplete.' };
++    }
++    if (
++      !SUBSCRIPTION_ID_PATTERN.test(data.subscriptionId) ||
++      !RESOURCE_GROUP_PATTERN.test(data.resourceGroup) ||
++      !CLUSTER_NAME_PATTERN.test(data.cluster)
++    ) {
++      return { success: false, error: 'Cluster proxy target is invalid.' };
++    }
++    if (isShuttingDown) {
++      return { success: false, error: 'The app is shutting down.' };
++    }
++
++    const target: ClusterProxyTarget = {
++      cluster: data.cluster,
++      subscriptionId: data.subscriptionId,
++      resourceGroup: data.resourceGroup,
++    };
++    const existingStart = startingProxies.get(target.cluster);
++    if (existingStart) {
++      return existingStart;
++    }
++    if (liveChildForCluster(target.cluster)) {
++      return { success: true };
++    }
++
++    const started = proxyStartQueue.then(() => startProxy(target, getEnvironment));
++    startingProxies.set(target.cluster, started);
++    proxyStartQueue = started
++      .then(result => {
++        if (!result.success) {
++          return;
++        }
++        const entry = liveChildForCluster(target.cluster);
++        return entry && waitForProxyReady(entry.child);
++      })
++      .catch(() => undefined);
++
++    try {
++      return await started;
++    } finally {
++      startingProxies.delete(target.cluster);
++    }
++  });
++}
+diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
+index 66df14e295bd1934c5de68ee3124efa805ebf9a6..28744a0e0acd8dd073d52239f0443720bfe8eeba 100644
+--- a/app/electron/runCmd.ts
++++ b/app/electron/runCmd.ts
+@@ -23,6 +23,7 @@ import { pathToFileURL } from 'node:url';
+ import path from 'path';
+ import i18n from './i18next.config';
+ import { defaultPluginsDir, defaultUserPluginsDir } from './plugin-management';
++import { setupProxyHandlers } from './proxies';
+ import { loadSettings, saveSettings, SETTINGS_PATH } from './settings';
+ 
+ /**
+@@ -436,6 +437,7 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
+     'runCmd-gh': cryptoRandom(),
+     'runCmd-az': cryptoRandom(),
+     'runCmd-scriptjs-azure-aks/azure-api.js': cryptoRandom(),
++    startClusterProxy: cryptoRandom(),
+   };
+ 
+   ipcMain.on('request-plugin-permission-secrets', function giveSecrets() {
+@@ -455,6 +457,16 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
+   ipcMain.on('run-command', (event, eventData) =>
+     handleRunCommand(event, eventData, mainWindow, permissionSecrets)
+   );
++
++  setupProxyHandlers(mainWindow, ipcMain, permissionSecrets.startClusterProxy, async () => {
++    try {
++      const { getShellEnvironment } = await import('./main');
++      return await getShellEnvironment();
++    } catch (error) {
++      console.warn('Failed to get shell environment, using process.env:', error);
++      return process.env;
++    }
++  });
+ }
+ 
+ /**
+diff --git a/frontend/src/plugin/clusterProxy.ts b/frontend/src/plugin/clusterProxy.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c410b854110957bafbc33b3b458f5711d25efedd
+--- /dev/null
++++ b/frontend/src/plugin/clusterProxy.ts
+@@ -0,0 +1,64 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++/** Azure cluster details required to start a local proxy. */
++export interface ClusterProxyTarget {
++  /** Kubeconfig cluster name. */
++  cluster: string;
++  /** Azure subscription UUID containing the cluster. */
++  subscriptionId: string;
++  /** Azure resource group containing the cluster. */
++  resourceGroup: string;
++}
++
++/** Result returned by the desktop proxy handler. */
++export interface StartClusterProxyResult {
++  /** Whether the proxy process started or was already running. */
++  success: boolean;
++  /** Failure detail when startup did not succeed. */
++  error?: string;
++}
++
++/** Proxy function injected into the authorized Azure AKS plugin. */
++export type StartClusterProxy = (target: ClusterProxyTarget) => Promise<StartClusterProxyResult>;
++
++type DesktopStartClusterProxy = (
++  target: ClusterProxyTarget,
++  capabilitySecret: number
++) => Promise<StartClusterProxyResult>;
++
++/**
++ * Builds plugin arguments for the scoped Azure proxy capability.
++ *
++ * @param isAzureAks - Whether both package name and installation path identify Azure AKS.
++ * @param desktopStartClusterProxy - Private preload bridge captured before plugins run.
++ * @param allowedPermissions - Secrets already filtered for the identified plugin.
++ * @returns Matching argument names and values, or empty arrays for unauthorized callers.
++ */
++export function getClusterProxyArgValues(
++  isAzureAks: boolean,
++  desktopStartClusterProxy: DesktopStartClusterProxy | undefined,
++  allowedPermissions: Record<string, number>
++): [string[], unknown[]] {
++  const capabilitySecret = allowedPermissions.startClusterProxy;
++  if (!isAzureAks || !desktopStartClusterProxy || typeof capabilitySecret !== 'number') {
++    return [[], []];
++  }
++
++  const startClusterProxy: StartClusterProxy = target =>
++    desktopStartClusterProxy(target, capabilitySecret);
++  return [['startClusterProxy'], [startClusterProxy]];
++}
+diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
+index f49d3a67c45f01f4510ba158c00d47445fd11796..362a799327a257dc23881763d4c81dc5f36ba4da 100644
+--- a/frontend/src/plugin/index.ts
++++ b/frontend/src/plugin/index.ts
+@@ -54,6 +54,7 @@ import { eventAction, HeadlampEventType } from '../redux/headlampEventSlice';
+ import store from '../redux/stores/store';
+ import * as stateless from '../stateless/index';
+ import { Headlamp, Plugin } from './lib';
++import { getClusterProxyArgValues } from './clusterProxy';
+ import { changePluginLanguage, initializePluginI18n } from './pluginI18n';
+ import { useTranslation } from './pluginI18n';
+ import { PluginInfo } from './pluginsSlice';
+@@ -589,6 +590,7 @@ export async function fetchAndExecutePlugins(
+   // This is to prevent plugins from snooping on the permission secrets.
+   const pluginDesktopApiSend = window?.desktopApi?.send;
+   const pluginDesktopApiReceive = window?.desktopApi?.receive;
++  const pluginStartClusterProxy = window?.desktopApi?.startClusterProxy;
+   const internalRunCommand = runCommand;
+   const PrivateFunction = Function;
+   const internalRunPlugin = runPlugin;
+@@ -640,6 +642,7 @@ export async function fetchAndExecutePlugins(
+           if (isPackage['azure-aks']) {
+             secretsToReturn['runCmd-scriptjs-azure-aks/azure-api.js'] =
+               secrets['runCmd-scriptjs-azure-aks/azure-api.js'];
++            secretsToReturn.startClusterProxy = secrets.startClusterProxy;
+           }
+ 
+           return secretsToReturn;
+@@ -707,6 +710,13 @@ export async function fetchAndExecutePlugins(
+             }
+             argumentNames.push('pluginRunCommand', 'pluginPath');
+             argumentValues.push(pluginRunCommand, pluginPath);
++            const [proxyArgs, proxyValues] = getClusterProxyArgValues(
++              true,
++              pluginStartClusterProxy,
++              allowedPermissions
++            );
++            argumentNames.push(...proxyArgs);
++            argumentValues.push(...proxyValues);
+           }
+ 
+           const storageNamespace = secureStorageNamespaces[index];
+-- 
+2.54.0
+
+
+From c5bae828df9d519c33a3413ae10c74b44d84fa27 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 26 Aug 2026 20:52:43 +0200
+Subject: [PATCH 04/14] frontend: RouteSwitcher: Cover cluster pre-open states
+
+Verify preparation progress, retries, aborts, auth gating, and alert
+
+suppression before introducing the pre-open extension point.
+---
+ .../src/components/App/RouteSwitcher.test.tsx | 225 +++++++++++++++++-
+ .../common/AlertNotification.test.tsx         | 148 +++++++++++-
+ 2 files changed, 368 insertions(+), 5 deletions(-)
+
+diff --git a/frontend/src/components/App/RouteSwitcher.test.tsx b/frontend/src/components/App/RouteSwitcher.test.tsx
+index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..463791d7ed796872492758d55af27fe5a0c81d18 100644
+--- a/frontend/src/components/App/RouteSwitcher.test.tsx
++++ b/frontend/src/components/App/RouteSwitcher.test.tsx
+@@ -14,9 +14,14 @@
+  * limitations under the License.
+  */
+ 
++import { configureStore } from '@reduxjs/toolkit';
+ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+-import { render, waitFor } from '@testing-library/react';
+-import { afterEach, describe, expect, it, vi } from 'vitest';
++import { fireEvent, render, screen, waitFor } from '@testing-library/react';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { useCluster, useClustersConf, useSelectedClusters } from '../../lib/k8s';
++import { testAuth } from '../../lib/k8s/api/v1/clusterApi';
++import { addPreOpenHook } from '../../redux/clusterProviderSlice';
++import reducers from '../../redux/reducers/reducers';
+ import { TestContext } from '../../test';
+ 
+ vi.mock('../../lib/k8s', () => ({
+@@ -27,6 +32,9 @@ vi.mock('../../lib/k8s', () => ({
+   useSelectedClusters: vi.fn(() => []),
+ }));
+ 
++vi.mock('../../lib/k8s/api/v1/clusterApi', () => ({
++  testAuth: vi.fn(() => Promise.resolve(true)),
++}));
+ vi.mock('../../lib/k8s/event', () => ({
+   default: class Event {},
+   useEventWarningList: vi.fn(() => ({})),
+@@ -34,8 +42,8 @@ vi.mock('../../lib/k8s/event', () => ({
+ vi.mock('../common/ObjectEventList', () => ({ default: () => null }));
+ vi.mock('./Home', () => ({ default: () => null }));
+ 
+-import { useCluster } from '../../lib/k8s';
+-import RouteSwitcher from './RouteSwitcher';
++import RouteSwitcher, { AuthRoute } from './RouteSwitcher';
++import { useClusterPreOpen } from './useClusterPreOpen';
+ 
+ // Verify RouteSwitcher renders stable route keys and handles an unset cluster.
+ 
+@@ -120,3 +128,212 @@ describe('RouteSwitcher', () => {
+     await waitFor(() => expect(document.title).toBe('cluster-a - Choose a cluster - Headlamp'));
+   });
+ });
++
++describe('AuthRoute pre-open hooks', () => {
++  beforeEach(() => {
++    vi.mocked(useCluster).mockReturnValue('test-cluster');
++    vi.mocked(useClustersConf).mockReturnValue({ 'test-cluster': {} } as any);
++    vi.mocked(useSelectedClusters).mockReturnValue(['test-cluster']);
++    vi.mocked(testAuth)
++      .mockClear()
++      .mockResolvedValue(true as any);
++  });
++
++  afterEach(() => {
++    vi.mocked(useCluster).mockReturnValue(null);
++  });
++
++  /**
++   * Stands in for RouteSwitcher: owns the pre-open state above the route, the
++   * way the real tree does, and renders one AuthRoute below it. `routeKey`
++   * remounts just the route, so a test can navigate without disturbing the
++   * observer above.
++   */
++  function PreOpenHost({
++    routeKey = 'a',
++    showRoute = true,
++  }: {
++    routeKey?: string;
++    showRoute?: boolean;
++  }) {
++    const preOpen = useClusterPreOpen();
++    if (!showRoute) {
++      return null;
++    }
++    return (
++      <AuthRoute
++        key={routeKey}
++        path="/"
++        exact
++        sidebar={null}
++        requiresAuth
++        requiresCluster
++        requiresToken={() => false}
++        preOpen={preOpen}
++      >
++        <div>cluster-content</div>
++      </AuthRoute>
++    );
++  }
++
++  // Renders that host for 'test-cluster' with one registered pre-open hook whose
++  // promise the test controls, so we can assert each preparation state.
++  function renderAuthRoute(hook: () => Promise<void>, routeKey?: string) {
++    const store = configureStore({ reducer: reducers });
++    store.dispatch(addPreOpenHook(hook));
++    const queryClient = new QueryClient({
++      defaultOptions: { queries: { retry: false, gcTime: 0 } },
++    });
++    const ui = (key?: string, showRoute = true) => (
++      <QueryClientProvider client={queryClient}>
++        <TestContext store={store}>
++          <PreOpenHost routeKey={key} showRoute={showRoute} />
++        </TestContext>
++      </QueryClientProvider>
++    );
++    const view = render(ui(routeKey));
++    return {
++      ...view,
++      navigate: (key: string) => view.rerender(ui(key)),
++      /** Unmounts the route, waits, then mounts the next one — what a suspended
++       *  route does, and what a same-commit remount does not exercise. */
++      navigateWithGap: async (key: string) => {
++        view.rerender(ui(routeKey, false));
++        await new Promise(resolve => setTimeout(resolve, 20));
++        view.rerender(ui(key, true));
++      },
++    };
++  }
++
++  it('shows the connecting dialog while a pre-open hook is pending', async () => {
++    const hook = vi.fn(() => new Promise<void>(() => {})); // never settles
++    renderAuthRoute(hook);
++
++    expect(await screen.findByRole('dialog')).toBeInTheDocument();
++    expect(screen.getByText(/Preparing cluster/)).toBeInTheDocument();
++    // The cluster's views and the auth probe are gated while preparing.
++    expect(screen.queryByText('cluster-content')).not.toBeInTheDocument();
++    expect(testAuth).not.toHaveBeenCalled();
++  });
++
++  it('shows an error with a Retry that refetches when a hook rejects', async () => {
++    let reject!: (err: Error) => void;
++    const hook = vi.fn(() => new Promise<void>((_resolve, rej) => (reject = rej)));
++    renderAuthRoute(hook);
++
++    await screen.findByRole('dialog');
++    reject(new Error('proxy failed'));
++
++    // Error UI: the message is shown and a Retry button appears (Retry only
++    // renders in the error state).
++    const retry = await screen.findByRole('button', { name: /Retry/i });
++    expect((await screen.findAllByText(/proxy failed/)).length).toBeGreaterThan(0);
++
++    fireEvent.click(retry);
++    await waitFor(() => expect(hook).toHaveBeenCalledTimes(2));
++  });
++
++  it('shows the connecting dialog while a Retry is in flight, not the stale error', async () => {
++    // React Query v5 resets an errored query to `pending` when it refetches with
++    // no cached data (`fetchState` in query-core), so the Retry lands back on the
++    // connecting dialog rather than sitting on the error page. Locked down here
++    // because the branch order below reads as if the error would win.
++    let reject!: (err: Error) => void;
++    const hook = vi
++      .fn<() => Promise<void>>()
++      .mockImplementationOnce(() => new Promise<void>((_resolve, rej) => (reject = rej)))
++      .mockImplementationOnce(() => new Promise<void>(() => {})); // the retry stays pending
++    renderAuthRoute(hook);
++
++    await screen.findByRole('dialog');
++    reject(new Error('proxy failed'));
++
++    fireEvent.click(await screen.findByRole('button', { name: /Retry/i }));
++    await waitFor(() => expect(hook).toHaveBeenCalledTimes(2));
++
++    expect(await screen.findByText(/Preparing cluster/)).toBeInTheDocument();
++    await waitFor(() =>
++      expect(screen.queryByRole('button', { name: /Retry/i })).not.toBeInTheDocument()
++    );
++  });
++
++  it('runs hooks once per cluster open, not per route', async () => {
++    // The contract is "once, before a cluster's views are rendered". Preparation
++    // is therefore observed above the route switch: a route unmounting — including
++    // with a gap before the next one mounts, as a suspended route gives — must not
++    // evict the result and re-run every hook.
++    const hook = vi.fn(() => Promise.resolve());
++    const { navigate, navigateWithGap } = renderAuthRoute(hook, 'pods');
++    await screen.findByText('cluster-content');
++    expect(hook).toHaveBeenCalledTimes(1);
++
++    // Same-commit navigation.
++    navigate('services');
++    await screen.findByText('cluster-content');
++    expect(hook).toHaveBeenCalledTimes(1);
++
++    // And navigation with a gap between unmount and mount, which is what a
++    // suspended route produces — this is the case that evicts the result when
++    // preparation is observed per route.
++    await navigateWithGap('nodes');
++    await screen.findByText('cluster-content');
++    expect(hook).toHaveBeenCalledTimes(1);
++  });
++
++  it('prepares again after leaving a cluster for a multi-cluster view', async () => {
++    const hook = vi.fn(() => Promise.resolve());
++    const { navigate } = renderAuthRoute(hook, 'pods');
++    await screen.findByText('cluster-content');
++    expect(hook).toHaveBeenCalledTimes(1);
++
++    vi.mocked(useSelectedClusters).mockReturnValue(['test-cluster', 'other-cluster']);
++    navigate('combined');
++    await new Promise(resolve => setTimeout(resolve, 20));
++
++    vi.mocked(useSelectedClusters).mockReturnValue(['test-cluster']);
++    navigate('pods-again');
++    await waitFor(() => expect(hook).toHaveBeenCalledTimes(2));
++  });
++
++  it('abandons a stalled preparation instead of reattaching to it on reopen', async () => {
++    // gcTime does not evict a query whose fetch is still pending, so without
++    // consuming the query's AbortSignal a reopened cluster would reattach to the
++    // abandoned run — leaving the connecting dialog up with no way forward.
++    let abortedDuringFirstRun = false;
++    const hook = vi.fn(
++      ({ signal }: any) =>
++        new Promise<void>(() => {
++          // Never settles; record that the app told us to stop.
++          signal?.addEventListener?.('abort', () => {
++            abortedDuringFirstRun = true;
++          });
++        })
++    );
++    const { unmount } = renderAuthRoute(hook as any, 'pods');
++    await screen.findByRole('dialog');
++    expect(hook).toHaveBeenCalledTimes(1);
++
++    // Leave the cluster while preparation is still running.
++    unmount();
++    await new Promise(resolve => setTimeout(resolve, 20));
++    expect(abortedDuringFirstRun).toBe(true);
++
++    // Reopening prepares again rather than waiting on the abandoned run.
++    renderAuthRoute(hook as any, 'pods');
++    await waitFor(() => expect(hook).toHaveBeenCalledTimes(2));
++  });
++
++  it('does not probe auth until pre-open hooks succeed', async () => {
++    let resolve!: () => void;
++    const hook = vi.fn(() => new Promise<void>(res => (resolve = res)));
++    renderAuthRoute(hook);
++
++    await screen.findByRole('dialog');
++    expect(testAuth).not.toHaveBeenCalled();
++
++    resolve();
++
++    await waitFor(() => expect(testAuth).toHaveBeenCalledWith('test-cluster'));
++    expect(await screen.findByText('cluster-content')).toBeInTheDocument();
++  });
++});
+diff --git a/frontend/src/components/common/AlertNotification.test.tsx b/frontend/src/components/common/AlertNotification.test.tsx
+index 5656b83d48fff73cba3ca9fdba2121ac56f7d2a4..601a82382b41480190f503ef803fd96df73d7165 100644
+--- a/frontend/src/components/common/AlertNotification.test.tsx
++++ b/frontend/src/components/common/AlertNotification.test.tsx
+@@ -14,7 +14,8 @@
+  * limitations under the License.
+  */
+ 
+-import { act, cleanup, render } from '@testing-library/react';
++import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
++import { MemoryRouter, useHistory } from 'react-router-dom';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { TestContext } from '../../test';
+ import { PureAlertNotification } from './AlertNotification';
+@@ -68,3 +69,148 @@ describe('PureAlertNotification', () => {
+     expect(checkerFunction).toHaveBeenCalledTimes(3);
+   });
+ });
++
++/** Renders the banner for a cluster route, with `suppress` controllable. */
++function renderBanner(checkerFunction: () => Promise<any>, suppress: boolean) {
++  return render(
++    <MemoryRouter initialEntries={['/c/test-cluster/pods']}>
++      <TestContext routerMap={{ cluster: 'test-cluster' }}>
++        <PureAlertNotification checkerFunction={checkerFunction} suppress={suppress} />
++      </TestContext>
++    </MemoryRouter>
++  );
++}
++
++function NavigateToOtherCluster() {
++  const history = useHistory();
++  return <button onClick={() => history.push('/c/other-cluster/pods')}>Navigate</button>;
++}
++
++describe('PureAlertNotification - suppression', () => {
++  it('re-checks when suppression ends rather than trusting a pre-preparation verdict', async () => {
++    // A cluster being prepared is unreachable, so the check that ran before
++    // preparation says "down". Once preparation finishes the cluster is up, and
++    // the banner must reflect that immediately -- not wait for the next poll,
++    // which is up to 10s away once the backoff has grown.
++    const checker = vi.fn().mockResolvedValue(undefined);
++    const { rerender } = renderBanner(checker, true);
++
++    expect(checker).not.toHaveBeenCalled();
++
++    rerender(
++      <MemoryRouter initialEntries={['/c/test-cluster/pods']}>
++        <TestContext routerMap={{ cluster: 'test-cluster' }}>
++          <PureAlertNotification checkerFunction={checker} suppress={false} />
++        </TestContext>
++      </MemoryRouter>
++    );
++
++    // Un-suppressing asks the cluster straight away.
++    await waitFor(() => expect(checker).toHaveBeenCalled());
++    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
++  });
++
++  it('ignores a check that was still in flight when suppression began', async () => {
++    // The stale case: a check is dispatched, then preparation starts and the
++    // cluster goes briefly unreachable, so that earlier check rejects. Writing
++    // its verdict back would raise the banner suppression exists to hide, and
++    // leave it up once preparation ends.
++    const pending: Array<(err: Error) => void> = [];
++    const checker = vi.fn(
++      () =>
++        new Promise<void>((_resolve, reject) => {
++          pending.push(reject);
++        })
++    );
++    const banner = (suppress: boolean) => (
++      <MemoryRouter initialEntries={['/c/test-cluster/pods']}>
++        <TestContext routerMap={{ cluster: 'test-cluster' }}>
++          <PureAlertNotification checkerFunction={checker} suppress={suppress} />
++        </TestContext>
++      </MemoryRouter>
++    );
++
++    const { rerender } = render(banner(true));
++    // Preparation ends: this dispatches a check that has not settled yet.
++    rerender(banner(false));
++    await waitFor(() => expect(checker).toHaveBeenCalledTimes(1));
++
++    // Preparation starts again while that check is still in flight…
++    rerender(banner(true));
++    // …and only now does it fail.
++    await act(async () => {
++      pending[0](new Error('Lost connection'));
++    });
++    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
++
++    // It must not resurface when preparation ends either.
++    rerender(banner(false));
++    await act(async () => {});
++    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
++  });
++
++  it('ignores a check that settles after navigating to another cluster', async () => {
++    let rejectCheck!: (error: Error) => void;
++    const checker = vi.fn(
++      () =>
++        new Promise<void>((_resolve, reject) => {
++          rejectCheck = reject;
++        })
++    );
++    const banner = (suppress: boolean) => (
++      <MemoryRouter initialEntries={['/c/test-cluster/pods']}>
++        <TestContext routerMap={{ cluster: 'test-cluster' }}>
++          <NavigateToOtherCluster />
++          <PureAlertNotification checkerFunction={checker} suppress={suppress} />
++        </TestContext>
++      </MemoryRouter>
++    );
++
++    const { rerender } = render(banner(true));
++    rerender(banner(false));
++    await waitFor(() => expect(checker).toHaveBeenCalledTimes(1));
++
++    fireEvent.click(screen.getByRole('button', { name: 'Navigate' }));
++    await act(async () => rejectCheck(new Error('cluster A is unreachable')));
++
++    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
++  });
++
++  it('ignores an interval check that settles after navigating to another cluster', async () => {
++    const intervalSpy = vi
++      .spyOn(globalThis, 'setInterval')
++      .mockImplementation(() => 1 as unknown as NodeJS.Timeout);
++    const onlineSpy = vi.spyOn(window.navigator, 'onLine', 'get').mockReturnValue(true);
++    try {
++      let rejectCheck!: (error: Error) => void;
++      const checker = vi.fn(
++        () =>
++          new Promise<void>((_resolve, reject) => {
++            rejectCheck = reject;
++          })
++      );
++
++      render(
++        <MemoryRouter initialEntries={['/c/test-cluster/pods']}>
++          <TestContext routerMap={{ cluster: 'test-cluster' }}>
++            <NavigateToOtherCluster />
++            <PureAlertNotification checkerFunction={checker} suppress={false} />
++          </TestContext>
++        </MemoryRouter>
++      );
++
++      const intervalCallback = intervalSpy.mock.calls.find(([, delay]) => delay === 5000)?.[0];
++      expect(intervalCallback).toBeTypeOf('function');
++      await act(async () => intervalCallback!());
++      expect(checker).toHaveBeenCalledTimes(1);
++
++      fireEvent.click(screen.getByRole('button', { name: 'Navigate' }));
++      await act(async () => rejectCheck(new Error('cluster A is unreachable')));
++
++      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
++    } finally {
++      onlineSpy.mockRestore();
++      intervalSpy.mockRestore();
++    }
++  });
++});
+-- 
+2.54.0
+
+
+From 0f393f370360ecd0c28c259f3c379315741e242f Mon Sep 17 00:00:00 2001
+From: yolossn <sannagaraj@microsoft.com>
+Date: Wed, 22 Jul 2026 13:58:15 +0530
+Subject: [PATCH 05/14] frontend: plugins: docs: Add cluster pre-open hooks
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Gate cluster rendering on asynchronous provider preparation so proxies and
+
+credentials are ready before authentication and resource requests begin.
+
+Co-authored-by: René Dudfield <renedudfield@microsoft.com>
+---
+ .../plugins/functionality/index.md            |  17 +++
+ .../components/App/ClusterPreparingDialog.tsx |  65 +++++++++
+ frontend/src/components/App/RouteSwitcher.tsx |  58 +++++++-
+ .../src/components/App/useClusterPreOpen.ts   | 130 ++++++++++++++++++
+ .../components/common/AlertNotification.tsx   |  95 ++++++++++++-
+ .../plugin/__snapshots__/pluginLib.snapshot   |   1 +
+ frontend/src/plugin/index.ts                  |   2 +-
+ frontend/src/plugin/registry.tsx              |  37 +++++
+ frontend/src/redux/clusterProviderSlice.ts    |  77 +++++++++++
+ .../examples/dynamic-clusters/src/index.tsx   |  12 +-
+ plugins/headlamp-plugin/src/index.ts          |   6 +
+ 11 files changed, 488 insertions(+), 12 deletions(-)
+ create mode 100644 frontend/src/components/App/ClusterPreparingDialog.tsx
+ create mode 100644 frontend/src/components/App/useClusterPreOpen.ts
+
+diff --git a/docs/development/plugins/functionality/index.md b/docs/development/plugins/functionality/index.md
+index b895617af9abd1bcbdb8756107d8f4540432bf3d..270e04202e84ddc5b1b4db26f4c3052f4baf0b72 100644
+--- a/docs/development/plugins/functionality/index.md
++++ b/docs/development/plugins/functionality/index.md
+@@ -186,6 +186,23 @@ be shared with workloads or other cluster users.
+ 
+ - Example plugin: [How To Use Plugin Secure Storage](https://github.com/kubernetes-sigs/headlamp/tree/main/plugins/examples/secure-storage)
+ 
++### Cluster Pre-Open Hooks
++
++Prepare a cluster before Headlamp renders its views with
++[registerClusterProviderPreOpen](../../api/plugin/registry/functions/registerclusterproviderpreopen).
++Pre-open hooks can start a proxy or tunnel, refresh credentials, warm a cache, or
++perform another asynchronous prerequisite. While hooks run, Headlamp displays a
++connecting dialog. Rejecting a hook shows its error with a retry action.
++
++Hooks run sequentially whenever a single cluster is opened. Combined
++multi-cluster views currently skip pre-open hooks. Hooks that apply only to some
++clusters should inspect the supplied context and resolve immediately for other
++clusters. Long-running work should use the supplied `AbortSignal`, and hooks can
++report status text through `reportProgress`.
++
++- Example plugin: [Dynamic Clusters](https://github.com/kubernetes-sigs/headlamp/tree/main/plugins/examples/dynamic-clusters)
++- API reference: [registerClusterProviderPreOpen](../../api/plugin/registry/functions/registerclusterproviderpreopen)
++
+ ### Route
+ 
+ Show a component in the main area at a given URL with
+diff --git a/frontend/src/components/App/ClusterPreparingDialog.tsx b/frontend/src/components/App/ClusterPreparingDialog.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..2b36bc0e6583b6239ab0b3cb3a120e8026444ecf
+--- /dev/null
++++ b/frontend/src/components/App/ClusterPreparingDialog.tsx
+@@ -0,0 +1,65 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import Box from '@mui/material/Box';
++import CircularProgress from '@mui/material/CircularProgress';
++import Dialog from '@mui/material/Dialog';
++import DialogContent from '@mui/material/DialogContent';
++import DialogTitle from '@mui/material/DialogTitle';
++import Typography from '@mui/material/Typography';
++import { useTranslation } from 'react-i18next';
++
++export interface ClusterPreparingDialogProps {
++  /** Name of the cluster being connected to. */
++  cluster: string;
++  /**
++   * Latest progress message reported by a pre-open hook (e.g. "Starting proxy…").
++   * Falls back to a generic "Preparing cluster…" when a hook reports no message.
++   */
++  message?: string;
++}
++
++/**
++ * Modal "connecting" popup shown while a cluster's pre-open hooks run, so opening
++ * a cluster reads as a deliberate connect step rather than a bare page loader.
++ *
++ * Pure and prop-driven so its states are storybook-/test-able in isolation;
++ * `RouteSwitcher` renders it while preparation is pending.
++ */
++export default function ClusterPreparingDialog({ cluster, message }: ClusterPreparingDialogProps) {
++  const { t } = useTranslation();
++
++  return (
++    <Dialog open maxWidth="xs" fullWidth aria-labelledby="cluster-preopen-title">
++      <DialogTitle id="cluster-preopen-title">
++        {t('translation|Connecting to "{{cluster}}"', { cluster })}
++      </DialogTitle>
++      <DialogContent>
++        <Box display="flex" alignItems="center" gap={2} py={1}>
++          <CircularProgress size={22} aria-hidden="true" />
++          {/* The message changes as hooks report progress, and the spinner is
++              hidden from assistive tech, so this is the only thing that conveys
++              progress. A polite live region announces each update instead of
++              leaving screen-reader users with just the dialog title.
++              aria-atomic so the whole message is read, not only the diff. */}
++          <Typography variant="body2" role="status" aria-live="polite" aria-atomic="true">
++            {message || t('translation|Preparing cluster…')}
++          </Typography>
++        </Box>
++      </DialogContent>
++    </Dialog>
++  );
++}
+diff --git a/frontend/src/components/App/RouteSwitcher.tsx b/frontend/src/components/App/RouteSwitcher.tsx
+index c8356690d78e39193b363a247e1f22c6cbae2974..949759e9c158f5e7d735ac0db1b22e4aae2ce4fc 100644
+--- a/frontend/src/components/App/RouteSwitcher.tsx
++++ b/frontend/src/components/App/RouteSwitcher.tsx
+@@ -14,6 +14,8 @@
+  * limitations under the License.
+  */
+ 
++import Box from '@mui/material/Box';
++import Button from '@mui/material/Button';
+ import { useQuery } from '@tanstack/react-query';
+ import React, { Suspense } from 'react';
+ import { useTranslation } from 'react-i18next';
+@@ -34,8 +36,13 @@ import { uiSlice } from '../../redux/uiSlice';
+ import ErrorBoundary from '../common/ErrorBoundary';
+ import ErrorComponent from '../common/ErrorPage';
+ import { useSidebarItem } from '../Sidebar';
++import ClusterPreparingDialog from './ClusterPreparingDialog';
++import { ClusterPreOpenState, useClusterPreOpen } from './useClusterPreOpen';
+ 
+ export default function RouteSwitcher(props: { requiresToken: () => boolean }) {
++  // Owned here, above <Suspense> and <Switch>, so preparation spans navigation
++  // within a cluster and is evicted only when the user leaves it.
++  const preOpen = useClusterPreOpen();
+   // The NotFoundRoute always has to be evaluated in the last place.
+   const routes = useTypedSelector(state => state.routes.routes);
+   const routeFilters = useTypedSelector(state => state.routes.routeFilters);
+@@ -70,6 +77,7 @@ export default function RouteSwitcher(props: { requiresToken: () => boolean }) {
+               exact={!!route.exact}
+               clusters={clusters}
+               requiresToken={props.requiresToken}
++              preOpen={preOpen}
+               children={
+                 <RouteComponent route={route} key={`${getRoutePath(route)}-${getCluster()}`} />
+               }
+@@ -144,6 +152,8 @@ function PageTitle({
+ }
+ 
+ interface AuthRouteProps {
++  /** Cluster preparation state, owned above the route switch. */
++  preOpen: ClusterPreOpenState;
+   children: React.ReactNode;
+   sidebar: RouteType['sidebar'];
+   requiresAuth: boolean;
+@@ -152,26 +162,36 @@ interface AuthRouteProps {
+   [otherProps: string]: any;
+ }
+ 
+-function AuthRoute(props: AuthRouteProps) {
++export function AuthRoute(props: AuthRouteProps) {
+   const {
+     children,
+     sidebar,
++    preOpen,
+     requiresAuth = true,
+     requiresCluster = true,
+     computedMatch = {},
+     ...other
+   } = props;
+ 
++  const { t } = useTranslation();
+   useSidebarItem(sidebar, computedMatch);
+   const cluster = useCluster();
++
++  const clusters = useClustersConf();
++
++  // Preparation state comes from above the route switch (see useClusterPreOpen):
++  // observing it per route would re-run every hook whenever a route unmounts.
++  // `requiresCluster` still decides whether *this* route waits on it.
++  const preOpenEnabled = preOpen.enabled && requiresCluster;
++
+   const query = useQuery({
+     queryKey: ['auth', cluster],
+     queryFn: () => testAuth(cluster!),
+-    enabled: !!cluster && requiresAuth,
++    // Wait for pre-open preparation before probing auth against the cluster.
++    enabled: !!cluster && requiresAuth && (!preOpenEnabled || preOpen.isSuccess),
+     retry: 0,
+   });
+ 
+-  const clusters = useClustersConf();
+   const currentCluster = getCluster();
+   const clusterConf = currentCluster && clusters ? clusters[currentCluster] : null;
+   const authError = query.error as any;
+@@ -202,6 +222,38 @@ function AuthRoute(props: AuthRouteProps) {
+   }
+ 
+   function getRenderer({ location }: RouteProps) {
++    // Gate the cluster's views on any registered pre-open preparation. This runs
++    // before the auth check below, and for both auth and no-auth cluster routes.
++    if (preOpenEnabled) {
++      if (preOpen.isError) {
++        const detail =
++          preOpen.error instanceof Error ? preOpen.error.message : String(preOpen.error);
++        return (
++          <ErrorComponent
++            title={t('translation|Could not open cluster')}
++            error={preOpen.error instanceof Error ? preOpen.error : undefined}
++            message={
++              <>
++                {detail}
++                <Box mt={2}>
++                  <Button variant="contained" color="primary" onClick={() => preOpen.retry()}>
++                    {t('translation|Retry')}
++                  </Button>
++                </Box>
++              </>
++            }
++          />
++        );
++      }
++      if (!preOpen.isSuccess) {
++        // A modal "connecting" popup (rather than a bare page loader) so opening
++        // the cluster reads as a deliberate connect step. Only the dialog renders
++        // while preparation is pending; the cluster's views render once it
++        // succeeds (this renderer returns `children` on success, below).
++        return <ClusterPreparingDialog cluster={cluster!} message={preOpen.message} />;
++      }
++    }
++
+     if (!requiresAuth) {
+       return children;
+     }
+diff --git a/frontend/src/components/App/useClusterPreOpen.ts b/frontend/src/components/App/useClusterPreOpen.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0283b7af23283ad1523521345bb4f280ab08ea4d
+--- /dev/null
++++ b/frontend/src/components/App/useClusterPreOpen.ts
+@@ -0,0 +1,130 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { useQuery } from '@tanstack/react-query';
++import { useDispatch } from 'react-redux';
++import { useCluster, useClustersConf, useSelectedClusters } from '../../lib/k8s';
++import { clearClusterPreparing, setClusterPreparing } from '../../redux/clusterProviderSlice';
++import { useTypedSelector } from '../../redux/hooks';
++
++/** Preparation state for the cluster currently in the URL. */
++export interface ClusterPreOpenState {
++  /** Whether preparation applies at all (single cluster, hooks registered). */
++  enabled: boolean;
++  /** All hooks resolved; the cluster's views may render. */
++  isSuccess: boolean;
++  /** A hook rejected; `error` carries the reason. */
++  isError: boolean;
++  error: unknown;
++  /** The latest progress message a hook reported, if any. */
++  message?: string;
++  /** Runs the hooks again (the retry affordance on the error UI). */
++  retry: () => void;
++}
++
++/**
++ * Runs the registered cluster pre-open hooks for the cluster in the URL, once
++ * per open.
++ *
++ * Hooks let plugins prepare a cluster (start a proxy, refresh credentials, write
++ * a kubeconfig context, …) before its views load. They run for a single opened
++ * cluster only; in multi-cluster mode preparation cannot be attributed to one
++ * cluster, so they are skipped (mirroring how auth is handled).
++ *
++ * **Call this once, above the route switch — not per route.** The result lives
++ * exactly as long as something observes it, and "once per open" is what that
++ * lifetime is meant to express: an observer above the `<Switch>` (and above
++ * `<Suspense>`) spans navigation within the cluster, while `gcTime: 0` evicts
++ * the result once the user leaves the cluster, so returning re-prepares rather
++ * than trusting a success that may since have gone stale — a proxy that died,
++ * say. Observing it per route instead would tie preparation to the shortest-
++ * lived component in the tree and re-run every hook whenever a route unmounts
++ * with a gap before the next mounts (a suspended route, for instance).
++ */
++export function useClusterPreOpen(): ClusterPreOpenState {
++  const dispatch = useDispatch();
++  const cluster = useCluster();
++  const clusters = useClustersConf();
++  const currentClusterConf = (cluster && clusters ? clusters[cluster] : null) ?? null;
++
++  const preOpenHooks = useTypedSelector(state => state.clusterProvider.preOpenHooks);
++  // Reactive, not a render-time snapshot: going from a multi-cluster view to one
++  // of its clusters can leave `cluster` unchanged (both resolve to the first
++  // one), so a snapshot would keep reporting "multi" and skip preparation.
++  const isSingleCluster = useSelectedClusters().length <= 1;
++  const enabled = !!cluster && isSingleCluster && preOpenHooks.length > 0;
++
++  const query = useQuery({
++    queryKey: ['clusterPreOpen', cluster, isSingleCluster],
++    // `signal` is consumed deliberately: React Query only aborts an in-flight
++    // fetch if the query function takes it. Without that, a query whose fetch is
++    // still pending is not evicted by gcTime, so leaving and reopening the
++    // cluster reattaches to the abandoned run instead of preparing again.
++    queryFn: async ({ signal }) => {
++      // Capture the cluster this run prepares so cleanup stays keyed to it even
++      // if the user navigates to a different cluster while hooks are running.
++      const preparingCluster = cluster!;
++      // Mark the cluster as preparing so the connecting popup shows and the
++      // "Lost connection" health banner is suppressed while hooks run.
++      dispatch(setClusterPreparing({ cluster: preparingCluster }));
++      const reportProgress = (message: string) =>
++        dispatch(setClusterPreparing({ cluster: preparingCluster, message }));
++      try {
++        for (const hook of preOpenHooks) {
++          if (signal.aborted) {
++            // The user left the cluster; stop before the next hook rather than
++            // finishing work whose result is already discarded.
++            throw new DOMException('Cluster preparation aborted', 'AbortError');
++          }
++          await hook({
++            cluster: preparingCluster,
++            clusterConf: currentClusterConf,
++            reportProgress,
++            signal,
++          });
++        }
++        return true;
++      } finally {
++        // Clear deterministically for the cluster we prepared (on success or
++        // error) so a mid-run navigation can't leave a stale "preparing" entry.
++        dispatch(clearClusterPreparing(preparingCluster));
++      }
++    },
++    enabled,
++    retry: 0,
++    // Prepare a cluster once per open: staleTime keeps hooks from re-running
++    // while the cluster stays open, and gcTime: 0 evicts the result once the
++    // last observer goes — which, with this hook called above the route switch,
++    // means when the user leaves the cluster.
++    staleTime: Infinity,
++    gcTime: 0,
++  });
++
++  // The latest progress message a hook reported for this cluster (drives the
++  // connecting popup's text). Undefined when the cluster isn't preparing.
++  const message = useTypedSelector(state =>
++    cluster ? state.clusterProvider.preparing?.[cluster] : undefined
++  );
++
++  return {
++    enabled,
++    isSuccess: query.isSuccess,
++    isError: query.isError,
++    error: query.error,
++    message,
++    retry: query.refetch,
++  };
++}
+diff --git a/frontend/src/components/common/AlertNotification.tsx b/frontend/src/components/common/AlertNotification.tsx
+index 9b216514c4a7e19247da2630fc35e7343f210cf6..0186e61a465d3d80e2514445f6c61410a3955abf 100644
+--- a/frontend/src/components/common/AlertNotification.tsx
++++ b/frontend/src/components/common/AlertNotification.tsx
+@@ -28,6 +28,7 @@ import { getCluster } from '../../lib/cluster';
+ import { testClusterHealth } from '../../lib/k8s/api/v1/clusterApi';
+ import { getRoute } from '../../lib/router/getRoute';
+ import { getRoutePath } from '../../lib/router/getRoutePath';
++import { useTypedSelector } from '../../redux/hooks';
+ import Link from './Link';
+ 
+ // in ms
+@@ -54,11 +55,17 @@ function formatErrorDetail(error: null | string | boolean): string {
+ 
+ export interface PureAlertNotificationProps {
+   checkerFunction(): Promise<any>;
++  /**
++   * When true, the alert is suppressed. Used while a cluster is being prepared
++   * by pre-open hooks (e.g. a proxy is still starting), so the transient
++   * unreachability during connect doesn't flash a "Lost connection" banner.
++   */
++  suppress?: boolean;
+ }
+ 
+ const ROUTES_WITHOUT_ALERT = ['login', 'token', 'settingsCluster'];
+ 
+-export function PureAlertNotification({ checkerFunction }: PureAlertNotificationProps) {
++export function PureAlertNotification({ checkerFunction, suppress }: PureAlertNotificationProps) {
+   const [networkStatusCheckTimeFactor, setNetworkStatusCheckTimeFactor] = React.useState(0);
+   const [error, setError] = React.useState<null | string | boolean>(null);
+   const [dismissed, setDismissed] = React.useState(false);
+@@ -66,8 +73,15 @@ export function PureAlertNotification({ checkerFunction }: PureAlertNotification
+   const { t } = useTranslation();
+   const { pathname } = useLocation();
+ 
+-  function registerSetInterval(): NodeJS.Timeout {
++  function registerSetInterval(isStale: () => boolean): NodeJS.Timeout {
+     return setInterval(() => {
++      // While the cluster is being prepared (proxy starting, etc.) transient
++      // unreachability is expected — don't alarm the user.
++      if (suppress) {
++        setError(null);
++        return;
++      }
++
+       if (!window.navigator.onLine) {
+         setError(t('translation|Offline') as string);
+         return;
+@@ -80,6 +94,13 @@ export function PureAlertNotification({ checkerFunction }: PureAlertNotification
+ 
+       checkerFunction()
+         .then(() => {
++          // A check whose effect has been torn down (suppression toggled, or the
++          // backoff re-registered the interval) describes a moment that has
++          // passed -- writing it back would resurrect state we deliberately
++          // cleared, and bump the backoff on the way.
++          if (isStale()) {
++            return;
++          }
+           setError(false);
+           // Reset the backoff so polling returns to the normal cadence once the
+           // cluster recovers; otherwise the interval stays elevated for the rest
+@@ -87,6 +108,9 @@ export function PureAlertNotification({ checkerFunction }: PureAlertNotification
+           setNetworkStatusCheckTimeFactor(0);
+         })
+         .catch(err => {
++          if (isStale()) {
++            return;
++          }
+           const message = err instanceof Error ? err.message : String(err);
+           setError(message);
+           setNetworkStatusCheckTimeFactor(
+@@ -107,13 +131,59 @@ export function PureAlertNotification({ checkerFunction }: PureAlertNotification
+     setDismissed(false);
+   }, [error]);
+ 
++  // Preparation start: drop any standing error immediately rather than waiting
++  // for the next poll tick. Preparation end: don't fall back on a verdict formed
++  // before the cluster was reachable -- re-check now, because the next scheduled
++  // poll can be 10s+ away once the backoff has grown.
++  const wasSuppressed = React.useRef(false);
++  React.useEffect(() => {
++    const preparationEnded = wasSuppressed.current && !suppress;
++    wasSuppressed.current = !!suppress;
++
++    if (suppress) {
++      setError(null);
++      return;
++    }
++
++    // On first render there is no earlier verdict to correct, and the poll below
++    // owns the first check -- along with its offline and non-cluster-route
++    // guards, which this shortcut deliberately skips.
++    if (!preparationEnded) {
++      return;
++    }
++
++    let cancelled = false;
++    // Failures during preparation are expected, so they should not leave the
++    // poll interval inflated for the rest of the session.
++    setNetworkStatusCheckTimeFactor(0);
++    checkerFunction()
++      .then(() => {
++        if (!cancelled) {
++          setError(false);
++        }
++      })
++      .catch(err => {
++        if (!cancelled) {
++          setError(err instanceof Error ? err.message : String(err));
++        }
++      });
++
++    return () => {
++      cancelled = true;
++    };
++  }, [suppress, pathname, checkerFunction]);
++
+   React.useEffect(
+     () => {
+-      const id = registerSetInterval();
+-      return () => clearInterval(id);
++      let stale = false;
++      const id = registerSetInterval(() => stale);
++      return () => {
++        stale = true;
++        clearInterval(id);
++      };
+     },
+     // eslint-disable-next-line
+-    [networkStatusCheckTimeFactor]
++    [networkStatusCheckTimeFactor, suppress, pathname]
+   );
+ 
+   const showOnRoute = React.useMemo(() => {
+@@ -131,7 +201,7 @@ export function PureAlertNotification({ checkerFunction }: PureAlertNotification
+     return true;
+   }, [pathname]);
+ 
+-  if (!error || !showOnRoute || dismissed) {
++  if (!error || !showOnRoute || dismissed || suppress) {
+     return null;
+   }
+ 
+@@ -227,5 +297,16 @@ export function PureAlertNotification({ checkerFunction }: PureAlertNotification
+ }
+ 
+ export default function AlertNotification() {
+-  return <PureAlertNotification checkerFunction={testClusterHealth} />;
++  // Re-render on navigation so the URL-derived cluster below stays current:
++  // getCluster() reads the location, which Redux state changes alone don't track,
++  // so without this the selector could keep a stale cluster after a route change.
++  useLocation();
++  // Suppress the banner while the current cluster is being prepared by pre-open
++  // hooks (the connecting popup owns the UX during that window).
++  const isPreparing = useTypedSelector(state => {
++    const current = getCluster();
++    const preparing = state.clusterProvider.preparing;
++    return !!current && !!preparing && Object.prototype.hasOwnProperty.call(preparing, current);
++  });
++  return <PureAlertNotification checkerFunction={testClusterHealth} suppress={isPreparing} />;
+ }
+diff --git a/frontend/src/plugin/__snapshots__/pluginLib.snapshot b/frontend/src/plugin/__snapshots__/pluginLib.snapshot
+index d0e66d3aed9cac99b568047a9aa3bcd66f572a7e..46ad17a18aa29a0b3c5ad493dd79698e8f5957d0 100644
+--- a/frontend/src/plugin/__snapshots__/pluginLib.snapshot
++++ b/frontend/src/plugin/__snapshots__/pluginLib.snapshot
+@@ -783,6 +783,7 @@
+   "registerClusterEmptyState": [Function],
+   "registerClusterProviderDialog": [Function],
+   "registerClusterProviderMenuItem": [Function],
++  "registerClusterProviderPreOpen": [Function],
+   "registerClusterStatus": [Function],
+   "registerCustomCreateProject": [Function],
+   "registerDetailsViewHeaderAction": [Function],
+diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
+index 362a799327a257dc23881763d4c81dc5f36ba4da..02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8 100644
+--- a/frontend/src/plugin/index.ts
++++ b/frontend/src/plugin/index.ts
+@@ -53,8 +53,8 @@ import * as Utils from '../lib/util';
+ import { eventAction, HeadlampEventType } from '../redux/headlampEventSlice';
+ import store from '../redux/stores/store';
+ import * as stateless from '../stateless/index';
+-import { Headlamp, Plugin } from './lib';
+ import { getClusterProxyArgValues } from './clusterProxy';
++import { Headlamp, Plugin } from './lib';
+ import { changePluginLanguage, initializePluginI18n } from './pluginI18n';
+ import { useTranslation } from './pluginI18n';
+ import { PluginInfo } from './pluginsSlice';
+diff --git a/frontend/src/plugin/registry.tsx b/frontend/src/plugin/registry.tsx
+index 39685e2f8be9d159e5155578901295cd5e1525d3..016da4f10281905c3ca1e45a78732d25eceae852 100644
+--- a/frontend/src/plugin/registry.tsx
++++ b/frontend/src/plugin/registry.tsx
+@@ -71,13 +71,16 @@ import {
+   addClusterStatus,
+   addDialog,
+   addMenuItem,
++  addPreOpenHook,
+   ClusterEmptyStateComponent,
++  ClusterPreOpenHook,
+   ClusterProviderInfo,
+   ClusterStatusComponent,
+   DialogComponent,
+   MenuItemComponent,
+   setClusterEmptyState,
+ } from '../redux/clusterProviderSlice';
++export type { ClusterPreOpenContext, ClusterPreOpenHook } from '../redux/clusterProviderSlice';
+ import {
+   addEventCallback,
+   ClusterSettingsViewLoadedEvent,
+@@ -1070,6 +1073,40 @@ export function registerAddClusterProvider(item: ClusterProviderInfo) {
+   store.dispatch(addAddClusterProvider(item));
+ }
+ 
++/**
++ * Register a hook that runs once, before a cluster's views are rendered.
++ *
++ * Use it for any asynchronous work a cluster needs before it can be used —
++ * starting a proxy/tunnel, refreshing credentials, writing a kubeconfig
++ * context, warming a cache, and so on. The hook runs for every cluster that is
++ * opened individually, so a hook that only applies to some clusters should
++ * inspect the context and resolve immediately for the ones it does not own.
++ * Combined multi-cluster views currently skip pre-open hooks.
++ *
++ * The returned promise gates entry to the cluster: while it is pending the app
++ * shows a neutral loading state, and if it rejects the thrown error's message
++ * is shown to the user with a retry affordance. Multiple registered hooks run
++ * sequentially, in registration order; the cluster opens once all of them
++ * resolve, and the first rejection stops the rest.
++ *
++ * @param hook - The hook to run before a cluster is opened.
++ * @returns Nothing.
++ *
++ * @example
++ *
++ * ```ts
++ * import { ApiProxy, registerClusterProviderPreOpen } from '@kinvolk/headlamp-plugin/lib';
++ *
++ * registerClusterProviderPreOpen(async ({ cluster, reportProgress, signal }) => {
++ *   reportProgress?.(`Checking ${cluster} connection...`);
++ *   await ApiProxy.clusterRequest('/version', { cluster, signal });
++ * });
++ * ```
++ */
++export function registerClusterProviderPreOpen(hook: ClusterPreOpenHook): void {
++  store.dispatch(addPreOpenHook(hook));
++}
++
+ /**
+  * Add a new theme that will be available in the settings.
+  * Theme name should be unique
+diff --git a/frontend/src/redux/clusterProviderSlice.ts b/frontend/src/redux/clusterProviderSlice.ts
+index 19dd642fcd7884403342f7f311e6e9bf796735d9..a4a73e52293278081bc1c13c001139a1c5823530 100644
+--- a/frontend/src/redux/clusterProviderSlice.ts
++++ b/frontend/src/redux/clusterProviderSlice.ts
+@@ -49,6 +49,50 @@ export type ClusterEmptyStateComponent = (
+   props: ClusterEmptyStateProps
+ ) => React.ReactElement | null;
+ 
++/**
++ * Context passed to a {@link ClusterPreOpenHook} when a cluster is about to be opened.
++ */
++export interface ClusterPreOpenContext {
++  /** The name of the cluster being opened. */
++  cluster: string;
++  /**
++   * The cluster's configuration, as known to the app, or `null` if unavailable.
++   * Typed `unknown` so this slice does not depend on the k8s cluster
++   * types while still requiring hook authors to narrow before use.
++   */
++  clusterConf: unknown;
++  /**
++   * Aborts when preparation is no longer wanted — the user left the cluster
++   * before the hooks finished. Long-running hooks should pass it to whatever
++   * they await, or check it between steps, so abandoned preparation does not
++   * keep running; the app stops waiting on it either way.
++   */
++  signal?: AbortSignal;
++  /**
++   * Reports human-readable progress for the "connecting" popup shown while the
++   * cluster is being prepared (e.g. "Starting proxy…", "Verifying connection…").
++   * Optional — hooks that don't report progress just show a generic message.
++   */
++  reportProgress?: (message: string) => void;
++}
++
++/**
++ * A hook run once, before a cluster's views are rendered.
++ *
++ * Use it to perform any asynchronous preparation a cluster needs before it can
++ * be used — starting a proxy/tunnel, refreshing credentials, writing a
++ * kubeconfig context, warming a cache, etc. Hooks run for each single-cluster
++ * open; combined multi-cluster views currently skip preparation. A hook that
++ * only applies to certain clusters should inspect the context and resolve
++ * immediately for the ones it does not own.
++ *
++ * The returned promise gates entry to the cluster: while it is pending the app
++ * shows a neutral loading state, and if it rejects the thrown error's message
++ * is surfaced to the user with a retry affordance. Resolve to allow the cluster
++ * to open.
++ */
++export type ClusterPreOpenHook = (context: ClusterPreOpenContext) => Promise<void>;
++
+ /**
+  * Information about a cluster provider, that is shown on the add cluster page.
+  */
+@@ -74,6 +118,16 @@ export interface ClusterProviderSliceState {
+   clusterStatuses: ClusterStatusComponent[];
+   /** Optional product-owned replacement for the Home page's empty cluster state. */
+   clusterEmptyState: ClusterEmptyStateComponent | null;
++  /** Hooks run before a cluster is opened, to prepare it (e.g. start a proxy). */
++  preOpenHooks: ClusterPreOpenHook[];
++  /**
++   * Clusters currently being prepared by pre-open hooks. Each key is a cluster
++   * name and its value is the latest progress message reported for that cluster,
++   * or an empty string until a hook reports one. Presence of a cluster name in
++   * this map means "preparation in progress" — used to show the connecting popup
++   * and suppress the app's "Lost connection" health banner during preparation.
++   */
++  preparing: Record<string, string>;
+ }
+ 
+ export const initialState: ClusterProviderSliceState = {
+@@ -82,6 +136,8 @@ export const initialState: ClusterProviderSliceState = {
+   clusterProviders: [],
+   clusterStatuses: [],
+   clusterEmptyState: null,
++  preOpenHooks: [],
++  preparing: Object.create(null),
+ };
+ 
+ const clusterProviderSlice = createSlice({
+@@ -103,6 +159,24 @@ const clusterProviderSlice = createSlice({
+     setClusterEmptyState(state, action: PayloadAction<ClusterEmptyStateComponent>) {
+       state.clusterEmptyState = action.payload;
+     },
++    addPreOpenHook(state, action: PayloadAction<ClusterPreOpenHook>) {
++      state.preOpenHooks.push(action.payload);
++    },
++    /** Marks a cluster as being prepared, optionally with a progress message. */
++    setClusterPreparing(state, action: PayloadAction<{ cluster: string; message?: string }>) {
++      // Ensure a null-prototype map, including when rehydrating persisted/older
++      // state that predates this field or was stored as a plain object.
++      if (!state.preparing || Object.getPrototypeOf(state.preparing) !== null) {
++        state.preparing = Object.assign(Object.create(null), state.preparing);
++      }
++      state.preparing[action.payload.cluster] = action.payload.message ?? '';
++    },
++    /** Clears a cluster's preparing state once its pre-open hooks settle. */
++    clearClusterPreparing(state, action: PayloadAction<string>) {
++      if (state.preparing) {
++        delete state.preparing[action.payload];
++      }
++    },
+   },
+ });
+ 
+@@ -112,6 +186,9 @@ export const {
+   addAddClusterProvider,
+   addClusterStatus,
+   setClusterEmptyState,
++  addPreOpenHook,
++  setClusterPreparing,
++  clearClusterPreparing,
+ } = clusterProviderSlice.actions;
+ 
+ export default clusterProviderSlice.reducer;
+diff --git a/plugins/examples/dynamic-clusters/src/index.tsx b/plugins/examples/dynamic-clusters/src/index.tsx
+index 643411bdfdc05eee20053506cdf2e78c1b6a54fe..e99e4e76dadbf4f690841ef3ffdad464202e0d38 100644
+--- a/plugins/examples/dynamic-clusters/src/index.tsx
++++ b/plugins/examples/dynamic-clusters/src/index.tsx
+@@ -14,7 +14,12 @@
+  * limitations under the License.
+  */
+ 
+-import { ApiProxy, Headlamp, registerAppBarAction } from '@kinvolk/headlamp-plugin/lib';
++import {
++  ApiProxy,
++  Headlamp,
++  registerAppBarAction,
++  registerClusterProviderPreOpen,
++} from '@kinvolk/headlamp-plugin/lib';
+ import { Button, Modal, Paper, Stack, TextField, Typography } from '@mui/material';
+ import * as yaml from 'js-yaml';
+ import { useEffect, useState } from 'react';
+@@ -168,3 +173,8 @@ function ClusterCreationButton() {
+ }
+ 
+ registerAppBarAction(ClusterCreationButton);
++
++registerClusterProviderPreOpen(async ({ cluster, reportProgress, signal }) => {
++  reportProgress?.(`Checking ${cluster} connection...`);
++  await ApiProxy.clusterRequest('/version', { cluster, signal });
++});
+diff --git a/plugins/headlamp-plugin/src/index.ts b/plugins/headlamp-plugin/src/index.ts
+index d7500ebb5af9aaa4f10ff5aa035d3754966e6b9e..bc1b598fad985903e5a4b409792d878dfb3470d0 100644
+--- a/plugins/headlamp-plugin/src/index.ts
++++ b/plugins/headlamp-plugin/src/index.ts
+@@ -37,6 +37,8 @@ import Registry, {
+   AppLogoProps,
+   clusterAction,
+   ClusterChooserProps,
++  ClusterPreOpenContext,
++  ClusterPreOpenHook,
+   ConfigStore,
+   DefaultAppBarAction,
+   DefaultCreateProject,
+@@ -55,6 +57,7 @@ import Registry, {
+   registerClusterEmptyState,
+   registerClusterProviderDialog,
+   registerClusterProviderMenuItem,
++  registerClusterProviderPreOpen,
+   registerClusterStatus,
+   registerCustomCreateProject,
+   registerDetailsViewHeaderAction,
+@@ -128,6 +131,7 @@ export {
+   registerAddClusterProvider,
+   registerClusterProviderDialog,
+   registerClusterProviderMenuItem,
++  registerClusterProviderPreOpen,
+   registerHeadlampEventCallback,
+   ConfigStore,
+   registerKindIcon,
+@@ -158,6 +162,8 @@ export type {
+   CallbackActionOptions,
+   ClusterChooserProps,
+   ClusterEmptyStateProps,
++  ClusterPreOpenContext,
++  ClusterPreOpenHook,
+   DetailsViewSectionProps,
+   DefaultSidebars,
+   HeadlampEvent,
+-- 
+2.54.0
+
+
+From 215b58f5997d74d894c444c0f61e3df81b62fbf9 Mon Sep 17 00:00:00 2001
+From: yolossn <sannagaraj@microsoft.com>
+Date: Wed, 22 Jul 2026 13:58:34 +0530
+Subject: [PATCH 06/14] frontend: i18n: Regenerate cluster pre-open locales
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add the connecting, preparing, failure, and retry keys used by the cluster
+
+pre-open workflow across every bundled locale.
+
+Co-authored-by: René Dudfield <renedudfield@microsoft.com>
+---
+ frontend/src/i18n/locales/ar/translation.json    | 4 ++++
+ frontend/src/i18n/locales/bn/translation.json    | 4 ++++
+ frontend/src/i18n/locales/cs/translation.json    | 4 ++++
+ frontend/src/i18n/locales/de/translation.json    | 4 ++++
+ frontend/src/i18n/locales/en/translation.json    | 4 ++++
+ frontend/src/i18n/locales/es/translation.json    | 4 ++++
+ frontend/src/i18n/locales/fr/translation.json    | 4 ++++
+ frontend/src/i18n/locales/he/translation.json    | 4 ++++
+ frontend/src/i18n/locales/hi/translation.json    | 4 ++++
+ frontend/src/i18n/locales/hu/translation.json    | 4 ++++
+ frontend/src/i18n/locales/id/translation.json    | 4 ++++
+ frontend/src/i18n/locales/it/translation.json    | 4 ++++
+ frontend/src/i18n/locales/ja/translation.json    | 4 ++++
+ frontend/src/i18n/locales/ko/translation.json    | 4 ++++
+ frontend/src/i18n/locales/nl/translation.json    | 4 ++++
+ frontend/src/i18n/locales/pl/translation.json    | 4 ++++
+ frontend/src/i18n/locales/pt-br/translation.json | 4 ++++
+ frontend/src/i18n/locales/pt-pt/translation.json | 4 ++++
+ frontend/src/i18n/locales/ru/translation.json    | 4 ++++
+ frontend/src/i18n/locales/sv/translation.json    | 4 ++++
+ frontend/src/i18n/locales/ta/translation.json    | 4 ++++
+ frontend/src/i18n/locales/tr/translation.json    | 4 ++++
+ frontend/src/i18n/locales/ur/translation.json    | 4 ++++
+ frontend/src/i18n/locales/zh-tw/translation.json | 4 ++++
+ frontend/src/i18n/locales/zh/translation.json    | 4 ++++
+ 25 files changed, 100 insertions(+)
+
+diff --git a/frontend/src/i18n/locales/ar/translation.json b/frontend/src/i18n/locales/ar/translation.json
+index 10ec807e32348809da98be2591b771228d0d1133..8465651bd605bf3ba4db55af8d87c49991bc87cb 100644
+--- a/frontend/src/i18n/locales/ar/translation.json
++++ b/frontend/src/i18n/locales/ar/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 ثانية",
+   "1 minute": "دقيقة واحدة",
+   "5 minutes": "5 دقائق",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "إضافة",
+   "Add Cluster": "إضافة كتلة",
+   "Proceed to select your preferred method for cluster creation and addition": "تابع لاختيار الطريقة المفضلة لديك لإنشاء الكتلة وإضافتها",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "حدث خطأ أثناء حذف الإضافة {{ itemName }}",
+   "Uh-oh! Something went wrong.": "عذرًا! حدث خطأ ما.",
+   "Error loading {{ routeName }}": "حدث خطأ أثناء تحميل {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "يجب أن يحتوي اسم الكتلة فقط على أحرف وأرقام صغيرة أو '-'، ويجب أن يبدأ وينتهي بحرف أو رقم.",
+   "Error": "خطأ",
+   "Okay": "حسنًا",
+diff --git a/frontend/src/i18n/locales/bn/translation.json b/frontend/src/i18n/locales/bn/translation.json
+index 70834dee1062628e5612c0743fab99672a5a0a5b..b6b46947d4876f6aea340c4f9c6648a118f12ce1 100644
+--- a/frontend/src/i18n/locales/bn/translation.json
++++ b/frontend/src/i18n/locales/bn/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "৩০ সেকেন্ড",
+   "1 minute": "১ মিনিট",
+   "5 minutes": "৫ মিনিট",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "যোগ করুন",
+   "Add Cluster": "Cluster যোগ করুন",
+   "Proceed to select your preferred method for cluster creation and addition": "Cluster Create এবং সংযোজনের জন্য আপনার পছন্দসই পদ্ধতিটি নির্বাচন করতে এগিয়ে যান",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Plugin delete করতে Error {{ itemName }}।",
+   "Uh-oh! Something went wrong.": "আহ-ওহ! ",
+   "Error loading {{ routeName }}": "Loading Error {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Clusterের নামটিতে অবশ্যই কেবল ছোট আলফানিউমেরিক অক্ষর বা '-' থাকতে হবে এবং এটি অবশ্যই একটি আলফানিউমেরিক চরিত্রের সাথে শুরু এবং শেষ করতে হবে।",
+   "Error": "Error",
+   "Okay": "ঠিক আছে",
+diff --git a/frontend/src/i18n/locales/cs/translation.json b/frontend/src/i18n/locales/cs/translation.json
+index b3feeb449ba7643020b05e448f17e733bc96e438..47df8383b3dc40cf2acd3679d065e9e7f06de33e 100644
+--- a/frontend/src/i18n/locales/cs/translation.json
++++ b/frontend/src/i18n/locales/cs/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 s",
+   "1 minute": "1 minuta",
+   "5 minutes": "5 min",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Přidat",
+   "Add Cluster": "Přidat cluster",
+   "Proceed to select your preferred method for cluster creation and addition": "Pokračujte výběrem upřednostňované metody pro vytvoření a přidání clusteru.",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Při odstraňování modulu plug-in {{ itemName }} došlo k chybě.",
+   "Uh-oh! Something went wrong.": "Ale ne! Něco se nepovedlo.",
+   "Error loading {{ routeName }}": "Chyba při načítání {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Název clusteru musí obsahovat pouze malé alfanumerické znaky nebo znak - a musí začínat a končit alfanumerickým znakem.",
+   "Error": "Chyba",
+   "Okay": "OK",
+diff --git a/frontend/src/i18n/locales/de/translation.json b/frontend/src/i18n/locales/de/translation.json
+index 3837548db5a7f8dc7185c8070a653ef76f01d38c..69a645c77ba613e139b05be0611c4430588d7646 100644
+--- a/frontend/src/i18n/locales/de/translation.json
++++ b/frontend/src/i18n/locales/de/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Hinzufügen",
+   "Add Cluster": "Cluster hinzufügen",
+   "Proceed to select your preferred method for cluster creation and addition": "",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "Oh-oh! Etwas ist schief gelaufen.",
+   "Error loading {{ routeName }}": "",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "",
+   "Error": "Error",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/en/translation.json b/frontend/src/i18n/locales/en/translation.json
+index d51662a5a2e455cd925e0991502225e7983f9452..812708f63a3c83dd64636d945e19bc387190a2db 100644
+--- a/frontend/src/i18n/locales/en/translation.json
++++ b/frontend/src/i18n/locales/en/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 seconds",
+   "1 minute": "1 minute",
+   "5 minutes": "5 minutes",
++  "Connecting to \"{{cluster}}\"": "Connecting to \"{{cluster}}\"",
++  "Preparing cluster…": "Preparing cluster…",
+   "Add": "Add",
+   "Add Cluster": "Add Cluster",
+   "Proceed to select your preferred method for cluster creation and addition": "Proceed to select your preferred method for cluster creation and addition",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Error deleting plugin {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Uh-oh! Something went wrong.",
+   "Error loading {{ routeName }}": "Error loading {{ routeName }}",
++  "Could not open cluster": "Could not open cluster",
++  "Retry": "Retry",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.",
+   "Error": "Error",
+   "Okay": "Okay",
+diff --git a/frontend/src/i18n/locales/es/translation.json b/frontend/src/i18n/locales/es/translation.json
+index 97731c2ec611194081d08105bd4bd36f80ea05e5..b7023215dd52a4fb0e7956cdda16dc16cb1c6aa3 100644
+--- a/frontend/src/i18n/locales/es/translation.json
++++ b/frontend/src/i18n/locales/es/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Añadir",
+   "Add Cluster": "Añadir cluster",
+   "Proceed to select your preferred method for cluster creation and addition": "",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "¡Ups! Algo ha fallado.",
+   "Error loading {{ routeName }}": "Error al cargar {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "El nombre del cluster debe contener solo caracteres alfanuméricos en minúsculas o '-', y debe comenzar y terminar con un carácter alfanumérico.",
+   "Error": "Error",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/fr/translation.json b/frontend/src/i18n/locales/fr/translation.json
+index 12b65f07bf66b5a5697eb60bad81cf9f81cbc003..1e06b9ee63d7378a9c7dd4c33c62b607a50bf17f 100644
+--- a/frontend/src/i18n/locales/fr/translation.json
++++ b/frontend/src/i18n/locales/fr/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 secondes",
+   "1 minute": "1 minute",
+   "5 minutes": "5 minutes",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Ajouter",
+   "Add Cluster": "Ajouter un cluster",
+   "Proceed to select your preferred method for cluster creation and addition": "Continuez pour choisir votre méthode préférée pour la création et l'ajout de cluster",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Erreur lors de la suppression du plugin {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Uh-oh ! Quelque chose s'est mal passé.",
+   "Error loading {{ routeName }}": "Erreur lors du chargement de {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Le nom du cluster ne doit contenir que des caractères alphanumériques minuscules ou '-', et doit commencer et se terminer par un caractère alphanumérique.",
+   "Error": "Erreur",
+   "Okay": "D'accord",
+diff --git a/frontend/src/i18n/locales/he/translation.json b/frontend/src/i18n/locales/he/translation.json
+index 9032b8d99da6f3bbbd401b43ec67a854f3ec63ed..c9635b79466efb47ebf92f1a07052a62055a1980 100644
+--- a/frontend/src/i18n/locales/he/translation.json
++++ b/frontend/src/i18n/locales/he/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 seconds",
+   "1 minute": "1 minute",
+   "5 minutes": "5 minutes",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Add",
+   "Add Cluster": "Add Cluster",
+   "Proceed to select your preferred method for cluster creation and addition": "Proceed to select your preferred method for cluster creation and addition",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Error deleting plugin {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Uh-oh! Something went wrong.",
+   "Error loading {{ routeName }}": "Error loading {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.",
+   "Error": "Error",
+   "Okay": "Okay",
+diff --git a/frontend/src/i18n/locales/hi/translation.json b/frontend/src/i18n/locales/hi/translation.json
+index 73c7590b26942505a945788ba00ecf78c702213f..560f511e4b7ceb4cfd931c6f79b28b77c16b8eb8 100644
+--- a/frontend/src/i18n/locales/hi/translation.json
++++ b/frontend/src/i18n/locales/hi/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "",
+   "Add Cluster": "",
+   "Proceed to select your preferred method for cluster creation and addition": "",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "",
+   "Error loading {{ routeName }}": "",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "",
+   "Error": "",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/hu/translation.json b/frontend/src/i18n/locales/hu/translation.json
+index 98b070d3e30de4082b28f409aacafb38db428b6c..2d60d905008e6542f0074438aed7c57bcc6b1ca0 100644
+--- a/frontend/src/i18n/locales/hu/translation.json
++++ b/frontend/src/i18n/locales/hu/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 másodperc",
+   "1 minute": "1 perc",
+   "5 minutes": "5 perc",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Hozzáadás",
+   "Add Cluster": "Fürt hozzáadása",
+   "Proceed to select your preferred method for cluster creation and addition": "Folytassa a fürt létrehozásának és hozzáadásának előnyben részesített módszere kiválasztásával",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Hiba történt a(z) {{ itemName }} beépülő modul törlése során.",
+   "Uh-oh! Something went wrong.": "Hoppá! Hiba történt.",
+   "Error loading {{ routeName }}": "Hiba a(z) {{ routeName }} betöltése során",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "A fürtök neve csak kisbetűs alfanumerikus karaktereket tartalmazhat, valamint alfanumerikus karakterrel kell kezdődnie és végződnie.",
+   "Error": "Hiba",
+   "Okay": "OK",
+diff --git a/frontend/src/i18n/locales/id/translation.json b/frontend/src/i18n/locales/id/translation.json
+index d01cbafa7d1b85a498bfaebc826f380f7c6b2287..9ed386c4720285b51262b2b77b7986a06e8df775 100644
+--- a/frontend/src/i18n/locales/id/translation.json
++++ b/frontend/src/i18n/locales/id/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 detik",
+   "1 minute": "1 menit",
+   "5 minutes": "5 menit",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Tambahkan",
+   "Add Cluster": "Tambahkan Kluster",
+   "Proceed to select your preferred method for cluster creation and addition": "Lanjutkan untuk memilih metode pilihan Anda untuk pembuatan dan penambahan kluster",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Kesalahan saat menghapus plugin {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Oh, tidak! Terjadi kesalahan.",
+   "Error loading {{ routeName }}": "Kesalahan saat memuat {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Nama kluster hanya boleh berisi karakter alfanumerik huruf kecil atau '-', dan harus dimulai dan diakhiri dengan karakter alfanumerik.",
+   "Error": "Kesalahan",
+   "Okay": "Ok",
+diff --git a/frontend/src/i18n/locales/it/translation.json b/frontend/src/i18n/locales/it/translation.json
+index ce844d6941a0faa8a276b3c3be919fe387ab989c..b456f5fa128c5616dbfd9a1245ef85f520df3b34 100644
+--- a/frontend/src/i18n/locales/it/translation.json
++++ b/frontend/src/i18n/locales/it/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Aggiungi",
+   "Add Cluster": "Aggiungi Cluster",
+   "Proceed to select your preferred method for cluster creation and addition": "",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "Ops! Qualcosa è andato storto.",
+   "Error loading {{ routeName }}": "Errore durante il caricamento di {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Il nome del cluster può contenere solo caratteri alfanumerici minuscoli o '-', e deve iniziare e terminare con un carattere alfanumerico.",
+   "Error": "Errore",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/ja/translation.json b/frontend/src/i18n/locales/ja/translation.json
+index 5653d967019e4b2e720fdf385d5d001a9dd92355..e950663fbbd1e33627dd4b7ee6e710a1a23f31c3 100644
+--- a/frontend/src/i18n/locales/ja/translation.json
++++ b/frontend/src/i18n/locales/ja/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "追加",
+   "Add Cluster": "クラスターの追加",
+   "Proceed to select your preferred method for cluster creation and addition": "希望するクラスターの作成や追加の方法を選択してください",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "あれっ！何か問題が発生しました。",
+   "Error loading {{ routeName }}": "{{ routeName }} の読み込み中にエラーが発生しました",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "クラスター名は小文字の英数字または「-」のみを含み、最初と最後は英数字である必要があります。",
+   "Error": "エラー",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/ko/translation.json b/frontend/src/i18n/locales/ko/translation.json
+index e89abd3b1058deebc489aebe662418a9a45f92ef..009ec8226eeef763947261fbc891d64859a04d8b 100644
+--- a/frontend/src/i18n/locales/ko/translation.json
++++ b/frontend/src/i18n/locales/ko/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "추가",
+   "Add Cluster": "클러스터 추가",
+   "Proceed to select your preferred method for cluster creation and addition": "클러스터 생성 및 추가 방법을 선택하세요.",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "앗! 문제가 발생했습니다.",
+   "Error loading {{ routeName }}": "{{ routeName }} 로드를 실패했습니다.",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "클러스터 이름은 소문자 영숫자 또는 '-'만 포함할 수 있으며, 영숫자로 시작하고 끝나야 합니다.",
+   "Error": "오류",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/nl/translation.json b/frontend/src/i18n/locales/nl/translation.json
+index 104279a47070e23d0312571105da7d7bca4ffb35..41af496997b59b0d06434f00ff1cc4e9acb56123 100644
+--- a/frontend/src/i18n/locales/nl/translation.json
++++ b/frontend/src/i18n/locales/nl/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 seconden",
+   "1 minute": "1 minuut",
+   "5 minutes": "5 minuten",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Toevoegen",
+   "Add Cluster": "Cluster toevoegen",
+   "Proceed to select your preferred method for cluster creation and addition": "Ga door met het selecteren van uw voorkeursmethode voor het maken en toevoegen van clusters",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Fout bij het verwijderen van invoegtoepassing {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Oeps! Er is iets misgegaan.",
+   "Error loading {{ routeName }}": "Fout bij het laden van {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "De clusternaam mag alleen kleine alfanumerieke tekens of -bevatten en moet beginnen en eindigen met een alfanumeriek teken.",
+   "Error": "Fout",
+   "Okay": "OK",
+diff --git a/frontend/src/i18n/locales/pl/translation.json b/frontend/src/i18n/locales/pl/translation.json
+index 62349effca106aa910abd6e816c3b704a4732d73..be826db242f41909c66daf48e926b95727dc8866 100644
+--- a/frontend/src/i18n/locales/pl/translation.json
++++ b/frontend/src/i18n/locales/pl/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 s",
+   "1 minute": "1 minuta",
+   "5 minutes": "5 minut",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Dodaj",
+   "Add Cluster": "Dodaj klaster",
+   "Proceed to select your preferred method for cluster creation and addition": "Przejdź do wybierania preferowanej metody tworzenia i dodawania klastra",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Błąd podczas usuwania wtyczki {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Niestety Wystąpił problem.",
+   "Error loading {{ routeName }}": "Błąd ładowania {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Nazwa klastra może zawierać tylko małe znaki alfanumeryczne lub znak „-” oraz musi zaczynać się i kończyć znakiem alfanumerycznym.",
+   "Error": "Błąd",
+   "Okay": "OK",
+diff --git a/frontend/src/i18n/locales/pt-br/translation.json b/frontend/src/i18n/locales/pt-br/translation.json
+index dd13653a2309dbb5d9aa958439224b84b6da4991..d69c6e4eba2073c9c4103a4c9a18726d31b3d0bd 100644
+--- a/frontend/src/i18n/locales/pt-br/translation.json
++++ b/frontend/src/i18n/locales/pt-br/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 segundos",
+   "1 minute": "1 minuto",
+   "5 minutes": "5 minutos",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Adicionar",
+   "Add Cluster": "Adicionar Cluster",
+   "Proceed to select your preferred method for cluster creation and addition": "Prossiga para selecionar seu método preferencial para criação e adição de cluster",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Erro ao excluir o plug-in {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Oh-oh! Algo correu mal.",
+   "Error loading {{ routeName }}": "Erro ao carregar {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "O nome do cluster deve conter apenas caracteres alfanuméricos minúsculos ou '-', e deve começar e terminar com um carácter alfanumérico.",
+   "Error": "Erro",
+   "Okay": "Ok",
+diff --git a/frontend/src/i18n/locales/pt-pt/translation.json b/frontend/src/i18n/locales/pt-pt/translation.json
+index badfcf5173f69631135388c4d27d753af8e19fec..b26f9e4e23a0beb8265f44b3ea0cfac00637f3c8 100644
+--- a/frontend/src/i18n/locales/pt-pt/translation.json
++++ b/frontend/src/i18n/locales/pt-pt/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "",
+   "Add Cluster": "",
+   "Proceed to select your preferred method for cluster creation and addition": "",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "",
+   "Error loading {{ routeName }}": "",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "",
+   "Error": "",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/ru/translation.json b/frontend/src/i18n/locales/ru/translation.json
+index c75c6517fb9d7f6209ad84b92393a93e6ba29038..f300a3e0d10e485d7628787991ea23948d09b52d 100644
+--- a/frontend/src/i18n/locales/ru/translation.json
++++ b/frontend/src/i18n/locales/ru/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 секунд",
+   "1 minute": "1 минута",
+   "5 minutes": "5 минут",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Добавить",
+   "Add Cluster": "Добавить кластер",
+   "Proceed to select your preferred method for cluster creation and addition": "Перейдите к выбору предпочтительного метода создания и добавления кластера.",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Ошибка удаления плагина {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Ой-ой! Что-то пошло не так.",
+   "Error loading {{ routeName }}": "Ошибка загрузки {{ routeName }}.",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Имя кластера должно содержать только строчные буквенно-цифровые символы или «-» и должно начинаться и заканчиваться буквенно-цифровым символом.",
+   "Error": "Ошибка",
+   "Okay": "Хорошо",
+diff --git a/frontend/src/i18n/locales/sv/translation.json b/frontend/src/i18n/locales/sv/translation.json
+index 3c49dcfcd45b4ab9ce681a61ab93612094467b5f..80b9ac200102a7021b6360c016a46dfc534df6d1 100644
+--- a/frontend/src/i18n/locales/sv/translation.json
++++ b/frontend/src/i18n/locales/sv/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 sekunder",
+   "1 minute": "1 minut",
+   "5 minutes": "5 minuter",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Lägg till",
+   "Add Cluster": "Lägg till kluster",
+   "Proceed to select your preferred method for cluster creation and addition": "Välj hur du vill skapa och lägga till klustret",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "Fel vid borttagning av plugin {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Hoppsan! Något blev fel.",
+   "Error loading {{ routeName }}": "Fel vid inläsning av {{ routeName }}",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Klusternamnet får bara innehålla gemena alfanumeriska tecken och bindestreck och de måste börja och sluta med ett alfanumeriskt tecken.",
+   "Error": "Fel",
+   "Okay": "Ok",
+diff --git a/frontend/src/i18n/locales/ta/translation.json b/frontend/src/i18n/locales/ta/translation.json
+index f1c2cdcf1228da2eb4be46d64377254818e47416..d501990660e26fcded2537331270e01d5e9e60ae 100644
+--- a/frontend/src/i18n/locales/ta/translation.json
++++ b/frontend/src/i18n/locales/ta/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 விநாடிகள்",
+   "1 minute": "1 நிமிடம்",
+   "5 minutes": "5 நிமிடங்கள்",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "சேர்",
+   "Add Cluster": "க்ளஸ்டர் சேர்",
+   "Proceed to select your preferred method for cluster creation and addition": "க்ளஸ்டர் உருவாக்கம் மற்றும் சேர்ப்பதற்கான உங்கள் விருப்பமான முறையைத் தேர்ந்தெடுக்க தொடரவும்",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "அய்யோ! ஏதோ பிழை நேர்ந்தது.",
+   "Error loading {{ routeName }}": "{{ routeName }} ஏற்றுவதில் பிழை",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "க்ளஸ்டர் பெயர் சிறிய எழுத்துக்கள், எண்கள் அல்லது '-' மட்டுமே கொண்டிருக்க வேண்டும், மேலும் எழுத்து அல்லது எண்ணுடன் தொடங்கி முடிய வேண்டும்.",
+   "Error": "பிழை",
+   "Okay": "சரி",
+diff --git a/frontend/src/i18n/locales/tr/translation.json b/frontend/src/i18n/locales/tr/translation.json
+index dd553dffd255fb8806d4b0507c4908d0f903080e..3841aca300cdcdce08f39ce43c299246a63e9d07 100644
+--- a/frontend/src/i18n/locales/tr/translation.json
++++ b/frontend/src/i18n/locales/tr/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 saniye",
+   "1 minute": "1 dakika",
+   "5 minutes": "5 dakika",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "Ekle",
+   "Add Cluster": "Küme Ekle",
+   "Proceed to select your preferred method for cluster creation and addition": "Küme oluşturma ve ekleme işleminde tercih ettiğiniz yöntemi seçmek için devam edin",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "{{ itemName }} eklentisi silinirken hata oluştu.",
+   "Uh-oh! Something went wrong.": "Hay aksi! Bir sorun oluştu.",
+   "Error loading {{ routeName }}": "{{ routeName }} yüklenirken hata oluştu",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Küme adı, yalnızca küçük harf alfasayısal karakterler veya '-' içermeli ve alfasayısal bir karakter ile başlayıp bitmelidir.",
+   "Error": "Hata",
+   "Okay": "Tamam",
+diff --git a/frontend/src/i18n/locales/ur/translation.json b/frontend/src/i18n/locales/ur/translation.json
+index aebc10ff883a5e4306e7a82249dabb71b3241968..7c92e4e6c69db824b221360cdc47523c216186f7 100644
+--- a/frontend/src/i18n/locales/ur/translation.json
++++ b/frontend/src/i18n/locales/ur/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 سیکنڈ",
+   "1 minute": "1 منٹ",
+   "5 minutes": "5 منٹ",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "شامل کریں",
+   "Add Cluster": "کلسٹر شامل کریں",
+   "Proceed to select your preferred method for cluster creation and addition": "کلسٹر بنانے اور شامل کرنے کے لیے اپنا پسندیدہ طریقہ منتخب کریں",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "پلگ ان {{ itemName }} حذف کرنے میں خرابی",
+   "Uh-oh! Something went wrong.": "اوہ! کچھ غلط ہو گیا",
+   "Error loading {{ routeName }}": "{{ routeName }} لوڈ کرنے میں خرابی",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "کلسٹر کے نام میں صرف چھوٹے حروف، اعداد یا '-' شامل ہو سکتے ہیں اور نام کا آغاز اور اختتام حرف یا عدد سے ہونا چاہیے",
+   "Error": "خرابی",
+   "Okay": "ٹھیک ہے",
+diff --git a/frontend/src/i18n/locales/zh-tw/translation.json b/frontend/src/i18n/locales/zh-tw/translation.json
+index 655465d02b076cdbf3f0784db3332b93dcbfc69c..649860567892591fc17b99eec618df6840aeeccd 100644
+--- a/frontend/src/i18n/locales/zh-tw/translation.json
++++ b/frontend/src/i18n/locales/zh-tw/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 秒",
+   "1 minute": "1 分鐘",
+   "5 minutes": "5 分鐘",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "新增",
+   "Add Cluster": "新增叢集",
+   "Proceed to select your preferred method for cluster creation and addition": "繼續選擇您偏好的叢集建立和新增方法",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "刪除外掛 {{ itemName }} 時出錯。",
+   "Uh-oh! Something went wrong.": "哎呀！出現問題。",
+   "Error loading {{ routeName }}": "讀取 {{ routeName }} 時出錯",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "叢集名稱只能包含小寫字母數字字元或 '-'，且必須以字母數字字元開頭和結尾。",
+   "Error": "錯誤",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/zh/translation.json b/frontend/src/i18n/locales/zh/translation.json
+index 7761ba94522e0fe7b2e5b4f3f9f68aa5250eb33a..f7b48e15fbb855ac66dd40b3dd125cd90a4c2670 100644
+--- a/frontend/src/i18n/locales/zh/translation.json
++++ b/frontend/src/i18n/locales/zh/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 秒",
+   "1 minute": "1 分钟",
+   "5 minutes": "5 分钟",
++  "Connecting to \"{{cluster}}\"": "",
++  "Preparing cluster…": "",
+   "Add": "新增",
+   "Add Cluster": "新增集群",
+   "Proceed to select your preferred method for cluster creation and addition": "继续选择您偏好的集群创建与添加方式",
+@@ -136,6 +138,8 @@
+   "Error deleting plugin {{ itemName }}.": "删除插件 {{ itemName }} 时出错。",
+   "Uh-oh! Something went wrong.": "哎呀！出现问题。",
+   "Error loading {{ routeName }}": "读取 {{ routeName }} 时出错",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "集群名称只能包含小写字母数字字符或 '-'，且必须以字母数字字符开头和结尾。",
+   "Error": "错误",
+   "Okay": "好的",
+-- 
+2.54.0
+
+
+From 2c5ad42a60049c5a8d67320896ee6cdb63e2c842 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 26 Aug 2026 20:54:25 +0200
+Subject: [PATCH 07/14] frontend: ClusterTable: Cover additive cluster actions
+
+Ensure plugin-provided menu items do not replace Headlamp cluster actions.
+---
+ .../components/App/Home/ClusterTable.test.tsx | 29 ++++++++++++++++++-
+ 1 file changed, 28 insertions(+), 1 deletion(-)
+
+diff --git a/frontend/src/components/App/Home/ClusterTable.test.tsx b/frontend/src/components/App/Home/ClusterTable.test.tsx
+index 746f7d2b74f16b9dedfa262d73c6d606009fada0..a49a4ad2193bd16fd791c1a2f112ac1ac7959b4b 100644
+--- a/frontend/src/components/App/Home/ClusterTable.test.tsx
++++ b/frontend/src/components/App/Home/ClusterTable.test.tsx
+@@ -28,6 +28,7 @@ import ClusterTable from './ClusterTable';
+ 
+ const theme = createMuiTheme({ name: 'light', base: 'light' });
+ let ClusterEmptyState: ComponentType<{ defaultContent: ReactNode }> | null = null;
++let ClusterMenuItems: ComponentType<any>[] = [];
+ const { dispatchMock } = vi.hoisted(() => ({ dispatchMock: vi.fn() }));
+ 
+ function renderWithTheme(ui: ReactNode) {
+@@ -68,7 +69,7 @@ vi.mock('../../../redux/hooks', () => ({
+       clusterProvider: {
+         clusterStatuses: [],
+         dialogs: [],
+-        menuItems: [],
++        menuItems: ClusterMenuItems,
+         clusterEmptyState: ClusterEmptyState,
+       },
+       config: {
+@@ -433,6 +434,32 @@ describe('ClusterTable', () => {
+ describe('ClusterContextMenu', () => {
+   afterEach(() => {
+     vi.clearAllMocks();
++    ClusterMenuItems = [];
++  });
++
++  it('keeps Delete when a plugin registers an additive cluster action', () => {
++    ClusterMenuItems = [() => <div role="menuitem">Start proxy</div>];
++
++    render(
++      <SnackbarProvider>
++        <MemoryRouter>
++          <ClusterContextMenu
++            cluster={
++              {
++                name: 'spoke-a',
++                auth_type: '',
++                meta_data: { source: 'dynamic_cluster' },
++              } as Cluster
++            }
++          />
++        </MemoryRouter>
++      </SnackbarProvider>
++    );
++
++    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
++
++    expect(screen.getByText('Start proxy')).toBeInTheDocument();
++    expect(screen.getByText('Delete')).toBeInTheDocument();
+   });
+ 
+   it('updates the config before notifying the page after deleting a cluster', async () => {
+-- 
+2.54.0
+
+
+From 23ecc8d1540862094e0565f5e47c3ff7e58fad54 Mon Sep 17 00:00:00 2001
+From: yolossn <sannagaraj@microsoft.com>
+Date: Wed, 22 Jul 2026 14:04:30 +0530
+Subject: [PATCH 08/14] frontend: ClusterContextMenu: Keep built-in Delete
+ action
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Treat plugin cluster actions as additive so registering one does not hide
+
+Delete from clusters that Headlamp is allowed to remove.
+
+Co-authored-by: René Dudfield <renedudfield@microsoft.com>
+---
+ .../App/Home/ClusterContextMenu.tsx           | 27 +++++++++----------
+ 1 file changed, 13 insertions(+), 14 deletions(-)
+
+diff --git a/frontend/src/components/App/Home/ClusterContextMenu.tsx b/frontend/src/components/App/Home/ClusterContextMenu.tsx
+index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..f8bd763a3907d9b8b51baa0485aad423e8e6870a 100644
+--- a/frontend/src/components/App/Home/ClusterContextMenu.tsx
++++ b/frontend/src/components/App/Home/ClusterContextMenu.tsx
+@@ -164,20 +164,19 @@ export default function ClusterContextMenu({
+         >
+           <ListItemText>{t('translation|Settings')}</ListItemText>
+         </MenuItem>
+-        {(!menuItems || menuItems.length === 0) &&
+-          ((cluster.meta_data?.source === 'dynamic_cluster' &&
+-            (helpers.isElectron() || isDynamicClusterEnabled)) ||
+-            (cluster.meta_data?.source === 'kubeconfig' &&
+-              (helpers.isElectron() || allowKubeconfigChanges))) && (
+-            <MenuItem
+-              onClick={() => {
+-                setOpenConfirmDialog('deleteDynamic');
+-                handleMenuClose();
+-              }}
+-            >
+-              <ListItemText>{t('translation|Delete')}</ListItemText>
+-            </MenuItem>
+-          )}
++        {((cluster.meta_data?.source === 'dynamic_cluster' &&
++          (helpers.isElectron() || isDynamicClusterEnabled)) ||
++          (cluster.meta_data?.source === 'kubeconfig' &&
++            (helpers.isElectron() || allowKubeconfigChanges))) && (
++          <MenuItem
++            onClick={() => {
++              setOpenConfirmDialog('deleteDynamic');
++              handleMenuClose();
++            }}
++          >
++            <ListItemText>{t('translation|Delete')}</ListItemText>
++          </MenuItem>
++        )}
+         {menuItems.map((Item, index) => {
+           return (
+             <Item
+-- 
+2.54.0
+
+
+From 6740eebfab1085eaeba4f0f074c57510b60b3a2b Mon Sep 17 00:00:00 2001
+From: yolossn <sannagaraj@microsoft.com>
+Date: Tue, 25 Aug 2026 18:04:32 +0530
+Subject: [PATCH 09/14] frontend: stories: Add cluster pre-open states
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Document the default, progress, and suppressed-alert states so the cluster
+
+preparation workflow remains visually reviewable.
+
+Co-authored-by: René Dudfield <renedudfield@microsoft.com>
+---
+ .../App/ClusterPreparingDialog.stories.tsx    | 52 +++++++++++++
+ ...ingDialog.DefaultMessage.stories.storyshot | 78 +++++++++++++++++++
+ ...alog.WithProgressMessage.stories.storyshot | 78 +++++++++++++++++++
+ .../common/AlertNotification.stories.tsx      | 11 +++
+ ...tNotification.Suppressed.stories.storyshot | 12 +++
+ 5 files changed, 231 insertions(+)
+ create mode 100644 frontend/src/components/App/ClusterPreparingDialog.stories.tsx
+ create mode 100644 frontend/src/components/App/__snapshots__/ClusterPreparingDialog.DefaultMessage.stories.storyshot
+ create mode 100644 frontend/src/components/App/__snapshots__/ClusterPreparingDialog.WithProgressMessage.stories.storyshot
+ create mode 100644 frontend/src/components/common/__snapshots__/AlertNotification.Suppressed.stories.storyshot
+
+diff --git a/frontend/src/components/App/ClusterPreparingDialog.stories.tsx b/frontend/src/components/App/ClusterPreparingDialog.stories.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..a8e07ce7efe5dd409b72832cdf047935ff1c2386
+--- /dev/null
++++ b/frontend/src/components/App/ClusterPreparingDialog.stories.tsx
+@@ -0,0 +1,52 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { Meta, StoryFn } from '@storybook/react';
++import React from 'react';
++import { TestContext } from '../../test';
++import ClusterPreparingDialog, { ClusterPreparingDialogProps } from './ClusterPreparingDialog';
++
++export default {
++  title: 'App/ClusterPreparingDialog',
++  component: ClusterPreparingDialog,
++  decorators: [
++    Story => (
++      <TestContext>
++        <Story />
++      </TestContext>
++    ),
++  ],
++  argTypes: {
++    cluster: { control: 'text' },
++    message: { control: 'text' },
++  },
++} satisfies Meta<typeof ClusterPreparingDialog>;
++
++const Template: StoryFn<ClusterPreparingDialogProps> = args => <ClusterPreparingDialog {...args} />;
++
++export const WithProgressMessage = Template.bind({});
++WithProgressMessage.args = {
++  cluster: 'edge-cluster-1',
++  message: 'Starting AKS Hybrid & Edge proxy…',
++};
++WithProgressMessage.storyName = 'With Progress Message';
++
++export const DefaultMessage = Template.bind({});
++DefaultMessage.args = {
++  // No message reported yet — falls back to the generic "Preparing cluster…".
++  cluster: 'edge-cluster-1',
++};
++DefaultMessage.storyName = 'Default (No Progress Message)';
+diff --git a/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.DefaultMessage.stories.storyshot b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.DefaultMessage.stories.storyshot
+new file mode 100644
+index 0000000000000000000000000000000000000000..c906dabf5d660c8c096b7e5bf2acc0feca185596
+--- /dev/null
++++ b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.DefaultMessage.stories.storyshot
+@@ -0,0 +1,78 @@
++<body>
++  <div
++    aria-hidden="true"
++  />
++  <div
++    class="MuiDialog-root MuiModal-root css-zw3mfo-MuiModal-root-MuiDialog-root"
++    role="presentation"
++  >
++    <div
++      aria-hidden="true"
++      class="MuiBackdrop-root MuiModal-backdrop css-yiavyu-MuiBackdrop-root-MuiDialog-backdrop"
++      style="opacity: 1; transition: opacity 225ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;"
++    />
++    <div
++      data-testid="sentinelStart"
++      tabindex="0"
++    />
++    <div
++      class="MuiDialog-container MuiDialog-scrollPaper css-hz1bth-MuiDialog-container"
++      role="presentation"
++      style="opacity: 1; transition: opacity 225ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;"
++      tabindex="-1"
++    >
++      <div
++        aria-labelledby="cluster-preopen-title"
++        class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiDialog-paper MuiDialog-paperScrollPaper MuiDialog-paperWidthXs MuiDialog-paperFullWidth css-17iivmf-MuiPaper-root-MuiDialog-paper"
++        role="dialog"
++      >
++        <h2
++          class="MuiTypography-root MuiTypography-h6 MuiDialogTitle-root css-8yphvn-MuiTypography-root-MuiDialogTitle-root"
++          id="cluster-preopen-title"
++        >
++          Connecting to "edge-cluster-1"
++        </h2>
++        <div
++          class="MuiDialogContent-root css-ypiqx9-MuiDialogContent-root"
++        >
++          <div
++            class="MuiBox-root css-1pdqtch"
++          >
++            <span
++              aria-hidden="true"
++              class="MuiCircularProgress-root MuiCircularProgress-indeterminate MuiCircularProgress-colorPrimary css-1g0vz9s-MuiCircularProgress-root"
++              role="progressbar"
++              style="width: 22px; height: 22px;"
++            >
++              <svg
++                class="MuiCircularProgress-svg css-1idz92c-MuiCircularProgress-svg"
++                viewBox="22 22 44 44"
++              >
++                <circle
++                  class="MuiCircularProgress-circle MuiCircularProgress-circleIndeterminate css-176wh8e-MuiCircularProgress-circle"
++                  cx="44"
++                  cy="44"
++                  fill="none"
++                  r="20.2"
++                  stroke-width="3.6"
++                />
++              </svg>
++            </span>
++            <p
++              aria-atomic="true"
++              aria-live="polite"
++              class="MuiTypography-root MuiTypography-body2 css-ab4e19-MuiTypography-root"
++              role="status"
++            >
++              Preparing cluster…
++            </p>
++          </div>
++        </div>
++      </div>
++    </div>
++    <div
++      data-testid="sentinelEnd"
++      tabindex="0"
++    />
++  </div>
++</body>
+\ No newline at end of file
+diff --git a/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.WithProgressMessage.stories.storyshot b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.WithProgressMessage.stories.storyshot
+new file mode 100644
+index 0000000000000000000000000000000000000000..b36e9bfbee3022ce274fd5fb67380b8a6cddb70b
+--- /dev/null
++++ b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.WithProgressMessage.stories.storyshot
+@@ -0,0 +1,78 @@
++<body>
++  <div
++    aria-hidden="true"
++  />
++  <div
++    class="MuiDialog-root MuiModal-root css-zw3mfo-MuiModal-root-MuiDialog-root"
++    role="presentation"
++  >
++    <div
++      aria-hidden="true"
++      class="MuiBackdrop-root MuiModal-backdrop css-yiavyu-MuiBackdrop-root-MuiDialog-backdrop"
++      style="opacity: 1; transition: opacity 225ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;"
++    />
++    <div
++      data-testid="sentinelStart"
++      tabindex="0"
++    />
++    <div
++      class="MuiDialog-container MuiDialog-scrollPaper css-hz1bth-MuiDialog-container"
++      role="presentation"
++      style="opacity: 1; transition: opacity 225ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;"
++      tabindex="-1"
++    >
++      <div
++        aria-labelledby="cluster-preopen-title"
++        class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiDialog-paper MuiDialog-paperScrollPaper MuiDialog-paperWidthXs MuiDialog-paperFullWidth css-17iivmf-MuiPaper-root-MuiDialog-paper"
++        role="dialog"
++      >
++        <h2
++          class="MuiTypography-root MuiTypography-h6 MuiDialogTitle-root css-8yphvn-MuiTypography-root-MuiDialogTitle-root"
++          id="cluster-preopen-title"
++        >
++          Connecting to "edge-cluster-1"
++        </h2>
++        <div
++          class="MuiDialogContent-root css-ypiqx9-MuiDialogContent-root"
++        >
++          <div
++            class="MuiBox-root css-1pdqtch"
++          >
++            <span
++              aria-hidden="true"
++              class="MuiCircularProgress-root MuiCircularProgress-indeterminate MuiCircularProgress-colorPrimary css-1g0vz9s-MuiCircularProgress-root"
++              role="progressbar"
++              style="width: 22px; height: 22px;"
++            >
++              <svg
++                class="MuiCircularProgress-svg css-1idz92c-MuiCircularProgress-svg"
++                viewBox="22 22 44 44"
++              >
++                <circle
++                  class="MuiCircularProgress-circle MuiCircularProgress-circleIndeterminate css-176wh8e-MuiCircularProgress-circle"
++                  cx="44"
++                  cy="44"
++                  fill="none"
++                  r="20.2"
++                  stroke-width="3.6"
++                />
++              </svg>
++            </span>
++            <p
++              aria-atomic="true"
++              aria-live="polite"
++              class="MuiTypography-root MuiTypography-body2 css-ab4e19-MuiTypography-root"
++              role="status"
++            >
++              Starting AKS Hybrid & Edge proxy…
++            </p>
++          </div>
++        </div>
++      </div>
++    </div>
++    <div
++      data-testid="sentinelEnd"
++      tabindex="0"
++    />
++  </div>
++</body>
+\ No newline at end of file
+diff --git a/frontend/src/components/common/AlertNotification.stories.tsx b/frontend/src/components/common/AlertNotification.stories.tsx
+index 05b9b929bb7d6dbf526f9cd847683b0304b18e0e..3d5a8426633c2e18d840870f076755b2d2a7a2ab 100644
+--- a/frontend/src/components/common/AlertNotification.stories.tsx
++++ b/frontend/src/components/common/AlertNotification.stories.tsx
+@@ -177,3 +177,14 @@ OnNonClusterRoute.args = {
+   simulateSnackbar: { show: false, message: '', variant: 'info' },
+ };
+ OnNonClusterRoute.storyName = 'On Non-Cluster Route (e.g., Global Settings)';
++
++export const Suppressed = Template.bind({});
++Suppressed.args = {
++  // Even though the health check fails (which would normally raise the
++  // "Lost connection" banner), `suppress` keeps it hidden — this is the state
++  // while a cluster is being prepared by a pre-open hook.
++  checkerFunction: async () => Promise.reject('Cluster unreachable (Simulated Error)'),
++  suppress: true,
++  simulateSnackbar: { show: false, message: '', variant: 'info' },
++};
++Suppressed.storyName = 'Suppressed (Cluster Preparing)';
+diff --git a/frontend/src/components/common/__snapshots__/AlertNotification.Suppressed.stories.storyshot b/frontend/src/components/common/__snapshots__/AlertNotification.Suppressed.stories.storyshot
+new file mode 100644
+index 0000000000000000000000000000000000000000..c1e434674036690300d4a3fb0ba0f69a963adef0
+--- /dev/null
++++ b/frontend/src/components/common/__snapshots__/AlertNotification.Suppressed.stories.storyshot
+@@ -0,0 +1,12 @@
++<body>
++  <div>
++    <div
++      style="position: relative; min-height: 100px; border: 1px dashed lightgray; padding: 10px;"
++    >
++      <div
++        id="snackbar-container"
++        style="position: absolute; top: 0px; left: 0px; right: 0px; z-index: 1400;"
++      />
++    </div>
++  </div>
++</body>
+\ No newline at end of file
+-- 
+2.54.0
+
+
+From 0b65aab95f19abf41a32ba04fe44ff2df2be0a9f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 26 Aug 2026 22:07:38 +0200
+Subject: [PATCH 10/14] app: proxies: Cover readiness and Windows entry point
+
+Verify requests wait for readiness, surface startup failures, and execute
+
+the real Azure CLI command shim on Windows.
+---
+ app/electron/proxies.test.ts | 107 ++++++++++++++++++++++++++++++++---
+ 1 file changed, 99 insertions(+), 8 deletions(-)
+
+diff --git a/app/electron/proxies.test.ts b/app/electron/proxies.test.ts
+index 7cd6afab5288be3be717ab713d741eb02276ffe9..1fa55e13a27cd1ffe3baa75759fbf378758c7c22 100644
+--- a/app/electron/proxies.test.ts
++++ b/app/electron/proxies.test.ts
+@@ -14,7 +14,7 @@
+  * limitations under the License.
+  */
+ 
+-import { ChildProcessWithoutNullStreams, spawn as actualSpawn } from 'child_process';
++import type { ChildProcessWithoutNullStreams } from 'child_process';
+ import { EventEmitter } from 'events';
+ import { mkdtemp, writeFile } from 'fs/promises';
+ import { tmpdir } from 'os';
+@@ -120,6 +120,9 @@ describe('buildProxySpawnSpec', () => {
+   });
+ 
+   it.runIf(process.platform === 'win32')('executes a real .cmd entry point', async () => {
++    const { spawn: actualSpawn } = await vi.importActual<typeof import('child_process')>(
++      'child_process'
++    );
+     const directory = await mkdtemp(path.join(tmpdir(), 'headlamp-az-cmd-'));
+     await writeFile(path.join(directory, 'az.cmd'), '@echo off\r\necho %*\r\n');
+     const spec = buildProxySpawnSpec(proxyRequest('cluster-a'));
+@@ -193,14 +196,20 @@ describe('cluster proxy handler', () => {
+ 
+   it('coalesces duplicate starts for the same cluster', async () => {
+     const child = proxyChild();
+-    Object.defineProperty(child, 'pid', { value: undefined, configurable: true });
+     spawnMock.mockReturnValue(child);
+     const start = startHandler();
+ 
+     const first = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
+     const duplicate = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
+     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+-    child.emit('spawn');
++    await Promise.resolve();
++
++    let settled = false;
++    void first.then(() => (settled = true));
++    await Promise.resolve();
++    expect(settled).toBe(false);
++
++    child.stdout.emit('data', "Start sending kubectl requests on 'cluster-a' context\n");
+ 
+     await expect(Promise.all([first, duplicate])).resolves.toEqual([
+       { success: true },
+@@ -215,13 +224,15 @@ describe('cluster proxy handler', () => {
+     spawnMock.mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild);
+     const start = startHandler();
+ 
+-    await start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++    const first = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
+     const second = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-b'));
+-    await Promise.resolve();
+-    expect(spawnMock).toHaveBeenCalledTimes(1);
++    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+ 
+     firstChild.stdout.emit('data', 'Start sending kub');
+     firstChild.stdout.emit('data', "ectl requests on 'cluster-a' context\n");
++    await expect(first).resolves.toEqual({ success: true });
++    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
++    secondChild.stdout.emit('data', "Start sending kubectl requests on 'cluster-b' context\n");
+     await second;
+ 
+     expect(spawnMock).toHaveBeenCalledTimes(2);
+@@ -240,32 +251,112 @@ describe('cluster proxy handler', () => {
+     failedChild.emit('error', new Error('spawn az ENOENT'));
+ 
+     await expect(first).resolves.toEqual({ success: false, error: 'spawn az ENOENT' });
++    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
++    secondChild.stdout.emit('data', "Start sending kubectl requests on 'cluster-b' context\n");
+     await expect(second).resolves.toEqual({ success: true });
+     expect(spawnMock).toHaveBeenCalledTimes(2);
+   });
+ 
++  it('returns a failure when the proxy exits before reporting ready', async () => {
++    const child = proxyChild();
++    spawnMock.mockReturnValue(child);
++    const start = startHandler();
++
++    const result = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
++    child.emit('exit', 1, null);
++
++    await expect(result).resolves.toEqual({
++      success: false,
++      error: 'Cluster proxy exited before reporting readiness (code 1).',
++    });
++  });
++
++  it('returns a failure when a spawned proxy errors before reporting ready', async () => {
++    const child = proxyChild();
++    spawnMock.mockReturnValue(child);
++    const start = startHandler();
++
++    const result = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
++    child.emit('error', new Error('proxy bootstrap failed'));
++
++    await expect(result).resolves.toEqual({
++      success: false,
++      error: 'Cluster proxy failed before readiness: proxy bootstrap failed',
++    });
++  });
++
++  it('reuses a live proxy after it has reported ready', async () => {
++    const child = proxyChild();
++    spawnMock.mockReturnValue(child);
++    const start = startHandler();
++
++    const first = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
++    child.stdout.emit('data', "Start sending kubectl requests on 'cluster-a' context\n");
++    await expect(first).resolves.toEqual({ success: true });
++
++    await expect(
++      start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'))
++    ).resolves.toEqual({ success: true });
++    expect(spawnMock).toHaveBeenCalledTimes(1);
++  });
++
++  it('returns a failure when proxy readiness times out', async () => {
++    vi.useFakeTimers();
++    const child = proxyChild();
++    spawnMock.mockReturnValue(child);
++    const start = startHandler();
++
++    const result = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++    await vi.advanceTimersByTimeAsync(30_000);
++
++    await expect(result).resolves.toEqual({
++      success: false,
++      error: 'Cluster proxy did not report readiness within 30000ms.',
++    });
++    vi.useRealTimers();
++  });
++
+   it('kills the POSIX process group on shutdown', async () => {
+     await withPlatform('linux', async () => {
++      const child = proxyChild();
++      spawnMock.mockReturnValue(child);
+       const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
+       const start = startHandler();
+-      await start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++      const result = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+ 
+       killAllProxies();
+ 
+       expect(kill).toHaveBeenCalledWith(-4242, 'SIGKILL');
++      child.emit('exit', null, 'SIGKILL');
++      await expect(result).resolves.toEqual({
++        success: false,
++        error: 'Cluster proxy exited before reporting readiness (signal SIGKILL).',
++      });
+     });
+   });
+ 
+   it('kills the Windows child tree on shutdown', async () => {
+     await withPlatform('win32', async () => {
++      const child = proxyChild();
++      spawnMock.mockReturnValue(child);
+       const start = startHandler();
+-      await start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++      const result = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+       spawnMock.mockClear();
+       spawnMock.mockReturnValue(new EventEmitter());
+ 
+       killAllProxies();
+ 
+       expect(spawnMock).toHaveBeenCalledWith('taskkill', ['/pid', '4242', '/T', '/F']);
++      child.emit('exit', null, 'SIGKILL');
++      await expect(result).resolves.toEqual({
++        success: false,
++        error: 'Cluster proxy exited before reporting readiness (signal SIGKILL).',
++      });
+     });
+   });
+ });
+-- 
+2.54.0
+
+
+From 56c3e755214ed6f178ef2c918cc353ec92617abf Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 26 Aug 2026 22:07:48 +0200
+Subject: [PATCH 11/14] frontend: RouteSwitcher: Cover pre-open run races
+
+Verify hooks wait for loaded config and abandoned runs cannot mutate a
+
+new preparation for the same cluster.
+---
+ .../src/components/App/RouteSwitcher.test.tsx | 64 +++++++++++++++++--
+ 1 file changed, 60 insertions(+), 4 deletions(-)
+
+diff --git a/frontend/src/components/App/RouteSwitcher.test.tsx b/frontend/src/components/App/RouteSwitcher.test.tsx
+index 463791d7ed796872492758d55af27fe5a0c81d18..6d240b0414151ebf3bdd503572690b887a0feeab 100644
+--- a/frontend/src/components/App/RouteSwitcher.test.tsx
++++ b/frontend/src/components/App/RouteSwitcher.test.tsx
+@@ -20,7 +20,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { useCluster, useClustersConf, useSelectedClusters } from '../../lib/k8s';
+ import { testAuth } from '../../lib/k8s/api/v1/clusterApi';
+-import { addPreOpenHook } from '../../redux/clusterProviderSlice';
++import { addPreOpenHook, ClusterPreOpenHook } from '../../redux/clusterProviderSlice';
+ import reducers from '../../redux/reducers/reducers';
+ import { TestContext } from '../../test';
+ 
+@@ -130,6 +130,9 @@ describe('RouteSwitcher', () => {
+ });
+ 
+ describe('AuthRoute pre-open hooks', () => {
++  const createTestStore = () => configureStore({ reducer: reducers });
++  type TestStore = ReturnType<typeof createTestStore>;
++
+   beforeEach(() => {
+     vi.mocked(useCluster).mockReturnValue('test-cluster');
+     vi.mocked(useClustersConf).mockReturnValue({ 'test-cluster': {} } as any);
+@@ -178,9 +181,11 @@ describe('AuthRoute pre-open hooks', () => {
+ 
+   // Renders that host for 'test-cluster' with one registered pre-open hook whose
+   // promise the test controls, so we can assert each preparation state.
+-  function renderAuthRoute(hook: () => Promise<void>, routeKey?: string) {
+-    const store = configureStore({ reducer: reducers });
+-    store.dispatch(addPreOpenHook(hook));
++  function renderAuthRoute(hook: ClusterPreOpenHook, routeKey?: string, existingStore?: TestStore) {
++    const store = existingStore ?? createTestStore();
++    if (!existingStore) {
++      store.dispatch(addPreOpenHook(hook));
++    }
+     const queryClient = new QueryClient({
+       defaultOptions: { queries: { retry: false, gcTime: 0 } },
+     });
+@@ -194,6 +199,7 @@ describe('AuthRoute pre-open hooks', () => {
+     const view = render(ui(routeKey));
+     return {
+       ...view,
++      store,
+       navigate: (key: string) => view.rerender(ui(key)),
+       /** Unmounts the route, waits, then mounts the next one — what a suspended
+        *  route does, and what a same-commit remount does not exercise. */
+@@ -216,6 +222,25 @@ describe('AuthRoute pre-open hooks', () => {
+     expect(testAuth).not.toHaveBeenCalled();
+   });
+ 
++  it('waits for cluster config before running and caching pre-open hooks', async () => {
++    vi.mocked(useClustersConf).mockReturnValue(null as any);
++    const hook = vi.fn<ClusterPreOpenHook>(() => Promise.resolve());
++    const { navigate } = renderAuthRoute(hook);
++
++    expect(await screen.findByRole('dialog')).toBeInTheDocument();
++    expect(hook).not.toHaveBeenCalled();
++    expect(testAuth).not.toHaveBeenCalled();
++
++    vi.mocked(useClustersConf).mockReturnValue({ 'test-cluster': { source: 'loaded' } } as any);
++    navigate('config-loaded');
++
++    await waitFor(() => expect(hook).toHaveBeenCalledTimes(1));
++    expect(hook.mock.calls[0][0]).toMatchObject({
++      cluster: 'test-cluster',
++      clusterConf: { source: 'loaded' },
++    });
++  });
++
+   it('shows an error with a Retry that refetches when a hook rejects', async () => {
+     let reject!: (err: Error) => void;
+     const hook = vi.fn(() => new Promise<void>((_resolve, rej) => (reject = rej)));
+@@ -323,6 +348,37 @@ describe('AuthRoute pre-open hooks', () => {
+     await waitFor(() => expect(hook).toHaveBeenCalledTimes(2));
+   });
+ 
++  it('ignores late progress and cleanup from an abandoned run after reopen', async () => {
++    const runs: Array<{
++      context: { reportProgress?: (message: string) => void };
++      resolve: () => void;
++    }> = [];
++    const hook = vi.fn(
++      (context: { reportProgress?: (message: string) => void }) =>
++        new Promise<void>(resolve => {
++          runs.push({ context, resolve });
++          context.reportProgress?.(`run-${runs.length}`);
++        })
++    );
++
++    const first = renderAuthRoute(hook as any, 'first');
++    expect(await screen.findByRole('status')).toHaveTextContent('run-1');
++    const store = first.store;
++    first.unmount();
++
++    renderAuthRoute(hook as any, 'second', store);
++    expect(await screen.findByRole('status')).toHaveTextContent('run-2');
++
++    runs[0].context.reportProgress?.('stale-progress');
++    runs[0].resolve();
++    await new Promise(resolve => setTimeout(resolve, 0));
++
++    expect(screen.getByRole('status')).toHaveTextContent('run-2');
++    expect(store.getState().clusterProvider.preparing['test-cluster']).toMatchObject({
++      message: 'run-2',
++    });
++  });
++
+   it('does not probe auth until pre-open hooks succeed', async () => {
+     let resolve!: () => void;
+     const hook = vi.fn(() => new Promise<void>(res => (resolve = res)));
+-- 
+2.54.0
+
+
+From 44db2443038022e405bb783e95c9fc48afa142a6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 26 Aug 2026 22:07:58 +0200
+Subject: [PATCH 12/14] app: proxies: Await Azure proxy readiness
+
+Keep cluster views gated until Azure reports readiness, and return stable
+
+failures for startup errors, early exits, and timeouts.
+---
+ app/electron/proxies.ts | 84 ++++++++++++++++++++++++++++-------------
+ 1 file changed, 58 insertions(+), 26 deletions(-)
+
+diff --git a/app/electron/proxies.ts b/app/electron/proxies.ts
+index fb236bc9e2412ae99237176ec449901e57f909e6..af694df9ec866adca946b82b71fc17356d47572d 100644
+--- a/app/electron/proxies.ts
++++ b/app/electron/proxies.ts
+@@ -57,6 +57,11 @@ interface ProxyChildEntry {
+   cluster: string;
+ }
+ 
++interface ProxyStart {
++  result: StartProxyResult;
++  entry?: ProxyChildEntry;
++}
++
+ const proxyChildren = new Set<ProxyChildEntry>();
+ const startingProxies = new Map<string, Promise<StartProxyResult>>();
+ let proxyStartQueue: Promise<unknown> = Promise.resolve();
+@@ -119,11 +124,11 @@ function liveChildForCluster(cluster: string): ProxyChildEntry | undefined {
+   return undefined;
+ }
+ 
+-/** Waits until a proxy is ready, exits, errors, or reaches its timeout. */
++/** Waits until a proxy is ready, or returns a stable startup failure. */
+ function waitForProxyReady(
+   child: ChildProcessWithoutNullStreams,
+   timeoutMs = PROXY_READY_TIMEOUT_MS
+-): Promise<void> {
++): Promise<StartProxyResult> {
+   return new Promise(resolve => {
+     let settled = false;
+     let tail = '';
+@@ -131,31 +136,50 @@ function waitForProxyReady(
+     function cleanup() {
+       clearTimeout(timer);
+       child.stdout.off('data', onData);
+-      child.off('exit', finish);
+-      child.off('error', finish);
++      child.off('exit', onExit);
++      child.off('error', onError);
+     }
+ 
+-    function finish() {
++    function finish(result: StartProxyResult) {
+       if (settled) {
+         return;
+       }
+       settled = true;
+       cleanup();
+-      resolve();
++      resolve(result);
+     }
+ 
+     function onData(data: string | Buffer) {
+       tail = (tail + data.toString()).slice(-READY_MATCH_TAIL_CHARS);
+       if (/Start sending kubectl requests/i.test(tail)) {
+-        finish();
++        finish({ success: true });
+       }
+     }
+ 
+-    const timer = setTimeout(finish, timeoutMs);
++    function onExit(code: number | null, signal: NodeJS.Signals | null) {
++      const reason = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`;
++      finish({
++        success: false,
++        error: `Cluster proxy exited before reporting readiness (${reason}).`,
++      });
++    }
++
++    function onError(error: Error) {
++      finish({ success: false, error: `Cluster proxy failed before readiness: ${error.message}` });
++    }
++
++    const timer = setTimeout(
++      () =>
++        finish({
++          success: false,
++          error: `Cluster proxy did not report readiness within ${timeoutMs}ms.`,
++        }),
++      timeoutMs
++    );
+     timer.unref?.();
+     child.stdout.on('data', onData);
+-    child.once('exit', finish);
+-    child.once('error', finish);
++    child.once('exit', onExit);
++    child.once('error', onError);
+   });
+ }
+ 
+@@ -185,7 +209,7 @@ function signalChildEntry({ child, group }: ProxyChildEntry, signal: NodeJS.Sign
+ async function startProxy(
+   target: ClusterProxyTarget,
+   getEnvironment: () => Promise<NodeJS.ProcessEnv>
+-): Promise<StartProxyResult> {
++): Promise<ProxyStart> {
+   const spec = buildProxySpawnSpec(target);
+   let child: ChildProcessWithoutNullStreams;
+   try {
+@@ -194,13 +218,18 @@ async function startProxy(
+       env: await getEnvironment(),
+     }) as ChildProcessWithoutNullStreams;
+   } catch (error) {
+-    return { success: false, error: error instanceof Error ? error.message : String(error) };
++    return {
++      result: {
++        success: false,
++        error: error instanceof Error ? error.message : String(error),
++      },
++    };
+   }
+ 
+   const entry = { child, group: !!spec.options.detached, cluster: target.cluster };
+   if (isShuttingDown) {
+     signalChildEntry(entry, 'SIGKILL');
+-    return { success: false, error: 'The app is shutting down.' };
++    return { result: { success: false, error: 'The app is shutting down.' } };
+   }
+   proxyChildren.add(entry);
+   const untrack = () => proxyChildren.delete(entry);
+@@ -208,12 +237,12 @@ async function startProxy(
+   child.once('error', untrack);
+ 
+   if (child.pid) {
+-    return { success: true };
++    return { result: { success: true }, entry };
+   }
+ 
+   return new Promise(resolve => {
+-    child.once('spawn', () => resolve({ success: true }));
+-    child.once('error', error => resolve({ success: false, error: error.message }));
++    child.once('spawn', () => resolve({ result: { success: true }, entry }));
++    child.once('error', error => resolve({ result: { success: false, error: error.message } }));
+   });
+ }
+ 
+@@ -280,17 +309,20 @@ export function setupProxyHandlers(
+       return { success: true };
+     }
+ 
+-    const started = proxyStartQueue.then(() => startProxy(target, getEnvironment));
++    const started = proxyStartQueue.then(async () => {
++      const proxyStart = await startProxy(target, getEnvironment);
++      if (!proxyStart.result.success || !proxyStart.entry) {
++        return proxyStart.result;
++      }
++
++      const result = await waitForProxyReady(proxyStart.entry.child);
++      if (!result.success && proxyChildren.delete(proxyStart.entry)) {
++        signalChildEntry(proxyStart.entry, 'SIGKILL');
++      }
++      return result;
++    });
+     startingProxies.set(target.cluster, started);
+-    proxyStartQueue = started
+-      .then(result => {
+-        if (!result.success) {
+-          return;
+-        }
+-        const entry = liveChildForCluster(target.cluster);
+-        return entry && waitForProxyReady(entry.child);
+-      })
+-      .catch(() => undefined);
++    proxyStartQueue = started.then(() => undefined).catch(() => undefined);
+ 
+     try {
+       return await started;
+-- 
+2.54.0
+
+
+From 3073e248ed6bab6fa46bf9517984d3ed5bfee8fe Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 26 Aug 2026 22:08:06 +0200
+Subject: [PATCH 13/14] frontend: clusterProviderSlice: Guard pre-open runs
+
+Wait for cluster config and scope progress and cleanup to the active run so
+
+abandoned hooks cannot corrupt a reopened cluster.
+---
+ .../src/components/App/useClusterPreOpen.ts   | 27 +++++++++-----
+ frontend/src/redux/clusterProviderSlice.ts    | 35 ++++++++++++++-----
+ 2 files changed, 46 insertions(+), 16 deletions(-)
+
+diff --git a/frontend/src/components/App/useClusterPreOpen.ts b/frontend/src/components/App/useClusterPreOpen.ts
+index 0283b7af23283ad1523521345bb4f280ab08ea4d..eb162dc67a01862bf2459d643d3fe41409d83795 100644
+--- a/frontend/src/components/App/useClusterPreOpen.ts
++++ b/frontend/src/components/App/useClusterPreOpen.ts
+@@ -17,9 +17,15 @@
+ import { useQuery } from '@tanstack/react-query';
+ import { useDispatch } from 'react-redux';
+ import { useCluster, useClustersConf, useSelectedClusters } from '../../lib/k8s';
+-import { clearClusterPreparing, setClusterPreparing } from '../../redux/clusterProviderSlice';
++import {
++  clearClusterPreparing,
++  setClusterPreparing,
++  startClusterPreparing,
++} from '../../redux/clusterProviderSlice';
+ import { useTypedSelector } from '../../redux/hooks';
+ 
++let nextClusterPreOpenRunId = 0;
++
+ /** Preparation state for the cluster currently in the URL. */
+ export interface ClusterPreOpenState {
+   /** Whether preparation applies at all (single cluster, hooks registered). */
+@@ -66,6 +72,7 @@ export function useClusterPreOpen(): ClusterPreOpenState {
+   // one), so a snapshot would keep reporting "multi" and skip preparation.
+   const isSingleCluster = useSelectedClusters().length <= 1;
+   const enabled = !!cluster && isSingleCluster && preOpenHooks.length > 0;
++  const configLoaded = clusters !== null;
+ 
+   const query = useQuery({
+     queryKey: ['clusterPreOpen', cluster, isSingleCluster],
+@@ -77,11 +84,12 @@ export function useClusterPreOpen(): ClusterPreOpenState {
+       // Capture the cluster this run prepares so cleanup stays keyed to it even
+       // if the user navigates to a different cluster while hooks are running.
+       const preparingCluster = cluster!;
++      const runId = `${preparingCluster}:${++nextClusterPreOpenRunId}`;
+       // Mark the cluster as preparing so the connecting popup shows and the
+       // "Lost connection" health banner is suppressed while hooks run.
+-      dispatch(setClusterPreparing({ cluster: preparingCluster }));
++      dispatch(startClusterPreparing({ cluster: preparingCluster, runId }));
+       const reportProgress = (message: string) =>
+-        dispatch(setClusterPreparing({ cluster: preparingCluster, message }));
++        dispatch(setClusterPreparing({ cluster: preparingCluster, runId, message }));
+       try {
+         for (const hook of preOpenHooks) {
+           if (signal.aborted) {
+@@ -100,10 +108,12 @@ export function useClusterPreOpen(): ClusterPreOpenState {
+       } finally {
+         // Clear deterministically for the cluster we prepared (on success or
+         // error) so a mid-run navigation can't leave a stale "preparing" entry.
+-        dispatch(clearClusterPreparing(preparingCluster));
++        dispatch(clearClusterPreparing({ cluster: preparingCluster, runId }));
+       }
+     },
+-    enabled,
++    // Keep cluster routes gated while configuration loads, but do not execute
++    // or cache a provider decision until the real cluster config is available.
++    enabled: enabled && configLoaded,
+     retry: 0,
+     // Prepare a cluster once per open: staleTime keeps hooks from re-running
+     // while the cluster stays open, and gcTime: 0 evicts the result once the
+@@ -115,9 +125,10 @@ export function useClusterPreOpen(): ClusterPreOpenState {
+ 
+   // The latest progress message a hook reported for this cluster (drives the
+   // connecting popup's text). Undefined when the cluster isn't preparing.
+-  const message = useTypedSelector(state =>
+-    cluster ? state.clusterProvider.preparing?.[cluster] : undefined
+-  );
++  const message = useTypedSelector(state => {
++    const preparation = cluster ? state.clusterProvider.preparing?.[cluster] : undefined;
++    return preparation?.message;
++  });
+ 
+   return {
+     enabled,
+diff --git a/frontend/src/redux/clusterProviderSlice.ts b/frontend/src/redux/clusterProviderSlice.ts
+index a4a73e52293278081bc1c13c001139a1c5823530..1b15088a716e61b5e0af07858847171891d7bdd1 100644
+--- a/frontend/src/redux/clusterProviderSlice.ts
++++ b/frontend/src/redux/clusterProviderSlice.ts
+@@ -93,6 +93,14 @@ export interface ClusterPreOpenContext {
+  */
+ export type ClusterPreOpenHook = (context: ClusterPreOpenContext) => Promise<void>;
+ 
++/** State owned by one active cluster pre-open run. */
++export interface ClusterPreparingState {
++  /** Unique identifier that prevents an abandoned run from mutating a newer run. */
++  runId: string;
++  /** Latest human-readable progress reported by the run. */
++  message: string;
++}
++
+ /**
+  * Information about a cluster provider, that is shown on the add cluster page.
+  */
+@@ -127,7 +135,7 @@ export interface ClusterProviderSliceState {
+    * this map means "preparation in progress" — used to show the connecting popup
+    * and suppress the app's "Lost connection" health banner during preparation.
+    */
+-  preparing: Record<string, string>;
++  preparing: Record<string, ClusterPreparingState>;
+ }
+ 
+ export const initialState: ClusterProviderSliceState = {
+@@ -162,19 +170,29 @@ const clusterProviderSlice = createSlice({
+     addPreOpenHook(state, action: PayloadAction<ClusterPreOpenHook>) {
+       state.preOpenHooks.push(action.payload);
+     },
+-    /** Marks a cluster as being prepared, optionally with a progress message. */
+-    setClusterPreparing(state, action: PayloadAction<{ cluster: string; message?: string }>) {
++    /** Starts a new preparation run, replacing ownership from an abandoned run. */
++    startClusterPreparing(state, action: PayloadAction<{ cluster: string; runId: string }>) {
+       // Ensure a null-prototype map, including when rehydrating persisted/older
+       // state that predates this field or was stored as a plain object.
+       if (!state.preparing || Object.getPrototypeOf(state.preparing) !== null) {
+         state.preparing = Object.assign(Object.create(null), state.preparing);
+       }
+-      state.preparing[action.payload.cluster] = action.payload.message ?? '';
++      state.preparing[action.payload.cluster] = { runId: action.payload.runId, message: '' };
++    },
++    /** Updates progress only while the reporting run still owns the cluster. */
++    setClusterPreparing(
++      state,
++      action: PayloadAction<{ cluster: string; runId: string; message: string }>
++    ) {
++      const current = state.preparing?.[action.payload.cluster];
++      if (current?.runId === action.payload.runId) {
++        current.message = action.payload.message;
++      }
+     },
+-    /** Clears a cluster's preparing state once its pre-open hooks settle. */
+-    clearClusterPreparing(state, action: PayloadAction<string>) {
+-      if (state.preparing) {
+-        delete state.preparing[action.payload];
++    /** Clears preparation only while the settling run still owns the cluster. */
++    clearClusterPreparing(state, action: PayloadAction<{ cluster: string; runId: string }>) {
++      if (state.preparing?.[action.payload.cluster]?.runId === action.payload.runId) {
++        delete state.preparing[action.payload.cluster];
+       }
+     },
+   },
+@@ -187,6 +205,7 @@ export const {
+   addClusterStatus,
+   setClusterEmptyState,
+   addPreOpenHook,
++  startClusterPreparing,
+   setClusterPreparing,
+   clearClusterPreparing,
+ } = clusterProviderSlice.actions;
+-- 
+2.54.0
+
+
+From 808590d37a5c16be7a70c6f8dbb75be1a0251e75 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 26 Aug 2026 22:08:14 +0200
+Subject: [PATCH 14/14] docs: api: Document cluster pre-open hooks
+
+Publish the interface, hook, and registration API in the committed TypeDoc
+
+layout and point the functionality guide at the generated reference.
+---
+ .../plugin_registry.ClusterPreOpenContext.md  | 74 +++++++++++++++++++
+ .../api/modules/plugin_registry.md            | 68 +++++++++++++++++
+ .../plugins/functionality/index.md            |  4 +-
+ 3 files changed, 144 insertions(+), 2 deletions(-)
+ create mode 100644 docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
+
+diff --git a/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md b/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b065f6620f
+--- /dev/null
++++ b/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
+@@ -0,0 +1,74 @@
++[API](../API.md) / [plugin/registry](../modules/plugin_registry.md) / ClusterPreOpenContext
++
++# Interface: ClusterPreOpenContext
++
++[plugin/registry](../modules/plugin_registry.md).ClusterPreOpenContext
++
++Context passed to a [ClusterPreOpenHook](../modules/plugin_registry.md#clusterpreopenhook) when a cluster is about to be opened.
++
++## Properties
++
++### cluster
++
++• **cluster**: `string`
++
++The name of the cluster being opened.
++
++#### Defined in
++
++[redux/clusterProviderSlice.ts:57](https://github.com/kubernetes-sigs/headlamp/blob/1079044ed/frontend/src/redux/clusterProviderSlice.ts#L57)
++
++___
++
++### clusterConf
++
++• **clusterConf**: `unknown`
++
++The cluster's configuration, as known to the app, or `null` if unavailable.
++Typed `unknown` so this slice does not depend on the k8s cluster types while
++still requiring hook authors to narrow before use.
++
++#### Defined in
++
++[redux/clusterProviderSlice.ts:63](https://github.com/kubernetes-sigs/headlamp/blob/1079044ed/frontend/src/redux/clusterProviderSlice.ts#L63)
++
++___
++
++### reportProgress
++
++• `Optional` **reportProgress**: (`message`: `string`) => `void`
++
++Reports human-readable progress for the connecting popup shown while the cluster
++is being prepared. Hooks that do not report progress show a generic message.
++
++#### Type declaration
++
++▸ (`message`): `void`
++
++##### Parameters
++
++| Name | Type |
++| :------ | :------ |
++| `message` | `string` |
++
++##### Returns
++
++`void`
++
++#### Defined in
++
++[redux/clusterProviderSlice.ts:76](https://github.com/kubernetes-sigs/headlamp/blob/1079044ed/frontend/src/redux/clusterProviderSlice.ts#L76)
++
++___
++
++### signal
++
++• `Optional` **signal**: `AbortSignal`
++
++Aborts when preparation is no longer wanted because the user left the cluster.
++Long-running hooks should pass it to awaited operations or check it between
++steps.
++
++#### Defined in
++
++[redux/clusterProviderSlice.ts:70](https://github.com/kubernetes-sigs/headlamp/blob/1079044ed/frontend/src/redux/clusterProviderSlice.ts#L70)
+diff --git a/docs/development/api/modules/plugin_registry.md b/docs/development/api/modules/plugin_registry.md
+index d0bf10fc95550679ab48f28c2547842b55f054df..78647c77fa5d8731bf4f2f682ff7b8529cb75593 100644
+--- a/docs/development/api/modules/plugin_registry.md
++++ b/docs/development/api/modules/plugin_registry.md
+@@ -17,6 +17,7 @@
+ 
+ - [AppLogoProps](../interfaces/plugin_registry.AppLogoProps.md)
+ - [ClusterChooserProps](../interfaces/plugin_registry.ClusterChooserProps.md)
++- [ClusterPreOpenContext](../interfaces/plugin_registry.ClusterPreOpenContext.md)
+ - [CreateResourceEvent](../interfaces/plugin_registry.CreateResourceEvent.md)
+ - [DeleteResourceEvent](../interfaces/plugin_registry.DeleteResourceEvent.md)
+ - [DetailsViewSectionProps](../interfaces/plugin_registry.DetailsViewSectionProps.md)
+@@ -83,6 +84,36 @@ ___
+ 
+ ___
+ 
++### ClusterPreOpenHook
++
++Ƭ **ClusterPreOpenHook**: (`context`: [`ClusterPreOpenContext`](../interfaces/plugin_registry.ClusterPreOpenContext.md)) => `Promise`<`void`>
++
++A hook run once, before a cluster's views are rendered.
++
++Use it to perform asynchronous preparation such as starting a proxy, refreshing
++credentials, or writing a kubeconfig context. Hooks run for each single-cluster
++open; combined multi-cluster views currently skip preparation.
++
++#### Type declaration
++
++▸ (`context`): `Promise`<`void`>
++
++##### Parameters
++
++| Name | Type |
++| :------ | :------ |
++| `context` | [`ClusterPreOpenContext`](../interfaces/plugin_registry.ClusterPreOpenContext.md) |
++
++##### Returns
++
++`Promise`<`void`>
++
++#### Defined in
++
++[redux/clusterProviderSlice.ts:94](https://github.com/kubernetes-sigs/headlamp/blob/1079044ed/frontend/src/redux/clusterProviderSlice.ts#L94)
++
++___
++
+ ### DetailsViewHeaderActionType
+ 
+ Ƭ **DetailsViewHeaderActionType**: `HeaderActionType`
+@@ -379,6 +410,43 @@ registerClusterEmptyState(({ defaultContent }) => (
+ 
+ ___
+ 
++### registerClusterProviderPreOpen
++
++▸ **registerClusterProviderPreOpen**(`hook`): `void`
++
++Register a hook that runs once, before a cluster's views are rendered.
++
++The returned promise gates entry to the cluster. While it is pending the app
++shows a connecting state, and if it rejects the error is shown with a retry
++affordance. Multiple hooks run sequentially in registration order.
++
++**`example`**
++
++```ts
++import { ApiProxy, registerClusterProviderPreOpen } from '@kinvolk/headlamp-plugin/lib';
++
++registerClusterProviderPreOpen(async ({ cluster, reportProgress, signal }) => {
++  reportProgress?.(`Checking ${cluster} connection...`);
++  await ApiProxy.clusterRequest('/version', { cluster, signal });
++});
++```
++
++#### Parameters
++
++| Name | Type | Description |
++| :------ | :------ | :------ |
++| `hook` | [`ClusterPreOpenHook`](plugin_registry.md#clusterpreopenhook) | The hook to run before a cluster is opened. |
++
++#### Returns
++
++`void`
++
++#### Defined in
++
++[plugin/registry.tsx:1102](https://github.com/kubernetes-sigs/headlamp/blob/1079044ed/frontend/src/plugin/registry.tsx#L1102)
++
++___
++
+ ### registerCustomCreateProject
+ 
+ ▸ **registerCustomCreateProject**(`customCreateProject`): `void`
+diff --git a/docs/development/plugins/functionality/index.md b/docs/development/plugins/functionality/index.md
+index 270e04202e84ddc5b1b4db26f4c3052f4baf0b72..d6b855e83767bcdc4ac64010b031fd4153f3cde2 100644
+--- a/docs/development/plugins/functionality/index.md
++++ b/docs/development/plugins/functionality/index.md
+@@ -189,7 +189,7 @@ be shared with workloads or other cluster users.
+ ### Cluster Pre-Open Hooks
+ 
+ Prepare a cluster before Headlamp renders its views with
+-[registerClusterProviderPreOpen](../../api/plugin/registry/functions/registerclusterproviderpreopen).
++[registerClusterProviderPreOpen](../../api/modules/plugin_registry#registerclusterproviderpreopen).
+ Pre-open hooks can start a proxy or tunnel, refresh credentials, warm a cache, or
+ perform another asynchronous prerequisite. While hooks run, Headlamp displays a
+ connecting dialog. Rejecting a hook shows its error with a retry action.
+@@ -201,7 +201,7 @@ clusters. Long-running work should use the supplied `AbortSignal`, and hooks can
+ report status text through `reportProgress`.
+ 
+ - Example plugin: [Dynamic Clusters](https://github.com/kubernetes-sigs/headlamp/tree/main/plugins/examples/dynamic-clusters)
+-- API reference: [registerClusterProviderPreOpen](../../api/plugin/registry/functions/registerclusterproviderpreopen)
++- API reference: [registerClusterProviderPreOpen](../../api/modules/plugin_registry#registerclusterproviderpreopen)
+ 
+ ### Route
+ 
+-- 
+2.54.0
+

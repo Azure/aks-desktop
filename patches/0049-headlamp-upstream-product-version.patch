@@ -1,0 +1,816 @@
+From b6952cc22debe706e08712a256df09e304bcea37 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Sun, 16 Aug 2026 14:57:32 +0200
+Subject: [PATCH 1/3] frontend: VersionDialog: Test default version details
+
+Preserve existing version details before distribution handling changes.
+---
+ frontend/src/components/App/VersionDialog.test.tsx | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/frontend/src/components/App/VersionDialog.test.tsx b/frontend/src/components/App/VersionDialog.test.tsx
+index 5a2dc274596077fbc92f5c2e4272deb56c219a29..7453f69edf41b19536ee583cf14f9ef184660a47 100644
+--- a/frontend/src/components/App/VersionDialog.test.tsx
++++ b/frontend/src/components/App/VersionDialog.test.tsx
+@@ -64,7 +64,11 @@ describe('VersionDialog', () => {
+   it('shows version information without tabs in a browser host', () => {
+     renderVersionDialog();
+ 
+-    expect(screen.getByRole('dialog', { name: 'Headlamp' })).toHaveTextContent('1.2.3');
++    const dialog = screen.getByRole('dialog', { name: 'Headlamp' });
++    expect(dialog).toHaveTextContent('Version');
++    expect(dialog).toHaveTextContent('1.2.3');
++    expect(dialog).toHaveTextContent('Git Commit');
++    expect(dialog).toHaveTextContent('abc123');
+     expect(screen.queryByRole('tab', { name: 'Legal' })).not.toBeInTheDocument();
+   });
+ 
+-- 
+2.54.0
+
+
+From b4dd9676eedf114aef052954d4dd2814f07bd2b2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Sun, 16 Aug 2026 15:00:11 +0200
+Subject: [PATCH 2/3] e2e-tests: headlamp.spec: Verify version dialog
+
+Cover the existing user path to Headlamp version and commit details.
+---
+ e2e-tests/tests/headlamp.spec.ts | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/e2e-tests/tests/headlamp.spec.ts b/e2e-tests/tests/headlamp.spec.ts
+index 53b2d71339743e9b819dd83505b2f7f487e234bd..69117cbecab89bfa5046e4593e4492b056742275 100644
+--- a/e2e-tests/tests/headlamp.spec.ts
++++ b/e2e-tests/tests/headlamp.spec.ts
+@@ -47,6 +47,19 @@ test('headlamp is there and so is minikube', async () => {
+   await headlampPage.hasURLContaining(/.*test/);
+ });
+ 
++test('version dialog shows Headlamp version information', async ({ page }) => {
++  await page.getByRole('button', { name: 'Account of current user' }).click();
++  await page
++    .locator('#primary-user-menu')
++    .getByText(/^Headlamp /)
++    .click();
++
++  const versionDialog = page.getByRole('dialog', { name: 'Headlamp' });
++  await expect(versionDialog).toBeVisible();
++  await expect(versionDialog.getByText('Version', { exact: true })).toBeVisible();
++  await expect(versionDialog.getByText('Git Commit', { exact: true })).toBeVisible();
++});
++
+ test('main page should have Network tab', async () => {
+   await headlampPage.hasNetworkTab();
+   await headlampPage.a11y();
+-- 
+2.54.0
+
+
+From f2aef213427e043197f41ff1c1c5e72a2bb76c92 Mon Sep 17 00:00:00 2001
+From: Joaquim Rocha <joaquim.rocha@microsoft.com>
+Date: Fri, 31 Jul 2026 17:44:03 +0000
+Subject: [PATCH 3/3] frontend: getProductInfo: Support distribution product
+ versions
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Show a distribution version while retaining Headlamp build details.
+
+Co-authored-by: Oleksandr Dubenko <oldubenko@microsoft.com>
+
+Co-authored-by: René Dudfield <renedudfield@microsoft.com>
+---
+ frontend/src/components/App/TopBar.test.tsx   |  2 +-
+ frontend/src/components/App/TopBar.tsx        |  4 +-
+ .../src/components/App/VersionDialog.test.tsx | 72 +++++++++++++++++--
+ frontend/src/components/App/VersionDialog.tsx | 60 +++++++++-------
+ ...sionDialog.VersionDialog.stories.storyshot |  2 +-
+ frontend/src/helpers/getProductInfo.test.ts   | 72 +++++++++++++++++++
+ frontend/src/helpers/getProductInfo.ts        | 14 ++++
+ frontend/src/i18n/locales/ar/translation.json |  2 +
+ frontend/src/i18n/locales/bn/translation.json |  2 +
+ frontend/src/i18n/locales/cs/translation.json |  2 +
+ frontend/src/i18n/locales/de/translation.json |  2 +
+ frontend/src/i18n/locales/en/translation.json |  2 +
+ frontend/src/i18n/locales/es/translation.json |  2 +
+ frontend/src/i18n/locales/fr/translation.json |  2 +
+ frontend/src/i18n/locales/he/translation.json |  2 +
+ frontend/src/i18n/locales/hi/translation.json |  2 +
+ frontend/src/i18n/locales/hu/translation.json |  2 +
+ frontend/src/i18n/locales/id/translation.json |  2 +
+ frontend/src/i18n/locales/it/translation.json |  2 +
+ frontend/src/i18n/locales/ja/translation.json |  2 +
+ frontend/src/i18n/locales/ko/translation.json |  2 +
+ frontend/src/i18n/locales/nl/translation.json |  2 +
+ frontend/src/i18n/locales/pl/translation.json |  2 +
+ .../src/i18n/locales/pt-br/translation.json   |  2 +
+ .../src/i18n/locales/pt-pt/translation.json   |  2 +
+ frontend/src/i18n/locales/ru/translation.json |  2 +
+ frontend/src/i18n/locales/sv/translation.json |  2 +
+ frontend/src/i18n/locales/ta/translation.json |  2 +
+ frontend/src/i18n/locales/tr/translation.json |  2 +
+ frontend/src/i18n/locales/ur/translation.json |  2 +
+ .../src/i18n/locales/zh-tw/translation.json   |  2 +
+ frontend/src/i18n/locales/zh/translation.json |  2 +
+ 32 files changed, 240 insertions(+), 36 deletions(-)
+ create mode 100644 frontend/src/helpers/getProductInfo.test.ts
+
+diff --git a/frontend/src/components/App/TopBar.test.tsx b/frontend/src/components/App/TopBar.test.tsx
+index 82fc4a2425314c69df7fd561ca7c0018a35cbb6e..1b55cc2da57a3b04f60b2a3d78d6cc62fecc90f8 100644
+--- a/frontend/src/components/App/TopBar.test.tsx
++++ b/frontend/src/components/App/TopBar.test.tsx
+@@ -37,8 +37,8 @@ vi.mock('../../lib/k8s/api/v1/clusterApi', () => ({
+ }));
+ vi.mock('../../lib/auth', () => ({ logout: vi.fn() }));
+ vi.mock('../../helpers/getProductInfo', () => ({
++  getDisplayVersion: vi.fn(() => '0.0.0'),
+   getProductName: vi.fn(() => 'Headlamp'),
+-  getVersion: vi.fn(() => ({ VERSION: '0.0.0' })),
+ }));
+ vi.mock('../../lib/router/createRouteURL', () => ({ createRouteURL: vi.fn(() => '/') }));
+ vi.mock('../../redux/hooks', () => ({ useTypedSelector: vi.fn(() => undefined) }));
+diff --git a/frontend/src/components/App/TopBar.tsx b/frontend/src/components/App/TopBar.tsx
+index 1b05713b833e9aae0042c409e9b0ac2a8312196a..6a4e65b3c4e7896fd278e564b5a3ee404bc66fa2 100644
+--- a/frontend/src/components/App/TopBar.tsx
++++ b/frontend/src/components/App/TopBar.tsx
+@@ -33,7 +33,7 @@ import React, { memo, useCallback } from 'react';
+ import { useTranslation } from 'react-i18next';
+ import { useDispatch } from 'react-redux';
+ import { useHistory } from 'react-router-dom';
+-import { getProductName, getVersion } from '../../helpers/getProductInfo';
++import { getDisplayVersion, getProductName } from '../../helpers/getProductInfo';
+ import { logout } from '../../lib/auth';
+ import { useCluster, useClustersConf, useSelectedClusters } from '../../lib/k8s';
+ import { ClusterUserInfo, getClusterUserInfo } from '../../lib/k8s/api/v1/clusterApi';
+@@ -411,7 +411,7 @@ export const PureTopBar = memo(
+             <Icon icon="mdi:information-outline" />
+           </ListItemIcon>
+           <ListItemText>
+-            {getProductName()} {getVersion()['VERSION']}
++            {getProductName()} {getDisplayVersion()}
+           </ListItemText>
+         </MenuItem>
+       </Menu>
+diff --git a/frontend/src/components/App/VersionDialog.test.tsx b/frontend/src/components/App/VersionDialog.test.tsx
+index 7453f69edf41b19536ee583cf14f9ef184660a47..3a36348e1c062f9e3a66e6e7215a3cc695f64638 100644
+--- a/frontend/src/components/App/VersionDialog.test.tsx
++++ b/frontend/src/components/App/VersionDialog.test.tsx
+@@ -17,26 +17,42 @@
+ import { ThemeProvider } from '@mui/material/styles';
+ import { configureStore } from '@reduxjs/toolkit';
+ import { fireEvent, render, screen } from '@testing-library/react';
+-import { afterEach, describe, expect, it, vi } from 'vitest';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { createMuiTheme } from '../../lib/themes';
+ import uiReducer, { uiSlice } from '../../redux/uiSlice';
+ import { TestContext } from '../../test';
+ import VersionDialog from './VersionDialog';
+ 
++const { getProductName, getProductVersion, translate } = vi.hoisted(() => ({
++  getProductName: vi.fn<() => string | undefined>(() => 'Headlamp'),
++  getProductVersion: vi.fn<() => string | undefined>(),
++  translate: vi.fn((key: string, options?: { productName?: string }) =>
++    key
++      .split('|')
++      .at(-1)!
++      .replace('{{ productName }}', options?.productName || '')
++  ),
++}));
++
+ vi.mock('react-i18next', () => ({
+-  useTranslation: () => ({
+-    t: (key: string) => key.split('|').pop() ?? key,
+-  }),
++  useTranslation: () => ({ t: translate }),
+ }));
+ 
+ vi.mock('../../helpers/getProductInfo', () => ({
+-  getProductName: () => 'Headlamp',
++  getProductName,
++  getProductVersion,
+   getVersion: () => ({ VERSION: 'unused', GIT_VERSION: 'unused' }),
+ }));
+ 
+ const desktopApiBase = { platform: 'darwin' as NodeJS.Platform };
+ 
+-function renderVersionDialog(useDefaultVersion = false) {
++function renderVersionDialog(
++  options: {
++    useDefaultVersion?: boolean;
++    productVersion?: string;
++  } = {}
++) {
++  const { useDefaultVersion = false, productVersion } = options;
+   const store = configureStore({ reducer: { ui: uiReducer } });
+   const theme = createMuiTheme({ name: 'Light', base: 'light' });
+   store.dispatch(uiSlice.actions.setVersionDialogOpen(true));
+@@ -48,6 +64,7 @@ function renderVersionDialog(useDefaultVersion = false) {
+           getVersion={
+             useDefaultVersion ? undefined : () => ({ VERSION: '1.2.3', GIT_VERSION: 'abc123' })
+           }
++          getProductVersion={productVersion === undefined ? undefined : () => productVersion}
+         />
+       </ThemeProvider>
+     </TestContext>
+@@ -57,6 +74,12 @@ function renderVersionDialog(useDefaultVersion = false) {
+ }
+ 
+ describe('VersionDialog', () => {
++  beforeEach(() => {
++    getProductName.mockReturnValue('Headlamp');
++    getProductVersion.mockReturnValue(undefined);
++    translate.mockClear();
++  });
++
+   afterEach(() => {
+     window.desktopApi = { ...desktopApiBase };
+   });
+@@ -73,7 +96,7 @@ describe('VersionDialog', () => {
+   });
+ 
+   it('uses the product version provider by default', () => {
+-    renderVersionDialog(true);
++    renderVersionDialog({ useDefaultVersion: true });
+ 
+     expect(screen.getByRole('dialog', { name: 'Headlamp' })).toHaveTextContent('unused');
+   });
+@@ -99,4 +122,39 @@ describe('VersionDialog', () => {
+ 
+     expect(store.getState().ui.isVersionDialogOpen).toBe(false);
+   });
++
++  it('does not repeat a product version that matches the Headlamp version', () => {
++    renderVersionDialog({ productVersion: '1.2.3' });
++
++    const dialog = screen.getByRole('dialog');
++    expect(dialog).toHaveTextContent('Version');
++    expect(dialog).not.toHaveTextContent('Headlamp Version');
++  });
++
++  it('shows distinct product and Headlamp versions', () => {
++    getProductName.mockReturnValue('AKS Desktop');
++
++    renderVersionDialog({ productVersion: '2.0.0' });
++
++    const dialog = screen.getByRole('dialog');
++    expect(dialog).toHaveTextContent('AKS Desktop Version');
++    expect(dialog).toHaveTextContent('2.0.0');
++    expect(dialog).toHaveTextContent('Headlamp Version');
++    expect(dialog).toHaveTextContent('1.2.3');
++    expect(translate).toHaveBeenCalledWith('translation|{{ productName }} Version', {
++      productName: 'AKS Desktop',
++    });
++  });
++
++  it('uses a generic label when the product name is unavailable', () => {
++    getProductName.mockReturnValue(undefined);
++
++    renderVersionDialog({ productVersion: '2.0.0' });
++
++    expect(screen.getByText('Product Version')).toBeVisible();
++    expect(translate).toHaveBeenCalledWith('translation|{{ productName }} Version', {
++      productName: 'Product',
++    });
++    expect(translate).toHaveBeenCalledWith('translation|Product');
++  });
+ });
+diff --git a/frontend/src/components/App/VersionDialog.tsx b/frontend/src/components/App/VersionDialog.tsx
+index 698f18d73cd4f403866ee60ecff24773610b83e5..7971781484fd909fbcb50a795c41b99752eaedb7 100644
+--- a/frontend/src/components/App/VersionDialog.tsx
++++ b/frontend/src/components/App/VersionDialog.tsx
+@@ -17,7 +17,7 @@
+ import DialogContent from '@mui/material/DialogContent';
+ import { useTranslation } from 'react-i18next';
+ import { useDispatch } from 'react-redux';
+-import { getProductName, getVersion } from '../../helpers/getProductInfo';
++import { getProductName, getProductVersion, getVersion } from '../../helpers/getProductInfo';
+ import { useTypedSelector } from '../../redux/hooks';
+ import { uiSlice } from '../../redux/uiSlice';
+ import { Dialog } from '../common/Dialog';
+@@ -33,20 +33,18 @@ interface VersionInformation {
+   GIT_VERSION: string;
+ }
+ 
+-/** Properties accepted by the Version dialog. */
+-interface VersionDialogProps {
+-  /** Optional version provider used by tests and embedding hosts. */
+-  getVersion?: () => {
+-    VERSION: string;
+-    GIT_VERSION: string;
+-  };
++export interface VersionDialogProps {
++  /** Overrides Headlamp version lookup, primarily for tests and stories. */
++  getVersion?: () => VersionInformation;
++  /** Overrides product distribution version lookup, primarily for tests and stories. */
++  getProductVersion?: typeof getProductVersion;
+ }
+ 
+ /**
+- * Displays application version information and host-provided legal documents.
++ * Displays product, Headlamp, Git, and host-provided legal information.
+  *
+  * @param props - Version dialog dependencies.
+- * @returns The application Version dialog.
++ * @returns The version information dialog.
+  */
+ export default function VersionDialog(props: VersionDialogProps) {
+   const open = useTypedSelector(state => state.ui.isVersionDialogOpen);
+@@ -55,25 +53,37 @@ export default function VersionDialog(props: VersionDialogProps) {
+   const { VERSION, GIT_VERSION } = (
+     props.getVersion ? props.getVersion() : getVersion()
+   ) as VersionInformation;
+-  const versionInformation = (
+-    <NameValueTable
+-      rows={[
+-        {
+-          name: t('translation|Version'),
+-          value: VERSION,
+-        },
+-        {
+-          name: t('Git Commit'),
+-          value: GIT_VERSION,
+-        },
+-      ]}
+-    />
+-  );
++  const productVersion = props.getProductVersion ? props.getProductVersion() : getProductVersion();
++  const showProductVersion = productVersion && productVersion !== VERSION;
++  const defaultProductName = t('translation|Product');
++  const rows = [
++    ...(showProductVersion
++      ? [
++          {
++            name: t('translation|{{ productName }} Version', {
++              productName: getProductName() || defaultProductName,
++            }),
++            value: productVersion,
++          },
++        ]
++      : []),
++    {
++      name: showProductVersion
++        ? t('translation|{{ productName }} Version', { productName: 'Headlamp' })
++        : t('translation|Version'),
++      value: VERSION,
++    },
++    {
++      name: t('Git Commit'),
++      value: GIT_VERSION,
++    },
++  ];
++  const versionInformation = <NameValueTable rows={rows} />;
+   const hasLegalDocuments = Boolean(window.desktopApi?.getLegalDocuments);
+ 
+   return (
+     <Dialog
+-      maxWidth="sm"
++      maxWidth="md"
+       open={open}
+       onClose={() => dispatch(uiSlice.actions.setVersionDialogOpen(false))}
+       title={getProductName()}
+diff --git a/frontend/src/components/App/__snapshots__/VersionDialog.VersionDialog.stories.storyshot b/frontend/src/components/App/__snapshots__/VersionDialog.VersionDialog.stories.storyshot
+index 3534c4722e69ba0040b9d4d70b9c3e0e0c2d7194..c5b0545aecb018478f7dea61ea7f785a8436e7c0 100644
+--- a/frontend/src/components/App/__snapshots__/VersionDialog.VersionDialog.stories.storyshot
++++ b/frontend/src/components/App/__snapshots__/VersionDialog.VersionDialog.stories.storyshot
+@@ -25,7 +25,7 @@
+     >
+       <div
+         aria-labelledby=":mock-test-id:"
+-        class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiDialog-paper MuiDialog-paperScrollPaper MuiDialog-paperWidthSm MuiDialog-paperFullWidth css-1ehm288-MuiPaper-root-MuiDialog-paper"
++        class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiDialog-paper MuiDialog-paperScrollPaper MuiDialog-paperWidthMd MuiDialog-paperFullWidth css-1uqdd3t-MuiPaper-root-MuiDialog-paper"
+         role="dialog"
+       >
+         <h2
+diff --git a/frontend/src/helpers/getProductInfo.test.ts b/frontend/src/helpers/getProductInfo.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c46a372ff4ed74b7f0c691780a8171ea1cd9a729
+--- /dev/null
++++ b/frontend/src/helpers/getProductInfo.test.ts
+@@ -0,0 +1,72 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { afterEach, describe, expect, it, vi } from 'vitest';
++import { getDisplayVersion, getProductName, getProductVersion } from './getProductInfo';
++
++describe('getProductName', () => {
++  afterEach(() => {
++    vi.unstubAllEnvs();
++  });
++
++  it('returns the configured product name', () => {
++    vi.stubEnv('REACT_APP_HEADLAMP_PRODUCT_NAME', 'AKS Desktop');
++
++    expect(getProductName()).toBe('AKS Desktop');
++  });
++});
++
++describe('getProductVersion', () => {
++  afterEach(() => {
++    vi.unstubAllEnvs();
++  });
++
++  it('returns the configured product version', () => {
++    vi.stubEnv('REACT_APP_HEADLAMP_PRODUCT_VERSION', '1.2.3');
++
++    expect(getProductVersion()).toBe('1.2.3');
++  });
++
++  it('returns undefined when no product version is configured', () => {
++    expect(getProductVersion()).toBeUndefined();
++  });
++});
++
++describe('getDisplayVersion', () => {
++  afterEach(() => {
++    vi.unstubAllEnvs();
++  });
++
++  it('prefers the configured product version', () => {
++    vi.stubEnv('REACT_APP_HEADLAMP_PRODUCT_VERSION', '1.2.3');
++    vi.stubEnv('REACT_APP_HEADLAMP_VERSION', '0.35.0');
++
++    expect(getDisplayVersion()).toBe('1.2.3');
++  });
++
++  it('falls back to the Headlamp version', () => {
++    vi.stubEnv('REACT_APP_HEADLAMP_VERSION', '0.35.0');
++
++    expect(getDisplayVersion()).toBe('0.35.0');
++  });
++
++  it('falls back to the Headlamp version when the product version is empty', () => {
++    vi.stubEnv('REACT_APP_HEADLAMP_PRODUCT_VERSION', '');
++    vi.stubEnv('REACT_APP_HEADLAMP_VERSION', '0.35.0');
++
++    expect(getDisplayVersion()).toBe('0.35.0');
++  });
++});
+diff --git a/frontend/src/helpers/getProductInfo.ts b/frontend/src/helpers/getProductInfo.ts
+index f2304c1489fbb9d331f9a99bace84f7c6a1a1e9d..5b4b5141793c52d73383c5fc34f4294738282ef8 100644
+--- a/frontend/src/helpers/getProductInfo.ts
++++ b/frontend/src/helpers/getProductInfo.ts
+@@ -30,6 +30,20 @@ export function getProductName(): string | undefined {
+   return import.meta.env.REACT_APP_HEADLAMP_PRODUCT_NAME;
+ }
+ 
++/**
++ * @returns The version of the product distribution, or undefined when it is not set.
++ */
++export function getProductVersion(): string | undefined {
++  return import.meta.env.REACT_APP_HEADLAMP_PRODUCT_VERSION;
++}
++
++/**
++ * @returns The product distribution version when configured, otherwise the Headlamp version.
++ */
++export function getDisplayVersion(): string | undefined {
++  return getProductVersion() || getVersion().VERSION;
++}
++
+ /** A page that supports product-configured error content. */
+ export type ProductErrorPage = 'error' | 'notFound';
+ 
+diff --git a/frontend/src/i18n/locales/ar/translation.json b/frontend/src/i18n/locales/ar/translation.json
+index 76d4d1d8abd3d833e469988a881c4622c78666ac..10ec807e32348809da98be2591b771228d0d1133 100644
+--- a/frontend/src/i18n/locales/ar/translation.json
++++ b/frontend/src/i18n/locales/ar/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "حساب المستخدم الحالي",
+   "Appbar Tools": "أدوات شريط التطبيق",
+   "show more": "عرض المزيد",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "معلومات الإصدار",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/bn/translation.json b/frontend/src/i18n/locales/bn/translation.json
+index b762cceccaf3a2c0561bf379dcc6d82a921ff3f8..70834dee1062628e5612c0743fab99672a5a0a5b 100644
+--- a/frontend/src/i18n/locales/bn/translation.json
++++ b/frontend/src/i18n/locales/bn/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "বর্তমান ব্যবহারকারীর অ্যাকাউন্ট",
+   "Appbar Tools": "অ্যাপবার সরঞ্জাম",
+   "show more": "আরও দেখান",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "Version তথ্য",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/cs/translation.json b/frontend/src/i18n/locales/cs/translation.json
+index c58191b87f11b8db82d3928ed23d8cc6536a424c..b3feeb449ba7643020b05e448f17e733bc96e438 100644
+--- a/frontend/src/i18n/locales/cs/translation.json
++++ b/frontend/src/i18n/locales/cs/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Účet aktuálního uživatele",
+   "Appbar Tools": "Nástroje panelu aplikací",
+   "show more": "zobrazit více",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "Informace o verzi",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/de/translation.json b/frontend/src/i18n/locales/de/translation.json
+index 654f8b5ba75759e625e40b45ea524f9f7f077066..3837548db5a7f8dc7185c8070a653ef76f01d38c 100644
+--- a/frontend/src/i18n/locales/de/translation.json
++++ b/frontend/src/i18n/locales/de/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Konto des aktuellen Benutzers",
+   "Appbar Tools": "Appbar-Tools",
+   "show more": "mehr anzeigen",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/en/translation.json b/frontend/src/i18n/locales/en/translation.json
+index 864da901100762b385ba8931b0a6f4e203b6b799..d51662a5a2e455cd925e0991502225e7983f9452 100644
+--- a/frontend/src/i18n/locales/en/translation.json
++++ b/frontend/src/i18n/locales/en/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Account of current user",
+   "Appbar Tools": "Appbar Tools",
+   "show more": "show more",
++  "Product": "Product",
++  "{{ productName }} Version": "{{ productName }} Version",
+   "Version information": "Version information",
+   "About dialog tabs": "About dialog tabs",
+   "About": "About",
+diff --git a/frontend/src/i18n/locales/es/translation.json b/frontend/src/i18n/locales/es/translation.json
+index c80cb4f8964c7d9d38826f31deb09b15c6781af0..97731c2ec611194081d08105bd4bd36f80ea05e5 100644
+--- a/frontend/src/i18n/locales/es/translation.json
++++ b/frontend/src/i18n/locales/es/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Cuenta del usuario actual",
+   "Appbar Tools": "Herramientas de la barra de aplicación",
+   "show more": "mostrar más",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/fr/translation.json b/frontend/src/i18n/locales/fr/translation.json
+index 29818d666a0ccde96d11065c444fa1c818eb4ef7..12b65f07bf66b5a5697eb60bad81cf9f81cbc003 100644
+--- a/frontend/src/i18n/locales/fr/translation.json
++++ b/frontend/src/i18n/locales/fr/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Compte de l'utilisateur actuel",
+   "Appbar Tools": "Outils de la barre d'application",
+   "show more": "afficher plus",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/he/translation.json b/frontend/src/i18n/locales/he/translation.json
+index d1f9f7f1ba28683797b7dd9e0d6c5d0647450a35..9032b8d99da6f3bbbd401b43ec67a854f3ec63ed 100644
+--- a/frontend/src/i18n/locales/he/translation.json
++++ b/frontend/src/i18n/locales/he/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Account of current user",
+   "Appbar Tools": "Appbar Tools",
+   "show more": "show more",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "Version information",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/hi/translation.json b/frontend/src/i18n/locales/hi/translation.json
+index fc040680b85e6ce901c8e79e06f0a6ec0cd2d424..73c7590b26942505a945788ba00ecf78c702213f 100644
+--- a/frontend/src/i18n/locales/hi/translation.json
++++ b/frontend/src/i18n/locales/hi/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "",
+   "Appbar Tools": "",
+   "show more": "",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/hu/translation.json b/frontend/src/i18n/locales/hu/translation.json
+index 49cde0eb001047f1bdd30d3be45aeec1d34bde80..98b070d3e30de4082b28f409aacafb38db428b6c 100644
+--- a/frontend/src/i18n/locales/hu/translation.json
++++ b/frontend/src/i18n/locales/hu/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Az aktuális felhasználó fiókja",
+   "Appbar Tools": "Alkalmazássáv eszközei",
+   "show more": "továbbiak megjelenítése",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "Verzióadatok",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/id/translation.json b/frontend/src/i18n/locales/id/translation.json
+index d56ee75d056847c36fa6e596c82ffa4446961487..d01cbafa7d1b85a498bfaebc826f380f7c6b2287 100644
+--- a/frontend/src/i18n/locales/id/translation.json
++++ b/frontend/src/i18n/locales/id/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Akun pengguna saat ini",
+   "Appbar Tools": "Alat Appbar",
+   "show more": "tampilkan selengkapnya",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "Informasi versi",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/it/translation.json b/frontend/src/i18n/locales/it/translation.json
+index e2d8ebd2a46739d408650853233f1733f0d571c3..ce844d6941a0faa8a276b3c3be919fe387ab989c 100644
+--- a/frontend/src/i18n/locales/it/translation.json
++++ b/frontend/src/i18n/locales/it/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Account dell'utente corrente",
+   "Appbar Tools": "Strumenti Appbar",
+   "show more": "mostra di più",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/ja/translation.json b/frontend/src/i18n/locales/ja/translation.json
+index eb5149d26f9a47cbdc65895111cd20d55824eb3c..5653d967019e4b2e720fdf385d5d001a9dd92355 100644
+--- a/frontend/src/i18n/locales/ja/translation.json
++++ b/frontend/src/i18n/locales/ja/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "現在のユーザーのアカウント",
+   "Appbar Tools": "アプリバーツール",
+   "show more": "もっと表示",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/ko/translation.json b/frontend/src/i18n/locales/ko/translation.json
+index e10677fe78f37377b386a9cc6bf7f204e110c3ac..e89abd3b1058deebc489aebe662418a9a45f92ef 100644
+--- a/frontend/src/i18n/locales/ko/translation.json
++++ b/frontend/src/i18n/locales/ko/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "현재 사용자 계정",
+   "Appbar Tools": "Appbar Tools",
+   "show more": "더 보기",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/nl/translation.json b/frontend/src/i18n/locales/nl/translation.json
+index b36b16b69d99008535711cf5769819c2cef88f06..104279a47070e23d0312571105da7d7bca4ffb35 100644
+--- a/frontend/src/i18n/locales/nl/translation.json
++++ b/frontend/src/i18n/locales/nl/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Account van huidige gebruiker",
+   "Appbar Tools": "Appbar-hulpprogramma's",
+   "show more": "meer weergeven",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "Versiegegevens",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/pl/translation.json b/frontend/src/i18n/locales/pl/translation.json
+index b71d0fc750390fff3b9158209c21516d4a247fdf..62349effca106aa910abd6e816c3b704a4732d73 100644
+--- a/frontend/src/i18n/locales/pl/translation.json
++++ b/frontend/src/i18n/locales/pl/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Konto bieżącego użytkownika",
+   "Appbar Tools": "Narzędzia paska aplikacji",
+   "show more": "pokaż więcej",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "Informacje o wersji",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/pt-br/translation.json b/frontend/src/i18n/locales/pt-br/translation.json
+index 8b10201388fedbff574dc7b7d929560b25592105..dd13653a2309dbb5d9aa958439224b84b6da4991 100644
+--- a/frontend/src/i18n/locales/pt-br/translation.json
++++ b/frontend/src/i18n/locales/pt-br/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Conta do utilizador actual",
+   "Appbar Tools": "Ferramentas da barra de aplicação",
+   "show more": "mostrar mais",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "Informações da versão",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/pt-pt/translation.json b/frontend/src/i18n/locales/pt-pt/translation.json
+index 79b7803e6aca0888fd11d8b8238317b7fbce3e0d..badfcf5173f69631135388c4d27d753af8e19fec 100644
+--- a/frontend/src/i18n/locales/pt-pt/translation.json
++++ b/frontend/src/i18n/locales/pt-pt/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "",
+   "Appbar Tools": "",
+   "show more": "",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/ru/translation.json b/frontend/src/i18n/locales/ru/translation.json
+index a1023659afc7ba630d07c348fa40d2489992069f..c75c6517fb9d7f6209ad84b92393a93e6ba29038 100644
+--- a/frontend/src/i18n/locales/ru/translation.json
++++ b/frontend/src/i18n/locales/ru/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Аккаунт текущего пользователя",
+   "Appbar Tools": "Инструменты панели приложений",
+   "show more": "показать больше",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "Информация о версии",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/sv/translation.json b/frontend/src/i18n/locales/sv/translation.json
+index acdcfaa68a27a322337dd7abb7513233eed5b8af..3c49dcfcd45b4ab9ce681a61ab93612094467b5f 100644
+--- a/frontend/src/i18n/locales/sv/translation.json
++++ b/frontend/src/i18n/locales/sv/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Konto för aktuell användare",
+   "Appbar Tools": "Appfältsverktyg",
+   "show more": "visa mer",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "Versionsinformation",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/ta/translation.json b/frontend/src/i18n/locales/ta/translation.json
+index e3778b7ee6649313e2277cb65bc752e0deb16b55..f1c2cdcf1228da2eb4be46d64377254818e47416 100644
+--- a/frontend/src/i18n/locales/ta/translation.json
++++ b/frontend/src/i18n/locales/ta/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "தற்போதைய பயனரின் கணக்கு",
+   "Appbar Tools": "ஆப்பார் கருவிகள்",
+   "show more": "மேலும் காட்டு",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/tr/translation.json b/frontend/src/i18n/locales/tr/translation.json
+index 4108403768c2a0012508c4b65a3e4d024590c1e2..dd553dffd255fb8806d4b0507c4908d0f903080e 100644
+--- a/frontend/src/i18n/locales/tr/translation.json
++++ b/frontend/src/i18n/locales/tr/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "Geçerli kullanıcının hesabı",
+   "Appbar Tools": "Uygulama Çubuğu Araçları",
+   "show more": "daha fazla göster",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "Sürüm bilgileri",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/ur/translation.json b/frontend/src/i18n/locales/ur/translation.json
+index 5a3c4631df5f60dab631ef38d7b68fb7ddf80d33..aebc10ff883a5e4306e7a82249dabb71b3241968 100644
+--- a/frontend/src/i18n/locales/ur/translation.json
++++ b/frontend/src/i18n/locales/ur/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "موجودہ صارف کا اکاؤنٹ",
+   "Appbar Tools": "ایپ بار ٹولز",
+   "show more": "مزید دکھائیں",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "ورژن کی معلومات",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/zh-tw/translation.json b/frontend/src/i18n/locales/zh-tw/translation.json
+index 976ebc5cfb175ce10bf454f04f2375d0b000f855..655465d02b076cdbf3f0784db3332b93dcbfc69c 100644
+--- a/frontend/src/i18n/locales/zh-tw/translation.json
++++ b/frontend/src/i18n/locales/zh-tw/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "當前使用者的使用者",
+   "Appbar Tools": "應用欄工具",
+   "show more": "顯示更多",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "",
+   "About dialog tabs": "",
+   "About": "",
+diff --git a/frontend/src/i18n/locales/zh/translation.json b/frontend/src/i18n/locales/zh/translation.json
+index 74255ec6adb5565cc6b166011683f65104a387c1..7761ba94522e0fe7b2e5b4f3f9f68aa5250eb33a 100644
+--- a/frontend/src/i18n/locales/zh/translation.json
++++ b/frontend/src/i18n/locales/zh/translation.json
+@@ -219,6 +219,8 @@
+   "Account of current user": "当前用户的账户",
+   "Appbar Tools": "应用栏工具",
+   "show more": "显示更多",
++  "Product": "",
++  "{{ productName }} Version": "",
+   "Version information": "",
+   "About dialog tabs": "",
+   "About": "",
+-- 
+2.54.0
+
