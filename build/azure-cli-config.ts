@@ -32,6 +32,17 @@ export interface AzureCliTarget {
   windowsPackage?: RuntimeConfig;
 }
 
+export function azureCliCacheIdentity(target: AzureCliTarget) {
+  return {
+    platform: target.platform,
+    runtimeArch: target.windowsPackage?.runtimeArch || target.arch,
+    version: target.version,
+    extensions: [...target.extensions].sort(),
+    pythonChecksum: target.python?.checksum,
+    packageChecksum: target.windowsPackage?.checksum,
+  };
+}
+
 export async function verifyRequiredArtifact(
   verification: Promise<boolean>,
   artifactName: string

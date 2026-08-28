@@ -31,6 +31,7 @@ const { copyDirectoryContents, removePathPattern } = require(
 );
 const { parseTargetArgs } = require('./aks-mcp-config.ts');
 const {
+  azureCliCacheIdentity,
   installRequiredExtensions,
   resolveAzureCliTarget,
   verifyRequiredArtifact,
@@ -70,13 +71,7 @@ console.log('==========================================');
 
 const TARGET_DIR = path.join(AZ_CLI_DIR, CURRENT_PLATFORM);
 const STAGED_TARGET_PATH = path.join(TARGET_DIR, '.target.json');
-const stagedTarget = {
-  platform: target.platform,
-  runtimeArch: target.windowsPackage?.runtimeArch || target.arch,
-  version: target.version,
-  pythonChecksum: PYTHON_CHECKSUM,
-  packageChecksum: AZ_CLI_CHECKSUM,
-};
+const stagedTarget = azureCliCacheIdentity(target);
 
 fs.mkdirSync(TEMP_DIR, { recursive: true });
 

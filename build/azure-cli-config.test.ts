@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import test from 'node:test';
 
 import {
+  azureCliCacheIdentity,
   installRequiredExtensions,
   resolveAzureCliTarget,
   verifyRequiredArtifact,
@@ -76,6 +77,18 @@ test('rejects targets without a verified runtime', () => {
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test('includes sorted extensions in the staged cache identity', () => {
+  const identity = azureCliCacheIdentity({
+    platform: 'linux',
+    arch: 'arm64',
+    version: '2.89.0',
+    extensions: ['resource-graph', 'connectedk8s'],
+    python: { url: 'python', checksum: 'python-sum' },
+  });
+  assert.deepEqual(identity.extensions, ['connectedk8s', 'resource-graph']);
+  assert.equal(identity.pythonChecksum, 'python-sum');
 });
 
 test('rejects an artifact whose checksum does not match', async () => {
