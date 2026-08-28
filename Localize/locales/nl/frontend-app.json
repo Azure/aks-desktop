@@ -53,5 +53,7 @@
   "Yes": "Ja",
   "You are about to install a plugin from: {{ url }}\nDo you want to proceed?": "Je staat op het punt een invoegtoepassing te installeren van: {{ url }}\nWil je doorgaan?",
   "Zoom In": "Inzoomen",
-  "Zoom Out": "Uitzoomen"
+  "Zoom Out": "Uitzoomen",
+  "OAuth callback failed": "",
+  "The OAuth callback could not be completed. Please try again.": ""
 }

@@ -53,5 +53,7 @@
   "Yes": "Да",
   "You are about to install a plugin from: {{ url }}\nDo you want to proceed?": "Вы собираетесь установить подключаемый модуль из: {{ url }}\nХотите продолжить?",
   "Zoom In": "Увеличить масштаб",
-  "Zoom Out": "Уменьшить масштаб"
+  "Zoom Out": "Уменьшить масштаб",
+  "OAuth callback failed": "",
+  "The OAuth callback could not be completed. Please try again.": ""
 }

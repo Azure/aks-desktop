@@ -53,5 +53,7 @@
   "Yes": "Sí",
   "You are about to install a plugin from: {{ url }}\nDo you want to proceed?": "Está a punto de instalar un complemento de: {{ url }}\n¿Desea continuar?",
   "Zoom In": "Acercar",
-  "Zoom Out": "Alejar"
+  "Zoom Out": "Alejar",
+  "OAuth callback failed": "",
+  "The OAuth callback could not be completed. Please try again.": ""
 }

@@ -53,5 +53,7 @@
   "Yes": "Tak",
   "You are about to install a plugin from: {{ url }}\nDo you want to proceed?": "Zamierzasz zainstalować wtyczkę z: {{ url }}\nCzy chcesz kontynuować?",
   "Zoom In": "Powiększ",
-  "Zoom Out": "Pomniejsz"
+  "Zoom Out": "Pomniejsz",
+  "OAuth callback failed": "",
+  "The OAuth callback could not be completed. Please try again.": ""
 }

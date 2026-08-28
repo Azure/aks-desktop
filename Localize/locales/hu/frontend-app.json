@@ -53,5 +53,7 @@
   "Yes": "Igen",
   "You are about to install a plugin from: {{ url }}\nDo you want to proceed?": "Beépülő modul telepítésére készül innen: {{ url }}\nFolytatja?",
   "Zoom In": "Nagyítás",
-  "Zoom Out": "Kicsinyítés"
+  "Zoom Out": "Kicsinyítés",
+  "OAuth callback failed": "",
+  "The OAuth callback could not be completed. Please try again.": ""
 }
