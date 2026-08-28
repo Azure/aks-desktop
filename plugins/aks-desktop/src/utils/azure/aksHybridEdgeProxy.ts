@@ -3,23 +3,12 @@
 
 import { ApiProxy } from '@kinvolk/headlamp-plugin/lib';
 import { getErrorMessage, runAzCommand } from './az-cli-core';
+import { getStartClusterProxyCapability } from './clusterProxyCapability';
 
 // Proxy lifecycle is owned by the app (main) layer. There is no stop intent:
 // arcProxy is a machine-wide daemon shared by every connected cluster, and it
 // is torn down when the app quits. Headlamp injects this capability as a private
 // lexical argument only while executing the trusted AKS Desktop plugin bundle.
-type DesktopApiStartProxy = (target: {
-  cluster: string;
-  subscriptionId: string;
-  resourceGroup: string;
-}) => Promise<StartProxyResult>;
-
-declare const startClusterProxy: DesktopApiStartProxy | undefined;
-
-/** Returns the private proxy capability injected by Headlamp's plugin loader. */
-export function getStartClusterProxyCapability(): DesktopApiStartProxy | undefined {
-  return typeof startClusterProxy === 'function' ? startClusterProxy : undefined;
-}
 
 /** Identifies an AKS Hybrid & Edge (Arc-connected) cluster the proxy can target. */
 export interface ProxyTarget {
