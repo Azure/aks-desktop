@@ -11,6 +11,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createHash } from 'crypto';
 
+const { resolveInstalledHeadlampPaths } = require(
+  '../packages/headlamp-source/scripts/paths.ts'
+);
+
 const ASSET_PLATFORM: Record<string, string> = {
   linux: 'linux',
   darwin: 'darwin',
@@ -46,7 +50,7 @@ function assetArchFor(platform: string, targetArch: string): string {
 }
 
 /** Records which platform/arch was staged so later build steps can verify it. */
-const STAGED_TARGET_FILE = path.join('headlamp', 'app', 'resources', '.aks-mcp-target.json');
+const STAGED_TARGET_FILE = path.join('resources', '.aks-mcp-target.json');
 
 export interface AksMcpTarget {
   version: string;
@@ -87,10 +91,9 @@ export function aksMcpBinaryName(platform: string = process.platform): string {
 }
 
 export function aksMcpBinaryPath(rootDir: string, platform: string = process.platform): string {
+  const { appDir } = resolveInstalledHeadlampPaths(rootDir);
   return path.join(
-    rootDir,
-    'headlamp',
-    'app',
+    appDir,
     'resources',
     'external-tools',
     'bin',
@@ -181,13 +184,15 @@ export function ensureExecutable(filePath: string, platform: string): void {
 }
 
 export function writeStagedTarget(rootDir: string, target: StagedAksMcpTarget): void {
-  const markerPath = path.join(rootDir, STAGED_TARGET_FILE);
+  const { appDir } = resolveInstalledHeadlampPaths(rootDir);
+  const markerPath = path.join(appDir, STAGED_TARGET_FILE);
   fs.mkdirSync(path.dirname(markerPath), { recursive: true });
   fs.writeFileSync(markerPath, `${JSON.stringify(target, null, 2)}\n`);
 }
 
 export function readStagedTarget(rootDir: string): StagedAksMcpTarget | undefined {
-  const markerPath = path.join(rootDir, STAGED_TARGET_FILE);
+  const { appDir } = resolveInstalledHeadlampPaths(rootDir);
+  const markerPath = path.join(appDir, STAGED_TARGET_FILE);
   if (!fs.existsSync(markerPath)) {
     return undefined;
   }

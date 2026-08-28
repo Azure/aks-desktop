@@ -38,12 +38,6 @@ const EXTERNAL_TOOLS_DIR = path.join(HEADLAMP_APP_DIR, 'resources', 'external-to
 const EXTERNAL_TOOLS_BIN = path.join(EXTERNAL_TOOLS_DIR, 'bin');
 const AZ_CLI_DIR = path.join(EXTERNAL_TOOLS_DIR, 'az-cli', PLATFORM);
 
-if (fs.existsSync(EXTERNAL_TOOLS_DIR)) {
-  console.log(`External tools already exist at ${EXTERNAL_TOOLS_DIR}.`);
-  console.log('Remove that directory to install them again.');
-  process.exit(0);
-}
-
 // Download and install Azure CLI
 console.log('==========================================');
 console.log('Installing Azure CLI...');
