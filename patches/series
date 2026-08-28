@@ -1,9 +1,7 @@
 0018 source 0018-headlamp-upstream-oauth-provider-registry.patch
 0023 source 0023-headlamp-upstream-storybook-apps-workload-mocks.patch
 0024 source 0024-headlamp-upstream-storybook-batch-workload-mocks.patch
-0039 source 0039-headlamp-upstream-electron-zoom-menu-actions.patch
 0049 source 0049-headlamp-upstream-product-version.patch
 0050 source 0050-headlamp-upstream-project-grouping.patch
-0052 source 0052-headlamp-upstream-query-retry-policy.patch
 0069 source 0069-headlamp-upstream-packaged-source-builds.patch
 0071 source 0071-headlamp-upstream-cluster-pre-open-proxies.patch

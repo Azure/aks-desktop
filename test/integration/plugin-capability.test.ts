@@ -2,35 +2,33 @@ import assert from 'node:assert/strict';
 import * as path from 'node:path';
 import test from 'node:test';
 
-const PACKAGE_DIR = path.resolve(__dirname, '..');
-const ROOT_DIR = path.resolve(PACKAGE_DIR, '..', '..');
-const { sourceDir: HEADLAMP_SOURCE_DIR } =
-  require('../scripts/paths.ts').resolveInstalledHeadlampPaths(ROOT_DIR);
-const { runPlugin } = require(path.join(
-  HEADLAMP_SOURCE_DIR,
-  'frontend',
-  'src',
-  'plugin',
-  'runPlugin.ts'
-));
-const { getStartClusterProxyCapability } = require(path.join(
-  ROOT_DIR,
-  'plugins',
-  'aks-desktop',
-  'src',
-  'utils',
-  'azure',
-  'clusterProxyCapability.ts'
-));
+const ROOT_DIR = path.resolve(__dirname, '..', '..');
+const { sourceDir: HEADLAMP_SOURCE_DIR } = require(
+  path.join(ROOT_DIR, 'packages', 'headlamp-source', 'scripts', 'paths.ts')
+).resolveInstalledHeadlampPaths(ROOT_DIR);
+const { runPlugin } = require(
+  path.join(HEADLAMP_SOURCE_DIR, 'frontend', 'src', 'plugin', 'runPlugin.ts')
+);
+const { getStartClusterProxyCapability } = require(
+  path.join(
+    ROOT_DIR,
+    'plugins',
+    'aks-desktop',
+    'src',
+    'utils',
+    'azure',
+    'clusterProxyCapability.ts'
+  )
+);
 
-declare global {
-  var __aksProxyCapability: ((target: unknown) => Promise<unknown>) | undefined;
-  var __aksProxyResult: Promise<unknown> | undefined;
-}
+const integrationGlobal = globalThis as typeof globalThis & {
+  __aksProxyCapability?: (target: unknown) => Promise<unknown>;
+  __aksProxyResult?: Promise<unknown>;
+};
 
 test.afterEach(() => {
-  delete globalThis.__aksProxyCapability;
-  delete globalThis.__aksProxyResult;
+  delete integrationGlobal.__aksProxyCapability;
+  delete integrationGlobal.__aksProxyResult;
 });
 
 test('the Headlamp loader injects the private cluster proxy capability', async () => {
@@ -61,7 +59,7 @@ test('the Headlamp loader injects the private cluster proxy capability', async (
   );
 
   assert.deepEqual(errors, []);
-  assert.deepEqual(await globalThis.__aksProxyResult, { success: true });
+  assert.deepEqual(await integrationGlobal.__aksProxyResult, { success: true });
   assert.deepEqual(calls, [target]);
 });
 
@@ -82,5 +80,5 @@ test('the Headlamp loader does not expose a capability it did not inject', () =>
   );
 
   assert.deepEqual(errors, []);
-  assert.equal(globalThis.__aksProxyCapability, undefined);
+  assert.equal(integrationGlobal.__aksProxyCapability, undefined);
 });

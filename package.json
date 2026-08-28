@@ -27,7 +27,7 @@
     "build:unpacked:mac": "npm run build:unpacked",
     "build:unpacked:win": "npm run build:unpacked",
     "build:container": "npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:container",
-    "test:build": "npm --prefix packages/headlamp-source run test:helpers && tsx --test build/aks-mcp-config.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/package-target.test.ts build/product-manifest-verification.test.ts",
+  "test:build": "npm --prefix packages/headlamp-source run test:helpers && tsx --test build/aks-mcp-config.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/package-target.test.ts build/product-manifest-verification.test.ts test/integration/*.test.ts",
     "test:headlamp-package": "npm --prefix packages/headlamp-source run test:package",
     "test:headlamp-patches": "npm run headlamp:patches -- --check && npm patch ls && npm run test:headlamp-package",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
@@ -145,8 +145,8 @@
   "headlampSource": {
     "repository": "https://github.com/kubernetes-sigs/headlamp.git",
     "ref": "refs/heads/main",
-    "commit": "f84c2da1e234fa18c0a7332b7ecbff4f0d7a4ddd",
-    "previousCommit": "9ea6b30cfe42d7fc82880d552e926107c0d4a8bd"
+    "commit": "d85284da1a5091ab49da1e2f152523e43902c144",
+    "previousCommit": "f84c2da1e234fa18c0a7332b7ecbff4f0d7a4ddd"
   },
   "headlampSourceTagsToo": {
     "baseTag": "v0.44.0"
@@ -581,7 +581,7 @@
     ]
   },
   "devDependencies": {
-    "@headlamp-k8s/headlamp-source": "0.0.0-main.f84c2da1",
+    "@headlamp-k8s/headlamp-source": "0.0.0-main.d85284da",
     "@types/node": "^26.1.1",
     "concurrently": "^9.1.2",
     "cross-env": "10.1.0",
@@ -592,7 +592,7 @@
     "typescript": "^6.0.3"
   },
   "patchedDependencies": {
-    "@headlamp-k8s/headlamp-source@0.0.0-main.f84c2da1": "patches/headlamp-source@0.0.0-main.f84c2da1.patch"
+    "@headlamp-k8s/headlamp-source@0.0.0-main.d85284da": "patches/headlamp-source@0.0.0-main.d85284da.patch"
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [

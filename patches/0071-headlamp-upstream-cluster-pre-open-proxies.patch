@@ -1,4 +1,4 @@
-From c2d9e4659929cac3f98fcee370c487f4205011ff Mon Sep 17 00:00:00 2001
+From 87985fd51330ba4259db59fd6c6f8245fdd02878 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:44:44 +0200
 Subject: [PATCH 01/10] app: proxies: Cover secure Azure proxy lifecycle
@@ -882,7 +882,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..fc1287d76a78502a31d6857fdb5eccde
 2.54.0
 
 
-From 15c8409427a4d650e58df83678c6d04ba9c10c0c Mon Sep 17 00:00:00 2001
+From 35a1c4a5531eba03fe49d39ed25217659161b894 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:44:52 +0200
 Subject: [PATCH 02/10] frontend: e2e-tests: Cover scoped cluster pre-open flow
@@ -1071,7 +1071,7 @@ index 0000000000000000000000000000000000000000..78f8417b49b15892d12cc39a6d5179e6
 2.54.0
 
 
-From c045fe92104dfc1b54451ff9495e86e49d539cfb Mon Sep 17 00:00:00 2001
+From 4ebef0e03e4bbc6474e22e17ffba25006971453f Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 14:03:45 +0530
 Subject: [PATCH 03/10] app: proxies: Add scoped Azure proxy lifecycle
@@ -1971,7 +1971,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..02bcbcdc8ddcf0b2bf4635e9f653e4b7
 2.54.0
 
 
-From 59e1429a0a5b05d715ca0d8d785d61ce9af67c25 Mon Sep 17 00:00:00 2001
+From 2067459b8b0e7afc46fb3d535c0143aff6cdbac1 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:45:12 +0200
 Subject: [PATCH 04/10] frontend: ClusterPreOpenGate: Cover preparation
@@ -1981,28 +1981,29 @@ Verify config loading, outer request gating, retries, route lifetime, aborts,
 
 run ownership, auth ordering, and alert suppression.
 ---
- .../App/ClusterPreOpenGate.test.tsx           | 112 +++
+ .../App/ClusterPreOpenGate.test.tsx           | 158 ++++
  .../src/components/App/Layout.stories.tsx     |  33 +-
- .../src/components/App/RouteSwitcher.test.tsx | 318 +++++++-
+ .../src/components/App/RouteSwitcher.test.tsx | 354 ++++++++-
  .../Layout.Default.stories.storyshot          | 313 +++++++-
  .../Layout.ErrorState.stories.storyshot       | 313 +++++++-
  .../Layout.MultiCluster.stories.storyshot     | 678 +++++++++++++++++-
  .../Layout.WithClusterRoute.stories.storyshot | 669 ++++++++++++++++-
  .../common/AlertNotification.test.tsx         | 148 +++-
  frontend/src/lib/k8s/index.test.ts            |  52 +-
- frontend/src/plugin/clusterProxy.test.ts      |  40 +-
+ frontend/src/plugin/clusterProxy.test.ts      |  54 +-
  frontend/src/plugin/pluginLib.test.ts         |  11 +
- frontend/src/plugin/registry.test.ts          |  80 ++-
+ frontend/src/plugin/registry.test.ts          | 139 +++-
  frontend/src/plugin/runPlugin.test.ts         |  24 +-
- 13 files changed, 2742 insertions(+), 49 deletions(-)
+ frontend/src/stateless/index.test.ts          |   5 +-
+ 14 files changed, 2899 insertions(+), 52 deletions(-)
  create mode 100644 frontend/src/components/App/ClusterPreOpenGate.test.tsx
 
 diff --git a/frontend/src/components/App/ClusterPreOpenGate.test.tsx b/frontend/src/components/App/ClusterPreOpenGate.test.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..90913f9072834844968165094ef7618cbec6f487
+index 0000000000000000000000000000000000000000..80ee34c6476c205dec4a7c4077cb87b3d2cc8975
 --- /dev/null
 +++ b/frontend/src/components/App/ClusterPreOpenGate.test.tsx
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,158 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -2022,6 +2023,8 @@ index 0000000000000000000000000000000000000000..90913f9072834844968165094ef7618c
 +import { render, screen } from '@testing-library/react';
 +import { beforeEach, expect, it, vi } from 'vitest';
 +import { useCluster } from '../../lib/k8s';
++import type { UIPanel } from '../../redux/uiSlice';
++import ClusterLayout from './ClusterLayout';
 +import { ClusterPreOpenState, useClusterPreOpen } from './useClusterPreOpen';
 +
 +vi.mock('../../lib/k8s', () => ({
@@ -2048,6 +2051,7 @@ index 0000000000000000000000000000000000000000..90913f9072834844968165094ef7618c
 +};
 +const sidebarClusterRequest = vi.fn();
 +const topBarUserInfoRequest = vi.fn();
++const panelClusterRequest = vi.fn();
 +
 +function TopBarWithUserInfoRequest() {
 +  topBarUserInfoRequest();
@@ -2059,11 +2063,54 @@ index 0000000000000000000000000000000000000000..90913f9072834844968165094ef7618c
 +  return <div>sidebar</div>;
 +}
 +
++function PanelWithClusterRequest() {
++  panelClusterRequest();
++  return <div>cluster-panel</div>;
++}
++
++const panels = {
++  top: [{ id: 'top', side: 'top', component: PanelWithClusterRequest }],
++  right: [{ id: 'right', side: 'right', component: PanelWithClusterRequest }],
++  bottom: [{ id: 'bottom', side: 'bottom', component: PanelWithClusterRequest }],
++  left: [{ id: 'left', side: 'left', component: PanelWithClusterRequest }],
++} as Record<UIPanel['side'], UIPanel[]>;
++
 +beforeEach(() => {
 +  sidebarClusterRequest.mockClear();
 +  topBarUserInfoRequest.mockClear();
++  panelClusterRequest.mockClear();
 +  vi.mocked(useCluster).mockReturnValue('test-cluster');
 +  vi.mocked(useClusterPreOpen).mockReturnValue(readyState);
++});
++
++it('does not mount plugin UI panels while preparation is pending', () => {
++  vi.mocked(useClusterPreOpen).mockReturnValue({ ...readyState, isSuccess: false });
++
++  render(
++    <ClusterLayout pluginsLoaded panels={panels}>
++      <div>cluster-content</div>
++    </ClusterLayout>
++  );
++
++  expect(screen.getByRole('dialog')).toBeInTheDocument();
++  expect(panelClusterRequest).not.toHaveBeenCalled();
++  expect(screen.queryByText('cluster-panel')).not.toBeInTheDocument();
++  expect(screen.queryByText('cluster-content')).not.toBeInTheDocument();
++});
++
++it('mounts plugin UI panels before plugins finish loading', () => {
++  vi.mocked(useClusterPreOpen).mockReturnValue({ ...readyState, isSuccess: false });
++
++  render(
++    <ClusterLayout pluginsLoaded={false} panels={panels}>
++      <div>cluster-content</div>
++    </ClusterLayout>
++  );
++
++  expect(panelClusterRequest).toHaveBeenCalledTimes(4);
++  expect(screen.getAllByText('cluster-panel')).toHaveLength(4);
++  expect(screen.queryByText('cluster-content')).not.toBeInTheDocument();
++  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 +});
 +
 +it('does not mount cluster polling or namespace resolution while preparation is pending', () => {
@@ -2203,10 +2250,10 @@ index b1f586f14217e607c355d89bbfcd9022229021d2..f43343e8196ab618aeca07bbb32e6646
    },
  };
 diff --git a/frontend/src/components/App/RouteSwitcher.test.tsx b/frontend/src/components/App/RouteSwitcher.test.tsx
-index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..34bddd81bd05223d2eae078f7d9db80da869feb2 100644
+index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..937f0bb05b279609373cbc493e97539baf1acd88 100644
 --- a/frontend/src/components/App/RouteSwitcher.test.tsx
 +++ b/frontend/src/components/App/RouteSwitcher.test.tsx
-@@ -14,9 +14,18 @@
+@@ -14,9 +14,19 @@
   * limitations under the License.
   */
  
@@ -2223,11 +2270,12 @@ index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..34bddd81bd05223d2eae078f7d9db80d
 +  resetClusterPreOpenHooksForTests,
 +} from '../../plugin/clusterPreOpen';
 +import { ClusterPreOpenHook, clusterPreOpenHooksChanged } from '../../redux/clusterProviderSlice';
++import { setConfig, setStatelessConfig } from '../../redux/configSlice';
 +import reducers from '../../redux/reducers/reducers';
  import { TestContext } from '../../test';
  
  vi.mock('../../lib/k8s', () => ({
-@@ -27,15 +36,19 @@ vi.mock('../../lib/k8s', () => ({
+@@ -27,15 +37,19 @@ vi.mock('../../lib/k8s', () => ({
    useSelectedClusters: vi.fn(() => []),
  }));
  
@@ -2249,7 +2297,7 @@ index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..34bddd81bd05223d2eae078f7d9db80d
  
  // Verify RouteSwitcher renders stable route keys and handles an unset cluster.
  
-@@ -120,3 +133,300 @@ describe('RouteSwitcher', () => {
+@@ -120,3 +134,335 @@ describe('RouteSwitcher', () => {
      await waitFor(() => expect(document.title).toBe('cluster-a - Choose a cluster - Headlamp'));
    });
  });
@@ -2365,6 +2413,41 @@ index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..34bddd81bd05223d2eae078f7d9db80d
 +    expect(hook.mock.calls[0][0]).toMatchObject({
 +      cluster: 'test-cluster',
 +      clusterConf: { source: 'loaded' },
++    });
++  });
++
++  it('waits for enabled stateless cluster config before running hooks', async () => {
++    const store = createTestStore();
++    store.dispatch(
++      setConfig({
++        clusters: { 'normal-cluster': { name: 'normal-cluster' } } as any,
++        isDynamicClusterEnabled: true,
++      })
++    );
++    vi.mocked(useClustersConf).mockReturnValue({ 'normal-cluster': {} } as any);
++    const hook = vi.fn<ClusterPreOpenHook>(() => Promise.resolve());
++    registerClusterPreOpenHook(hook);
++    store.dispatch(clusterPreOpenHooksChanged());
++    const { navigate } = renderAuthRoute(hook, undefined, store);
++
++    expect(await screen.findByRole('dialog')).toBeInTheDocument();
++    expect(hook).not.toHaveBeenCalled();
++
++    store.dispatch(
++      setStatelessConfig({
++        statelessClusters: { 'test-cluster': { name: 'test-cluster', source: 'stateless' } } as any,
++      })
++    );
++    vi.mocked(useClustersConf).mockReturnValue({
++      'normal-cluster': {},
++      'test-cluster': { source: 'stateless' },
++    } as any);
++    navigate('stateless-config-loaded');
++
++    await waitFor(() => expect(hook).toHaveBeenCalledTimes(1));
++    expect(hook.mock.calls[0][0]).toMatchObject({
++      cluster: 'test-cluster',
++      clusterConf: { source: 'stateless' },
 +    });
 +  });
 +
@@ -4858,15 +4941,19 @@ index c672c506aa63dbfc5a5b87a1e19b38f418b2c925..8aa95ff2ce28186edf13e3228a51a3e4
    let queryClient: QueryClient;
  
 diff --git a/frontend/src/plugin/clusterProxy.test.ts b/frontend/src/plugin/clusterProxy.test.ts
-index 78f8417b49b15892d12cc39a6d5179e636cdfdc0..d3db92c4bfe686ddde1732f3365eeed6feb8efba 100644
+index 78f8417b49b15892d12cc39a6d5179e636cdfdc0..7a28f6961bb1d05bb2cbfd2f90c91db02ea7b85e 100644
 --- a/frontend/src/plugin/clusterProxy.test.ts
 +++ b/frontend/src/plugin/clusterProxy.test.ts
-@@ -15,14 +15,27 @@
+@@ -15,14 +15,41 @@
   */
  
  import { describe, expect, it, vi } from 'vitest';
 -import { getClusterProxyArgValues } from './clusterProxy';
-+import { getClusterProxyArgValues, isTrustedClusterProxyPlugin } from './clusterProxy';
++import {
++  getAksDesktopCommandPermissions,
++  getClusterProxyArgValues,
++  isTrustedClusterProxyPlugin,
++} from './clusterProxy';
 +
 +describe('isTrustedClusterProxyPlugin', () => {
 +  it('allows shipped AKS Desktop and development builds, but rejects user-installed spoofing', () => {
@@ -4876,6 +4963,16 @@ index 78f8417b49b15892d12cc39a6d5179e636cdfdc0..d3db92c4bfe686ddde1732f3365eeed6
 +    expect(isTrustedClusterProxyPlugin(true, 'user', false)).toBe(false);
 +    expect(isTrustedClusterProxyPlugin(true, undefined, false)).toBe(false);
 +    expect(isTrustedClusterProxyPlugin(false, 'shipped', false)).toBe(false);
++  });
++});
++
++describe('getAksDesktopCommandPermissions', () => {
++  it('grants the legacy command secret only to trusted AKS Desktop sources', () => {
++    const secrets = { 'runCmd-scriptjs-azure-aks/azure-api.js': 731 };
++
++    expect(getAksDesktopCommandPermissions(true, 'shipped', false, secrets)).toEqual(secrets);
++    expect(getAksDesktopCommandPermissions(true, 'user', false, secrets)).toEqual({});
++    expect(getAksDesktopCommandPermissions(true, 'development', false, secrets)).toEqual({});
 +  });
 +});
  
@@ -4894,7 +4991,7 @@ index 78f8417b49b15892d12cc39a6d5179e636cdfdc0..d3db92c4bfe686ddde1732f3365eeed6
  
      expect(args).toEqual(['startClusterProxy']);
      await expect(
-@@ -38,22 +51,25 @@ describe('getClusterProxyArgValues', () => {
+@@ -38,22 +65,25 @@ describe('getClusterProxyArgValues', () => {
          subscriptionId: '00000000-0000-0000-0000-000000000000',
          resourceGroup: 'valid-rg',
        },
@@ -4948,12 +5045,14 @@ index c6d4ab70ec0675d754c78aa4a5c8a5e0ef6a3051..0f9f15d9e19b6c500dda15872f3d8c26
 +  });
  });
 diff --git a/frontend/src/plugin/registry.test.ts b/frontend/src/plugin/registry.test.ts
-index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f4da48837 100644
+index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..3468b330134e479f9b5906da2ca8f0ce28b3ca57 100644
 --- a/frontend/src/plugin/registry.test.ts
 +++ b/frontend/src/plugin/registry.test.ts
-@@ -17,6 +17,11 @@
+@@ -16,7 +16,13 @@
+ 
  import { configureStore } from '@reduxjs/toolkit';
  import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import type { ClusterPreOpenHook } from '../redux/clusterProviderSlice';
  import reducers from '../redux/reducers/reducers';
 +import {
 +  hasClusterPreOpenHooks,
@@ -4963,7 +5062,7 @@ index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f
  
  let activeStore: any;
  
-@@ -34,12 +39,17 @@ vi.mock('../components/resourceMap/sources/definitions/relationIds', () => ({
+@@ -34,12 +40,17 @@ vi.mock('../components/resourceMap/sources/definitions/relationIds', () => ({
    BUILT_IN_RELATION_IDS: ['owner', 'owner-reversed', 'pod-configmap'],
  }));
  
@@ -4982,7 +5081,7 @@ index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f
      activeStore = configureStore({
        reducer: reducers,
      });
-@@ -47,6 +57,7 @@ describe('registerResourceRelationProvider', () => {
+@@ -47,6 +58,7 @@ describe('registerResourceRelationProvider', () => {
    });
  
    afterEach(() => {
@@ -4990,7 +5089,7 @@ index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f
      warnSpy.mockRestore();
    });
  
-@@ -219,4 +230,71 @@ describe('registerResourceRelationProvider', () => {
+@@ -219,4 +231,129 @@ describe('registerResourceRelationProvider', () => {
  
      expect(activeStore.getState().clusterProvider.clusterEmptyState).toBe(emptyState);
    });
@@ -5046,6 +5145,33 @@ index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f
 +    }
 +  });
 +
++  it('gives each pre-open hook an independent context snapshot', async () => {
++    let retainedContext: any;
++    const firstHook = vi.fn<ClusterPreOpenHook>(async context => {
++      retainedContext = context;
++      retainedContext.cluster = 'attacker-cluster';
++      retainedContext.clusterConf.meta_data.subscriptionId = 'attacker-subscription';
++    });
++    const secondHook = vi.fn<ClusterPreOpenHook>(async () => {});
++    registerClusterProviderPreOpen(firstHook);
++    registerClusterProviderPreOpen(secondHook);
++    const context = {
++      cluster: 'trusted-cluster',
++      clusterConf: { meta_data: { subscriptionId: 'trusted-subscription' } },
++    };
++
++    await runClusterPreOpenHooks(context, () => {});
++
++    expect(secondHook).toHaveBeenCalledWith({
++      cluster: 'trusted-cluster',
++      clusterConf: { meta_data: { subscriptionId: 'trusted-subscription' } },
++      reportProgress: undefined,
++      signal: undefined,
++    });
++    expect(secondHook.mock.calls[0][0]).not.toBe(retainedContext);
++    expect(secondHook.mock.calls[0][0].clusterConf).not.toBe(retainedContext.clusterConf);
++  });
++
 +  it('does not invoke a hook when preparation is already aborted', async () => {
 +    const hook = vi.fn(async () => {});
 +    const controller = new AbortController();
@@ -5060,6 +5186,37 @@ index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f
 +      )
 +    ).rejects.toBe(reason);
 +    expect(hook).not.toHaveBeenCalled();
++  });
++
++  it('uses AbortError when an abort signal provides no reason', async () => {
++    const hook = vi.fn<ClusterPreOpenHook>(() => new Promise<void>(() => {}));
++    registerClusterProviderPreOpen(hook);
++    const createSignal = (aborted: boolean) => {
++      const signal = new EventTarget();
++      Object.defineProperties(signal, {
++        aborted: { value: aborted },
++        reason: { value: undefined },
++      });
++      return signal as AbortSignal;
++    };
++
++    await expect(
++      runClusterPreOpenHooks(
++        { cluster: 'test', clusterConf: null, signal: createSignal(true) },
++        () => {}
++      )
++    ).rejects.toMatchObject({ name: 'AbortError' });
++    expect(hook).not.toHaveBeenCalled();
++
++    const signal = createSignal(false);
++    const preparation = runClusterPreOpenHooks(
++      { cluster: 'test', clusterConf: null, signal },
++      () => {}
++    );
++    signal.dispatchEvent(new Event('abort'));
++
++    await expect(preparation).rejects.toMatchObject({ name: 'AbortError' });
++    expect(hook).toHaveBeenCalledOnce();
 +  });
  });
 diff --git a/frontend/src/plugin/runPlugin.test.ts b/frontend/src/plugin/runPlugin.test.ts
@@ -5102,11 +5259,32 @@ index 563dedd5e79f7ab99b967c4c183b42a5bf1721dc..bc00eccea67662acfa9ad3e1c111a6c5
    });
  });
  
+diff --git a/frontend/src/stateless/index.test.ts b/frontend/src/stateless/index.test.ts
+index 5b8b25aa94d39c3c0da5c5d5a616c9b0b8e6294d..5e158d9c64ab8e12c62217f36e637b3a3529e963 100644
+--- a/frontend/src/stateless/index.test.ts
++++ b/frontend/src/stateless/index.test.ts
+@@ -365,14 +365,13 @@ describe('fetchStatelessClusterKubeConfigs', () => {
+     expect(dispatch).toHaveBeenCalledWith(setStatelessConfig({ statelessClusters: {} }));
+   });
+ 
+-  it('does not dispatch when IndexedDB is empty and state is already clear', async () => {
+-    // statelessClusters is null in the store (already clean)
++  it('marks stateless config loaded when IndexedDB is empty', async () => {
+     expect(store.getState().config.statelessClusters).toBeNull();
+ 
+     const dispatch = vi.fn();
+     await fetchStatelessClusterKubeConfigs(dispatch);
+ 
+-    expect(dispatch).not.toHaveBeenCalled();
++    expect(dispatch).toHaveBeenCalledWith(setStatelessConfig({ statelessClusters: {} }));
+   });
+ });
+ 
 -- 
 2.54.0
 
 
-From 5383ff6806f3f36ae2cd7aef31d33dc24c8fb90e Mon Sep 17 00:00:00 2001
+From 2574ef91626bdf13a581ee98059172e2666a666c Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 13:58:15 +0530
 Subject: [PATCH 05/10] frontend: clusterProviderSlice: Add cluster pre-open
@@ -5121,27 +5299,94 @@ scope progress and cleanup to the active cluster run.
 
 Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 ---
+ frontend/src/components/App/ClusterLayout.tsx |  58 +++++++
  .../src/components/App/ClusterPreOpenGate.tsx |  74 +++++++++
  .../components/App/ClusterPreparingDialog.tsx |  65 ++++++++
- frontend/src/components/App/Layout.tsx        | 100 ++++++------
+ frontend/src/components/App/Layout.tsx        |  55 ++-----
  frontend/src/components/App/RouteSwitcher.tsx |   6 +-
- .../src/components/App/useClusterPreOpen.ts   | 147 ++++++++++++++++++
+ .../src/components/App/useClusterPreOpen.ts   | 150 ++++++++++++++++++
  .../components/common/AlertNotification.tsx   |  95 ++++++++++-
  frontend/src/lib/k8s/index.ts                 |  25 ++-
  .../plugin/__snapshots__/pluginLib.snapshot   |   1 +
- frontend/src/plugin/clusterPreOpen.ts         |  85 ++++++++++
- frontend/src/plugin/clusterProxy.ts           |  29 +++-
- frontend/src/plugin/index.ts                  |  45 ++++--
+ frontend/src/plugin/clusterPreOpen.ts         |  91 +++++++++++
+ frontend/src/plugin/clusterProxy.ts           |  45 +++++-
+ frontend/src/plugin/index.ts                  |  60 +++++--
  frontend/src/plugin/registry.tsx              |  40 +++++
  frontend/src/plugin/runPlugin.ts              |   8 +-
- frontend/src/redux/clusterProviderSlice.ts    |  96 ++++++++++++
+ frontend/src/redux/clusterProviderSlice.ts    |  96 +++++++++++
+ frontend/src/stateless/index.ts               |   2 +-
  plugins/headlamp-plugin/src/index.ts          |   6 +
- 15 files changed, 730 insertions(+), 92 deletions(-)
+ 17 files changed, 792 insertions(+), 85 deletions(-)
+ create mode 100644 frontend/src/components/App/ClusterLayout.tsx
  create mode 100644 frontend/src/components/App/ClusterPreOpenGate.tsx
  create mode 100644 frontend/src/components/App/ClusterPreparingDialog.tsx
  create mode 100644 frontend/src/components/App/useClusterPreOpen.ts
  create mode 100644 frontend/src/plugin/clusterPreOpen.ts
 
+diff --git a/frontend/src/components/App/ClusterLayout.tsx b/frontend/src/components/App/ClusterLayout.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ed0b4f11bcd568102641f9334826eb48dd20a35
+--- /dev/null
++++ b/frontend/src/components/App/ClusterLayout.tsx
+@@ -0,0 +1,58 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import Box from '@mui/material/Box';
++import type { ReactNode } from 'react';
++import type { UIPanel } from '../../redux/uiSlice';
++import ClusterPreOpenGate from './ClusterPreOpenGate';
++
++export interface ClusterLayoutProps {
++  children: ReactNode;
++  panels: Record<UIPanel['side'], UIPanel[]>;
++  pluginsLoaded: boolean;
++}
++
++/** Places plugin panels and cluster chrome behind one preparation boundary. */
++export default function ClusterLayout({ children, panels, pluginsLoaded }: ClusterLayoutProps) {
++  const content = (
++    <Box sx={{ display: 'flex', height: '100dvh' }}>
++      {panels.left.map(it => (
++        <it.component key={it.id} />
++      ))}
++      <Box
++        sx={{
++          display: 'flex',
++          overflow: 'auto',
++          flexDirection: 'column',
++          flexGrow: 1,
++        }}
++      >
++        {panels.top.map(it => (
++          <it.component key={it.id} />
++        ))}
++        {pluginsLoaded && children}
++        {panels.bottom.map(it => (
++          <it.component key={it.id} />
++        ))}
++      </Box>
++      {panels.right.map(it => (
++        <it.component key={it.id} />
++      ))}
++    </Box>
++  );
++
++  return pluginsLoaded ? <ClusterPreOpenGate>{content}</ClusterPreOpenGate> : content;
++}
 diff --git a/frontend/src/components/App/ClusterPreOpenGate.tsx b/frontend/src/components/App/ClusterPreOpenGate.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..a23edb663e8fb86a25d671d5c2718bfb85948681
@@ -5294,7 +5539,7 @@ index 0000000000000000000000000000000000000000..b964be6949352998991476d3545b1592
 +  );
 +}
 diff --git a/frontend/src/components/App/Layout.tsx b/frontend/src/components/App/Layout.tsx
-index 1551859fb9f378469acd9c7b935555910655e096..d74f0f23eb7ac1ee7cb5e31f03677ff7de0b5a6a 100644
+index 1551859fb9f378469acd9c7b935555910655e096..e6b1249eac91f19544c7996b977ec82a2bae167c 100644
 --- a/frontend/src/components/App/Layout.tsx
 +++ b/frontend/src/components/App/Layout.tsx
 @@ -43,10 +43,10 @@ import { fetchStatelessClusterKubeConfigs, isEqualClusterConfigs } from '../../s
@@ -5305,123 +5550,94 @@ index 1551859fb9f378469acd9c7b935555910655e096..d74f0f23eb7ac1ee7cb5e31f03677ff7
  import DetailsDrawer from '../common/Resource/DetailsDrawer';
  import Sidebar, { NavigationTabs } from '../Sidebar';
  import AllowedNamespacesSelectorGate from './AllowedNamespacesSelectorGate';
-+import ClusterPreOpenGate from './ClusterPreOpenGate';
++import ClusterLayout from './ClusterLayout';
  import RouteSwitcher from './RouteSwitcher';
  import ShortcutsSettings from './Settings/ShortcutsSettings';
  import { applyBackendThemeConfig } from './themeSlice';
-@@ -329,39 +329,48 @@ export default function Layout({}: LayoutProps) {
-           {panels.top.map(it => (
-             <it.component key={it.id} />
-           ))}
--          <TopBar />
--          <Box
--            sx={{
--              display: 'grid',
--              overflow: 'hidden',
--              flexGrow: 1,
--              position: 'relative',
--              gridTemplateRows: '1fr min-content',
--              gridTemplateColumns: 'min-content 1fr',
--            }}
--          >
--            <Sidebar />
--            <Main
--              id="main"
--              sx={{
--                overflow: 'auto',
--                position: 'relative',
--                minHeight: 0,
--                gridColumn: '2 / 3',
--                gridRow: '1 / 2',
--              }}
--            >
--              {clustersNotInURL.slice(0, MAXIMUM_NUM_ALERTS).map(clusterName => (
--                <ClusterNotFoundPopup key={clusterName} cluster={clusterName} />
--              ))}
+@@ -314,21 +314,8 @@ export default function Layout({}: LayoutProps) {
+       <ShortcutsSettings />
+       <CssBaseline enableColorScheme />
+       <ActionsNotifier />
+-      <Box sx={{ display: 'flex', height: '100dvh' }}>
+-        {panels.left.map(it => (
+-          <it.component key={it.id} />
+-        ))}
+-        <Box
+-          sx={{
+-            display: 'flex',
+-            overflow: 'auto',
+-            flexDirection: 'column',
+-            flexGrow: 1,
+-          }}
+-        >
+-          {panels.top.map(it => (
+-            <it.component key={it.id} />
+-          ))}
++      <ClusterLayout pluginsLoaded={arePluginsLoaded} panels={panels}>
++        <>
+           <TopBar />
+           <Box
+             sx={{
+@@ -354,23 +341,12 @@ export default function Layout({}: LayoutProps) {
+               {clustersNotInURL.slice(0, MAXIMUM_NUM_ALERTS).map(clusterName => (
+                 <ClusterNotFoundPopup key={clusterName} cluster={clusterName} />
+               ))}
 -              <AlertNotification />
--              <Box sx={{ height: '100%' }}>
--                <Div />
--                <Container {...containerProps} sx={{ height: '100%' }}>
--                  <NavigationTabs />
+               <Box sx={{ height: '100%' }}>
+                 <Div />
+                 <Container {...containerProps} sx={{ height: '100%' }}>
+                   <NavigationTabs />
 -                  {arePluginsLoaded &&
 -                    (clustersToResolve.length > 0 ? (
 -                      <AllowedNamespacesSelectorGate clusters={clustersToResolve}>
-+          {arePluginsLoaded && (
-+            <ClusterPreOpenGate>
-+              <TopBar />
-+              <Box
-+                sx={{
-+                  display: 'grid',
-+                  overflow: 'hidden',
-+                  flexGrow: 1,
-+                  position: 'relative',
-+                  gridTemplateRows: '1fr min-content',
-+                  gridTemplateColumns: 'min-content 1fr',
-+                }}
-+              >
-+                <Sidebar />
-+                <Main
-+                  id="main"
-+                  sx={{
-+                    overflow: 'auto',
-+                    position: 'relative',
-+                    minHeight: 0,
-+                    gridColumn: '2 / 3',
-+                    gridRow: '1 / 2',
-+                  }}
-+                >
-+                  {clustersNotInURL.slice(0, MAXIMUM_NUM_ALERTS).map(clusterName => (
-+                    <ClusterNotFoundPopup key={clusterName} cluster={clusterName} />
-+                  ))}
-+                  <Box sx={{ height: '100%' }}>
-+                    <Div />
-+                    <Container {...containerProps} sx={{ height: '100%' }}>
-+                      <NavigationTabs />
-+                      {clustersToResolve.length > 0 ? (
-+                        <AllowedNamespacesSelectorGate clusters={clustersToResolve}>
-+                          <RouteSwitcher
-+                            requiresToken={() => {
-+                              const clusterName = getCluster() || '';
-+                              const cluster = clusters ? clusters[clusterName] : undefined;
-+                              return cluster?.useToken === undefined || cluster?.useToken;
-+                            }}
-+                          />
-+                        </AllowedNamespacesSelectorGate>
-+                      ) : (
-                         <RouteSwitcher
-                           requiresToken={() => {
-                             const clusterName = getCluster() || '';
-@@ -369,22 +378,15 @@ export default function Layout({}: LayoutProps) {
-                             return cluster?.useToken === undefined || cluster?.useToken;
-                           }}
-                         />
+-                        <RouteSwitcher
+-                          requiresToken={() => {
+-                            const clusterName = getCluster() || '';
+-                            const cluster = clusters ? clusters[clusterName] : undefined;
+-                            return cluster?.useToken === undefined || cluster?.useToken;
+-                          }}
+-                        />
 -                      </AllowedNamespacesSelectorGate>
 -                    ) : (
--                      <RouteSwitcher
--                        requiresToken={() => {
--                          const clusterName = getCluster() || '';
--                          const cluster = clusters ? clusters[clusterName] : undefined;
--                          return cluster?.useToken === undefined || cluster?.useToken;
--                        }}
--                      />
++                  {clustersToResolve.length > 0 ? (
++                    <AllowedNamespacesSelectorGate clusters={clustersToResolve}>
+                       <RouteSwitcher
+                         requiresToken={() => {
+                           const clusterName = getCluster() || '';
+@@ -378,21 +354,24 @@ export default function Layout({}: LayoutProps) {
+                           return cluster?.useToken === undefined || cluster?.useToken;
+                         }}
+                       />
 -                    ))}
--                </Container>
-+                      )}
-+                    </Container>
-+                  </Box>
-+                </Main>
-+                <ActivitiesRenderer />
-+                <DetailsDrawer />
++                    </AllowedNamespacesSelectorGate>
++                  ) : (
++                    <RouteSwitcher
++                      requiresToken={() => {
++                        const clusterName = getCluster() || '';
++                        const cluster = clusters ? clusters[clusterName] : undefined;
++                        return cluster?.useToken === undefined || cluster?.useToken;
++                      }}
++                    />
++                  )}
+                 </Container>
                </Box>
--            </Main>
--            <ActivitiesRenderer />
--            <DetailsDrawer />
--          </Box>
-+            </ClusterPreOpenGate>
-+          )}
-           {panels.bottom.map(it => (
-             <it.component key={it.id} />
-           ))}
+             </Main>
+             <ActivitiesRenderer />
+             <DetailsDrawer />
+           </Box>
+-          {panels.bottom.map(it => (
+-            <it.component key={it.id} />
+-          ))}
+-        </Box>
+-        {panels.right.map(it => (
+-          <it.component key={it.id} />
+-        ))}
+-      </Box>
++        </>
++      </ClusterLayout>
+     </>
+   );
+ }
 diff --git a/frontend/src/components/App/RouteSwitcher.tsx b/frontend/src/components/App/RouteSwitcher.tsx
 index c8356690d78e39193b363a247e1f22c6cbae2974..c70d64ad7fb4e02529cb63c7b5aa8ea9d2f43387 100644
 --- a/frontend/src/components/App/RouteSwitcher.tsx
@@ -5455,10 +5671,10 @@ index c8356690d78e39193b363a247e1f22c6cbae2974..c70d64ad7fb4e02529cb63c7b5aa8ea9
    const authError = query.error as any;
 diff --git a/frontend/src/components/App/useClusterPreOpen.ts b/frontend/src/components/App/useClusterPreOpen.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..69270fd32146b76351361ef5d8932ba9a5ad4693
+index 0000000000000000000000000000000000000000..671760c3d00d6092e376dd30096db7d5d08d2238
 --- /dev/null
 +++ b/frontend/src/components/App/useClusterPreOpen.ts
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,150 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -5531,12 +5747,15 @@ index 0000000000000000000000000000000000000000..69270fd32146b76351361ef5d8932ba9
 +  const preOpenHooksRevision = useTypedSelector(
 +    state => state.clusterProvider.preOpenHooksRevision
 +  );
++  const statelessConfigLoaded = useTypedSelector(
++    state => !state.config.isDynamicClusterEnabled || state.config.statelessClusters !== null
++  );
 +  // Reactive, not a render-time snapshot: going from a multi-cluster view to one
 +  // of its clusters can leave `cluster` unchanged (both resolve to the first
 +  // one), so a snapshot would keep reporting "multi" and skip preparation.
 +  const isSingleCluster = useSelectedClusters().length <= 1;
 +  const enabled = !!cluster && isSingleCluster && hasClusterPreOpenHooks();
-+  const configLoaded = clusters !== null;
++  const configLoaded = clusters !== null && statelessConfigLoaded;
 +
 +  const query = useQuery({
 +    queryKey: ['clusterPreOpen', cluster, isSingleCluster, preOpenHooksRevision],
@@ -5819,10 +6038,10 @@ index d0e66d3aed9cac99b568047a9aa3bcd66f572a7e..46ad17a18aa29a0b3c5ad493dd79698e
    "registerDetailsViewHeaderAction": [Function],
 diff --git a/frontend/src/plugin/clusterPreOpen.ts b/frontend/src/plugin/clusterPreOpen.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..4916c60c6385b075f73b7a0a4723df3869593142
+index 0000000000000000000000000000000000000000..43ef7f2ac1dffbff36849cd0edfc48562c80d3af
 --- /dev/null
 +++ b/frontend/src/plugin/clusterPreOpen.ts
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,91 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -5849,6 +6068,7 @@ index 0000000000000000000000000000000000000000..4916c60c6385b075f73b7a0a4723df38
 +const privateThen = Promise.prototype.then;
 +const privateAddEventListener = EventTarget.prototype.addEventListener;
 +const privateRemoveEventListener = EventTarget.prototype.removeEventListener;
++const privateStructuredClone = structuredClone;
 +
 +/** Settles when the hook settles or preparation is aborted, whichever happens first. */
 +function runHookUntilAbort(
@@ -5900,7 +6120,12 @@ index 0000000000000000000000000000000000000000..4916c60c6385b075f73b7a0a4723df38
 +  const hookCount = preOpenHooks.length;
 +  for (let index = 0; index < hookCount; index += 1) {
 +    beforeEach();
-+    await runHookUntilAbort(preOpenHooks[index], context);
++    await runHookUntilAbort(preOpenHooks[index], {
++      cluster: context.cluster,
++      clusterConf: privateStructuredClone(context.clusterConf),
++      reportProgress: context.reportProgress,
++      signal: context.signal,
++    });
 +  }
 +}
 +
@@ -5909,10 +6134,10 @@ index 0000000000000000000000000000000000000000..4916c60c6385b075f73b7a0a4723df38
 +  preOpenHooks.length = 0;
 +}
 diff --git a/frontend/src/plugin/clusterProxy.ts b/frontend/src/plugin/clusterProxy.ts
-index c410b854110957bafbc33b3b458f5711d25efedd..00d665c26eeecaa513646f83aee1fdddd2a2c570 100644
+index c410b854110957bafbc33b3b458f5711d25efedd..484eb19eeba773c5ec8ccc2b895b9d6db93305e8 100644
 --- a/frontend/src/plugin/clusterProxy.ts
 +++ b/frontend/src/plugin/clusterProxy.ts
-@@ -32,29 +32,42 @@ export interface StartClusterProxyResult {
+@@ -32,29 +32,58 @@ export interface StartClusterProxyResult {
    error?: string;
  }
  
@@ -5933,6 +6158,22 @@ index c410b854110957bafbc33b3b458f5711d25efedd..00d665c26eeecaa513646f83aee1fddd
 +  isDevelopmentMode: boolean
 +): boolean {
 +  return isAksDesktop && (source === 'shipped' || (source === 'development' && isDevelopmentMode));
++}
++
++/** Returns legacy command permissions only for a trusted AKS Desktop install. */
++export function getAksDesktopCommandPermissions(
++  isAksDesktop: boolean,
++  source: 'development' | 'user' | 'shipped' | undefined,
++  isDevelopmentMode: boolean,
++  permissionSecrets: Record<string, number>
++): Record<string, number> {
++  if (!isTrustedClusterProxyPlugin(isAksDesktop, source, isDevelopmentMode)) {
++    return {};
++  }
++
++  const permissionName = 'runCmd-scriptjs-azure-aks/azure-api.js';
++  const permissionSecret = permissionSecrets[permissionName];
++  return Number.isFinite(permissionSecret) ? { [permissionName]: permissionSecret } : {};
 +}
 +
  /**
@@ -5964,19 +6205,23 @@ index c410b854110957bafbc33b3b458f5711d25efedd..00d665c26eeecaa513646f83aee1fddd
    }
  
 diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
-index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..ae38395b922447e83e3796c60812cb17d54f80dd 100644
+index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..eb980202ac5e54910385fba19b19e04b71bf1420 100644
 --- a/frontend/src/plugin/index.ts
 +++ b/frontend/src/plugin/index.ts
-@@ -53,7 +53,7 @@ import * as Utils from '../lib/util';
+@@ -53,7 +53,11 @@ import * as Utils from '../lib/util';
  import { eventAction, HeadlampEventType } from '../redux/headlampEventSlice';
  import store from '../redux/stores/store';
  import * as stateless from '../stateless/index';
 -import { getClusterProxyArgValues } from './clusterProxy';
-+import { getClusterProxyArgValues, isTrustedClusterProxyPlugin } from './clusterProxy';
++import {
++  getAksDesktopCommandPermissions,
++  getClusterProxyArgValues,
++  isTrustedClusterProxyPlugin,
++} from './clusterProxy';
  import { Headlamp, Plugin } from './lib';
  import { changePluginLanguage, initializePluginI18n } from './pluginI18n';
  import { useTranslation } from './pluginI18n';
-@@ -62,7 +62,7 @@ import Registry, * as registryToExport from './registry';
+@@ -62,7 +66,7 @@ import Registry, * as registryToExport from './registry';
  import { getInfoForRunningPlugins, identifyPackages, runPlugin, runPluginProps } from './runPlugin';
  import { createPluginSecureStorage, getPluginSecureStorageNamespace } from './secureStorage';
  
@@ -5985,7 +6230,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..ae38395b922447e83e3796c60812cb17
    ApiProxy,
    ReactMonacoEditor: {
      ...ReactMonacoEditor,
-@@ -109,6 +109,18 @@ window.pluginLib = {
+@@ -109,6 +113,18 @@ window.pluginLib = {
    Activity,
    stateless,
  };
@@ -6004,7 +6249,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..ae38395b922447e83e3796c60812cb17
  
  // backwards compat.
  window.pluginLib.MuiCore = window.pluginLib.MuiMaterial;
-@@ -506,6 +518,15 @@ export async function fetchAndExecutePlugins(
+@@ -506,6 +522,15 @@ export async function fetchAndExecutePlugins(
    const sources = await sourcesPromise;
    const packageInfos = await packageInfosPromise;
    const permissionSecrets = await permissionSecretsPromise;
@@ -6020,7 +6265,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..ae38395b922447e83e3796c60812cb17
  
    // Update settings to include all plugin versions (by name + type)
    let updatedSettingsPackages = updateSettingsPackages(packageInfos, settingsPackages);
-@@ -613,7 +634,7 @@ export async function fetchAndExecutePlugins(
+@@ -613,7 +638,7 @@ export async function fetchAndExecutePlugins(
          pluginPath: pluginPathsToExecute[index],
          packageName: packageInfosToExecute[index].name,
          packageVersion: packageInfosToExecute[index].version || '',
@@ -6029,19 +6274,28 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..ae38395b922447e83e3796c60812cb17
          handleError: handlePluginRunError,
          getAllowedPermissions: (pluginName, pluginPath, secrets): Record<string, number> => {
            const secretsToReturn: Record<string, number> = {};
-@@ -639,10 +660,9 @@ export async function fetchAndExecutePlugins(
+@@ -639,11 +664,15 @@ export async function fetchAndExecutePlugins(
              secretsToReturn['runCmd-az'] = secrets['runCmd-az'];
            }
  
 -          if (isPackage['azure-aks']) {
-+          if (isPackage['aks-desktop']) {
-             secretsToReturn['runCmd-scriptjs-azure-aks/azure-api.js'] =
-               secrets['runCmd-scriptjs-azure-aks/azure-api.js'];
+-            secretsToReturn['runCmd-scriptjs-azure-aks/azure-api.js'] =
+-              secrets['runCmd-scriptjs-azure-aks/azure-api.js'];
 -            secretsToReturn.startClusterProxy = secrets.startClusterProxy;
-           }
+-          }
++          Object.assign(
++            secretsToReturn,
++            getAksDesktopCommandPermissions(
++              isPackage['aks-desktop'],
++              packageInfosToExecute[index].source,
++              isDevelopmentMode,
++              secrets
++            )
++          );
  
            return secretsToReturn;
-@@ -652,6 +672,11 @@ export async function fetchAndExecutePlugins(
+         },
+@@ -652,6 +681,11 @@ export async function fetchAndExecutePlugins(
            const argumentValues: unknown[] = [];
            // allowedPermissions is the return value of getAllowedPermissions
            const isPackage = identifyPackages(pluginPath, pluginName, isDevelopmentMode);
@@ -6053,7 +6307,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..ae38395b922447e83e3796c60812cb17
            if (isPackage['@headlamp-k8s/minikube']) {
              // We construct a pluginRunCommand that has private
              //  - permission secrets
-@@ -693,7 +718,7 @@ export async function fetchAndExecutePlugins(
+@@ -693,7 +727,7 @@ export async function fetchAndExecutePlugins(
              argumentValues.push(pluginRunCommand, pluginPath);
            }
  
@@ -6062,7 +6316,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..ae38395b922447e83e3796c60812cb17
              function pluginRunCommand(
                command: 'scriptjs',
                args: string[],
-@@ -711,9 +736,9 @@ export async function fetchAndExecutePlugins(
+@@ -711,9 +745,9 @@ export async function fetchAndExecutePlugins(
              argumentNames.push('pluginRunCommand', 'pluginPath');
              argumentValues.push(pluginRunCommand, pluginPath);
              const [proxyArgs, proxyValues] = getClusterProxyArgValues(
@@ -6074,7 +6328,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..ae38395b922447e83e3796c60812cb17
              );
              argumentNames.push(...proxyArgs);
              argumentValues.push(...proxyValues);
-@@ -816,11 +841,11 @@ async function afterPluginsRun(
+@@ -816,11 +850,11 @@ async function afterPluginsRun(
   *
   * @returns promise with permissions secrets like { 'runCmd-minikube': 1235555 }
   */
@@ -6179,7 +6433,7 @@ index 8bb22bb81bf38426909c01d3b2d51da9473f39ce..6f7f4ccdddd799b1ebda9aa89faa8577
    const isPackage: Record<string, boolean> = {};
    for (const key in pluginPaths) {
 diff --git a/frontend/src/redux/clusterProviderSlice.ts b/frontend/src/redux/clusterProviderSlice.ts
-index 19dd642fcd7884403342f7f311e6e9bf796735d9..1c9ee5e05edca39192103ee2a810318020241e37 100644
+index 19dd642fcd7884403342f7f311e6e9bf796735d9..481b0d0994bd02cb2d1ab22842f598ac265085e7 100644
 --- a/frontend/src/redux/clusterProviderSlice.ts
 +++ b/frontend/src/redux/clusterProviderSlice.ts
 @@ -49,6 +49,58 @@ export type ClusterEmptyStateComponent = (
@@ -6191,26 +6445,26 @@ index 19dd642fcd7884403342f7f311e6e9bf796735d9..1c9ee5e05edca39192103ee2a8103180
 + */
 +export interface ClusterPreOpenContext {
 +  /** The name of the cluster being opened. */
-+  cluster: string;
++  readonly cluster: string;
 +  /**
 +   * The cluster's configuration, as known to the app, or `null` if unavailable.
 +   * Typed `unknown` so this slice does not depend on the k8s cluster
 +   * types while still requiring hook authors to narrow before use.
 +   */
-+  clusterConf: unknown;
++  readonly clusterConf: unknown;
 +  /**
 +   * Aborts when preparation is no longer wanted — the user left the cluster
 +   * before the hooks finished. Long-running hooks should pass it to whatever
 +   * they await, or check it between steps, so abandoned preparation does not
 +   * keep running; the app stops waiting on it either way.
 +   */
-+  signal?: AbortSignal;
++  readonly signal?: AbortSignal;
 +  /**
 +   * Reports human-readable progress for the "connecting" popup shown while the
 +   * cluster is being prepared (e.g. "Starting proxy…", "Verifying connection…").
 +   * Optional — hooks that don't report progress just show a generic message.
 +   */
-+  reportProgress?: (message: string) => void;
++  readonly reportProgress?: (message: string) => void;
 +}
 +
 +/**
@@ -6313,6 +6567,19 @@ index 19dd642fcd7884403342f7f311e6e9bf796735d9..1c9ee5e05edca39192103ee2a8103180
  } = clusterProviderSlice.actions;
  
  export default clusterProviderSlice.reducer;
+diff --git a/frontend/src/stateless/index.ts b/frontend/src/stateless/index.ts
+index c5cd96e3efc4d5e993d11f3165f2d9074b5e1208..cf117fd2f67ec73baaae9e1c4f0934c3c70abd6f 100644
+--- a/frontend/src/stateless/index.ts
++++ b/frontend/src/stateless/index.ts
+@@ -420,7 +420,7 @@ export async function fetchStatelessClusterKubeConfigs(dispatch: any) {
+ 
+   if (!config || config.length === 0) {
+     const statelessClusters = store.getState().config.statelessClusters;
+-    if (statelessClusters && Object.keys(statelessClusters).length > 0) {
++    if (statelessClusters === null || Object.keys(statelessClusters).length > 0) {
+       dispatch(setStatelessConfig({ statelessClusters: {} }));
+     }
+     return;
 diff --git a/plugins/headlamp-plugin/src/index.ts b/plugins/headlamp-plugin/src/index.ts
 index d7500ebb5af9aaa4f10ff5aa035d3754966e6b9e..bc1b598fad985903e5a4b409792d878dfb3470d0 100644
 --- a/plugins/headlamp-plugin/src/index.ts
@@ -6355,7 +6622,7 @@ index d7500ebb5af9aaa4f10ff5aa035d3754966e6b9e..bc1b598fad985903e5a4b409792d878d
 2.54.0
 
 
-From af4b0b6a0de76770ed7f0861ecb1ce37da9520b8 Mon Sep 17 00:00:00 2001
+From 789bb062077dc0391223927309771bf704eded0b Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 13:58:34 +0530
 Subject: [PATCH 06/10] frontend: i18n: Regenerate cluster pre-open locales
@@ -6950,7 +7217,7 @@ index 7761ba94522e0fe7b2e5b4f3f9f68aa5250eb33a..f7b48e15fbb855ac66dd40b3dd125cd9
 2.54.0
 
 
-From 0db90f3f42fdca78f3a4460ff8fee83bf34037f0 Mon Sep 17 00:00:00 2001
+From b5735b7d7aac01f8be42fdbc0a80332048877e33 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:45:44 +0200
 Subject: [PATCH 07/10] frontend: ClusterTable: Cover additive cluster actions
@@ -7018,7 +7285,7 @@ index 746f7d2b74f16b9dedfa262d73c6d606009fada0..a49a4ad2193bd16fd791c1a2f112ac1a
 2.54.0
 
 
-From dbd0640948a4a49e4c7a983d183082ba3b470c1f Mon Sep 17 00:00:00 2001
+From 0d3a2ac6da297675102b3f4c438d280a3c6abe02 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 14:04:30 +0530
 Subject: [PATCH 08/10] frontend: ClusterContextMenu: Keep built-in Delete
@@ -7078,7 +7345,7 @@ index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..f8bd763a3907d9b8b51baa0485aad423
 2.54.0
 
 
-From 5a63a95b2035cd1a0235d5fdaf8bcb31cb7c77ec Mon Sep 17 00:00:00 2001
+From f87a51b3c4df219cd6acd168afbcb60422e76178 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Tue, 25 Aug 2026 18:04:32 +0530
 Subject: [PATCH 09/10] frontend: stories: Add cluster pre-open states
@@ -7373,7 +7640,7 @@ index 0000000000000000000000000000000000000000..c1e434674036690300d4a3fb0ba0f69a
 2.54.0
 
 
-From 8bf79b678418a8866cce3ca6cbe26d207cefb622 Mon Sep 17 00:00:00 2001
+From fed7db6ac2676b3ee43da6d805655d5fc4eb5856 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:46:21 +0200
 Subject: [PATCH 10/10] docs: api: Document cluster pre-open hooks

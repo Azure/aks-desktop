@@ -179,124 +179,6 @@ index c2b7e3d24f05061772289de85bd760d323308149..9fca96bb1f8021987f06747c424c2700
    ],
    timeout: 60 * 1000,
    expect: {
-diff --git a/source/app/e2e-tests/tests/appMenuZoom.spec.ts b/source/app/e2e-tests/tests/appMenuZoom.spec.ts
-new file mode 100644
-index 0000000000000000000000000000000000000000..e44af12eb6a20d44761481796956e9f12f4b23af
---- /dev/null
-+++ b/source/app/e2e-tests/tests/appMenuZoom.spec.ts
-@@ -0,0 +1,112 @@
-+/*
-+ * Copyright 2026 The Kubernetes Authors
-+ *
-+ * Licensed under the Apache License, Version 2.0 (the "License");
-+ * you may not use this file except in compliance with the License.
-+ * You may obtain a copy of the License at
-+ *
-+ *     http://www.apache.org/licenses/LICENSE-2.0
-+ *
-+ * Unless required by applicable law or agreed to in writing, software
-+ * distributed under the License is distributed on an "AS IS" BASIS,
-+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-+ * See the License for the specific language governing permissions and
-+ * limitations under the License.
-+ */
-+
-+import { expect, test } from '@playwright/test';
-+import fs from 'fs';
-+import os from 'os';
-+import path from 'path';
-+import { _electron, ElectronApplication, Page } from 'playwright';
-+
-+const electronExecutable = process.platform === 'win32' ? 'electron.cmd' : 'electron';
-+const electronPath = path.resolve(__dirname, `../../node_modules/.bin/${electronExecutable}`);
-+const appPath = path.resolve(__dirname, '../../');
-+const userDataDir = path.join(os.tmpdir(), `headlamp-e2e-zoom-${process.pid}`);
-+
-+let electronApp: ElectronApplication;
-+let electronPage: Page;
-+
-+if (process.env.PLAYWRIGHT_TEST_MODE === 'app') {
-+  test.beforeAll(async () => {
-+    electronApp = await _electron.launch({
-+      cwd: appPath,
-+      executablePath: electronPath,
-+      args: ['.', `--user-data-dir=${userDataDir}`],
-+      env: {
-+        ...process.env,
-+        ELECTRON_DEV: 'true',
-+        ELECTRON_START_URL: 'data:text/html,<title>Headlamp zoom test</title>',
-+        EXTERNAL_SERVER: 'true',
-+      },
-+    });
-+
-+    electronPage = await electronApp.firstWindow();
-+    await electronPage.waitForLoadState('load');
-+  });
-+
-+  test.afterAll(async () => {
-+    await electronApp?.close();
-+    fs.rmSync(userDataDir, { force: true, recursive: true });
-+  });
-+}
-+
-+test.describe('application menu zoom actions', () => {
-+  test.beforeEach(() => {
-+    test.skip(process.env.PLAYWRIGHT_TEST_MODE !== 'app', 'This test only runs in app mode');
-+  });
-+
-+  test('changes and resets the window zoom factor', async () => {
-+    await electronPage.evaluate(() => {
-+      window.desktopApi.send('setMenu', [
-+        {
-+          id: 'serialized-view',
-+          label: 'View',
-+          submenu: [
-+            { id: 'original-reset-zoom', label: 'Reset Zoom' },
-+            { id: 'original-zoom-in', label: 'Zoom In' },
-+            { id: 'original-zoom-out', label: 'Zoom Out' },
-+          ],
-+        },
-+      ]);
-+    });
-+
-+    await expect.poll(() => hasMenuItem('original-zoom-in')).toBe(true);
-+    await clickMenuItem('original-reset-zoom');
-+    await expect.poll(() => getZoomFactor()).toBe(1);
-+
-+    await clickMenuItem('original-zoom-in');
-+    await expect.poll(() => getZoomFactor()).toBeCloseTo(1.1);
-+
-+    await clickMenuItem('original-reset-zoom');
-+    await expect.poll(() => getZoomFactor()).toBe(1);
-+
-+    await clickMenuItem('original-zoom-out');
-+    await expect.poll(() => getZoomFactor()).toBeCloseTo(0.9);
-+  });
-+});
-+
-+async function clickMenuItem(id: string) {
-+  await electronApp.evaluate(async ({ BrowserWindow, Menu }, menuId) => {
-+    const window = BrowserWindow.getAllWindows()[0];
-+    const menuItem = Menu.getApplicationMenu()?.getMenuItemById(menuId);
-+    if (!window || !menuItem?.click) {
-+      throw new Error(`Menu item ${menuId} is not clickable`);
-+    }
-+
-+    menuItem.click(menuItem, window, {} as Electron.KeyboardEvent);
-+  }, id);
-+}
-+
-+async function getZoomFactor() {
-+  return electronApp.evaluate(({ BrowserWindow }) => {
-+    return BrowserWindow.getAllWindows()[0]?.webContents.getZoomFactor();
-+  });
-+}
-+
-+async function hasMenuItem(id: string) {
-+  return electronApp.evaluate(({ Menu }, menuId) => {
-+    return Boolean(Menu.getApplicationMenu()?.getMenuItemById(menuId));
-+  }, id);
-+}
 diff --git a/source/app/e2e-tests/tests/buildManifestProduct.spec.ts b/source/app/e2e-tests/tests/buildManifestProduct.spec.ts
 index bd2facd4ec9e76895cc40fd3bbf3fb821cf6443e..5ca5e2cd3c9c15b6657009533bf446dff0b85b06 100644
 --- a/source/app/e2e-tests/tests/buildManifestProduct.spec.ts
@@ -573,18 +455,10 @@ index e8890c2018da5982c7c14afce91564c1788a3bd4..4d4cd640fd46e7fe36420aece100ccc8
  
    test('routes a product protocol URL from the startup command line', async () => {
 diff --git a/source/app/electron/main.ts b/source/app/electron/main.ts
-index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..85adcca161b096918b0db90bc2d1bcfc85055546 100644
+index cad36d8d85271fb340cc9dce63216729ddd49e40..85adcca161b096918b0db90bc2d1bcfc85055546 100644
 --- a/source/app/electron/main.ts
 +++ b/source/app/electron/main.ts
-@@ -47,6 +47,7 @@ import {
- } from './legal-documents';
- import { runListPluginsCommand } from './list-plugins';
- import MCPClient from './mcp/MCPClient';
-+import { AppMenu, menusToTemplate } from './menu';
- import { filterUserOwnedPids } from './ownedProcesses';
- import {
-   addToPath,
-@@ -59,7 +60,10 @@ import {
+@@ -60,7 +60,10 @@ import {
    PluginManager,
    setAppConfigDirName,
  } from './plugin-management';
@@ -596,7 +470,7 @@ index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..85adcca161b096918b0db90bc2d1bcfc
  import {
    addRunCmdConsent,
    environmentOverrides,
-@@ -215,6 +219,12 @@ let mcpClient: MCPClient | null = null;
+@@ -216,6 +219,12 @@ let mcpClient: MCPClient | null = null;
  let isQuitting = false;
  let hasTray = false;
  
@@ -609,77 +483,7 @@ index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..85adcca161b096918b0db90bc2d1bcfc
  /**
   * `Action` is an interface for an action to be performed by the plugin manager.
   *
-@@ -1152,7 +1162,12 @@ function setMenu(appWindow: BrowserWindow | null, newAppMenu: AppMenu[] = []) {
-   let menu: Electron.Menu;
-   try {
-     const menuTemplate: (MenuItemConstructorOptions | MenuItem)[] =
--      menusToTemplate(appWindow, appMenu) || [];
-+      menusToTemplate(appWindow, appMenu, loadFullMenu, {
-+        openExternal: url => shell.openExternal(url),
-+        openAboutDialog: () => appWindow?.webContents.send('open-about-dialog'),
-+        adjustZoom,
-+        setZoom,
-+      }) || [];
-     menu = Menu.buildFromTemplate(menuTemplate);
-   } catch (e) {
-     console.error(`Failed to build menus from template ${appMenu}:`, e);
-@@ -1203,55 +1218,6 @@ function updateMenuLabels(menus: AppMenu[]) {
-   });
- }
- 
--export interface AppMenu extends Omit<Partial<MenuItemConstructorOptions>, 'click'> {
--  /** A URL to open (if not starting with http, then it'll be opened in the external browser) */
--  url?: string;
--  /** The submenus of this menu */
--  submenu?: AppMenu[];
--  /** A string identifying this menu */
--  id: string;
--  /** Whether to render this menu only after plugins are loaded (to give it time for the plugins
--   * to override the menu) */
--  afterPlugins?: boolean;
--}
--
--function menusToTemplate(mainWindow: BrowserWindow | null, menusFromPlugins: AppMenu[]) {
--  const menusToDisplay: MenuItemConstructorOptions[] = [];
--  menusFromPlugins.forEach(appMenu => {
--    const { url, afterPlugins = false, ...otherProps } = appMenu;
--    const menu: MenuItemConstructorOptions = otherProps;
--
--    if (!loadFullMenu && !!afterPlugins) {
--      return;
--    }
--
--    // Handle the "About" menu item from the Help menu specially
--    if (appMenu.id === 'original-about-help') {
--      menu.click = () => {
--        mainWindow?.webContents.send('open-about-dialog');
--      };
--    } else if (!!url) {
--      menu.click = async () => {
--        // Open external links in the external browser.
--        if (!!mainWindow && !url.startsWith('http')) {
--          mainWindow.webContents.loadURL(url);
--        } else {
--          await shell.openExternal(url);
--        }
--      };
--    }
--
--    // If the menu has a submenu, then recursively convert it.
--    if (Array.isArray(otherProps.submenu)) {
--      menu.submenu = menusToTemplate(mainWindow, otherProps.submenu);
--    }
--
--    menusToDisplay.push(menu);
--  });
--
--  return menusToDisplay;
--}
--
- async function getRunningHeadlampPIDs() {
-   // Process inspection is only needed during cleanup, not normal startup.
-   const { default: findProcess } = await import('find-process');
-@@ -1404,78 +1370,12 @@ ipcMain.on('route-changed', () => {
+@@ -1361,78 +1370,12 @@ ipcMain.on('route-changed', () => {
  function startElectron() {
    console.info('App starting...');
  
@@ -758,7 +562,7 @@ index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..85adcca161b096918b0db90bc2d1bcfc
    // Increase max listeners to prevent false positive warnings
    // The app legitimately needs multiple IPC listeners (currently 11)
    // Default is 10, setting to 20 provides headroom for future additions
-@@ -1642,8 +1542,6 @@ function startElectron() {
+@@ -1599,8 +1542,6 @@ function startElectron() {
      const withMargin = await isWSL();
      const { width, height } = windowSize(screen.getPrimaryDisplay().workAreaSize, withMargin);
  
@@ -767,7 +571,7 @@ index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..85adcca161b096918b0db90bc2d1bcfc
      // Flush any pending debounced zoom save before reading so reopening the
      // window immediately after a zoom change reads the latest factor.
      flushZoomFactorSave();
-@@ -1652,7 +1550,6 @@ function startElectron() {
+@@ -1609,7 +1550,6 @@ function startElectron() {
      // creation and the 'closed' handler; closing during the read would
      // otherwise leave a destroyed window that later loadURL/menu calls throw on.
      cachedZoom = await loadZoomFactor(ZOOM_FILE_PATH);
@@ -775,7 +579,7 @@ index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..85adcca161b096918b0db90bc2d1bcfc
      mainWindow = new BrowserWindow({
        width,
        height,
-@@ -1662,6 +1559,7 @@ function startElectron() {
+@@ -1619,6 +1559,7 @@ function startElectron() {
          preload: `${__dirname}/preload.js`,
        },
      });
@@ -783,7 +587,7 @@ index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..85adcca161b096918b0db90bc2d1bcfc
  
      applyZoom();
  
-@@ -1697,11 +1595,6 @@ function startElectron() {
+@@ -1654,11 +1595,6 @@ function startElectron() {
        scheduleApplyZoom(true);
        // Inject the backend port into the window object
        mainWindow?.webContents.executeJavaScript(`window.headlampBackendPort = ${actualPort};`);
@@ -795,7 +599,7 @@ index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..85adcca161b096918b0db90bc2d1bcfc
      });
  
      mainWindow.webContents.on('did-frame-finish-load', (_event, isMainFrame) => {
-@@ -1744,7 +1637,6 @@ function startElectron() {
+@@ -1701,7 +1637,6 @@ function startElectron() {
      });
  
      mainWindow.on('closed', () => {
@@ -803,7 +607,7 @@ index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..85adcca161b096918b0db90bc2d1bcfc
        mainWindow = null;
      });
  
-@@ -1881,13 +1773,13 @@ function startElectron() {
+@@ -1838,13 +1773,13 @@ function startElectron() {
  
      // Also add bundled plugin bin directories to PATH
      const bundledPlugins = path.join(process.resourcesPath, '.plugins');
@@ -819,7 +623,7 @@ index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..85adcca161b096918b0db90bc2d1bcfc
      if (userPluginBinDirs.length > 0) {
        addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
      }
-@@ -1951,26 +1843,31 @@ function startElectron() {
+@@ -1908,26 +1843,31 @@ function startElectron() {
      }
    });
  
@@ -869,231 +673,6 @@ index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..85adcca161b096918b0db90bc2d1bcfc
  }
  
  if (!isRunningScript) {
-diff --git a/source/app/electron/menu.test.ts b/source/app/electron/menu.test.ts
-new file mode 100644
-index 0000000000000000000000000000000000000000..34caf89efb9b88f672ddb96da39eb323398394ae
---- /dev/null
-+++ b/source/app/electron/menu.test.ts
-@@ -0,0 +1,133 @@
-+/*
-+ * Copyright 2025 The Kubernetes Authors
-+ *
-+ * Licensed under the Apache License, Version 2.0 (the "License");
-+ * you may not use this file except in compliance with the License.
-+ * You may obtain a copy of the License at
-+ *
-+ * http://www.apache.org/licenses/LICENSE-2.0
-+ *
-+ * Unless required by applicable law or agreed to in writing, software
-+ * distributed under the License is distributed on an "AS IS" BASIS,
-+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-+ * See the License for the specific language governing permissions and
-+ * limitations under the License.
-+ */
-+
-+import type { BrowserWindow } from 'electron';
-+import { describe, expect, it, vi } from 'vitest';
-+import { AppMenu, menusToTemplate } from './menu';
-+
-+function setup(mainWindow: BrowserWindow | null = null) {
-+  const actions = {
-+    openExternal: vi.fn().mockResolvedValue(undefined),
-+    openAboutDialog: vi.fn(),
-+    adjustZoom: vi.fn(),
-+    setZoom: vi.fn(),
-+  };
-+
-+  return {
-+    actions,
-+    convert: (menus: AppMenu[], loadFullMenu = true) =>
-+      menusToTemplate(mainWindow, menus, loadFullMenu, actions),
-+  };
-+}
-+
-+describe('menusToTemplate', () => {
-+  it('keeps regular menu properties and recursively converts submenus', () => {
-+    const { convert } = setup();
-+
-+    expect(
-+      convert([{ id: 'parent', label: 'Parent', submenu: [{ id: 'child', label: 'Child' }] }])
-+    ).toEqual([{ id: 'parent', label: 'Parent', submenu: [{ id: 'child', label: 'Child' }] }]);
-+  });
-+
-+  it('omits afterPlugins items until the full menu is enabled', () => {
-+    const { convert } = setup();
-+    const menus = [{ id: 'deferred', afterPlugins: true }];
-+
-+    expect(convert(menus, false)).toEqual([]);
-+    expect(convert(menus, true)).toEqual([{ id: 'deferred' }]);
-+  });
-+
-+  it('restores the About dialog action', () => {
-+    const { actions, convert } = setup();
-+    const [about] = convert([{ id: 'original-about-help' }]);
-+
-+    about.click?.({} as never, {} as never, {} as never);
-+
-+    expect(actions.openAboutDialog).toHaveBeenCalledOnce();
-+  });
-+
-+  it.each([
-+    ['original-zoom-in', 0.1],
-+    ['original-zoom-out', -0.1],
-+  ])('restores the %s adjustment action', (id, delta) => {
-+    const { actions, convert } = setup();
-+    const [zoom] = convert([{ id }]);
-+
-+    zoom.click?.({} as never, {} as never, {} as never);
-+
-+    expect(actions.adjustZoom).toHaveBeenCalledWith(delta);
-+  });
-+
-+  it('restores the reset zoom action', () => {
-+    const { actions, convert } = setup();
-+    const [reset] = convert([{ id: 'original-reset-zoom' }]);
-+
-+    reset.click?.({} as never, {} as never, {} as never);
-+
-+    expect(actions.setZoom).toHaveBeenCalledWith(1);
-+  });
-+
-+  it('loads internal URLs in the app window', async () => {
-+    const loadURL = vi.fn().mockResolvedValue(undefined);
-+    const mainWindow = { webContents: { loadURL } } as unknown as BrowserWindow;
-+    const { actions, convert } = setup(mainWindow);
-+    const [internal] = convert([{ id: 'internal', url: 'file:///settings' }]);
-+
-+    await internal.click?.({} as never, {} as never, {} as never);
-+
-+    expect(loadURL).toHaveBeenCalledWith('file:///settings');
-+    expect(actions.openExternal).not.toHaveBeenCalled();
-+  });
-+
-+  it('opens HTTP URLs externally even when an app window exists', async () => {
-+    const loadURL = vi.fn();
-+    const mainWindow = { webContents: { loadURL } } as unknown as BrowserWindow;
-+    const { actions, convert } = setup(mainWindow);
-+    const [external] = convert([{ id: 'external', url: 'https://headlamp.dev' }]);
-+
-+    await external.click?.({} as never, {} as never, {} as never);
-+
-+    expect(actions.openExternal).toHaveBeenCalledWith('https://headlamp.dev');
-+    expect(loadURL).not.toHaveBeenCalled();
-+  });
-+
-+  it('opens URLs externally when there is no app window', async () => {
-+    const { actions, convert } = setup();
-+    const [external] = convert([{ id: 'external', url: 'headlamp://cluster' }]);
-+
-+    await external.click?.({} as never, {} as never, {} as never);
-+
-+    expect(actions.openExternal).toHaveBeenCalledWith('headlamp://cluster');
-+  });
-+
-+  it('logs rejected URL actions', async () => {
-+    const error = new Error('open failed');
-+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-+    const { actions, convert } = setup();
-+    actions.openExternal.mockRejectedValue(error);
-+    const [external] = convert([{ id: 'external', url: 'https://headlamp.dev' }]);
-+
-+    external.click?.({} as never, {} as never, {} as never);
-+
-+    await vi.waitFor(() => {
-+      expect(consoleError).toHaveBeenCalledWith(
-+        'Failed to open menu URL https://headlamp.dev:',
-+        error
-+      );
-+    });
-+    consoleError.mockRestore();
-+  });
-+});
-diff --git a/source/app/electron/menu.ts b/source/app/electron/menu.ts
-new file mode 100644
-index 0000000000000000000000000000000000000000..62d65e62b95bd31d8067db541ddaf33c9100abac
---- /dev/null
-+++ b/source/app/electron/menu.ts
-@@ -0,0 +1,80 @@
-+/*
-+ * Copyright 2025 The Kubernetes Authors
-+ *
-+ * Licensed under the Apache License, Version 2.0 (the "License");
-+ * you may not use this file except in compliance with the License.
-+ * You may obtain a copy of the License at
-+ *
-+ * http://www.apache.org/licenses/LICENSE-2.0
-+ *
-+ * Unless required by applicable law or agreed to in writing, software
-+ * distributed under the License is distributed on an "AS IS" BASIS,
-+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-+ * See the License for the specific language governing permissions and
-+ * limitations under the License.
-+ */
-+
-+import type { BrowserWindow, MenuItemConstructorOptions } from 'electron';
-+
-+export interface AppMenu extends Omit<Partial<MenuItemConstructorOptions>, 'click'> {
-+  /** A URL to open (if not starting with http, then it'll be opened in the app window) */
-+  url?: string;
-+  /** The submenus of this menu */
-+  submenu?: AppMenu[];
-+  /** A string identifying this menu */
-+  id: string;
-+  /** Whether to render this menu only after plugins are loaded */
-+  afterPlugins?: boolean;
-+}
-+
-+interface MenuActions {
-+  openExternal(url: string): Promise<void>;
-+  openAboutDialog(): void;
-+  adjustZoom(delta: number): void;
-+  setZoom(factor: number): void;
-+}
-+
-+export function menusToTemplate(
-+  mainWindow: BrowserWindow | null,
-+  menusFromPlugins: AppMenu[],
-+  loadFullMenu: boolean,
-+  actions: MenuActions
-+) {
-+  const menusToDisplay: MenuItemConstructorOptions[] = [];
-+  menusFromPlugins.forEach(appMenu => {
-+    const { url, afterPlugins = false, ...otherProps } = appMenu;
-+    const menu: MenuItemConstructorOptions = otherProps;
-+
-+    if (!loadFullMenu && afterPlugins) {
-+      return;
-+    }
-+
-+    if (appMenu.id === 'original-about-help') {
-+      menu.click = () => {
-+        actions.openAboutDialog();
-+      };
-+    } else if (appMenu.id === 'original-zoom-in') {
-+      menu.click = () => actions.adjustZoom(0.1);
-+    } else if (appMenu.id === 'original-zoom-out') {
-+      menu.click = () => actions.adjustZoom(-0.1);
-+    } else if (appMenu.id === 'original-reset-zoom') {
-+      menu.click = () => actions.setZoom(1.0);
-+    } else if (url) {
-+      menu.click = () => {
-+        const openUrl =
-+          mainWindow && !url.startsWith('http')
-+            ? mainWindow.webContents.loadURL(url)
-+            : actions.openExternal(url);
-+        void openUrl.catch(error => console.error(`Failed to open menu URL ${url}:`, error));
-+      };
-+    }
-+
-+    if (Array.isArray(otherProps.submenu)) {
-+      menu.submenu = menusToTemplate(mainWindow, otherProps.submenu, loadFullMenu, actions);
-+    }
-+
-+    menusToDisplay.push(menu);
-+  });
-+
-+  return menusToDisplay;
-+}
 diff --git a/source/app/electron/oauthProvider.test.ts b/source/app/electron/oauthProvider.test.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..77979c4d8033af7c9a2d053dd8d32e56833817f6
@@ -4225,53 +3804,6 @@ index 4aa59c990af1da07b0e7335996c26c42ed8d0810..55fe35da444e08f000c1cc0efd5195e0
    }
  
    async deleteNamespace(name: string) {
-diff --git a/source/e2e-tests/tests/podsPage.spec.ts b/source/e2e-tests/tests/podsPage.spec.ts
-index 56db9dcd6011e8be8ed718804af24bb8801a742a..d4a31395c9aed7b9b2a2329d65684b5896051a41 100644
---- a/source/e2e-tests/tests/podsPage.spec.ts
-+++ b/source/e2e-tests/tests/podsPage.spec.ts
-@@ -145,6 +145,42 @@ test('changes column visibility with the keyboard', async ({ page }) => {
-   );
- });
- 
-+test('recovers from a corrected config error on scheduled refetch', async ({ page }) => {
-+  let allowRecovery = false;
-+  let lastConfigRequestAt = 0;
-+  let recoveryStatus: number | undefined;
-+  await page.route('**/config', async route => {
-+    lastConfigRequestAt = Date.now();
-+    if (!allowRecovery) {
-+      await route.fulfill({ status: 403, json: { message: 'config is invalid' } });
-+      return;
-+    }
-+
-+    const response = await route.fetch();
-+    recoveryStatus = response.status();
-+    await route.fulfill({ response });
-+  });
-+
-+  await page.goto('/');
-+  await expect.poll(() => lastConfigRequestAt).toBeGreaterThan(0);
-+  await expect.poll(() => Date.now() - lastConfigRequestAt).toBeGreaterThan(750);
-+  allowRecovery = true;
-+
-+  const testCluster = page.locator('table tbody tr td a', { hasText: /^test$/ });
-+  const recoveredDuringRetryWindow = await testCluster
-+    .waitFor({ state: 'visible', timeout: 3000 })
-+    .then(
-+      () => true,
-+      () => false
-+    );
-+  expect(recoveredDuringRetryWindow).toBe(false);
-+  expect(recoveryStatus).toBeUndefined();
-+
-+  await expect.poll(() => recoveryStatus, { timeout: 15_000 }).toBe(200);
-+  await expect(testCluster).toBeVisible();
-+  await expect(page.locator('table tbody tr td a', { hasText: /^test2$/ })).toBeVisible();
-+});
-+
- test('multi tab create delete pod', async ({ browser }) => {
-   // This test may be slow to create and delete a pod
-   test.setTimeout(60000);
 diff --git a/source/e2e-tests/tests/projects.spec.ts b/source/e2e-tests/tests/projects.spec.ts
 index bdf8aabaea6e168dc9bc3c26ae618bd42a71e49f..8e95e016c538219155c740c868b01dec1e7a0ae3 100644
 --- a/source/e2e-tests/tests/projects.spec.ts
@@ -5338,12 +4870,76 @@ index 9ea9de65bc640e3859e2e3bb6e1cff642e4e4d72..80af474985174a0f5eb4f39617e36e72
    it('removes orphan .br sidecars', async () => {
      const buildDir = makeTempDir();
      const orphan = path.join(buildDir, 'assets', 'stale.js.br');
+diff --git a/source/frontend/src/components/App/ClusterLayout.tsx b/source/frontend/src/components/App/ClusterLayout.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ed0b4f11bcd568102641f9334826eb48dd20a35
+--- /dev/null
++++ b/source/frontend/src/components/App/ClusterLayout.tsx
+@@ -0,0 +1,58 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import Box from '@mui/material/Box';
++import type { ReactNode } from 'react';
++import type { UIPanel } from '../../redux/uiSlice';
++import ClusterPreOpenGate from './ClusterPreOpenGate';
++
++export interface ClusterLayoutProps {
++  children: ReactNode;
++  panels: Record<UIPanel['side'], UIPanel[]>;
++  pluginsLoaded: boolean;
++}
++
++/** Places plugin panels and cluster chrome behind one preparation boundary. */
++export default function ClusterLayout({ children, panels, pluginsLoaded }: ClusterLayoutProps) {
++  const content = (
++    <Box sx={{ display: 'flex', height: '100dvh' }}>
++      {panels.left.map(it => (
++        <it.component key={it.id} />
++      ))}
++      <Box
++        sx={{
++          display: 'flex',
++          overflow: 'auto',
++          flexDirection: 'column',
++          flexGrow: 1,
++        }}
++      >
++        {panels.top.map(it => (
++          <it.component key={it.id} />
++        ))}
++        {pluginsLoaded && children}
++        {panels.bottom.map(it => (
++          <it.component key={it.id} />
++        ))}
++      </Box>
++      {panels.right.map(it => (
++        <it.component key={it.id} />
++      ))}
++    </Box>
++  );
++
++  return pluginsLoaded ? <ClusterPreOpenGate>{content}</ClusterPreOpenGate> : content;
++}
 diff --git a/source/frontend/src/components/App/ClusterPreOpenGate.test.tsx b/source/frontend/src/components/App/ClusterPreOpenGate.test.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..90913f9072834844968165094ef7618cbec6f487
+index 0000000000000000000000000000000000000000..80ee34c6476c205dec4a7c4077cb87b3d2cc8975
 --- /dev/null
 +++ b/source/frontend/src/components/App/ClusterPreOpenGate.test.tsx
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,158 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -5363,6 +4959,8 @@ index 0000000000000000000000000000000000000000..90913f9072834844968165094ef7618c
 +import { render, screen } from '@testing-library/react';
 +import { beforeEach, expect, it, vi } from 'vitest';
 +import { useCluster } from '../../lib/k8s';
++import type { UIPanel } from '../../redux/uiSlice';
++import ClusterLayout from './ClusterLayout';
 +import { ClusterPreOpenState, useClusterPreOpen } from './useClusterPreOpen';
 +
 +vi.mock('../../lib/k8s', () => ({
@@ -5389,6 +4987,7 @@ index 0000000000000000000000000000000000000000..90913f9072834844968165094ef7618c
 +};
 +const sidebarClusterRequest = vi.fn();
 +const topBarUserInfoRequest = vi.fn();
++const panelClusterRequest = vi.fn();
 +
 +function TopBarWithUserInfoRequest() {
 +  topBarUserInfoRequest();
@@ -5400,11 +4999,54 @@ index 0000000000000000000000000000000000000000..90913f9072834844968165094ef7618c
 +  return <div>sidebar</div>;
 +}
 +
++function PanelWithClusterRequest() {
++  panelClusterRequest();
++  return <div>cluster-panel</div>;
++}
++
++const panels = {
++  top: [{ id: 'top', side: 'top', component: PanelWithClusterRequest }],
++  right: [{ id: 'right', side: 'right', component: PanelWithClusterRequest }],
++  bottom: [{ id: 'bottom', side: 'bottom', component: PanelWithClusterRequest }],
++  left: [{ id: 'left', side: 'left', component: PanelWithClusterRequest }],
++} as Record<UIPanel['side'], UIPanel[]>;
++
 +beforeEach(() => {
 +  sidebarClusterRequest.mockClear();
 +  topBarUserInfoRequest.mockClear();
++  panelClusterRequest.mockClear();
 +  vi.mocked(useCluster).mockReturnValue('test-cluster');
 +  vi.mocked(useClusterPreOpen).mockReturnValue(readyState);
++});
++
++it('does not mount plugin UI panels while preparation is pending', () => {
++  vi.mocked(useClusterPreOpen).mockReturnValue({ ...readyState, isSuccess: false });
++
++  render(
++    <ClusterLayout pluginsLoaded panels={panels}>
++      <div>cluster-content</div>
++    </ClusterLayout>
++  );
++
++  expect(screen.getByRole('dialog')).toBeInTheDocument();
++  expect(panelClusterRequest).not.toHaveBeenCalled();
++  expect(screen.queryByText('cluster-panel')).not.toBeInTheDocument();
++  expect(screen.queryByText('cluster-content')).not.toBeInTheDocument();
++});
++
++it('mounts plugin UI panels before plugins finish loading', () => {
++  vi.mocked(useClusterPreOpen).mockReturnValue({ ...readyState, isSuccess: false });
++
++  render(
++    <ClusterLayout pluginsLoaded={false} panels={panels}>
++      <div>cluster-content</div>
++    </ClusterLayout>
++  );
++
++  expect(panelClusterRequest).toHaveBeenCalledTimes(4);
++  expect(screen.getAllByText('cluster-panel')).toHaveLength(4);
++  expect(screen.queryByText('cluster-content')).not.toBeInTheDocument();
++  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 +});
 +
 +it('does not mount cluster polling or namespace resolution while preparation is pending', () => {
@@ -5845,7 +5487,7 @@ index b1f586f14217e607c355d89bbfcd9022229021d2..f43343e8196ab618aeca07bbb32e6646
    },
  };
 diff --git a/source/frontend/src/components/App/Layout.tsx b/source/frontend/src/components/App/Layout.tsx
-index 1551859fb9f378469acd9c7b935555910655e096..d74f0f23eb7ac1ee7cb5e31f03677ff7de0b5a6a 100644
+index 1551859fb9f378469acd9c7b935555910655e096..e6b1249eac91f19544c7996b977ec82a2bae167c 100644
 --- a/source/frontend/src/components/App/Layout.tsx
 +++ b/source/frontend/src/components/App/Layout.tsx
 @@ -43,10 +43,10 @@ import { fetchStatelessClusterKubeConfigs, isEqualClusterConfigs } from '../../s
@@ -5856,128 +5498,99 @@ index 1551859fb9f378469acd9c7b935555910655e096..d74f0f23eb7ac1ee7cb5e31f03677ff7
  import DetailsDrawer from '../common/Resource/DetailsDrawer';
  import Sidebar, { NavigationTabs } from '../Sidebar';
  import AllowedNamespacesSelectorGate from './AllowedNamespacesSelectorGate';
-+import ClusterPreOpenGate from './ClusterPreOpenGate';
++import ClusterLayout from './ClusterLayout';
  import RouteSwitcher from './RouteSwitcher';
  import ShortcutsSettings from './Settings/ShortcutsSettings';
  import { applyBackendThemeConfig } from './themeSlice';
-@@ -329,39 +329,48 @@ export default function Layout({}: LayoutProps) {
-           {panels.top.map(it => (
-             <it.component key={it.id} />
-           ))}
--          <TopBar />
--          <Box
--            sx={{
--              display: 'grid',
--              overflow: 'hidden',
--              flexGrow: 1,
--              position: 'relative',
--              gridTemplateRows: '1fr min-content',
--              gridTemplateColumns: 'min-content 1fr',
--            }}
--          >
--            <Sidebar />
--            <Main
--              id="main"
--              sx={{
--                overflow: 'auto',
--                position: 'relative',
--                minHeight: 0,
--                gridColumn: '2 / 3',
--                gridRow: '1 / 2',
--              }}
--            >
--              {clustersNotInURL.slice(0, MAXIMUM_NUM_ALERTS).map(clusterName => (
--                <ClusterNotFoundPopup key={clusterName} cluster={clusterName} />
--              ))}
+@@ -314,21 +314,8 @@ export default function Layout({}: LayoutProps) {
+       <ShortcutsSettings />
+       <CssBaseline enableColorScheme />
+       <ActionsNotifier />
+-      <Box sx={{ display: 'flex', height: '100dvh' }}>
+-        {panels.left.map(it => (
+-          <it.component key={it.id} />
+-        ))}
+-        <Box
+-          sx={{
+-            display: 'flex',
+-            overflow: 'auto',
+-            flexDirection: 'column',
+-            flexGrow: 1,
+-          }}
+-        >
+-          {panels.top.map(it => (
+-            <it.component key={it.id} />
+-          ))}
++      <ClusterLayout pluginsLoaded={arePluginsLoaded} panels={panels}>
++        <>
+           <TopBar />
+           <Box
+             sx={{
+@@ -354,23 +341,12 @@ export default function Layout({}: LayoutProps) {
+               {clustersNotInURL.slice(0, MAXIMUM_NUM_ALERTS).map(clusterName => (
+                 <ClusterNotFoundPopup key={clusterName} cluster={clusterName} />
+               ))}
 -              <AlertNotification />
--              <Box sx={{ height: '100%' }}>
--                <Div />
--                <Container {...containerProps} sx={{ height: '100%' }}>
--                  <NavigationTabs />
+               <Box sx={{ height: '100%' }}>
+                 <Div />
+                 <Container {...containerProps} sx={{ height: '100%' }}>
+                   <NavigationTabs />
 -                  {arePluginsLoaded &&
 -                    (clustersToResolve.length > 0 ? (
 -                      <AllowedNamespacesSelectorGate clusters={clustersToResolve}>
-+          {arePluginsLoaded && (
-+            <ClusterPreOpenGate>
-+              <TopBar />
-+              <Box
-+                sx={{
-+                  display: 'grid',
-+                  overflow: 'hidden',
-+                  flexGrow: 1,
-+                  position: 'relative',
-+                  gridTemplateRows: '1fr min-content',
-+                  gridTemplateColumns: 'min-content 1fr',
-+                }}
-+              >
-+                <Sidebar />
-+                <Main
-+                  id="main"
-+                  sx={{
-+                    overflow: 'auto',
-+                    position: 'relative',
-+                    minHeight: 0,
-+                    gridColumn: '2 / 3',
-+                    gridRow: '1 / 2',
-+                  }}
-+                >
-+                  {clustersNotInURL.slice(0, MAXIMUM_NUM_ALERTS).map(clusterName => (
-+                    <ClusterNotFoundPopup key={clusterName} cluster={clusterName} />
-+                  ))}
-+                  <Box sx={{ height: '100%' }}>
-+                    <Div />
-+                    <Container {...containerProps} sx={{ height: '100%' }}>
-+                      <NavigationTabs />
-+                      {clustersToResolve.length > 0 ? (
-+                        <AllowedNamespacesSelectorGate clusters={clustersToResolve}>
-+                          <RouteSwitcher
-+                            requiresToken={() => {
-+                              const clusterName = getCluster() || '';
-+                              const cluster = clusters ? clusters[clusterName] : undefined;
-+                              return cluster?.useToken === undefined || cluster?.useToken;
-+                            }}
-+                          />
-+                        </AllowedNamespacesSelectorGate>
-+                      ) : (
-                         <RouteSwitcher
-                           requiresToken={() => {
-                             const clusterName = getCluster() || '';
-@@ -369,22 +378,15 @@ export default function Layout({}: LayoutProps) {
-                             return cluster?.useToken === undefined || cluster?.useToken;
-                           }}
-                         />
+-                        <RouteSwitcher
+-                          requiresToken={() => {
+-                            const clusterName = getCluster() || '';
+-                            const cluster = clusters ? clusters[clusterName] : undefined;
+-                            return cluster?.useToken === undefined || cluster?.useToken;
+-                          }}
+-                        />
 -                      </AllowedNamespacesSelectorGate>
 -                    ) : (
--                      <RouteSwitcher
--                        requiresToken={() => {
--                          const clusterName = getCluster() || '';
--                          const cluster = clusters ? clusters[clusterName] : undefined;
--                          return cluster?.useToken === undefined || cluster?.useToken;
--                        }}
--                      />
++                  {clustersToResolve.length > 0 ? (
++                    <AllowedNamespacesSelectorGate clusters={clustersToResolve}>
+                       <RouteSwitcher
+                         requiresToken={() => {
+                           const clusterName = getCluster() || '';
+@@ -378,21 +354,24 @@ export default function Layout({}: LayoutProps) {
+                           return cluster?.useToken === undefined || cluster?.useToken;
+                         }}
+                       />
 -                    ))}
--                </Container>
-+                      )}
-+                    </Container>
-+                  </Box>
-+                </Main>
-+                <ActivitiesRenderer />
-+                <DetailsDrawer />
++                    </AllowedNamespacesSelectorGate>
++                  ) : (
++                    <RouteSwitcher
++                      requiresToken={() => {
++                        const clusterName = getCluster() || '';
++                        const cluster = clusters ? clusters[clusterName] : undefined;
++                        return cluster?.useToken === undefined || cluster?.useToken;
++                      }}
++                    />
++                  )}
+                 </Container>
                </Box>
--            </Main>
--            <ActivitiesRenderer />
--            <DetailsDrawer />
--          </Box>
-+            </ClusterPreOpenGate>
-+          )}
-           {panels.bottom.map(it => (
-             <it.component key={it.id} />
-           ))}
+             </Main>
+             <ActivitiesRenderer />
+             <DetailsDrawer />
+           </Box>
+-          {panels.bottom.map(it => (
+-            <it.component key={it.id} />
+-          ))}
+-        </Box>
+-        {panels.right.map(it => (
+-          <it.component key={it.id} />
+-        ))}
+-      </Box>
++        </>
++      </ClusterLayout>
+     </>
+   );
+ }
 diff --git a/source/frontend/src/components/App/RouteSwitcher.test.tsx b/source/frontend/src/components/App/RouteSwitcher.test.tsx
-index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..34bddd81bd05223d2eae078f7d9db80da869feb2 100644
+index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..937f0bb05b279609373cbc493e97539baf1acd88 100644
 --- a/source/frontend/src/components/App/RouteSwitcher.test.tsx
 +++ b/source/frontend/src/components/App/RouteSwitcher.test.tsx
-@@ -14,9 +14,18 @@
+@@ -14,9 +14,19 @@
   * limitations under the License.
   */
  
@@ -5994,11 +5607,12 @@ index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..34bddd81bd05223d2eae078f7d9db80d
 +  resetClusterPreOpenHooksForTests,
 +} from '../../plugin/clusterPreOpen';
 +import { ClusterPreOpenHook, clusterPreOpenHooksChanged } from '../../redux/clusterProviderSlice';
++import { setConfig, setStatelessConfig } from '../../redux/configSlice';
 +import reducers from '../../redux/reducers/reducers';
  import { TestContext } from '../../test';
  
  vi.mock('../../lib/k8s', () => ({
-@@ -27,15 +36,19 @@ vi.mock('../../lib/k8s', () => ({
+@@ -27,15 +37,19 @@ vi.mock('../../lib/k8s', () => ({
    useSelectedClusters: vi.fn(() => []),
  }));
  
@@ -6020,7 +5634,7 @@ index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..34bddd81bd05223d2eae078f7d9db80d
  
  // Verify RouteSwitcher renders stable route keys and handles an unset cluster.
  
-@@ -120,3 +133,300 @@ describe('RouteSwitcher', () => {
+@@ -120,3 +134,335 @@ describe('RouteSwitcher', () => {
      await waitFor(() => expect(document.title).toBe('cluster-a - Choose a cluster - Headlamp'));
    });
  });
@@ -6136,6 +5750,41 @@ index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..34bddd81bd05223d2eae078f7d9db80d
 +    expect(hook.mock.calls[0][0]).toMatchObject({
 +      cluster: 'test-cluster',
 +      clusterConf: { source: 'loaded' },
++    });
++  });
++
++  it('waits for enabled stateless cluster config before running hooks', async () => {
++    const store = createTestStore();
++    store.dispatch(
++      setConfig({
++        clusters: { 'normal-cluster': { name: 'normal-cluster' } } as any,
++        isDynamicClusterEnabled: true,
++      })
++    );
++    vi.mocked(useClustersConf).mockReturnValue({ 'normal-cluster': {} } as any);
++    const hook = vi.fn<ClusterPreOpenHook>(() => Promise.resolve());
++    registerClusterPreOpenHook(hook);
++    store.dispatch(clusterPreOpenHooksChanged());
++    const { navigate } = renderAuthRoute(hook, undefined, store);
++
++    expect(await screen.findByRole('dialog')).toBeInTheDocument();
++    expect(hook).not.toHaveBeenCalled();
++
++    store.dispatch(
++      setStatelessConfig({
++        statelessClusters: { 'test-cluster': { name: 'test-cluster', source: 'stateless' } } as any,
++      })
++    );
++    vi.mocked(useClustersConf).mockReturnValue({
++      'normal-cluster': {},
++      'test-cluster': { source: 'stateless' },
++    } as any);
++    navigate('stateless-config-loaded');
++
++    await waitFor(() => expect(hook).toHaveBeenCalledTimes(1));
++    expect(hook.mock.calls[0][0]).toMatchObject({
++      cluster: 'test-cluster',
++      clusterConf: { source: 'stateless' },
 +    });
 +  });
 +
@@ -8869,10 +8518,10 @@ index 3534c4722e69ba0040b9d4d70b9c3e0e0c2d7194..c5b0545aecb018478f7dea61ea7f785a
          <h2
 diff --git a/source/frontend/src/components/App/useClusterPreOpen.ts b/source/frontend/src/components/App/useClusterPreOpen.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..69270fd32146b76351361ef5d8932ba9a5ad4693
+index 0000000000000000000000000000000000000000..671760c3d00d6092e376dd30096db7d5d08d2238
 --- /dev/null
 +++ b/source/frontend/src/components/App/useClusterPreOpen.ts
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,150 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -8945,12 +8594,15 @@ index 0000000000000000000000000000000000000000..69270fd32146b76351361ef5d8932ba9
 +  const preOpenHooksRevision = useTypedSelector(
 +    state => state.clusterProvider.preOpenHooksRevision
 +  );
++  const statelessConfigLoaded = useTypedSelector(
++    state => !state.config.isDynamicClusterEnabled || state.config.statelessClusters !== null
++  );
 +  // Reactive, not a render-time snapshot: going from a multi-cluster view to one
 +  // of its clusters can leave `cluster` unchanged (both resolve to the first
 +  // one), so a snapshot would keep reporting "multi" and skip preparation.
 +  const isSingleCluster = useSelectedClusters().length <= 1;
 +  const enabled = !!cluster && isSingleCluster && hasClusterPreOpenHooks();
-+  const configLoaded = clusters !== null;
++  const configLoaded = clusters !== null && statelessConfigLoaded;
 +
 +  const query = useQuery({
 +    queryKey: ['clusterPreOpen', cluster, isSingleCluster, preOpenHooksRevision],
@@ -11856,110 +11508,6 @@ index d2a95c15bfccd3867823701e468c11e0f3bbbb2f..4fe2bd7063bb07ed71bda9306a9acaf2
  }
  
  export { useCluster, useConnectApi, useSelectedClusters } from './api/v1/hooks';
-diff --git a/source/frontend/src/lib/queryClient.test.ts b/source/frontend/src/lib/queryClient.test.ts
-new file mode 100644
-index 0000000000000000000000000000000000000000..60fbca98cb120481ba0f694a85b5a3328e472054
---- /dev/null
-+++ b/source/frontend/src/lib/queryClient.test.ts
-@@ -0,0 +1,56 @@
-+/*
-+ * Copyright 2025 The Kubernetes Authors
-+ *
-+ * Licensed under the Apache License, Version 2.0 (the "License");
-+ * you may not use this file except in compliance with the License.
-+ * You may obtain a copy of the License at
-+ *
-+ * http://www.apache.org/licenses/LICENSE-2.0
-+ *
-+ * Unless required by applicable law or agreed to in writing, software
-+ * distributed under the License is distributed on an "AS IS" BASIS,
-+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-+ * See the License for the specific language governing permissions and
-+ * limitations under the License.
-+ */
-+
-+import { describe, expect, it } from 'vitest';
-+import { queryClient, shouldRetryQuery } from './queryClient';
-+
-+describe('queryClient', () => {
-+  it('keeps the existing query defaults', () => {
-+    expect(queryClient.getDefaultOptions().queries).toMatchObject({
-+      staleTime: 3 * 60_000,
-+      refetchOnWindowFocus: false,
-+      retry: shouldRetryQuery,
-+    });
-+  });
-+});
-+
-+describe('shouldRetryQuery', () => {
-+  it.each([400, 401, 403, 404])('does not immediately retry HTTP %s responses', status => {
-+    expect(shouldRetryQuery(0, { status })).toBe(false);
-+  });
-+
-+  it.each([408, 429, 500])('retries transient HTTP %s responses up to three times', status => {
-+    expect(shouldRetryQuery(2, { status })).toBe(true);
-+    expect(shouldRetryQuery(3, { status })).toBe(false);
-+  });
-+
-+  it.each([
-+    null,
-+    'network error',
-+    new Error('network error'),
-+    { message: 'network error' },
-+    { status: '403' },
-+    { status: Number.NaN },
-+  ])('retries errors without a numeric HTTP status up to three times', error => {
-+    expect(shouldRetryQuery(2, error)).toBe(true);
-+    expect(shouldRetryQuery(3, error)).toBe(false);
-+  });
-+
-+  it('retries responses outside the permanent client-error range', () => {
-+    expect(shouldRetryQuery(2, { status: 399 })).toBe(true);
-+    expect(shouldRetryQuery(2, { status: undefined })).toBe(true);
-+  });
-+});
-diff --git a/source/frontend/src/lib/queryClient.ts b/source/frontend/src/lib/queryClient.ts
-index 2449894b1f5edc60c7b9e0174052615d39a6e6c0..8abd7932e9a3930a4b3b6fac82676837c6890489 100644
---- a/source/frontend/src/lib/queryClient.ts
-+++ b/source/frontend/src/lib/queryClient.ts
-@@ -16,11 +16,37 @@
- 
- import { QueryClient } from '@tanstack/react-query';
- 
-+/**
-+ * Determines whether React Query should retry a failed query.
-+ *
-+ * @param failureCount - Number of failed attempts before this retry decision.
-+ * @param error - The query error, which may include a numeric HTTP `status`.
-+ * @returns `true` while retries remain for transient errors; `false` for
-+ * permanent HTTP 4xx errors other than 408 and 429, or after three failures.
-+ */
-+export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
-+  const status =
-+    error !== null &&
-+    typeof error === 'object' &&
-+    'status' in error &&
-+    typeof error.status === 'number' &&
-+    Number.isFinite(error.status)
-+      ? error.status
-+      : undefined;
-+
-+  if (status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 429) {
-+    return false;
-+  }
-+
-+  return failureCount < 3;
-+}
-+
- export const queryClient = new QueryClient({
-   defaultOptions: {
-     queries: {
-       staleTime: 3 * 60_000,
-       refetchOnWindowFocus: false,
-+      retry: shouldRetryQuery,
-     },
-   },
- });
 diff --git a/source/frontend/src/make-env.test.js b/source/frontend/src/make-env.test.js
 index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..fd34a1bde9707d1e404dc3f162b962c2f39488d9 100644
 --- a/source/frontend/src/make-env.test.js
@@ -12391,10 +11939,10 @@ index ed8366993f56162fd949c30a72f7c64ab74e03a0..46ad17a18aa29a0b3c5ad493dd79698e
    "registerResourceRelationProvider": [Function],
 diff --git a/source/frontend/src/plugin/clusterPreOpen.ts b/source/frontend/src/plugin/clusterPreOpen.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..4916c60c6385b075f73b7a0a4723df3869593142
+index 0000000000000000000000000000000000000000..43ef7f2ac1dffbff36849cd0edfc48562c80d3af
 --- /dev/null
 +++ b/source/frontend/src/plugin/clusterPreOpen.ts
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,91 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -12421,6 +11969,7 @@ index 0000000000000000000000000000000000000000..4916c60c6385b075f73b7a0a4723df38
 +const privateThen = Promise.prototype.then;
 +const privateAddEventListener = EventTarget.prototype.addEventListener;
 +const privateRemoveEventListener = EventTarget.prototype.removeEventListener;
++const privateStructuredClone = structuredClone;
 +
 +/** Settles when the hook settles or preparation is aborted, whichever happens first. */
 +function runHookUntilAbort(
@@ -12472,7 +12021,12 @@ index 0000000000000000000000000000000000000000..4916c60c6385b075f73b7a0a4723df38
 +  const hookCount = preOpenHooks.length;
 +  for (let index = 0; index < hookCount; index += 1) {
 +    beforeEach();
-+    await runHookUntilAbort(preOpenHooks[index], context);
++    await runHookUntilAbort(preOpenHooks[index], {
++      cluster: context.cluster,
++      clusterConf: privateStructuredClone(context.clusterConf),
++      reportProgress: context.reportProgress,
++      signal: context.signal,
++    });
 +  }
 +}
 +
@@ -12482,10 +12036,10 @@ index 0000000000000000000000000000000000000000..4916c60c6385b075f73b7a0a4723df38
 +}
 diff --git a/source/frontend/src/plugin/clusterProxy.test.ts b/source/frontend/src/plugin/clusterProxy.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..d3db92c4bfe686ddde1732f3365eeed6feb8efba
+index 0000000000000000000000000000000000000000..7a28f6961bb1d05bb2cbfd2f90c91db02ea7b85e
 --- /dev/null
 +++ b/source/frontend/src/plugin/clusterProxy.test.ts
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,89 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -12503,7 +12057,11 @@ index 0000000000000000000000000000000000000000..d3db92c4bfe686ddde1732f3365eeed6
 + */
 +
 +import { describe, expect, it, vi } from 'vitest';
-+import { getClusterProxyArgValues, isTrustedClusterProxyPlugin } from './clusterProxy';
++import {
++  getAksDesktopCommandPermissions,
++  getClusterProxyArgValues,
++  isTrustedClusterProxyPlugin,
++} from './clusterProxy';
 +
 +describe('isTrustedClusterProxyPlugin', () => {
 +  it('allows shipped AKS Desktop and development builds, but rejects user-installed spoofing', () => {
@@ -12513,6 +12071,16 @@ index 0000000000000000000000000000000000000000..d3db92c4bfe686ddde1732f3365eeed6
 +    expect(isTrustedClusterProxyPlugin(true, 'user', false)).toBe(false);
 +    expect(isTrustedClusterProxyPlugin(true, undefined, false)).toBe(false);
 +    expect(isTrustedClusterProxyPlugin(false, 'shipped', false)).toBe(false);
++  });
++});
++
++describe('getAksDesktopCommandPermissions', () => {
++  it('grants the legacy command secret only to trusted AKS Desktop sources', () => {
++    const secrets = { 'runCmd-scriptjs-azure-aks/azure-api.js': 731 };
++
++    expect(getAksDesktopCommandPermissions(true, 'shipped', false, secrets)).toEqual(secrets);
++    expect(getAksDesktopCommandPermissions(true, 'user', false, secrets)).toEqual({});
++    expect(getAksDesktopCommandPermissions(true, 'development', false, secrets)).toEqual({});
 +  });
 +});
 +
@@ -12563,10 +12131,10 @@ index 0000000000000000000000000000000000000000..d3db92c4bfe686ddde1732f3365eeed6
 +});
 diff --git a/source/frontend/src/plugin/clusterProxy.ts b/source/frontend/src/plugin/clusterProxy.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..00d665c26eeecaa513646f83aee1fdddd2a2c570
+index 0000000000000000000000000000000000000000..484eb19eeba773c5ec8ccc2b895b9d6db93305e8
 --- /dev/null
 +++ b/source/frontend/src/plugin/clusterProxy.ts
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,93 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -12618,6 +12186,22 @@ index 0000000000000000000000000000000000000000..00d665c26eeecaa513646f83aee1fddd
 +  return isAksDesktop && (source === 'shipped' || (source === 'development' && isDevelopmentMode));
 +}
 +
++/** Returns legacy command permissions only for a trusted AKS Desktop install. */
++export function getAksDesktopCommandPermissions(
++  isAksDesktop: boolean,
++  source: 'development' | 'user' | 'shipped' | undefined,
++  isDevelopmentMode: boolean,
++  permissionSecrets: Record<string, number>
++): Record<string, number> {
++  if (!isTrustedClusterProxyPlugin(isAksDesktop, source, isDevelopmentMode)) {
++    return {};
++  }
++
++  const permissionName = 'runCmd-scriptjs-azure-aks/azure-api.js';
++  const permissionSecret = permissionSecrets[permissionName];
++  return Number.isFinite(permissionSecret) ? { [permissionName]: permissionSecret } : {};
++}
++
 +/**
 + * Builds plugin arguments for the scoped Azure proxy capability.
 + *
@@ -12645,18 +12229,22 @@ index 0000000000000000000000000000000000000000..00d665c26eeecaa513646f83aee1fddd
 +  return [['startClusterProxy'], [startClusterProxy]];
 +}
 diff --git a/source/frontend/src/plugin/index.ts b/source/frontend/src/plugin/index.ts
-index f49d3a67c45f01f4510ba158c00d47445fd11796..ae38395b922447e83e3796c60812cb17d54f80dd 100644
+index f49d3a67c45f01f4510ba158c00d47445fd11796..eb980202ac5e54910385fba19b19e04b71bf1420 100644
 --- a/source/frontend/src/plugin/index.ts
 +++ b/source/frontend/src/plugin/index.ts
-@@ -53,6 +53,7 @@ import * as Utils from '../lib/util';
+@@ -53,6 +53,11 @@ import * as Utils from '../lib/util';
  import { eventAction, HeadlampEventType } from '../redux/headlampEventSlice';
  import store from '../redux/stores/store';
  import * as stateless from '../stateless/index';
-+import { getClusterProxyArgValues, isTrustedClusterProxyPlugin } from './clusterProxy';
++import {
++  getAksDesktopCommandPermissions,
++  getClusterProxyArgValues,
++  isTrustedClusterProxyPlugin,
++} from './clusterProxy';
  import { Headlamp, Plugin } from './lib';
  import { changePluginLanguage, initializePluginI18n } from './pluginI18n';
  import { useTranslation } from './pluginI18n';
-@@ -61,7 +62,7 @@ import Registry, * as registryToExport from './registry';
+@@ -61,7 +66,7 @@ import Registry, * as registryToExport from './registry';
  import { getInfoForRunningPlugins, identifyPackages, runPlugin, runPluginProps } from './runPlugin';
  import { createPluginSecureStorage, getPluginSecureStorageNamespace } from './secureStorage';
  
@@ -12665,7 +12253,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..ae38395b922447e83e3796c60812cb17
    ApiProxy,
    ReactMonacoEditor: {
      ...ReactMonacoEditor,
-@@ -108,6 +109,18 @@ window.pluginLib = {
+@@ -108,6 +113,18 @@ window.pluginLib = {
    Activity,
    stateless,
  };
@@ -12684,7 +12272,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..ae38395b922447e83e3796c60812cb17
  
  // backwards compat.
  window.pluginLib.MuiCore = window.pluginLib.MuiMaterial;
-@@ -505,6 +518,15 @@ export async function fetchAndExecutePlugins(
+@@ -505,6 +522,15 @@ export async function fetchAndExecutePlugins(
    const sources = await sourcesPromise;
    const packageInfos = await packageInfosPromise;
    const permissionSecrets = await permissionSecretsPromise;
@@ -12700,7 +12288,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..ae38395b922447e83e3796c60812cb17
  
    // Update settings to include all plugin versions (by name + type)
    let updatedSettingsPackages = updateSettingsPackages(packageInfos, settingsPackages);
-@@ -589,6 +611,7 @@ export async function fetchAndExecutePlugins(
+@@ -589,6 +615,7 @@ export async function fetchAndExecutePlugins(
    // This is to prevent plugins from snooping on the permission secrets.
    const pluginDesktopApiSend = window?.desktopApi?.send;
    const pluginDesktopApiReceive = window?.desktopApi?.receive;
@@ -12708,7 +12296,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..ae38395b922447e83e3796c60812cb17
    const internalRunCommand = runCommand;
    const PrivateFunction = Function;
    const internalRunPlugin = runPlugin;
-@@ -611,7 +634,7 @@ export async function fetchAndExecutePlugins(
+@@ -611,7 +638,7 @@ export async function fetchAndExecutePlugins(
          pluginPath: pluginPathsToExecute[index],
          packageName: packageInfosToExecute[index].name,
          packageVersion: packageInfosToExecute[index].version || '',
@@ -12717,16 +12305,27 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..ae38395b922447e83e3796c60812cb17
          handleError: handlePluginRunError,
          getAllowedPermissions: (pluginName, pluginPath, secrets): Record<string, number> => {
            const secretsToReturn: Record<string, number> = {};
-@@ -637,7 +660,7 @@ export async function fetchAndExecutePlugins(
+@@ -637,10 +664,15 @@ export async function fetchAndExecutePlugins(
              secretsToReturn['runCmd-az'] = secrets['runCmd-az'];
            }
  
 -          if (isPackage['azure-aks']) {
-+          if (isPackage['aks-desktop']) {
-             secretsToReturn['runCmd-scriptjs-azure-aks/azure-api.js'] =
-               secrets['runCmd-scriptjs-azure-aks/azure-api.js'];
-           }
-@@ -649,6 +672,11 @@ export async function fetchAndExecutePlugins(
+-            secretsToReturn['runCmd-scriptjs-azure-aks/azure-api.js'] =
+-              secrets['runCmd-scriptjs-azure-aks/azure-api.js'];
+-          }
++          Object.assign(
++            secretsToReturn,
++            getAksDesktopCommandPermissions(
++              isPackage['aks-desktop'],
++              packageInfosToExecute[index].source,
++              isDevelopmentMode,
++              secrets
++            )
++          );
+ 
+           return secretsToReturn;
+         },
+@@ -649,6 +681,11 @@ export async function fetchAndExecutePlugins(
            const argumentValues: unknown[] = [];
            // allowedPermissions is the return value of getAllowedPermissions
            const isPackage = identifyPackages(pluginPath, pluginName, isDevelopmentMode);
@@ -12738,7 +12337,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..ae38395b922447e83e3796c60812cb17
            if (isPackage['@headlamp-k8s/minikube']) {
              // We construct a pluginRunCommand that has private
              //  - permission secrets
-@@ -690,7 +718,7 @@ export async function fetchAndExecutePlugins(
+@@ -690,7 +727,7 @@ export async function fetchAndExecutePlugins(
              argumentValues.push(pluginRunCommand, pluginPath);
            }
  
@@ -12747,7 +12346,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..ae38395b922447e83e3796c60812cb17
              function pluginRunCommand(
                command: 'scriptjs',
                args: string[],
-@@ -707,6 +735,13 @@ export async function fetchAndExecutePlugins(
+@@ -707,6 +744,13 @@ export async function fetchAndExecutePlugins(
              }
              argumentNames.push('pluginRunCommand', 'pluginPath');
              argumentValues.push(pluginRunCommand, pluginPath);
@@ -12761,7 +12360,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..ae38395b922447e83e3796c60812cb17
            }
  
            const storageNamespace = secureStorageNamespaces[index];
-@@ -806,11 +841,11 @@ async function afterPluginsRun(
+@@ -806,11 +850,11 @@ async function afterPluginsRun(
   *
   * @returns promise with permissions secrets like { 'runCmd-minikube': 1235555 }
   */
@@ -12796,12 +12395,14 @@ index c6d4ab70ec0675d754c78aa4a5c8a5e0ef6a3051..0f9f15d9e19b6c500dda15872f3d8c26
 +  });
  });
 diff --git a/source/frontend/src/plugin/registry.test.ts b/source/frontend/src/plugin/registry.test.ts
-index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f4da48837 100644
+index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..3468b330134e479f9b5906da2ca8f0ce28b3ca57 100644
 --- a/source/frontend/src/plugin/registry.test.ts
 +++ b/source/frontend/src/plugin/registry.test.ts
-@@ -17,6 +17,11 @@
+@@ -16,7 +16,13 @@
+ 
  import { configureStore } from '@reduxjs/toolkit';
  import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import type { ClusterPreOpenHook } from '../redux/clusterProviderSlice';
  import reducers from '../redux/reducers/reducers';
 +import {
 +  hasClusterPreOpenHooks,
@@ -12811,7 +12412,7 @@ index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f
  
  let activeStore: any;
  
-@@ -34,12 +39,17 @@ vi.mock('../components/resourceMap/sources/definitions/relationIds', () => ({
+@@ -34,12 +40,17 @@ vi.mock('../components/resourceMap/sources/definitions/relationIds', () => ({
    BUILT_IN_RELATION_IDS: ['owner', 'owner-reversed', 'pod-configmap'],
  }));
  
@@ -12830,7 +12431,7 @@ index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f
      activeStore = configureStore({
        reducer: reducers,
      });
-@@ -47,6 +57,7 @@ describe('registerResourceRelationProvider', () => {
+@@ -47,6 +58,7 @@ describe('registerResourceRelationProvider', () => {
    });
  
    afterEach(() => {
@@ -12838,7 +12439,7 @@ index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f
      warnSpy.mockRestore();
    });
  
-@@ -219,4 +230,71 @@ describe('registerResourceRelationProvider', () => {
+@@ -219,4 +231,129 @@ describe('registerResourceRelationProvider', () => {
  
      expect(activeStore.getState().clusterProvider.clusterEmptyState).toBe(emptyState);
    });
@@ -12894,6 +12495,33 @@ index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f
 +    }
 +  });
 +
++  it('gives each pre-open hook an independent context snapshot', async () => {
++    let retainedContext: any;
++    const firstHook = vi.fn<ClusterPreOpenHook>(async context => {
++      retainedContext = context;
++      retainedContext.cluster = 'attacker-cluster';
++      retainedContext.clusterConf.meta_data.subscriptionId = 'attacker-subscription';
++    });
++    const secondHook = vi.fn<ClusterPreOpenHook>(async () => {});
++    registerClusterProviderPreOpen(firstHook);
++    registerClusterProviderPreOpen(secondHook);
++    const context = {
++      cluster: 'trusted-cluster',
++      clusterConf: { meta_data: { subscriptionId: 'trusted-subscription' } },
++    };
++
++    await runClusterPreOpenHooks(context, () => {});
++
++    expect(secondHook).toHaveBeenCalledWith({
++      cluster: 'trusted-cluster',
++      clusterConf: { meta_data: { subscriptionId: 'trusted-subscription' } },
++      reportProgress: undefined,
++      signal: undefined,
++    });
++    expect(secondHook.mock.calls[0][0]).not.toBe(retainedContext);
++    expect(secondHook.mock.calls[0][0].clusterConf).not.toBe(retainedContext.clusterConf);
++  });
++
 +  it('does not invoke a hook when preparation is already aborted', async () => {
 +    const hook = vi.fn(async () => {});
 +    const controller = new AbortController();
@@ -12908,6 +12536,37 @@ index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..a240f7f518f0a3e2885c372c2cab189f
 +      )
 +    ).rejects.toBe(reason);
 +    expect(hook).not.toHaveBeenCalled();
++  });
++
++  it('uses AbortError when an abort signal provides no reason', async () => {
++    const hook = vi.fn<ClusterPreOpenHook>(() => new Promise<void>(() => {}));
++    registerClusterProviderPreOpen(hook);
++    const createSignal = (aborted: boolean) => {
++      const signal = new EventTarget();
++      Object.defineProperties(signal, {
++        aborted: { value: aborted },
++        reason: { value: undefined },
++      });
++      return signal as AbortSignal;
++    };
++
++    await expect(
++      runClusterPreOpenHooks(
++        { cluster: 'test', clusterConf: null, signal: createSignal(true) },
++        () => {}
++      )
++    ).rejects.toMatchObject({ name: 'AbortError' });
++    expect(hook).not.toHaveBeenCalled();
++
++    const signal = createSignal(false);
++    const preparation = runClusterPreOpenHooks(
++      { cluster: 'test', clusterConf: null, signal },
++      () => {}
++    );
++    signal.dispatchEvent(new Event('abort'));
++
++    await expect(preparation).rejects.toMatchObject({ name: 'AbortError' });
++    expect(hook).toHaveBeenCalledOnce();
 +  });
  });
 diff --git a/source/frontend/src/plugin/registry.tsx b/source/frontend/src/plugin/registry.tsx
@@ -13084,7 +12743,7 @@ index 8bb22bb81bf38426909c01d3b2d51da9473f39ce..6f7f4ccdddd799b1ebda9aa89faa8577
    const isPackage: Record<string, boolean> = {};
    for (const key in pluginPaths) {
 diff --git a/source/frontend/src/redux/clusterProviderSlice.ts b/source/frontend/src/redux/clusterProviderSlice.ts
-index 19dd642fcd7884403342f7f311e6e9bf796735d9..1c9ee5e05edca39192103ee2a810318020241e37 100644
+index 19dd642fcd7884403342f7f311e6e9bf796735d9..481b0d0994bd02cb2d1ab22842f598ac265085e7 100644
 --- a/source/frontend/src/redux/clusterProviderSlice.ts
 +++ b/source/frontend/src/redux/clusterProviderSlice.ts
 @@ -49,6 +49,58 @@ export type ClusterEmptyStateComponent = (
@@ -13096,26 +12755,26 @@ index 19dd642fcd7884403342f7f311e6e9bf796735d9..1c9ee5e05edca39192103ee2a8103180
 + */
 +export interface ClusterPreOpenContext {
 +  /** The name of the cluster being opened. */
-+  cluster: string;
++  readonly cluster: string;
 +  /**
 +   * The cluster's configuration, as known to the app, or `null` if unavailable.
 +   * Typed `unknown` so this slice does not depend on the k8s cluster
 +   * types while still requiring hook authors to narrow before use.
 +   */
-+  clusterConf: unknown;
++  readonly clusterConf: unknown;
 +  /**
 +   * Aborts when preparation is no longer wanted — the user left the cluster
 +   * before the hooks finished. Long-running hooks should pass it to whatever
 +   * they await, or check it between steps, so abandoned preparation does not
 +   * keep running; the app stops waiting on it either way.
 +   */
-+  signal?: AbortSignal;
++  readonly signal?: AbortSignal;
 +  /**
 +   * Reports human-readable progress for the "connecting" popup shown while the
 +   * cluster is being prepared (e.g. "Starting proxy…", "Verifying connection…").
 +   * Optional — hooks that don't report progress just show a generic message.
 +   */
-+  reportProgress?: (message: string) => void;
++  readonly reportProgress?: (message: string) => void;
 +}
 +
 +/**
@@ -13345,6 +13004,40 @@ index 407c550d312b6c30da6a99e83fd3d3068eab0a2d..ff374a3c454c97ffb3a51736099a093b
    addDetailsTab,
    addOverviewSection,
    setProjectDeleteButton,
+diff --git a/source/frontend/src/stateless/index.test.ts b/source/frontend/src/stateless/index.test.ts
+index 5b8b25aa94d39c3c0da5c5d5a616c9b0b8e6294d..5e158d9c64ab8e12c62217f36e637b3a3529e963 100644
+--- a/source/frontend/src/stateless/index.test.ts
++++ b/source/frontend/src/stateless/index.test.ts
+@@ -365,14 +365,13 @@ describe('fetchStatelessClusterKubeConfigs', () => {
+     expect(dispatch).toHaveBeenCalledWith(setStatelessConfig({ statelessClusters: {} }));
+   });
+ 
+-  it('does not dispatch when IndexedDB is empty and state is already clear', async () => {
+-    // statelessClusters is null in the store (already clean)
++  it('marks stateless config loaded when IndexedDB is empty', async () => {
+     expect(store.getState().config.statelessClusters).toBeNull();
+ 
+     const dispatch = vi.fn();
+     await fetchStatelessClusterKubeConfigs(dispatch);
+ 
+-    expect(dispatch).not.toHaveBeenCalled();
++    expect(dispatch).toHaveBeenCalledWith(setStatelessConfig({ statelessClusters: {} }));
+   });
+ });
+ 
+diff --git a/source/frontend/src/stateless/index.ts b/source/frontend/src/stateless/index.ts
+index c5cd96e3efc4d5e993d11f3165f2d9074b5e1208..cf117fd2f67ec73baaae9e1c4f0934c3c70abd6f 100644
+--- a/source/frontend/src/stateless/index.ts
++++ b/source/frontend/src/stateless/index.ts
+@@ -420,7 +420,7 @@ export async function fetchStatelessClusterKubeConfigs(dispatch: any) {
+ 
+   if (!config || config.length === 0) {
+     const statelessClusters = store.getState().config.statelessClusters;
+-    if (statelessClusters && Object.keys(statelessClusters).length > 0) {
++    if (statelessClusters === null || Object.keys(statelessClusters).length > 0) {
+       dispatch(setStatelessConfig({ statelessClusters: {} }));
+     }
+     return;
 diff --git a/source/frontend/src/test/storybookBaseMocks.test.ts b/source/frontend/src/test/storybookBaseMocks.test.ts
 index f18486a2f3664d0e4e5d906be60cade6b227c633..29f7ba143c76db8895ddd4443293fe9fb895465f 100644
 --- a/source/frontend/src/test/storybookBaseMocks.test.ts
