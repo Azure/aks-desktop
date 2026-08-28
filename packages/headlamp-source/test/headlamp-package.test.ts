@@ -250,14 +250,14 @@ test('frontend identity comes from package and product metadata', () => {
     );
     assert.equal(result.status, 0, result.stderr);
     const environment = fs.readFileSync(outputPath, 'utf8');
-    assert.match(environment, /^REACT_APP_HEADLAMP_VERSION=1\.2\.3$/m);
+    assert.match(environment, /^REACT_APP_HEADLAMP_VERSION='1\.2\.3'$/m);
     assert.match(
       environment,
-      /^REACT_APP_HEADLAMP_GIT_VERSION=0123456789abcdef$/m
+      /^REACT_APP_HEADLAMP_GIT_VERSION='0123456789abcdef'$/m
     );
     assert.match(
       environment,
-      /^REACT_APP_HEADLAMP_PRODUCT_NAME=Example Desktop$/m
+      /^REACT_APP_HEADLAMP_PRODUCT_NAME='Example Desktop'$/m
     );
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

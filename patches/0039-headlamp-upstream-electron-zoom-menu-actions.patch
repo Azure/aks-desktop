@@ -1,4 +1,4 @@
-From 259c6a17e9948d8f1b9e8f3f557f63f585c067bf Mon Sep 17 00:00:00 2001
+From 1a5253ac690c057b36c0d91cced2867bae476e06 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Wed, 5 Aug 2026 09:38:45 +0200
 Subject: [PATCH 1/3] app: menu: main: Make serialized menus testable
@@ -14,7 +14,7 @@ without loading the Electron entrypoint.
  create mode 100644 app/electron/menu.ts
 
 diff --git a/app/electron/main.ts b/app/electron/main.ts
-index 166e6003a5526c75cc817577908ec9b8851b941c..91e6766da2f2128e915b067f6ac8bbb6d171d9a9 100644
+index c302a52e01c80b51e202a267a4cfacd9ca27d91e..225c2d7f9a2af475d0c73c2ea20e16e971625d2c 100644
 --- a/app/electron/main.ts
 +++ b/app/electron/main.ts
 @@ -47,6 +47,7 @@ import {
@@ -25,7 +25,7 @@ index 166e6003a5526c75cc817577908ec9b8851b941c..91e6766da2f2128e915b067f6ac8bbb6
  import { filterUserOwnedPids } from './ownedProcesses';
  import {
    addToPath,
-@@ -1158,7 +1159,10 @@ function setMenu(appWindow: BrowserWindow | null, newAppMenu: AppMenu[] = []) {
+@@ -1159,7 +1160,10 @@ function setMenu(appWindow: BrowserWindow | null, newAppMenu: AppMenu[] = []) {
    let menu: Electron.Menu;
    try {
      const menuTemplate: (MenuItemConstructorOptions | MenuItem)[] =
@@ -37,7 +37,7 @@ index 166e6003a5526c75cc817577908ec9b8851b941c..91e6766da2f2128e915b067f6ac8bbb6
      menu = Menu.buildFromTemplate(menuTemplate);
    } catch (e) {
      console.error(`Failed to build menus from template ${appMenu}:`, e);
-@@ -1209,55 +1213,6 @@ function updateMenuLabels(menus: AppMenu[]) {
+@@ -1210,55 +1214,6 @@ function updateMenuLabels(menus: AppMenu[]) {
    });
  }
  
@@ -291,7 +291,7 @@ index 0000000000000000000000000000000000000000..bb93001705ba2159427e91a8779a7f5f
 2.54.0
 
 
-From 42a96273ef52891877ec292389a6d08d6590f3f6 Mon Sep 17 00:00:00 2001
+From d357ab4fb6ace42381c42087cb51ac6e61f45f21 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Wed, 5 Aug 2026 09:50:20 +0200
 Subject: [PATCH 2/3] app: e2e-tests: appMenuZoom: Test Electron zoom actions
@@ -404,7 +404,7 @@ index 0000000000000000000000000000000000000000..2079983c446eda321e51f30a57df2b20
 2.54.0
 
 
-From 96e483d858ee47080c25d12bae743e371076e2b8 Mon Sep 17 00:00:00 2001
+From 62af977e4e9c72e81aabf16da9697c69d99ed454 Mon Sep 17 00:00:00 2001
 From: Evangelos Skopelitis <eskopelitis@microsoft.com>
 Date: Mon, 23 Feb 2026 11:35:28 -0500
 Subject: [PATCH 3/3] app: menu: main: appMenuZoom: Restore serialized zoom
@@ -461,10 +461,10 @@ index 2079983c446eda321e51f30a57df2b20495e7063..e44af12eb6a20d44761481796956e9f1
 +  }, id);
 +}
 diff --git a/app/electron/main.ts b/app/electron/main.ts
-index 91e6766da2f2128e915b067f6ac8bbb6d171d9a9..b686fe1db9037b9fd46d589b8d7d424e30996cff 100644
+index 225c2d7f9a2af475d0c73c2ea20e16e971625d2c..1e09d7561df95c3440b31e8f4a98ee6ef52bb94d 100644
 --- a/app/electron/main.ts
 +++ b/app/electron/main.ts
-@@ -1162,6 +1162,8 @@ function setMenu(appWindow: BrowserWindow | null, newAppMenu: AppMenu[] = []) {
+@@ -1163,6 +1163,8 @@ function setMenu(appWindow: BrowserWindow | null, newAppMenu: AppMenu[] = []) {
        menusToTemplate(appWindow, appMenu, loadFullMenu, {
          openExternal: url => shell.openExternal(url),
          openAboutDialog: () => appWindow?.webContents.send('open-about-dialog'),

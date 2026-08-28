@@ -1,12 +1,12 @@
 {
   "name": "@headlamp-k8s/headlamp-source",
-  "version": "0.0.0-main.9ea6b30c",
+  "version": "0.0.0-main.f84c2da1",
   "description": "Headlamp source assembly and npm build entry points",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/kubernetes-sigs/headlamp.git",
-    "commit": "9ea6b30cfe42d7fc82880d552e926107c0d4a8bd"
+    "commit": "f84c2da1e234fa18c0a7332b7ecbff4f0d7a4ddd"
   },
   "engines": {
     "node": ">=22.22.2",
@@ -30,8 +30,8 @@
     "build:app:mac": "npm --prefix source run app:package:mac",
     "build:app:win": "npm --prefix source run app:package:win",
     "build:app:unpacked": "npm --prefix source run app:build",
-    "build:container": "docker buildx build --pull --platform=local --build-arg HEADLAMP_SOURCE_COMMIT=9ea6b30cfe42d7fc82880d552e926107c0d4a8bd --build-arg HEADLAMP_BUILD_MANIFEST -t ghcr.io/headlamp-k8s/headlamp:0.0.0-main.9ea6b30c -f source/Dockerfile source",
-    "build:plugins-container": "docker buildx build --pull --platform=local -t ghcr.io/headlamp-k8s/plugins:0.0.0-main.9ea6b30c -f source/Dockerfile.plugins source",
+    "build:container": "docker buildx build --pull --platform=local --build-arg HEADLAMP_SOURCE_COMMIT=f84c2da1e234fa18c0a7332b7ecbff4f0d7a4ddd --build-arg HEADLAMP_BUILD_MANIFEST -t ghcr.io/headlamp-k8s/headlamp:0.0.0-main.f84c2da1 -f source/Dockerfile source",
+    "build:plugins-container": "docker buildx build --pull --platform=local -t ghcr.io/headlamp-k8s/plugins:0.0.0-main.f84c2da1 -f source/Dockerfile.plugins source",
     "start": "npm --prefix source run start:with-app",
     "start:backend": "npm --prefix source run start:backend",
     "start:frontend": "npm --prefix source run start:frontend",
@@ -53,7 +53,7 @@
   },
   "headlampSource": {
     "ref": "refs/heads/main",
-    "previousCommit": "e2de219412db83480b3a6ed2e0e77ce4eaa12e94",
-    "commit": "9ea6b30cfe42d7fc82880d552e926107c0d4a8bd"
+    "previousCommit": "9ea6b30cfe42d7fc82880d552e926107c0d4a8bd",
+    "commit": "f84c2da1e234fa18c0a7332b7ecbff4f0d7a4ddd"
   }
 }

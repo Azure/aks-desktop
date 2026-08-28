@@ -1,4 +1,4 @@
-From 39cfbf18ba7934dd39b8f66b05a432820152d69a Mon Sep 17 00:00:00 2001
+From ab0ce764591aea790d4c7e8d6cdefe019b78afb5 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Mon, 24 Aug 2026 12:25:19 +0200
 Subject: [PATCH 1/2] e2e-tests: workloads.spec: Verify apps workload lists
@@ -12,7 +12,7 @@ caught by a browser-level regression test.
 
 diff --git a/e2e-tests/tests/workloads.spec.ts b/e2e-tests/tests/workloads.spec.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..76c94420464309503c360ba4c3cf9d521ce78e62
+index 0000000000000000000000000000000000000000..fec4539adbd3dd060b3f7ea7ceafdd2e8703a6ed
 --- /dev/null
 +++ b/e2e-tests/tests/workloads.spec.ts
 @@ -0,0 +1,133 @@
@@ -82,7 +82,7 @@ index 0000000000000000000000000000000000000000..76c94420464309503c360ba4c3cf9d52
 +    title: /ReplicaSets/,
 +    spec: { replicas: 3, selector: { matchLabels: labels }, template: podTemplate },
 +    status: { replicas: 3, readyReplicas: 2, availableReplicas: 2, observedGeneration: 1 },
-+    expectedText: 'app: headlamp-e2e',
++    expectedText: containerName,
 +  },
 +  {
 +    resource: 'statefulsets',
@@ -153,7 +153,7 @@ index 0000000000000000000000000000000000000000..76c94420464309503c360ba4c3cf9d52
 2.54.0
 
 
-From a7352183884e70f940c3f0ba44142566e3fd767f Mon Sep 17 00:00:00 2001
+From 15c9606bcbda8f985ca6c6dd6210e48f7372405a Mon Sep 17 00:00:00 2001
 From: Evangelos Skopelitis <eskopelitis@microsoft.com>
 Date: Mon, 16 Feb 2026 18:36:35 +0000
 Subject: [PATCH 2/2] frontend: storybook: Mock apps workload lists

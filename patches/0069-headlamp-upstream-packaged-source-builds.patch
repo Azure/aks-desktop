@@ -1,4 +1,4 @@
-From 91bffc9abe7c0df6bcb7de3791320f2df31faffb Mon Sep 17 00:00:00 2001
+From 7525844a8cb2d57e3f49aadaa7af9d862b76db5e Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Tue, 25 Aug 2026 11:18:14 +0200
 Subject: [PATCH 1/4] frontend: make-env: Cover product metadata generation
@@ -6,14 +6,14 @@ Subject: [PATCH 1/4] frontend: make-env: Cover product metadata generation
 Exercise manifest overrides, package fallbacks, source commit overrides, and
 Git failure so packaged-source builds keep accurate frontend metadata.
 ---
- frontend/src/make-env.test.js | 239 +++++++++++++++++++++++++++++++---
- 1 file changed, 219 insertions(+), 20 deletions(-)
+ frontend/src/make-env.test.js | 286 +++++++++++++++++++++++++++++++---
+ 1 file changed, 266 insertions(+), 20 deletions(-)
 
 diff --git a/frontend/src/make-env.test.js b/frontend/src/make-env.test.js
-index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..2def18f0fe57a760da94ca017e6fab5eb25f256d 100644
+index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..691b2223b55cbda167482fa0104f54de5d04c9e9 100644
 --- a/frontend/src/make-env.test.js
 +++ b/frontend/src/make-env.test.js
-@@ -17,35 +17,234 @@
+@@ -17,35 +17,281 @@
  const os = require('os');
  const path = require('path');
  const { execFileSync } = require('child_process');
@@ -22,21 +22,27 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..2def18f0fe57a760da94ca017e6fab5e
  
 -const envFile = path.join(os.tmpdir(), 'tmpEnv');
 +const frontendDirectory = path.resolve(__dirname, '..');
++const repositoryDirectory = path.resolve(frontendDirectory, '..');
 +const appInfo = JSON.parse(fs.readFileSync(path.join(frontendDirectory, '../app/package.json')));
  
 -test('Create & verify', () => {
 -  const execFile = path.resolve(path.join(__dirname, '..', 'make-env.js'));
 -  execFileSync('node', [execFile, envFile]);
 +function parseEnvFile(envFile) {
-+  return Object.fromEntries(
-+    fs
-+      .readFileSync(envFile, 'utf8')
-+      .trim()
-+      .split(/\r?\n/)
-+      .map(line => {
-+        const separatorIndex = line.indexOf('=');
-+        return [line.slice(0, separatorIndex), line.slice(separatorIndex + 1)];
-+      })
++  const childEnv = Object.fromEntries(
++    Object.entries(process.env).filter(([key]) => !key.startsWith('REACT_APP_'))
++  );
++  return JSON.parse(
++    execFileSync(
++      process.execPath,
++      [
++        '--input-type=module',
++        '-e',
++        "import { loadEnv } from 'vite'; process.stdout.write(JSON.stringify(loadEnv('test', process.argv[1], 'REACT_APP_')));",
++        path.dirname(envFile),
++      ],
++      { cwd: frontendDirectory, encoding: 'utf8', env: childEnv }
++    )
 +  );
 +}
  
@@ -98,7 +104,7 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..2def18f0fe57a760da94ca017e6fab5e
 +  }
 +}
 +
-+function createStandaloneEnv({ manifest, manifestPath = 'app-build-manifest.json' } = {}) {
++async function createStandaloneEnv({ manifest, manifestPath = 'app-build-manifest.json' } = {}) {
 +  const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-standalone-env-'));
 +  const tempFrontend = path.join(tempDirectory, 'frontend');
 +  const tempApp = path.join(tempDirectory, 'app');
@@ -146,8 +152,8 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..2def18f0fe57a760da94ca017e6fab5e
 +  });
 +});
 +
-+test('reads product metadata from the default manifest', () => {
-+  const env = createStandaloneEnv({
++test('reads product metadata from the default manifest', async () => {
++  const env = await createStandaloneEnv({
 +    manifest: { product: { productName: 'Default Product', version: '2.3.4' } },
 +  });
 +
@@ -157,20 +163,17 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..2def18f0fe57a760da94ca017e6fab5e
 +  });
 +});
 +
-+test('falls back to package metadata when the default manifest is absent', () => {
-+  const env = createStandaloneEnv();
- 
--    const [key, val] = line.trim().split('=');
++test('falls back to package metadata when the default manifest is absent', async () => {
++  const env = await createStandaloneEnv();
++
 +  expect(env).toMatchObject({
 +    REACT_APP_HEADLAMP_VERSION: '0.0.0',
 +    REACT_APP_HEADLAMP_PRODUCT_NAME: 'Headlamp',
 +  });
 +});
- 
--    expect(key.trim()).toBeDefined();
--    expect(val.trim()).toBeDefined();
-+test('resolves a relative custom manifest from the app directory', () => {
-+  const env = createStandaloneEnv({
++
++test('resolves a relative custom manifest from the app directory', async () => {
++  const env = await createStandaloneEnv({
 +    manifest: { product: { productName: 'Relative Product', version: '3.4.5' } },
 +    manifestPath: 'product/app-build-manifest.json',
 +  });
@@ -192,12 +195,12 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..2def18f0fe57a760da94ca017e6fab5e
 +    sourceCommit: '0123456789abcdef',
 +  });
  
--    envObj[key] = val;
+-    const [key, val] = line.trim().split('=');
 +  expect(env).toMatchObject({
 +    REACT_APP_HEADLAMP_VERSION: '1.2.3',
 +    REACT_APP_HEADLAMP_GIT_VERSION: '0123456789abcdef',
 +    REACT_APP_HEADLAMP_PRODUCT_NAME: 'Example Desktop',
-   });
++  });
 +});
 +
 +test('falls back to package metadata for omitted product fields', async () => {
@@ -223,7 +226,9 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..2def18f0fe57a760da94ca017e6fab5e
 +    REACT_APP_HEADLAMP_PRODUCT_NAME: appInfo.productName,
 +  });
 +});
-+
+ 
+-    expect(key.trim()).toBeDefined();
+-    expect(val.trim()).toBeDefined();
 +test.each([
 +  ['a non-object manifest', []],
 +  ['a non-object product', { product: 'Example Desktop' }],
@@ -233,22 +238,36 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..2def18f0fe57a760da94ca017e6fab5e
 +  await expect(createEnv({ manifest, sourceCommit: 'source-commit' })).rejects.toThrow();
 +});
 +
-+test('preserves equals signs in generated environment values', async () => {
++test('preserves dotenv-sensitive characters through Vite', async () => {
 +  const env = await createEnv({
 +    manifest: {
 +      product: {
-+        productName: 'Example=Desktop',
++        productName: 'C# $HOME O\'Reilly "Desktop" \\path',
 +        version: '1.2.3=build',
 +      },
 +    },
 +    sourceCommit: 'source=commit',
 +  });
-+
+ 
+-    envObj[key] = val;
 +  expect(env).toMatchObject({
 +    REACT_APP_HEADLAMP_VERSION: '1.2.3=build',
 +    REACT_APP_HEADLAMP_GIT_VERSION: 'source=commit',
-+    REACT_APP_HEADLAMP_PRODUCT_NAME: 'Example=Desktop',
-+  });
++    REACT_APP_HEADLAMP_PRODUCT_NAME: 'C# $HOME O\'Reilly "Desktop" \\path',
+   });
++});
++
++test.each([
++  ['all quote delimiters', '\'"`# Desktop'],
++  ['matching outer delimiters', "'a\"`b'"],
++  ['a leading double quote with an escaped newline', '"a\\nb\'`'],
++])('rejects values dotenv cannot represent safely: %s', async (_description, productName) => {
++  await expect(
++    createEnv({
++      manifest: { product: { productName } },
++      sourceCommit: 'source-commit',
++    })
++  ).rejects.toThrow(/represented safely/);
 +});
 +
 +test.each([
@@ -261,18 +280,46 @@ index 4ab03cc2812fef0c9a78065b3aac861f2ca5e3a5..2def18f0fe57a760da94ca017e6fab5e
 +
 +test('uses an unknown Git version outside a repository', async () => {
 +  const env = await createEnv({ gitDirectory: path.join(os.tmpdir(), 'missing-headlamp-git') });
++
++  expect(env.REACT_APP_HEADLAMP_GIT_VERSION).toBe('unknown');
++});
++
++test('container build entry points pass the source revision', () => {
++  const sourceCommit = '0123456789abcdef';
++  const makeOutput = execFileSync(
++    'make',
++    [
++      '--dry-run',
++      'image',
++      'DOCKER_CMD=echo',
++      'DOCKER_BUILDX_CMD=buildx',
++      `HEADLAMP_SOURCE_COMMIT=${sourceCommit}`,
++    ],
++    { cwd: repositoryDirectory, encoding: 'utf8' }
++  );
++  const rootPackage = JSON.parse(
++    fs.readFileSync(path.join(repositoryDirectory, 'package.json'), 'utf8')
++  );
++  const dockerfile = fs.readFileSync(path.join(repositoryDirectory, 'Dockerfile'), 'utf8');
++  const dependencyInstall = dockerfile.indexOf('RUN cd ./frontend && npm ci --only=prod');
++  const sourceCommitArgument = dockerfile.indexOf('ARG HEADLAMP_SOURCE_COMMIT');
  
 -  const keys = Object.keys(envObj);
 -  expect(keys).toContain('REACT_APP_HEADLAMP_VERSION');
 -  expect(keys).toContain('REACT_APP_HEADLAMP_GIT_VERSION');
 -  expect(keys).toContain('REACT_APP_HEADLAMP_PRODUCT_NAME');
-+  expect(env.REACT_APP_HEADLAMP_GIT_VERSION).toBe('unknown');
++  expect(makeOutput).toContain(`--build-arg HEADLAMP_SOURCE_COMMIT=${sourceCommit}`);
++  expect(rootPackage.scripts['image:build']).toContain(
++    '--build-arg HEADLAMP_SOURCE_COMMIT=$(git rev-parse HEAD)'
++  );
++  expect(dependencyInstall).toBeGreaterThan(-1);
++  expect(sourceCommitArgument).toBeGreaterThan(dependencyInstall);
  });
 -- 
 2.54.0
 
 
-From 32e9c45bed4bea1655b94fe3d898ba7865eed90c Mon Sep 17 00:00:00 2001
+From 024b29d7e650c8ca2b40fe079e8a7352a6e7bdbd Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Tue, 25 Aug 2026 11:18:46 +0200
 Subject: [PATCH 2/4] app: e2e-tests: Verify frontend product metadata
@@ -281,11 +328,11 @@ Run the product manifest scenario through the frontend environment generator so
 packaged builds retain their configured identity and source revision.
 ---
  app/e2e-tests/playwright.electron.config.ts   |  1 +
- .../tests/buildManifestProduct.spec.ts        | 45 +++++++++++++++++++
- 2 files changed, 46 insertions(+)
+ .../tests/buildManifestProduct.spec.ts        | 47 +++++++++++++++++++
+ 2 files changed, 48 insertions(+)
 
 diff --git a/app/e2e-tests/playwright.electron.config.ts b/app/e2e-tests/playwright.electron.config.ts
-index 20734cb7025a01f5f3bc022a8ba2453e6ab3ecf2..40c74e2fa469b01dadc8ea26d201dd4faa118ef3 100644
+index d66a86a4e7388c700540b09968f2616663f80505..9fca96bb1f8021987f06747c424c2700ff829efa 100644
 --- a/app/e2e-tests/playwright.electron.config.ts
 +++ b/app/e2e-tests/playwright.electron.config.ts
 @@ -28,6 +28,7 @@ export default defineConfig({
@@ -297,7 +344,7 @@ index 20734cb7025a01f5f3bc022a8ba2453e6ab3ecf2..40c74e2fa469b01dadc8ea26d201dd4f
      'namespaces.spec.ts',
      'clusterAutoConnect.spec.ts',
 diff --git a/app/e2e-tests/tests/buildManifestProduct.spec.ts b/app/e2e-tests/tests/buildManifestProduct.spec.ts
-index bd2facd4ec9e76895cc40fd3bbf3fb821cf6443e..77418baaa143acd488b5dd2a0a4ecf4ce359c7c6 100644
+index bd2facd4ec9e76895cc40fd3bbf3fb821cf6443e..5ca5e2cd3c9c15b6657009533bf446dff0b85b06 100644
 --- a/app/e2e-tests/tests/buildManifestProduct.spec.ts
 +++ b/app/e2e-tests/tests/buildManifestProduct.spec.ts
 @@ -21,6 +21,7 @@ import os from 'node:os';
@@ -308,7 +355,7 @@ index bd2facd4ec9e76895cc40fd3bbf3fb821cf6443e..77418baaa143acd488b5dd2a0a4ecf4c
  
  test('custom product metadata reaches the Electron Builder configuration', () => {
    const manifestDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-product-manifest-'));
-@@ -68,3 +69,47 @@ test('custom product metadata reaches the Electron Builder configuration', () =>
+@@ -68,3 +69,49 @@ test('custom product metadata reaches the Electron Builder configuration', () =>
      fs.rmSync(manifestDirectory, { recursive: true, force: true });
    }
  });
@@ -321,7 +368,7 @@ index bd2facd4ec9e76895cc40fd3bbf3fb821cf6443e..77418baaa143acd488b5dd2a0a4ecf4c
 +    manifestFile,
 +    JSON.stringify({
 +      product: {
-+        productName: 'Example=Desktop',
++        productName: 'C# $HOME Desktop',
 +        version: '1.2.3=build',
 +      },
 +    })
@@ -336,21 +383,23 @@ index bd2facd4ec9e76895cc40fd3bbf3fb821cf6443e..77418baaa143acd488b5dd2a0a4ecf4c
 +        HEADLAMP_SOURCE_COMMIT: '0123456789abcdef=source',
 +      },
 +    });
-+    const env = Object.fromEntries(
-+      fs
-+        .readFileSync(envFile, 'utf8')
-+        .trim()
-+        .split(/\r?\n/)
-+        .map(line => {
-+          const separatorIndex = line.indexOf('=');
-+          return [line.slice(0, separatorIndex), line.slice(separatorIndex + 1)];
-+        })
++    const env = JSON.parse(
++      execFileSync(
++        process.execPath,
++        [
++          '--input-type=module',
++          '-e',
++          "import { loadEnv } from 'vite'; process.stdout.write(JSON.stringify(loadEnv('test', process.argv[1], 'REACT_APP_')));",
++          manifestDirectory,
++        ],
++        { cwd: frontendPath, encoding: 'utf8' }
++      )
 +    );
 +
 +    expect(env).toMatchObject({
 +      REACT_APP_HEADLAMP_VERSION: '1.2.3=build',
 +      REACT_APP_HEADLAMP_GIT_VERSION: '0123456789abcdef=source',
-+      REACT_APP_HEADLAMP_PRODUCT_NAME: 'Example=Desktop',
++      REACT_APP_HEADLAMP_PRODUCT_NAME: 'C# $HOME Desktop',
 +    });
 +  } finally {
 +    fs.rmSync(manifestDirectory, { recursive: true, force: true });
@@ -360,7 +409,7 @@ index bd2facd4ec9e76895cc40fd3bbf3fb821cf6443e..77418baaa143acd488b5dd2a0a4ecf4c
 2.54.0
 
 
-From e534c1713f99eec2a7effa574b4b2c4107befdcb Mon Sep 17 00:00:00 2001
+From c93d6828b96a2dfd50b104c1311ecf8ab61a3f08 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Mon, 3 Aug 2026 13:33:42 +0200
 Subject: [PATCH 3/4] docs: frontend: Validate packaged-source metadata
@@ -373,10 +422,10 @@ fields before writing them, and document path and fallback behavior.
 
 Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 ---
- docs/development/app.md      |  53 +++++++++++++++--
- docs/development/frontend.md |   7 ++-
- frontend/make-env.js         | 110 ++++++++++++++++++++++++++++++++---
- 3 files changed, 156 insertions(+), 14 deletions(-)
+ docs/development/app.md      |  53 ++++++++++++--
+ docs/development/frontend.md |   7 +-
+ frontend/make-env.js         | 136 +++++++++++++++++++++++++++++++++--
+ 3 files changed, 182 insertions(+), 14 deletions(-)
 
 diff --git a/docs/development/app.md b/docs/development/app.md
 index ee63e3f110e6a824a8879b07f124a30dd299db4b..736a3f058e22df1b98e37d7269c772e9977983a8 100644
@@ -482,10 +531,10 @@ index b7079e6666ac1e2b5632776dc7921946280632f6..79c3d5021157a075d4fc7c8ae5290eef
  
  We are using [fast-check](https://fast-check.dev/) for property testing.
 diff --git a/frontend/make-env.js b/frontend/make-env.js
-index 5d6f3a9921b9c0eab986b915b103800e6bb9b7a6..1fc562f93bdec1b761624ef9c598d415f713783d 100644
+index 5d6f3a9921b9c0eab986b915b103800e6bb9b7a6..c8c188eee30cb6def8a49ff0e2a4b3978c86f1fb 100644
 --- a/frontend/make-env.js
 +++ b/frontend/make-env.js
-@@ -18,22 +18,118 @@
+@@ -18,22 +18,144 @@
  // Creates the .env file
  import { execSync } from 'child_process';
  import fs from 'fs';
@@ -595,6 +644,36 @@ index 5d6f3a9921b9c0eab986b915b103800e6bb9b7a6..1fc562f93bdec1b761624ef9c598d415
  };
  
 +/**
++ * Encodes a value for Vite's dotenv parser without variable expansion.
++ *
++ * The parser preserves quoted `#` characters, while dotenv-expand removes one
++ * escaping backslash before each `$`. A quote delimiter absent from the value
++ * therefore preserves both characters without changing the decoded value.
++ *
++ * @param {unknown} value Environment value to encode.
++ * @param {string} key Environment key used in validation errors.
++ * @returns {string} A dotenv-safe representation of the value.
++ * @throws {TypeError} When the value contains newlines or cannot be represented safely.
++ */
++function serializeEnvValue(value, key) {
++  const stringValue = String(value);
++  if (/[\r\n]/.test(stringValue)) {
++    throw new TypeError(`${key} must not contain newlines`);
++  }
++
++  const escapedValue = stringValue.replaceAll('$', '\\$');
++  for (const quote of ["'", '`']) {
++    if (!stringValue.includes(quote)) {
++      return `${quote}${escapedValue}${quote}`;
++    }
++  }
++  if (!stringValue.includes('"') && !/\\[nr]/.test(stringValue)) {
++    return `"${escapedValue}"`;
++  }
++  throw new TypeError(`${key} cannot be represented safely in a dotenv file`);
++}
++
++/**
 + * Serializes the generated frontend environment as newline-delimited entries.
 + *
 + * @returns {string} Environment file contents suitable for Vite.
@@ -603,11 +682,7 @@ index 5d6f3a9921b9c0eab986b915b103800e6bb9b7a6..1fc562f93bdec1b761624ef9c598d415
    let text = '';
    Object.entries(envContents).forEach(([key, value]) => {
 -    text += `${key}=${value}\n`;
-+    const stringValue = String(value);
-+    if (/[\r\n]/.test(stringValue)) {
-+      throw new TypeError(`${key} must not contain newlines`);
-+    }
-+    text += `${key}=${stringValue}\n`;
++    text += `${key}=${serializeEnvValue(value, key)}\n`;
    });
  
    return text;
@@ -615,41 +690,107 @@ index 5d6f3a9921b9c0eab986b915b103800e6bb9b7a6..1fc562f93bdec1b761624ef9c598d415
 2.54.0
 
 
-From 86ae5b413931af01b9ecaaff607c1dcda33c1c74 Mon Sep 17 00:00:00 2001
+From a17e12bcbfb26cfc3fcb7ec5783c3bf18872cf96 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 10:21:01 +0200
-Subject: [PATCH 4/4] build: Support containers from packaged source
+Subject: [PATCH 4/4] build: Dockerfile: Support containers from packaged
+ source
 
+Stop copying the Git repository into frontend image builds so packaged source
+can use the same Dockerfile and cache source layers independently.
+
+Pass the source revision through standard image entry points and document the
+build arguments required by direct Docker callers.
 ---
- Dockerfile | 8 +++++---
- 1 file changed, 5 insertions(+), 3 deletions(-)
+ Dockerfile              | 10 ++++++----
+ Makefile                |  2 ++
+ docs/development/app.md | 10 ++++++++++
+ package.json            |  2 +-
+ 4 files changed, 19 insertions(+), 5 deletions(-)
 
 diff --git a/Dockerfile b/Dockerfile
-index aa352caaf534294f72781377466525b4421aea93..dfb41a4bf77316fa184bab1300c5e318fddd9070 100644
+index aa352caaf534294f72781377466525b4421aea93..6381ba71edd066198cbe17ca9f98eabb0237171e 100644
 --- a/Dockerfile
 +++ b/Dockerfile
-@@ -28,9 +28,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
+@@ -28,10 +28,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
  
  FROM --platform=${BUILDPLATFORM} node:22@sha256:0557ac14e0d45d02ed563067b82856ca5e7aa3437fa28d98d4350ea9c3d9494a AS frontend-build
  
 -# We need .git and app/ in order to get the version and git version for the frontend/.env file
 -# that's generated when building the frontend.
 -COPY .git/ ./headlamp/.git/
+-
+ COPY app/package.json /headlamp/app/package.json
+ 
+ # Keep npm install separated so source changes don't trigger install
+@@ -40,7 +36,13 @@ WORKDIR /headlamp
+ RUN cd ./frontend && npm ci --only=prod
+ 
+ FROM frontend-build AS frontend
 +ARG HEADLAMP_SOURCE_COMMIT
 +ARG HEADLAMP_BUILD_MANIFEST
 +ENV HEADLAMP_SOURCE_COMMIT=${HEADLAMP_SOURCE_COMMIT} \
 +    HEADLAMP_BUILD_MANIFEST=${HEADLAMP_BUILD_MANIFEST}
- 
- COPY app/package.json /headlamp/app/package.json
- 
-@@ -41,6 +42,7 @@ RUN cd ./frontend && npm ci --only=prod
- 
- FROM frontend-build AS frontend
++
  COPY ./frontend /headlamp/frontend
 +COPY ./app /headlamp/app
  
  WORKDIR /headlamp
  
+diff --git a/Makefile b/Makefile
+index 7a4e5de9a4b5aa88240462dc91fd56d2fa1f5725..6befd1bc7d3bfa5301d07a3aebe188ab7805fac3 100644
+--- a/Makefile
++++ b/Makefile
+@@ -9,6 +9,7 @@ DOCKER_EXT_REPO ?= docker.io/headlamp
+ DOCKER_IMAGE_NAME ?= headlamp
+ DOCKER_PLUGINS_IMAGE_NAME ?= plugins
+ DOCKER_IMAGE_VERSION ?= $(shell git describe --tags --match 'v*' --always --dirty)
++HEADLAMP_SOURCE_COMMIT ?= $(shell git rev-parse HEAD)
+ DOCKER_IMAGE_EXTRA_TAG ?=
+ # Detect platform (Windows, macOS, Linux)
+ ifeq ($(OS),Windows_NT)
+@@ -396,6 +397,7 @@ image:
+ 	$(DOCKER_CMD) $(DOCKER_BUILDX_CMD) build \
+ 	--pull \
+ 	--platform=$(DOCKER_PLATFORM) \
++	--build-arg HEADLAMP_SOURCE_COMMIT=$(HEADLAMP_SOURCE_COMMIT) \
+ 	$$BUILD_ARG \
+ 	--push=$(DOCKER_PUSH) \
+ 	-t $(DOCKER_REPO)/$(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_VERSION) \
+diff --git a/docs/development/app.md b/docs/development/app.md
+index 736a3f058e22df1b98e37d7269c772e9977983a8..8cb2b0a186195d6803967f3aae51d15f55bce4b4 100644
+--- a/docs/development/app.md
++++ b/docs/development/app.md
+@@ -174,6 +174,16 @@ example above selects `app/product/app-build-manifest.json` for both consumers.
+ Use an absolute manifest path when invoking either consumer directly from a
+ different working directory.
+ 
++The standard `make image` and `npm run image:build` commands pass the current
++Git revision to container builds. Direct Docker callers building packaged source
++without `.git` should pass it explicitly:
++
++```bash
++docker buildx build \
++  --build-arg HEADLAMP_SOURCE_COMMIT=0123456789abcdef \
++  -f Dockerfile .
++```
++
+ The manifest must remain available throughout the frontend and app packaging
+ steps. An unreadable manifest, a non-object `product`, non-string
+ `productName`/`version` fields, or values containing newlines stop the frontend
+diff --git a/package.json b/package.json
+index 5002a49360637933a11f7a221aeefb4d86a8c57d..40750e7a7818d3e0012a5ca52d04c498b07a9aef 100644
+--- a/package.json
++++ b/package.json
+@@ -85,7 +85,7 @@
+     "app:verify-build-windows": "cd app && npm run verify-build-windows",
+     "tools:install": "cd tools && cd i18n && npm install && cd .. && cd releaser && npm install",
+     "plugins:test": "cd plugins/headlamp-plugin && npm install && ./test-headlamp-plugin.js && ./test-plugins-examples.sh && cd ../pluginctl/src && npm install && node ./plugin-management.e2e.js && cd .. && npx jest src/multi-plugin-management.test.js && npx jest src/plugin-management.test.js && npm run test",
+-    "image:build": "sh -c 'docker buildx build --pull --platform=local -t ghcr.io/headlamp-k8s/headlamp:$(git describe --tags --always --dirty) -f Dockerfile .'",
++    "image:build": "sh -c 'docker buildx build --pull --platform=local --build-arg HEADLAMP_SOURCE_COMMIT=$(git rev-parse HEAD) -t ghcr.io/headlamp-k8s/headlamp:$(git describe --tags --always --dirty) -f Dockerfile .'",
+     "image:verify-image-digests": "node tools/verify-image-digests.js"
+   },
+   "devDependencies": {
 -- 
 2.54.0
 

@@ -116,8 +116,8 @@
   "headlampSource": {
     "repository": "https://github.com/kubernetes-sigs/headlamp.git",
     "ref": "refs/heads/main",
-    "commit": "9ea6b30cfe42d7fc82880d552e926107c0d4a8bd",
-    "previousCommit": "e2de219412db83480b3a6ed2e0e77ce4eaa12e94"
+    "commit": "f84c2da1e234fa18c0a7332b7ecbff4f0d7a4ddd",
+    "previousCommit": "9ea6b30cfe42d7fc82880d552e926107c0d4a8bd"
   },
   "headlampSourceTagsToo": {
     "baseTag": "v0.44.0"
@@ -363,7 +363,7 @@
     ]
   },
   "devDependencies": {
-    "@headlamp-k8s/headlamp-source": "0.0.0-main.9ea6b30c",
+    "@headlamp-k8s/headlamp-source": "0.0.0-main.f84c2da1",
     "@types/node": "^26.1.1",
     "concurrently": "^9.1.2",
     "cross-env": "10.1.0",
@@ -374,7 +374,7 @@
     "typescript": "^6.0.3"
   },
   "patchedDependencies": {
-    "@headlamp-k8s/headlamp-source@0.0.0-main.9ea6b30c": "patches/headlamp-source@0.0.0-main.9ea6b30c.patch"
+    "@headlamp-k8s/headlamp-source@0.0.0-main.f84c2da1": "patches/headlamp-source@0.0.0-main.f84c2da1.patch"
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [

@@ -1,4 +1,4 @@
-From 5efdb19885ced976f13cd10ad8699b81f472ee3b Mon Sep 17 00:00:00 2001
+From 3d77740b79e25edf777f196160f9a71d11f63ffa Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Wed, 5 Aug 2026 17:42:36 +0200
 Subject: [PATCH 1/3] frontend: components/project/ProjectList: Expand grouping
@@ -45,7 +45,7 @@ index 976ed7006a1fe836f29c7a40c83ef7a931b1261c..af891f8614c5e82625a59b134bb7a305
 2.54.0
 
 
-From 4efb44a41c41063d515816260d9c75d4bb478894 Mon Sep 17 00:00:00 2001
+From 3f2469e23836a0a4619c0741962404d2f6b5e6df Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Wed, 5 Aug 2026 17:44:18 +0200
 Subject: [PATCH 2/3] e2e-tests: tests/projects: Verify labelled project
@@ -170,7 +170,7 @@ index 4aa59c990af1da07b0e7335996c26c42ed8d0810..55fe35da444e08f000c1cc0efd5195e0
  
    async deleteNamespace(name: string) {
 diff --git a/e2e-tests/tests/projects.spec.ts b/e2e-tests/tests/projects.spec.ts
-index 0daab685332d82961d1dfcc65bf2b188f90f278d..b555e5a427c202c3aac55ad4cf5e211cb088cb21 100644
+index bdf8aabaea6e168dc9bc3c26ae618bd42a71e49f..8e95e016c538219155c740c868b01dec1e7a0ae3 100644
 --- a/e2e-tests/tests/projects.spec.ts
 +++ b/e2e-tests/tests/projects.spec.ts
 @@ -16,6 +16,9 @@
@@ -192,7 +192,7 @@ index 0daab685332d82961d1dfcc65bf2b188f90f278d..b555e5a427c202c3aac55ad4cf5e211c
          },
        },
      });
-@@ -122,3 +125,42 @@ test('replaces a built-in project creation choice', async ({ page }) => {
+@@ -123,3 +126,42 @@ test('replaces a built-in project creation choice', async ({ page }) => {
      .click();
    await expect(page).toHaveURL(/\/project\/create-yaml$/);
  });
@@ -239,7 +239,7 @@ index 0daab685332d82961d1dfcc65bf2b188f90f278d..b555e5a427c202c3aac55ad4cf5e211c
 2.54.0
 
 
-From 18a5ab03e122adc23db8c76a552fbda1443be041 Mon Sep 17 00:00:00 2001
+From 656a00ff410638c4f90d7e89abd03e9f6bd99d70 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Fri, 31 Jul 2026 19:22:15 +0000
 Subject: [PATCH 3/3] frontend: components/project: Support custom project
@@ -274,10 +274,10 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
  frontend/src/plugin/registry.tsx              |  26 +++
  frontend/src/redux/projectsSlice.test.ts      |  28 +++
  frontend/src/redux/projectsSlice.ts           |  57 +++++
- plugins/examples/projects/README.md           |  14 +-
+ plugins/examples/projects/README.md           |  16 +-
  plugins/examples/projects/src/index.tsx       |   9 +
  plugins/headlamp-plugin/src/index.ts          |   2 +
- 24 files changed, 862 insertions(+), 57 deletions(-)
+ 24 files changed, 863 insertions(+), 58 deletions(-)
  create mode 100644 frontend/src/components/project/projectGrouping.ts
  create mode 100644 frontend/src/redux/projectsSlice.test.ts
 
@@ -511,7 +511,7 @@ index ba9a8106141373ad3be8bdaf84707d481f253af8..d11d7f20b2c45a431bbe3ce8a93a86dd
  
      dispatchDeleteProjectEvent({
 diff --git a/frontend/src/components/project/ProjectDetails.tsx b/frontend/src/components/project/ProjectDetails.tsx
-index b0c3afdc13338bfe80070a16f52b161e39075d1c..8fca9658c08a61cde8f3a4a35568f740b203cf42 100644
+index ae55ff1870ec94094029b391f2e504c6bbc2f639..1e97eb30d98181e63ea8c7d3fe0776b5a19dcdcd 100644
 --- a/frontend/src/components/project/ProjectDetails.tsx
 +++ b/frontend/src/components/project/ProjectDetails.tsx
 @@ -44,10 +44,11 @@ import { ButtonStyle, EditButton, EditorDialog, Loader, StatusLabel } from '../c
@@ -525,8 +525,8 @@ index b0c3afdc13338bfe80070a16f52b161e39075d1c..8fca9658c08a61cde8f3a4a35568f740
  import { ProjectDeleteButton } from './ProjectDeleteButton';
 +import { projectListRequests } from './projectGrouping';
  import { useProject } from './ProjectList';
+ import { ProjectOverviewSectionCard } from './ProjectOverviewSectionCard';
  import { getEnabledProjectOverviewSections } from './projectOverviewSections';
- import { ProjectResourcesTab, useResourceCategoriesList } from './ProjectResourcesTab';
 @@ -371,21 +372,26 @@ function ProjectResources({
  /** Access tab for the Project Details */
  function ProjectAccess({ project }: { project: ProjectDefinition }) {
@@ -1502,7 +1502,7 @@ index ed8366993f56162fd949c30a72f7c64ab74e03a0..d0e66d3aed9cac99b568047a9aa3bcd6
    "registerProjectOverviewSection": [Function],
    "registerResourceRelationProvider": [Function],
 diff --git a/frontend/src/plugin/registry.tsx b/frontend/src/plugin/registry.tsx
-index fb5398d47ca5617ba05ace7659bd7c35d47351ec..39685e2f8be9d159e5155578901295cd5e1525d3 100644
+index e10aec98830bc208bc01a80b257f69cb06266b00..6e8ac89e69e5c6be286c3632dd35beed0253a58a 100644
 --- a/frontend/src/plugin/registry.tsx
 +++ b/frontend/src/plugin/registry.tsx
 @@ -117,9 +117,11 @@ import {
@@ -1583,7 +1583,7 @@ index 0000000000000000000000000000000000000000..25c1ee4df64d53f4100bb0503d5ffe8c
 +  expect(state.projectGrouping).toBe(projectGrouping);
 +});
 diff --git a/frontend/src/redux/projectsSlice.ts b/frontend/src/redux/projectsSlice.ts
-index d4c8b9738faa341d4e7ff629a901103458366396..b04487f882bec9c5718ea2ef24084ab5e4ac2b1a 100644
+index 407c550d312b6c30da6a99e83fd3d3068eab0a2d..ff374a3c454c97ffb3a51736099a093bc8a2abe0 100644
 --- a/frontend/src/redux/projectsSlice.ts
 +++ b/frontend/src/redux/projectsSlice.ts
 @@ -22,10 +22,59 @@ import type { ApiResource } from '../lib/k8s/api/v2/ApiResource';
@@ -1646,7 +1646,7 @@ index d4c8b9738faa341d4e7ff629a901103458366396..b04487f882bec9c5718ea2ef24084ab5
  }
  
  /** IDs plugins can register to replace Headlamp's built-in project creation options. */
-@@ -104,6 +153,8 @@ export interface ProjectHeaderAction {
+@@ -108,6 +157,8 @@ export interface ProjectHeaderAction {
  
  export interface ProjectsState {
    customCreateProject: Record<string, CustomCreateProject>;
@@ -1655,7 +1655,7 @@ index d4c8b9738faa341d4e7ff629a901103458366396..b04487f882bec9c5718ea2ef24084ab5
    overviewSections: Record<string, ProjectOverviewSection>;
    detailsTabs: Record<string, ProjectDetailsTab>;
    projectDeleteButton?: ProjectDeleteButton;
-@@ -129,6 +180,11 @@ const projectsSlice = createSlice({
+@@ -133,6 +184,11 @@ const projectsSlice = createSlice({
        state.customCreateProject[action.payload.id] = action.payload;
      },
  
@@ -1667,7 +1667,7 @@ index d4c8b9738faa341d4e7ff629a901103458366396..b04487f882bec9c5718ea2ef24084ab5
      /** Register additional tab for project details page */
      addDetailsTab(state, action: PayloadAction<ProjectDetailsTab>) {
        state.detailsTabs[action.payload.id] = action.payload;
-@@ -162,6 +218,7 @@ const projectsSlice = createSlice({
+@@ -166,6 +222,7 @@ const projectsSlice = createSlice({
  
  export const {
    addCustomCreateProject,
@@ -1676,26 +1676,32 @@ index d4c8b9738faa341d4e7ff629a901103458366396..b04487f882bec9c5718ea2ef24084ab5
    addOverviewSection,
    setProjectDeleteButton,
 diff --git a/plugins/examples/projects/README.md b/plugins/examples/projects/README.md
-index a672ac8b5830e73d05014455e74b92a9115f829d..c89502d9ef58f5a851939ffe7e1e9b2dbece2b5e 100644
+index a672ac8b5830e73d05014455e74b92a9115f829d..d1c68dfa1ed1628100d512433c093d8f6bb5581d 100644
 --- a/plugins/examples/projects/README.md
 +++ b/plugins/examples/projects/README.md
-@@ -3,6 +3,7 @@
+@@ -2,6 +2,7 @@
+ 
  This plugin demonstrates how to customize projects feature, including:
  
- - Replacing a built-in project creation choice
 +- Grouping project namespaces with a plugin-provided key
+ - Replacing a built-in project creation choice
  - Adding custom tabs to project details
  - Overriding default tabs with custom implementations
- - Removing default tabs entirely
-@@ -14,11 +15,15 @@ This plugin demonstrates how to customize projects feature, including:
+@@ -9,16 +10,20 @@ This plugin demonstrates how to customize projects feature, including:
+ 
+ ## Features Demonstrated
+ 
+-### 1. Project Creation Replacement
++### 1. Custom Project Grouping
++
++Separates namespaces with the same project ID into one project entry per cluster.
++
++### 2. Project Creation Replacement
+ 
  Replaces Headlamp's built-in "New Project" choice by registering a custom
  creator with `DefaultCreateProject.NEW_PROJECT`.
  
 -### 2. Custom Tab Addition
-+### 2. Custom Project Grouping
-+
-+Separates namespaces with the same project ID into one project entry per cluster.
-+
 +### 3. Custom Tab Addition
  
  Adds a new "Metrics" tab to show custom project metrics.
@@ -1719,16 +1725,16 @@ index a672ac8b5830e73d05014455e74b92a9115f829d..c89502d9ef58f5a851939ffe7e1e9b2d
  
  Shows how to register a Tab that is only displayed for certain projects.
  
-@@ -47,6 +52,7 @@ Navigate to any project details page to see the customizations in action.
+@@ -46,6 +51,7 @@ Navigate to any project details page to see the customizations in action.
+ ## Key Implementation Details
  
  - **Tab IDs**: Uses predefined IDs like `headlamp-projects.tabs.access` to override defaults
- - **Project creation IDs**: Uses `DefaultCreateProject.NEW_PROJECT` to replace a built-in choice
 +- **Grouping Keys**: Uses opaque keys to distinguish entries that share a project ID
+ - **Project creation IDs**: Uses `DefaultCreateProject.NEW_PROJECT` to replace a built-in choice
  - **Custom Components**: Shows how to create rich custom tab content
  - **Project Data**: Demonstrates accessing project and resource information
- - **Styling**: Examples of inline styling for custom interfaces
 diff --git a/plugins/examples/projects/src/index.tsx b/plugins/examples/projects/src/index.tsx
-index e6c5c4ff4664dd8458512d9c0f2f0e358bdda2e5..e01888e12b9aa17eeb3f666835145e3399e6bb12 100644
+index 59035b9c990a37578202cf7144c8fd3f72110228..8664cd545983453251ab0f8c53283a894e81f607 100644
 --- a/plugins/examples/projects/src/index.tsx
 +++ b/plugins/examples/projects/src/index.tsx
 @@ -21,10 +21,19 @@ import {

@@ -1,24 +1,210 @@
-From 73f035d3fc9afb6a2b1b0d3a43fb2df50abb04c6 Mon Sep 17 00:00:00 2001
-From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
-Date: Sat, 15 Aug 2026 10:38:11 +0200
-Subject: [PATCH 1/5] app: electron: Test OAuth provider callback branches
+From 51f7bf529ddf7efa85e845e22325d14a2bc49a10 Mon Sep 17 00:00:00 2001
+From: gambtho <Thomas.Gamble@microsoft.com>
+Date: Fri, 31 Jul 2026 21:52:32 +0000
+Subject: [PATCH 1/2] app: electron: Register OAuth callback providers
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
 
-Cover validation, ownership cleanup, dispatch matching, and provider failures
-before introducing the desktop OAuth callback registry.
+Route validated product protocol callbacks to their owning OAuth provider so
+desktop integrations can complete authentication safely.
+
+Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 ---
- app/electron/oauthProvider.test.ts   | 188 +++++++++++++++
- app/electron/protocolHandler.test.ts | 339 +++++++++++++++++++++++++++
- app/package.json                     |   1 +
- 3 files changed, 528 insertions(+)
+ app/electron/main.ts                     |  85 +-----
+ app/electron/oauthProvider.test.ts       | 201 ++++++++++++
+ app/electron/oauthProvider.ts            | 185 +++++++++++
+ app/electron/protocolHandler.test.ts     | 374 +++++++++++++++++++++++
+ app/electron/protocolHandler.ts          | 200 ++++++++++++
+ app/package.json                         |   3 +-
+ frontend/src/i18n/locales/ar/app.json    |   4 +-
+ frontend/src/i18n/locales/bn/app.json    |   4 +-
+ frontend/src/i18n/locales/cs/app.json    |   4 +-
+ frontend/src/i18n/locales/de/app.json    |   4 +-
+ frontend/src/i18n/locales/en/app.json    |   4 +-
+ frontend/src/i18n/locales/es/app.json    |   4 +-
+ frontend/src/i18n/locales/fr/app.json    |   4 +-
+ frontend/src/i18n/locales/he/app.json    |   4 +-
+ frontend/src/i18n/locales/hi/app.json    |   4 +-
+ frontend/src/i18n/locales/hu/app.json    |   4 +-
+ frontend/src/i18n/locales/id/app.json    |   4 +-
+ frontend/src/i18n/locales/it/app.json    |   4 +-
+ frontend/src/i18n/locales/ja/app.json    |   4 +-
+ frontend/src/i18n/locales/ko/app.json    |   4 +-
+ frontend/src/i18n/locales/nl/app.json    |   4 +-
+ frontend/src/i18n/locales/pl/app.json    |   4 +-
+ frontend/src/i18n/locales/pt-br/app.json |   4 +-
+ frontend/src/i18n/locales/pt-pt/app.json |   4 +-
+ frontend/src/i18n/locales/ru/app.json    |   4 +-
+ frontend/src/i18n/locales/sv/app.json    |   4 +-
+ frontend/src/i18n/locales/ta/app.json    |   4 +-
+ frontend/src/i18n/locales/tr/app.json    |   4 +-
+ frontend/src/i18n/locales/ur/app.json    |   4 +-
+ frontend/src/i18n/locales/zh-tw/app.json |   4 +-
+ frontend/src/i18n/locales/zh/app.json    |   4 +-
+ 31 files changed, 1046 insertions(+), 102 deletions(-)
  create mode 100644 app/electron/oauthProvider.test.ts
+ create mode 100644 app/electron/oauthProvider.ts
  create mode 100644 app/electron/protocolHandler.test.ts
+ create mode 100644 app/electron/protocolHandler.ts
 
+diff --git a/app/electron/main.ts b/app/electron/main.ts
+index 2e4857ec7201177cc3733e9b2f0584fe057ad88a..c302a52e01c80b51e202a267a4cfacd9ca27d91e 100644
+--- a/app/electron/main.ts
++++ b/app/electron/main.ts
+@@ -59,7 +59,8 @@ import {
+   PluginManager,
+   setAppConfigDirName,
+ } from './plugin-management';
+-import { findProtocolUrl, isProtocolUrl, readProtocolScheme } from './protocol';
++import { readProtocolScheme } from './protocol';
++import { createProtocolHandler } from './protocolHandler';
+ import {
+   addRunCmdConsent,
+   environmentOverrides,
+@@ -215,6 +216,12 @@ let mcpClient: MCPClient | null = null;
+ let isQuitting = false;
+ let hasTray = false;
+ 
++const protocolHandler = createProtocolHandler({
++  protocolScheme,
++  startUrl,
++  getMainWindow: () => mainWindow,
++});
++
+ /**
+  * `Action` is an interface for an action to be performed by the plugin manager.
+  *
+@@ -1404,78 +1411,12 @@ ipcMain.on('route-changed', () => {
+ function startElectron() {
+   console.info('App starting...');
+ 
+-  let isMainWindowReady = false;
+-  const pendingProtocolUrls: string[] = [];
+-
+-  function routeProtocolUrl(protocolUrl: string) {
+-    let urlObj: URL;
+-    try {
+-      urlObj = new URL(protocolUrl);
+-    } catch {
+-      dialog.showErrorBox(
+-        i18n.t('Invalid URL'),
+-        i18n.t('Application opened with an invalid URL: {{ url }}', { url: protocolUrl })
+-      );
+-      return;
+-    }
+-
+-    if (!isProtocolUrl(protocolUrl, protocolScheme)) {
+-      dialog.showErrorBox(
+-        i18n.t('Invalid URL'),
+-        i18n.t('Application opened with an invalid URL: {{ url }}', { url: protocolUrl })
+-      );
+-      return;
+-    }
+-
+-    if (!mainWindow || !isMainWindowReady) {
+-      pendingProtocolUrls.push(protocolUrl);
+-      return;
+-    }
+-
+-    if (mainWindow.isMinimized()) {
+-      mainWindow.restore();
+-    }
+-    mainWindow.focus();
+-
+-    const baseUrl = startUrl.endsWith('/') ? startUrl.slice(0, -1) : startUrl;
+-    mainWindow.loadURL(baseUrl + '#' + urlObj.hostname + urlObj.search);
+-  }
+-
+-  function routeProtocolUrlFromCommandLine(commandLine: readonly string[]) {
+-    const protocolUrl = findProtocolUrl(commandLine, protocolScheme);
+-    if (protocolUrl) {
+-      routeProtocolUrl(protocolUrl);
+-    }
+-  }
+-
+   const gotTheLock = app.requestSingleInstanceLock();
+   if (!gotTheLock) {
+     app.quit();
+     return;
+   }
+ 
+-  app.on('open-url', (event, protocolUrl) => {
+-    event.preventDefault();
+-    routeProtocolUrl(protocolUrl);
+-  });
+-
+-  app.on('second-instance', (_event, commandLine) => {
+-    const protocolUrl = findProtocolUrl(commandLine, protocolScheme);
+-    if (protocolUrl) {
+-      routeProtocolUrl(protocolUrl);
+-      return;
+-    }
+-
+-    if (mainWindow) {
+-      if (mainWindow.isMinimized()) {
+-        mainWindow.restore();
+-      }
+-      mainWindow.focus();
+-    }
+-  });
+-
+-  routeProtocolUrlFromCommandLine(process.argv);
+-
+   // Increase max listeners to prevent false positive warnings
+   // The app legitimately needs multiple IPC listeners (currently 11)
+   // Default is 10, setting to 20 provides headroom for future additions
+@@ -1642,8 +1583,6 @@ function startElectron() {
+     const withMargin = await isWSL();
+     const { width, height } = windowSize(screen.getPrimaryDisplay().workAreaSize, withMargin);
+ 
+-    isMainWindowReady = false;
+-
+     // Flush any pending debounced zoom save before reading so reopening the
+     // window immediately after a zoom change reads the latest factor.
+     flushZoomFactorSave();
+@@ -1652,7 +1591,6 @@ function startElectron() {
+     // creation and the 'closed' handler; closing during the read would
+     // otherwise leave a destroyed window that later loadURL/menu calls throw on.
+     cachedZoom = await loadZoomFactor(ZOOM_FILE_PATH);
+-
+     mainWindow = new BrowserWindow({
+       width,
+       height,
+@@ -1662,6 +1600,7 @@ function startElectron() {
+         preload: `${__dirname}/preload.js`,
+       },
+     });
++    protocolHandler.attachToWebContents(mainWindow.webContents);
+ 
+     applyZoom();
+ 
+@@ -1697,11 +1636,6 @@ function startElectron() {
+       scheduleApplyZoom(true);
+       // Inject the backend port into the window object
+       mainWindow?.webContents.executeJavaScript(`window.headlampBackendPort = ${actualPort};`);
+-
+-      isMainWindowReady = true;
+-      for (const protocolUrl of pendingProtocolUrls.splice(0)) {
+-        routeProtocolUrl(protocolUrl);
+-      }
+     });
+ 
+     mainWindow.webContents.on('did-frame-finish-load', (_event, isMainFrame) => {
+@@ -1744,7 +1678,6 @@ function startElectron() {
+     });
+ 
+     mainWindow.on('closed', () => {
+-      isMainWindowReady = false;
+       mainWindow = null;
+     });
+ 
 diff --git a/app/electron/oauthProvider.test.ts b/app/electron/oauthProvider.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..6fcf8c2f1889e041c272528efb96cb38cbeae4de
+index 0000000000000000000000000000000000000000..77979c4d8033af7c9a2d053dd8d32e56833817f6
 --- /dev/null
 +++ b/app/electron/oauthProvider.test.ts
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,201 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -139,6 +325,19 @@ index 0000000000000000000000000000000000000000..6fcf8c2f1889e041c272528efb96cb38
 +    expect(dispatchOAuthCallback(new URL('headlamp://oauth/callback'), 'headlamp')).toBe(true);
 +    expect(replacementHandler).toHaveBeenCalledOnce();
 +  });
++
++  it('does not let stale cleanup remove a re-registration of the same object', () => {
++    const handleCallback = vi.fn();
++    const reused = registration({ handleCallback });
++    const firstUnregister = register(reused);
++    firstUnregister();
++    register(reused);
++
++    firstUnregister();
++
++    expect(dispatchOAuthCallback(new URL('headlamp://oauth/callback'), 'headlamp')).toBe(true);
++    expect(handleCallback).toHaveBeenCalledOnce();
++  });
 +});
 +
 +describe('dispatchOAuthCallback', () => {
@@ -207,12 +406,203 @@ index 0000000000000000000000000000000000000000..6fcf8c2f1889e041c272528efb96cb38
 +    expect(reportError).toHaveBeenCalledWith('example', error);
 +  });
 +});
+diff --git a/app/electron/oauthProvider.ts b/app/electron/oauthProvider.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e3cadcf425d9004179fc215e62d1dc27621c535
+--- /dev/null
++++ b/app/electron/oauthProvider.ts
+@@ -0,0 +1,185 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++const VALID_PROVIDER_ID = /^[a-z0-9][a-z0-9._-]*$/i;
++const VALID_HOSTNAME = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
++const VALID_PATHNAME = /^\/[A-Za-z0-9/._~-]*$/;
++const MAX_PROVIDER_ID_LENGTH = 128;
++
++/** Identifies the protocol route owned by an OAuth provider. */
++export interface OAuthProviderCallback {
++  /** Case-insensitive hostname expected in the provider callback URL. */
++  hostname: string;
++  /** Case-sensitive absolute path expected in the provider callback URL. */
++  pathname: string;
++}
++
++/** Describes an OAuth provider that can receive desktop protocol callbacks. */
++export interface OAuthProviderRegistration {
++  /** Stable identifier used to attribute callback failures. */
++  id: string;
++  /** Protocol route owned by the provider. */
++  callback: OAuthProviderCallback;
++  /**
++   * Handles a callback claimed by this provider.
++   *
++   * The registry validates only the URL scheme and registered route. Providers
++   * must independently validate attacker-controlled query parameters such as
++   * OAuth state, authorization codes, and PKCE values.
++   *
++   * @param url Route-matched callback URL with untrusted query parameters.
++   * @returns Nothing, or a promise that settles after callback handling completes.
++   */
++  handleCallback(url: URL): void | Promise<void>;
++}
++
++/**
++ * Internal registry record giving every registration call its own identity, so a
++ * cleanup callback can only remove the registration it was issued for.
++ */
++interface RegistryEntry {
++  /** Provider registration supplied by the caller. */
++  registration: OAuthProviderRegistration;
++}
++
++const providersByCallback = new Map<string, RegistryEntry>();
++
++/** Reports a provider callback failure to the desktop integration layer. */
++export type OAuthCallbackErrorReporter = (providerId: string, error: unknown) => void;
++
++/**
++ * Creates a lookup key with a normalized hostname and exact pathname.
++ *
++ * @param hostname Callback URL hostname.
++ * @param pathname Callback URL pathname.
++ * @returns A registry key with a lowercase hostname and case-sensitive pathname.
++ */
++function callbackKey(hostname: string, pathname: string): string {
++  return `${hostname.toLowerCase()}\n${pathname}`;
++}
++
++/**
++ * Checks whether a callback pathname is absolute and contains no traversal segments.
++ *
++ * @param pathname Callback pathname to validate.
++ * @returns Whether the pathname is safe for exact route matching.
++ */
++function isValidPathname(pathname: string): boolean {
++  return (
++    VALID_PATHNAME.test(pathname) &&
++    pathname.split('/').every(segment => segment !== '.' && segment !== '..')
++  );
++}
++
++/**
++ * Validates an OAuth provider registration before storing it.
++ *
++ * @param registration Candidate provider registration to validate.
++ * @returns Whether every registration field is valid.
++ */
++function isValidRegistration(registration: unknown): registration is OAuthProviderRegistration {
++  if (typeof registration !== 'object' || registration === null) {
++    return false;
++  }
++
++  const candidate = registration as Partial<OAuthProviderRegistration>;
++  return (
++    typeof candidate.id === 'string' &&
++    candidate.id.length <= MAX_PROVIDER_ID_LENGTH &&
++    VALID_PROVIDER_ID.test(candidate.id) &&
++    typeof candidate.callback?.hostname === 'string' &&
++    VALID_HOSTNAME.test(candidate.callback.hostname) &&
++    typeof candidate.callback?.pathname === 'string' &&
++    isValidPathname(candidate.callback.pathname) &&
++    typeof candidate.handleCallback === 'function'
++  );
++}
++
++/**
++ * Registers an OAuth provider as the exclusive owner of a callback route.
++ *
++ * Providers that need launch-time callbacks must register before the protocol
++ * handler becomes ready; callbacks are drained once and are not replayed to
++ * providers registered later.
++ *
++ * @param registration Provider callback registration.
++ * @returns A function that unregisters this provider without affecting replacements.
++ * @throws When the registration is invalid or its callback route is already owned.
++ */
++export function registerOAuthProvider(registration: OAuthProviderRegistration): () => void {
++  if (!isValidRegistration(registration)) {
++    throw new Error('Invalid OAuth provider registration');
++  }
++  const key = callbackKey(registration.callback.hostname, registration.callback.pathname);
++  if (providersByCallback.has(key)) {
++    throw new Error('OAuth callback is already registered');
++  }
++  // A fresh entry per call, so a stale cleanup callback never matches a later
++  // registration even when the caller re-registers the same registration object.
++  const entry: RegistryEntry = { registration };
++  providersByCallback.set(key, entry);
++
++  return () => {
++    if (providersByCallback.get(key) === entry) {
++      providersByCallback.delete(key);
++    }
++  };
++}
++
++/**
++ * Dispatches a product protocol URL to its registered OAuth provider.
++ *
++ * Provider failures are reported asynchronously and do not release ownership of
++ * the callback URL to other protocol handlers.
++ *
++ * @param url Candidate OAuth callback URL.
++ * @param protocolScheme Product protocol scheme accepted by this application.
++ * @param reportError Optional reporter used to surface provider failures to the user.
++ * @returns Whether a provider claimed the callback URL.
++ */
++export function dispatchOAuthCallback(
++  url: URL,
++  protocolScheme: string,
++  reportError?: OAuthCallbackErrorReporter
++): boolean {
++  if (url.protocol !== `${protocolScheme}:`) {
++    return false;
++  }
++  const entry = providersByCallback.get(callbackKey(url.hostname, url.pathname));
++  if (!entry) {
++    return false;
++  }
++  const provider = entry.registration;
++
++  try {
++    Promise.resolve(provider.handleCallback(url)).catch(error => {
++      reportCallbackError(provider.id, error, reportError);
++    });
++  } catch (error) {
++    reportCallbackError(provider.id, error, reportError);
++  }
++  return true;
++}
++
++/** Logs and forwards a provider callback failure without releasing route ownership. */
++function reportCallbackError(
++  providerId: string,
++  error: unknown,
++  reportError?: OAuthCallbackErrorReporter
++): void {
++  console.error(`OAuth callback failed for provider ${providerId}:`, error);
++  reportError?.(providerId, error);
++}
 diff --git a/app/electron/protocolHandler.test.ts b/app/electron/protocolHandler.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..c226fd9b8e49b173a4c3e2ab8d58697bf754163a
+index 0000000000000000000000000000000000000000..cdec99df873ae210839d31678be2a761de6ec233
 --- /dev/null
 +++ b/app/electron/protocolHandler.test.ts
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,374 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -299,7 +689,7 @@ index 0000000000000000000000000000000000000000..c226fd9b8e49b173a4c3e2ab8d58697b
 +    unregister();
 +  });
 +
-+  it.each(['not a URL', 'other-app://oauth/callback'])(
++  it.each(['not a URL', 'other-app://oauth/callback', 'headlamp:cluster'])(
 +    'rejects an invalid product callback: %s',
 +    value => {
 +      const loadURL = vi.fn();
@@ -448,6 +838,8 @@ index 0000000000000000000000000000000000000000..c226fd9b8e49b173a4c3e2ab8d58697b
 +    const handleCallback = vi.fn();
 +    const firstRenderer = webContents();
 +    const replacementRenderer = webContents();
++    const originalArgv = process.argv;
++    process.argv = ['electron', 'headlamp://oauth/callback?code=startup'];
 +    const protocolHandler = createProtocolHandler({
 +      protocolScheme: 'headlamp',
 +      startUrl: 'file:///headlamp/index.html',
@@ -458,16 +850,26 @@ index 0000000000000000000000000000000000000000..c226fd9b8e49b173a4c3e2ab8d58697b
 +      callback: { hostname: 'oauth', pathname: '/callback' },
 +      handleCallback,
 +    });
-+    protocolHandler.attachToWebContents(firstRenderer.value as never);
-+    firstRenderer.emit('did-finish-load');
-+    protocolHandler.attachToWebContents(replacementRenderer.value as never);
++    try {
++      protocolHandler.attachToWebContents(firstRenderer.value as never);
++      firstRenderer.emit('did-finish-load');
++      expect(handleCallback).toHaveBeenCalledWith(
++        new URL('headlamp://oauth/callback?code=startup')
++      );
++      protocolHandler.attachToWebContents(replacementRenderer.value as never);
 +
-+    protocolHandler.handle('headlamp://oauth/callback?code=replacement');
-+    expect(handleCallback).not.toHaveBeenCalled();
++      protocolHandler.handle('headlamp://oauth/callback?code=replacement');
++      expect(handleCallback).toHaveBeenCalledOnce();
 +
-+    replacementRenderer.emit('did-finish-load');
-+    expect(handleCallback).toHaveBeenCalledOnce();
-+    unregister();
++      replacementRenderer.emit('did-finish-load');
++      expect(handleCallback).toHaveBeenCalledTimes(2);
++      expect(handleCallback).toHaveBeenLastCalledWith(
++        new URL('headlamp://oauth/callback?code=replacement')
++      );
++    } finally {
++      process.argv = originalArgv;
++      unregister();
++    }
 +  });
 +
 +  it('dispatches a startup callback on non-macOS platforms', () => {
@@ -486,6 +888,29 @@ index 0000000000000000000000000000000000000000..c226fd9b8e49b173a4c3e2ab8d58697b
 +    protocolHandler.setReady(['electron', 'headlamp://oauth/callback?code=startup']);
 +
 +    expect(handleCallback).toHaveBeenCalledWith(new URL('headlamp://oauth/callback?code=startup'));
++    unregister();
++  });
++
++  it('dispatches the startup callback before callbacks queued while starting up', () => {
++    const dispatched: string[] = [];
++    const protocolHandler = createProtocolHandler({
++      protocolScheme: 'headlamp',
++      startUrl: 'file:///headlamp/index.html',
++      getMainWindow: () => null,
++    });
++    const unregister = registerOAuthProvider({
++      id: 'ordering',
++      callback: { hostname: 'oauth', pathname: '/callback' },
++      handleCallback: url => {
++        dispatched.push(url.searchParams.get('code') ?? '');
++      },
++    });
++
++    // Queued after launch but before readiness, so it must follow the startup callback.
++    protocolHandler.handle('headlamp://oauth/callback?code=second');
++    protocolHandler.setReady(['electron', 'headlamp://oauth/callback?code=startup']);
++
++    expect(dispatched).toEqual(['startup', 'second']);
 +    unregister();
 +  });
 +
@@ -552,622 +977,12 @@ index 0000000000000000000000000000000000000000..c226fd9b8e49b173a4c3e2ab8d58697b
 +    expect(restore).not.toHaveBeenCalled();
 +  });
 +});
-diff --git a/app/package.json b/app/package.json
-index 1167e04ba82a6cb3d89f5a1b78fb4c0c83e07fae..cc6bf33a1b43bd474589440e2f7c902d6c7ba8a3 100644
---- a/app/package.json
-+++ b/app/package.json
-@@ -28,6 +28,7 @@
-     "start": "node scripts/start.js",
-     "star": "node scripts/start.js --star",
-     "test": "vitest run",
-+    "test:oauth-coverage": "vitest run electron/oauthProvider.test.ts electron/protocolHandler.test.ts --coverage --coverage.provider=istanbul --coverage.include=electron/oauthProvider.ts --coverage.include=electron/protocolHandler.ts --coverage.thresholds.branches=80",
-     "tsc": "tsc",
-     "verify-build-linux": "bash scripts/verify-build-linux.sh",
-     "verify-build-mac": "bash scripts/verify-build-mac.sh",
--- 
-2.54.0
-
-
-From f4ca307ccd88e4c1cd35968a7d9776ac69726565 Mon Sep 17 00:00:00 2001
-From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
-Date: Sat, 15 Aug 2026 11:23:50 +0200
-Subject: [PATCH 2/5] app: e2e-tests: Verify OAuth callback dispatch
-
-Exercise provider registration and protocol callback dispatch in a real
-Electron main process without requiring a Kubernetes cluster.
----
- app/e2e-tests/fixtures/oauthProviderMain.ts |  51 ++++++++++
- app/e2e-tests/playwright.electron.config.ts |   2 +
- app/e2e-tests/tests/oauthProvider.spec.ts   | 105 ++++++++++++++++++++
- app/e2e-tests/tests/protocolScheme.spec.ts  |  30 ++++--
- 4 files changed, 177 insertions(+), 11 deletions(-)
- create mode 100644 app/e2e-tests/fixtures/oauthProviderMain.ts
- create mode 100644 app/e2e-tests/tests/oauthProvider.spec.ts
-
-diff --git a/app/e2e-tests/fixtures/oauthProviderMain.ts b/app/e2e-tests/fixtures/oauthProviderMain.ts
-new file mode 100644
-index 0000000000000000000000000000000000000000..5e89559e89543245e87eb8f1a521265bcbf6de6a
---- /dev/null
-+++ b/app/e2e-tests/fixtures/oauthProviderMain.ts
-@@ -0,0 +1,51 @@
-+/*
-+ * Copyright 2025 The Kubernetes Authors
-+ *
-+ * Licensed under the Apache License, Version 2.0 (the "License");
-+ * you may not use this file except in compliance with the License.
-+ * You may obtain a copy of the License at
-+ *
-+ * http://www.apache.org/licenses/LICENSE-2.0
-+ *
-+ * Unless required by applicable law or agreed to in writing, software
-+ * distributed under the License is distributed on an "AS IS" BASIS,
-+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-+ * See the License for the specific language governing permissions and
-+ * limitations under the License.
-+ */
-+
-+import { app, BrowserWindow } from 'electron';
-+import fs from 'node:fs';
-+import { registerOAuthProvider } from '../../electron/oauthProvider';
-+import { createProtocolHandler } from '../../electron/protocolHandler';
-+
-+const callbackUrl = process.env.HEADLAMP_OAUTH_CALLBACK_URL;
-+const outputPath = process.env.HEADLAMP_OAUTH_OUTPUT_PATH;
-+const protocolScheme = process.env.HEADLAMP_OAUTH_PROTOCOL_SCHEME;
-+let fixtureWindow: BrowserWindow;
-+
-+if (!callbackUrl || !outputPath || !protocolScheme) {
-+  throw new Error('OAuth provider e2e fixture requires callback configuration');
-+}
-+
-+const protocolHandler = createProtocolHandler({
-+  protocolScheme,
-+  startUrl: 'data:text/html,<title>OAuth provider fixture</title>',
-+  getMainWindow: () => fixtureWindow,
-+});
-+
-+app.emit('open-url', { preventDefault() {} } as Electron.Event, callbackUrl);
-+
-+app.whenReady().then(async () => {
-+  fixtureWindow = new BrowserWindow({ show: false });
-+  await fixtureWindow.loadURL('data:text/html,<title>OAuth provider fixture</title>');
-+  registerOAuthProvider({
-+    id: 'e2e-provider',
-+    callback: { hostname: 'oauth', pathname: '/callback' },
-+    handleCallback(url) {
-+      fs.writeFileSync(outputPath, url.href);
-+      app.quit();
-+    },
-+  });
-+  protocolHandler.setReady();
-+});
-diff --git a/app/e2e-tests/playwright.electron.config.ts b/app/e2e-tests/playwright.electron.config.ts
-index 22477840418e8579cba93fa46b7fce3bf09ac24a..8ca953ec41d4dd42b93f505fbb68dcf903b804fe 100644
---- a/app/e2e-tests/playwright.electron.config.ts
-+++ b/app/e2e-tests/playwright.electron.config.ts
-@@ -32,6 +32,8 @@ export default defineConfig({
-     'namespaces.spec.ts',
-     'clusterAutoConnect.spec.ts',
-     'pluginSecureStorage.spec.ts',
-+    'oauthProvider.spec.ts',
-+    'protocolScheme.spec.ts',
-   ],
-   timeout: 60 * 1000,
-   expect: {
-diff --git a/app/e2e-tests/tests/oauthProvider.spec.ts b/app/e2e-tests/tests/oauthProvider.spec.ts
-new file mode 100644
-index 0000000000000000000000000000000000000000..2abc7888d2a1038cdaec873db744f8c5a505e8ec
---- /dev/null
-+++ b/app/e2e-tests/tests/oauthProvider.spec.ts
-@@ -0,0 +1,105 @@
-+/*
-+ * Copyright 2025 The Kubernetes Authors
-+ *
-+ * Licensed under the Apache License, Version 2.0 (the "License");
-+ * you may not use this file except in compliance with the License.
-+ * You may obtain a copy of the License at
-+ *
-+ * http://www.apache.org/licenses/LICENSE-2.0
-+ *
-+ * Unless required by applicable law or agreed to in writing, software
-+ * distributed under the License is distributed on an "AS IS" BASIS,
-+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-+ * See the License for the specific language governing permissions and
-+ * limitations under the License.
-+ */
-+
-+import { expect, test } from '@playwright/test';
-+import { ChildProcess, execFileSync, spawn } from 'node:child_process';
-+import fs from 'node:fs';
-+import os from 'node:os';
-+import path from 'node:path';
-+
-+const electronExecutable = process.platform === 'win32' ? 'electron.cmd' : 'electron';
-+const electronPath = path.resolve(__dirname, `../../node_modules/.bin/${electronExecutable}`);
-+const esbuildExecutable = process.platform === 'win32' ? 'esbuild.cmd' : 'esbuild';
-+const esbuildPath = path.resolve(__dirname, `../../node_modules/.bin/${esbuildExecutable}`);
-+const fixturePath = path.resolve(__dirname, '../fixtures/oauthProviderMain.ts');
-+const callbackUrl = 'headlamp://oauth/callback?code=e2e-code&state=e2e-state';
-+const electronEnvironment = { ...process.env };
-+delete electronEnvironment.ELECTRON_RUN_AS_NODE;
-+
-+let electronProcess: ChildProcess | undefined;
-+let electronProcessFailure = '';
-+let electronStderr = '';
-+let outputPath: string;
-+let temporaryDirectory: string;
-+
-+test.describe('OAuth provider registry', () => {
-+  test.beforeAll(async () => {
-+    temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-oauth-e2e-'));
-+    const bundlePath = path.join(temporaryDirectory, 'oauthProviderMain.cjs');
-+    outputPath = path.join(temporaryDirectory, 'callback-url.txt');
-+
-+    execFileSync(
-+      esbuildPath,
-+      [
-+        fixturePath,
-+        '--bundle',
-+        '--external:electron',
-+        '--format=cjs',
-+        `--outfile=${bundlePath}`,
-+        '--platform=node',
-+        '--target=node20',
-+      ],
-+      { stdio: 'pipe' }
-+    );
-+
-+    electronProcess = spawn(electronPath, [bundlePath], {
-+      env: {
-+        ...electronEnvironment,
-+        HEADLAMP_OAUTH_CALLBACK_URL: callbackUrl,
-+        HEADLAMP_OAUTH_OUTPUT_PATH: outputPath,
-+        HEADLAMP_OAUTH_PROTOCOL_SCHEME: 'headlamp',
-+      },
-+      stdio: 'pipe',
-+    });
-+    electronProcess.stderr?.on('data', chunk => {
-+      electronStderr += chunk.toString();
-+    });
-+    electronProcess.on('exit', (code, signal) => {
-+      if (!fs.existsSync(outputPath)) {
-+        electronProcessFailure = `Electron exited with code ${code} and signal ${signal}`;
-+        if (electronStderr) {
-+          electronProcessFailure += `\n${electronStderr}`;
-+        }
-+      }
-+    });
-+  });
-+
-+  test.afterAll(async () => {
-+    if (
-+      electronProcess &&
-+      electronProcess.exitCode === null &&
-+      electronProcess.signalCode === null
-+    ) {
-+      const processExited = new Promise<void>(resolve => {
-+        electronProcess?.once('exit', () => resolve());
-+      });
-+      electronProcess.kill();
-+      await processExited;
-+    }
-+    fs.rmSync(temporaryDirectory, { force: true, recursive: true });
-+  });
-+
-+  test('dispatches a launch callback emitted before Electron is ready', async () => {
-+    await expect
-+      .poll(() => {
-+        if (electronProcessFailure) {
-+          throw new Error(electronProcessFailure);
-+        }
-+        return fs.existsSync(outputPath) && fs.readFileSync(outputPath, 'utf8');
-+      })
-+      .toBe(callbackUrl);
-+  });
-+});
-diff --git a/app/e2e-tests/tests/protocolScheme.spec.ts b/app/e2e-tests/tests/protocolScheme.spec.ts
-index e8890c2018da5982c7c14afce91564c1788a3bd4..4d4cd640fd46e7fe36420aece100ccc84cda2c42 100644
---- a/app/e2e-tests/tests/protocolScheme.spec.ts
-+++ b/app/e2e-tests/tests/protocolScheme.spec.ts
-@@ -16,31 +16,35 @@
- 
- import { expect, test } from '@playwright/test';
- import fs from 'node:fs';
-+import os from 'node:os';
- import path from 'node:path';
-+import { pathToFileURL } from 'node:url';
- import { _electron, ElectronApplication, Page } from 'playwright';
- 
- const electronExecutable = process.platform === 'win32' ? 'electron.cmd' : 'electron';
- const electronPath = path.resolve(__dirname, `../../node_modules/.bin/${electronExecutable}`);
- const appPath = path.resolve(__dirname, '../../');
--const manifestPath = path.join(appPath, 'app-build-manifest.json');
- 
- let electronApp: ElectronApplication;
- let electronPage: Page;
--let originalManifest: string;
-+let temporaryAppPath: string;
- 
- test.describe('desktop protocol scheme', () => {
--  test.skip(process.env.PLAYWRIGHT_TEST_MODE !== 'app', 'Requires Electron app mode');
--
-   test.beforeAll(async () => {
--    originalManifest = fs.readFileSync(manifestPath, 'utf8');
--    const productManifest = JSON.parse(originalManifest);
-+    temporaryAppPath = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-protocol-e2e-'));
-+    fs.writeFileSync(
-+      path.join(temporaryAppPath, 'package.json'),
-+      JSON.stringify({
-+        name: 'headlamp-protocol-e2e',
-+        version: '1.0.0',
-+        main: `${appPath}/build/main.js`,
-+      })
-+    );
-     fs.writeFileSync(
--      manifestPath,
-+      path.join(temporaryAppPath, 'app-build-manifest.json'),
-       JSON.stringify(
-         {
--          ...productManifest,
-           product: {
--            ...productManifest.product,
-             protocols: { name: 'test-headlamp-protocol', schemes: ['test-headlamp'] },
-           },
-         },
-@@ -57,13 +61,15 @@ test.describe('desktop protocol scheme', () => {
-     }
- 
-     electronApp = await _electron.launch({
--      cwd: appPath,
-+      cwd: temporaryAppPath,
-       executablePath: electronPath,
-       args: ['.', 'test-headlamp://cluster?name=startup'],
-       env: {
-         ...electronEnv,
-         NODE_ENV: 'development',
-         ELECTRON_DEV: 'true',
-+        ELECTRON_START_URL: pathToFileURL(path.join(appPath, '../frontend/build/index.html')).href,
-+        EXTERNAL_SERVER: 'true',
-       },
-     });
-     electronPage = await electronApp.firstWindow();
-@@ -72,7 +78,9 @@ test.describe('desktop protocol scheme', () => {
- 
-   test.afterAll(async () => {
-     await electronApp?.close();
--    fs.writeFileSync(manifestPath, originalManifest);
-+    if (temporaryAppPath) {
-+      fs.rmSync(temporaryAppPath, { force: true, recursive: true });
-+    }
-   });
- 
-   test('routes a product protocol URL from the startup command line', async () => {
--- 
-2.54.0
-
-
-From 3b02da805e50288e5a32c5716c038a0813d5c794 Mon Sep 17 00:00:00 2001
-From: gambtho <Thomas.Gamble@microsoft.com>
-Date: Fri, 31 Jul 2026 21:52:32 +0000
-Subject: [PATCH 3/5] app: electron: Register OAuth callback providers
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-Route validated product protocol callbacks to their owning OAuth provider so
-desktop integrations can complete authentication safely.
-
-Co-authored-by: René Dudfield <renedudfield@microsoft.com>
----
- app/electron/main.ts            |  84 ++----------------
- app/electron/oauthProvider.ts   | 146 ++++++++++++++++++++++++++++++++
- app/electron/protocolHandler.ts | 143 +++++++++++++++++++++++++++++++
- app/package.json                |   2 +-
- 4 files changed, 299 insertions(+), 76 deletions(-)
- create mode 100644 app/electron/oauthProvider.ts
- create mode 100644 app/electron/protocolHandler.ts
-
-diff --git a/app/electron/main.ts b/app/electron/main.ts
-index 29a11b7f7cae8bf7f84813ea7dbe1ea76ecf8eb6..6ce7d423f8bbacb855dce6da8f8893d21441d2b3 100644
---- a/app/electron/main.ts
-+++ b/app/electron/main.ts
-@@ -59,7 +59,8 @@ import {
-   PluginManager,
-   setAppConfigDirName,
- } from './plugin-management';
--import { findProtocolUrl, isProtocolUrl, readProtocolScheme } from './protocol';
-+import { readProtocolScheme } from './protocol';
-+import { createProtocolHandler } from './protocolHandler';
- import {
-   addRunCmdConsent,
-   environmentOverrides,
-@@ -214,6 +215,12 @@ let mcpClient: MCPClient | null = null;
- let isQuitting = false;
- let hasTray = false;
- 
-+const protocolHandler = createProtocolHandler({
-+  protocolScheme,
-+  startUrl,
-+  getMainWindow: () => mainWindow,
-+});
-+
- /**
-  * `Action` is an interface for an action to be performed by the plugin manager.
-  *
-@@ -1403,78 +1410,12 @@ ipcMain.on('route-changed', () => {
- function startElectron() {
-   console.info('App starting...');
- 
--  let isMainWindowReady = false;
--  const pendingProtocolUrls: string[] = [];
--
--  function routeProtocolUrl(protocolUrl: string) {
--    let urlObj: URL;
--    try {
--      urlObj = new URL(protocolUrl);
--    } catch {
--      dialog.showErrorBox(
--        i18n.t('Invalid URL'),
--        i18n.t('Application opened with an invalid URL: {{ url }}', { url: protocolUrl })
--      );
--      return;
--    }
--
--    if (!isProtocolUrl(protocolUrl, protocolScheme)) {
--      dialog.showErrorBox(
--        i18n.t('Invalid URL'),
--        i18n.t('Application opened with an invalid URL: {{ url }}', { url: protocolUrl })
--      );
--      return;
--    }
--
--    if (!mainWindow || !isMainWindowReady) {
--      pendingProtocolUrls.push(protocolUrl);
--      return;
--    }
--
--    if (mainWindow.isMinimized()) {
--      mainWindow.restore();
--    }
--    mainWindow.focus();
--
--    const baseUrl = startUrl.endsWith('/') ? startUrl.slice(0, -1) : startUrl;
--    mainWindow.loadURL(baseUrl + '#' + urlObj.hostname + urlObj.search);
--  }
--
--  function routeProtocolUrlFromCommandLine(commandLine: readonly string[]) {
--    const protocolUrl = findProtocolUrl(commandLine, protocolScheme);
--    if (protocolUrl) {
--      routeProtocolUrl(protocolUrl);
--    }
--  }
--
-   const gotTheLock = app.requestSingleInstanceLock();
-   if (!gotTheLock) {
-     app.quit();
-     return;
-   }
- 
--  app.on('open-url', (event, protocolUrl) => {
--    event.preventDefault();
--    routeProtocolUrl(protocolUrl);
--  });
--
--  app.on('second-instance', (_event, commandLine) => {
--    const protocolUrl = findProtocolUrl(commandLine, protocolScheme);
--    if (protocolUrl) {
--      routeProtocolUrl(protocolUrl);
--      return;
--    }
--
--    if (mainWindow) {
--      if (mainWindow.isMinimized()) {
--        mainWindow.restore();
--      }
--      mainWindow.focus();
--    }
--  });
--
--  routeProtocolUrlFromCommandLine(process.argv);
--
-   // Increase max listeners to prevent false positive warnings
-   // The app legitimately needs multiple IPC listeners (currently 11)
-   // Default is 10, setting to 20 provides headroom for future additions
-@@ -1641,8 +1582,6 @@ function startElectron() {
-     const withMargin = await isWSL();
-     const { width, height } = windowSize(screen.getPrimaryDisplay().workAreaSize, withMargin);
- 
--    isMainWindowReady = false;
--
-     // Flush any pending debounced zoom save before reading so reopening the
-     // window immediately after a zoom change reads the latest factor.
-     flushZoomFactorSave();
-@@ -1651,7 +1590,6 @@ function startElectron() {
-     // creation and the 'closed' handler; closing during the read would
-     // otherwise leave a destroyed window that later loadURL/menu calls throw on.
-     cachedZoom = await loadZoomFactor(ZOOM_FILE_PATH);
--
-     mainWindow = new BrowserWindow({
-       width,
-       height,
-@@ -1697,10 +1635,7 @@ function startElectron() {
-       // Inject the backend port into the window object
-       mainWindow?.webContents.executeJavaScript(`window.headlampBackendPort = ${actualPort};`);
- 
--      isMainWindowReady = true;
--      for (const protocolUrl of pendingProtocolUrls.splice(0)) {
--        routeProtocolUrl(protocolUrl);
--      }
-+      protocolHandler.setReady();
-     });
- 
-     mainWindow.webContents.on('did-frame-finish-load', (_event, isMainFrame) => {
-@@ -1743,7 +1678,6 @@ function startElectron() {
-     });
- 
-     mainWindow.on('closed', () => {
--      isMainWindowReady = false;
-       mainWindow = null;
-     });
- 
-diff --git a/app/electron/oauthProvider.ts b/app/electron/oauthProvider.ts
-new file mode 100644
-index 0000000000000000000000000000000000000000..e42d8f490871d3c92448b89d6f294fa974198d2b
---- /dev/null
-+++ b/app/electron/oauthProvider.ts
-@@ -0,0 +1,146 @@
-+/*
-+ * Copyright 2025 The Kubernetes Authors
-+ *
-+ * Licensed under the Apache License, Version 2.0 (the "License");
-+ * you may not use this file except in compliance with the License.
-+ * You may obtain a copy of the License at
-+ *
-+ * http://www.apache.org/licenses/LICENSE-2.0
-+ *
-+ * Unless required by applicable law or agreed to in writing, software
-+ * distributed under the License is distributed on an "AS IS" BASIS,
-+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-+ * See the License for the specific language governing permissions and
-+ * limitations under the License.
-+ */
-+
-+const VALID_PROVIDER_ID = /^[a-z0-9][a-z0-9._-]*$/i;
-+const VALID_HOSTNAME = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
-+const VALID_PATHNAME = /^\/[a-z0-9/._~-]*$/i;
-+const MAX_PROVIDER_ID_LENGTH = 128;
-+
-+/** Identifies the protocol route owned by an OAuth provider. */
-+export interface OAuthProviderCallback {
-+  /** Hostname expected in the provider callback URL. */
-+  hostname: string;
-+  /** Absolute path expected in the provider callback URL. */
-+  pathname: string;
-+}
-+
-+/** Describes an OAuth provider that can receive desktop protocol callbacks. */
-+export interface OAuthProviderRegistration {
-+  /** Stable identifier used to attribute callback failures. */
-+  id: string;
-+  /** Protocol route owned by the provider. */
-+  callback: OAuthProviderCallback;
-+  /**
-+   * Handles a callback claimed by this provider.
-+   *
-+   * @param url Validated callback URL, including provider query parameters.
-+   * @returns Nothing, or a promise that settles after callback handling completes.
-+   */
-+  handleCallback(url: URL): void | Promise<void>;
-+}
-+
-+const providersByCallback = new Map<string, OAuthProviderRegistration>();
-+
-+/**
-+ * Creates a case-insensitive lookup key for a callback route.
-+ *
-+ * @param hostname Callback URL hostname.
-+ * @param pathname Callback URL pathname.
-+ * @returns A registry key for the callback route.
-+ */
-+function callbackKey(hostname: string, pathname: string): string {
-+  return `${hostname.toLowerCase()}\n${pathname}`;
-+}
-+
-+/**
-+ * Checks whether a callback pathname is absolute and contains no traversal segments.
-+ *
-+ * @param pathname Callback pathname to validate.
-+ * @returns Whether the pathname is safe for exact route matching.
-+ */
-+function isValidPathname(pathname: string): boolean {
-+  return (
-+    VALID_PATHNAME.test(pathname) &&
-+    pathname.split('/').every(segment => segment !== '.' && segment !== '..')
-+  );
-+}
-+
-+/**
-+ * Validates an OAuth provider registration before storing it.
-+ *
-+ * @param registration Candidate provider registration to validate.
-+ * @returns Whether every registration field is valid.
-+ */
-+function isValidRegistration(registration: unknown): registration is OAuthProviderRegistration {
-+  if (typeof registration !== 'object' || registration === null) {
-+    return false;
-+  }
-+
-+  const candidate = registration as Partial<OAuthProviderRegistration>;
-+  return (
-+    typeof candidate.id === 'string' &&
-+    candidate.id.length <= MAX_PROVIDER_ID_LENGTH &&
-+    VALID_PROVIDER_ID.test(candidate.id) &&
-+    typeof candidate.callback?.hostname === 'string' &&
-+    VALID_HOSTNAME.test(candidate.callback.hostname) &&
-+    typeof candidate.callback?.pathname === 'string' &&
-+    isValidPathname(candidate.callback.pathname) &&
-+    typeof candidate.handleCallback === 'function'
-+  );
-+}
-+
-+/**
-+ * Registers an OAuth provider as the exclusive owner of a callback route.
-+ *
-+ * @param registration Provider callback registration.
-+ * @returns A function that unregisters this provider without affecting replacements.
-+ * @throws When the registration is invalid or its callback route is already owned.
-+ */
-+export function registerOAuthProvider(registration: OAuthProviderRegistration): () => void {
-+  if (!isValidRegistration(registration)) {
-+    throw new Error('Invalid OAuth provider registration');
-+  }
-+  const key = callbackKey(registration.callback.hostname, registration.callback.pathname);
-+  if (providersByCallback.has(key)) {
-+    throw new Error('OAuth callback is already registered');
-+  }
-+  providersByCallback.set(key, registration);
-+
-+  return () => {
-+    if (providersByCallback.get(key) === registration) {
-+      providersByCallback.delete(key);
-+    }
-+  };
-+}
-+
-+/**
-+ * Dispatches a product protocol URL to its registered OAuth provider.
-+ *
-+ * Provider failures are reported asynchronously and do not release ownership of
-+ * the callback URL to other protocol handlers.
-+ *
-+ * @param url Candidate OAuth callback URL.
-+ * @param protocolScheme Product protocol scheme accepted by this application.
-+ * @returns Whether a provider claimed the callback URL.
-+ */
-+export function dispatchOAuthCallback(url: URL, protocolScheme: string): boolean {
-+  if (url.protocol !== `${protocolScheme}:`) {
-+    return false;
-+  }
-+  const provider = providersByCallback.get(callbackKey(url.hostname, url.pathname));
-+  if (!provider) {
-+    return false;
-+  }
-+
-+  try {
-+    Promise.resolve(provider.handleCallback(url)).catch(error => {
-+      console.error(`OAuth callback failed for provider ${provider.id}:`, error);
-+    });
-+  } catch (error) {
-+    console.error(`OAuth callback failed for provider ${provider.id}:`, error);
-+  }
-+  return true;
-+}
 diff --git a/app/electron/protocolHandler.ts b/app/electron/protocolHandler.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..504e1bd7e01106e1977c3c0ff72be83569382b8c
+index 0000000000000000000000000000000000000000..a5878dd37a682a9d6ae87827da751d8798a7c584
 --- /dev/null
 +++ b/app/electron/protocolHandler.ts
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,200 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -1199,6 +1014,23 @@ index 0000000000000000000000000000000000000000..504e1bd7e01106e1977c3c0ff72be835
 +  getMainWindow(): BrowserWindow | null;
 +}
 +
++/** Renderer lifecycle events required to release buffered protocol callbacks. */
++export interface ProtocolWebContents {
++  /** Registers the successful-load listener. */
++  on(event: 'did-finish-load', listener: () => void): unknown;
++  /** Registers the failed-load listener. */
++  on(
++    event: 'did-fail-load',
++    listener: (
++      event: unknown,
++      errorCode: number,
++      errorDescription: string,
++      validatedURL: string,
++      isMainFrame: boolean
++    ) => void
++  ): unknown;
++}
++
 +/** Buffers and dispatches product protocol callbacks around application startup. */
 +export interface ProtocolHandler {
 +  /**
@@ -1207,6 +1039,12 @@ index 0000000000000000000000000000000000000000..504e1bd7e01106e1977c3c0ff72be835
 +   * @param value Raw protocol callback URL.
 +   */
 +  handle(value: string): void;
++  /**
++   * Releases buffered callbacks when the main renderer finishes or definitively fails to load.
++   *
++   * @param webContents Main window renderer events.
++   */
++  attachToWebContents(webContents: ProtocolWebContents): void;
 +  /**
 +   * Marks providers and the application window ready, handles startup arguments,
 +   * then drains queued callbacks.
@@ -1225,22 +1063,18 @@ index 0000000000000000000000000000000000000000..504e1bd7e01106e1977c3c0ff72be835
 +export function createProtocolHandler(options: ProtocolHandlerOptions): ProtocolHandler {
 +  const pendingUrls: string[] = [];
 +  let isReady = false;
++  let hasHandledStartupArguments = false;
 +
 +  app.on('open-url', (event, value) => {
 +    event.preventDefault();
-+    options.getMainWindow()?.focus();
 +    handle(value);
 +  });
 +
 +  app.on('second-instance', (_event, argv) => {
-+    const mainWindow = options.getMainWindow();
-+    if (mainWindow) {
-+      if (mainWindow.isMinimized()) {
-+        mainWindow.restore();
-+      }
-+      mainWindow.focus();
++    if (handleFirstProtocolUrl(argv)) {
++      return;
 +    }
-+    handleFirstProtocolUrl(argv);
++    focusMainWindow();
 +  });
 +
 +  /** Accepts or queues a raw protocol callback URL. */
@@ -1253,29 +1087,26 @@ index 0000000000000000000000000000000000000000..504e1bd7e01106e1977c3c0ff72be835
 +  }
 +
 +  /** Handles the first product protocol URL in an argument list. */
-+  function handleFirstProtocolUrl(argv: readonly string[]): void {
++  function handleFirstProtocolUrl(argv: readonly string[]): boolean {
 +    const callbackUrl = argv.find(value => isProtocolUrl(value, options.protocolScheme));
 +    if (callbackUrl) {
 +      handle(callbackUrl);
++      return true;
 +    }
++    return false;
 +  }
 +
 +  /** Processes a callback after providers and the application window are ready. */
 +  function processUrl(value: string): void {
-+    let callbackUrl: URL;
-+    try {
-+      callbackUrl = new URL(value);
-+    } catch {
++    if (!isProtocolUrl(value, options.protocolScheme)) {
 +      showInvalidUrl(value);
 +      return;
 +    }
++    const callbackUrl = new URL(value);
 +
-+    if (callbackUrl.protocol !== `${options.protocolScheme}:`) {
-+      showInvalidUrl(value);
-+      return;
-+    }
++    focusMainWindow();
 +
-+    if (!dispatchOAuthCallback(callbackUrl, options.protocolScheme)) {
++    if (!dispatchOAuthCallback(callbackUrl, options.protocolScheme, showOAuthCallbackError)) {
 +      loadUnclaimedUrl(callbackUrl);
 +    }
 +  }
@@ -1288,6 +1119,14 @@ index 0000000000000000000000000000000000000000..504e1bd7e01106e1977c3c0ff72be835
 +    );
 +  }
 +
++  /** Displays a user-facing error after a registered OAuth provider fails. */
++  function showOAuthCallbackError(): void {
++    dialog.showErrorBox(
++      i18n.t('OAuth callback failed'),
++      i18n.t('The OAuth callback could not be completed. Please try again.')
++    );
++  }
++
 +  /** Routes a valid callback that no OAuth provider claimed to the renderer. */
 +  function loadUnclaimedUrl(callbackUrl: URL): void {
 +    const urlParam = callbackUrl.hostname;
@@ -1297,242 +1136,6 @@ index 0000000000000000000000000000000000000000..504e1bd7e01106e1977c3c0ff72be835
 +    options.getMainWindow()?.loadURL(baseUrl + '#' + urlParam + callbackUrl.search);
 +  }
 +
-+  return {
-+    handle,
-+    setReady(argv = process.argv) {
-+      if (isReady) {
-+        return;
-+      }
-+      isReady = true;
-+      for (const value of pendingUrls.splice(0)) {
-+        processUrl(value);
-+      }
-+      handleFirstProtocolUrl(argv);
-+    },
-+  };
-+}
-diff --git a/app/package.json b/app/package.json
-index cc6bf33a1b43bd474589440e2f7c902d6c7ba8a3..c2cb461b0b3034784a77582dbad678d409cf69fe 100644
---- a/app/package.json
-+++ b/app/package.json
-@@ -19,7 +19,7 @@
-     "dev-only-app": "npm run compile-electron -- --dev && cross-env ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:3000 EXTERNAL_SERVER=true electron .",
-     "dev-only-app:debug": "npm run compile-electron -- --dev && cross-env ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:3000 EXTERNAL_SERVER=true electron . --remote-debugging-port=9222",
-     "format": "cd .. && npm run frontend:format",
--    "i18n": "npx --no-install i18next ./electron/main.ts -c ./electron/i18next-parser.config.ts",
-+    "i18n": "npx --no-install i18next ./electron/main.ts ./electron/protocolHandler.ts -c ./electron/i18next-parser.config.ts",
-     "i18n-check": "npm run i18n -- --fail-on-update",
-     "lint": "cd .. && npm run frontend:lint",
-     "lint-fix": "cd .. && npm run frontend:lint:fix",
--- 
-2.54.0
-
-
-From bad4f2ab4b56658101fadf122db3eb1086e64939 Mon Sep 17 00:00:00 2001
-From: gambtho <Thomas.Gamble@microsoft.com>
-Date: Tue, 18 Aug 2026 15:31:10 -0400
-Subject: [PATCH 4/5] app: protocolHandler: Dispatch startup callback before
- queued callbacks
-
-The launch argument callback arrives before anything Electron queues via
-open-url or second-instance, but setReady drained the pending buffer first
-and delivered it last. Dispatch the startup argument first so callback order
-matches arrival order.
----
- app/electron/main.ts                     |  3 +-
- app/electron/protocolHandler.test.ts     | 23 +++++++
- app/electron/protocolHandler.ts          | 82 ++++++++++++++++++++----
- frontend/src/i18n/locales/ar/app.json    |  4 +-
- frontend/src/i18n/locales/bn/app.json    |  4 +-
- frontend/src/i18n/locales/cs/app.json    |  4 +-
- frontend/src/i18n/locales/de/app.json    |  4 +-
- frontend/src/i18n/locales/en/app.json    |  4 +-
- frontend/src/i18n/locales/es/app.json    |  4 +-
- frontend/src/i18n/locales/fr/app.json    |  4 +-
- frontend/src/i18n/locales/he/app.json    |  4 +-
- frontend/src/i18n/locales/hi/app.json    |  4 +-
- frontend/src/i18n/locales/hu/app.json    |  4 +-
- frontend/src/i18n/locales/id/app.json    |  4 +-
- frontend/src/i18n/locales/it/app.json    |  4 +-
- frontend/src/i18n/locales/ja/app.json    |  4 +-
- frontend/src/i18n/locales/ko/app.json    |  4 +-
- frontend/src/i18n/locales/nl/app.json    |  4 +-
- frontend/src/i18n/locales/pl/app.json    |  4 +-
- frontend/src/i18n/locales/pt-br/app.json |  4 +-
- frontend/src/i18n/locales/pt-pt/app.json |  4 +-
- frontend/src/i18n/locales/ru/app.json    |  4 +-
- frontend/src/i18n/locales/sv/app.json    |  4 +-
- frontend/src/i18n/locales/ta/app.json    |  4 +-
- frontend/src/i18n/locales/tr/app.json    |  4 +-
- frontend/src/i18n/locales/ur/app.json    |  4 +-
- frontend/src/i18n/locales/zh-tw/app.json |  4 +-
- frontend/src/i18n/locales/zh/app.json    |  4 +-
- 28 files changed, 170 insertions(+), 38 deletions(-)
-
-diff --git a/app/electron/main.ts b/app/electron/main.ts
-index 6ce7d423f8bbacb855dce6da8f8893d21441d2b3..166e6003a5526c75cc817577908ec9b8851b941c 100644
---- a/app/electron/main.ts
-+++ b/app/electron/main.ts
-@@ -1599,6 +1599,7 @@ function startElectron() {
-         preload: `${__dirname}/preload.js`,
-       },
-     });
-+    protocolHandler.attachToWebContents(mainWindow.webContents);
- 
-     applyZoom();
- 
-@@ -1634,8 +1635,6 @@ function startElectron() {
-       scheduleApplyZoom(true);
-       // Inject the backend port into the window object
-       mainWindow?.webContents.executeJavaScript(`window.headlampBackendPort = ${actualPort};`);
--
--      protocolHandler.setReady();
-     });
- 
-     mainWindow.webContents.on('did-frame-finish-load', (_event, isMainFrame) => {
-diff --git a/app/electron/protocolHandler.test.ts b/app/electron/protocolHandler.test.ts
-index c226fd9b8e49b173a4c3e2ab8d58697bf754163a..83ad15197be299e12eab10374859a5ae9159a2d1 100644
---- a/app/electron/protocolHandler.test.ts
-+++ b/app/electron/protocolHandler.test.ts
-@@ -274,6 +274,29 @@ describe('createProtocolHandler', () => {
-     unregister();
-   });
- 
-+  it('dispatches the startup callback before callbacks queued while starting up', () => {
-+    const dispatched: string[] = [];
-+    const protocolHandler = createProtocolHandler({
-+      protocolScheme: 'headlamp',
-+      startUrl: 'file:///headlamp/index.html',
-+      getMainWindow: () => null,
-+    });
-+    const unregister = registerOAuthProvider({
-+      id: 'ordering',
-+      callback: { hostname: 'oauth', pathname: '/callback' },
-+      handleCallback: url => {
-+        dispatched.push(url.searchParams.get('code') ?? '');
-+      },
-+    });
-+
-+    // Queued after launch but before readiness, so it must follow the startup callback.
-+    protocolHandler.handle('headlamp://oauth/callback?code=second');
-+    protocolHandler.setReady(['electron', 'headlamp://oauth/callback?code=startup']);
-+
-+    expect(dispatched).toEqual(['startup', 'second']);
-+    unregister();
-+  });
-+
-   it('uses the process startup context by default', () => {
-     const protocolHandler = createProtocolHandler({
-       protocolScheme: 'headlamp',
-diff --git a/app/electron/protocolHandler.ts b/app/electron/protocolHandler.ts
-index 504e1bd7e01106e1977c3c0ff72be83569382b8c..ddbf81ed47cf612363df1430c9180f5d4ea3fc71 100644
---- a/app/electron/protocolHandler.ts
-+++ b/app/electron/protocolHandler.ts
-@@ -29,6 +29,23 @@ export interface ProtocolHandlerOptions {
-   getMainWindow(): BrowserWindow | null;
- }
- 
-+/** Renderer lifecycle events required to release buffered protocol callbacks. */
-+export interface ProtocolWebContents {
-+  /** Registers the successful-load listener. */
-+  on(event: 'did-finish-load', listener: () => void): unknown;
-+  /** Registers the failed-load listener. */
-+  on(
-+    event: 'did-fail-load',
-+    listener: (
-+      event: unknown,
-+      errorCode: number,
-+      errorDescription: string,
-+      validatedURL: string,
-+      isMainFrame: boolean
-+    ) => void
-+  ): unknown;
-+}
-+
- /** Buffers and dispatches product protocol callbacks around application startup. */
- export interface ProtocolHandler {
-   /**
-@@ -37,6 +54,12 @@ export interface ProtocolHandler {
-    * @param value Raw protocol callback URL.
-    */
-   handle(value: string): void;
-+  /**
-+   * Releases buffered callbacks when the main renderer finishes or definitively fails to load.
-+   *
-+   * @param webContents Main window renderer events.
-+   */
-+  attachToWebContents(webContents: ProtocolWebContents): void;
-   /**
-    * Marks providers and the application window ready, handles startup arguments,
-    * then drains queued callbacks.
-@@ -58,19 +81,14 @@ export function createProtocolHandler(options: ProtocolHandlerOptions): Protocol
- 
-   app.on('open-url', (event, value) => {
-     event.preventDefault();
--    options.getMainWindow()?.focus();
-     handle(value);
-   });
- 
-   app.on('second-instance', (_event, argv) => {
--    const mainWindow = options.getMainWindow();
--    if (mainWindow) {
--      if (mainWindow.isMinimized()) {
--        mainWindow.restore();
--      }
--      mainWindow.focus();
-+    if (handleFirstProtocolUrl(argv)) {
-+      return;
-     }
--    handleFirstProtocolUrl(argv);
-+    focusMainWindow();
-   });
- 
-   /** Accepts or queues a raw protocol callback URL. */
-@@ -83,11 +101,13 @@ export function createProtocolHandler(options: ProtocolHandlerOptions): Protocol
-   }
- 
-   /** Handles the first product protocol URL in an argument list. */
--  function handleFirstProtocolUrl(argv: readonly string[]): void {
-+  function handleFirstProtocolUrl(argv: readonly string[]): boolean {
-     const callbackUrl = argv.find(value => isProtocolUrl(value, options.protocolScheme));
-     if (callbackUrl) {
-       handle(callbackUrl);
-+      return true;
-     }
-+    return false;
-   }
- 
-   /** Processes a callback after providers and the application window are ready. */
-@@ -105,7 +125,9 @@ export function createProtocolHandler(options: ProtocolHandlerOptions): Protocol
-       return;
-     }
- 
--    if (!dispatchOAuthCallback(callbackUrl, options.protocolScheme)) {
-+    focusMainWindow();
-+
-+    if (!dispatchOAuthCallback(callbackUrl, options.protocolScheme, showOAuthCallbackError)) {
-       loadUnclaimedUrl(callbackUrl);
-     }
-   }
-@@ -118,6 +140,14 @@ export function createProtocolHandler(options: ProtocolHandlerOptions): Protocol
-     );
-   }
- 
-+  /** Displays a user-facing error after a registered OAuth provider fails. */
-+  function showOAuthCallbackError(): void {
-+    dialog.showErrorBox(
-+      i18n.t('OAuth callback failed'),
-+      i18n.t('The OAuth callback could not be completed. Please try again.')
-+    );
-+  }
-+
-   /** Routes a valid callback that no OAuth provider claimed to the renderer. */
-   function loadUnclaimedUrl(callbackUrl: URL): void {
-     const urlParam = callbackUrl.hostname;
-@@ -127,17 +157,47 @@ export function createProtocolHandler(options: ProtocolHandlerOptions): Protocol
-     options.getMainWindow()?.loadURL(baseUrl + '#' + urlParam + callbackUrl.search);
-   }
- 
 +  /** Restores and focuses the current window when one is available. */
 +  function focusMainWindow(): void {
 +    const mainWindow = options.getMainWindow();
@@ -1545,8 +1148,8 @@ index 504e1bd7e01106e1977c3c0ff72be83569382b8c..ddbf81ed47cf612363df1430c9180f5d
 +    mainWindow.focus();
 +  }
 +
-   return {
-     handle,
++  return {
++    handle,
 +    attachToWebContents(webContents) {
 +      isReady = false;
 +      webContents.on('did-finish-load', () => this.setReady());
@@ -1563,21 +1166,44 @@ index 504e1bd7e01106e1977c3c0ff72be83569382b8c..ddbf81ed47cf612363df1430c9180f5d
 +        }
 +      );
 +    },
-     setReady(argv = process.argv) {
-       if (isReady) {
-         return;
-       }
-       isReady = true;
-+      // The launch argument callback arrived before anything queued by open-url or
-+      // second-instance, so dispatch it first to keep dispatch order matching arrival order.
-+      handleFirstProtocolUrl(argv);
-       for (const value of pendingUrls.splice(0)) {
-         processUrl(value);
-       }
--      handleFirstProtocolUrl(argv);
-     },
-   };
- }
++    setReady(argv = process.argv) {
++      if (isReady) {
++        return;
++      }
++      isReady = true;
++      if (!hasHandledStartupArguments) {
++        hasHandledStartupArguments = true;
++        // The launch argument callback arrived before anything queued by open-url or
++        // second-instance, so dispatch it first to keep dispatch order matching arrival order.
++        handleFirstProtocolUrl(argv);
++      }
++      for (const value of pendingUrls.splice(0)) {
++        processUrl(value);
++      }
++    },
++  };
++}
+diff --git a/app/package.json b/app/package.json
+index 1167e04ba82a6cb3d89f5a1b78fb4c0c83e07fae..c2cb461b0b3034784a77582dbad678d409cf69fe 100644
+--- a/app/package.json
++++ b/app/package.json
+@@ -19,7 +19,7 @@
+     "dev-only-app": "npm run compile-electron -- --dev && cross-env ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:3000 EXTERNAL_SERVER=true electron .",
+     "dev-only-app:debug": "npm run compile-electron -- --dev && cross-env ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:3000 EXTERNAL_SERVER=true electron . --remote-debugging-port=9222",
+     "format": "cd .. && npm run frontend:format",
+-    "i18n": "npx --no-install i18next ./electron/main.ts -c ./electron/i18next-parser.config.ts",
++    "i18n": "npx --no-install i18next ./electron/main.ts ./electron/protocolHandler.ts -c ./electron/i18next-parser.config.ts",
+     "i18n-check": "npm run i18n -- --fail-on-update",
+     "lint": "cd .. && npm run frontend:lint",
+     "lint-fix": "cd .. && npm run frontend:lint:fix",
+@@ -28,6 +28,7 @@
+     "start": "node scripts/start.js",
+     "star": "node scripts/start.js --star",
+     "test": "vitest run",
++    "test:oauth-coverage": "vitest run electron/oauthProvider.test.ts electron/protocolHandler.test.ts --coverage --coverage.provider=istanbul --coverage.include=electron/oauthProvider.ts --coverage.include=electron/protocolHandler.ts --coverage.thresholds.branches=80",
+     "tsc": "tsc",
+     "verify-build-linux": "bash scripts/verify-build-linux.sh",
+     "verify-build-mac": "bash scripts/verify-build-mac.sh",
 diff --git a/frontend/src/i18n/locales/ar/app.json b/frontend/src/i18n/locales/ar/app.json
 index 4a123494ffa595cb8a5707d155a633c80587508a..42c3e51605a47537f2b58ce9d13d16000da0d1d5 100644
 --- a/frontend/src/i18n/locales/ar/app.json
@@ -1907,180 +1533,274 @@ index 19d4b46094059a581a0bef0b1fb6d6dcffcfecf4..335548d40fce456bce107fdcdaaf82af
 2.54.0
 
 
-From 26997d498d91eea6ccec70a0393a19ed84cfa595 Mon Sep 17 00:00:00 2001
-From: gambtho <Thomas.Gamble@microsoft.com>
-Date: Tue, 18 Aug 2026 15:31:10 -0400
-Subject: [PATCH 5/5] app: oauthProvider: Scope provider cleanup to its own
- registration
+From 585da656b8b8e2f734f2332111cb8f4565cd9df3 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Sat, 15 Aug 2026 11:23:50 +0200
+Subject: [PATCH 2/2] app: e2e-tests: Verify OAuth callback dispatch
 
-The cleanup callback compared the stored value against the caller-owned
-registration object, so re-registering the same object let a stale cleanup
-delete the new registration. Store each registration in a per-call entry and
-compare that instead.
+Exercise provider registration and protocol callback dispatch in a real
+Electron main process without requiring a Kubernetes cluster.
 ---
- app/electron/oauthProvider.test.ts | 13 ++++++
- app/electron/oauthProvider.ts      | 67 +++++++++++++++++++++++-------
- 2 files changed, 66 insertions(+), 14 deletions(-)
+ app/e2e-tests/fixtures/oauthProviderMain.ts | 51 +++++++++++
+ app/e2e-tests/playwright.electron.config.ts |  2 +
+ app/e2e-tests/tests/oauthProvider.spec.ts   | 99 +++++++++++++++++++++
+ app/e2e-tests/tests/protocolScheme.spec.ts  | 30 ++++---
+ 4 files changed, 171 insertions(+), 11 deletions(-)
+ create mode 100644 app/e2e-tests/fixtures/oauthProviderMain.ts
+ create mode 100644 app/e2e-tests/tests/oauthProvider.spec.ts
 
-diff --git a/app/electron/oauthProvider.test.ts b/app/electron/oauthProvider.test.ts
-index 6fcf8c2f1889e041c272528efb96cb38cbeae4de..77979c4d8033af7c9a2d053dd8d32e56833817f6 100644
---- a/app/electron/oauthProvider.test.ts
-+++ b/app/electron/oauthProvider.test.ts
-@@ -118,6 +118,19 @@ describe('registerOAuthProvider', () => {
-     expect(dispatchOAuthCallback(new URL('headlamp://oauth/callback'), 'headlamp')).toBe(true);
-     expect(replacementHandler).toHaveBeenCalledOnce();
-   });
-+
-+  it('does not let stale cleanup remove a re-registration of the same object', () => {
-+    const handleCallback = vi.fn();
-+    const reused = registration({ handleCallback });
-+    const firstUnregister = register(reused);
-+    firstUnregister();
-+    register(reused);
-+
-+    firstUnregister();
-+
-+    expect(dispatchOAuthCallback(new URL('headlamp://oauth/callback'), 'headlamp')).toBe(true);
-+    expect(handleCallback).toHaveBeenCalledOnce();
-+  });
- });
- 
- describe('dispatchOAuthCallback', () => {
-diff --git a/app/electron/oauthProvider.ts b/app/electron/oauthProvider.ts
-index e42d8f490871d3c92448b89d6f294fa974198d2b..2e3cadcf425d9004179fc215e62d1dc27621c535 100644
---- a/app/electron/oauthProvider.ts
-+++ b/app/electron/oauthProvider.ts
-@@ -16,14 +16,14 @@
- 
- const VALID_PROVIDER_ID = /^[a-z0-9][a-z0-9._-]*$/i;
- const VALID_HOSTNAME = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i;
--const VALID_PATHNAME = /^\/[a-z0-9/._~-]*$/i;
-+const VALID_PATHNAME = /^\/[A-Za-z0-9/._~-]*$/;
- const MAX_PROVIDER_ID_LENGTH = 128;
- 
- /** Identifies the protocol route owned by an OAuth provider. */
- export interface OAuthProviderCallback {
--  /** Hostname expected in the provider callback URL. */
-+  /** Case-insensitive hostname expected in the provider callback URL. */
-   hostname: string;
--  /** Absolute path expected in the provider callback URL. */
-+  /** Case-sensitive absolute path expected in the provider callback URL. */
-   pathname: string;
- }
- 
-@@ -36,20 +36,36 @@ export interface OAuthProviderRegistration {
-   /**
-    * Handles a callback claimed by this provider.
-    *
--   * @param url Validated callback URL, including provider query parameters.
-+   * The registry validates only the URL scheme and registered route. Providers
-+   * must independently validate attacker-controlled query parameters such as
-+   * OAuth state, authorization codes, and PKCE values.
-+   *
-+   * @param url Route-matched callback URL with untrusted query parameters.
-    * @returns Nothing, or a promise that settles after callback handling completes.
-    */
-   handleCallback(url: URL): void | Promise<void>;
- }
- 
--const providersByCallback = new Map<string, OAuthProviderRegistration>();
-+/**
-+ * Internal registry record giving every registration call its own identity, so a
-+ * cleanup callback can only remove the registration it was issued for.
-+ */
-+interface RegistryEntry {
-+  /** Provider registration supplied by the caller. */
-+  registration: OAuthProviderRegistration;
-+}
-+
-+const providersByCallback = new Map<string, RegistryEntry>();
-+
-+/** Reports a provider callback failure to the desktop integration layer. */
-+export type OAuthCallbackErrorReporter = (providerId: string, error: unknown) => void;
- 
- /**
-- * Creates a case-insensitive lookup key for a callback route.
-+ * Creates a lookup key with a normalized hostname and exact pathname.
-  *
-  * @param hostname Callback URL hostname.
-  * @param pathname Callback URL pathname.
-- * @returns A registry key for the callback route.
-+ * @returns A registry key with a lowercase hostname and case-sensitive pathname.
-  */
- function callbackKey(hostname: string, pathname: string): string {
-   return `${hostname.toLowerCase()}\n${pathname}`;
-@@ -95,6 +111,10 @@ function isValidRegistration(registration: unknown): registration is OAuthProvid
- /**
-  * Registers an OAuth provider as the exclusive owner of a callback route.
-  *
-+ * Providers that need launch-time callbacks must register before the protocol
-+ * handler becomes ready; callbacks are drained once and are not replayed to
-+ * providers registered later.
+diff --git a/app/e2e-tests/fixtures/oauthProviderMain.ts b/app/e2e-tests/fixtures/oauthProviderMain.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5e89559e89543245e87eb8f1a521265bcbf6de6a
+--- /dev/null
++++ b/app/e2e-tests/fixtures/oauthProviderMain.ts
+@@ -0,0 +1,51 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
 + *
-  * @param registration Provider callback registration.
-  * @returns A function that unregisters this provider without affecting replacements.
-  * @throws When the registration is invalid or its callback route is already owned.
-@@ -107,10 +127,13 @@ export function registerOAuthProvider(registration: OAuthProviderRegistration):
-   if (providersByCallback.has(key)) {
-     throw new Error('OAuth callback is already registered');
-   }
--  providersByCallback.set(key, registration);
-+  // A fresh entry per call, so a stale cleanup callback never matches a later
-+  // registration even when the caller re-registers the same registration object.
-+  const entry: RegistryEntry = { registration };
-+  providersByCallback.set(key, entry);
- 
-   return () => {
--    if (providersByCallback.get(key) === registration) {
-+    if (providersByCallback.get(key) === entry) {
-       providersByCallback.delete(key);
-     }
-   };
-@@ -124,23 +147,39 @@ export function registerOAuthProvider(registration: OAuthProviderRegistration):
-  *
-  * @param url Candidate OAuth callback URL.
-  * @param protocolScheme Product protocol scheme accepted by this application.
-+ * @param reportError Optional reporter used to surface provider failures to the user.
-  * @returns Whether a provider claimed the callback URL.
-  */
--export function dispatchOAuthCallback(url: URL, protocolScheme: string): boolean {
-+export function dispatchOAuthCallback(
-+  url: URL,
-+  protocolScheme: string,
-+  reportError?: OAuthCallbackErrorReporter
-+): boolean {
-   if (url.protocol !== `${protocolScheme}:`) {
-     return false;
-   }
--  const provider = providersByCallback.get(callbackKey(url.hostname, url.pathname));
--  if (!provider) {
-+  const entry = providersByCallback.get(callbackKey(url.hostname, url.pathname));
-+  if (!entry) {
-     return false;
-   }
-+  const provider = entry.registration;
- 
-   try {
-     Promise.resolve(provider.handleCallback(url)).catch(error => {
--      console.error(`OAuth callback failed for provider ${provider.id}:`, error);
-+      reportCallbackError(provider.id, error, reportError);
-     });
-   } catch (error) {
--    console.error(`OAuth callback failed for provider ${provider.id}:`, error);
-+    reportCallbackError(provider.id, error, reportError);
-   }
-   return true;
- }
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
 +
-+/** Logs and forwards a provider callback failure without releasing route ownership. */
-+function reportCallbackError(
-+  providerId: string,
-+  error: unknown,
-+  reportError?: OAuthCallbackErrorReporter
-+): void {
-+  console.error(`OAuth callback failed for provider ${providerId}:`, error);
-+  reportError?.(providerId, error);
++import { app, BrowserWindow } from 'electron';
++import fs from 'node:fs';
++import { registerOAuthProvider } from '../../electron/oauthProvider';
++import { createProtocolHandler } from '../../electron/protocolHandler';
++
++const callbackUrl = process.env.HEADLAMP_OAUTH_CALLBACK_URL;
++const outputPath = process.env.HEADLAMP_OAUTH_OUTPUT_PATH;
++const protocolScheme = process.env.HEADLAMP_OAUTH_PROTOCOL_SCHEME;
++let fixtureWindow: BrowserWindow;
++
++if (!callbackUrl || !outputPath || !protocolScheme) {
++  throw new Error('OAuth provider e2e fixture requires callback configuration');
 +}
++
++const protocolHandler = createProtocolHandler({
++  protocolScheme,
++  startUrl: 'data:text/html,<title>OAuth provider fixture</title>',
++  getMainWindow: () => fixtureWindow,
++});
++
++app.emit('open-url', { preventDefault() {} } as Electron.Event, callbackUrl);
++
++app.whenReady().then(async () => {
++  fixtureWindow = new BrowserWindow({ show: false });
++  await fixtureWindow.loadURL('data:text/html,<title>OAuth provider fixture</title>');
++  registerOAuthProvider({
++    id: 'e2e-provider',
++    callback: { hostname: 'oauth', pathname: '/callback' },
++    handleCallback(url) {
++      fs.writeFileSync(outputPath, url.href);
++      app.quit();
++    },
++  });
++  protocolHandler.setReady();
++});
+diff --git a/app/e2e-tests/playwright.electron.config.ts b/app/e2e-tests/playwright.electron.config.ts
+index c2b7e3d24f05061772289de85bd760d323308149..d66a86a4e7388c700540b09968f2616663f80505 100644
+--- a/app/e2e-tests/playwright.electron.config.ts
++++ b/app/e2e-tests/playwright.electron.config.ts
+@@ -35,6 +35,8 @@ export default defineConfig({
+     'listenerCleanup.spec.ts',
+     'runCommand.spec.ts',
+     'updateChecks.spec.ts',
++    'oauthProvider.spec.ts',
++    'protocolScheme.spec.ts',
+   ],
+   timeout: 60 * 1000,
+   expect: {
+diff --git a/app/e2e-tests/tests/oauthProvider.spec.ts b/app/e2e-tests/tests/oauthProvider.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..417c69d33b9b81b8911e43719a9a37e056480ca0
+--- /dev/null
++++ b/app/e2e-tests/tests/oauthProvider.spec.ts
+@@ -0,0 +1,99 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { expect, test } from '@playwright/test';
++import { buildSync } from 'esbuild';
++import { ChildProcess, spawn } from 'node:child_process';
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++
++const electronPath = require('electron') as string;
++const fixturePath = path.resolve(__dirname, '../fixtures/oauthProviderMain.ts');
++const callbackUrl = 'headlamp://oauth/callback?code=e2e-code&state=e2e-state';
++const electronEnvironment = { ...process.env };
++delete electronEnvironment.ELECTRON_RUN_AS_NODE;
++
++let electronProcess: ChildProcess | undefined;
++let electronProcessFailure = '';
++let electronStderr = '';
++let outputPath: string;
++let temporaryDirectory: string;
++
++test.describe('OAuth provider registry', () => {
++  test.beforeAll(async () => {
++    temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-oauth-e2e-'));
++    const bundlePath = path.join(temporaryDirectory, 'oauthProviderMain.cjs');
++    outputPath = path.join(temporaryDirectory, 'callback-url.txt');
++
++    buildSync({
++      bundle: true,
++      entryPoints: [fixturePath],
++      external: ['electron'],
++      format: 'cjs',
++      outfile: bundlePath,
++      platform: 'node',
++      target: 'node20',
++    });
++
++    electronProcess = spawn(electronPath, [bundlePath], {
++      env: {
++        ...electronEnvironment,
++        HEADLAMP_OAUTH_CALLBACK_URL: callbackUrl,
++        HEADLAMP_OAUTH_OUTPUT_PATH: outputPath,
++        HEADLAMP_OAUTH_PROTOCOL_SCHEME: 'headlamp',
++      },
++      stdio: 'pipe',
++    });
++    electronProcess.stderr?.on('data', chunk => {
++      electronStderr += chunk.toString();
++    });
++    electronProcess.on('exit', (code, signal) => {
++      if (!fs.existsSync(outputPath)) {
++        electronProcessFailure = `Electron exited with code ${code} and signal ${signal}`;
++        if (electronStderr) {
++          electronProcessFailure += `\n${electronStderr}`;
++        }
++      }
++    });
++  });
++
++  test.afterAll(async () => {
++    if (
++      electronProcess &&
++      electronProcess.exitCode === null &&
++      electronProcess.signalCode === null
++    ) {
++      const processExited = new Promise<void>(resolve => {
++        electronProcess?.once('exit', () => resolve());
++      });
++      electronProcess.kill();
++      await processExited;
++    }
++    fs.rmSync(temporaryDirectory, { force: true, recursive: true });
++  });
++
++  test('dispatches a launch callback emitted before Electron is ready', async () => {
++    await expect
++      .poll(() => {
++        if (electronProcessFailure) {
++          throw new Error(electronProcessFailure);
++        }
++        return fs.existsSync(outputPath) && fs.readFileSync(outputPath, 'utf8');
++      })
++      .toBe(callbackUrl);
++  });
++});
+diff --git a/app/e2e-tests/tests/protocolScheme.spec.ts b/app/e2e-tests/tests/protocolScheme.spec.ts
+index e8890c2018da5982c7c14afce91564c1788a3bd4..4d4cd640fd46e7fe36420aece100ccc84cda2c42 100644
+--- a/app/e2e-tests/tests/protocolScheme.spec.ts
++++ b/app/e2e-tests/tests/protocolScheme.spec.ts
+@@ -16,31 +16,35 @@
+ 
+ import { expect, test } from '@playwright/test';
+ import fs from 'node:fs';
++import os from 'node:os';
+ import path from 'node:path';
++import { pathToFileURL } from 'node:url';
+ import { _electron, ElectronApplication, Page } from 'playwright';
+ 
+ const electronExecutable = process.platform === 'win32' ? 'electron.cmd' : 'electron';
+ const electronPath = path.resolve(__dirname, `../../node_modules/.bin/${electronExecutable}`);
+ const appPath = path.resolve(__dirname, '../../');
+-const manifestPath = path.join(appPath, 'app-build-manifest.json');
+ 
+ let electronApp: ElectronApplication;
+ let electronPage: Page;
+-let originalManifest: string;
++let temporaryAppPath: string;
+ 
+ test.describe('desktop protocol scheme', () => {
+-  test.skip(process.env.PLAYWRIGHT_TEST_MODE !== 'app', 'Requires Electron app mode');
+-
+   test.beforeAll(async () => {
+-    originalManifest = fs.readFileSync(manifestPath, 'utf8');
+-    const productManifest = JSON.parse(originalManifest);
++    temporaryAppPath = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-protocol-e2e-'));
++    fs.writeFileSync(
++      path.join(temporaryAppPath, 'package.json'),
++      JSON.stringify({
++        name: 'headlamp-protocol-e2e',
++        version: '1.0.0',
++        main: `${appPath}/build/main.js`,
++      })
++    );
+     fs.writeFileSync(
+-      manifestPath,
++      path.join(temporaryAppPath, 'app-build-manifest.json'),
+       JSON.stringify(
+         {
+-          ...productManifest,
+           product: {
+-            ...productManifest.product,
+             protocols: { name: 'test-headlamp-protocol', schemes: ['test-headlamp'] },
+           },
+         },
+@@ -57,13 +61,15 @@ test.describe('desktop protocol scheme', () => {
+     }
+ 
+     electronApp = await _electron.launch({
+-      cwd: appPath,
++      cwd: temporaryAppPath,
+       executablePath: electronPath,
+       args: ['.', 'test-headlamp://cluster?name=startup'],
+       env: {
+         ...electronEnv,
+         NODE_ENV: 'development',
+         ELECTRON_DEV: 'true',
++        ELECTRON_START_URL: pathToFileURL(path.join(appPath, '../frontend/build/index.html')).href,
++        EXTERNAL_SERVER: 'true',
+       },
+     });
+     electronPage = await electronApp.firstWindow();
+@@ -72,7 +78,9 @@ test.describe('desktop protocol scheme', () => {
+ 
+   test.afterAll(async () => {
+     await electronApp?.close();
+-    fs.writeFileSync(manifestPath, originalManifest);
++    if (temporaryAppPath) {
++      fs.rmSync(temporaryAppPath, { force: true, recursive: true });
++    }
+   });
+ 
+   test('routes a product protocol URL from the startup command line', async () => {
 -- 
 2.54.0
 

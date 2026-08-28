@@ -1,4 +1,4 @@
-From a982f253f63bb921a4c2b02a052f06bb50cf1411 Mon Sep 17 00:00:00 2001
+From 7d6160156275a20f9514c2030bbe55d526e2c968 Mon Sep 17 00:00:00 2001
 From: Oleksandr Dubenko <oldubenko@microsoft.com>
 Date: Fri, 21 Nov 2025 11:08:55 -0500
 Subject: [PATCH 1/3] frontend: queryClient: Avoid retrying client HTTP errors
@@ -97,7 +97,7 @@ index 2449894b1f5edc60c7b9e0174052615d39a6e6c0..c8b924504098d9d0d913f70bf206d47a
 2.54.0
 
 
-From 27888804f23f3e8552e8662fe0b15a4778019687 Mon Sep 17 00:00:00 2001
+From 2fa71ba982d6145fc372e453b787458b9a8943a8 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 6 Aug 2026 07:58:16 +0200
 Subject: [PATCH 2/3] frontend: queryClient: Handle temporary HTTP errors
@@ -233,7 +233,7 @@ index c8b924504098d9d0d913f70bf206d47a5c11f33c..8abd7932e9a3930a4b3b6fac82676837
 2.54.0
 
 
-From 9edd572b34a34a3564fbea2f64224b0b394702d0 Mon Sep 17 00:00:00 2001
+From 31dda3128c65321bffe3ff028d880ae852711e7b Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 6 Aug 2026 07:58:49 +0200
 Subject: [PATCH 3/3] e2e: queryClient: Verify config error recovery

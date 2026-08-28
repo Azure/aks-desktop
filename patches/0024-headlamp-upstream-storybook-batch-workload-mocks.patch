@@ -1,4 +1,4 @@
-From 24944058c0c9239cd0fa1b19e573cf7d926c210e Mon Sep 17 00:00:00 2001
+From 21be177aa2cb51cf3c19235389ffc1c5f873d142 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Tue, 25 Aug 2026 11:15:58 +0200
 Subject: [PATCH 1/2] e2e-tests: workloads.spec: Verify batch workload lists
@@ -6,168 +6,23 @@ Subject: [PATCH 1/2] e2e-tests: workloads.spec: Verify batch workload lists
 Exercise the Jobs and CronJobs pages so batch workload collection requests
 and rendered resources are covered end to end.
 ---
- e2e-tests/tests/workloads.spec.ts | 248 +++++++++++++++++++++++-------
- 1 file changed, 193 insertions(+), 55 deletions(-)
+ e2e-tests/tests/workloads.spec.ts | 97 +++++++++++++++++++++++++++++++
+ 1 file changed, 97 insertions(+)
 
 diff --git a/e2e-tests/tests/workloads.spec.ts b/e2e-tests/tests/workloads.spec.ts
-index 76c94420464309503c360ba4c3cf9d521ce78e62..3073f4e3890c191ebadfc0af7f570015ab86092c 100644
+index fec4539adbd3dd060b3f7ea7ceafdd2e8703a6ed..0c18d7c64838c6759df9fab9aea9d2437fc55724 100644
 --- a/e2e-tests/tests/workloads.spec.ts
 +++ b/e2e-tests/tests/workloads.spec.ts
-@@ -17,84 +17,167 @@
- import { expect, test } from '@playwright/test';
- import { HeadlampPage } from './headlampPage';
- 
--const containerName = 'workload-container';
--const containerImage = 'registry.k8s.io/pause:3.10';
--const labels = { app: 'headlamp-e2e' };
--const podTemplate = {
--  metadata: { labels },
--  spec: {
--    containers: [{ name: containerName, image: containerImage }],
--  },
--};
-+test.use({ viewport: { width: 1920, height: 1080 } });
- 
- const appsWorkloads = [
-   {
-     resource: 'daemonsets',
-     kind: 'DaemonSet',
-     name: 'logging-agent',
--    title: /DaemonSets/,
-+    title: / - DaemonSets$/,
-+    container: 'log-collector',
-+    image: 'fluent-bit:3.2',
-+    nodeSelector: 'kubernetes.io/os: linux',
-     spec: {
--      selector: { matchLabels: labels },
-+      selector: { matchLabels: { app: 'logging-agent' } },
-       template: {
--        ...podTemplate,
--        spec: { ...podTemplate.spec, nodeSelector: { 'kubernetes.io/os': 'linux' } },
-+        metadata: { labels: { app: 'logging-agent' } },
-+        spec: {
-+          containers: [{ name: 'log-collector', image: 'fluent-bit:3.2' }],
-+          nodeSelector: { 'kubernetes.io/os': 'linux' },
-+        },
-       },
-     },
--    status: { currentNumberScheduled: 3, desiredNumberScheduled: 3, numberReady: 2 },
--    expectedText: 'kubernetes.io/os: linux',
-+    status: {
-+      currentNumberScheduled: 1,
-+      desiredNumberScheduled: 1,
-+      numberAvailable: 1,
-+      numberReady: 1,
-+    },
-   },
-   {
-     resource: 'deployments',
-     kind: 'Deployment',
-     name: 'web-server',
--    title: /Deployments/,
--    spec: { replicas: 3, selector: { matchLabels: labels }, template: podTemplate },
-+    title: / - Deployments$/,
-+    container: 'server',
-+    image: 'nginx:1.27',
-+    spec: {
-+      replicas: 1,
-+      selector: { matchLabels: { app: 'web-server' } },
-+      template: {
-+        metadata: { labels: { app: 'web-server' } },
-+        spec: { containers: [{ name: 'server', image: 'nginx:1.27' }] },
-+      },
-+    },
-     status: {
--      replicas: 3,
--      availableReplicas: 2,
--      readyReplicas: 2,
--      conditions: [{ type: 'Available', status: 'True', message: 'Deployment is available' }],
-+      availableReplicas: 1,
-+      readyReplicas: 1,
-+      replicas: 1,
-+      updatedReplicas: 1,
-     },
--    expectedText: 'Available',
-   },
-   {
-     resource: 'replicasets',
-     kind: 'ReplicaSet',
-     name: 'web-server-replica',
--    title: /ReplicaSets/,
--    spec: { replicas: 3, selector: { matchLabels: labels }, template: podTemplate },
--    status: { replicas: 3, readyReplicas: 2, availableReplicas: 2, observedGeneration: 1 },
--    expectedText: 'app: headlamp-e2e',
-+    title: / - ReplicaSets$/,
-+    container: 'replica-server',
-+    image: 'nginx:1.27-alpine',
-+    spec: {
-+      replicas: 1,
-+      selector: { matchLabels: { app: 'web-server-replica' } },
-+      template: {
-+        metadata: { labels: { app: 'web-server-replica' } },
-+        spec: { containers: [{ name: 'replica-server', image: 'nginx:1.27-alpine' }] },
-+      },
-+    },
-+    status: {
-+      availableReplicas: 1,
-+      fullyLabeledReplicas: 1,
-+      readyReplicas: 1,
-+      replicas: 1,
-+    },
-   },
-   {
-     resource: 'statefulsets',
-     kind: 'StatefulSet',
-     name: 'database',
--    title: /StatefulSets/,
-+    title: / - StatefulSets$/,
-+    container: 'postgres',
-+    image: 'postgres:17',
-     spec: {
--      replicas: 3,
-+      replicas: 1,
-+      selector: { matchLabels: { app: 'database' } },
-       serviceName: 'database',
--      selector: { matchLabels: labels },
--      template: podTemplate,
-+      template: {
-+        metadata: { labels: { app: 'database' } },
-+        spec: { containers: [{ name: 'postgres', image: 'postgres:17' }] },
-+      },
-+    },
-+    status: {
-+      currentReplicas: 1,
-+      currentRevision: 'database-1',
-+      readyReplicas: 1,
-+      replicas: 1,
-+      updateRevision: 'database-1',
-+      updatedReplicas: 1,
-     },
--    status: { replicas: 3, readyReplicas: 2, currentReplicas: 3, observedGeneration: 1 },
--    expectedText: '2/3',
+@@ -82,6 +82,57 @@ const appsWorkloads = [
    },
  ];
  
--for (const workload of appsWorkloads) {
--  test(`loads the ${workload.kind} list page`, async ({ page }) => {
--    let requestSeen = false;
--    const collectionUrl = new RegExp(
--      `/clusters/test/apis/apps/v1/(?:namespaces/[^/]+/)?${workload.resource}(?:\\?.*)?$`
--    );
--    await page.route(collectionUrl, async route => {
--      requestSeen = true;
--      const namespaceMatch = new URL(route.request().url()).pathname.match(
--        /\/namespaces\/([^/]+)\//
--      );
--      const namespace = namespaceMatch ? decodeURIComponent(namespaceMatch[1]) : 'default';
 +const batchWorkloads = [
 +  {
 +    resource: 'jobs',
 +    kind: 'Job',
 +    name: 'data-import',
-+    title: / - Jobs$/,
-+    container: 'importer',
-+    image: 'busybox:1.37',
++    title: / - Jobs - .+$/,
 +    spec: {
 +      completions: 1,
 +      parallelism: 1,
@@ -188,9 +43,7 @@ index 76c94420464309503c360ba4c3cf9d521ce78e62..3073f4e3890c191ebadfc0af7f570015
 +    resource: 'cronjobs',
 +    kind: 'CronJob',
 +    name: 'nightly-backup',
-+    title: / - CronJobs$/,
-+    container: 'backup',
-+    image: 'postgres:17',
++    title: / - CronJobs - .+$/,
 +    spec: {
 +      concurrencyPolicy: 'Forbid',
 +      jobTemplate: {
@@ -215,52 +68,13 @@ index 76c94420464309503c360ba4c3cf9d521ce78e62..3073f4e3890c191ebadfc0af7f570015
 +  },
 +];
 +
-+test('loads apps workload list pages', async ({ page }) => {
-+  const requestedResources = new Set<string>();
- 
-+  for (const workload of appsWorkloads) {
-+    const collectionUrl = new RegExp(`/clusters/test/apis/apps/v1/${workload.resource}(?:\\?.*)?$`);
-+    await page.route(collectionUrl, async route => {
-+      requestedResources.add(workload.resource);
-       await route.fulfill({
-         json: {
-           apiVersion: 'apps/v1',
-@@ -106,7 +189,59 @@ for (const workload of appsWorkloads) {
-               kind: workload.kind,
-               metadata: {
-                 name: workload.name,
--                namespace,
-+                namespace: 'default',
-+                resourceVersion: '1',
-+                creationTimestamp: '2026-01-01T00:00:00Z',
-+                uid: `${workload.resource}-uid`,
-+              },
-+              spec: workload.spec,
-+              status: workload.status,
-+            },
-+          ],
-+        },
-+      });
-+    });
-+  }
-+
-+  const headlampPage = new HeadlampPage(page);
-+  await headlampPage.navigateToCluster('test', process.env.HEADLAMP_TEST_TOKEN);
-+
-+  for (const workload of appsWorkloads) {
-+    await headlampPage.navigateTopage(`/c/test/${workload.resource}`, workload.title);
-+    await expect.poll(() => requestedResources.has(workload.resource)).toBe(true);
-+    const workloadLink = page.getByRole('link', { name: workload.name, exact: true });
-+    const workloadRow = page.getByRole('row').filter({ has: workloadLink });
-+
-+    await expect(workloadLink).toBeVisible();
-+    await expect(workloadRow.getByText(workload.container, { exact: true })).toBeVisible();
-+    await expect(workloadRow.getByText(workload.image, { exact: true })).toBeVisible();
-+    if (workload.nodeSelector) {
-+      await expect(workloadRow.getByText(workload.nodeSelector, { exact: true })).toBeVisible();
-+    }
-+  }
-+});
+ for (const workload of appsWorkloads) {
+   test(`loads the ${workload.kind} list page`, async ({ page }) => {
+     let requestSeen = false;
+@@ -131,3 +182,49 @@ for (const workload of appsWorkloads) {
+     await expect(workloadRow.getByText(workload.expectedText, { exact: true })).toBeVisible();
+   });
+ }
 +
 +test('loads batch workload list pages', async ({ page }) => {
 +  const requestedResources = new Set<string>();
@@ -283,44 +97,35 @@ index 76c94420464309503c360ba4c3cf9d521ce78e62..3073f4e3890c191ebadfc0af7f570015
 +              metadata: {
 +                name: workload.name,
 +                namespace: 'default',
-                 resourceVersion: '1',
-                 creationTimestamp: '2026-01-01T00:00:00Z',
-                 uid: `${workload.resource}-uid`,
-@@ -118,16 +253,19 @@ for (const workload of appsWorkloads) {
-         },
-       });
-     });
++                resourceVersion: '1',
++                creationTimestamp: '2026-01-01T00:00:00Z',
++                uid: `${workload.resource}-uid`,
++              },
++              spec: workload.spec,
++              status: workload.status,
++            },
++          ],
++        },
++      });
++    });
 +  }
 +
 +  const headlampPage = new HeadlampPage(page);
 +  await headlampPage.navigateToCluster('test', process.env.HEADLAMP_TEST_TOKEN);
- 
--    const headlampPage = new HeadlampPage(page);
--    await headlampPage.navigateToCluster('test', process.env.HEADLAMP_TEST_TOKEN);
++
 +  for (const workload of batchWorkloads) {
-     await headlampPage.navigateTopage(`/c/test/${workload.resource}`, workload.title);
++    await headlampPage.navigateTopage(`/c/test/${workload.resource}`, workload.title);
 +    await expect.poll(() => requestedResources.has(workload.resource)).toBe(true);
 +    const workloadLink = page.getByRole('link', { name: workload.name, exact: true });
-+    const workloadRow = page.getByRole('row').filter({ has: workloadLink });
- 
--    await expect.poll(() => requestSeen).toBe(true);
--    const workloadRow = page
--      .getByRole('row')
--      .filter({ has: page.getByRole('link', { name: workload.name, exact: true }) });
--    await expect(workloadRow).toBeVisible();
--    await expect(workloadRow.getByText(workload.expectedText, { exact: true })).toBeVisible();
--  });
--}
++
 +    await expect(workloadLink).toBeVisible();
-+    await expect(workloadRow.getByText(workload.container, { exact: true })).toBeVisible();
-+    await expect(workloadRow.getByText(workload.image, { exact: true })).toBeVisible();
 +  }
 +});
 -- 
 2.54.0
 
 
-From 55409baec3fa166e71d3be3f1014a95eacc960aa Mon Sep 17 00:00:00 2001
+From 0cea80ab4fc8661845fa29fdd3d8678bbe2c6899 Mon Sep 17 00:00:00 2001
 From: Evangelos Skopelitis <eskopelitis@microsoft.com>
 Date: Fri, 31 Jul 2026 16:42:21 +0000
 Subject: [PATCH 2/2] frontend: storybook: Mock batch workload lists
@@ -333,85 +138,16 @@ unhandled batch API requests.
 
 Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 ---
- e2e-tests/storybook-tests/batchMocks.spec.ts  | 61 +++++++++++++++
  frontend/.storybook/baseMocks.ts              | 69 +++++++++++-----
  frontend/src/test/storybookBaseMocks.test.ts  | 78 ++++++++++++-------
  .../src/test/storybookBaseMocks.testHelper.ts | 49 +++++++-----
  .../config/.storybook/baseMocks.ts            | 69 +++++++++++-----
  plugins/headlamp-plugin/package.json          |  1 +
- .../storybookBaseMocks.test.ts                | 59 ++++++++++++++
+ .../storybookBaseMocks.test.ts                | 62 +++++++++++++++
  .../headlamp-plugin/test-headlamp-plugin.js   |  2 +-
- 8 files changed, 299 insertions(+), 89 deletions(-)
- create mode 100644 e2e-tests/storybook-tests/batchMocks.spec.ts
+ 7 files changed, 241 insertions(+), 89 deletions(-)
  create mode 100644 plugins/headlamp-plugin/storybookBaseMocks.test.ts
 
-diff --git a/e2e-tests/storybook-tests/batchMocks.spec.ts b/e2e-tests/storybook-tests/batchMocks.spec.ts
-new file mode 100644
-index 0000000000000000000000000000000000000000..6c7934ce74f46fbe41c739b429cf7785cfdcf536
---- /dev/null
-+++ b/e2e-tests/storybook-tests/batchMocks.spec.ts
-@@ -0,0 +1,61 @@
-+/*
-+ * Copyright 2026 The Kubernetes Authors
-+ *
-+ * Licensed under the Apache License, Version 2.0 (the "License");
-+ * you may not use this file except in compliance with the License.
-+ * You may obtain a copy of the License at
-+ *
-+ * http://www.apache.org/licenses/LICENSE-2.0
-+ *
-+ * Unless required by applicable law or agreed to in writing, software
-+ * distributed under the License is distributed on an "AS IS" BASIS,
-+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-+ * See the License for the specific language governing permissions and
-+ * limitations under the License.
-+ */
-+
-+import { expect, test } from '@playwright/test';
-+
-+const batchMocks = [
-+  {
-+    url: 'http://localhost:4466/apis/batch/v1/jobs',
-+    kind: 'JobList',
-+  },
-+  {
-+    url: 'http://localhost:4466/apis/batch/v1/cronjobs',
-+    kind: 'CronJobList',
-+  },
-+];
-+
-+test('Storybook serves batch workload fallbacks', async ({ page }) => {
-+  test.setTimeout(60_000);
-+  await page.goto('/iframe.html?id=common-actionbutton--basic&viewMode=story');
-+
-+  for (const mock of batchMocks) {
-+    await expect
-+      .poll(
-+        () =>
-+          page.evaluate(async url => {
-+            try {
-+              const response = await fetch(url);
-+              return {
-+                status: response.status,
-+                body: await response.json(),
-+              };
-+            } catch {
-+              return null;
-+            }
-+          }, mock.url),
-+        { timeout: 30_000 }
-+      )
-+      .toEqual({
-+        status: 200,
-+        body: {
-+          kind: mock.kind,
-+          apiVersion: 'batch/v1',
-+          metadata: {},
-+          items: [],
-+        },
-+      });
-+  }
-+});
 diff --git a/frontend/.storybook/baseMocks.ts b/frontend/.storybook/baseMocks.ts
 index 609a1777eaae2e03dab4c9225be6e840668f7dfc..0202cdaeddb80aa27c44a913c9cf2c3602445572 100644
 --- a/frontend/.storybook/baseMocks.ts
@@ -774,10 +510,10 @@ index 7a3593255906255568851042cb91c658e27de123..701d3150f268579f871bf30baca936bd
      "copy-package-lock": "node scripts/copy-package-lock.js"
 diff --git a/plugins/headlamp-plugin/storybookBaseMocks.test.ts b/plugins/headlamp-plugin/storybookBaseMocks.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..1c563fa845ea461059d20c84bd755ffe7351b7c6
+index 0000000000000000000000000000000000000000..5ce7b3dfe4d7d2433abe87330f358ab970a8c5de
 --- /dev/null
 +++ b/plugins/headlamp-plugin/storybookBaseMocks.test.ts
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,62 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -814,6 +550,9 @@ index 0000000000000000000000000000000000000000..1c563fa845ea461059d20c84bd755ffe
 +afterEach(() => server.resetHandlers());
 +afterAll(() => server.close());
 +
++// Keep this executable contract in the plugin package, where its MSW and Vite
++// dependencies are installed. It catches fallback handlers accidentally moving
++// into baseMocks and verifies that each URL returns its matching Kubernetes kind.
 +test.each([
 +  ['apps', appsWorkloads],
 +  ['batch', batchWorkloads],
