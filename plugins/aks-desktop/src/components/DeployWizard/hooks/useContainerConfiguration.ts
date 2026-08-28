@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * Flat configuration state for the container deployment wizard.
@@ -173,5 +173,9 @@ export function useContainerConfiguration(
     }
   }, [config.targetPort, config.useCustomServicePort]);
 
-  return { config, setConfig };
+  /** Used to keep every step already visited clickable after jumping back to an earlier one. */
+  const furthestStep = useRef(config.containerStep);
+  furthestStep.current = Math.max(furthestStep.current, config.containerStep);
+
+  return { config, setConfig, furthestStep: furthestStep.current };
 }
