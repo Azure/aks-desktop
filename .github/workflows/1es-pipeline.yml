@@ -11,7 +11,7 @@ resources:
 parameters:
   - name: nodeVersion
     type: string
-    default: 20.x
+    default: 22.22.2
   - name: goVersion
     type: string
     default: 1.26.3
@@ -86,15 +86,13 @@ extends:
                   echo "=== END NODE.JS DEBUG ==="
                 displayName: "Debug: Node.js Installation"
               - checkout: self
-                submodules: recursive
+                submodules: false
               # TODO: Remove debug logging after pipeline is stable
               - bash: |
                   echo "=== CHECKOUT DEBUG ==="
                   echo "Current working directory: $(pwd)"
                   echo "Repository contents:"
                   ls -la
-                  echo "Submodules status:"
-                  git submodule status || echo "No submodules or git not available"
                   echo "Git branch:"
                   git branch -a || echo "Git not available"
                   echo "Git commit:"
@@ -128,15 +126,24 @@ extends:
                   go env | grep -E "GOPROXY|GOSUMDB|PROXY"
                   echo "=== END GO ENVIRONMENT ==="
 
+                  npm_root="$(mktemp -d "${AGENT_TEMPDIRECTORY:-${TMPDIR:-/tmp}}/npm.XXXXXX")"
+                  npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
+                  echo "##vso[task.prependpath]$npm_root/node_modules/.bin"
+                  export PATH="$npm_root/node_modules/.bin:$PATH"
+                  npm run headlamp:prepare
+                  npm ci
                   echo "Building AKS desktop Windows application..."
-                  npm run build:win-ci
+                  if ! npm run build:win-ci || \
+                    ! npm run test:distribution; then
+                    exit 1
+                  fi
                   echo "✅ Build complete"
 
                   echo "=== POST-BUILD DEBUG ==="
                   echo "Checking for build outputs..."
                   find . -name "*.exe" -type f 2>/dev/null || echo "No .exe files found"
-                  echo "headlamp/app/dist contents:"
-                  ls -la headlamp/app/dist/ 2>/dev/null || echo "headlamp/app/dist not found"
+                  echo "Headlamp app dist contents:"
+                  ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ 2>/dev/null || echo "Headlamp app dist not found"
                   echo "=== END POST-BUILD DEBUG ==="
                 displayName: "Build AKS desktop (Windows)"
 
@@ -152,18 +159,18 @@ extends:
                   echo "All .exe files in current directory:"
                   find . -name "*.exe" -type f 2>/dev/null || echo "No .exe files found"
 
-                  echo "headlamp/app/dist directory contents:"
-                  ls -la headlamp/app/dist/ 2>/dev/null || echo "headlamp/app/dist directory not found"
+                  echo "Headlamp app dist directory contents:"
+                  ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ 2>/dev/null || echo "Headlamp app dist directory not found"
 
                   echo "=== COPY EXECUTABLE DEBUG END ==="
 
                   echo "Finding built .exe file..."
-                  EXE_PATH=$(find headlamp/app/dist -type f -name "aks-desktop-*-win-x64.exe" -print -quit)
+                  EXE_PATH=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop-*-win-x64.exe" -print -quit)
 
                   if [ -z "$EXE_PATH" ]; then
-                    echo "❌ No aks-desktop .exe file found in headlamp/app/dist!" >&2
-                    echo "Listing headlamp/app/dist contents:"
-                    ls -la headlamp/app/dist/ || echo "headlamp/app/dist directory not found"
+                    echo "❌ No aks-desktop .exe file found in the Headlamp app dist!" >&2
+                    echo "Listing Headlamp app dist contents:"
+                    ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ || echo "Headlamp app dist directory not found"
                     exit 1
                   fi
 

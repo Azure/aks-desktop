@@ -137,7 +137,61 @@ test('source builds use explicit, reviewed install scripts', () => {
   );
   assert.equal(frontendManifest.dependencies.tsx, undefined);
   assert.equal(frontendManifest.allowScripts, undefined);
-  assert.match(frontendManifest.scripts.postbuild, /^node --experimental-strip-types /);
+  assert.equal(frontendManifest.scripts.postbuild, 'tsx ./scripts/precompress-build.ts build');
+  assert.equal(
+    frontendManifest.scripts['postbuild:rsbuild'],
+    'tsx ./scripts/precompress-build.ts build'
+  );
+  assert.equal(sourceManifest.devDependencies.tsx, '4.23.1');
+  assert.match(sourceManifest.scripts['app:build'], /tsx \.\/scripts\/setup-plugins\.ts/);
+  assert.match(sourceManifest.scripts['app:build:dir'], /tsx \.\/scripts\/setup-plugins\.ts/);
+  assert.match(sourceManifest.scripts['app:start'], /tsx \.\/scripts\/setup-plugins\.ts/);
+  assert.match(
+    fs.readFileSync(
+      path.join(
+        HEADLAMP_SOURCE_DIR,
+        'plugins',
+        'headlamp-plugin',
+        'dependencies-sync.js'
+      ),
+      'utf8'
+    ),
+    /dependenciesToNotCopy = \[[\s\S]*?'tsx'/
+  );
+  for (const lockPath of [
+    'package-lock.json',
+    'app/package-lock.json',
+    'frontend/package-lock.json',
+  ]) {
+    assert.doesNotMatch(
+      fs.readFileSync(path.join(HEADLAMP_SOURCE_DIR, lockPath), 'utf8'),
+      /\.pkgs\.visualstudio\.com/
+    );
+  }
+});
+
+test('packaged source file filtering ignores nested node_modules', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-files-filter-'));
+  try {
+    fs.writeFileSync(path.join(directory, 'included.tsx'), '');
+    fs.mkdirSync(path.join(directory, 'node_modules'));
+    fs.writeFileSync(path.join(directory, 'node_modules', 'ignored.tsx'), '');
+    const { sync } = require(
+      path.join(
+        HEADLAMP_SOURCE_DIR,
+        'frontend',
+        'src',
+        'filesFilter',
+        'filesFilter.ts'
+      )
+    );
+
+    assert.deepEqual(sync('^.*\\.tsx$', { ignore: /node_modules/, baseDir: directory }), [
+      path.join(directory, 'included.tsx'),
+    ]);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('the root package supports the standard npm start command', () => {

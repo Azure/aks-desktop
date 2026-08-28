@@ -26,19 +26,31 @@ jobs:
       - name: Setup nodejs
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: 20.x
+          node-version: 22.22.2
 
-      - name: Checkout this repository with submodules
+      - name: Checkout this repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.inputs.aks_plugin_branch }}
-          submodules: recursive
+          submodules: false
+
+      - name: Install dependencies
+        run: |
+          npm_root="$(mktemp -d "$RUNNER_TEMP/npm.XXXXXX")"
+          npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
+          echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$npm_root/node_modules/.bin:$PATH"
+          npm run headlamp:prepare
+          npm ci
 
       - name: Setup AKS desktop and Build Headlamp (Linux)
         run: npm run build:linux
+
+      - name: Validate the packaged application
+        run: npm run test:distribution -- --no-sandbox
 
       - name: Upload Linux build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aks-desktop-linux
-          path: headlamp/app/dist/aks-desktop*.deb
+          path: node_modules/@headlamp-k8s/headlamp-source/source/app/dist/aks-desktop*.deb

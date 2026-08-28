@@ -10,7 +10,7 @@ resources:
 parameters:
   - name: nodeVersion
     type: string
-    default: 20.x
+    default: 22.22.2
   - name: goVersion
     type: string
     default: 1.26.3
@@ -74,7 +74,7 @@ extends:
                   versionSpec: ${{ parameters.nodeVersion }}
 
               - checkout: self
-                submodules: recursive
+                submodules: false
 
               # Cache dependencies
               - task: Cache@2
@@ -89,20 +89,20 @@ extends:
               - task: Cache@2
                 displayName: 'Cache npm dependencies (headlamp frontend)'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | headlamp/frontend/package-lock.json'
+                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-frontend'
                   restoreKeys: |
                     npm | "$(Agent.OS)" |
                     npm |
-                  path: 'headlamp/frontend/node_modules'
+                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules'
 
               - task: Cache@2
                 displayName: 'Cache npm dependencies (headlamp app)'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | headlamp/app/package-lock.json'
+                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-app'
                   restoreKeys: |
                     npm | "$(Agent.OS)" |
                     npm |
-                  path: 'headlamp/app/node_modules'
+                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules'
 
               - task: Cache@2
                 displayName: 'Cache Go modules'
@@ -174,8 +174,13 @@ extends:
                   set -e
                   echo "Updating package.json to build for $(ARCH)..."
 
-                  # Navigate to headlamp/app directory
-                  cd headlamp/app
+                  npm_root="$(mktemp -d "${AGENT_TEMPDIRECTORY:-${TMPDIR:-/tmp}}/npm.XXXXXX")"
+                  npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
+                  echo "##vso[task.prependpath]$npm_root/node_modules/.bin"
+                  export PATH="$npm_root/node_modules/.bin:$PATH"
+                  npm run headlamp:prepare
+                  npm ci
+                  cd node_modules/@headlamp-k8s/headlamp-source/source/app
 
                   # Use Node.js to safely modify the JSON
                   node -e "
@@ -195,7 +200,6 @@ extends:
                   echo "Verifying package.json mac.target configuration:"
                   grep -A 5 '"mac"' package.json | grep -A 3 '"arch"' || echo "Configuration updated"
 
-                  cd ../..
                 displayName: "Configure Architecture in package.json ($(ARCH))"
 
               # Build application
@@ -203,7 +207,7 @@ extends:
                   set -e
                   echo "Building AKS desktop application for $(ARCH_DISPLAY)..."
 
-                  cp $(AKSDesktopProvisionProfile.secureFilePath) ./headlamp/app/mac/aks-desktop.provisionprofile
+                  cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
 
                   export NODE_OPTIONS="--max-old-space-size=4096"
                   export GOPROXY="https://proxy.golang.org,direct"
@@ -226,7 +230,7 @@ extends:
                   while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
                     echo "Build attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES for $(ARCH)..."
 
-                    if npm run build:mac; then
+                    if npm run build:mac && npm run test:distribution; then
                       SUCCESS=true
                       echo "✅ Build complete for $(ARCH_DISPLAY)"
                     else
@@ -247,11 +251,11 @@ extends:
                   set -e
                   echo "Copying built DMGs to staging directory..."
 
-                  DMG_FILES=$(find headlamp/app/dist -type f -name "aks-desktop*.dmg")
+                  DMG_FILES=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*.dmg")
 
                   if [ -z "$DMG_FILES" ]; then
-                    echo "❌ No DMG found in headlamp/app/dist!"
-                    ls -la headlamp/app/dist/ || echo "headlamp/app/dist not found"
+                    echo "❌ No DMG found in the Headlamp app dist!"
+                    ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ || echo "Headlamp app dist not found"
                     exit 1
                   fi
 
@@ -572,7 +576,7 @@ extends:
                   versionSpec: ${{ parameters.nodeVersion }}
 
               - checkout: self
-                submodules: recursive
+                submodules: false
 
               # Cache dependencies
               - task: Cache@2
@@ -587,20 +591,20 @@ extends:
               - task: Cache@2
                 displayName: 'Cache npm dependencies (headlamp frontend)'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | headlamp/frontend/package-lock.json'
+                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-frontend'
                   restoreKeys: |
                     npm | "$(Agent.OS)" |
                     npm |
-                  path: 'headlamp/frontend/node_modules'
+                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules'
 
               - task: Cache@2
                 displayName: 'Cache npm dependencies (headlamp app)'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | headlamp/app/package-lock.json'
+                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-app'
                   restoreKeys: |
                     npm | "$(Agent.OS)" |
                     npm |
-                  path: 'headlamp/app/node_modules'
+                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules'
 
               - task: Cache@2
                 displayName: 'Cache Go modules'
@@ -672,8 +676,13 @@ extends:
                   set -e
                   echo "Updating package.json to build for $(ARCH)..."
 
-                  # Navigate to headlamp/app directory
-                  cd headlamp/app
+                  npm_root="$(mktemp -d "${AGENT_TEMPDIRECTORY:-${TMPDIR:-/tmp}}/npm.XXXXXX")"
+                  npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
+                  echo "##vso[task.prependpath]$npm_root/node_modules/.bin"
+                  export PATH="$npm_root/node_modules/.bin:$PATH"
+                  npm run headlamp:prepare
+                  npm ci
+                  cd node_modules/@headlamp-k8s/headlamp-source/source/app
 
                   # Use Node.js to safely modify the JSON
                   node -e "
@@ -693,7 +702,6 @@ extends:
                   echo "Verifying package.json mac.target configuration:"
                   grep -A 5 '"mac"' package.json | grep -A 3 '"arch"' || echo "Configuration updated"
 
-                  cd ../..
                 displayName: "Configure Architecture in package.json ($(ARCH))"
 
               # Build application
@@ -701,7 +709,7 @@ extends:
                   set -e
                   echo "Building AKS desktop application for $(ARCH_DISPLAY)..."
 
-                  cp $(AKSDesktopProvisionProfile.secureFilePath) ./headlamp/app/mac/aks-desktop.provisionprofile
+                  cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
 
                   export NODE_OPTIONS="--max-old-space-size=4096"
                   export GOPROXY="https://proxy.golang.org,direct"
@@ -724,7 +732,7 @@ extends:
                   while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
                     echo "Build attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES for $(ARCH)..."
 
-                    if npm run build:mac; then
+                    if npm run build:mac && npm run test:distribution; then
                       SUCCESS=true
                       echo "✅ Build complete for $(ARCH_DISPLAY)"
                     else
@@ -745,11 +753,11 @@ extends:
                   set -e
                   echo "Copying built DMGs to staging directory..."
 
-                  DMG_FILES=$(find headlamp/app/dist -type f -name "aks-desktop*.dmg")
+                  DMG_FILES=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*.dmg")
 
                   if [ -z "$DMG_FILES" ]; then
-                    echo "❌ No DMG found in headlamp/app/dist!"
-                    ls -la headlamp/app/dist/ || echo "headlamp/app/dist not found"
+                    echo "❌ No DMG found in the Headlamp app dist!"
+                    ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ || echo "Headlamp app dist not found"
                     exit 1
                   fi
 
