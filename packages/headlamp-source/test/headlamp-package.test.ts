@@ -21,6 +21,9 @@ const packageManifest = JSON.parse(
 const rootManifest = JSON.parse(
   fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')
 );
+const sourceManifest = JSON.parse(
+  fs.readFileSync(path.join(HEADLAMP_SOURCE_DIR, 'package.json'), 'utf8')
+);
 const aksDesktopManifest = JSON.parse(
   fs.readFileSync(path.join(ROOT_DIR, 'plugins', 'aks-desktop', 'package.json'), 'utf8')
 );
