@@ -21,6 +21,9 @@ const packageManifest = JSON.parse(
 const rootManifest = JSON.parse(
   fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')
 );
+const aksDesktopManifest = JSON.parse(
+  fs.readFileSync(path.join(ROOT_DIR, 'plugins', 'aks-desktop', 'package.json'), 'utf8')
+);
 const packageLock = JSON.parse(
   fs.readFileSync(path.join(ROOT_DIR, 'package-lock.json'), 'utf8')
 );
@@ -236,6 +239,54 @@ test('all shipped plugin workspaces are packaged and installed', () => {
     enabledByDefault: true,
   });
   assert.match(rootManifest.scripts['install:all'], /plugin-catalog:install/);
+});
+
+test('AKS product policy owns development and production command grants', () => {
+  const aksDesktop = rootManifest.headlamp.plugins.find(
+    plugin => plugin.name === 'aks-desktop'
+  );
+  assert.equal(aksDesktop.capabilities, undefined);
+  assert.equal(aksDesktopManifest.headlamp.runCommands, undefined);
+  const policies = rootManifest.headlamp.runCommands;
+  assert.deepEqual(
+    policies.map(policy => ({
+      environment: policy.environment,
+      pluginLocation: policy.pluginLocation,
+      plugins: policy.plugins,
+    })),
+    [
+      {
+        environment: 'development',
+        pluginLocation: 'development',
+        plugins: [{ bundleName: 'aks-desktop', packageName: 'aks-desktop' }],
+      },
+      {
+        environment: 'production',
+        pluginLocation: 'shipped',
+        plugins: [{ bundleName: 'aks-desktop', packageName: 'aks-desktop' }],
+      },
+    ]
+  );
+  assert.deepEqual(policies[0].commands, policies[1].commands);
+  const productGrants = policies[0].commands;
+  assert.equal(productGrants.some(grant => 'command' in grant), false);
+  for (const group of ['ad', 'identity', 'rest']) {
+    assert.ok(
+      productGrants.some(
+        grant => grant.tool === 'az' && grant.args[0] === group && grant.allowTrailingArgs
+      ),
+      `Missing az ${group} command grant`
+    );
+  }
+  assert.ok(
+    productGrants.some(
+      grant =>
+        grant.tool === 'kubectl' &&
+        grant.args[0] === 'config' &&
+        grant.allowTrailingArgs
+    ),
+    'Missing kubectl config command grant'
+  );
 });
 
 test('container builds do not require repository metadata', () => {

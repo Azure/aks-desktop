@@ -226,135 +226,318 @@
         }
       ]
     },
+    "runCommands": [
+      {
+        "environment": "development",
+        "pluginLocation": "development",
+        "plugins": [
+          {
+            "bundleName": "aks-desktop",
+            "packageName": "aks-desktop"
+          }
+        ],
+        "commands": [
+          {
+            "tool": "az",
+            "args": [
+              "account"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "acr"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "aks"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "alerts-management"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "connectedk8s"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "extension"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "feature"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "graph"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "group"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "identity"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "login"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "logout"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "monitor"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "rest"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "role"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "version"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "vm"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "kubectl",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          }
+        ]
+      },
+      {
+        "environment": "production",
+        "pluginLocation": "shipped",
+        "plugins": [
+          {
+            "bundleName": "aks-desktop",
+            "packageName": "aks-desktop"
+          }
+        ],
+        "commands": [
+          {
+            "tool": "az",
+            "args": [
+              "account"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "acr"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "aks"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "alerts-management"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "connectedk8s"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "extension"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "feature"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "graph"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "group"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "identity"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "login"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "logout"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "monitor"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "rest"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "role"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "version"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "vm"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "kubectl",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          }
+        ]
+      }
+    ],
     "plugins": [
       {
         "name": "aks-desktop",
         "packageName": "aks-desktop",
         "source": "plugins/aks-desktop",
-        "enabledByDefault": true,
-        "capabilities": {
-          "runCommands": [
-            {
-              "tool": "az",
-              "args": [
-                "account"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "acr"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "aks"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "alerts-management"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "config"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "connectedk8s"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "extension"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "feature"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "graph"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "group"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "login"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "logout"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "monitor"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "role"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "version"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "tool": "az",
-              "args": [
-                "vm"
-              ],
-              "allowTrailingArgs": true
-            },
-            {
-              "command": "kubectl",
-              "args": [
-                "config"
-              ],
-              "allowTrailingArgs": true
-            }
-          ]
-        }
+        "enabledByDefault": true
       },
       {
         "name": "ai-assistant",

@@ -95,13 +95,51 @@ identities must be unique, including case-insensitive comparisons.
 | `name` | Yes | Unscoped bundle directory name. It may contain letters, numbers, `.`, `_`, and `-`. |
 | `packageName` | Yes | Exact npm package identity expected in the plugin's `package.json`. Scoped names are supported. |
 | `enabledByDefault` | No | Boolean default written to the bundled plugin metadata. A saved user preference still takes precedence at runtime. |
-| `capabilities` | No | Plugin capability policy copied to the generated product manifest, such as reviewed `runCommands`. |
 | `source` | One source field | A repository-relative workspace path, or `{ "type": "package" }` for a prebuilt dependency under `node_modules`. Workspace plugins are installed and built before bundling. |
 | `archive` | One source field | HTTPS URL handled by Headlamp's shipped-plugin installer. Requires `sha256`. |
 | `file` | One source field | Local packaged-plugin input handled by Headlamp's shipped-plugin installer. Requires `sha256`. |
 | `sha256` | For `archive` or `file` | A 64-character hexadecimal SHA-256 digest. |
 
 Each plugin must declare exactly one of `source`, `archive`, or `file`.
+
+### `runCommands`
+
+Top-level `headlamp.runCommands` records the commands the product allows plugins
+to run. It is separate from `headlamp.plugins`; the source package copies it
+unchanged into the generated product manifest. Each policy selects one runtime
+environment and plugin installation location, identifies one or more plugins, and declares
+their command grants:
+
+```json
+{
+  "environment": "production",
+  "pluginLocation": "shipped",
+  "plugins": [
+    {
+      "bundleName": "example-plugin",
+      "packageName": "@example/plugin"
+    }
+  ],
+  "commands": [
+    {
+      "tool": "examplectl",
+      "args": ["project", "list"],
+      "allowTrailingArgs": true
+    }
+  ]
+}
+```
+
+`environment` is `development` or `production`. `pluginLocation` is
+`development`, `user`, or `shipped`. Each plugin identity pairs its bundle
+directory with its package name. In each command, `tool` is the executable
+name, `args` is the required argument prefix, and `allowTrailingArgs` allows
+arguments after that prefix. Use `tool`, not `command`.
+
+Only the product may define command grants. A plugin's own `package.json` must
+not declare `headlamp.runCommands`, because plugin-controlled grants would let
+the plugin authorize itself. Headlamp validates the product policy and enforces
+it in the Electron main process before starting a command.
 
 ## Example
 
