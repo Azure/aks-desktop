@@ -17,14 +17,17 @@ This directory contains the plugins for the AKS desktop application.
 To build all plugins, use the build script from the root directory:
 
 ```bash
-npx tsx ./build/setup-plugins.ts
+npm run plugin:setup
 ```
 
-This script will for each plugin:
+The source-package bundler will for each plugin declared in
+`package.json#headlamp.plugins`:
+
 1. Navigate to the plugin directory
 2. Install dependencies
 3. Build the plugin
-4. Copy the built plugin to the Headlamp plugins directory
+4. Copy the compiled files into Headlamp's local `.plugins` directory so the
+  app can load and package them
 
 ## Development
 
