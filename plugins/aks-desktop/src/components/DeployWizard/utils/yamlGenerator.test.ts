@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { describe, expect, it } from 'vitest';
+import YAML from 'yaml';
 import { ContainerDeploymentConfig, generateYamlForContainer } from './yamlGenerator';
 
 function makeConfig(overrides?: Partial<ContainerDeploymentConfig>): ContainerDeploymentConfig {
@@ -212,5 +213,29 @@ describe('generateYamlForContainer', () => {
     const secretName = nameMatch![1];
     expect(secretName.length).toBeLessThanOrEqual(63);
     expect(secretName).toMatch(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/);
+  });
+
+  it('forces liveness and startup successThreshold to 1 while preserving custom readiness successThreshold', () => {
+    const yaml = generateYamlForContainer(
+      makeConfig({
+        enableLivenessProbe: true,
+        enableReadinessProbe: true,
+        enableStartupProbe: true,
+        livenessSuccess: 5,
+        readinessSuccess: 3,
+        startupSuccess: 4,
+      })
+    );
+
+    const deployment = YAML.parseAllDocuments(yaml)
+      .map(document => document.toJSON())
+      .find(resource => resource?.kind === 'Deployment');
+
+    expect(deployment).toBeDefined();
+    const container = deployment.spec.template.spec.containers[0];
+
+    expect(container.livenessProbe).toMatchObject({ successThreshold: 1 });
+    expect(container.readinessProbe).toMatchObject({ successThreshold: 3 });
+    expect(container.startupProbe).toMatchObject({ successThreshold: 1 });
   });
 });

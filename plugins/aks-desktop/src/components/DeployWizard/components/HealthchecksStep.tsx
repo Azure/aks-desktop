@@ -188,19 +188,20 @@ export default function HealthchecksStep({ containerConfig }: HealthchecksStepPr
                   <TextField
                     size="small"
                     type="number"
+                    disabled
                     label={
                       <LabelWithInfo
                         label={t('successThreshold')}
                         infoText={t(
-                          'Minimum consecutive successes for the probe to be considered successful after having failed. Default is 1.'
+                          'Kubernetes requires successThreshold to be 1 for liveness probes.'
                         )}
                       />
                     }
-                    value={containerConfig.config.livenessSuccess}
-                    onChange={e =>
+                    value={1}
+                    onChange={() =>
                       containerConfig.setConfig(c => ({
                         ...c,
-                        livenessSuccess: Math.max(1, Number(e.target.value)),
+                        livenessSuccess: 1,
                       }))
                     }
                   />
@@ -492,19 +493,20 @@ export default function HealthchecksStep({ containerConfig }: HealthchecksStepPr
                 <TextField
                   size="small"
                   type="number"
+                  disabled
                   label={
                     <LabelWithInfo
                       label={t('successThreshold')}
                       infoText={t(
-                        'Minimum consecutive successes for the probe to be considered successful after having failed. Default is 1.'
+                        'Kubernetes requires successThreshold to be 1 for startup probes.'
                       )}
                     />
                   }
-                  value={containerConfig.config.startupSuccess}
-                  onChange={e =>
+                  value={1}
+                  onChange={() =>
                     containerConfig.setConfig(c => ({
                       ...c,
-                      startupSuccess: Math.max(1, Number(e.target.value)),
+                      startupSuccess: 1,
                     }))
                   }
                 />
