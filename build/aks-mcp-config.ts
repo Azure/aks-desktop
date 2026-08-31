@@ -23,6 +23,28 @@ const ASSET_ARCH: Record<string, string> = {
   x64: 'amd64',
 };
 
+/**
+ * Resolves which published asset to stage for a build target.
+ *
+ * macOS always takes the amd64 asset, including for Apple Silicon builds. Two
+ * reasons, both load bearing:
+ *
+ * 1. Apple's notary service rejects ad-hoc signatures. Go signs its darwin/arm64
+ *    output ad-hoc (Apple Silicon will not execute unsigned code), and this binary
+ *    lands under resources/external-tools, which build.mac.signIgnore excludes from
+ *    signing -- so the ad-hoc signature survives into the DMG and fails
+ *    notarization. The unsigned amd64 asset notarizes cleanly.
+ * 2. The mac bundle is already x86_64 throughout: config.externalTools.python pins
+ *    a single x86_64-apple-darwin CPython for both mac targets, and Azure CLI runs
+ *    on it, so Apple Silicon already depends on Rosetta.
+ *
+ * Shipping a native arm64 aks-mcp requires stripping or replacing that ad-hoc
+ * signature before packaging; until then this keeps the mac builds notarizable.
+ */
+function assetArchFor(platform: string, targetArch: string): string {
+  return platform === 'darwin' ? ASSET_ARCH.x64 : ASSET_ARCH[targetArch];
+}
+
 /** Records which platform/arch was staged so later build steps can verify it. */
 const STAGED_TARGET_FILE = path.join('headlamp', 'app', 'resources', '.aks-mcp-target.json');
 
@@ -94,7 +116,7 @@ export function resolveAksMcpTarget(
     );
   }
 
-  const assetArch = ASSET_ARCH[targetArch];
+  const assetArch = assetArchFor(platform, targetArch);
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(rootDir, 'package.json'), 'utf-8')
   );
