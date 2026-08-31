@@ -18,14 +18,16 @@ export interface ToolVerificationResult {
  * Reads the Azure CLI extensions required by the repository build configuration.
  *
  * @param rootDir - Repository root containing `package.json`.
- * @returns Configured extension names, or an empty array when config cannot be read.
+ * @returns Configured extension names, or an empty array when config cannot be read
+ *   or is not a list.
  */
 export function readRequiredAzureCliExtensions(rootDir: string): string[] {
   try {
     const rootPackageJson = JSON.parse(
       fs.readFileSync(path.join(rootDir, "package.json"), "utf-8")
     );
-    return rootPackageJson?.config?.externalTools?.azureCli?.extensions ?? [];
+    const extensions = rootPackageJson?.config?.externalTools?.azureCli?.extensions;
+    return Array.isArray(extensions) ? extensions : [];
   } catch {
     return [];
   }
