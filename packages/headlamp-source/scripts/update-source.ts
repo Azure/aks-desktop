@@ -9,25 +9,23 @@ const {
   materializeHeadlampPatch,
 } = require('./compose-patches.ts');
 
-/** Purpose displayed by the script's help output. */
 const SCRIPT_PURPOSE =
   'Materialize or update pinned Headlamp source, package metadata, and patch integrity.';
-/** Usage displayed by the script's help output. */
 const SCRIPT_USAGE = `Usage:
   update-source.ts --prepare [--root <path>] [--source <checkout>] [--help]
-  update-source.ts --source <checkout> [--commit <sha>] [--base-tag <tag>] [--root <path>] [--help]
+  update-source.ts --source <checkout> [--revision <sha>] [--root <path>] [--help]
 
   --prepare          Materialize the configured source and aggregate patch.
   --source <path>    Clean Headlamp checkout used instead of fetching source.
-  --commit <sha>     Full source commit used in update mode.
-  --base-tag <tag>   Optional release tag used for package versioning.
+  --revision <sha>   Full source revision used in update mode.
   --root <path>      Consumer project root.
   --help             Show this help text.`;
 
 const PACKAGE_NAME: string = '@headlamp-k8s/headlamp-source';
+const SOURCE_REPOSITORY = 'https://github.com/kubernetes-sigs/headlamp.git';
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
-const BASE_TAG_PATTERN = /^v(\d+\.\d+\.\d+)$/;
 const SOURCE_MARKER = '.source-commit';
+const SOURCE_INTEGRITY_MARKER = '.source-integrity.json';
 const REQUIRED_SOURCE_PATHS = [
   'package.json',
   'LICENSE',
@@ -38,18 +36,14 @@ const REQUIRED_SOURCE_PATHS = [
   'frontend',
 ];
 
-/** Headlamp repository and revision configuration stored by the consumer. */
+/**
+ * Headlamp source configuration stored in the consumer's root package.json.
+ *
+ * This object must contain exactly one field: revision.
+ */
 interface HeadlampSourceConfig {
-  /** Git repository from which Headlamp source is fetched. */
-  repository: string;
-  /** Human-readable source ref recorded in package metadata. */
-  ref?: string;
-  /** Full authoritative Headlamp source commit SHA. */
-  commit: string;
-  /** Source commit used before the most recent update. */
-  previousCommit?: string;
-  /** Optional release tag used as the package version baseline. */
-  baseTag?: string;
+  /** Full authoritative 40-character Headlamp Git revision. */
+  revision: string;
 }
 
 /** Options for materializing configured Headlamp source. */
@@ -74,10 +68,8 @@ interface PrepareHeadlampSourceResult {
 interface UpdateHeadlampSourceOptions extends PrepareHeadlampSourceOptions {
   /** Clean Headlamp checkout matching the requested commit. */
   sourceDir: string;
-  /** Full source commit to adopt; defaults to the current configuration. */
-  commit?: string;
-  /** Optional release tag used as the package version baseline. */
-  baseTag?: string;
+  /** Full source revision to adopt; defaults to the current configuration. */
+  revision?: string;
 }
 
 /** Result of updating the pinned Headlamp source revision. */
@@ -117,13 +109,14 @@ function writeJson(file, value) {
  * @param command - Executable to run.
  * @param args - Arguments passed to the executable.
  * @param cwd - Optional working directory.
+ * @param env - Additional environment variables for the command.
  * @returns The command's standard output.
  */
-function run(command, args, cwd) {
+function run(command, args, cwd = undefined, env = {}) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    env: { ...process.env, ...env, GIT_TERMINAL_PROMPT: '0' },
     maxBuffer: 20 * 1024 * 1024,
   });
   if (result.error) {
@@ -152,24 +145,35 @@ function sha512(file) {
 }
 
 /**
- * Derives a source-package version from a pinned commit and optional release tag.
+ * Derives a source-package version from a pinned revision.
  *
- * @param config - Commit and optional base tag used for versioning.
+ * @param config - Source revision used for versioning.
  * @returns The commit-qualified package version.
  */
-function sourceVersion(config: Pick<HeadlampSourceConfig, 'baseTag' | 'commit'>): string {
-  const commit = config.commit.toLowerCase();
-  if (!COMMIT_PATTERN.test(commit)) {
-    throw new Error(`Headlamp commit must be a full Git SHA: ${config.commit}`);
+function sourceVersion(config: HeadlampSourceConfig): string {
+  const keys =
+    config && typeof config === 'object' && !Array.isArray(config)
+      ? Object.keys(config)
+      : [];
+  if (
+    !config ||
+    typeof config !== 'object' ||
+    Array.isArray(config) ||
+    keys.length !== 1 ||
+    !Object.hasOwn(config, 'revision')
+  ) {
+    throw new Error(
+      `headlampSource must contain only revision; found: ${keys.join(', ') || 'none'}`
+    );
   }
-  if (config.baseTag === undefined) {
-    return `0.0.0-main.${commit.slice(0, 8)}`;
+  if (typeof config.revision !== 'string') {
+    throw new Error('Headlamp revision must be a string');
   }
-  const tag = BASE_TAG_PATTERN.exec(config.baseTag);
-  if (!tag) {
-    throw new Error(`Headlamp base tag must look like v0.44.0: ${config.baseTag}`);
+  const revision = config.revision.toLowerCase();
+  if (!COMMIT_PATTERN.test(revision)) {
+    throw new Error(`Headlamp revision must be a full Git SHA: ${config.revision}`);
   }
-  return `${tag[1]}-main.${commit.slice(0, 8)}`;
+  return `0.0.0-main.${revision.slice(0, 8)}`;
 }
 
 /**
@@ -263,7 +267,7 @@ function removeAzureArtifactsResolutions(lockFile): number {
  *
  * @param sourceDir - Verified Headlamp Git checkout.
  * @param destination - Destination source directory.
- * @returns Nothing.
+ * @returns The copied Git-tracked paths.
  */
 function copyTrackedSource(sourceDir, destination) {
   const files = run('git', ['ls-files', '-z'], sourceDir)
@@ -287,6 +291,62 @@ function copyTrackedSource(sourceDir, destination) {
       removeAzureArtifactsResolutions(target);
     }
   }
+  return files;
+}
+
+/**
+ * Calculates a deterministic digest for an authoritative source path list.
+ *
+ * @param sourceDir - Materialized source root.
+ * @param files - Authoritative paths copied from the pinned checkout.
+ * @returns SHA-256 digest of file paths, executable bits, and contents.
+ */
+function sourceTreeDigest(sourceDir, files) {
+  const hash = createHash('sha256');
+  for (const relativeFile of files) {
+    validateTrackedSourcePath(relativeFile);
+    const file = path.join(sourceDir, relativeFile);
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error(`Invalid materialized Headlamp source file: ${relativeFile}`);
+    }
+    hash.update(relativeFile.replaceAll('\\', '/'));
+    hash.update('\0');
+    hash.update(stat.mode & 0o111 ? 'executable' : 'regular');
+    hash.update('\0');
+    hash.update(fs.readFileSync(file));
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+/**
+ * Lists files a clean Git index includes after applying the source ignore rules.
+ *
+ * @param sourceDir - Materialized source root.
+ * @returns Unignored source paths that patch composition can include.
+ */
+function unignoredSourceFiles(sourceDir) {
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-source-index-'));
+  const gitDirectory = path.join(temporaryDirectory, 'repository.git');
+  const gitConfig = path.join(temporaryDirectory, 'gitconfig');
+  try {
+    fs.writeFileSync(gitConfig, '');
+    run('git', ['init', '--bare', '--quiet', gitDirectory]);
+    const environment = {
+      GIT_CONFIG_GLOBAL: gitConfig,
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_DIR: gitDirectory,
+      GIT_INDEX_FILE: path.join(temporaryDirectory, 'index'),
+      GIT_WORK_TREE: sourceDir,
+    };
+    run('git', ['add', '--all', '--', '.'], sourceDir, environment);
+    return run('git', ['ls-files', '-z'], sourceDir, environment)
+      .split('\0')
+      .filter(Boolean);
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -302,20 +362,30 @@ function materializeHeadlampSource(packageDir, sourceDir, commit) {
   verifySourceCheckout(resolvedSourceDir, commit);
   const temporarySource = fs.mkdtempSync(path.join(packageDir, '.source-'));
   const temporaryMarker = `${temporarySource}.commit`;
+  const temporaryIntegrityMarker = `${temporarySource}.integrity.json`;
   const source = path.join(packageDir, 'source');
   const marker = path.join(packageDir, SOURCE_MARKER);
+  const integrityMarker = path.join(packageDir, SOURCE_INTEGRITY_MARKER);
   let sourceInstalled = false;
   try {
-    copyTrackedSource(resolvedSourceDir, temporarySource);
+    const files = copyTrackedSource(resolvedSourceDir, temporarySource);
     fs.writeFileSync(temporaryMarker, `${commit}\n`);
+    writeJson(temporaryIntegrityMarker, {
+      version: 1,
+      files,
+      digest: sourceTreeDigest(temporarySource, files),
+    });
     fs.rmSync(source, { recursive: true, force: true });
     fs.renameSync(temporarySource, source);
     sourceInstalled = true;
     fs.rmSync(marker, { recursive: true, force: true });
     fs.renameSync(temporaryMarker, marker);
+    fs.rmSync(integrityMarker, { recursive: true, force: true });
+    fs.renameSync(temporaryIntegrityMarker, integrityMarker);
   } catch (error) {
     fs.rmSync(temporarySource, { recursive: true, force: true });
     fs.rmSync(temporaryMarker, { force: true });
+    fs.rmSync(temporaryIntegrityMarker, { force: true });
     if (sourceInstalled) {
       fs.rmSync(source, { recursive: true, force: true });
     }
@@ -332,18 +402,37 @@ function materializeHeadlampSource(packageDir, sourceDir, commit) {
  */
 function sourceIsMaterialized(packageDir, commit) {
   const marker = path.join(packageDir, SOURCE_MARKER);
+  const integrityMarker = path.join(packageDir, SOURCE_INTEGRITY_MARKER);
+  const source = path.join(packageDir, 'source');
   let materializedCommit;
+  let integrity;
   try {
     materializedCommit = fs.readFileSync(marker, 'utf8').trim();
+    integrity = readJson(integrityMarker);
   } catch {
     return false;
   }
-  if (materializedCommit !== commit) {
+  if (
+    materializedCommit !== commit ||
+    integrity?.version !== 1 ||
+    !Array.isArray(integrity.files) ||
+    integrity.files.some(file => typeof file !== 'string') ||
+    !/^[a-f0-9]{64}$/.test(integrity.digest)
+  ) {
     return false;
   }
-  return REQUIRED_SOURCE_PATHS.every(required =>
-    fs.existsSync(path.join(packageDir, 'source', required))
-  );
+  try {
+    if (!REQUIRED_SOURCE_PATHS.every(required => fs.existsSync(path.join(source, required)))) {
+      return false;
+    }
+    if (sourceTreeDigest(source, integrity.files) !== integrity.digest) {
+      return false;
+    }
+    const trackedFiles = new Set(integrity.files);
+    return unignoredSourceFiles(source).every(file => trackedFiles.has(file));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -387,33 +476,35 @@ function prepareHeadlampSource(
   }
   const packageManifest = readJson(path.join(packageDir, 'package.json'));
   const version = sourceVersion(config);
+  const revision = config.revision.toLowerCase();
   if (
     packageManifest.version !== version ||
-    packageManifest.repository?.url !== config.repository ||
-    packageManifest.repository?.commit !== config.commit
+    packageManifest.repository?.url !== SOURCE_REPOSITORY ||
+    packageManifest.repository?.commit !== revision ||
+    sourceVersion(packageManifest.headlampSource) !== version
   ) {
     throw new Error(
       'Headlamp source package metadata does not match package.json#headlampSource'
     );
   }
-  if (sourceIsMaterialized(packageDir, config.commit)) {
+  if (sourceIsMaterialized(packageDir, revision)) {
     materializeHeadlampPatch(rootDir);
-    console.log(`Headlamp source ${config.commit} is already materialized`);
+    console.log(`Headlamp source ${revision} is already materialized`);
     return { packageDir, prepared: false };
   }
 
   const checkout = options.sourceDir
     ? fs.realpathSync(options.sourceDir)
-    : fetchSourceCheckout(config.repository, config.commit);
+    : fetchSourceCheckout(SOURCE_REPOSITORY, revision);
   try {
-    materializeHeadlampSource(packageDir, checkout, config.commit);
+    materializeHeadlampSource(packageDir, checkout, revision);
   } finally {
     if (!options.sourceDir) {
       fs.rmSync(checkout, { recursive: true, force: true });
     }
   }
   materializeHeadlampPatch(rootDir);
-  console.log(`Materialized Headlamp source ${config.commit}`);
+  console.log(`Materialized Headlamp source ${revision}`);
   return { packageDir, prepared: true };
 }
 
@@ -421,7 +512,7 @@ function prepareHeadlampSource(
  * Updates generated source-package metadata for a source pin.
  *
  * @param packageDir - Local Headlamp source package directory.
- * @param config - Source repository, ref, commit, and versioning configuration.
+ * @param config - Source revision configuration.
  * @param version - Derived package version.
  * @returns The updated package manifest.
  */
@@ -429,17 +520,13 @@ function updatePackageManifest(packageDir, config: HeadlampSourceConfig, version
   const manifestPath = path.join(packageDir, 'package.json');
   const manifest = readJson(manifestPath);
   manifest.version = version;
-  manifest.repository.url = config.repository;
-  manifest.repository.commit = config.commit;
-  manifest.headlampSource = {
-    ref: config.ref,
-    ...(config.baseTag ? { baseTag: config.baseTag } : {}),
-    ...(config.previousCommit ? { previousCommit: config.previousCommit } : {}),
-    commit: config.commit,
-  };
+  manifest.repository = manifest.repository || { type: 'git' };
+  manifest.repository.url = SOURCE_REPOSITORY;
+  manifest.repository.commit = config.revision;
+  manifest.headlampSource = { revision: config.revision };
   manifest.scripts['build:container'] =
     `docker buildx build --pull --platform=local ` +
-    `--build-arg HEADLAMP_SOURCE_COMMIT=${config.commit} ` +
+    `--build-arg HEADLAMP_SOURCE_COMMIT=${config.revision} ` +
     `--build-arg HEADLAMP_BUILD_MANIFEST ` +
     `-t ghcr.io/headlamp-k8s/headlamp:${version} -f source/Dockerfile source`;
   manifest.scripts['build:plugins-container'] =
@@ -452,7 +539,7 @@ function updatePackageManifest(packageDir, config: HeadlampSourceConfig, version
 /**
  * Updates the Headlamp source pin, materialized source, package metadata, and patch integrity.
  *
- * @param options - Source checkout and optional root, package, commit, and tag overrides.
+ * @param options - Source checkout and optional root, package, and revision overrides.
  * @returns Updated package directory, aggregate patch path, and package version.
  */
 function updateHeadlampSource(
@@ -468,22 +555,16 @@ function updateHeadlampSource(
   if (!currentConfig) {
     throw new Error('package.json must declare headlampSource');
   }
-  const nextCommit = options.commit?.toLowerCase();
+  const requestedRevision = options.revision || currentConfig.revision;
   const config = {
-    ...currentConfig,
-    ...(options.baseTag ? { baseTag: options.baseTag } : {}),
-    ...(nextCommit
-      ? {
-          ...(nextCommit !== currentConfig.commit
-            ? { previousCommit: currentConfig.commit }
-            : {}),
-          commit: nextCommit,
-        }
-      : {}),
+    revision:
+      typeof requestedRevision === 'string'
+        ? requestedRevision.toLowerCase()
+        : requestedRevision,
   } as HeadlampSourceConfig;
   const version = sourceVersion(config);
   const sourceDir = fs.realpathSync(options.sourceDir);
-  verifySourceCheckout(sourceDir, config.commit);
+  verifySourceCheckout(sourceDir, config.revision);
 
   const patchEntries = Object.entries(project.patchedDependencies || {}).filter(([selector]) =>
     selector.startsWith(`${PACKAGE_NAME}@`)
@@ -497,7 +578,7 @@ function updateHeadlampSource(
   const absoluteOldPatch = path.join(rootDir, oldPatchPath);
   const absoluteNewPatch = path.join(rootDir, newPatchPath);
 
-  materializeHeadlampSource(packageDir, sourceDir, config.commit);
+  materializeHeadlampSource(packageDir, sourceDir, config.revision);
 
   const packageManifest = updatePackageManifest(packageDir, config, version);
   fs.writeFileSync(absoluteNewPatch, composePatchSeries(rootDir, packageDir));
@@ -525,7 +606,7 @@ function updateHeadlampSource(
 
   writeJson(projectPath, project);
   writeJson(lockPath, lock);
-  console.log(`Prepared ${PACKAGE_NAME}@${version} from ${config.commit}`);
+  console.log(`Prepared ${PACKAGE_NAME}@${version} from ${config.revision}`);
   console.log(`Run npm ci to apply and validate ${newPatchPath}`);
 
   return {
@@ -564,8 +645,7 @@ if (require.main === module) {
       updateHeadlampSource({
         rootDir,
         sourceDir,
-        commit: argument('--commit'),
-        baseTag: argument('--base-tag'),
+        revision: argument('--revision'),
       });
     }
   }

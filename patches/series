@@ -1,7 +1,6 @@
-0018 source 0018-headlamp-upstream-oauth-provider-registry.patch
-0023 source 0023-headlamp-upstream-storybook-apps-workload-mocks.patch
-0024 source 0024-headlamp-upstream-storybook-batch-workload-mocks.patch
-0049 source 0049-headlamp-upstream-product-version.patch
-0050 source 0050-headlamp-upstream-project-grouping.patch
-0069 source 0069-headlamp-upstream-packaged-source-builds.patch
 0071 source 0071-headlamp-upstream-cluster-pre-open-proxies.patch
+0072 source 0072-headlamp-upstream-plugin-command-policy.patch
+0073 source 0073-aks-desktop-headlamp-electron-install-policy.patch
+0074 source 0074-aks-desktop-headlamp-external-server-token.patch
+0075 source 0075-aks-desktop-headlamp-runtime-product-identity.patch
+0076 source 0076-headlamp-upstream-default-plugin-theme.patch

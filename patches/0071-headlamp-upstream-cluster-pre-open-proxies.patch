@@ -1,4 +1,4 @@
-From 87985fd51330ba4259db59fd6c6f8245fdd02878 Mon Sep 17 00:00:00 2001
+From 4a4bccfc152544815ba8cabf5c8a7e990256ef67 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:44:44 +0200
 Subject: [PATCH 01/10] app: proxies: Cover secure Azure proxy lifecycle
@@ -7,17 +7,17 @@ Verify capability checks, Windows entry points, readiness failures, handler
 
 replacement, stream draining, serialization, and shutdown behavior.
 ---
- app/electron/plugin-management.test.ts |  20 +
- app/electron/preload.test.ts           |  17 +
- app/electron/proxies.test.ts           | 688 +++++++++++++++++++++++++
- app/electron/quitCleanup.test.ts       |  55 ++
- app/electron/runCmd.test.ts            |  12 +-
- 5 files changed, 790 insertions(+), 2 deletions(-)
+ app/electron/plugin-management.test.ts |   20 +
+ app/electron/preload.test.ts           |   17 +
+ app/electron/proxies.test.ts           | 1034 ++++++++++++++++++++++++
+ app/electron/quitCleanup.test.ts       |   77 ++
+ app/electron/runCmd.test.ts            |   93 ++-
+ 5 files changed, 1239 insertions(+), 2 deletions(-)
  create mode 100644 app/electron/proxies.test.ts
  create mode 100644 app/electron/quitCleanup.test.ts
 
 diff --git a/app/electron/plugin-management.test.ts b/app/electron/plugin-management.test.ts
-index 87984b60a33914f9fade3749c129d6b403e08a0e..4f68f4c693db51d9d1ff4992bd61676831858265 100644
+index 87984b60a..4f68f4c69 100644
 --- a/app/electron/plugin-management.test.ts
 +++ b/app/electron/plugin-management.test.ts
 @@ -33,6 +33,7 @@ import {
@@ -55,7 +55,7 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..4f68f4c693db51d9d1ff4992bd616768
    it('defers installation-only dependencies', async () => {
      const tarFactory = vi.fn(() => ({}));
 diff --git a/app/electron/preload.test.ts b/app/electron/preload.test.ts
-index 03d3c0834bf5b6b15db4ac27585a45da5e9ba28f..d497de5bb2d584f1737c7548bb255a5999c792b0 100644
+index 03d3c0834..d497de5bb 100644
 --- a/app/electron/preload.test.ts
 +++ b/app/electron/preload.test.ts
 @@ -52,6 +52,23 @@ describe('desktop preload API', () => {
@@ -84,10 +84,10 @@ index 03d3c0834bf5b6b15db4ac27585a45da5e9ba28f..d497de5bb2d584f1737c7548bb255a59
      desktopApi.send('not-allowed', 'ignored');
 diff --git a/app/electron/proxies.test.ts b/app/electron/proxies.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..8bd2a74953e4acafd5f37afabac4dca9d189f2b3
+index 000000000..b482d8f02
 --- /dev/null
 +++ b/app/electron/proxies.test.ts
-@@ -0,0 +1,688 @@
+@@ -0,0 +1,1034 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -129,6 +129,9 @@ index 0000000000000000000000000000000000000000..8bd2a74953e4acafd5f37afabac4dca9
 +import {
 +  buildProxySpawnSpec,
 +  killAllProxies,
++  ManagedProxyProvider,
++  sanitizeProxyEnvironment,
++  setupManagedProxyHandler,
 +  setupProxyHandlers,
 +  StartProxyResult,
 +} from './proxies';
@@ -219,6 +222,24 @@ index 0000000000000000000000000000000000000000..8bd2a74953e4acafd5f37afabac4dca9
 +}
 +
 +describe('buildProxySpawnSpec', () => {
++  it('removes user-plugin executables from the proxy PATH', () => {
++    const userPlugins = path.join(tmpdir(), 'Headlamp', 'user-plugins');
++    const systemBin = path.join(tmpdir(), 'system-bin');
++    const bundledBin = path.join(tmpdir(), 'Headlamp', '.plugins', 'aks-desktop', 'bin');
++    const userMinikubeBin = path.join(userPlugins, 'headlamp_minikube', 'bin');
++
++    const environment = sanitizeProxyEnvironment(
++      {
++        HOME: path.join(tmpdir(), 'home'),
++        PATH: [userMinikubeBin, bundledBin, systemBin].join(path.delimiter),
++      },
++      userPlugins
++    );
++
++    expect(environment.HOME).toBe(path.join(tmpdir(), 'home'));
++    expect(environment.PATH).toBe([bundledBin, systemBin].join(path.delimiter));
++  });
++
 +  it('runs az directly without a shell on POSIX', () => {
 +    const spec = buildProxySpawnSpec(proxyRequest('cluster-a'), 47011, 'linux');
 +
@@ -319,6 +340,234 @@ index 0000000000000000000000000000000000000000..8bd2a74953e4acafd5f37afabac4dca9
 +    vi.restoreAllMocks();
 +  });
 +
++  it('runs provider-specific SSH bastion proxy behavior', async () => {
++    type SshBastionTarget = {
++      cluster: string;
++      bastion: string;
++      kubeconfig: string;
++    };
++    const waitUntilReady = vi.fn(async ({ localPort }: { localPort: number }) => ({
++      success: true,
++      endpoint: { host: '127.0.0.1' as const, port: localPort },
++    }));
++    const provider: ManagedProxyProvider<SshBastionTarget> = {
++      id: 'ssh-bastion-kubectl-proxy',
++      validateRequest: request => {
++        const data = request as SshBastionTarget;
++        return { target: data };
++      },
++      targetKey: target => JSON.stringify([target.bastion, target.kubeconfig, target.cluster]),
++      buildSpawnSpec: (target, port) => ({
++        command: 'ssh',
++        args: [
++          '-T',
++          '-o',
++          'BatchMode=yes',
++          '-o',
++          'ExitOnForwardFailure=yes',
++          '-L',
++          `127.0.0.1:${port}:127.0.0.1:${port}`,
++          target.bastion,
++          'kubectl',
++          '--kubeconfig',
++          target.kubeconfig,
++          '--context',
++          target.cluster,
++          'proxy',
++          '--address=127.0.0.1',
++          `--port=${port}`,
++        ],
++        options: { detached: true, shell: false },
++      }),
++      waitUntilReady,
++    };
++    const { handlers, ipcMain } = ipcMainMock();
++    setupManagedProxyHandler(
++      ipcMain,
++      'start-ssh-bastion-proxy',
++      PROXY_CAPABILITY,
++      provider,
++      async () => ({ PATH: '/test/bin' })
++    );
++
++    await expect(
++      handlers.get('start-ssh-bastion-proxy')!({} as Electron.IpcMainInvokeEvent, {
++        cluster: 'remote-cluster',
++        bastion: 'operator@bastion.example.com',
++        kubeconfig: '~/.kube/config',
++        capabilitySecret: PROXY_CAPABILITY,
++      })
++    ).resolves.toEqual({
++      success: true,
++      endpoint: { host: '127.0.0.1', port: 47011 },
++    });
++
++    expect(spawnMock).toHaveBeenCalledWith(
++      'ssh',
++      [
++        '-T',
++        '-o',
++        'BatchMode=yes',
++        '-o',
++        'ExitOnForwardFailure=yes',
++        '-L',
++        '127.0.0.1:47011:127.0.0.1:47011',
++        'operator@bastion.example.com',
++        'kubectl',
++        '--kubeconfig',
++        '~/.kube/config',
++        '--context',
++        'remote-cluster',
++        'proxy',
++        '--address=127.0.0.1',
++        '--port=47011',
++      ],
++      expect.objectContaining({ detached: true, shell: false })
++    );
++    expect(waitUntilReady).toHaveBeenCalledWith(
++      expect.objectContaining({ localPort: 47011, timeoutMs: 30_000 })
++    );
++
++    await expect(
++      handlers.get('start-ssh-bastion-proxy')!({} as Electron.IpcMainInvokeEvent, {
++        cluster: 'remote-cluster',
++        bastion: 'operator@bastion.example.com',
++        kubeconfig: '~/.kube/config',
++        capabilitySecret: PROXY_CAPABILITY,
++      })
++    ).resolves.toEqual({
++      success: true,
++      endpoint: { host: '127.0.0.1', port: 47011 },
++    });
++    expect(spawnMock).toHaveBeenCalledTimes(1);
++    expect(waitUntilReady).toHaveBeenCalledTimes(1);
++  });
++
++  it('contains provider readiness errors and terminates the process', async () => {
++    await withPlatform('linux', async () => {
++      const child = proxyChild(1111);
++      spawnMock.mockReturnValue(child);
++      const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
++      let rejectReadiness!: (error: Error) => void;
++      const provider: ManagedProxyProvider<{ cluster: string }> = {
++        id: 'ssh-bastion-kubectl-proxy',
++        validateRequest: request => ({ target: request as { cluster: string } }),
++        targetKey: target => target.cluster,
++        buildSpawnSpec: () => ({
++          command: 'ssh',
++          args: [],
++          options: { detached: true, shell: false },
++        }),
++        waitUntilReady: () =>
++          new Promise((_resolve, reject) => {
++            rejectReadiness = reject;
++          }),
++      };
++      const { handlers, ipcMain } = ipcMainMock();
++      setupManagedProxyHandler(
++        ipcMain,
++        'start-ssh-bastion-proxy',
++        PROXY_CAPABILITY,
++        provider,
++        async () => ({ PATH: '/test/bin' })
++      );
++
++      const result = handlers.get('start-ssh-bastion-proxy')!({} as Electron.IpcMainInvokeEvent, {
++        cluster: 'remote-cluster',
++        capabilitySecret: PROXY_CAPABILITY,
++      });
++      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
++      child.stderr.emit('data', 'bastion connection refused');
++      rejectReadiness(new Error('SSH readiness probe failed'));
++      await vi.waitFor(() => expect(kill).toHaveBeenCalledWith(-1111, 'SIGKILL'));
++      child.emit('exit', null, 'SIGKILL');
++
++      await expect(result).resolves.toEqual({
++        success: false,
++        error:
++          'Cluster proxy readiness failed: SSH readiness probe failed\n' +
++          'bastion connection refused',
++      });
++    });
++  });
++
++  it('does not reuse an unready provider child after failed cleanup', async () => {
++    await withPlatform('linux', async () => {
++      const child = proxyChild(1111);
++      spawnMock.mockReturnValue(child);
++      const killError = Object.assign(new Error('not permitted'), { code: 'EPERM' });
++      const kill = vi.spyOn(process, 'kill').mockImplementation(() => {
++        throw killError;
++      });
++      const provider: ManagedProxyProvider<{ cluster: string }> = {
++        id: 'ssh-bastion-kubectl-proxy',
++        validateRequest: request => ({ target: request as { cluster: string } }),
++        targetKey: target => target.cluster,
++        buildSpawnSpec: () => ({
++          command: 'ssh',
++          args: [],
++          options: { detached: true, shell: false },
++        }),
++        waitUntilReady: async () => ({ success: false, error: 'SSH proxy is not ready.' }),
++      };
++      const { handlers, ipcMain } = ipcMainMock();
++      setupManagedProxyHandler(
++        ipcMain,
++        'start-ssh-bastion-proxy',
++        PROXY_CAPABILITY,
++        provider,
++        async () => ({ PATH: '/test/bin' })
++      );
++      const request = {
++        cluster: 'remote-cluster',
++        capabilitySecret: PROXY_CAPABILITY,
++      };
++
++      await expect(
++        handlers.get('start-ssh-bastion-proxy')!({} as Electron.IpcMainInvokeEvent, request)
++      ).resolves.toEqual({ success: false, error: 'SSH proxy is not ready.' });
++      await expect(
++        handlers.get('start-ssh-bastion-proxy')!({} as Electron.IpcMainInvokeEvent, request)
++      ).resolves.toEqual({
++        success: false,
++        error: 'The previous cluster proxy could not be terminated.',
++      });
++      expect(kill).toHaveBeenCalledTimes(2);
++      expect(spawnMock).toHaveBeenCalledTimes(1);
++
++      child.emit('exit', null, 'SIGKILL');
++    });
++  });
++
++  it('rejects a provider validation result without a target', async () => {
++    const provider: ManagedProxyProvider<{ cluster: string }> = {
++      id: 'invalid-provider',
++      validateRequest: () => ({}),
++      targetKey: target => target.cluster,
++      buildSpawnSpec: vi.fn(),
++      waitUntilReady: vi.fn(),
++    };
++    const { handlers, ipcMain } = ipcMainMock();
++    setupManagedProxyHandler(
++      ipcMain,
++      'start-invalid-proxy',
++      PROXY_CAPABILITY,
++      provider,
++      async () => ({ PATH: '/test/bin' })
++    );
++
++    await expect(
++      handlers.get('start-invalid-proxy')!({} as Electron.IpcMainInvokeEvent, {
++        capabilitySecret: PROXY_CAPABILITY,
++      })
++    ).resolves.toEqual({
++      success: false,
++      error: 'Cluster proxy target is invalid.',
++    });
++    expect(provider.buildSpawnSpec).not.toHaveBeenCalled();
++    expect(provider.waitUntilReady).not.toHaveBeenCalled();
++  });
++
 +  it('rejects callers without the scoped capability', async () => {
 +    const start = startHandler();
 +
@@ -335,6 +584,12 @@ index 0000000000000000000000000000000000000000..8bd2a74953e4acafd5f37afabac4dca9
 +    { ...proxyRequest('cluster;calc'), cluster: 'cluster;calc' },
 +    { ...proxyRequest('cluster-a'), subscriptionId: 'sub && calc' },
 +    { ...proxyRequest('cluster-a'), resourceGroup: 'rg | calc' },
++    { ...proxyRequest('cluster-a'), cluster: ['cluster-a'] },
++    {
++      ...proxyRequest('cluster-a'),
++      subscriptionId: ['00000000-0000-0000-0000-000000000000'],
++    },
++    { ...proxyRequest('cluster-a'), resourceGroup: ['valid-rg'] },
 +  ])('rejects an unsafe target before spawning', async request => {
 +    const start = startHandler();
 +
@@ -723,6 +978,66 @@ index 0000000000000000000000000000000000000000..8bd2a74953e4acafd5f37afabac4dca9
 +    });
 +  });
 +
++  it('fails replacement safely when the previous proxy cannot be signaled', async () => {
++    await withPlatform('linux', async () => {
++      const firstChild = proxyChild(1111);
++      const secondChild = proxyChild(2222);
++      spawnMock.mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild);
++      const killError = Object.assign(new Error('not permitted'), { code: 'EPERM' });
++      vi.spyOn(process, 'kill').mockImplementation(() => {
++        throw killError;
++      });
++      const start = startHandler();
++      const first = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
++      firstChild.stdout.emit('data', "Start sending kubectl requests on 'cluster-a' context\n");
++      await expect(first).resolves.toEqual({ success: true });
++
++      await expect(
++        start({} as Electron.IpcMainInvokeEvent, {
++          ...proxyRequest('cluster-a'),
++          resourceGroup: 'replacement-rg',
++        })
++      ).resolves.toEqual({
++        success: false,
++        error: 'The previous cluster proxy could not be terminated.',
++      });
++      expect(spawnMock).toHaveBeenCalledTimes(1);
++
++      firstChild.emit('exit', null, 'SIGKILL');
++    });
++  });
++
++  it('bounds shutdown cleanup when a signaled child never exits', async () => {
++    await withPlatform('linux', async () => {
++      vi.useFakeTimers();
++      try {
++        const child = proxyChild();
++        spawnMock.mockReturnValue(child);
++        vi.spyOn(process, 'kill').mockReturnValue(true);
++        const start = startHandler();
++        const result = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++        await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
++
++        const cleanup = killAllProxies();
++        let cleanupSettled = false;
++        void cleanup.then(() => (cleanupSettled = true));
++        await vi.advanceTimersByTimeAsync(4_999);
++        expect(cleanupSettled).toBe(false);
++        await vi.advanceTimersByTimeAsync(1);
++        await expect(cleanup).resolves.toBeUndefined();
++
++        child.emit('exit', null, 'SIGKILL');
++        await expect(result).resolves.toEqual({
++          success: false,
++          error: 'Cluster proxy exited before reporting readiness (signal SIGKILL).',
++        });
++      } finally {
++        vi.useRealTimers();
++      }
++    });
++  });
++
 +  it('kills the POSIX process group on shutdown', async () => {
 +    await withPlatform('linux', async () => {
 +      const child = proxyChild();
@@ -775,13 +1090,44 @@ index 0000000000000000000000000000000000000000..8bd2a74953e4acafd5f37afabac4dca9
 +      });
 +    });
 +  });
++
++  it('bounds shutdown when Windows taskkill never settles', async () => {
++    await withPlatform('win32', async () => {
++      vi.useFakeTimers();
++      try {
++        const child = proxyChild();
++        spawnMock.mockReturnValue(child);
++        const start = startHandler();
++        const result = start({} as Electron.IpcMainInvokeEvent, proxyRequest('cluster-a'));
++        await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
++        const taskkill = new EventEmitter();
++        spawnMock.mockReturnValue(taskkill);
++
++        const cleanup = killAllProxies();
++        let cleanupSettled = false;
++        void cleanup.then(() => (cleanupSettled = true));
++        await vi.advanceTimersByTimeAsync(4_999);
++        expect(cleanupSettled).toBe(false);
++        await vi.advanceTimersByTimeAsync(1);
++        await expect(cleanup).resolves.toBeUndefined();
++
++        child.emit('exit', null, 'SIGKILL');
++        await expect(result).resolves.toEqual({
++          success: false,
++          error: 'Cluster proxy exited before reporting readiness (signal SIGKILL).',
++        });
++      } finally {
++        vi.useRealTimers();
++      }
++    });
++  });
 +});
 diff --git a/app/electron/quitCleanup.test.ts b/app/electron/quitCleanup.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..85495574952c055674f9de258d393e6b184cfd97
+index 000000000..428fb425e
 --- /dev/null
 +++ b/app/electron/quitCleanup.test.ts
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,77 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -837,11 +1183,128 @@ index 0000000000000000000000000000000000000000..85495574952c055674f9de258d393e6b
 +  await vi.waitFor(() => expect(quit).toHaveBeenCalledOnce());
 +  expect(reportError).toHaveBeenCalledWith(error);
 +});
++
++it('resumes quit after the cleanup deadline', async () => {
++  vi.useFakeTimers();
++  try {
++    const cleanup = vi.fn(() => new Promise<void>(() => {}));
++    const reportError = vi.fn();
++    const quit = vi.fn();
++    const handler = createBeforeQuitHandler(cleanup, quit, reportError, 10_000);
++
++    handler({ preventDefault: vi.fn() });
++    await vi.advanceTimersByTimeAsync(9_999);
++    expect(quit).not.toHaveBeenCalled();
++
++    await vi.advanceTimersByTimeAsync(1);
++    expect(reportError).toHaveBeenCalledWith(
++      new Error('Quit cleanup did not settle within 10000ms.')
++    );
++    expect(quit).toHaveBeenCalledOnce();
++  } finally {
++    vi.useRealTimers();
++  }
++});
 diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
-index 07ea3e48086050dd9390d9396449e0b7c1efea92..fc1287d76a78502a31d6857fdb5eccde1f3d0751 100644
+index 07ea3e480..02f2dc0cc 100644
 --- a/app/electron/runCmd.test.ts
 +++ b/app/electron/runCmd.test.ts
-@@ -603,12 +603,12 @@ describe('addRunCmdConsent', () => {
+@@ -15,6 +15,7 @@
+  */
+ 
+ import { EventEmitter } from 'events';
++import fs from 'fs';
+ import path from 'path';
+ import { afterEach, beforeEach, describe, expect, it, Mock, vi } from 'vitest';
+ 
+@@ -496,6 +497,86 @@ describe('handleRunCommand', () => {
+     }
+   });
+ 
++  it('resolves the AKS Desktop script from the shipped plugin root', async () => {
++    const { loadSettings } = await import('./settings');
++    const originalResourcesPath = process.resourcesPath;
++    // @ts-ignore Electron defines this at runtime.
++    process.resourcesPath = '/resources';
++    vi.mocked(loadSettings).mockReturnValueOnce({
++      confirmedCommands: { 'scriptjs azure-aks/azure-api.js': true },
++    });
++    const existsSync = vi
++      .spyOn(fs, 'existsSync')
++      .mockImplementation(filePath =>
++        [
++          path.join('/plugins/user', 'azure-aks/azure-api.js'),
++          path.join('/resources', '.plugins', 'azure-aks/azure-api.js'),
++        ].includes(String(filePath))
++      );
++    const eventData = {
++      id: 'aks-desktop-script-id',
++      command: 'scriptjs',
++      args: ['azure-aks/azure-api.js'],
++      options: {},
++      permissionSecrets: { 'runCmd-scriptjs-azure-aks/azure-api.js': 99 },
++    };
++
++    try {
++      await handleRunCommand(fakeEvent, eventData, { id: 1 } as any, {
++        'runCmd-scriptjs-azure-aks/azure-api.js': 99,
++      });
++
++      expect(spawnMock).toHaveBeenCalledWith(
++        process.execPath,
++        [path.join('/resources', '.plugins', 'azure-aks/azure-api.js')],
++        expect.objectContaining({
++          env: expect.objectContaining({ HEADLAMP_RUN_SCRIPT: 'true' }),
++        })
++      );
++      expect(existsSync).not.toHaveBeenCalledWith(
++        path.join('/plugins/user', 'azure-aks/azure-api.js')
++      );
++    } finally {
++      existsSync.mockRestore();
++      // @ts-ignore Electron defines this at runtime.
++      process.resourcesPath = originalResourcesPath;
++    }
++  });
++
++  it('resolves the AKS Desktop script from the development plugin root in development', async () => {
++    const { loadSettings } = await import('./settings');
++    vi.stubEnv('NODE_ENV', 'development');
++    vi.mocked(loadSettings).mockReturnValueOnce({
++      confirmedCommands: { 'scriptjs azure-aks/azure-api.js': true },
++    });
++    const existsSync = vi.spyOn(fs, 'existsSync').mockReturnValue(true);
++    const eventData = {
++      id: 'aks-desktop-development-script-id',
++      command: 'scriptjs',
++      args: ['azure-aks/azure-api.js'],
++      options: {},
++      permissionSecrets: { 'runCmd-scriptjs-azure-aks/azure-api.js': 99 },
++    };
++
++    try {
++      await handleRunCommand(fakeEvent, eventData, { id: 1 } as any, {
++        'runCmd-scriptjs-azure-aks/azure-api.js': 99,
++      });
++
++      expect(spawnMock).toHaveBeenCalledWith(
++        process.execPath,
++        [path.join('/plugins/default', 'azure-aks/azure-api.js')],
++        expect.objectContaining({
++          env: expect.objectContaining({ HEADLAMP_RUN_SCRIPT: 'true' }),
++        })
++      );
++      expect(existsSync).not.toHaveBeenCalled();
++    } finally {
++      existsSync.mockRestore();
++      vi.unstubAllEnvs();
++    }
++  });
++
+   it('initializes consent settings for a new command', async () => {
+     const { loadSettings, saveSettings } = await import('./settings');
+     vi.mocked(loadSettings).mockReturnValueOnce({});
+@@ -603,12 +684,12 @@ describe('addRunCmdConsent', () => {
      }
    });
  
@@ -856,7 +1319,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..fc1287d76a78502a31d6857fdb5eccde
  
      expect(saveSettings).toHaveBeenCalledWith(
        '/fake/settings.json',
-@@ -711,6 +711,12 @@ describe('setupRunCmdHandlers', () => {
+@@ -711,6 +792,12 @@ describe('setupRunCmdHandlers', () => {
        on: vi.fn((channel: string, handler: (...args: any[]) => void) => {
          ipcHandlers.set(channel, handler);
        }),
@@ -869,7 +1332,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..fc1287d76a78502a31d6857fdb5eccde
      } as any;
  
      setupRunCmdHandlers(mainWindow, ipcMain);
-@@ -724,6 +730,8 @@ describe('setupRunCmdHandlers', () => {
+@@ -724,6 +811,8 @@ describe('setupRunCmdHandlers', () => {
  
      expect(send).toHaveBeenCalledTimes(2);
      expect(ipcHandlers.has('run-command')).toBe(true);
@@ -878,11 +1341,8 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..fc1287d76a78502a31d6857fdb5eccde
    });
  });
  
--- 
-2.54.0
 
-
-From 35a1c4a5531eba03fe49d39ed25217659161b894 Mon Sep 17 00:00:00 2001
+From 6edf36cc77c4fa15fb94b2d26bd8bff6e3d3914e Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:44:52 +0200
 Subject: [PATCH 02/10] frontend: e2e-tests: Cover scoped cluster pre-open flow
@@ -899,7 +1359,7 @@ cluster rendering in a browser flow.
  create mode 100644 frontend/src/plugin/clusterProxy.test.ts
 
 diff --git a/app/e2e-tests/tests/listenerCleanup.spec.ts b/app/e2e-tests/tests/listenerCleanup.spec.ts
-index 2aad97fd95086a3bf5d208679f6217198f76c31b..bd9e45e029db03d5c65b05a49da30b5dacd2e3c2 100644
+index 2aad97fd9..bd9e45e02 100644
 --- a/app/e2e-tests/tests/listenerCleanup.spec.ts
 +++ b/app/e2e-tests/tests/listenerCleanup.spec.ts
 @@ -73,7 +73,7 @@ test.describe('desktop listener cleanup', () => {
@@ -931,7 +1391,7 @@ index 2aad97fd95086a3bf5d208679f6217198f76c31b..bd9e45e029db03d5c65b05a49da30b5d
          );
 diff --git a/e2e-tests/tests/clusterPreOpen.spec.ts b/e2e-tests/tests/clusterPreOpen.spec.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..67fe3f25d8499025ef6a31ef9f85abe899dbfe7c
+index 000000000..67fe3f25d
 --- /dev/null
 +++ b/e2e-tests/tests/clusterPreOpen.spec.ts
 @@ -0,0 +1,67 @@
@@ -1004,7 +1464,7 @@ index 0000000000000000000000000000000000000000..67fe3f25d8499025ef6a31ef9f85abe8
 +});
 diff --git a/frontend/src/plugin/clusterProxy.test.ts b/frontend/src/plugin/clusterProxy.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..78f8417b49b15892d12cc39a6d5179e636cdfdc0
+index 000000000..78f8417b4
 --- /dev/null
 +++ b/frontend/src/plugin/clusterProxy.test.ts
 @@ -0,0 +1,59 @@
@@ -1067,11 +1527,8 @@ index 0000000000000000000000000000000000000000..78f8417b49b15892d12cc39a6d5179e6
 +    expect(getClusterProxyArgValues(true, vi.fn(), {})).toEqual([[], []]);
 +  });
 +});
--- 
-2.54.0
 
-
-From 4ebef0e03e4bbc6474e22e17ffba25006971453f Mon Sep 17 00:00:00 2001
+From 15e2976fc57dd5b6fc76bc1eb90e578d7113387d Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 14:03:45 +0530
 Subject: [PATCH 03/10] app: proxies: Add scoped Azure proxy lifecycle
@@ -1085,21 +1542,21 @@ readiness, replace recreated handlers, drain streams, and clean up on quit.
 
 Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 ---
- app/electron/main.ts                |  47 +--
+ app/electron/main.ts                |  47 +-
  app/electron/plugin-management.ts   |  13 +-
  app/electron/preload.ts             |   7 +
- app/electron/proxies.ts             | 469 ++++++++++++++++++++++++++++
- app/electron/quitCleanup.ts         |  46 +++
- app/electron/runCmd.ts              |  26 +-
- frontend/src/plugin/clusterProxy.ts |  64 ++++
+ app/electron/proxies.ts             | 691 ++++++++++++++++++++++++++++
+ app/electron/quitCleanup.ts         |  70 +++
+ app/electron/runCmd.ts              |  34 +-
+ frontend/src/plugin/clusterProxy.ts |  64 +++
  frontend/src/plugin/index.ts        |  10 +
- 8 files changed, 652 insertions(+), 30 deletions(-)
+ 8 files changed, 906 insertions(+), 30 deletions(-)
  create mode 100644 app/electron/proxies.ts
  create mode 100644 app/electron/quitCleanup.ts
  create mode 100644 frontend/src/plugin/clusterProxy.ts
 
 diff --git a/app/electron/main.ts b/app/electron/main.ts
-index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..85adcca161b096918b0db90bc2d1bcfc85055546 100644
+index 1e09d7561..85adcca16 100644
 --- a/app/electron/main.ts
 +++ b/app/electron/main.ts
 @@ -62,6 +62,8 @@ import {
@@ -1178,7 +1635,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..85adcca161b096918b0db90bc2d1bcfc
  
  if (!isRunningScript) {
 diff --git a/app/electron/plugin-management.ts b/app/electron/plugin-management.ts
-index 17a08fd556602a70761be976e7a4551ee2429c04..7ddbd43324559a2b0e2f59443b2283170e1e2f09 100644
+index 17a08fd55..7ddbd4332 100644
 --- a/app/electron/plugin-management.ts
 +++ b/app/electron/plugin-management.ts
 @@ -260,7 +260,7 @@ export class PluginManager {
@@ -1230,7 +1687,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..7ddbd43324559a2b0e2f59443b228317
        }
  
 diff --git a/app/electron/preload.ts b/app/electron/preload.ts
-index 6ea9ab737dad506978db6d17c95b50c927d4673b..d6683d3187e9fc10308409145dd92814706ad633 100644
+index 6ea9ab737..d6683d318 100644
 --- a/app/electron/preload.ts
 +++ b/app/electron/preload.ts
 @@ -16,6 +16,7 @@
@@ -1256,10 +1713,10 @@ index 6ea9ab737dad506978db6d17c95b50c927d4673b..d6683d3187e9fc10308409145dd92814
      const validChannels = [
 diff --git a/app/electron/proxies.ts b/app/electron/proxies.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f11588ba7d
+index 000000000..696f106f8
 --- /dev/null
 +++ b/app/electron/proxies.ts
-@@ -0,0 +1,469 @@
+@@ -0,0 +1,691 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -1279,9 +1736,17 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +import { ChildProcessWithoutNullStreams, spawn, SpawnOptions } from 'child_process';
 +import type { BrowserWindow } from 'electron';
 +import { createServer } from 'net';
++import path from 'path';
++import { defaultUserPluginsDir } from './plugin-management';
++
++/** Minimum identity shared by every managed cluster proxy target. */
++export interface ManagedProxyTarget {
++  /** Kubeconfig context that the proxy makes reachable. */
++  cluster: string;
++}
 +
 +/** A cluster target accepted by `az connectedk8s proxy`. */
-+export interface ClusterProxyTarget {
++export interface ClusterProxyTarget extends ManagedProxyTarget {
 +  /** Kubeconfig cluster name. */
 +  cluster: string;
 +  /** Azure subscription UUID containing the cluster. */
@@ -1300,6 +1765,13 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +export interface StartProxyResult {
 +  /** Whether the proxy process started or was already running. */
 +  success: boolean;
++  /** Provider endpoint made available after readiness, when needed by the caller. */
++  endpoint?: {
++    /** Loopback host owned by the shared proxy lifecycle. */
++    host: '127.0.0.1';
++    /** Allocated local port forwarded to the provider endpoint. */
++    port: number;
++  };
 +  /** Stable failure detail when startup was rejected or failed. */
 +  error?: string;
 +}
@@ -1314,11 +1786,48 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +  options: SpawnOptions;
 +}
 +
++/** Result of validating a provider-specific proxy request. */
++export interface ManagedProxyValidation<TTarget extends ManagedProxyTarget> {
++  /** Validated target accepted by the provider. */
++  target?: TTarget;
++  /** Stable error returned when validation rejects the request. */
++  error?: string;
++}
++
++/** Lifecycle state supplied to a provider-specific readiness strategy. */
++export interface ProxyReadinessContext {
++  /** Spawned provider process whose readiness must be established. */
++  child: ChildProcessWithoutNullStreams;
++  /** Loopback port reserved by the shared lifecycle manager. */
++  localPort: number;
++  /** Maximum time allowed for provider startup. */
++  timeoutMs: number;
++  /** Adds shared bounded diagnostics to a provider-specific failure. */
++  formatError: (message: string) => string;
++}
++
++/** Provider-specific behavior hosted by the shared proxy lifecycle. */
++export interface ManagedProxyProvider<TTarget extends ManagedProxyTarget> {
++  /** Stable provider ID used to isolate target identity across providers. */
++  id: string;
++  /** Validates and converts an untrusted IPC request into a provider target. */
++  validateRequest: (request: unknown) => ManagedProxyValidation<TTarget>;
++  /** Returns the provider-specific part of a target's stable identity. */
++  targetKey: (target: TTarget) => string;
++  /** Builds a shell-free process invocation for the allocated local port. */
++  buildSpawnSpec: (target: TTarget, localPort: number) => ProxySpawnSpec;
++  /** Waits until the provider has made its local endpoint usable. */
++  waitUntilReady: (context: ProxyReadinessContext) => Promise<StartProxyResult>;
++}
++
 +interface ProxyChildEntry {
 +  child: ChildProcessWithoutNullStreams;
 +  group: boolean;
-+  target: ClusterProxyTarget;
++  providerId: string;
++  targetKey: string;
++  target: ManagedProxyTarget;
 +  port: number;
++  readyResult?: StartProxyResult;
 +  stderrTail: string;
 +}
 +
@@ -1335,11 +1844,47 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +const READY_MATCH_TAIL_CHARS = 256;
 +const STDERR_TAIL_CHARS = 2_048;
 +const PROXY_READY_TIMEOUT_MS = 30_000;
++const PROXY_TERMINATION_TIMEOUT_MS = 5_000;
 +const FIRST_PROXY_PORT = 47_011;
 +const PROXY_PORT_STEP = 2;
 +const SUBSCRIPTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 +const RESOURCE_GROUP_PATTERN = /^[A-Za-z0-9_().-]{1,90}$/;
 +const CLUSTER_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/;
++
++/**
++ * Removes user-plugin executable directories from a proxy child environment.
++ *
++ * @param environment - Shell environment resolved for the proxy process.
++ * @param userPluginsDir - Root containing user-installed plugins.
++ * @returns A copied environment whose PATH variants exclude the user-plugin root.
++ */
++export function sanitizeProxyEnvironment(
++  environment: NodeJS.ProcessEnv,
++  userPluginsDir: string = defaultUserPluginsDir()
++): NodeJS.ProcessEnv {
++  const sanitizedEnvironment = { ...environment };
++  const resolvedUserPluginsDir = path.resolve(userPluginsDir);
++
++  for (const [name, value] of Object.entries(sanitizedEnvironment)) {
++    if (name.toLowerCase() !== 'path' || value === undefined) {
++      continue;
++    }
++    sanitizedEnvironment[name] = value
++      .split(path.delimiter)
++      .filter(entry => {
++        if (!entry) {
++          return true;
++        }
++        const relative = path.relative(resolvedUserPluginsDir, path.resolve(entry));
++        return (
++          relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
++        );
++      })
++      .join(path.delimiter);
++  }
++
++  return sanitizedEnvironment;
++}
 +
 +/** Quotes a validated dynamic value for an explicit `cmd.exe` command string. */
 +function quoteWindowsCommandArg(value: string): string {
@@ -1403,16 +1948,22 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +  return { command: 'az', args: proxyArgs, options };
 +}
 +
-+/** Returns a stable identity for a complete Azure proxy target. */
-+function proxyTargetKey(target: ClusterProxyTarget): string {
-+  return JSON.stringify([target.subscriptionId, target.resourceGroup, target.cluster]);
++/** Returns a stable identity for a complete provider and target pair. */
++function proxyTargetKey<TTarget extends ManagedProxyTarget>(
++  provider: ManagedProxyProvider<TTarget>,
++  target: TTarget
++): string {
++  return JSON.stringify([provider.id, provider.targetKey(target)]);
 +}
 +
-+/** Returns a live child associated with the complete Azure target. */
-+function liveChildForTarget(target: ClusterProxyTarget): ProxyChildEntry | undefined {
-+  const key = proxyTargetKey(target);
++/** Returns a live child associated with the complete provider target. */
++function liveChildForTarget<TTarget extends ManagedProxyTarget>(
++  provider: ManagedProxyProvider<TTarget>,
++  target: TTarget
++): ProxyChildEntry | undefined {
++  const key = proxyTargetKey(provider, target);
 +  for (const entry of proxyChildren) {
-+    if (proxyTargetKey(entry.target) === key) {
++    if (entry.providerId === provider.id && entry.targetKey === key) {
 +      return entry;
 +    }
 +  }
@@ -1454,12 +2005,12 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +  return undefined;
 +}
 +
-+/** Waits until a proxy is ready, or returns a stable startup failure. */
-+function waitForProxyReady(
-+  entry: ProxyChildEntry,
-+  timeoutMs = PROXY_READY_TIMEOUT_MS
-+): Promise<StartProxyResult> {
-+  const { child } = entry;
++/** Waits until Azure reports readiness, or returns a stable startup failure. */
++function waitForAzureProxyReady({
++  child,
++  timeoutMs,
++  formatError,
++}: ProxyReadinessContext): Promise<StartProxyResult> {
 +  return new Promise(resolve => {
 +    let settled = false;
 +    let tail = '';
@@ -1496,7 +2047,7 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +      const reason = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`;
 +      finish({
 +        success: false,
-+        error: startupError(`Cluster proxy exited before reporting readiness (${reason}).`, entry),
++        error: formatError(`Cluster proxy exited before reporting readiness (${reason}).`),
 +      });
 +    }
 +
@@ -1508,10 +2059,7 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +      () =>
 +        finish({
 +          success: false,
-+          error: startupError(
-+            `Cluster proxy did not report readiness within ${timeoutMs}ms.`,
-+            entry
-+          ),
++          error: formatError(`Cluster proxy did not report readiness within ${timeoutMs}ms.`),
 +        }),
 +      timeoutMs
 +    );
@@ -1522,6 +2070,38 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +  });
 +}
 +
++/** Azure Connected Kubernetes behavior hosted by the shared proxy lifecycle. */
++export const azureConnectedK8sProxyProvider: ManagedProxyProvider<ClusterProxyTarget> = {
++  id: 'azure-connectedk8s',
++  validateRequest: request => {
++    const data = (request ?? {}) as Partial<StartProxyRequest>;
++    if (!data.cluster || !data.subscriptionId || !data.resourceGroup) {
++      return { error: 'Cluster proxy target is incomplete.' };
++    }
++    if (
++      typeof data.cluster !== 'string' ||
++      typeof data.subscriptionId !== 'string' ||
++      typeof data.resourceGroup !== 'string' ||
++      !SUBSCRIPTION_ID_PATTERN.test(data.subscriptionId) ||
++      !RESOURCE_GROUP_PATTERN.test(data.resourceGroup) ||
++      !CLUSTER_NAME_PATTERN.test(data.cluster)
++    ) {
++      return { error: 'Cluster proxy target is invalid.' };
++    }
++    return {
++      target: {
++        cluster: data.cluster,
++        subscriptionId: data.subscriptionId,
++        resourceGroup: data.resourceGroup,
++      },
++    };
++  },
++  targetKey: target =>
++    JSON.stringify([target.subscriptionId, target.resourceGroup, target.cluster]),
++  buildSpawnSpec: (target, localPort) => buildProxySpawnSpec(target, localPort),
++  waitUntilReady: waitForAzureProxyReady,
++};
++
 +/** Adds the bounded Azure CLI diagnostic tail to an actionable startup error. */
 +function startupError(message: string, entry: ProxyChildEntry): string {
 +  return entry.stderrTail ? `${message}\n${entry.stderrTail}` : message;
@@ -1531,70 +2111,116 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +function signalChildEntry(
 +  { child, group }: ProxyChildEntry,
 +  signal: NodeJS.Signals
-+): Promise<void> {
++): Promise<'signaled' | 'gone' | 'failed'> {
 +  const pid = child.pid;
 +  if (!pid) {
-+    return Promise.resolve();
++    return Promise.resolve('gone');
 +  }
 +  try {
 +    if (process.platform === 'win32') {
 +      const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F']);
 +      return new Promise(resolve => {
-+        const finish = () => {
-+          killer.off('exit', finish);
-+          killer.off('error', finish);
-+          resolve();
++        const finish = (result: 'signaled' | 'failed') => {
++          clearTimeout(timer);
++          killer.off('exit', onExit);
++          killer.off('error', onError);
++          resolve(result);
 +        };
-+        killer.once('exit', finish);
-+        killer.once('error', finish);
++        const onExit = (code: number | null) => finish(code === 0 ? 'signaled' : 'failed');
++        const onError = () => finish('failed');
++        const timer = setTimeout(() => finish('failed'), PROXY_TERMINATION_TIMEOUT_MS);
++        timer.unref?.();
++        killer.once('exit', onExit);
++        killer.once('error', onError);
 +      });
 +    } else if (group) {
 +      process.kill(-pid, signal);
-+    } else {
-+      child.kill(signal);
++      return Promise.resolve('signaled');
 +    }
++    return Promise.resolve(child.kill(signal) ? 'signaled' : 'failed');
 +  } catch (error) {
-+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
-+      console.error(`[AKS][main] failed to ${signal} proxy pid ${pid}:`, error);
++    if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
++      return Promise.resolve('gone');
 +    }
++    console.error(`[AKS][main] failed to ${signal} proxy pid ${pid}:`, error);
++    return Promise.resolve('failed');
 +  }
-+  return Promise.resolve();
 +}
 +
-+/** Signals a proxy tree and keeps its entry reserved until the child exits. */
-+async function terminateChildEntry(entry: ProxyChildEntry): Promise<void> {
++/** Observes child termination for a bounded period and supports early cancellation. */
++function waitForChildExit(child: ChildProcessWithoutNullStreams): {
++  promise: Promise<boolean>;
++  cancel: () => void;
++} {
++  let finish!: (exited: boolean) => void;
++  const promise = new Promise<boolean>(resolve => {
++    let settled = false;
++    finish = exited => {
++      if (settled) {
++        return;
++      }
++      settled = true;
++      clearTimeout(timer);
++      child.off('exit', onExit);
++      child.off('error', onExit);
++      resolve(exited);
++    };
++    const onExit = () => finish(true);
++    const timer = setTimeout(() => finish(false), PROXY_TERMINATION_TIMEOUT_MS);
++    timer.unref?.();
++    child.once('exit', onExit);
++    child.once('error', onExit);
++  });
++  return { promise, cancel: () => finish(false) };
++}
++
++/** Signals a proxy tree and reports whether its child terminated. */
++async function terminateChildEntry(
++  entry: ProxyChildEntry,
++  releaseOnFailure = false
++): Promise<boolean> {
 +  const { child } = entry;
 +  if (child.exitCode !== null && child.exitCode !== undefined) {
 +    proxyChildren.delete(entry);
-+    return;
++    return true;
 +  }
 +
-+  const exited = new Promise<void>(resolve => {
-+    const finish = () => {
-+      child.off('exit', finish);
-+      child.off('error', finish);
-+      resolve();
-+    };
-+    child.once('exit', finish);
-+    child.once('error', finish);
-+  });
-+  await Promise.all([exited, signalChildEntry(entry, 'SIGKILL')]);
-+  proxyChildren.delete(entry);
++  const exitWait = waitForChildExit(child);
++  const signalResult = await signalChildEntry(entry, 'SIGKILL');
++  if (signalResult === 'gone') {
++    exitWait.cancel();
++    proxyChildren.delete(entry);
++    return true;
++  }
++  if (signalResult === 'failed') {
++    exitWait.cancel();
++    if (releaseOnFailure) {
++      proxyChildren.delete(entry);
++    }
++    return false;
++  }
++
++  const exited = await exitWait.promise;
++  if (exited || releaseOnFailure) {
++    proxyChildren.delete(entry);
++  }
++  return exited;
 +}
 +
 +/** Starts and tracks one validated proxy process. */
-+async function startProxy(
-+  target: ClusterProxyTarget,
++async function startProxy<TTarget extends ManagedProxyTarget>(
++  provider: ManagedProxyProvider<TTarget>,
++  target: TTarget,
 +  port: number,
 +  getEnvironment: () => Promise<NodeJS.ProcessEnv>
 +): Promise<ProxyStart> {
-+  const spec = buildProxySpawnSpec(target, port);
++  const spec = provider.buildSpawnSpec(target, port);
 +  let child: ChildProcessWithoutNullStreams;
 +  try {
 +    if (isShuttingDown) {
 +      return { result: { success: false, error: 'The app is shutting down.' } };
 +    }
-+    const env = await getEnvironment();
++    const env = sanitizeProxyEnvironment(await getEnvironment());
 +    if (isShuttingDown) {
 +      return { result: { success: false, error: 'The app is shutting down.' } };
 +    }
@@ -1611,7 +2237,15 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +    };
 +  }
 +
-+  const entry = { child, group: !!spec.options.detached, target, port, stderrTail: '' };
++  const entry = {
++    child,
++    group: !!spec.options.detached,
++    providerId: provider.id,
++    targetKey: proxyTargetKey(provider, target),
++    target,
++    port,
++    stderrTail: '',
++  };
 +  if (isShuttingDown) {
 +    void signalChildEntry(entry, 'SIGKILL');
 +    return { result: { success: false, error: 'The app is shutting down.' } };
@@ -1641,7 +2275,113 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 + */
 +export async function killAllProxies(): Promise<void> {
 +  isShuttingDown = true;
-+  await Promise.all([...proxyChildren].map(entry => terminateChildEntry(entry)));
++  await Promise.all([...proxyChildren].map(entry => terminateChildEntry(entry, true)));
++}
++
++/**
++ * Registers a capability-protected IPC handler for one managed proxy provider.
++ *
++ * Provider adapters own request validation, target identity, process arguments,
++ * and readiness. The shared lifecycle owns serialization, ports, replacement,
++ * diagnostics, failure cleanup, and application shutdown.
++ *
++ * @param ipcMain - Electron IPC registrar.
++ * @param channel - Provider-specific invocation channel.
++ * @param capabilitySecret - Unpredictable capability granted to authorized callers.
++ * @param provider - Main-process provider behavior.
++ * @param getEnvironment - Resolves the user's shell environment.
++ * @returns Nothing.
++ */
++export function setupManagedProxyHandler<TTarget extends ManagedProxyTarget>(
++  ipcMain: Electron.IpcMain,
++  channel: string,
++  capabilitySecret: string,
++  provider: ManagedProxyProvider<TTarget>,
++  getEnvironment: () => Promise<NodeJS.ProcessEnv>
++): void {
++  isShuttingDown = false;
++
++  ipcMain.removeHandler(channel);
++  ipcMain.handle(channel, async (_event, request): Promise<StartProxyResult> => {
++    const data = (request ?? {}) as { capabilitySecret?: unknown };
++    if (data.capabilitySecret !== capabilitySecret) {
++      return { success: false, error: 'Cluster proxy capability is invalid.' };
++    }
++    const validation = provider.validateRequest(request);
++    if (!validation.target) {
++      return { success: false, error: validation.error ?? 'Cluster proxy target is invalid.' };
++    }
++    if (isShuttingDown) {
++      return { success: false, error: 'The app is shutting down.' };
++    }
++
++    const target = validation.target;
++    const targetKey = proxyTargetKey(provider, target);
++    const existingStart = startingProxies.get(targetKey);
++    if (existingStart) {
++      return existingStart;
++    }
++    const started = proxyStartQueue.then(async () => {
++      const sameClusterEntries = liveChildrenForCluster(target.cluster);
++      const exactTarget = liveChildForTarget(provider, target);
++      const reusableTarget = exactTarget?.readyResult?.success ? exactTarget : undefined;
++      for (const entry of sameClusterEntries) {
++        if (entry === reusableTarget) {
++          continue;
++        }
++        if (!(await terminateChildEntry(entry))) {
++          return {
++            success: false,
++            error: 'The previous cluster proxy could not be terminated.',
++          };
++        }
++      }
++      if (reusableTarget) {
++        return reusableTarget.readyResult!;
++      }
++
++      const port = await nextProxyPort();
++      if (!port) {
++        return { success: false, error: 'No local port pair is available for the cluster proxy.' };
++      }
++      const proxyStart = await startProxy(provider, target, port, getEnvironment);
++      if (!proxyStart.result.success || !proxyStart.entry) {
++        return proxyStart.result;
++      }
++
++      const entry = proxyStart.entry;
++      let result: StartProxyResult;
++      try {
++        result = await provider.waitUntilReady({
++          child: entry.child,
++          localPort: port,
++          timeoutMs: PROXY_READY_TIMEOUT_MS,
++          formatError: message => startupError(message, entry),
++        });
++      } catch (error) {
++        const message = error instanceof Error ? error.message : String(error);
++        result = {
++          success: false,
++          error: startupError(`Cluster proxy readiness failed: ${message}`, entry),
++        };
++      }
++      if (result.success) {
++        entry.readyResult = result;
++      }
++      if (!result.success && proxyChildren.has(entry)) {
++        await terminateChildEntry(entry);
++      }
++      return result;
++    });
++    startingProxies.set(targetKey, started);
++    proxyStartQueue = started.then(() => undefined).catch(() => undefined);
++
++    try {
++      return await started;
++    } finally {
++      startingProxies.delete(targetKey);
++    }
++  });
 +}
 +
 +/**
@@ -1659,82 +2399,21 @@ index 0000000000000000000000000000000000000000..4d474ce439cdeb6a141af0097e1613f1
 +  capabilitySecret: string,
 +  getEnvironment: () => Promise<NodeJS.ProcessEnv>
 +): void {
-+  isShuttingDown = false;
-+
-+  ipcMain.removeHandler('start-cluster-proxy');
-+  ipcMain.handle('start-cluster-proxy', async (_event, request): Promise<StartProxyResult> => {
-+    const data = (request ?? {}) as Partial<StartProxyRequest>;
-+    if (data.capabilitySecret !== capabilitySecret) {
-+      return { success: false, error: 'Cluster proxy capability is invalid.' };
-+    }
-+    if (!data.cluster || !data.subscriptionId || !data.resourceGroup) {
-+      return { success: false, error: 'Cluster proxy target is incomplete.' };
-+    }
-+    if (
-+      !SUBSCRIPTION_ID_PATTERN.test(data.subscriptionId) ||
-+      !RESOURCE_GROUP_PATTERN.test(data.resourceGroup) ||
-+      !CLUSTER_NAME_PATTERN.test(data.cluster)
-+    ) {
-+      return { success: false, error: 'Cluster proxy target is invalid.' };
-+    }
-+    if (isShuttingDown) {
-+      return { success: false, error: 'The app is shutting down.' };
-+    }
-+
-+    const target: ClusterProxyTarget = {
-+      cluster: data.cluster,
-+      subscriptionId: data.subscriptionId,
-+      resourceGroup: data.resourceGroup,
-+    };
-+    const targetKey = proxyTargetKey(target);
-+    const existingStart = startingProxies.get(targetKey);
-+    if (existingStart) {
-+      return existingStart;
-+    }
-+    const started = proxyStartQueue.then(async () => {
-+      const sameClusterEntries = liveChildrenForCluster(target.cluster);
-+      const exactTarget = liveChildForTarget(target);
-+      for (const entry of sameClusterEntries) {
-+        if (entry === exactTarget) {
-+          continue;
-+        }
-+        await terminateChildEntry(entry);
-+      }
-+      if (exactTarget) {
-+        return { success: true };
-+      }
-+
-+      const port = await nextProxyPort();
-+      if (!port) {
-+        return { success: false, error: 'No local port pair is available for the cluster proxy.' };
-+      }
-+      const proxyStart = await startProxy(target, port, getEnvironment);
-+      if (!proxyStart.result.success || !proxyStart.entry) {
-+        return proxyStart.result;
-+      }
-+
-+      const result = await waitForProxyReady(proxyStart.entry);
-+      if (!result.success && proxyChildren.has(proxyStart.entry)) {
-+        await terminateChildEntry(proxyStart.entry);
-+      }
-+      return result;
-+    });
-+    startingProxies.set(targetKey, started);
-+    proxyStartQueue = started.then(() => undefined).catch(() => undefined);
-+
-+    try {
-+      return await started;
-+    } finally {
-+      startingProxies.delete(targetKey);
-+    }
-+  });
++  void mainWindow;
++  setupManagedProxyHandler(
++    ipcMain,
++    'start-cluster-proxy',
++    capabilitySecret,
++    azureConnectedK8sProxyProvider,
++    getEnvironment
++  );
 +}
 diff --git a/app/electron/quitCleanup.ts b/app/electron/quitCleanup.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..6418b9f936b043e4e1e2680c190f8764d9f3d011
+index 000000000..170a7cf7f
 --- /dev/null
 +++ b/app/electron/quitCleanup.ts
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,70 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -1755,11 +2434,20 @@ index 0000000000000000000000000000000000000000..6418b9f936b043e4e1e2680c190f8764
 +  preventDefault(): void;
 +}
 +
-+/** Prevents Electron from quitting until asynchronous cleanup has settled. */
++/**
++ * Prevents Electron from quitting until asynchronous cleanup settles or its deadline expires.
++ *
++ * @param cleanup - Asynchronous application cleanup to start once.
++ * @param quit - Resumes Electron quit after cleanup or timeout.
++ * @param reportError - Reports cleanup rejection or timeout.
++ * @param timeoutMs - Maximum time to keep Electron's quit event prevented.
++ * @returns An Electron before-quit event handler.
++ */
 +export function createBeforeQuitHandler(
 +  cleanup: () => Promise<void>,
 +  quit: () => void,
-+  reportError: (error: unknown) => void = error => console.error('Quit cleanup failed:', error)
++  reportError: (error: unknown) => void = error => console.error('Quit cleanup failed:', error),
++  timeoutMs = 10_000
 +): (event: BeforeQuitEvent) => void {
 +  let cleanupStarted = false;
 +  let readyToQuit = false;
@@ -1773,16 +2461,31 @@ index 0000000000000000000000000000000000000000..6418b9f936b043e4e1e2680c190f8764
 +      return;
 +    }
 +    cleanupStarted = true;
-+    void cleanup()
++    let cleanupPromise: Promise<void>;
++    try {
++      cleanupPromise = cleanup();
++    } catch (error) {
++      cleanupPromise = Promise.reject(error);
++    }
++    let timeout: ReturnType<typeof setTimeout>;
++    const cleanupDeadline = new Promise<void>((_resolve, reject) => {
++      timeout = setTimeout(
++        () => reject(new Error(`Quit cleanup did not settle within ${timeoutMs}ms.`)),
++        timeoutMs
++      );
++      timeout.unref?.();
++    });
++    void Promise.race([cleanupPromise, cleanupDeadline])
 +      .catch(reportError)
 +      .finally(() => {
++        clearTimeout(timeout);
 +        readyToQuit = true;
 +        quit();
 +      });
 +  };
 +}
 diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
-index 66df14e295bd1934c5de68ee3124efa805ebf9a6..120aed6b917a101327edbe933321400cc27bc863 100644
+index 66df14e29..2de9addea 100644
 --- a/app/electron/runCmd.ts
 +++ b/app/electron/runCmd.ts
 @@ -23,6 +23,7 @@ import { pathToFileURL } from 'node:url';
@@ -1793,16 +2496,18 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..120aed6b917a101327edbe933321400c
  import { loadSettings, saveSettings, SETTINGS_PATH } from './settings';
  
  /**
-@@ -133,7 +134,7 @@ const COMMANDS_WITH_CONSENT = {
+@@ -133,8 +134,9 @@ const COMMANDS_WITH_CONSENT = {
      'scriptjs minikube/manage-minikube.js',
    ],
    headlamp_ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
 -  azure_aks: ['scriptjs azure-aks/azure-api.js'],
 +  aks_desktop: ['scriptjs azure-aks/azure-api.js'],
  };
++const AKS_DESKTOP_LEGACY_SCRIPT = 'azure-aks/azure-api.js';
  
  /**
-@@ -172,8 +173,8 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
+  * Adds the runCmd consent for the plugin.
+@@ -172,8 +174,8 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
      commands = COMMANDS_WITH_CONSENT.headlamp_ai_assistant;
    }
  
@@ -1813,7 +2518,21 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..120aed6b917a101327edbe933321400c
    }
  
    for (const command of commands) {
-@@ -411,6 +412,11 @@ function cryptoRandom() {
+@@ -244,6 +246,13 @@ export function checkPermissionSecret(
+  * @param scriptName script relative to plugins folder. "headlamp-k8s-minikube/bin/manage-minikube.js"
+  */
+ function getPluginsScriptPath(scriptName: string) {
++  if (scriptName === AKS_DESKTOP_LEGACY_SCRIPT) {
++    if (process.env.NODE_ENV === 'development') {
++      return path.join(defaultPluginsDir(), scriptName);
++    }
++    return path.join(process.resourcesPath, '.plugins', scriptName);
++  }
++
+   const userPlugins = defaultUserPluginsDir();
+   if (fs.existsSync(path.join(userPlugins, scriptName))) {
+     return path.join(userPlugins, scriptName);
+@@ -411,6 +420,11 @@ function cryptoRandom() {
    return array[0] / (0xffffffff + 1);
  }
  
@@ -1825,7 +2544,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..120aed6b917a101327edbe933321400c
  /**
   * Sets up the IPC handlers for running commands.
   * Called in the main process to handle 'run-command' events.
-@@ -436,7 +442,9 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
+@@ -436,7 +450,9 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
      'runCmd-gh': cryptoRandom(),
      'runCmd-az': cryptoRandom(),
      'runCmd-scriptjs-azure-aks/azure-api.js': cryptoRandom(),
@@ -1835,7 +2554,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..120aed6b917a101327edbe933321400c
  
    ipcMain.on('request-plugin-permission-secrets', function giveSecrets() {
      if (!pluginPermissionSecretsSent) {
-@@ -453,8 +461,18 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
+@@ -453,8 +469,18 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
    });
  
    ipcMain.on('run-command', (event, eventData) =>
@@ -1857,7 +2576,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..120aed6b917a101327edbe933321400c
  /**
 diff --git a/frontend/src/plugin/clusterProxy.ts b/frontend/src/plugin/clusterProxy.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..c410b854110957bafbc33b3b458f5711d25efedd
+index 000000000..c410b8541
 --- /dev/null
 +++ b/frontend/src/plugin/clusterProxy.ts
 @@ -0,0 +1,64 @@
@@ -1926,7 +2645,7 @@ index 0000000000000000000000000000000000000000..c410b854110957bafbc33b3b458f5711
 +  return [['startClusterProxy'], [startClusterProxy]];
 +}
 diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
-index f49d3a67c45f01f4510ba158c00d47445fd11796..02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8 100644
+index f49d3a67c..02bcbcdc8 100644
 --- a/frontend/src/plugin/index.ts
 +++ b/frontend/src/plugin/index.ts
 @@ -53,6 +53,7 @@ import * as Utils from '../lib/util';
@@ -1967,11 +2686,8 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..02bcbcdc8ddcf0b2bf4635e9f653e4b7
            }
  
            const storageNamespace = secureStorageNamespaces[index];
--- 
-2.54.0
 
-
-From 2067459b8b0e7afc46fb3d535c0143aff6cdbac1 Mon Sep 17 00:00:00 2001
+From d4170c0aa57b0686107eafc2daa804077c92675b Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:45:12 +0200
 Subject: [PATCH 04/10] frontend: ClusterPreOpenGate: Cover preparation
@@ -1993,14 +2709,14 @@ run ownership, auth ordering, and alert suppression.
  frontend/src/plugin/clusterProxy.test.ts      |  54 +-
  frontend/src/plugin/pluginLib.test.ts         |  11 +
  frontend/src/plugin/registry.test.ts          | 139 +++-
- frontend/src/plugin/runPlugin.test.ts         |  24 +-
- frontend/src/stateless/index.test.ts          |   5 +-
- 14 files changed, 2899 insertions(+), 52 deletions(-)
+ frontend/src/plugin/runPlugin.test.ts         |  71 +-
+ frontend/src/stateless/index.test.ts          |  53 +-
+ 14 files changed, 2994 insertions(+), 52 deletions(-)
  create mode 100644 frontend/src/components/App/ClusterPreOpenGate.test.tsx
 
 diff --git a/frontend/src/components/App/ClusterPreOpenGate.test.tsx b/frontend/src/components/App/ClusterPreOpenGate.test.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..80ee34c6476c205dec4a7c4077cb87b3d2cc8975
+index 000000000..f7cecd7ea
 --- /dev/null
 +++ b/frontend/src/components/App/ClusterPreOpenGate.test.tsx
 @@ -0,0 +1,158 @@
@@ -2098,7 +2814,7 @@ index 0000000000000000000000000000000000000000..80ee34c6476c205dec4a7c4077cb87b3
 +  expect(screen.queryByText('cluster-content')).not.toBeInTheDocument();
 +});
 +
-+it('mounts plugin UI panels before plugins finish loading', () => {
++it('does not mount plugin UI panels before plugins finish loading', () => {
 +  vi.mocked(useClusterPreOpen).mockReturnValue({ ...readyState, isSuccess: false });
 +
 +  render(
@@ -2107,8 +2823,8 @@ index 0000000000000000000000000000000000000000..80ee34c6476c205dec4a7c4077cb87b3
 +    </ClusterLayout>
 +  );
 +
-+  expect(panelClusterRequest).toHaveBeenCalledTimes(4);
-+  expect(screen.getAllByText('cluster-panel')).toHaveLength(4);
++  expect(panelClusterRequest).not.toHaveBeenCalled();
++  expect(screen.queryByText('cluster-panel')).not.toBeInTheDocument();
 +  expect(screen.queryByText('cluster-content')).not.toBeInTheDocument();
 +  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 +});
@@ -2163,7 +2879,7 @@ index 0000000000000000000000000000000000000000..80ee34c6476c205dec4a7c4077cb87b3
 +  expect(screen.getByText('health-poller')).toBeInTheDocument();
 +});
 diff --git a/frontend/src/components/App/Layout.stories.tsx b/frontend/src/components/App/Layout.stories.tsx
-index b1f586f14217e607c355d89bbfcd9022229021d2..f43343e8196ab618aeca07bbb32e664632d1f7a5 100644
+index b1f586f14..f43343e81 100644
 --- a/frontend/src/components/App/Layout.stories.tsx
 +++ b/frontend/src/components/App/Layout.stories.tsx
 @@ -14,14 +14,19 @@
@@ -2250,7 +2966,7 @@ index b1f586f14217e607c355d89bbfcd9022229021d2..f43343e8196ab618aeca07bbb32e6646
    },
  };
 diff --git a/frontend/src/components/App/RouteSwitcher.test.tsx b/frontend/src/components/App/RouteSwitcher.test.tsx
-index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..937f0bb05b279609373cbc493e97539baf1acd88 100644
+index 1480c7a1f..937f0bb05 100644
 --- a/frontend/src/components/App/RouteSwitcher.test.tsx
 +++ b/frontend/src/components/App/RouteSwitcher.test.tsx
 @@ -14,9 +14,19 @@
@@ -2634,7 +3350,7 @@ index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..937f0bb05b279609373cbc493e97539b
 +  });
 +});
 diff --git a/frontend/src/components/App/__snapshots__/Layout.Default.stories.storyshot b/frontend/src/components/App/__snapshots__/Layout.Default.stories.storyshot
-index 6fb68d740d8e1b84b5ec1b6cdee1ef3ea121bd87..a1d5fa038a4c9e4a43c671860243afaaa2e84f9e 100644
+index 6fb68d740..a1d5fa038 100644
 --- a/frontend/src/components/App/__snapshots__/Layout.Default.stories.storyshot
 +++ b/frontend/src/components/App/__snapshots__/Layout.Default.stories.storyshot
 @@ -19,9 +19,57 @@
@@ -2972,7 +3688,7 @@ index 6fb68d740d8e1b84b5ec1b6cdee1ef3ea121bd87..a1d5fa038a4c9e4a43c671860243afaa
            </main>
            <div
 diff --git a/frontend/src/components/App/__snapshots__/Layout.ErrorState.stories.storyshot b/frontend/src/components/App/__snapshots__/Layout.ErrorState.stories.storyshot
-index 6fb68d740d8e1b84b5ec1b6cdee1ef3ea121bd87..a1d5fa038a4c9e4a43c671860243afaaa2e84f9e 100644
+index 6fb68d740..a1d5fa038 100644
 --- a/frontend/src/components/App/__snapshots__/Layout.ErrorState.stories.storyshot
 +++ b/frontend/src/components/App/__snapshots__/Layout.ErrorState.stories.storyshot
 @@ -19,9 +19,57 @@
@@ -3310,7 +4026,7 @@ index 6fb68d740d8e1b84b5ec1b6cdee1ef3ea121bd87..a1d5fa038a4c9e4a43c671860243afaa
            </main>
            <div
 diff --git a/frontend/src/components/App/__snapshots__/Layout.MultiCluster.stories.storyshot b/frontend/src/components/App/__snapshots__/Layout.MultiCluster.stories.storyshot
-index 6fb68d740d8e1b84b5ec1b6cdee1ef3ea121bd87..91b77bd98c6657933bc5f87d46ea2295898638b8 100644
+index 6fb68d740..91b77bd98 100644
 --- a/frontend/src/components/App/__snapshots__/Layout.MultiCluster.stories.storyshot
 +++ b/frontend/src/components/App/__snapshots__/Layout.MultiCluster.stories.storyshot
 @@ -19,9 +19,57 @@
@@ -4011,7 +4727,7 @@ index 6fb68d740d8e1b84b5ec1b6cdee1ef3ea121bd87..91b77bd98c6657933bc5f87d46ea2295
              class="css-afmxug"
              id="main"
 diff --git a/frontend/src/components/App/__snapshots__/Layout.WithClusterRoute.stories.storyshot b/frontend/src/components/App/__snapshots__/Layout.WithClusterRoute.stories.storyshot
-index 6fb68d740d8e1b84b5ec1b6cdee1ef3ea121bd87..164c21d7fb420693597b909625c2490acc4b17a7 100644
+index 6fb68d740..164c21d7f 100644
 --- a/frontend/src/components/App/__snapshots__/Layout.WithClusterRoute.stories.storyshot
 +++ b/frontend/src/components/App/__snapshots__/Layout.WithClusterRoute.stories.storyshot
 @@ -19,9 +19,57 @@
@@ -4703,7 +5419,7 @@ index 6fb68d740d8e1b84b5ec1b6cdee1ef3ea121bd87..164c21d7fb420693597b909625c2490a
              class="css-afmxug"
              id="main"
 diff --git a/frontend/src/components/common/AlertNotification.test.tsx b/frontend/src/components/common/AlertNotification.test.tsx
-index 5656b83d48fff73cba3ca9fdba2121ac56f7d2a4..601a82382b41480190f503ef803fd96df73d7165 100644
+index 5656b83d4..601a82382 100644
 --- a/frontend/src/components/common/AlertNotification.test.tsx
 +++ b/frontend/src/components/common/AlertNotification.test.tsx
 @@ -14,7 +14,8 @@
@@ -4866,7 +5582,7 @@ index 5656b83d48fff73cba3ca9fdba2121ac56f7d2a4..601a82382b41480190f503ef803fd96d
 +  });
 +});
 diff --git a/frontend/src/lib/k8s/index.test.ts b/frontend/src/lib/k8s/index.test.ts
-index c672c506aa63dbfc5a5b87a1e19b38f418b2c925..8aa95ff2ce28186edf13e3228a51a3e4262ef090 100644
+index c672c506a..8aa95ff2c 100644
 --- a/frontend/src/lib/k8s/index.test.ts
 +++ b/frontend/src/lib/k8s/index.test.ts
 @@ -14,12 +14,15 @@
@@ -4941,7 +5657,7 @@ index c672c506aa63dbfc5a5b87a1e19b38f418b2c925..8aa95ff2ce28186edf13e3228a51a3e4
    let queryClient: QueryClient;
  
 diff --git a/frontend/src/plugin/clusterProxy.test.ts b/frontend/src/plugin/clusterProxy.test.ts
-index 78f8417b49b15892d12cc39a6d5179e636cdfdc0..7a28f6961bb1d05bb2cbfd2f90c91db02ea7b85e 100644
+index 78f8417b4..7a28f6961 100644
 --- a/frontend/src/plugin/clusterProxy.test.ts
 +++ b/frontend/src/plugin/clusterProxy.test.ts
 @@ -15,14 +15,41 @@
@@ -5025,7 +5741,7 @@ index 78f8417b49b15892d12cc39a6d5179e636cdfdc0..7a28f6961bb1d05bb2cbfd2f90c91db0
    });
  });
 diff --git a/frontend/src/plugin/pluginLib.test.ts b/frontend/src/plugin/pluginLib.test.ts
-index c6d4ab70ec0675d754c78aa4a5c8a5e0ef6a3051..0f9f15d9e19b6c500dda15872f3d8c26da8e64b9 100644
+index c6d4ab70e..0f9f15d9e 100644
 --- a/frontend/src/plugin/pluginLib.test.ts
 +++ b/frontend/src/plugin/pluginLib.test.ts
 @@ -52,4 +52,15 @@ describe('pluginLib variable', () => {
@@ -5045,7 +5761,7 @@ index c6d4ab70ec0675d754c78aa4a5c8a5e0ef6a3051..0f9f15d9e19b6c500dda15872f3d8c26
 +  });
  });
 diff --git a/frontend/src/plugin/registry.test.ts b/frontend/src/plugin/registry.test.ts
-index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..3468b330134e479f9b5906da2ca8f0ce28b3ca57 100644
+index 3d300b3f1..3468b3301 100644
 --- a/frontend/src/plugin/registry.test.ts
 +++ b/frontend/src/plugin/registry.test.ts
 @@ -16,7 +16,13 @@
@@ -5220,10 +5936,64 @@ index 3d300b3f1d71d5c36d3bdc61fb259d008e58375d..3468b330134e479f9b5906da2ca8f0ce
 +  });
  });
 diff --git a/frontend/src/plugin/runPlugin.test.ts b/frontend/src/plugin/runPlugin.test.ts
-index 563dedd5e79f7ab99b967c4c183b42a5bf1721dc..bc00eccea67662acfa9ad3e1c111a6c5e4b7f169 100644
+index 563dedd5e..0fc11437a 100644
 --- a/frontend/src/plugin/runPlugin.test.ts
 +++ b/frontend/src/plugin/runPlugin.test.ts
-@@ -880,20 +880,26 @@ describe('identifyPackages', () => {
+@@ -36,6 +36,53 @@ function runPluginInner(info: runPluginProps) {
+ }
+ 
+ describe('runPlugin', () => {
++  test('does not let an earlier plugin rewrite a later plugin source', () => {
++    const originalSlice = String.prototype.slice;
++    const handleError = vi.fn();
++    const startClusterProxy = vi.fn();
++    const sourceMap = btoa(JSON.stringify({ version: 3, sources: [], mappings: '' }));
++    (globalThis as any).capturedProxy = undefined;
++    const makeInfo = (source: string, args: string[] = [], values: unknown[] = []) =>
++      getInfoForRunningPlugins({
++        source,
++        pluginPath: '/path/to/plugin',
++        packageName: 'test-plugin',
++        packageVersion: '1.0.0',
++        permissionSecrets: {},
++        handleError,
++        getAllowedPermissions: () => ({}),
++        getArgValues: () => [args, values],
++        PrivateFunction: Function,
++        internalRunPlugin: runPlugin,
++        consoleError: console.error,
++      })!;
++    const attacker = makeInfo(`
++      const originalSlice = String.prototype.slice;
++      String.prototype.slice = function(start, end) {
++        if (String(this).includes('PRIVILEGED_PLUGIN') && start === 0 && end !== undefined) {
++          return 'globalThis.capturedProxy = startClusterProxy;';
++        }
++        return originalSlice.call(this, start, end);
++      };
++    `);
++    const privileged = makeInfo(
++      `/* PRIVILEGED_PLUGIN */\n//# sourceMappingURL=data:application/json;charset=utf-8;base64,${sourceMap}`,
++      ['startClusterProxy'],
++      [startClusterProxy]
++    );
++
++    try {
++      runPluginInner(attacker);
++      runPluginInner(privileged);
++
++      expect(handleError).not.toHaveBeenCalled();
++      expect((globalThis as any).capturedProxy).toBeUndefined();
++    } finally {
++      String.prototype.slice = originalSlice;
++      delete (globalThis as any).capturedProxy;
++    }
++  });
++
+   test('It should offset inline source maps before compiling a plugin', () => {
+     const sourceMap = {
+       version: 3,
+@@ -880,20 +927,26 @@ describe('identifyPackages', () => {
    });
  
    test.each([
@@ -5260,10 +6030,10 @@ index 563dedd5e79f7ab99b967c4c183b42a5bf1721dc..bc00eccea67662acfa9ad3e1c111a6c5
  });
  
 diff --git a/frontend/src/stateless/index.test.ts b/frontend/src/stateless/index.test.ts
-index 5b8b25aa94d39c3c0da5c5d5a616c9b0b8e6294d..5e158d9c64ab8e12c62217f36e637b3a3529e963 100644
+index 5b8b25aa9..6257502e6 100644
 --- a/frontend/src/stateless/index.test.ts
 +++ b/frontend/src/stateless/index.test.ts
-@@ -365,14 +365,13 @@ describe('fetchStatelessClusterKubeConfigs', () => {
+@@ -365,14 +365,34 @@ describe('fetchStatelessClusterKubeConfigs', () => {
      expect(dispatch).toHaveBeenCalledWith(setStatelessConfig({ statelessClusters: {} }));
    });
  
@@ -5277,14 +6047,64 @@ index 5b8b25aa94d39c3c0da5c5d5a616c9b0b8e6294d..5e158d9c64ab8e12c62217f36e637b3a
  
 -    expect(dispatch).not.toHaveBeenCalled();
 +    expect(dispatch).toHaveBeenCalledWith(setStatelessConfig({ statelessClusters: {} }));
++  });
++
++  it('marks stateless config loaded when IndexedDB fails to open', async () => {
++    const openError = new Error('IndexedDB unavailable');
++    const open = vi.spyOn(indexedDB, 'open').mockImplementation(() => {
++      const request = {} as IDBOpenDBRequest;
++      queueMicrotask(() => request.onerror?.call(request, { target: { error: openError } } as any));
++      return request;
++    });
++    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
++    const dispatch = vi.fn();
++
++    try {
++      await fetchStatelessClusterKubeConfigs(dispatch);
++
++      expect(dispatch).toHaveBeenCalledWith(setStatelessConfig({ statelessClusters: {} }));
++      expect(consoleError).toHaveBeenCalledWith('Error getting stateless config:', openError);
++    } finally {
++      open.mockRestore();
++      consoleError.mockRestore();
++    }
    });
  });
  
--- 
-2.54.0
+@@ -621,4 +641,31 @@ describe('fetchStatelessClusterKubeConfigs corner cases', () => {
+     await inFlight;
+     expect(settled).toHaveBeenCalledOnce();
+   });
++
++  it('settles stateless readiness when kubeconfig parsing fails', async () => {
++    await storeStatelessClusterKubeconfig('dummy-kubeconfig');
++    const parseError = new Error('parse failed');
++    vi.mocked(request).mockRejectedValue(parseError);
++    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
++    const dispatch = vi.fn();
++
++    try {
++      await fetchStatelessClusterKubeConfigs(dispatch);
++
++      expect(dispatch).toHaveBeenCalledWith(setStatelessConfig({ statelessClusters: {} }));
++      expect(consoleError).toHaveBeenCalledWith('Error getting stateless config:', parseError);
++
++      store.dispatch(
++        setStatelessConfig({
++          statelessClusters: { existing: { name: 'existing' } as any },
++        })
++      );
++      dispatch.mockClear();
++      await fetchStatelessClusterKubeConfigs(dispatch);
++
++      expect(dispatch).not.toHaveBeenCalled();
++    } finally {
++      consoleError.mockRestore();
++    }
++  });
+ });
 
-
-From 2574ef91626bdf13a581ee98059172e2666a666c Mon Sep 17 00:00:00 2001
+From d2ef5b4a12808b20b68e8a8d2a1e7d041079fa65 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 13:58:15 +0530
 Subject: [PATCH 05/10] frontend: clusterProviderSlice: Add cluster pre-open
@@ -5299,7 +6119,7 @@ scope progress and cleanup to the active cluster run.
 
 Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 ---
- frontend/src/components/App/ClusterLayout.tsx |  58 +++++++
+ frontend/src/components/App/ClusterLayout.tsx |  62 ++++++++
  .../src/components/App/ClusterPreOpenGate.tsx |  74 +++++++++
  .../components/App/ClusterPreparingDialog.tsx |  65 ++++++++
  frontend/src/components/App/Layout.tsx        |  55 ++-----
@@ -5309,14 +6129,14 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
  frontend/src/lib/k8s/index.ts                 |  25 ++-
  .../plugin/__snapshots__/pluginLib.snapshot   |   1 +
  frontend/src/plugin/clusterPreOpen.ts         |  91 +++++++++++
- frontend/src/plugin/clusterProxy.ts           |  45 +++++-
- frontend/src/plugin/index.ts                  |  60 +++++--
+ frontend/src/plugin/clusterProxy.ts           |  52 +++++-
+ frontend/src/plugin/index.ts                  |  86 ++++++----
  frontend/src/plugin/registry.tsx              |  40 +++++
- frontend/src/plugin/runPlugin.ts              |   8 +-
+ frontend/src/plugin/runPlugin.ts              |  68 ++++----
  frontend/src/redux/clusterProviderSlice.ts    |  96 +++++++++++
- frontend/src/stateless/index.ts               |   2 +-
+ frontend/src/stateless/index.ts               |  72 +++++----
  plugins/headlamp-plugin/src/index.ts          |   6 +
- 17 files changed, 792 insertions(+), 85 deletions(-)
+ 17 files changed, 878 insertions(+), 166 deletions(-)
  create mode 100644 frontend/src/components/App/ClusterLayout.tsx
  create mode 100644 frontend/src/components/App/ClusterPreOpenGate.tsx
  create mode 100644 frontend/src/components/App/ClusterPreparingDialog.tsx
@@ -5325,10 +6145,10 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 
 diff --git a/frontend/src/components/App/ClusterLayout.tsx b/frontend/src/components/App/ClusterLayout.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..0ed0b4f11bcd568102641f9334826eb48dd20a35
+index 000000000..2cdd719a7
 --- /dev/null
 +++ b/frontend/src/components/App/ClusterLayout.tsx
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,62 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -5358,6 +6178,10 @@ index 0000000000000000000000000000000000000000..0ed0b4f11bcd568102641f9334826eb4
 +
 +/** Places plugin panels and cluster chrome behind one preparation boundary. */
 +export default function ClusterLayout({ children, panels, pluginsLoaded }: ClusterLayoutProps) {
++  if (!pluginsLoaded) {
++    return null;
++  }
++
 +  const content = (
 +    <Box sx={{ display: 'flex', height: '100dvh' }}>
 +      {panels.left.map(it => (
@@ -5374,7 +6198,7 @@ index 0000000000000000000000000000000000000000..0ed0b4f11bcd568102641f9334826eb4
 +        {panels.top.map(it => (
 +          <it.component key={it.id} />
 +        ))}
-+        {pluginsLoaded && children}
++        {children}
 +        {panels.bottom.map(it => (
 +          <it.component key={it.id} />
 +        ))}
@@ -5385,11 +6209,11 @@ index 0000000000000000000000000000000000000000..0ed0b4f11bcd568102641f9334826eb4
 +    </Box>
 +  );
 +
-+  return pluginsLoaded ? <ClusterPreOpenGate>{content}</ClusterPreOpenGate> : content;
++  return <ClusterPreOpenGate>{content}</ClusterPreOpenGate>;
 +}
 diff --git a/frontend/src/components/App/ClusterPreOpenGate.tsx b/frontend/src/components/App/ClusterPreOpenGate.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..a23edb663e8fb86a25d671d5c2718bfb85948681
+index 000000000..a23edb663
 --- /dev/null
 +++ b/frontend/src/components/App/ClusterPreOpenGate.tsx
 @@ -0,0 +1,74 @@
@@ -5469,7 +6293,7 @@ index 0000000000000000000000000000000000000000..a23edb663e8fb86a25d671d5c2718bfb
 +}
 diff --git a/frontend/src/components/App/ClusterPreparingDialog.tsx b/frontend/src/components/App/ClusterPreparingDialog.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..b964be6949352998991476d3545b1592a4196afb
+index 000000000..b964be694
 --- /dev/null
 +++ b/frontend/src/components/App/ClusterPreparingDialog.tsx
 @@ -0,0 +1,65 @@
@@ -5539,7 +6363,7 @@ index 0000000000000000000000000000000000000000..b964be6949352998991476d3545b1592
 +  );
 +}
 diff --git a/frontend/src/components/App/Layout.tsx b/frontend/src/components/App/Layout.tsx
-index 1551859fb9f378469acd9c7b935555910655e096..e6b1249eac91f19544c7996b977ec82a2bae167c 100644
+index 1551859fb..e6b1249ea 100644
 --- a/frontend/src/components/App/Layout.tsx
 +++ b/frontend/src/components/App/Layout.tsx
 @@ -43,10 +43,10 @@ import { fetchStatelessClusterKubeConfigs, isEqualClusterConfigs } from '../../s
@@ -5639,7 +6463,7 @@ index 1551859fb9f378469acd9c7b935555910655e096..e6b1249eac91f19544c7996b977ec82a
    );
  }
 diff --git a/frontend/src/components/App/RouteSwitcher.tsx b/frontend/src/components/App/RouteSwitcher.tsx
-index c8356690d78e39193b363a247e1f22c6cbae2974..c70d64ad7fb4e02529cb63c7b5aa8ea9d2f43387 100644
+index c8356690d..c70d64ad7 100644
 --- a/frontend/src/components/App/RouteSwitcher.tsx
 +++ b/frontend/src/components/App/RouteSwitcher.tsx
 @@ -152,7 +152,7 @@ interface AuthRouteProps {
@@ -5671,7 +6495,7 @@ index c8356690d78e39193b363a247e1f22c6cbae2974..c70d64ad7fb4e02529cb63c7b5aa8ea9
    const authError = query.error as any;
 diff --git a/frontend/src/components/App/useClusterPreOpen.ts b/frontend/src/components/App/useClusterPreOpen.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..671760c3d00d6092e376dd30096db7d5d08d2238
+index 000000000..671760c3d
 --- /dev/null
 +++ b/frontend/src/components/App/useClusterPreOpen.ts
 @@ -0,0 +1,150 @@
@@ -5826,7 +6650,7 @@ index 0000000000000000000000000000000000000000..671760c3d00d6092e376dd30096db7d5
 +  };
 +}
 diff --git a/frontend/src/components/common/AlertNotification.tsx b/frontend/src/components/common/AlertNotification.tsx
-index 9b216514c4a7e19247da2630fc35e7343f210cf6..0186e61a465d3d80e2514445f6c61410a3955abf 100644
+index 9b216514c..0186e61a4 100644
 --- a/frontend/src/components/common/AlertNotification.tsx
 +++ b/frontend/src/components/common/AlertNotification.tsx
 @@ -28,6 +28,7 @@ import { getCluster } from '../../lib/cluster';
@@ -5988,7 +6812,7 @@ index 9b216514c4a7e19247da2630fc35e7343f210cf6..0186e61a465d3d80e2514445f6c61410
 +  return <PureAlertNotification checkerFunction={testClusterHealth} suppress={isPreparing} />;
  }
 diff --git a/frontend/src/lib/k8s/index.ts b/frontend/src/lib/k8s/index.ts
-index d2a95c15bfccd3867823701e468c11e0f3bbbb2f..4fe2bd7063bb07ed71bda9306a9acaf252ada008 100644
+index d2a95c15b..4fe2bd706 100644
 --- a/frontend/src/lib/k8s/index.ts
 +++ b/frontend/src/lib/k8s/index.ts
 @@ -128,21 +128,18 @@ export const ResourceClasses = {
@@ -6025,7 +6849,7 @@ index d2a95c15bfccd3867823701e468c11e0f3bbbb2f..4fe2bd7063bb07ed71bda9306a9acaf2
  
  export { useCluster, useConnectApi, useSelectedClusters } from './api/v1/hooks';
 diff --git a/frontend/src/plugin/__snapshots__/pluginLib.snapshot b/frontend/src/plugin/__snapshots__/pluginLib.snapshot
-index d0e66d3aed9cac99b568047a9aa3bcd66f572a7e..46ad17a18aa29a0b3c5ad493dd79698e8f5957d0 100644
+index d0e66d3ae..46ad17a18 100644
 --- a/frontend/src/plugin/__snapshots__/pluginLib.snapshot
 +++ b/frontend/src/plugin/__snapshots__/pluginLib.snapshot
 @@ -783,6 +783,7 @@
@@ -6038,7 +6862,7 @@ index d0e66d3aed9cac99b568047a9aa3bcd66f572a7e..46ad17a18aa29a0b3c5ad493dd79698e
    "registerDetailsViewHeaderAction": [Function],
 diff --git a/frontend/src/plugin/clusterPreOpen.ts b/frontend/src/plugin/clusterPreOpen.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..43ef7f2ac1dffbff36849cd0edfc48562c80d3af
+index 000000000..43ef7f2ac
 --- /dev/null
 +++ b/frontend/src/plugin/clusterPreOpen.ts
 @@ -0,0 +1,91 @@
@@ -6134,10 +6958,21 @@ index 0000000000000000000000000000000000000000..43ef7f2ac1dffbff36849cd0edfc4856
 +  preOpenHooks.length = 0;
 +}
 diff --git a/frontend/src/plugin/clusterProxy.ts b/frontend/src/plugin/clusterProxy.ts
-index c410b854110957bafbc33b3b458f5711d25efedd..484eb19eeba773c5ec8ccc2b895b9d6db93305e8 100644
+index c410b8541..2fc8d0598 100644
 --- a/frontend/src/plugin/clusterProxy.ts
 +++ b/frontend/src/plugin/clusterProxy.ts
-@@ -32,29 +32,58 @@ export interface StartClusterProxyResult {
+@@ -28,33 +28,69 @@ export interface ClusterProxyTarget {
+ export interface StartClusterProxyResult {
+   /** Whether the proxy process started or was already running. */
+   success: boolean;
++  /** Provider endpoint made available after readiness, when needed by the caller. */
++  endpoint?: {
++    /** Loopback host owned by Headlamp's proxy lifecycle. */
++    host: '127.0.0.1';
++    /** Allocated local port forwarded to the provider endpoint. */
++    port: number;
++  };
+   /** Failure detail when startup did not succeed. */
    error?: string;
  }
  
@@ -6205,10 +7040,10 @@ index c410b854110957bafbc33b3b458f5711d25efedd..484eb19eeba773c5ec8ccc2b895b9d6d
    }
  
 diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
-index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..eb980202ac5e54910385fba19b19e04b71bf1420 100644
+index 02bcbcdc8..bb2768867 100644
 --- a/frontend/src/plugin/index.ts
 +++ b/frontend/src/plugin/index.ts
-@@ -53,7 +53,11 @@ import * as Utils from '../lib/util';
+@@ -53,16 +53,20 @@ import * as Utils from '../lib/util';
  import { eventAction, HeadlampEventType } from '../redux/headlampEventSlice';
  import store from '../redux/stores/store';
  import * as stateless from '../stateless/index';
@@ -6221,8 +7056,10 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..eb980202ac5e54910385fba19b19e04b
  import { Headlamp, Plugin } from './lib';
  import { changePluginLanguage, initializePluginI18n } from './pluginI18n';
  import { useTranslation } from './pluginI18n';
-@@ -62,7 +66,7 @@ import Registry, * as registryToExport from './registry';
- import { getInfoForRunningPlugins, identifyPackages, runPlugin, runPluginProps } from './runPlugin';
+ import { PluginInfo } from './pluginsSlice';
+ import Registry, * as registryToExport from './registry';
+-import { getInfoForRunningPlugins, identifyPackages, runPlugin, runPluginProps } from './runPlugin';
++import { getInfoForRunningPlugins, identifyPackages, runPlugin } from './runPlugin';
  import { createPluginSecureStorage, getPluginSecureStorageNamespace } from './secureStorage';
  
 -window.pluginLib = {
@@ -6249,7 +7086,34 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..eb980202ac5e54910385fba19b19e04b
  
  // backwards compat.
  window.pluginLib.MuiCore = window.pluginLib.MuiMaterial;
-@@ -506,6 +522,15 @@ export async function fetchAndExecutePlugins(
+@@ -336,26 +352,6 @@ export function updateSettingsPackages(
+   });
+ }
+ 
+-/**
+- * Runs a plugin with the given info.
+- *
+- * This is not a closure, so it doens't have access to the variables
+- *  in the scope of the function that called it.
+- */
+-function runPluginInner(info: runPluginProps) {
+-  // We avoid destructuring here in case that is overridden by a plugin.
+-  const source = info[0];
+-  const packageName = info[1];
+-  const packageVersion = info[2];
+-  const handleError = info[3];
+-  const PrivateFunction = info[4];
+-  const args = info[5];
+-  const values = info[6];
+-  const privateRunPlugin = info[7];
+-
+-  privateRunPlugin(source, packageName, packageVersion, handleError, PrivateFunction, args, values);
+-}
+-
+ const PLUGIN_LOADING_ERROR = HeadlampEventType.PLUGIN_LOADING_ERROR;
+ const consoleError = console.error;
+ const storeDispatch = store.dispatch;
+@@ -506,6 +502,15 @@ export async function fetchAndExecutePlugins(
    const sources = await sourcesPromise;
    const packageInfos = await packageInfosPromise;
    const permissionSecrets = await permissionSecretsPromise;
@@ -6265,7 +7129,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..eb980202ac5e54910385fba19b19e04b
  
    // Update settings to include all plugin versions (by name + type)
    let updatedSettingsPackages = updateSettingsPackages(packageInfos, settingsPackages);
-@@ -613,7 +638,7 @@ export async function fetchAndExecutePlugins(
+@@ -613,7 +618,7 @@ export async function fetchAndExecutePlugins(
          pluginPath: pluginPathsToExecute[index],
          packageName: packageInfosToExecute[index].name,
          packageVersion: packageInfosToExecute[index].version || '',
@@ -6274,7 +7138,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..eb980202ac5e54910385fba19b19e04b
          handleError: handlePluginRunError,
          getAllowedPermissions: (pluginName, pluginPath, secrets): Record<string, number> => {
            const secretsToReturn: Record<string, number> = {};
-@@ -639,11 +664,15 @@ export async function fetchAndExecutePlugins(
+@@ -639,11 +644,15 @@ export async function fetchAndExecutePlugins(
              secretsToReturn['runCmd-az'] = secrets['runCmd-az'];
            }
  
@@ -6295,7 +7159,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..eb980202ac5e54910385fba19b19e04b
  
            return secretsToReturn;
          },
-@@ -652,6 +681,11 @@ export async function fetchAndExecutePlugins(
+@@ -652,6 +661,11 @@ export async function fetchAndExecutePlugins(
            const argumentValues: unknown[] = [];
            // allowedPermissions is the return value of getAllowedPermissions
            const isPackage = identifyPackages(pluginPath, pluginName, isDevelopmentMode);
@@ -6307,7 +7171,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..eb980202ac5e54910385fba19b19e04b
            if (isPackage['@headlamp-k8s/minikube']) {
              // We construct a pluginRunCommand that has private
              //  - permission secrets
-@@ -693,7 +727,7 @@ export async function fetchAndExecutePlugins(
+@@ -693,7 +707,7 @@ export async function fetchAndExecutePlugins(
              argumentValues.push(pluginRunCommand, pluginPath);
            }
  
@@ -6316,7 +7180,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..eb980202ac5e54910385fba19b19e04b
              function pluginRunCommand(
                command: 'scriptjs',
                args: string[],
-@@ -711,9 +745,9 @@ export async function fetchAndExecutePlugins(
+@@ -711,9 +725,9 @@ export async function fetchAndExecutePlugins(
              argumentNames.push('pluginRunCommand', 'pluginPath');
              argumentValues.push(pluginRunCommand, pluginPath);
              const [proxyArgs, proxyValues] = getClusterProxyArgValues(
@@ -6328,7 +7192,18 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..eb980202ac5e54910385fba19b19e04b
              );
              argumentNames.push(...proxyArgs);
              argumentValues.push(...proxyValues);
-@@ -816,11 +850,11 @@ async function afterPluginsRun(
+@@ -746,7 +760,9 @@ export async function fetchAndExecutePlugins(
+     return 0;
+   });
+ 
+-  infoForRunningPlugins.forEach(runPluginInner);
++  infoForRunningPlugins.forEach(info => {
++    info[7](info[0], info[1], info[2], info[3], info[4], info[5], info[6]);
++  });
+ 
+   // Initialize plugin i18n after plugins are loaded
+   await initializePluginsI18n(packageInfos, pluginPaths);
+@@ -816,11 +832,11 @@ async function afterPluginsRun(
   *
   * @returns promise with permissions secrets like { 'runCmd-minikube': 1235555 }
   */
@@ -6343,7 +7218,7 @@ index 02bcbcdc8ddcf0b2bf4635e9f653e4b7ae36c0b8..eb980202ac5e54910385fba19b19e04b
        });
        desktopApi.send('request-plugin-permission-secrets');
 diff --git a/frontend/src/plugin/registry.tsx b/frontend/src/plugin/registry.tsx
-index 6e8ac89e69e5c6be286c3632dd35beed0253a58a..c6b0cf86f504697ea507866dfda7b49efdce31f5 100644
+index 6e8ac89e6..c6b0cf86f 100644
 --- a/frontend/src/plugin/registry.tsx
 +++ b/frontend/src/plugin/registry.tsx
 @@ -72,12 +72,16 @@ import {
@@ -6407,10 +7282,116 @@ index 6e8ac89e69e5c6be286c3632dd35beed0253a58a..c6b0cf86f504697ea507866dfda7b49e
   * Add a new theme that will be available in the settings.
   * Theme name should be unique
 diff --git a/frontend/src/plugin/runPlugin.ts b/frontend/src/plugin/runPlugin.ts
-index 8bb22bb81bf38426909c01d3b2d51da9473f39ce..6f7f4ccdddd799b1ebda9aa89faa8577367fa002 100644
+index 8bb22bb81..2ae1a7d5d 100644
 --- a/frontend/src/plugin/runPlugin.ts
 +++ b/frontend/src/plugin/runPlugin.ts
-@@ -286,7 +286,11 @@ export function identifyPackages(
+@@ -61,6 +61,14 @@ export type runPluginProps = [
+ const privateApply = Reflect.apply;
+ const privateConstruct = Reflect.construct;
+ const privateCreate = Object.create;
++const privateAtob = atob;
++const privateBtoa = btoa;
++const privateJsonParse = JSON.parse;
++const privateJsonStringify = JSON.stringify;
++const privateStringCharCodeAt = String.prototype.charCodeAt;
++const privateStringLastIndexOf = String.prototype.lastIndexOf;
++const privateStringRepeat = String.prototype.repeat;
++const privateStringSlice = String.prototype.slice;
+ 
+ /**
+  * Prepares the information needed to run a plugin with the `runPlugin` function.
+@@ -150,29 +158,46 @@ export function getInfoForRunningPlugins({
+ export function adjustSourceMapOffsetForFunction(jsSource: string) {
+   try {
+     const marker = '//# sourceMappingURL=data:application/json;charset=utf-8;base64,';
+-    const markerIndex = jsSource.lastIndexOf(marker);
++    const markerIndex = privateApply(privateStringLastIndexOf, jsSource, [marker]);
+ 
+     if (markerIndex === -1) {
+       return jsSource;
+     }
+ 
+     const base64Start = markerIndex + marker.length;
+-    const base64Data = jsSource.slice(base64Start).split(/[\s\n]/)[0];
++    const sourceMapTail = privateApply(privateStringSlice, jsSource, [base64Start]);
++    let base64Length = sourceMapTail.length;
++    for (let index = 0; index < sourceMapTail.length; index += 1) {
++      const charCode = privateApply(privateStringCharCodeAt, sourceMapTail, [index]);
++      if (
++        charCode === 9 ||
++        charCode === 10 ||
++        charCode === 11 ||
++        charCode === 12 ||
++        charCode === 13 ||
++        charCode === 32
++      ) {
++        base64Length = index;
++        break;
++      }
++    }
++    const base64Data = privateApply(privateStringSlice, sourceMapTail, [0, base64Length]);
+ 
+-    const sourceMap = JSON.parse(atob(base64Data));
++    const sourceMap = privateJsonParse(privateAtob(base64Data));
+ 
+     if (typeof sourceMap.mappings !== 'string') {
+       return jsSource;
+     }
+ 
+     const wrapperLineCount = 2;
+-    sourceMap.mappings = ';'.repeat(wrapperLineCount) + sourceMap.mappings;
++    sourceMap.mappings =
++      privateApply(privateStringRepeat, ';', [wrapperLineCount]) + sourceMap.mappings;
+ 
+-    const newBase64 = btoa(JSON.stringify(sourceMap));
++    const newBase64 = privateBtoa(privateJsonStringify(sourceMap));
+     const newSourceMapComment = `//# sourceMappingURL=data:application/json;charset=utf-8;base64,${newBase64}`;
+ 
+-    const before = jsSource.slice(0, markerIndex);
+-    const after = jsSource.slice(base64Start + base64Data.length);
++    const before = privateApply(privateStringSlice, jsSource, [0, markerIndex]);
++    const after = privateApply(privateStringSlice, jsSource, [base64Start + base64Data.length]);
+ 
+     return before + newSourceMapComment + after;
+   } catch (error) {
+@@ -205,11 +230,6 @@ export function runPlugin(
+   args: string[],
+   values: unknown[]
+ ): void {
+-  // Build the Function constructor argument list by index. Iterating `args`
+-  // would let an earlier plugin replace a parameter name with destructuring code
+-  // that exports a private value while the generated function binds arguments.
+-  // A null prototype prevents inherited numeric getters or setters from changing
+-  // the parameter strings written to and read from this array-like object.
+   const constructorArgs = privateCreate(null) as Record<number, string> & { length: number };
+   constructorArgs.length = args.length + 1;
+   for (let index = 0; index < args.length; index += 1) {
+@@ -217,21 +237,11 @@ export function runPlugin(
+   }
+   constructorArgs[args.length] = adjustSourceMapOffsetForFunction(source);
+ 
+-  // Use the private Function reference and avoid the mutable array iterator.
+-  const executePlugin = privateConstruct(PrivateFunction, constructorArgs) as Function;
+-
+   try {
+-    // This executes in the global scope,
+-    //   so the plugin can't access variables in this scope.
+-    // Meaning, it can NOT access "permissionSecrets".
+-    // Each plugin gets its own "pluginPermissionSecrets" which contains only the secrets
+-    //   that it is allowed to access.
+-    // Avoid spread syntax here: it would expose values to a mutable global array
+-    // iterator. `undefined` is the receiver because generated plugin functions do
+-    // not use a privileged `this`; `values` becomes their positional arguments.
++    const executePlugin = privateConstruct(PrivateFunction, constructorArgs) as Function;
+     privateApply(executePlugin, undefined, values);
+-  } catch (e) {
+-    handleError(e, packageName, packageVersion);
++  } catch (error) {
++    handleError(error, packageName, packageVersion);
+   }
+ }
+ 
+@@ -286,7 +296,11 @@ export function identifyPackages(
        'user-plugins/headlamp_ai_assistantprerelease',
        'static-plugins/headlamp_ai_assistantprerelease',
      ],
@@ -6423,7 +7404,7 @@ index 8bb22bb81bf38426909c01d3b2d51da9473f39ce..6f7f4ccdddd799b1ebda9aa89faa8577
    };
  
    if (isDevelopmentMode) {
-@@ -303,7 +307,7 @@ export function identifyPackages(
+@@ -303,7 +317,7 @@ export function identifyPackages(
        '@headlamp-k8s/ai-assistant',
        '@headlamp-k8s/ai-assistantprerelease',
      ],
@@ -6433,7 +7414,7 @@ index 8bb22bb81bf38426909c01d3b2d51da9473f39ce..6f7f4ccdddd799b1ebda9aa89faa8577
    const isPackage: Record<string, boolean> = {};
    for (const key in pluginPaths) {
 diff --git a/frontend/src/redux/clusterProviderSlice.ts b/frontend/src/redux/clusterProviderSlice.ts
-index 19dd642fcd7884403342f7f311e6e9bf796735d9..481b0d0994bd02cb2d1ab22842f598ac265085e7 100644
+index 19dd642fc..481b0d099 100644
 --- a/frontend/src/redux/clusterProviderSlice.ts
 +++ b/frontend/src/redux/clusterProviderSlice.ts
 @@ -49,6 +49,58 @@ export type ClusterEmptyStateComponent = (
@@ -6568,20 +7549,110 @@ index 19dd642fcd7884403342f7f311e6e9bf796735d9..481b0d0994bd02cb2d1ab22842f598ac
  
  export default clusterProviderSlice.reducer;
 diff --git a/frontend/src/stateless/index.ts b/frontend/src/stateless/index.ts
-index c5cd96e3efc4d5e993d11f3165f2d9074b5e1208..cf117fd2f67ec73baaae9e1c4f0934c3c70abd6f 100644
+index c5cd96e3e..9a7cb5d68 100644
 --- a/frontend/src/stateless/index.ts
 +++ b/frontend/src/stateless/index.ts
-@@ -420,7 +420,7 @@ export async function fetchStatelessClusterKubeConfigs(dispatch: any) {
+@@ -212,7 +212,7 @@ export function storeStatelessClusterKubeconfig(kubeconfig: string): Promise<voi
  
-   if (!config || config.length === 0) {
-     const statelessClusters = store.getState().config.statelessClusters;
+     // The onerror event is fired when the database is opened.
+     // This is where you handle errors.
+-    request.onerror = handleDataBaseError;
++    request.onerror = (event: Event) => handleDataBaseError(event as DatabaseErrorEvent, reject);
+   });
+ }
+ 
+@@ -266,7 +266,7 @@ export function getStatelessClusterKubeConfigs(): Promise<string[]> {
+ 
+     // The onerror event is fired when the database is opened.
+     // This is where you handle errors.
+-    request.onerror = handleDataBaseError;
++    request.onerror = (event: Event) => handleDataBaseError(event as DatabaseErrorEvent, reject);
+   });
+ }
+ 
+@@ -416,45 +416,47 @@ export function isEqualClusterConfigs(
+  * if the present stored config is different from the fetched one.
+  */
+ export async function fetchStatelessClusterKubeConfigs(dispatch: any) {
+-  const config = await getStatelessClusterKubeConfigs();
++  try {
++    const config = await getStatelessClusterKubeConfigs();
+ 
+-  if (!config || config.length === 0) {
+-    const statelessClusters = store.getState().config.statelessClusters;
 -    if (statelessClusters && Object.keys(statelessClusters).length > 0) {
-+    if (statelessClusters === null || Object.keys(statelessClusters).length > 0) {
-       dispatch(setStatelessConfig({ statelessClusters: {} }));
+-      dispatch(setStatelessConfig({ statelessClusters: {} }));
++    if (!config || config.length === 0) {
++      const statelessClusters = store.getState().config.statelessClusters;
++      if (statelessClusters === null || Object.keys(statelessClusters).length > 0) {
++        dispatch(setStatelessConfig({ statelessClusters: {} }));
++      }
++      return;
      }
-     return;
+-    return;
+-  }
+ 
+-  const headers = addBackstageAuthHeaders(JSON_HEADERS);
+-  const clusterReq = {
+-    kubeconfigs: config,
+-  };
++    const headers = addBackstageAuthHeaders(JSON_HEADERS);
++    const clusterReq = {
++      kubeconfigs: config,
++    };
+ 
+-  return request(
+-    '/parseKubeConfig',
+-    {
+-      method: 'POST',
+-      body: JSON.stringify(clusterReq),
+-      headers: {
+-        ...headers,
+-        ...getHeadlampAPIHeaders(),
++    const parsedConfig = (await request(
++      '/parseKubeConfig',
++      {
++        method: 'POST',
++        body: JSON.stringify(clusterReq),
++        headers: {
++          ...headers,
++          ...getHeadlampAPIHeaders(),
++        },
+       },
+-    },
+-    false,
+-    false
+-  )
+-    .then((config: ParsedConfig) => {
+-      const nextState = toStatelessConfigState(config);
+-      const statelessClusters = store.getState().config.statelessClusters;
++      false,
++      false
++    )) as ParsedConfig;
++    const nextState = toStatelessConfigState(parsedConfig);
++    const statelessClusters = store.getState().config.statelessClusters;
+ 
+-      if (isEqualClusterConfigs(statelessClusters, nextState.statelessClusters)) {
+-        dispatch(setStatelessConfig(nextState));
+-      }
+-    })
+-    .catch((err: Error) => {
+-      console.error('Error getting config:', err);
+-    });
++    if (isEqualClusterConfigs(statelessClusters, nextState.statelessClusters)) {
++      dispatch(setStatelessConfig(nextState));
++    }
++  } catch (error) {
++    console.error('Error getting stateless config:', error);
++    if (store.getState().config.statelessClusters === null) {
++      dispatch(setStatelessConfig({ statelessClusters: {} }));
++    }
++  }
+ }
+ 
+ const exportFunctions = {
 diff --git a/plugins/headlamp-plugin/src/index.ts b/plugins/headlamp-plugin/src/index.ts
-index d7500ebb5af9aaa4f10ff5aa035d3754966e6b9e..bc1b598fad985903e5a4b409792d878dfb3470d0 100644
+index d7500ebb5..bc1b598fa 100644
 --- a/plugins/headlamp-plugin/src/index.ts
 +++ b/plugins/headlamp-plugin/src/index.ts
 @@ -37,6 +37,8 @@ import Registry, {
@@ -6618,11 +7689,8 @@ index d7500ebb5af9aaa4f10ff5aa035d3754966e6b9e..bc1b598fad985903e5a4b409792d878d
    DetailsViewSectionProps,
    DefaultSidebars,
    HeadlampEvent,
--- 
-2.54.0
 
-
-From 789bb062077dc0391223927309771bf704eded0b Mon Sep 17 00:00:00 2001
+From 3eed6a89d96da031d3157f6f3162fe0934ce8809 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 13:58:34 +0530
 Subject: [PATCH 06/10] frontend: i18n: Regenerate cluster pre-open locales
@@ -6664,7 +7732,7 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
  25 files changed, 100 insertions(+)
 
 diff --git a/frontend/src/i18n/locales/ar/translation.json b/frontend/src/i18n/locales/ar/translation.json
-index 10ec807e32348809da98be2591b771228d0d1133..8465651bd605bf3ba4db55af8d87c49991bc87cb 100644
+index 10ec807e3..8465651bd 100644
 --- a/frontend/src/i18n/locales/ar/translation.json
 +++ b/frontend/src/i18n/locales/ar/translation.json
 @@ -52,6 +52,8 @@
@@ -6686,7 +7754,7 @@ index 10ec807e32348809da98be2591b771228d0d1133..8465651bd605bf3ba4db55af8d87c499
    "Error": "خطأ",
    "Okay": "حسنًا",
 diff --git a/frontend/src/i18n/locales/bn/translation.json b/frontend/src/i18n/locales/bn/translation.json
-index 70834dee1062628e5612c0743fab99672a5a0a5b..b6b46947d4876f6aea340c4f9c6648a118f12ce1 100644
+index 70834dee1..b6b46947d 100644
 --- a/frontend/src/i18n/locales/bn/translation.json
 +++ b/frontend/src/i18n/locales/bn/translation.json
 @@ -52,6 +52,8 @@
@@ -6708,7 +7776,7 @@ index 70834dee1062628e5612c0743fab99672a5a0a5b..b6b46947d4876f6aea340c4f9c6648a1
    "Error": "Error",
    "Okay": "ঠিক আছে",
 diff --git a/frontend/src/i18n/locales/cs/translation.json b/frontend/src/i18n/locales/cs/translation.json
-index b3feeb449ba7643020b05e448f17e733bc96e438..47df8383b3dc40cf2acd3679d065e9e7f06de33e 100644
+index b3feeb449..47df8383b 100644
 --- a/frontend/src/i18n/locales/cs/translation.json
 +++ b/frontend/src/i18n/locales/cs/translation.json
 @@ -52,6 +52,8 @@
@@ -6730,7 +7798,7 @@ index b3feeb449ba7643020b05e448f17e733bc96e438..47df8383b3dc40cf2acd3679d065e9e7
    "Error": "Chyba",
    "Okay": "OK",
 diff --git a/frontend/src/i18n/locales/de/translation.json b/frontend/src/i18n/locales/de/translation.json
-index 3837548db5a7f8dc7185c8070a653ef76f01d38c..69a645c77ba613e139b05be0611c4430588d7646 100644
+index 3837548db..69a645c77 100644
 --- a/frontend/src/i18n/locales/de/translation.json
 +++ b/frontend/src/i18n/locales/de/translation.json
 @@ -52,6 +52,8 @@
@@ -6752,7 +7820,7 @@ index 3837548db5a7f8dc7185c8070a653ef76f01d38c..69a645c77ba613e139b05be0611c4430
    "Error": "Error",
    "Okay": "",
 diff --git a/frontend/src/i18n/locales/en/translation.json b/frontend/src/i18n/locales/en/translation.json
-index d51662a5a2e455cd925e0991502225e7983f9452..812708f63a3c83dd64636d945e19bc387190a2db 100644
+index d51662a5a..812708f63 100644
 --- a/frontend/src/i18n/locales/en/translation.json
 +++ b/frontend/src/i18n/locales/en/translation.json
 @@ -52,6 +52,8 @@
@@ -6774,7 +7842,7 @@ index d51662a5a2e455cd925e0991502225e7983f9452..812708f63a3c83dd64636d945e19bc38
    "Error": "Error",
    "Okay": "Okay",
 diff --git a/frontend/src/i18n/locales/es/translation.json b/frontend/src/i18n/locales/es/translation.json
-index 97731c2ec611194081d08105bd4bd36f80ea05e5..b7023215dd52a4fb0e7956cdda16dc16cb1c6aa3 100644
+index 97731c2ec..b7023215d 100644
 --- a/frontend/src/i18n/locales/es/translation.json
 +++ b/frontend/src/i18n/locales/es/translation.json
 @@ -52,6 +52,8 @@
@@ -6796,7 +7864,7 @@ index 97731c2ec611194081d08105bd4bd36f80ea05e5..b7023215dd52a4fb0e7956cdda16dc16
    "Error": "Error",
    "Okay": "",
 diff --git a/frontend/src/i18n/locales/fr/translation.json b/frontend/src/i18n/locales/fr/translation.json
-index 12b65f07bf66b5a5697eb60bad81cf9f81cbc003..1e06b9ee63d7378a9c7dd4c33c62b607a50bf17f 100644
+index 12b65f07b..1e06b9ee6 100644
 --- a/frontend/src/i18n/locales/fr/translation.json
 +++ b/frontend/src/i18n/locales/fr/translation.json
 @@ -52,6 +52,8 @@
@@ -6818,7 +7886,7 @@ index 12b65f07bf66b5a5697eb60bad81cf9f81cbc003..1e06b9ee63d7378a9c7dd4c33c62b607
    "Error": "Erreur",
    "Okay": "D'accord",
 diff --git a/frontend/src/i18n/locales/he/translation.json b/frontend/src/i18n/locales/he/translation.json
-index 9032b8d99da6f3bbbd401b43ec67a854f3ec63ed..c9635b79466efb47ebf92f1a07052a62055a1980 100644
+index 9032b8d99..c9635b794 100644
 --- a/frontend/src/i18n/locales/he/translation.json
 +++ b/frontend/src/i18n/locales/he/translation.json
 @@ -52,6 +52,8 @@
@@ -6840,7 +7908,7 @@ index 9032b8d99da6f3bbbd401b43ec67a854f3ec63ed..c9635b79466efb47ebf92f1a07052a62
    "Error": "Error",
    "Okay": "Okay",
 diff --git a/frontend/src/i18n/locales/hi/translation.json b/frontend/src/i18n/locales/hi/translation.json
-index 73c7590b26942505a945788ba00ecf78c702213f..560f511e4b7ceb4cfd931c6f79b28b77c16b8eb8 100644
+index 73c7590b2..560f511e4 100644
 --- a/frontend/src/i18n/locales/hi/translation.json
 +++ b/frontend/src/i18n/locales/hi/translation.json
 @@ -52,6 +52,8 @@
@@ -6862,7 +7930,7 @@ index 73c7590b26942505a945788ba00ecf78c702213f..560f511e4b7ceb4cfd931c6f79b28b77
    "Error": "",
    "Okay": "",
 diff --git a/frontend/src/i18n/locales/hu/translation.json b/frontend/src/i18n/locales/hu/translation.json
-index 98b070d3e30de4082b28f409aacafb38db428b6c..2d60d905008e6542f0074438aed7c57bcc6b1ca0 100644
+index 98b070d3e..2d60d9050 100644
 --- a/frontend/src/i18n/locales/hu/translation.json
 +++ b/frontend/src/i18n/locales/hu/translation.json
 @@ -52,6 +52,8 @@
@@ -6884,7 +7952,7 @@ index 98b070d3e30de4082b28f409aacafb38db428b6c..2d60d905008e6542f0074438aed7c57b
    "Error": "Hiba",
    "Okay": "OK",
 diff --git a/frontend/src/i18n/locales/id/translation.json b/frontend/src/i18n/locales/id/translation.json
-index d01cbafa7d1b85a498bfaebc826f380f7c6b2287..9ed386c4720285b51262b2b77b7986a06e8df775 100644
+index d01cbafa7..9ed386c47 100644
 --- a/frontend/src/i18n/locales/id/translation.json
 +++ b/frontend/src/i18n/locales/id/translation.json
 @@ -52,6 +52,8 @@
@@ -6906,7 +7974,7 @@ index d01cbafa7d1b85a498bfaebc826f380f7c6b2287..9ed386c4720285b51262b2b77b7986a0
    "Error": "Kesalahan",
    "Okay": "Ok",
 diff --git a/frontend/src/i18n/locales/it/translation.json b/frontend/src/i18n/locales/it/translation.json
-index ce844d6941a0faa8a276b3c3be919fe387ab989c..b456f5fa128c5616dbfd9a1245ef85f520df3b34 100644
+index ce844d694..b456f5fa1 100644
 --- a/frontend/src/i18n/locales/it/translation.json
 +++ b/frontend/src/i18n/locales/it/translation.json
 @@ -52,6 +52,8 @@
@@ -6928,7 +7996,7 @@ index ce844d6941a0faa8a276b3c3be919fe387ab989c..b456f5fa128c5616dbfd9a1245ef85f5
    "Error": "Errore",
    "Okay": "",
 diff --git a/frontend/src/i18n/locales/ja/translation.json b/frontend/src/i18n/locales/ja/translation.json
-index 5653d967019e4b2e720fdf385d5d001a9dd92355..e950663fbbd1e33627dd4b7ee6e710a1a23f31c3 100644
+index 5653d9670..e950663fb 100644
 --- a/frontend/src/i18n/locales/ja/translation.json
 +++ b/frontend/src/i18n/locales/ja/translation.json
 @@ -52,6 +52,8 @@
@@ -6950,7 +8018,7 @@ index 5653d967019e4b2e720fdf385d5d001a9dd92355..e950663fbbd1e33627dd4b7ee6e710a1
    "Error": "エラー",
    "Okay": "",
 diff --git a/frontend/src/i18n/locales/ko/translation.json b/frontend/src/i18n/locales/ko/translation.json
-index e89abd3b1058deebc489aebe662418a9a45f92ef..009ec8226eeef763947261fbc891d64859a04d8b 100644
+index e89abd3b1..009ec8226 100644
 --- a/frontend/src/i18n/locales/ko/translation.json
 +++ b/frontend/src/i18n/locales/ko/translation.json
 @@ -52,6 +52,8 @@
@@ -6972,7 +8040,7 @@ index e89abd3b1058deebc489aebe662418a9a45f92ef..009ec8226eeef763947261fbc891d648
    "Error": "오류",
    "Okay": "",
 diff --git a/frontend/src/i18n/locales/nl/translation.json b/frontend/src/i18n/locales/nl/translation.json
-index 104279a47070e23d0312571105da7d7bca4ffb35..41af496997b59b0d06434f00ff1cc4e9acb56123 100644
+index 104279a47..41af49699 100644
 --- a/frontend/src/i18n/locales/nl/translation.json
 +++ b/frontend/src/i18n/locales/nl/translation.json
 @@ -52,6 +52,8 @@
@@ -6994,7 +8062,7 @@ index 104279a47070e23d0312571105da7d7bca4ffb35..41af496997b59b0d06434f00ff1cc4e9
    "Error": "Fout",
    "Okay": "OK",
 diff --git a/frontend/src/i18n/locales/pl/translation.json b/frontend/src/i18n/locales/pl/translation.json
-index 62349effca106aa910abd6e816c3b704a4732d73..be826db242f41909c66daf48e926b95727dc8866 100644
+index 62349effc..be826db24 100644
 --- a/frontend/src/i18n/locales/pl/translation.json
 +++ b/frontend/src/i18n/locales/pl/translation.json
 @@ -52,6 +52,8 @@
@@ -7016,7 +8084,7 @@ index 62349effca106aa910abd6e816c3b704a4732d73..be826db242f41909c66daf48e926b957
    "Error": "Błąd",
    "Okay": "OK",
 diff --git a/frontend/src/i18n/locales/pt-br/translation.json b/frontend/src/i18n/locales/pt-br/translation.json
-index dd13653a2309dbb5d9aa958439224b84b6da4991..d69c6e4eba2073c9c4103a4c9a18726d31b3d0bd 100644
+index dd13653a2..d69c6e4eb 100644
 --- a/frontend/src/i18n/locales/pt-br/translation.json
 +++ b/frontend/src/i18n/locales/pt-br/translation.json
 @@ -52,6 +52,8 @@
@@ -7038,7 +8106,7 @@ index dd13653a2309dbb5d9aa958439224b84b6da4991..d69c6e4eba2073c9c4103a4c9a18726d
    "Error": "Erro",
    "Okay": "Ok",
 diff --git a/frontend/src/i18n/locales/pt-pt/translation.json b/frontend/src/i18n/locales/pt-pt/translation.json
-index badfcf5173f69631135388c4d27d753af8e19fec..b26f9e4e23a0beb8265f44b3ea0cfac00637f3c8 100644
+index badfcf517..b26f9e4e2 100644
 --- a/frontend/src/i18n/locales/pt-pt/translation.json
 +++ b/frontend/src/i18n/locales/pt-pt/translation.json
 @@ -52,6 +52,8 @@
@@ -7060,7 +8128,7 @@ index badfcf5173f69631135388c4d27d753af8e19fec..b26f9e4e23a0beb8265f44b3ea0cfac0
    "Error": "",
    "Okay": "",
 diff --git a/frontend/src/i18n/locales/ru/translation.json b/frontend/src/i18n/locales/ru/translation.json
-index c75c6517fb9d7f6209ad84b92393a93e6ba29038..f300a3e0d10e485d7628787991ea23948d09b52d 100644
+index c75c6517f..f300a3e0d 100644
 --- a/frontend/src/i18n/locales/ru/translation.json
 +++ b/frontend/src/i18n/locales/ru/translation.json
 @@ -52,6 +52,8 @@
@@ -7082,7 +8150,7 @@ index c75c6517fb9d7f6209ad84b92393a93e6ba29038..f300a3e0d10e485d7628787991ea2394
    "Error": "Ошибка",
    "Okay": "Хорошо",
 diff --git a/frontend/src/i18n/locales/sv/translation.json b/frontend/src/i18n/locales/sv/translation.json
-index 3c49dcfcd45b4ab9ce681a61ab93612094467b5f..80b9ac200102a7021b6360c016a46dfc534df6d1 100644
+index 3c49dcfcd..80b9ac200 100644
 --- a/frontend/src/i18n/locales/sv/translation.json
 +++ b/frontend/src/i18n/locales/sv/translation.json
 @@ -52,6 +52,8 @@
@@ -7104,7 +8172,7 @@ index 3c49dcfcd45b4ab9ce681a61ab93612094467b5f..80b9ac200102a7021b6360c016a46dfc
    "Error": "Fel",
    "Okay": "Ok",
 diff --git a/frontend/src/i18n/locales/ta/translation.json b/frontend/src/i18n/locales/ta/translation.json
-index f1c2cdcf1228da2eb4be46d64377254818e47416..d501990660e26fcded2537331270e01d5e9e60ae 100644
+index f1c2cdcf1..d50199066 100644
 --- a/frontend/src/i18n/locales/ta/translation.json
 +++ b/frontend/src/i18n/locales/ta/translation.json
 @@ -52,6 +52,8 @@
@@ -7126,7 +8194,7 @@ index f1c2cdcf1228da2eb4be46d64377254818e47416..d501990660e26fcded2537331270e01d
    "Error": "பிழை",
    "Okay": "சரி",
 diff --git a/frontend/src/i18n/locales/tr/translation.json b/frontend/src/i18n/locales/tr/translation.json
-index dd553dffd255fb8806d4b0507c4908d0f903080e..3841aca300cdcdce08f39ce43c299246a63e9d07 100644
+index dd553dffd..3841aca30 100644
 --- a/frontend/src/i18n/locales/tr/translation.json
 +++ b/frontend/src/i18n/locales/tr/translation.json
 @@ -52,6 +52,8 @@
@@ -7148,7 +8216,7 @@ index dd553dffd255fb8806d4b0507c4908d0f903080e..3841aca300cdcdce08f39ce43c299246
    "Error": "Hata",
    "Okay": "Tamam",
 diff --git a/frontend/src/i18n/locales/ur/translation.json b/frontend/src/i18n/locales/ur/translation.json
-index aebc10ff883a5e4306e7a82249dabb71b3241968..7c92e4e6c69db824b221360cdc47523c216186f7 100644
+index aebc10ff8..7c92e4e6c 100644
 --- a/frontend/src/i18n/locales/ur/translation.json
 +++ b/frontend/src/i18n/locales/ur/translation.json
 @@ -52,6 +52,8 @@
@@ -7170,7 +8238,7 @@ index aebc10ff883a5e4306e7a82249dabb71b3241968..7c92e4e6c69db824b221360cdc47523c
    "Error": "خرابی",
    "Okay": "ٹھیک ہے",
 diff --git a/frontend/src/i18n/locales/zh-tw/translation.json b/frontend/src/i18n/locales/zh-tw/translation.json
-index 655465d02b076cdbf3f0784db3332b93dcbfc69c..649860567892591fc17b99eec618df6840aeeccd 100644
+index 655465d02..649860567 100644
 --- a/frontend/src/i18n/locales/zh-tw/translation.json
 +++ b/frontend/src/i18n/locales/zh-tw/translation.json
 @@ -52,6 +52,8 @@
@@ -7192,7 +8260,7 @@ index 655465d02b076cdbf3f0784db3332b93dcbfc69c..649860567892591fc17b99eec618df68
    "Error": "錯誤",
    "Okay": "",
 diff --git a/frontend/src/i18n/locales/zh/translation.json b/frontend/src/i18n/locales/zh/translation.json
-index 7761ba94522e0fe7b2e5b4f3f9f68aa5250eb33a..f7b48e15fbb855ac66dd40b3dd125cd90a4c2670 100644
+index 7761ba945..f7b48e15f 100644
 --- a/frontend/src/i18n/locales/zh/translation.json
 +++ b/frontend/src/i18n/locales/zh/translation.json
 @@ -52,6 +52,8 @@
@@ -7213,11 +8281,8 @@ index 7761ba94522e0fe7b2e5b4f3f9f68aa5250eb33a..f7b48e15fbb855ac66dd40b3dd125cd9
    "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "集群名称只能包含小写字母数字字符或 '-'，且必须以字母数字字符开头和结尾。",
    "Error": "错误",
    "Okay": "好的",
--- 
-2.54.0
 
-
-From b5735b7d7aac01f8be42fdbc0a80332048877e33 Mon Sep 17 00:00:00 2001
+From 1c6b840e71b7056c01b2a4cfce749dc9709811ff Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:45:44 +0200
 Subject: [PATCH 07/10] frontend: ClusterTable: Cover additive cluster actions
@@ -7228,7 +8293,7 @@ Ensure plugin-provided menu items do not replace Headlamp cluster actions.
  1 file changed, 28 insertions(+), 1 deletion(-)
 
 diff --git a/frontend/src/components/App/Home/ClusterTable.test.tsx b/frontend/src/components/App/Home/ClusterTable.test.tsx
-index 746f7d2b74f16b9dedfa262d73c6d606009fada0..a49a4ad2193bd16fd791c1a2f112ac1ac7959b4b 100644
+index 746f7d2b7..a49a4ad21 100644
 --- a/frontend/src/components/App/Home/ClusterTable.test.tsx
 +++ b/frontend/src/components/App/Home/ClusterTable.test.tsx
 @@ -28,6 +28,7 @@ import ClusterTable from './ClusterTable';
@@ -7281,11 +8346,8 @@ index 746f7d2b74f16b9dedfa262d73c6d606009fada0..a49a4ad2193bd16fd791c1a2f112ac1a
    });
  
    it('updates the config before notifying the page after deleting a cluster', async () => {
--- 
-2.54.0
 
-
-From 0d3a2ac6da297675102b3f4c438d280a3c6abe02 Mon Sep 17 00:00:00 2001
+From 9b355c59ee1e143064ac0a5b72c74448d4bfb34f Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 14:04:30 +0530
 Subject: [PATCH 08/10] frontend: ClusterContextMenu: Keep built-in Delete
@@ -7304,7 +8366,7 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
  1 file changed, 13 insertions(+), 14 deletions(-)
 
 diff --git a/frontend/src/components/App/Home/ClusterContextMenu.tsx b/frontend/src/components/App/Home/ClusterContextMenu.tsx
-index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..f8bd763a3907d9b8b51baa0485aad423e8e6870a 100644
+index 3e4942e0f..f8bd763a3 100644
 --- a/frontend/src/components/App/Home/ClusterContextMenu.tsx
 +++ b/frontend/src/components/App/Home/ClusterContextMenu.tsx
 @@ -164,20 +164,19 @@ export default function ClusterContextMenu({
@@ -7341,11 +8403,8 @@ index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..f8bd763a3907d9b8b51baa0485aad423
          {menuItems.map((Item, index) => {
            return (
              <Item
--- 
-2.54.0
 
-
-From f87a51b3c4df219cd6acd168afbcb60422e76178 Mon Sep 17 00:00:00 2001
+From 3941a0452a28859ab67f1b13eaf2127e52ba254d Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Tue, 25 Aug 2026 18:04:32 +0530
 Subject: [PATCH 09/10] frontend: stories: Add cluster pre-open states
@@ -7372,7 +8431,7 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 
 diff --git a/frontend/src/components/App/ClusterPreparingDialog.stories.tsx b/frontend/src/components/App/ClusterPreparingDialog.stories.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..a8e07ce7efe5dd409b72832cdf047935ff1c2386
+index 000000000..a8e07ce7e
 --- /dev/null
 +++ b/frontend/src/components/App/ClusterPreparingDialog.stories.tsx
 @@ -0,0 +1,52 @@
@@ -7430,7 +8489,7 @@ index 0000000000000000000000000000000000000000..a8e07ce7efe5dd409b72832cdf047935
 +DefaultMessage.storyName = 'Default (No Progress Message)';
 diff --git a/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.DefaultMessage.stories.storyshot b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.DefaultMessage.stories.storyshot
 new file mode 100644
-index 0000000000000000000000000000000000000000..c906dabf5d660c8c096b7e5bf2acc0feca185596
+index 000000000..c906dabf5
 --- /dev/null
 +++ b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.DefaultMessage.stories.storyshot
 @@ -0,0 +1,78 @@
@@ -7515,7 +8574,7 @@ index 0000000000000000000000000000000000000000..c906dabf5d660c8c096b7e5bf2acc0fe
 \ No newline at end of file
 diff --git a/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.WithProgressMessage.stories.storyshot b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.WithProgressMessage.stories.storyshot
 new file mode 100644
-index 0000000000000000000000000000000000000000..b36e9bfbee3022ce274fd5fb67380b8a6cddb70b
+index 000000000..b36e9bfbe
 --- /dev/null
 +++ b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.WithProgressMessage.stories.storyshot
 @@ -0,0 +1,78 @@
@@ -7599,7 +8658,7 @@ index 0000000000000000000000000000000000000000..b36e9bfbee3022ce274fd5fb67380b8a
 +</body>
 \ No newline at end of file
 diff --git a/frontend/src/components/common/AlertNotification.stories.tsx b/frontend/src/components/common/AlertNotification.stories.tsx
-index 05b9b929bb7d6dbf526f9cd847683b0304b18e0e..3d5a8426633c2e18d840870f076755b2d2a7a2ab 100644
+index 05b9b929b..3d5a84266 100644
 --- a/frontend/src/components/common/AlertNotification.stories.tsx
 +++ b/frontend/src/components/common/AlertNotification.stories.tsx
 @@ -177,3 +177,14 @@ OnNonClusterRoute.args = {
@@ -7619,7 +8678,7 @@ index 05b9b929bb7d6dbf526f9cd847683b0304b18e0e..3d5a8426633c2e18d840870f076755b2
 +Suppressed.storyName = 'Suppressed (Cluster Preparing)';
 diff --git a/frontend/src/components/common/__snapshots__/AlertNotification.Suppressed.stories.storyshot b/frontend/src/components/common/__snapshots__/AlertNotification.Suppressed.stories.storyshot
 new file mode 100644
-index 0000000000000000000000000000000000000000..c1e434674036690300d4a3fb0ba0f69a963adef0
+index 000000000..c1e434674
 --- /dev/null
 +++ b/frontend/src/components/common/__snapshots__/AlertNotification.Suppressed.stories.storyshot
 @@ -0,0 +1,12 @@
@@ -7636,11 +8695,8 @@ index 0000000000000000000000000000000000000000..c1e434674036690300d4a3fb0ba0f69a
 +  </div>
 +</body>
 \ No newline at end of file
--- 
-2.54.0
 
-
-From fed7db6ac2676b3ee43da6d805655d5fc4eb5856 Mon Sep 17 00:00:00 2001
+From b55f9f0bc114468ceca1c06f8b524cd41b0a49ed Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:46:21 +0200
 Subject: [PATCH 10/10] docs: api: Document cluster pre-open hooks
@@ -7657,7 +8713,7 @@ layout and link the functionality guide to that reference.
 
 diff --git a/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md b/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b065f6620f
+index 000000000..7860e0a28
 --- /dev/null
 +++ b/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 @@ -0,0 +1,74 @@
@@ -7736,7 +8792,7 @@ index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b0
 +
 +[redux/clusterProviderSlice.ts:70](https://github.com/kubernetes-sigs/headlamp/blob/1079044ed/frontend/src/redux/clusterProviderSlice.ts#L70)
 diff --git a/docs/development/api/modules/plugin_registry.md b/docs/development/api/modules/plugin_registry.md
-index d0bf10fc95550679ab48f28c2547842b55f054df..4c9205e9789aaee9428538f6bb295fcdd3185873 100644
+index d0bf10fc9..4c9205e97 100644
 --- a/docs/development/api/modules/plugin_registry.md
 +++ b/docs/development/api/modules/plugin_registry.md
 @@ -17,6 +17,7 @@
@@ -7830,7 +8886,7 @@ index d0bf10fc95550679ab48f28c2547842b55f054df..4c9205e9789aaee9428538f6bb295fcd
  
  ▸ **registerCustomCreateProject**(`customCreateProject`): `void`
 diff --git a/docs/development/plugins/functionality/index.md b/docs/development/plugins/functionality/index.md
-index b895617af9abd1bcbdb8756107d8f4540432bf3d..0718fbe5a9738055c53fd70d17144f026dd510ab 100644
+index b895617af..0718fbe5a 100644
 --- a/docs/development/plugins/functionality/index.md
 +++ b/docs/development/plugins/functionality/index.md
 @@ -186,6 +186,22 @@ be shared with workloads or other cluster users.
@@ -7856,6 +8912,3 @@ index b895617af9abd1bcbdb8756107d8f4540432bf3d..0718fbe5a9738055c53fd70d17144f02
  ### Route
  
  Show a component in the main area at a given URL with
--- 
-2.54.0
-

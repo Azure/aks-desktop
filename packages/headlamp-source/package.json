@@ -1,12 +1,12 @@
 {
   "name": "@headlamp-k8s/headlamp-source",
-  "version": "0.0.0-main.d85284da",
+  "version": "0.0.0-main.69bfa236",
   "description": "Headlamp source assembly and npm build entry points",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/kubernetes-sigs/headlamp.git",
-    "commit": "d85284da1a5091ab49da1e2f152523e43902c144"
+    "commit": "69bfa236dab6c1c00658e11af1d21762d00c0700"
   },
   "engines": {
     "node": ">=22.22.2",
@@ -30,8 +30,8 @@
     "build:app:mac": "npm --prefix source run app:package:mac",
     "build:app:win": "npm --prefix source run app:package:win",
     "build:app:unpacked": "npm --prefix source run app:build",
-    "build:container": "docker buildx build --pull --platform=local --build-arg HEADLAMP_SOURCE_COMMIT=d85284da1a5091ab49da1e2f152523e43902c144 --build-arg HEADLAMP_BUILD_MANIFEST -t ghcr.io/headlamp-k8s/headlamp:0.0.0-main.d85284da -f source/Dockerfile source",
-    "build:plugins-container": "docker buildx build --pull --platform=local -t ghcr.io/headlamp-k8s/plugins:0.0.0-main.d85284da -f source/Dockerfile.plugins source",
+    "build:container": "docker buildx build --pull --platform=local --build-arg HEADLAMP_SOURCE_COMMIT=69bfa236dab6c1c00658e11af1d21762d00c0700 --build-arg HEADLAMP_BUILD_MANIFEST -t ghcr.io/headlamp-k8s/headlamp:0.0.0-main.69bfa236 -f source/Dockerfile source",
+    "build:plugins-container": "docker buildx build --pull --platform=local -t ghcr.io/headlamp-k8s/plugins:0.0.0-main.69bfa236 -f source/Dockerfile.plugins source",
     "start": "npm --prefix source run start:with-app",
     "start:backend": "npm --prefix source run start:backend",
     "start:frontend": "npm --prefix source run start:frontend",
@@ -52,8 +52,6 @@
     "verify:images": "npm --prefix source run image:verify-image-digests"
   },
   "headlampSource": {
-    "ref": "refs/heads/main",
-    "previousCommit": "f84c2da1e234fa18c0a7332b7ecbff4f0d7a4ddd",
-    "commit": "d85284da1a5091ab49da1e2f152523e43902c144"
+    "revision": "69bfa236dab6c1c00658e11af1d21762d00c0700"
   }
 }

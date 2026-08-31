@@ -11,27 +11,27 @@ workflow.
 
 ## `headlampSource`
 
-`headlampSource` identifies the exact upstream source used to create the local
-package.
+`headlampSource` contains the exact Headlamp Git revision to build.
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `repository` | Yes | Git repository URL from which the pinned commit is fetched. |
-| `ref` | Yes | Human-readable upstream ref. Update tooling records it in package metadata; `commit` remains authoritative. |
-| `commit` | Yes | Full Git commit SHA to fetch, verify, materialize, and include in build metadata. |
-| `previousCommit` | Managed | Previous pinned commit retained automatically when `commit` changes. This records the baseline used to update and rebase the patch series. |
-| `baseTag` | No | Optional release tag used as the package version baseline. Omit it for commit-only versioning. |
+| `revision` | Yes | Full 40-character Git SHA to fetch, verify, materialize, and include in build metadata. |
 
-Changing `commit` also records its old value as `previousCommit` and requires
-regenerating the package version, lockfile entry, patch selector, and patch
-integrity. Without `baseTag`, package versions use `0.0.0-main.<sha8>`. With `baseTag`, they use
-`<tag-version>-main.<sha8>`. Use the update workflow in
-the [maintenance guide](../../MAINTENANCE.md#test-or-adopt-another-headlamp-commit)
-rather than editing those generated values independently.
+`revision` is the only allowed field in `headlampSource`.
 
-The root `headlampSourceTagsToo` object is an inactive example. To use tag-based
-versioning later, copy its `baseTag` into `headlampSource`; scripts ignore
-`headlampSourceTagsToo`.
+```json
+{
+  "headlampSource": {
+    "revision": "69bfa236dab6c1c00658e11af1d21762d00c0700"
+  }
+}
+```
+
+The repository is fixed to `https://github.com/kubernetes-sigs/headlamp.git`.
+Changing `revision` selects a different source tree and generates package version
+`0.0.0-main.<sha8>`. Use the
+[maintenance workflow](../../MAINTENANCE.md#update-the-headlamp-commit) instead
+of editing generated package metadata, lockfile entries, or patches separately.
 
 ### Script API
 
@@ -39,11 +39,26 @@ versioning later, copy its `baseTag` into `headlampSource`; scripts ignore
 
 | Function | Parameters | Returns |
 | --- | --- | --- |
-| `sourceVersion(config)` | `{ commit, baseTag? }` | Package version. Commit-only configuration returns `0.0.0-main.<sha8>`; an optional `vX.Y.Z` tag returns `X.Y.Z-main.<sha8>`. |
+| `sourceVersion(config)` | `{ revision }` | Package version in the form `0.0.0-main.<sha8>`. |
 | `prepareHeadlampSource(options?)` | `{ rootDir?, packageDir?, sourceDir? }` | `{ packageDir, prepared }`. Materializes the configured commit and aggregate patch when needed. |
-| `updateHeadlampSource(options)` | `{ sourceDir, rootDir?, packageDir?, commit?, baseTag? }` | `{ packageDir, patchPath, version }`. Updates source metadata, lockfile selection, and patch integrity. |
+| `updateHeadlampSource(options)` | `{ sourceDir, rootDir?, packageDir?, revision? }` | `{ packageDir, patchPath, version }`. Updates source metadata, lockfile selection, and patch integrity. |
 
-The CLI accepts `--source`, `--commit`, optional `--base-tag`, and `--root`.
+The CLI accepts `--source`, optional `--revision`, and `--root`.
+
+### Install script policy
+
+npm 12 blocks dependency lifecycle scripts unless the nearest project manifest
+approves them. The patched Headlamp app approves only Electron because its
+postinstall downloads the desktop runtime required by `npm start`. The app
+lockfile omits registry `resolved` metadata, so npm cannot match a version-pinned
+approval; package contracts instead require the declared Electron range to start
+at the exact locked version. Other dependency install scripts remain blocked.
+
+Local development starts the backend, frontend, and Electron client as separate
+processes. Their scripts share the development-only backend token `headlamp` so
+Electron tray requests and renderer requests authenticate to the external
+backend. Packaged apps do not use that override and continue to generate a fresh
+random token for their self-hosted backend.
 
 ## `headlamp`
 
@@ -108,8 +123,8 @@ Each plugin must declare exactly one of `source`, `archive`, or `file`.
 Top-level `headlamp.runCommands` records the commands the product allows plugins
 to run. It is separate from `headlamp.plugins`; the source package copies it
 unchanged into the generated product manifest. Each policy selects one runtime
-environment and plugin installation location, identifies one or more plugins, and declares
-their command grants:
+environment and plugin installation location, identifies one or more plugins,
+and declares their command grants:
 
 ```json
 {
@@ -137,6 +152,14 @@ directory with its package name. In each command, `tool` is the executable
 name, `args` is the required argument prefix, and `allowTrailingArgs` allows
 arguments after that prefix. Use `tool`, not `command`.
 
+Commands resolve from Headlamp's sanitized system `PATH` by default. A product
+that intentionally runs a binary supplied by the plugin may add
+`pluginExecutables` to the policy. Each entry must map a granted `tool` to the
+exact path `bin/<tool>`. Headlamp does not fall back between plugin and system
+origins, and production plugin executables require app-owned integrity receipts.
+AKS Desktop omits `pluginExecutables` because its `az` and `kubectl` grants use
+the bundled tools exposed through the sanitized system path.
+
 Only the product may define command grants. A plugin's own `package.json` must
 not declare `headlamp.runCommands`, because plugin-controlled grants would let
 the plugin authorize itself. Headlamp validates the product policy and enforces
@@ -147,9 +170,7 @@ it in the Electron main process before starting a command.
 ```json
 {
   "headlampSource": {
-    "repository": "https://github.com/kubernetes-sigs/headlamp.git",
-    "ref": "refs/heads/main",
-    "commit": "<full-commit-sha>"
+    "revision": "0123456789abcdef0123456789abcdef01234567"
   },
   "headlamp": {
     "product": {

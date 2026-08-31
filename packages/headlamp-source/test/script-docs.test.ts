@@ -95,7 +95,7 @@ test('all named source-script functions have complete TSDoc', () => {
     visit(sourceFile);
   }
 
-  assert.equal(functionCount, 63);
+  assert.equal(functionCount, 66);
   assert.deepEqual(errors, []);
 });
 
@@ -164,7 +164,7 @@ test('all source-script interfaces and fields have TSDoc', () => {
   }
 
   assert.equal(interfaceCount, 5);
-  assert.equal(fieldCount, 16);
+  assert.equal(fieldCount, 11);
   assert.deepEqual(errors, []);
 });
 

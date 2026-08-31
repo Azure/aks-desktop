@@ -30,7 +30,7 @@ const aksDesktopManifest = JSON.parse(
 const packageLock = JSON.parse(
   fs.readFileSync(path.join(ROOT_DIR, 'package-lock.json'), 'utf8')
 );
-const VERSION = `0.0.0-main.${rootManifest.headlampSource.commit.slice(0, 8)}`;
+const VERSION = `0.0.0-main.${rootManifest.headlampSource.revision.slice(0, 8)}`;
 const { packagedExecutableCandidates } = require(
   path.join(HEADLAMP_PACKAGE_DIR, 'scripts', 'smoke-app.ts')
 );
@@ -40,15 +40,11 @@ test('the installed package is a complete pinned source distribution', () => {
   assert.equal(packageManifest.name, '@headlamp-k8s/headlamp-source');
   assert.equal(packageManifest.version, VERSION);
   assert.deepEqual(packageManifest.files, ['source', 'scripts']);
-  assert.equal(
-    packageManifest.repository.url,
-    rootManifest.headlampSource.repository
-  );
-  assert.equal(packageManifest.headlampSource.baseTag, undefined);
-  assert.equal(
-    packageManifest.headlampSource.commit,
-    rootManifest.headlampSource.commit
-  );
+  assert.equal(packageManifest.repository.url, 'https://github.com/kubernetes-sigs/headlamp.git');
+  assert.deepEqual(rootManifest.headlampSource, {
+    revision: '69bfa236dab6c1c00658e11af1d21762d00c0700',
+  });
+  assert.deepEqual(packageManifest.headlampSource, rootManifest.headlampSource);
   for (const file of [
     'package.json',
     'Dockerfile',
@@ -139,7 +135,17 @@ test('source builds use explicit, reviewed install scripts', () => {
   const appManifest = JSON.parse(
     fs.readFileSync(path.join(HEADLAMP_SOURCE_DIR, 'app', 'package.json'), 'utf8')
   );
-  assert.equal(appManifest.allowScripts, undefined);
+  const appLock = JSON.parse(
+    fs.readFileSync(path.join(HEADLAMP_SOURCE_DIR, 'app', 'package-lock.json'), 'utf8')
+  );
+  const electronVersion = appLock.packages['node_modules/electron'].version;
+  assert.deepEqual(appManifest.allowScripts, {
+    electron: true,
+  });
+  assert.equal(appManifest.devDependencies.electron, `^${electronVersion}`);
+  for (const script of ['dev-only-app', 'dev-only-app:debug']) {
+    assert.match(appManifest.scripts[script], /HEADLAMP_BACKEND_TOKEN=headlamp/);
+  }
 
   const frontendManifest = JSON.parse(
     fs.readFileSync(
@@ -149,6 +155,8 @@ test('source builds use explicit, reviewed install scripts', () => {
   );
   assert.equal(frontendManifest.dependencies.tsx, '4.23.1');
   assert.equal(frontendManifest.allowScripts, undefined);
+  assert.match(frontendManifest.scripts.start, /REACT_APP_HEADLAMP_BACKEND_TOKEN=headlamp/);
+  assert.match(sourceManifest.scripts['backend:start'], /HEADLAMP_BACKEND_TOKEN=headlamp/);
   assert.equal(frontendManifest.scripts.postbuild, 'tsx ./scripts/precompress-build.ts build');
   assert.equal(
     frontendManifest.scripts['postbuild:rsbuild'],
@@ -297,8 +305,10 @@ test('AKS product policy owns development and production command grants', () => 
     ]
   );
   assert.deepEqual(policies[0].commands, policies[1].commands);
+  assert.equal(policies.every(policy => policy.pluginExecutables === undefined), true);
   const productGrants = policies[0].commands;
   assert.equal(productGrants.some(grant => 'command' in grant), false);
+  assert.equal(productGrants.some(grant => 'executable' in grant), false);
   for (const group of ['ad', 'identity', 'rest']) {
     assert.ok(
       productGrants.some(
@@ -329,7 +339,7 @@ test('container builds do not require repository metadata', () => {
   assert.match(
     packageManifest.scripts['build:container'],
     new RegExp(
-      `--build-arg HEADLAMP_SOURCE_COMMIT=${rootManifest.headlampSource.commit}`
+      `--build-arg HEADLAMP_SOURCE_COMMIT=${rootManifest.headlampSource.revision}`
     )
   );
   assert.match(
@@ -364,7 +374,7 @@ test('frontend identity comes from package and product metadata', () => {
     );
     assert.equal(result.status, 0, result.stderr);
     const environment = fs.readFileSync(outputPath, 'utf8');
-    assert.match(environment, /^REACT_APP_HEADLAMP_VERSION='1\.2\.3'$/m);
+    assert.match(environment, /^REACT_APP_HEADLAMP_VERSION='0\.45\.0'$/m);
     assert.match(
       environment,
       /^REACT_APP_HEADLAMP_GIT_VERSION='0123456789abcdef'$/m
@@ -372,6 +382,10 @@ test('frontend identity comes from package and product metadata', () => {
     assert.match(
       environment,
       /^REACT_APP_HEADLAMP_PRODUCT_NAME='Example Desktop'$/m
+    );
+    assert.match(
+      environment,
+      /^REACT_APP_HEADLAMP_PRODUCT_VERSION='1\.2\.3'$/m
     );
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

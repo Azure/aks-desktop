@@ -40,6 +40,7 @@ function createSourceCheckout() {
     fs.writeFileSync(path.join(sourceDir, directory, '.keep'), '');
   }
   for (const [file, contents] of [
+    ['.gitignore', 'node_modules/\n'],
     ['package.json', '{"name":"headlamp-root","private":true}\n'],
     ['LICENSE', 'license\n'],
     ['README.md', 'readme\n'],
@@ -105,7 +106,7 @@ function createProject(commit) {
           'build:container': 'old',
           'build:plugins-container': 'old',
         },
-        headlampSource: { commit },
+        headlampSource: { revision: commit },
       },
       null,
       2
@@ -118,11 +119,7 @@ function createProject(commit) {
         name: 'test-project',
         version: '1.0.0',
         private: true,
-        headlampSource: {
-          repository: 'https://github.com/kubernetes-sigs/headlamp.git',
-          ref: 'refs/heads/main',
-          commit,
-        },
+        headlampSource: { revision: commit },
         devDependencies: { '@headlamp-k8s/headlamp-source': version },
         patchedDependencies: {
           [`@headlamp-k8s/headlamp-source@${version}`]: patchPath,
@@ -163,17 +160,26 @@ function createProject(commit) {
   return { packageDir, patchPath, rootDir };
 }
 
-test('derives versions from a commit with optional tag support', () => {
+test('derives versions from a revision', () => {
   const commit = 'a'.repeat(40);
 
-  assert.equal(sourceVersion({ commit }), '0.0.0-main.aaaaaaaa');
-  assert.equal(
-    sourceVersion({ commit, baseTag: 'v0.44.0' }),
-    '0.44.0-main.aaaaaaaa'
+  assert.equal(sourceVersion({ revision: commit }), '0.0.0-main.aaaaaaaa');
+  assert.throws(() => sourceVersion({ revision: 'main' }), /revision/);
+  assert.throws(
+    () => sourceVersion({ revision: commit, ref: 'refs/heads/main' } as any),
+    /only revision/
   );
   assert.throws(
-    () => sourceVersion({ commit, baseTag: 'main' }),
-    /base tag/
+    () => sourceVersion({ commit } as any),
+    /only revision/
+  );
+  assert.throws(
+    () => sourceVersion({ revision: 123 } as any),
+    /revision must be a string/
+  );
+  assert.throws(
+    () => sourceVersion(null as any),
+    /only revision/
   );
 });
 
@@ -230,7 +236,7 @@ test('updates an unpacked source package from a clean exact commit', () => {
     rootDir,
     packageDir,
     sourceDir,
-    commit: nextCommit,
+    revision: nextCommit,
   });
   const project = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
   const lock = JSON.parse(fs.readFileSync(path.join(rootDir, 'package-lock.json'), 'utf8'));
@@ -241,9 +247,8 @@ test('updates an unpacked source package from a clean exact commit', () => {
 
   assert.equal(result.packageDir, packageDir);
   assert.equal(packageManifest.version, version);
-  assert.equal(project.headlampSource.previousCommit, commit);
-  assert.equal(packageManifest.headlampSource.previousCommit, commit);
-  assert.equal(packageManifest.headlampSource.commit, nextCommit);
+  assert.deepEqual(project.headlampSource, { revision: nextCommit });
+  assert.deepEqual(packageManifest.headlampSource, { revision: nextCommit });
   assert.equal(project.devDependencies['@headlamp-k8s/headlamp-source'], version);
   assert.equal(fs.existsSync(path.join(packageDir, 'source', 'Dockerfile')), true);
   assert.equal(
@@ -276,17 +281,9 @@ test('updates an unpacked source package from a clean exact commit', () => {
 test('materializes the configured commit without tracking upstream source', () => {
   const { commit, sourceDir } = createSourceCheckout();
   const { packageDir, patchPath, rootDir } = createProject(commit);
-  const projectPath = path.join(rootDir, 'package.json');
-  const packagePath = path.join(packageDir, 'package.json');
-  const project = JSON.parse(fs.readFileSync(projectPath, 'utf8'));
-  const packageManifest = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-  project.headlampSource.repository = sourceDir;
-  packageManifest.repository.url = sourceDir;
-  fs.writeFileSync(projectPath, `${JSON.stringify(project, null, 2)}\n`);
-  fs.writeFileSync(packagePath, `${JSON.stringify(packageManifest, null, 2)}\n`);
   fs.rmSync(path.join(packageDir, 'source'), { recursive: true });
 
-  assert.deepEqual(prepareHeadlampSource({ rootDir, packageDir }), {
+  assert.deepEqual(prepareHeadlampSource({ rootDir, packageDir, sourceDir }), {
     packageDir,
     prepared: true,
   });
@@ -296,7 +293,36 @@ test('materializes the configured commit without tracking upstream source', () =
     commit
   );
   assert.equal(fs.existsSync(path.join(rootDir, patchPath)), true);
-  assert.deepEqual(prepareHeadlampSource({ rootDir, packageDir }), {
+  assert.deepEqual(prepareHeadlampSource({ rootDir, packageDir, sourceDir }), {
+    packageDir,
+    prepared: false,
+  });
+});
+
+test('rematerializes source when an authoritative file is modified', () => {
+  const { commit, sourceDir } = createSourceCheckout();
+  const { packageDir, rootDir } = createProject(commit);
+  fs.rmSync(path.join(packageDir, 'source'), { recursive: true });
+  prepareHeadlampSource({ rootDir, packageDir, sourceDir });
+  fs.writeFileSync(path.join(packageDir, 'source', 'README.md'), 'unreviewed change\n');
+
+  assert.deepEqual(prepareHeadlampSource({ rootDir, packageDir, sourceDir }), {
+    packageDir,
+    prepared: true,
+  });
+  assert.equal(fs.readFileSync(path.join(packageDir, 'source', 'README.md'), 'utf8'), 'readme\n');
+});
+
+test('keeps materialized source when only ignored generated files are added', () => {
+  const { commit, sourceDir } = createSourceCheckout();
+  const { packageDir, rootDir } = createProject(commit);
+  fs.rmSync(path.join(packageDir, 'source'), { recursive: true });
+  prepareHeadlampSource({ rootDir, packageDir, sourceDir });
+  const generatedDirectory = path.join(packageDir, 'source', 'node_modules', 'generated');
+  fs.mkdirSync(generatedDirectory, { recursive: true });
+  fs.writeFileSync(path.join(generatedDirectory, 'index.js'), 'generated\n');
+
+  assert.deepEqual(prepareHeadlampSource({ rootDir, packageDir, sourceDir }), {
     packageDir,
     prepared: false,
   });
@@ -305,24 +331,16 @@ test('materializes the configured commit without tracking upstream source', () =
 test('rejects a generated aggregate that differs from the lockfile', () => {
   const { commit, sourceDir } = createSourceCheckout();
   const { packageDir, patchPath, rootDir } = createProject(commit);
-  const projectPath = path.join(rootDir, 'package.json');
-  const packagePath = path.join(packageDir, 'package.json');
   const lockPath = path.join(rootDir, 'package-lock.json');
-  const project = JSON.parse(fs.readFileSync(projectPath, 'utf8'));
-  const packageManifest = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
   const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-  project.headlampSource.repository = sourceDir;
-  packageManifest.repository.url = sourceDir;
   lock.packages[
     'node_modules/@headlamp-k8s/headlamp-source'
   ].patched.integrity = 'sha512-invalid';
-  fs.writeFileSync(projectPath, `${JSON.stringify(project, null, 2)}\n`);
-  fs.writeFileSync(packagePath, `${JSON.stringify(packageManifest, null, 2)}\n`);
   fs.writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
   fs.rmSync(path.join(packageDir, 'source'), { recursive: true });
 
   assert.throws(
-    () => prepareHeadlampSource({ rootDir, packageDir }),
+    () => prepareHeadlampSource({ rootDir, packageDir, sourceDir }),
     /patch lock integrity/
   );
   assert.equal(fs.existsSync(path.join(rootDir, patchPath)), false);
@@ -356,7 +374,7 @@ test('rejects a checkout that does not match the configured commit', () => {
         rootDir,
         packageDir,
         sourceDir,
-        commit: otherCommit,
+        revision: otherCommit,
       }),
     /does not match/
   );

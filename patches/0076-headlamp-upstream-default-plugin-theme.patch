@@ -1,0 +1,86 @@
+From ca7f22c18fc845bfabeedc967778bd54b94f00b2 Mon Sep 17 00:00:00 2001
+From: Rene Dudfield <renedudfield@microsoft.com>
+Date: Wed, 2 Sep 2026 22:55:00 +0200
+Subject: [PATCH] frontend: plugins: Support a default app theme
+
+Allow a plugin to select its registered theme when the user has no saved theme
+preference. Registration and selection update Redux together, so the first
+render does not remain on the operating system theme.
+---
+ frontend/src/plugin/registry.test.ts | 29 +++++++++++++++++++++++++++++
+ frontend/src/plugin/registry.tsx     |  8 ++++++--
+ 2 files changed, 35 insertions(+), 2 deletions(-)
+
+diff --git a/frontend/src/plugin/registry.test.ts b/frontend/src/plugin/registry.test.ts
+--- a/frontend/src/plugin/registry.test.ts
++++ b/frontend/src/plugin/registry.test.ts
+@@ -41,6 +41,7 @@ vi.mock('../components/resourceMap/sources/definitions/relationIds', () => ({
+ }));
+ 
+ import {
++  registerAppTheme,
+   registerClusterEmptyState,
+   registerClusterProviderPreOpen,
+   registerResourceRelationProvider,
+@@ -357,3 +358,31 @@ describe('registerResourceRelationProvider', () => {
+     expect(hook).toHaveBeenCalledOnce();
+   });
+ });
++
++describe('registerAppTheme', () => {
++  beforeEach(() => {
++    localStorage.clear();
++    activeStore = configureStore({ reducer: reducers });
++  });
++
++  afterEach(() => {
++    localStorage.clear();
++  });
++
++  it('selects a registered first-run default theme', () => {
++    registerAppTheme({ name: 'Product Theme', base: 'light' }, { default: true });
++
++    expect(activeStore.getState().theme.name).toBe('Product Theme');
++    expect(localStorage.headlampThemePreference).toBe('Product Theme');
++  });
++
++  it('preserves an existing user theme preference', () => {
++    localStorage.setItem('headlampThemePreference', 'Dark');
++    const currentTheme = activeStore.getState().theme.name;
++
++    registerAppTheme({ name: 'Product Theme', base: 'light' }, { default: true });
++
++    expect(activeStore.getState().theme.name).toBe(currentTheme);
++    expect(localStorage.getItem('headlampThemePreference')).toBe('Dark');
++  });
++});
+diff --git a/frontend/src/plugin/registry.tsx b/frontend/src/plugin/registry.tsx
+--- a/frontend/src/plugin/registry.tsx
++++ b/frontend/src/plugin/registry.tsx
+@@ -1115,6 +1115,7 @@ export function registerClusterProviderPreOpen(hook: ClusterPreOpenHook): void {
+  * Theme name should be unique
+  *
+  * @param theme - App Theme definition
++ * @param options - Theme registration options.
+  *
+  * @example
+  *
+@@ -1127,11 +1128,14 @@ export function registerClusterProviderPreOpen(hook: ClusterPreOpenHook): void {
+  *   base: "light",
+  *   primary: "#ff0000",
+  *   secondary: "#333",
+- * })
++ * }, { default: true })
+  *
+  */
+-export function registerAppTheme(theme: AppTheme) {
++export function registerAppTheme(theme: AppTheme, options: { default?: boolean } = {}) {
+   store.dispatch(themeSlice.actions.addCustomAppTheme(theme));
++  if (options.default && !localStorage.getItem('headlampThemePreference')) {
++    store.dispatch(themeSlice.actions.setTheme(theme.name));
++  }
+ }
+ 
+ /**
+-- 
+2.51.0
