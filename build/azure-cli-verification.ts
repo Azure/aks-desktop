@@ -32,6 +32,21 @@ export function readRequiredAzureCliExtensions(rootDir: string): string[] {
 }
 
 /**
+ * Whether the bundled Azure CLI is expected to carry the required extensions.
+ *
+ * Windows ships the plain Azure CLI ZIP — the Windows install path in
+ * download-az-cli.ts has no extension step — and the app installs required
+ * extensions at runtime instead (src/utils/azure/az-extensions.ts). Only the
+ * Linux/macOS bundles pre-install extensions, so only they are verified.
+ *
+ * @param platform - The build platform, as reported by `process.platform`.
+ * @returns True when the platform's bundle should contain the extensions.
+ */
+export function shouldVerifyBundledExtensions(platform: string): boolean {
+  return platform !== "win32";
+}
+
+/**
  * Builds the failed extension result used when `az version` times out.
  *
  * @param requiredExtensions - Extensions whose bundled versions could not be verified.
