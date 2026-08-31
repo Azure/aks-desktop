@@ -21,6 +21,7 @@ export default function ContactUsButton() {
       description={t('Contact us')}
       longDescription={t('Get help, share feedback, or reach the AKS Desktop team')}
       icon="mdi:message-question-outline"
+      iconButtonProps={{ color: 'inherit' }}
       // Deliberately the default 'action' style at every width, matching
       // Headlamp's own app-bar actions (see SettingsButton). Below `sm` TopBar
       // moves actions into an overflow menu and wraps each one in its own
