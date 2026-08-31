@@ -23,7 +23,6 @@ import { readAzureCliConfig, resolveAzCliVersion } from './az-cli-config';
 import {
   getExtensionTimeoutResult,
   readRequiredAzureCliExtensions,
-  shouldVerifyBundledExtensions,
 } from './azure-cli-verification';
 
 const SCRIPT_DIR = __dirname;
@@ -385,34 +384,31 @@ function testAzureCliInvocation(): void {
     // Every extension the build configures must actually be there. Installation
     // failures are non-fatal in download-az-cli.ts, so without checking here a
     // release can ship missing one: without `connectedk8s`, for instance, no AKS
-    // Hybrid & Edge cluster can be discovered or connected at all. Windows is
-    // the exception — its bundle never carries extensions; the app installs
-    // them at runtime.
-    if (shouldVerifyBundledExtensions(CURRENT_PLATFORM)) {
-      const bundledExtensions = versionData.extensions ?? {};
-      const missingExtensions = requiredExtensions.filter(name => !bundledExtensions[name]);
+    // Hybrid & Edge cluster can be discovered or connected at all. Every
+    // platform pre-installs the configured extensions — Windows into the
+    // app-owned cliextensions directory its az.cmd wrapper points
+    // AZURE_EXTENSION_DIR at — so every platform is verified.
+    const bundledExtensions = versionData.extensions ?? {};
+    const missingExtensions = requiredExtensions.filter(name => !bundledExtensions[name]);
 
-      addResult(
-        'Azure CLI extensions',
-        missingExtensions.length === 0,
-        missingExtensions.length === 0
-          ? `All required extensions bundled: ${requiredExtensions.join(', ')}`
-          : `Missing required extension(s): ${missingExtensions.join(', ')}`
-      );
+    addResult(
+      'Azure CLI extensions',
+      missingExtensions.length === 0,
+      missingExtensions.length === 0
+        ? `All required extensions bundled: ${requiredExtensions.join(', ')}`
+        : `Missing required extension(s): ${missingExtensions.join(', ')}`
+    );
 
-      // aks-preview shadows the core `az aks namespace` implementation the
-      // plugin now depends on, so it must never be bundled.
-      const aksPreviewVersion = versionData.extensions?.['aks-preview'];
-      addResult(
-        'aks-preview extension absent',
-        !aksPreviewVersion,
-        aksPreviewVersion
-          ? `aks-preview extension ${aksPreviewVersion} is bundled and shadows the core "az aks namespace" command`
-          : 'aks-preview extension is not bundled, as expected'
-      );
-    } else {
-      logInfo('Skipping Azure CLI extensions check on Windows (extensions install at runtime)');
-    }
+    // aks-preview shadows the core `az aks namespace` implementation the
+    // plugin now depends on, so it must never be bundled.
+    const aksPreviewVersion = versionData.extensions?.['aks-preview'];
+    addResult(
+      'aks-preview extension absent',
+      !aksPreviewVersion,
+      aksPreviewVersion
+        ? `aks-preview extension ${aksPreviewVersion} is bundled and shadows the core "az aks namespace" command`
+        : 'aks-preview extension is not bundled, as expected'
+    );
 
     if (AZURE_CLI_PINNED_VERSION) {
       const versionMatchesPin = azureCliVersion === AZURE_CLI_PINNED_VERSION;
@@ -436,10 +432,8 @@ function testAzureCliInvocation(): void {
         true,
         'Skipped due to timeout (executable exists and is valid)'
       );
-      if (shouldVerifyBundledExtensions(CURRENT_PLATFORM)) {
-        const extensionResult = getExtensionTimeoutResult(requiredExtensions);
-        addResult(extensionResult.name, extensionResult.passed, extensionResult.message);
-      }
+      const extensionResult = getExtensionTimeoutResult(requiredExtensions);
+      addResult(extensionResult.name, extensionResult.passed, extensionResult.message);
     } else {
       addResult(
         'Azure CLI invocation',
