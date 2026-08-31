@@ -67,6 +67,20 @@ test("returns no required extensions for missing or malformed configuration", ()
   assert.deepEqual(readRequiredAzureCliExtensions(missingRoot), []);
 });
 
+test("returns no required extensions when configuration is not a list", () => {
+  const nonArrayRoot = createRoot(
+    JSON.stringify({
+      config: {
+        externalTools: {
+          azureCli: { extensions: "aks-preview" },
+        },
+      },
+    })
+  );
+
+  assert.deepEqual(readRequiredAzureCliExtensions(nonArrayRoot), []);
+});
+
 test("verifies bundled extensions only on platforms that pre-install them", () => {
   assert.equal(shouldVerifyBundledExtensions("linux"), true);
   assert.equal(shouldVerifyBundledExtensions("darwin"), true);
