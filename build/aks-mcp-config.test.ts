@@ -113,12 +113,33 @@ test('maps node platform and arch onto the published asset names', () => {
   );
   assert.equal(
     resolveAksMcpTarget(rootDir, 'darwin', 'arm64').downloadUrl,
-    'https://github.com/Azure/aks-mcp/releases/download/v1.2.3/aks-mcp-darwin-arm64'
+    'https://github.com/Azure/aks-mcp/releases/download/v1.2.3/aks-mcp-darwin-amd64'
   );
   assert.equal(
     resolveAksMcpTarget(rootDir, 'win32', 'arm64').downloadUrl,
     'https://github.com/Azure/aks-mcp/releases/download/v1.2.3/aks-mcp-windows-arm64.exe'
   );
+});
+
+test('stages the amd64 asset for both mac targets so the DMG stays notarizable', () => {
+  const rootDir = createRoot();
+
+  // Go ad-hoc signs its darwin/arm64 output, and that signature survives into the
+  // DMG because build.mac.signIgnore excludes external-tools from signing. Apple's
+  // notary service rejects ad-hoc signed code, which failed the 0.10.0 arm64
+  // release build while x64 passed. Pin both mac targets to the amd64 asset so a
+  // version bump cannot silently reintroduce an arm64 binary.
+  for (const arch of ['arm64', 'x64']) {
+    const target = resolveAksMcpTarget(rootDir, 'darwin', arch);
+
+    assert.equal(
+      target.downloadUrl,
+      'https://github.com/Azure/aks-mcp/releases/download/v1.2.3/aks-mcp-darwin-amd64'
+    );
+    assert.equal(target.expectedChecksum, 'darwin-amd64-sum');
+    // The staged target still records the architecture actually being packaged.
+    assert.equal(target.arch, arch);
+  }
 });
 
 test('selects the checksum for the requested architecture', () => {

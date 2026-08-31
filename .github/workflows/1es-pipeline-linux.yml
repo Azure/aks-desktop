@@ -149,6 +149,7 @@ extends:
                 displayName: "Install binutils"
               # Build the Windows application
               - bash: |
+                  set -e  # fail the step when the build fails
                   echo "=== BUILD DEBUG START ==="
                   echo "Current working directory: $(pwd)"
                   echo "Node version: $(node --version)"
