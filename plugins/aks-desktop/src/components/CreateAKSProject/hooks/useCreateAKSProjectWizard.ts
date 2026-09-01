@@ -630,6 +630,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
         if (registrationRef.current) {
           await registrationRef.current;
         }
+        if (aborted) return;
 
         setCreationProgress(`${t('Initiating managed namespace creation')}...`);
         const namespaceResult = await createManagedNamespace({

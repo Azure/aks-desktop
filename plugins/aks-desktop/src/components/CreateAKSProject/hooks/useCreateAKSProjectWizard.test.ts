@@ -399,6 +399,49 @@ describe('useCreateAKSProjectWizard', () => {
     expect(createManagedNamespace).toHaveBeenCalled();
   }, 10000);
 
+  // A registration promise that settles only after the 10-minute timeout has
+  // already failed the submission must not resume the creation path: the
+  // namespace would be created in the background and the progress state the
+  // timeout cleared would be overwritten.
+  it('handleSubmit timeout: registration settling after timeout does not create the namespace', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    let resolveRegistration!: (value: { success: boolean }) => void;
+    vi.mocked(registerContainerServiceProvider).mockReturnValue(
+      new Promise(resolve => {
+        resolveRegistration = resolve;
+      }) as any
+    );
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, subscription: 'sub-123' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+    vi.mocked(createManagedNamespace).mockResolvedValue({ success: true } as any);
+    vi.mocked(checkNamespaceExists).mockResolvedValue({ exists: true } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+
+    await act(async () => {
+      const submitPromise = result.current.handleSubmit();
+      // Registration is still pending when the 10-minute timeout fires.
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 100);
+      await submitPromise;
+    });
+
+    expect(result.current.creationError).toContain('timed out');
+    expect(result.current.isCreating).toBe(false);
+
+    // Registration finally settles; the aborted submission must stay dead.
+    await act(async () => {
+      resolveRegistration({ success: true });
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+
+    expect(createManagedNamespace).not.toHaveBeenCalled();
+    expect(result.current.creationProgress).toBe('');
+  }, 10000);
+
   it('handleSubmit success path: sets showSuccessDialog after success and timer', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false });
 
