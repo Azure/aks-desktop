@@ -2052,7 +2052,7 @@ async function startElectron() {
     if (ENABLE_MCP) {
       const configPath = path.join(app.getPath('userData'), 'mcp-tools-config.json');
       const settingsPath = path.join(app.getPath('userData'), 'mcp-tools-settings.json');
-      mcpClient = new MCPClient(configPath, settingsPath);
+      mcpClient = new MCPClient(configPath, settingsPath, resourcesDir);
       await mcpClient.initialize();
       mcpClient.setMainWindow(mainWindow);
     }
