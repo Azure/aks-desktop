@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
+import { quoteForPlatform } from '../shared/quoteForPlatform';
 import { debugLog, isAzError, isValidGuid, needsRelogin, runCommandAsync } from './az-cli-core';
 
 /**
@@ -55,7 +56,7 @@ export async function getClusterResourceGroupViaGraph(
       'graph',
       'query',
       '-q',
-      query,
+      quoteForPlatform(query),
       '--output',
       'json',
       '--subscription',
@@ -128,7 +129,16 @@ async function fetchGraphPage(
   skipToken?: string
 ): Promise<{ clusters: any[]; skipToken?: string }> {
   const pageSize = '1000';
-  const args = ['graph', 'query', '-q', query, '--first', pageSize, '--output', 'json'];
+  const args = [
+    'graph',
+    'query',
+    '-q',
+    quoteForPlatform(query),
+    '--first',
+    pageSize,
+    '--output',
+    'json',
+  ];
   // Append skip token for pagination if provided
   if (skipToken) {
     args.push('--skip-token', skipToken);
@@ -240,7 +250,7 @@ export async function getClusterCount(subscriptionId: string): Promise<number> {
       'graph',
       'query',
       '-q',
-      query,
+      quoteForPlatform(query),
       '--output',
       'json',
     ]);
