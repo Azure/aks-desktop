@@ -381,13 +381,15 @@ function testAzureCliInvocation(): void {
       `Successfully invoked, version: ${azureCliVersion}`
     );
 
-    // Every extension the build configures must actually be there. Installation
-    // failures are non-fatal in download-az-cli.ts, so without checking here a
-    // release can ship missing one: without `connectedk8s`, for instance, no AKS
-    // Hybrid & Edge cluster can be discovered or connected at all. Every
-    // platform pre-installs the configured extensions — Windows into the
-    // app-owned cliextensions directory its az.cmd wrapper points
-    // AZURE_EXTENSION_DIR at — so every platform is verified.
+    // Every extension the build configures must actually be there. The
+    // installers in download-az-cli.ts abort on a failed install, but this
+    // is an independent post-build integrity check of what actually got
+    // staged — a stale external-tools directory that predates the current
+    // config can still ship missing one: without `connectedk8s`, for
+    // instance, no AKS Hybrid & Edge cluster can be discovered or connected
+    // at all. Every platform pre-installs the configured extensions —
+    // Windows into the app-owned cliextensions directory its az.cmd wrapper
+    // points AZURE_EXTENSION_DIR at — so every platform is verified.
     const bundledExtensions = versionData.extensions ?? {};
     const missingExtensions = requiredExtensions.filter(name => !bundledExtensions[name]);
 
