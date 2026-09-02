@@ -19,10 +19,10 @@ import {
   resolveAksMcpTarget,
   resolveTargetArch,
 } from './aks-mcp-config';
+import { readAzureCliConfig, resolveAzCliVersion } from './az-cli-config';
 import {
   getExtensionTimeoutResult,
   readRequiredAzureCliExtensions,
-  shouldVerifyBundledExtensions,
 } from './azure-cli-verification';
 
 const SCRIPT_DIR = __dirname;
@@ -40,6 +40,17 @@ try {
   PRODUCT_NAME = packageJson.productName || PRODUCT_NAME;
 } catch (error) {
   console.warn(`Warning: Could not read product name from ${HEADLAMP_PACKAGE_JSON}, using default: ${PRODUCT_NAME}`);
+}
+
+// Read the pinned Azure CLI version from the repo's package.json so the
+// invocation test can catch a bundle left over from before a version bump.
+const ROOT_PACKAGE_JSON = path.join(ROOT_DIR, 'package.json');
+let AZURE_CLI_PINNED_VERSION = '';
+
+try {
+  AZURE_CLI_PINNED_VERSION = resolveAzCliVersion(readAzureCliConfig(ROOT_DIR), CURRENT_PLATFORM) || '';
+} catch (error) {
+  console.warn(`Warning: Could not read Azure CLI version pin from ${ROOT_PACKAGE_JSON}`);
 }
 
 // Determine the correct build output directory based on platform. Packaging a
@@ -370,25 +381,48 @@ function testAzureCliInvocation(): void {
       `Successfully invoked, version: ${azureCliVersion}`
     );
 
-    // Every extension the build configures must actually be there. Installation
-    // failures are non-fatal in download-az-cli.ts, so without checking here a
-    // release can ship missing one: without `connectedk8s`, for instance, no AKS
-    // Hybrid & Edge cluster can be discovered or connected at all. Windows is
-    // the exception — its bundle never carries extensions; the app installs
-    // them at runtime.
-    if (shouldVerifyBundledExtensions(CURRENT_PLATFORM)) {
-      const bundledExtensions = versionData.extensions ?? {};
-      const missingExtensions = requiredExtensions.filter(name => !bundledExtensions[name]);
+    // Every extension the build configures must actually be there. The
+    // installers in download-az-cli.ts abort on a failed install, but this
+    // is an independent post-build integrity check of what actually got
+    // staged — a stale external-tools directory that predates the current
+    // config can still ship missing one: without `connectedk8s`, for
+    // instance, no AKS Hybrid & Edge cluster can be discovered or connected
+    // at all. Every platform pre-installs the configured extensions —
+    // Windows into the app-owned cliextensions directory its az.cmd wrapper
+    // points AZURE_EXTENSION_DIR at — so every platform is verified.
+    const bundledExtensions = versionData.extensions ?? {};
+    const missingExtensions = requiredExtensions.filter(name => !bundledExtensions[name]);
 
+    addResult(
+      'Azure CLI extensions',
+      missingExtensions.length === 0,
+      missingExtensions.length === 0
+        ? `All required extensions bundled: ${requiredExtensions.join(', ')}`
+        : `Missing required extension(s): ${missingExtensions.join(', ')}`
+    );
+
+    // aks-preview shadows the core `az aks namespace` implementation the
+    // plugin now depends on, so it must never be bundled.
+    const aksPreviewVersion = versionData.extensions?.['aks-preview'];
+    addResult(
+      'aks-preview extension absent',
+      !aksPreviewVersion,
+      aksPreviewVersion
+        ? `aks-preview extension ${aksPreviewVersion} is bundled and shadows the core "az aks namespace" command`
+        : 'aks-preview extension is not bundled, as expected'
+    );
+
+    if (AZURE_CLI_PINNED_VERSION) {
+      const versionMatchesPin = azureCliVersion === AZURE_CLI_PINNED_VERSION;
       addResult(
-        'Azure CLI extensions',
-        missingExtensions.length === 0,
-        missingExtensions.length === 0
-          ? `All required extensions bundled: ${requiredExtensions.join(', ')}`
-          : `Missing required extension(s): ${missingExtensions.join(', ')}`
+        'Azure CLI version matches pin',
+        versionMatchesPin,
+        versionMatchesPin
+          ? `Bundled version ${azureCliVersion} matches the pinned ${AZURE_CLI_PINNED_VERSION}`
+          : `Bundled version ${azureCliVersion} does not match the pinned ${AZURE_CLI_PINNED_VERSION}; the external-tools directory may be stale and need to be removed and rebuilt`
       );
     } else {
-      logInfo('Skipping Azure CLI extensions check on Windows (extensions install at runtime)');
+      logWarning('  Could not determine pinned Azure CLI version, skipping version match check');
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -400,10 +434,8 @@ function testAzureCliInvocation(): void {
         true,
         'Skipped due to timeout (executable exists and is valid)'
       );
-      if (shouldVerifyBundledExtensions(CURRENT_PLATFORM)) {
-        const extensionResult = getExtensionTimeoutResult(requiredExtensions);
-        addResult(extensionResult.name, extensionResult.passed, extensionResult.message);
-      }
+      const extensionResult = getExtensionTimeoutResult(requiredExtensions);
+      addResult(extensionResult.name, extensionResult.passed, extensionResult.message);
     } else {
       addResult(
         'Azure CLI invocation',

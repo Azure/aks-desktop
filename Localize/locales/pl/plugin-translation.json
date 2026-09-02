@@ -42,8 +42,6 @@
   "AKS Cluster": "Klaster środowiska AKS",
   "AKS desktop logo": "Logo pulpitu usługi AKS",
   "AKS Managed": "Zarządzane przez usługę AKS",
-  "AKS Preview Extension installed successfully!": "Rozszerzenie usługi AKS Preview zostało pomyślnie zainstalowane!",
-  "AKS Preview Extension Required": "Wymagane rozszerzenie usługi AKS Preview",
   "AKS Project?": "Projekt AKS?",
   "All selected addons have been enabled successfully.": "Pomyślnie włączono wszystkie wybrane dodatki.",
   "All verifications completed successfully!": "Wszystkie weryfikacje zostały ukończone pomyślnie!",
@@ -74,7 +72,6 @@
   "Avg Response Time": "Średni czas odpowiedzi",
   "Azure Account": "Konto platformy Azure",
   "Azure Authentication": "Uwierzytelnianie platformy Azure",
-  "Azure CLI/aks-preview requirements not met": "Wymagania interfejsu CLI/aks-preview usługi Azure nie zostały spełnione",
   "Azure Monitor Metrics (Managed Prometheus)": "Metryki usługi Azure Monitor (zarządzany zestaw narzędzi Prometheus)",
   "Azure Role Assignments": "Przypisania ról na platformie Azure",
   "Azure sign-in is required to configure workload identity.": "Do skonfigurowania tożsamości obciążenia wymagane jest logowanie do platformy Azure.",
@@ -324,9 +321,7 @@
   "Initializing...": "Trwa inicjowanie...",
   "Initiating Azure login": "Inicjowanie logowania do platformy Azure",
   "Initiating managed namespace creation": "Inicjowanie tworzenia zarządzanej przestrzeni nazw",
-  "Install Extension": "Zainstaluj rozszerzenie",
   "Install GitHub App": "Instalowanie aplikacji GitHub",
-  "Installing": "Instalowanie",
   "Internal only": "Tylko wewnętrzne",
   "Invalid YAML": "Nieprawidłowy plik YAML",
   "Invalid YAML: List item missing required field (kind)": "Nieprawidłowy kod YAML: element listy nie zawiera wymaganego pola (rodzaj)",
@@ -621,7 +616,6 @@
   "The agent has created the deployment PR. Review the generated files and merge to start the deployment pipeline.": "Agent utworzył żądanie ściągnięcia wdrożenia. Przejrzyj wygenerowane pliki i scal, aby uruchomić potok wdrażania.",
   "The agent is creating the setup PR to enable the Copilot agent.": "Agent tworzy żądanie ściągnięcia konfiguracji w celu włączenia agenta funkcji Copilot.",
   "The AKS Desktop GitHub App must be installed on {{repoName}} to continue.": "Aby kontynuować, należy zainstalować w repozytorium {{repoName}} zainstalować klasyczną aplikację GitHub usługi AKS.",
-  "The aks-preview extension is required to create managed namespaces. Please install it to continue.": "Rozszerzenie aks-preview jest wymagane do tworzenia zarządzanych przestrzeni nazw. Zainstaluj go, aby kontynuować.",
   "The Copilot coding agent is analyzing your repo and generating a deployment PR with Dockerfile, Kubernetes manifests and a GitHub Actions workflow.": "Agent kodowania funkcji Copilot analizuje repozytorium i generuje żądanie ściągnięcia wdrożenia za pomocą pliku Dockerfile, manifestów platformy Kubernetes i przepływu pracy funkcji GitHub Actions.",
   "The following addons can be enabled on this cluster:": "W tym klastrze można włączyć następujące dodatki:",
   "The following Azure resources will be created to enable your GitHub Actions pipeline to authenticate with your AKS cluster:": "Zostaną utworzone następujące zasoby platformy Azure, aby umożliwić uwierzytelnianie potoku funkcji GitHub Actions za pomocą klastra usługi AKS:",
@@ -758,5 +752,6 @@
   "someone@contoso.com or 00000000-0000-0000-0000-000000000000": "",
   "This cluster needs this user's sign-in name (e.g. someone@contoso.com)": "",
   "User search is not available. Enter the sign-in name (user principal name) or the Azure AD object ID directly — some clusters require the sign-in name. Find both in Azure Portal > Microsoft Entra ID > Users > select user.": "",
-  "Verifying access": ""
+  "Verifying access": "",
+  "Azure CLI requirements not met": ""
 }

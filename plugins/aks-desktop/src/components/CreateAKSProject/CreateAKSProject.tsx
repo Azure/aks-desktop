@@ -45,12 +45,10 @@ function CreateAKSProject() {
             loadingClusters={wizard.azureResources.loadingClusters}
             clusterError={wizard.azureResources.clusterError}
             arcDiscoveryUnavailable={wizard.azureResources.arcDiscoveryUnavailable}
-            extensionStatus={wizard.extensionStatus}
             namespaceStatus={wizard.namespaceCheck}
             clusterAccessStatus={wizard.clusterAccess}
             clusterCapabilities={wizard.clusterCapabilities.capabilities}
             capabilitiesLoading={wizard.clusterCapabilities.loading}
-            onInstallExtension={wizard.extensionStatus.installExtension}
             onRetrySubscriptions={async () => {
               await wizard.azureResources.fetchSubscriptions();
             }}

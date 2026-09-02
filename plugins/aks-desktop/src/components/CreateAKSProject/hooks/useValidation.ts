@@ -3,13 +3,7 @@
 
 import { useMemo } from 'react';
 import type { ClusterCapabilities } from '../../../types/ClusterCapabilities';
-import type {
-  ExtensionStatus,
-  FormData,
-  FormValidationResult,
-  NamespaceStatus,
-  ValidationState,
-} from '../types';
+import type { FormData, FormValidationResult, NamespaceStatus, ValidationState } from '../types';
 import { validateForm, validateStep } from '../validators';
 
 /**
@@ -18,7 +12,6 @@ import { validateForm, validateStep } from '../validators';
 export const useValidation = (
   activeStep: number,
   formData: FormData,
-  extensionStatus?: ExtensionStatus,
   namespaceStatus?: NamespaceStatus,
   isClusterMissing?: boolean,
   capabilities?: ClusterCapabilities | null,
@@ -31,7 +24,6 @@ export const useValidation = (
     const result = validateStep(
       activeStep,
       formData,
-      extensionStatus?.installed,
       namespaceStatus?.exists,
       namespaceStatus?.checking,
       namespaceStatus?.error || undefined,
@@ -49,7 +41,6 @@ export const useValidation = (
   }, [
     activeStep,
     formData,
-    extensionStatus?.installed,
     namespaceStatus?.exists,
     namespaceStatus?.checking,
     namespaceStatus?.error,

@@ -111,13 +111,6 @@ export interface ValidationState {
   fieldErrors?: Record<string, string[]>;
 }
 
-export interface ExtensionStatus {
-  installed: boolean | null;
-  installing: boolean;
-  error: string | null;
-  showSuccess: boolean;
-}
-
 export interface NamespaceStatus {
   exists: boolean | null;
   checking: boolean;
@@ -164,8 +157,6 @@ export interface BasicsStepProps extends StepProps {
   clusterError: string | null;
   /** Whether Arc discovery is unavailable because `connectedk8s` is missing. */
   arcDiscoveryUnavailable?: boolean;
-  /** Installation state for the AKS Preview Azure CLI extension. */
-  extensionStatus: ExtensionStatus;
   /** Availability state for the requested project namespace. */
   namespaceStatus: NamespaceStatus;
   /**
@@ -177,8 +168,6 @@ export interface BasicsStepProps extends StepProps {
   clusterCapabilities: ClusterCapabilities | null;
   /** Whether selected-cluster capabilities are being loaded. */
   capabilitiesLoading: boolean;
-  /** Installs the AKS Preview Azure CLI extension. */
-  onInstallExtension: () => Promise<void>;
   /** Retries loading Azure subscriptions. */
   onRetrySubscriptions: () => Promise<void>;
   /** Retries loading clusters for the selected subscription. */

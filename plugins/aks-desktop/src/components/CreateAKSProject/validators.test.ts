@@ -32,7 +32,6 @@ const allFeaturesEnabled: ClusterCapabilities = {
 };
 
 /** Default non-error prerequisites for basics step. */
-const extensionInstalled = true;
 const namespaceExists = false;
 const checkingNamespace = false;
 const namespaceError = null;
@@ -44,7 +43,6 @@ describe('validateBasicsStep Arc (AKS Hybrid & Edge) accessibility gating', () =
   it('blocks the step while the accessibility probe is running', () => {
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -63,7 +61,6 @@ describe('validateBasicsStep Arc (AKS Hybrid & Edge) accessibility gating', () =
   it('blocks the step when the Arc cluster is unreachable', () => {
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -82,7 +79,6 @@ describe('validateBasicsStep Arc (AKS Hybrid & Edge) accessibility gating', () =
   it('allows the step when the Arc cluster is reachable', () => {
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -98,7 +94,6 @@ describe('validateBasicsStep Arc (AKS Hybrid & Edge) accessibility gating', () =
   it('does not apply the accessibility gate to managed (non-Arc) clusters', () => {
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -121,7 +116,6 @@ describe('validateBasicsStep with capabilities', () => {
 
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -147,7 +141,6 @@ describe('validateBasicsStep with capabilities', () => {
 
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -168,7 +161,6 @@ describe('validateBasicsStep with capabilities', () => {
 
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -194,7 +186,6 @@ describe('validateBasicsStep with capabilities', () => {
 
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -216,7 +207,6 @@ describe('validateBasicsStep with capabilities', () => {
 
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -235,7 +225,6 @@ describe('validateBasicsStep with capabilities', () => {
   it('returns no warnings when capabilities is null', () => {
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -249,7 +238,6 @@ describe('validateBasicsStep with capabilities', () => {
   it('returns no warnings when capabilities is undefined', () => {
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -263,7 +251,6 @@ describe('validateBasicsStep with capabilities', () => {
   it('returns no warnings when capabilities has all features enabled', () => {
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -283,7 +270,6 @@ describe('validateBasicsStep with capabilities', () => {
 
     const result = validateBasicsStep(
       validFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -312,7 +298,6 @@ describe('validateBasicsStep with capabilities', () => {
 
     const result = validateBasicsStep(
       invalidFormData,
-      extensionInstalled,
       namespaceExists,
       checkingNamespace,
       namespaceError,
@@ -336,7 +321,6 @@ describe('validateBasicsStep with capabilities', () => {
 
       const result = validateBasicsStep(
         validFormData,
-        extensionInstalled,
         namespaceExists,
         checkingNamespace,
         namespaceError,
@@ -346,6 +330,25 @@ describe('validateBasicsStep with capabilities', () => {
 
       expect(result.warnings).toHaveLength(0);
     }
+  });
+
+  it('passes validation for a complete form with no preflight gates required', () => {
+    const result = validateBasicsStep(
+      {
+        projectName: 'my-project',
+        subscription: 'sub-id',
+        cluster: 'my-cluster',
+        resourceGroup: 'my-rg',
+      },
+      false, // namespaceExists
+      false, // checkingNamespace
+      null, // namespaceError
+      undefined,
+      null
+    );
+
+    expect(result.isValid).toBe(true);
+    expect(result.errors).toEqual([]);
   });
 });
 

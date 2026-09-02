@@ -14,19 +14,20 @@ This directory contains the Azure CLI integration layer for AKS Desktop. Every A
 
 ### Domain Modules
 
-| Module                   | Responsibility                                                                           |
-| ------------------------ | ---------------------------------------------------------------------------------------- |
-| `az-auth.ts`             | Login flows, status checks, access tokens                                                |
-| `az-extensions.ts`       | Extension installation, status checks, and Azure CLI configuration                       |
-| `az-subscriptions.ts`    | Subscriptions, tenants, resource groups, locations, VM sizes                             |
-| `az-clusters.ts`         | AKS cluster listing (Resource Graph optimized), status, capabilities, kubeconfig, addons |
-| `az-resource-graph.ts`   | Azure Resource Graph queries for fast cluster lookups                                    |
-| `az-namespaces.ts`       | Managed namespace CRUD with polling for async operations                                 |
-| `az-namespace-access.ts` | Namespace role assignments and access verification                                       |
-| `az-identity.ts`         | Managed identity CRUD, role assignments, scope building                                  |
-| `az-ad.ts`               | Azure AD user search                                                                     |
-| `az-acr.ts`              | Container registry creation, listing, and image discovery                                |
-| `az-federation.ts`       | Federated credentials for GitHub Actions and Kubernetes OIDC                             |
+| Module                     | Responsibility                                                                           |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| `az-auth.ts`               | Login flows, status checks, access tokens                                                |
+| `az-extensions.ts`         | Extension installation, status checks, and Azure CLI configuration                       |
+| `az-resource-providers.ts` | Subscription resource-provider registration                                              |
+| `az-subscriptions.ts`      | Subscriptions, tenants, resource groups, locations, VM sizes                             |
+| `az-clusters.ts`           | AKS cluster listing (Resource Graph optimized), status, capabilities, kubeconfig, addons |
+| `az-resource-graph.ts`     | Azure Resource Graph queries for fast cluster lookups                                    |
+| `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                                 |
+| `az-namespace-access.ts`   | Namespace role assignments and access verification                                       |
+| `az-identity.ts`           | Managed identity CRUD, role assignments, scope building                                  |
+| `az-ad.ts`                 | Azure AD user search                                                                     |
+| `az-acr.ts`                | Container registry creation, listing, and image discovery                                |
+| `az-federation.ts`         | Federated credentials for GitHub Actions and Kubernetes OIDC                             |
 
 ### Orchestration Modules
 
@@ -35,7 +36,7 @@ These modules compose the `az-*` primitives into higher-level workflows used by 
 | Module                 | Responsibility                                                           |
 | ---------------------- | ------------------------------------------------------------------------ |
 | `aks.ts`               | Legacy cluster registration flow (subscriptions + clusters + kubeconfig) |
-| `checkAzureCli.ts`     | Pre-flight check: is CLI installed + is aks-preview extension present?   |
+| `checkAzureCli.ts`     | Pre-flight check: is the CLI installed and new enough?                   |
 | `identitySetup.ts`     | Ensure resource group + managed identity exist (create-if-missing)       |
 | `identityRoles.ts`     | Compute required role assignments for a given namespace context          |
 | `identityWithRoles.ts` | End-to-end: ensure identity exists with all required roles               |
@@ -50,6 +51,7 @@ az-cli-core.ts  (foundation — runCommandAsync, runAzCommand, error helpers)
     ^
     ├── az-auth.ts ──────────────────> az-cli-path.ts
     ├── az-extensions.ts
+    ├── az-resource-providers.ts
     ├── az-subscriptions.ts ─────────> az-validation.ts
     ├── az-resource-graph.ts
     ├── az-namespaces.ts

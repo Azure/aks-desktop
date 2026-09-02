@@ -17,6 +17,12 @@ import {
   resolveAksMcpTarget,
   resolveTargetArch,
 } from './aks-mcp-config';
+import {
+  expectedAzCliExtensions,
+  isAzCliStagedForTarget,
+  readAzureCliConfig,
+  resolveAzCliVersion,
+} from './az-cli-config';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
@@ -67,9 +73,27 @@ function isAksMcpStagedForTarget(): boolean {
 
 const aksMcpStaged = isAksMcpStagedForTarget();
 
-if (!fs.existsSync(externalToolsDir) || !aksMcpStaged) {
+// Unlike aks-mcp, download-az-cli.ts always stages for the build host
+// (process.platform), not the packaging --platform target, so check it
+// against the host rather than targetPlatform.
+const azureCliConfig = readAzureCliConfig(ROOT_DIR);
+const expectedAzCliVersion = resolveAzCliVersion(azureCliConfig, process.platform);
+const azCliStaged = isAzCliStagedForTarget(
+  ROOT_DIR,
+  process.platform,
+  expectedAzCliVersion,
+  expectedAzCliExtensions(azureCliConfig, process.platform)
+);
+
+if (!fs.existsSync(externalToolsDir) || !aksMcpStaged || !azCliStaged) {
   if (!aksMcpStaged && fs.existsSync(externalToolsDir)) {
     console.log(`aks-mcp is missing or not staged for ${targetPlatform}/${targetArch}.`);
+  }
+  if (!azCliStaged && fs.existsSync(externalToolsDir)) {
+    console.log(
+      `Azure CLI is missing or not staged for ${process.platform} at the pinned version ` +
+        `(${expectedAzCliVersion ?? 'unknown'}).`
+    );
   }
   console.log('Setting up external tools...');
   execSync(
@@ -81,7 +105,9 @@ if (!fs.existsSync(externalToolsDir) || !aksMcpStaged) {
   );
 } else {
   console.log('External tools already present. Skipping setup.');
-  console.log(`To re-setup, remove: ${externalToolsDir}`);
+  console.log(
+    `To re-setup (e.g. after changing the Azure CLI pin), remove: ${externalToolsDir}`
+  );
 }
 
 // Ensure we are in the repository with the headlamp directory
