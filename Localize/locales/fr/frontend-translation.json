@@ -1032,5 +1032,6 @@
   "Warning event: {{ reason }}": "",
   "Warning event: {{ reason }} ({{ eventCount }} times)": "",
   "Whoops! This page doesn't exist": "",
-  "Your selection includes system namespaces. Deleting them may break your cluster.": ""
+  "Your selection includes system namespaces. Deleting them may break your cluster.": "",
+  "Development Mode": ""
 }
