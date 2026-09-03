@@ -9,8 +9,8 @@ the same way as packaged branded applications.
 ---
  app/electron/main.ts                        |  1 +
  app/electron/runtimeProductIdentity.test.ts | 68 +++++++++++++++++++++
- app/electron/runtimeProductIdentity.ts      | 40 +++++++++++++
- 3 files changed, 108 insertions(+)
+ app/electron/runtimeProductIdentity.ts      | 41 +++++++++++++
+ 3 files changed, 109 insertions(+)
  create mode 100644 app/electron/runtimeProductIdentity.test.ts
  create mode 100644 app/electron/runtimeProductIdentity.ts
 
@@ -102,7 +102,7 @@ diff --git a/app/electron/runtimeProductIdentity.ts b/app/electron/runtimeProduc
 new file mode 100644
 --- /dev/null
 +++ b/app/electron/runtimeProductIdentity.ts
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,41 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *

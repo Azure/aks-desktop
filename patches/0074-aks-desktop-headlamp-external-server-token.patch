@@ -4,7 +4,7 @@ Date: Wed, 2 Sep 2026 19:32:05 +0200
 Subject: [PATCH] app: backend-token: Coordinate external development server
 
 ---
- app/electron/backendToken.test.ts | 116 ++++++++++++++++++++++++++++++
+ app/electron/backendToken.test.ts | 119 ++++++++++++++++++++++++++++++
  app/electron/backendToken.ts      | 109 +++++++++++++++++++++++++++++
  app/electron/main.ts              | 14 +++-
  app/package.json                  |  4 +-
@@ -17,7 +17,7 @@ new file mode 100644
 index 000000000..ac7690342
 --- /dev/null
 +++ b/app/electron/backendToken.test.ts
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,119 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -49,14 +49,17 @@ index 000000000..ac7690342
 +    ['an internal server', true, false, 'configured-token'],
 +    ['an external server without a configured token', true, true, undefined],
 +    ['a packaged external-server request', false, true, 'configured-token'],
-+  ])('generates a fresh token for %s', (_name, isDevelopment, useExternalServer, configuredToken) => {
-+    const generateToken = vi.fn(() => 'generated-token');
++  ])(
++    'generates a fresh token for %s',
++    (_name, isDevelopment, useExternalServer, configuredToken) => {
++      const generateToken = vi.fn(() => 'generated-token');
 +
-+    expect(
-+      resolveBackendToken(isDevelopment, useExternalServer, configuredToken, generateToken)
-+    ).toBe('generated-token');
-+    expect(generateToken).toHaveBeenCalledOnce();
-+  });
++      expect(
++        resolveBackendToken(isDevelopment, useExternalServer, configuredToken, generateToken)
++      ).toBe('generated-token');
++      expect(generateToken).toHaveBeenCalledOnce();
++    }
++  );
 +});
 +
 +describe('waitForExternalBackend', () => {
@@ -93,9 +96,9 @@ index 000000000..ac7690342
 +    })) as unknown as typeof fetch;
 +    const delayFn = vi.fn(async () => {});
 +
-+    await expect(
-+      waitForExternalBackend(4466, 'wrong-token', { fetchFn, delayFn })
-+    ).rejects.toThrow('External backend readiness failed: 403 Forbidden');
++    await expect(waitForExternalBackend(4466, 'wrong-token', { fetchFn, delayFn })).rejects.toThrow(
++      'External backend readiness failed: 403 Forbidden'
++    );
 +    expect(fetchFn).toHaveBeenCalledOnce();
 +    expect(delayFn).not.toHaveBeenCalled();
 +  });

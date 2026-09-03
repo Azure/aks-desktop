@@ -728,10 +728,10 @@ index 9ec117b2ee121102276be928a61febb12bda4c56..959ffc4a5d79e90e86fce5c77bfb9ea2
        },
 diff --git a/source/app/electron/backendToken.test.ts b/source/app/electron/backendToken.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..fcea6e5c470b5ffbf7dfb2705c6e81aa021b4c3f
+index 0000000000000000000000000000000000000000..0837453c818afc6d01491219e03d6c776e04ac37
 --- /dev/null
 +++ b/source/app/electron/backendToken.test.ts
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,119 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -763,14 +763,17 @@ index 0000000000000000000000000000000000000000..fcea6e5c470b5ffbf7dfb2705c6e81aa
 +    ['an internal server', true, false, 'configured-token'],
 +    ['an external server without a configured token', true, true, undefined],
 +    ['a packaged external-server request', false, true, 'configured-token'],
-+  ])('generates a fresh token for %s', (_name, isDevelopment, useExternalServer, configuredToken) => {
-+    const generateToken = vi.fn(() => 'generated-token');
++  ])(
++    'generates a fresh token for %s',
++    (_name, isDevelopment, useExternalServer, configuredToken) => {
++      const generateToken = vi.fn(() => 'generated-token');
 +
-+    expect(
-+      resolveBackendToken(isDevelopment, useExternalServer, configuredToken, generateToken)
-+    ).toBe('generated-token');
-+    expect(generateToken).toHaveBeenCalledOnce();
-+  });
++      expect(
++        resolveBackendToken(isDevelopment, useExternalServer, configuredToken, generateToken)
++      ).toBe('generated-token');
++      expect(generateToken).toHaveBeenCalledOnce();
++    }
++  );
 +});
 +
 +describe('waitForExternalBackend', () => {
@@ -807,9 +810,9 @@ index 0000000000000000000000000000000000000000..fcea6e5c470b5ffbf7dfb2705c6e81aa
 +    })) as unknown as typeof fetch;
 +    const delayFn = vi.fn(async () => {});
 +
-+    await expect(
-+      waitForExternalBackend(4466, 'wrong-token', { fetchFn, delayFn })
-+    ).rejects.toThrow('External backend readiness failed: 403 Forbidden');
++    await expect(waitForExternalBackend(4466, 'wrong-token', { fetchFn, delayFn })).rejects.toThrow(
++      'External backend readiness failed: 403 Forbidden'
++    );
 +    expect(fetchFn).toHaveBeenCalledOnce();
 +    expect(delayFn).not.toHaveBeenCalled();
 +  });
@@ -7897,10 +7900,10 @@ index 0000000000000000000000000000000000000000..e3175171e76c9e8871f5608fa0772514
 +});
 diff --git a/source/app/electron/runtimeProductIdentity.ts b/source/app/electron/runtimeProductIdentity.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b7e49b5de5ae9571bb332bd645323e98b357ca9d
+index 0000000000000000000000000000000000000000..ab5c5b1fd6b82012f00eb2b7de618fca1f94494d
 --- /dev/null
 +++ b/source/app/electron/runtimeProductIdentity.ts
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,41 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -7941,6 +7944,7 @@ index 0000000000000000000000000000000000000000..b7e49b5de5ae9571bb332bd645323e98
 +  return runtimeApp.getName();
 +}
 +
++applyRuntimeProductIdentity(app, loadBuildManifest());
 diff --git a/source/app/electron/secureStorage.ts b/source/app/electron/secureStorage.ts
 index 9cc488a6ed2614ecd4a9a7845adcb0fd310511da..7a6ce832755838335ed56c52dcad7909cfae047b 100644
 --- a/source/app/electron/secureStorage.ts
