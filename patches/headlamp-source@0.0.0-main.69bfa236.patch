@@ -1706,20 +1706,18 @@ index 0000000000000000000000000000000000000000..04aefdc0edeffd8ebd3020b2482bd8c9
 +  }
 +}
 diff --git a/source/app/electron/main.ts b/source/app/electron/main.ts
-index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..628c9c356eb0129b1d025fbc694b00bcc6483d62 100644
+index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..6525c520d11e7a0bf51c59a34f9c3d480f26f347 100644
 --- a/source/app/electron/main.ts
 +++ b/source/app/electron/main.ts
-@@ -14,8 +14,8 @@
-  * limitations under the License.
+@@ -15,7 +15,6 @@
   */
  
-+import './runtimeProductIdentity';
  import { ChildProcessWithoutNullStreams, execFileSync, spawn } from 'child_process';
 -import { randomBytes } from 'crypto';
  import dotenv from 'dotenv';
  import {
    app,
-@@ -36,8 +36,15 @@ import path from 'path';
+@@ -36,8 +35,15 @@ import path from 'path';
  import url from 'url';
  import yargs from 'yargs';
  import { hideBin } from 'yargs/helpers';
@@ -1735,7 +1733,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..628c9c356eb0129b1d025fbc694b00bc
  import { startWindowsVMDetection, waitForWindowsVMDetection } from './hardwareAcceleration';
  import i18n from './i18next.config';
  import {
-@@ -62,15 +69,23 @@ import {
+@@ -62,15 +68,24 @@ import {
  } from './plugin-management';
  import { readProtocolScheme } from './protocol';
  import { createProtocolHandler } from './protocolHandler';
@@ -1749,6 +1747,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..628c9c356eb0129b1d025fbc694b00bc
    runScript,
    setupRunCmdHandlers,
  } from './runCmd';
++import { pluginConfigDirName } from './runtimeProductIdentity';
  import { setupSecureStorageHandlers } from './secureStorage';
 -import { loadSettings, SETTINGS_PATH } from './settings';
 +import {
@@ -1760,7 +1759,30 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..628c9c356eb0129b1d025fbc694b00bc
  import { getShellEnv } from './shellEnv';
  import { shouldCheckForAppUpdates } from './shouldCheckForAppUpdates';
  import {
-@@ -125,7 +140,12 @@ if (isDev) {
+@@ -89,11 +104,13 @@ import {
+   saveZoomFactor,
+ } from './zoom';
+ 
++const isDev = !!process.env.ELECTRON_DEV;
++
+ if (process.env.APPIMAGE) {
+   app.commandLine.appendSwitch('disable-setuid-sandbox');
+ }
+ 
+-setAppConfigDirName(app.getName());
++setAppConfigDirName(pluginConfigDirName(app.getName(), isDev));
+ 
+ // On Linux, force the GTK 3 backend. Electron 36+ defaults to GTK 4, which
+ // conflicts with GTK 2/3 symbols pulled into the process by IM modules and
+@@ -117,7 +134,6 @@ dotenv.config({ path: path.join(process.resourcesPath, '.env') });
+ const settings = loadSettings(SETTINGS_PATH);
+ const ensureCertificates = createCertificateSetup(settings);
+ 
+-const isDev = !!process.env.ELECTRON_DEV;
+ let frontendPath = '';
+ 
+ if (isDev) {
+@@ -125,7 +141,12 @@ if (isDev) {
  } else {
    frontendPath = path.join(process.resourcesPath, 'frontend', 'index.html');
  }
@@ -1774,7 +1796,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..628c9c356eb0129b1d025fbc694b00bc
  
  const startUrl = (
    process.env.ELECTRON_START_URL ||
-@@ -204,12 +224,17 @@ const defaultPort = args.port || 4466;
+@@ -204,12 +225,17 @@ const defaultPort = args.port || 4466;
  let actualPort = defaultPort; // Will be updated when backend starts
  const MAX_PORT_ATTEMPTS = Math.abs(Number(process.env.HEADLAMP_MAX_PORT_ATTEMPTS) || 100); // Maximum number of ports to try
  
@@ -1794,7 +1816,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..628c9c356eb0129b1d025fbc694b00bc
  
  // make it global so that it doesn't get garbage collected
  let mainWindow: BrowserWindow | null;
-@@ -505,7 +530,10 @@ class PluginManagerEventListeners {
+@@ -505,7 +531,10 @@ class PluginManagerEventListeners {
        progress: { type: 'info', message: 'uninstalling plugin' },
      };
  
@@ -1806,7 +1828,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..628c9c356eb0129b1d025fbc694b00bc
  
      PluginManager.uninstall(pluginName, destinationFolder, progress => {
        updateCache(progress);
-@@ -1394,6 +1422,10 @@ function startElectron() {
+@@ -1394,6 +1423,10 @@ function startElectron() {
    console.log('Check for updates: ', shouldCheckForUpdates);
  
    async function startServerIfNeeded() {
@@ -1817,7 +1839,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..628c9c356eb0129b1d025fbc694b00bc
      if (!useExternalServer) {
        try {
          // Try to start the server (it will find an available port)
-@@ -1558,6 +1590,15 @@ function startElectron() {
+@@ -1558,6 +1591,15 @@ function startElectron() {
        },
      });
      protocolHandler.attachToWebContents(mainWindow.webContents);
@@ -1833,7 +1855,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..628c9c356eb0129b1d025fbc694b00bc
  
      applyZoom();
  
-@@ -1739,7 +1780,27 @@ function startElectron() {
+@@ -1739,7 +1781,27 @@ function startElectron() {
        applyTrayIconSetting(enabled);
      });
  
@@ -1862,7 +1884,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..628c9c356eb0129b1d025fbc694b00bc
      setupSecureStorageHandlers(mainWindow, startUrl);
  
      new PluginManagerEventListeners().setupEventHandlers();
-@@ -1771,13 +1832,13 @@ function startElectron() {
+@@ -1771,13 +1833,13 @@ function startElectron() {
  
      // Also add bundled plugin bin directories to PATH
      const bundledPlugins = path.join(process.resourcesPath, '.plugins');
@@ -1878,7 +1900,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..628c9c356eb0129b1d025fbc694b00bc
      if (userPluginBinDirs.length > 0) {
        addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
      }
-@@ -1841,26 +1902,31 @@ function startElectron() {
+@@ -1841,26 +1903,31 @@ function startElectron() {
      }
    });
  
@@ -8132,10 +8154,10 @@ index 0000000000000000000000000000000000000000..e12622644ac90663ddb92a7b14e91a88
 +}
 diff --git a/source/app/electron/runtimeProductIdentity.test.ts b/source/app/electron/runtimeProductIdentity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..e3175171e76c9e8871f5608fa077251431b3147e
+index 0000000000000000000000000000000000000000..df303afbb1ed97621c7c1ef1ee100df73f62f666
 --- /dev/null
 +++ b/source/app/electron/runtimeProductIdentity.test.ts
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,78 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -8163,7 +8185,17 @@ index 0000000000000000000000000000000000000000..e3175171e76c9e8871f5608fa0772514
 +
 +vi.mock('electron', () => ({ app: runtimeApp }));
 +
-+import { applyRuntimeProductIdentity } from './runtimeProductIdentity';
++import { applyRuntimeProductIdentity, pluginConfigDirName } from './runtimeProductIdentity';
++
++describe('pluginConfigDirName', () => {
++  it('shares the Headlamp plugin profile with development tooling', () => {
++    expect(pluginConfigDirName('AKS Desktop', true)).toBe('Headlamp');
++  });
++
++  it('uses the branded plugin profile in packaged applications', () => {
++    expect(pluginConfigDirName('AKS Desktop', false)).toBe('AKS Desktop');
++  });
++});
 +
 +describe('applyRuntimeProductIdentity', () => {
 +  beforeEach(() => {
@@ -8206,10 +8238,10 @@ index 0000000000000000000000000000000000000000..e3175171e76c9e8871f5608fa0772514
 +});
 diff --git a/source/app/electron/runtimeProductIdentity.ts b/source/app/electron/runtimeProductIdentity.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..ab5c5b1fd6b82012f00eb2b7de618fca1f94494d
+index 0000000000000000000000000000000000000000..6419e68d110c32f465469a3f868b341b9550fa1f
 --- /dev/null
 +++ b/source/app/electron/runtimeProductIdentity.ts
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,46 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -8231,6 +8263,11 @@ index 0000000000000000000000000000000000000000..ab5c5b1fd6b82012f00eb2b7de618fca
 +import { applyProductMetadata, loadBuildManifest } from '../scripts/build-manifest';
 +
 +type RuntimeAppIdentity = Pick<Electron.App, 'getName' | 'getPath' | 'setName' | 'setPath'>;
++
++/** Selects the plugin profile shared with the backend and plugin development tooling. */
++export function pluginConfigDirName(appName: string, isDevelopment: boolean): string {
++  return isDevelopment ? 'Headlamp' : appName;
++}
 +
 +/** Applies the product manifest's display name to Electron before storage paths are resolved. */
 +export function applyRuntimeProductIdentity(

@@ -4,3 +4,4 @@
 0074 source 0074-aks-desktop-headlamp-external-server-token.patch
 0075 source 0075-aks-desktop-headlamp-runtime-product-identity.patch
 0076 source 0076-headlamp-upstream-default-plugin-theme.patch
+0077 source 0077-aks-desktop-headlamp-development-plugin-profile.patch

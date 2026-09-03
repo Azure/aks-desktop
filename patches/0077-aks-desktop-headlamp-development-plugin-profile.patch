@@ -1,0 +1,93 @@
+From d6f6d86536e1ab3c2db0466249e6e2ab76421da0 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Thu, 3 Sep 2026 21:07:15 +0200
+Subject: [PATCH] aksd: app: Share development plugin profile
+
+---
+ app/electron/main.ts                        |  7 ++++---
+ app/electron/runtimeProductIdentity.test.ts | 12 +++++++++++-
+ app/electron/runtimeProductIdentity.ts      |  5 +++++
+ 3 files changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/app/electron/main.ts b/app/electron/main.ts
+index 628c9c356..6525c520d 100644
+--- a/app/electron/main.ts
++++ b/app/electron/main.ts
+@@ -14,7 +14,6 @@
+  * limitations under the License.
+  */
+ 
+-import './runtimeProductIdentity';
+ import { ChildProcessWithoutNullStreams, execFileSync, spawn } from 'child_process';
+ import dotenv from 'dotenv';
+ import {
+@@ -79,6 +78,7 @@ import {
+   runScript,
+   setupRunCmdHandlers,
+ } from './runCmd';
++import { pluginConfigDirName } from './runtimeProductIdentity';
+ import { setupSecureStorageHandlers } from './secureStorage';
+ import {
+   areDevelopmentPluginsEnabled,
+@@ -104,11 +104,13 @@ import {
+   saveZoomFactor,
+ } from './zoom';
+ 
++const isDev = !!process.env.ELECTRON_DEV;
++
+ if (process.env.APPIMAGE) {
+   app.commandLine.appendSwitch('disable-setuid-sandbox');
+ }
+ 
+-setAppConfigDirName(app.getName());
++setAppConfigDirName(pluginConfigDirName(app.getName(), isDev));
+ 
+ // On Linux, force the GTK 3 backend. Electron 36+ defaults to GTK 4, which
+ // conflicts with GTK 2/3 symbols pulled into the process by IM modules and
+@@ -132,7 +134,6 @@ dotenv.config({ path: path.join(process.resourcesPath, '.env') });
+ const settings = loadSettings(SETTINGS_PATH);
+ const ensureCertificates = createCertificateSetup(settings);
+ 
+-const isDev = !!process.env.ELECTRON_DEV;
+ let frontendPath = '';
+ 
+ if (isDev) {
+diff --git a/app/electron/runtimeProductIdentity.test.ts b/app/electron/runtimeProductIdentity.test.ts
+index e3175171e..df303afbb 100644
+--- a/app/electron/runtimeProductIdentity.test.ts
++++ b/app/electron/runtimeProductIdentity.test.ts
+@@ -25,7 +25,17 @@ const runtimeApp = vi.hoisted(() => ({
+ 
+ vi.mock('electron', () => ({ app: runtimeApp }));
+ 
+-import { applyRuntimeProductIdentity } from './runtimeProductIdentity';
++import { applyRuntimeProductIdentity, pluginConfigDirName } from './runtimeProductIdentity';
++
++describe('pluginConfigDirName', () => {
++  it('shares the Headlamp plugin profile with development tooling', () => {
++    expect(pluginConfigDirName('AKS Desktop', true)).toBe('Headlamp');
++  });
++
++  it('uses the branded plugin profile in packaged applications', () => {
++    expect(pluginConfigDirName('AKS Desktop', false)).toBe('AKS Desktop');
++  });
++});
+ 
+ describe('applyRuntimeProductIdentity', () => {
+   beforeEach(() => {
+diff --git a/app/electron/runtimeProductIdentity.ts b/app/electron/runtimeProductIdentity.ts
+index ab5c5b1fd..6419e68d1 100644
+--- a/app/electron/runtimeProductIdentity.ts
++++ b/app/electron/runtimeProductIdentity.ts
+@@ -20,6 +20,11 @@ import { applyProductMetadata, loadBuildManifest } from '../scripts/build-manife
+ 
+ type RuntimeAppIdentity = Pick<Electron.App, 'getName' | 'getPath' | 'setName' | 'setPath'>;
+ 
++/** Selects the plugin profile shared with the backend and plugin development tooling. */
++export function pluginConfigDirName(appName: string, isDevelopment: boolean): string {
++  return isDevelopment ? 'Headlamp' : appName;
++}
++
+ /** Applies the product manifest's display name to Electron before storage paths are resolved. */
+ export function applyRuntimeProductIdentity(
+   runtimeApp: RuntimeAppIdentity,
