@@ -753,10 +753,5 @@
   "You need to be logged in to Azure to register AKS clusters.": "Je moet zijn aangemeld bij Azure om AKS-clusters te registreren.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Je AKS-project {{projectName}} is gemaakt en is klaar voor gebruik.",
   "Your project \"{{projectName}}\" is ready to use.": "Je project '{{projectName}}' is klaar voor gebruik.",
-  "AKS Preview Extension installed successfully!": "",
-  "AKS Preview Extension Required": "",
-  "Azure CLI/aks-preview requirements not met": "",
-  "Install Extension": "",
-  "Installing": "",
-  "The aks-preview extension is required to create managed namespaces. Please install it to continue.": ""
+  "Azure CLI requirements not met": ""
 }
