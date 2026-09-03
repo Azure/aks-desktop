@@ -1,20 +1,20 @@
-From 63f150f7f1d5e330cb66d87cc18d02da80b788f9 Mon Sep 17 00:00:00 2001
+From 5a8fc4577c78ea5fca341d03489dbfda5a162ad8 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Wed, 2 Sep 2026 19:32:05 +0200
 Subject: [PATCH] app: backend-token: Coordinate external development server
 
 ---
  app/electron/backendToken.test.ts | 119 ++++++++++++++++++++++++++++++
- app/electron/backendToken.ts      | 109 +++++++++++++++++++++++++++++
- app/electron/main.ts              | 14 +++-
- app/package.json                  |  4 +-
- 4 files changed, 238 insertions(+), 5 deletions(-)
+ app/electron/backendToken.ts      | 109 +++++++++++++++++++++++++++
+ app/electron/main.ts              |  14 +++-
+ app/package.json                  |   4 +-
+ 4 files changed, 241 insertions(+), 5 deletions(-)
  create mode 100644 app/electron/backendToken.test.ts
  create mode 100644 app/electron/backendToken.ts
 
 diff --git a/app/electron/backendToken.test.ts b/app/electron/backendToken.test.ts
 new file mode 100644
-index 000000000..ac7690342
+index 000000000..0837453c8
 --- /dev/null
 +++ b/app/electron/backendToken.test.ts
 @@ -0,0 +1,119 @@
@@ -139,7 +139,7 @@ index 000000000..ac7690342
 +});
 diff --git a/app/electron/backendToken.ts b/app/electron/backendToken.ts
 new file mode 100644
-index 000000000..14137c304
+index 000000000..2a7e25098
 --- /dev/null
 +++ b/app/electron/backendToken.ts
 @@ -0,0 +1,109 @@
@@ -253,7 +253,7 @@ index 000000000..14137c304
 +  }
 +}
 diff --git a/app/electron/main.ts b/app/electron/main.ts
-index c463ff6ca..158f346b1 100644
+index cd8d8573e..3bc188a00 100644
 --- a/app/electron/main.ts
 +++ b/app/electron/main.ts
 @@ -15,7 +15,6 @@
@@ -270,9 +270,9 @@ index c463ff6ca..158f346b1 100644
  import { withBackendMemoryDefaults } from './backendMemory';
 +import { resolveBackendToken, waitForExternalBackend } from './backendToken';
  import { createCertificateSetup } from './certificates';
+ import { confirmEnableDevelopmentPlugins } from './developmentPlugins';
  import { startWindowsVMDetection, waitForWindowsVMDetection } from './hardwareAcceleration';
- import i18n from './i18next.config';
-@@ -132,7 +132,12 @@ if (isDev) {
+@@ -139,7 +139,12 @@ if (isDev) {
  } else {
    frontendPath = path.join(process.resourcesPath, 'frontend', 'index.html');
  }
@@ -286,7 +286,7 @@ index c463ff6ca..158f346b1 100644
  
  const startUrl = (
    process.env.ELECTRON_START_URL ||
-@@ -214,7 +219,6 @@ const defaultPort = args.port || 4466;
+@@ -218,7 +223,6 @@ const defaultPort = args.port || 4466;
  let actualPort = defaultPort; // Will be updated when backend starts
  const MAX_PORT_ATTEMPTS = Math.abs(Number(process.env.HEADLAMP_MAX_PORT_ATTEMPTS) || 100); // Maximum number of ports to try
  
@@ -294,7 +294,7 @@ index c463ff6ca..158f346b1 100644
  const legalDocumentsResourcePath = getLegalDocumentsResourcePath(isDev, process.resourcesPath);
  const appBuildManifestPath = isDev
    ? resolveBuildManifestPath()
-@@ -1410,6 +1413,10 @@ function startElectron() {
+@@ -1417,6 +1421,10 @@ function startElectron() {
    console.log('Check for updates: ', shouldCheckForUpdates);
  
    async function startServerIfNeeded() {
@@ -306,7 +306,7 @@ index c463ff6ca..158f346b1 100644
        try {
          // Try to start the server (it will find an available port)
 diff --git a/app/package.json b/app/package.json
-index 14e08c21d..5d61d5688 100644
+index 653db26e0..54f2b2e55 100644
 --- a/app/package.json
 +++ b/app/package.json
 @@ -19,8 +19,8 @@
@@ -318,5 +318,5 @@ index 14e08c21d..5d61d5688 100644
 +    "dev-only-app": "npm run compile-electron -- --dev && cross-env ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:3000 EXTERNAL_SERVER=true HEADLAMP_BACKEND_TOKEN=headlamp electron .",
 +    "dev-only-app:debug": "npm run compile-electron -- --dev && cross-env ELECTRON_DEV=1 ELECTRON_START_URL=http://localhost:3000 EXTERNAL_SERVER=true HEADLAMP_BACKEND_TOKEN=headlamp electron . --remote-debugging-port=9222",
      "format": "cd .. && npm run frontend:format",
-     "i18n": "npx --no-install i18next ./electron/main.ts ./electron/protocolHandler.ts -c ./electron/i18next-parser.config.ts",
+     "i18n": "npx --no-install i18next ./electron/main.ts ./electron/protocolHandler.ts ./electron/developmentPlugins.ts -c ./electron/i18next-parser.config.ts",
      "i18n-check": "npm run i18n -- --fail-on-update",
