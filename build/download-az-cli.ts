@@ -303,7 +303,9 @@ function logPipDiagnostics(pythonExe: string): void {
       const output = execSync(cmd, { encoding: 'utf-8' }).trim();
       console.log(`${label}: ${redactCredentials(output)}`);
     } catch (error) {
-      console.warn(`⚠️  Could not determine ${label}: ${error}`);
+      // A failed probe's message carries the output the command managed to
+      // produce, so it needs the same redaction as the success path.
+      console.warn(`⚠️  Could not determine ${label}: ${redactCredentials(String(error))}`);
     }
   }
   console.log('------------------------');
@@ -320,24 +322,30 @@ function logPipDiagnostics(pythonExe: string): void {
  * outcome is ignored and the original error is always what gets thrown.
  */
 function addAzCliExtension(pythonExe: string, extension: string, extensionDir: string): void {
+  // These commands go through a shell, so reject anything that isn't a plain
+  // extension name rather than interpolating it. The names come from
+  // package.json, not from user input, but a typo there should fail here with
+  // an obvious message instead of turning into shell syntax.
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(extension)) {
+    throw new Error(`Refusing to install Azure CLI extension with unexpected name: "${extension}"`);
+  }
+
   const env = { ...process.env, AZURE_EXTENSION_DIR: extensionDir };
+  const addCommand = `"${pythonExe}" -m azure.cli extension add -n "${extension}"`;
   try {
-    execSync(`"${pythonExe}" -m azure.cli extension add -n ${extension}`, {
+    execSync(addCommand, {
       stdio: 'inherit',
       env,
     });
   } catch (error) {
     console.error(`  ❌ ERROR: Failed to install extension ${extension}`);
-    console.error(`     Error: ${error}`);
+    console.error(`     Error: ${redactCredentials(String(error))}`);
 
     console.error(`     Re-running with --debug to capture pip's underlying error...`);
     try {
       // Merge stderr into stdout so the captured text has everything pip
       // printed, regardless of which stream it used.
-      const debugOutput = execSync(
-        `"${pythonExe}" -m azure.cli extension add -n ${extension} --debug 2>&1`,
-        { env, encoding: 'utf-8' }
-      );
+      const debugOutput = execSync(`${addCommand} --debug 2>&1`, { env, encoding: 'utf-8' });
       console.error(`     ----- --debug output (retry succeeded) -----`);
       console.error(redactCredentials(debugOutput));
       console.error(`     ---------------------------------------------`);
