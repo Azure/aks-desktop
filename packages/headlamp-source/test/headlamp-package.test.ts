@@ -10,10 +10,10 @@ const ROOT_DIR = path.resolve(PACKAGE_DIR, '..', '..');
 const {
   packageDir: HEADLAMP_PACKAGE_DIR,
   sourceDir: HEADLAMP_SOURCE_DIR,
-} = require('../scripts/paths.ts').resolveInstalledHeadlampPaths(ROOT_DIR);
+} = require('../src/lib/paths.ts').resolveInstalledHeadlampPaths(ROOT_DIR);
 
 const { composePatchSeries } = require(
-  path.join(PACKAGE_DIR, 'scripts', 'compose-patches.ts')
+  path.join(PACKAGE_DIR, 'src', 'lib', 'compose-patches.ts')
 );
 const packageManifest = JSON.parse(
   fs.readFileSync(path.join(HEADLAMP_PACKAGE_DIR, 'package.json'), 'utf8')
@@ -32,14 +32,14 @@ const packageLock = JSON.parse(
 );
 const VERSION = `0.0.0-main.${rootManifest.headlampSource.revision.slice(0, 8)}`;
 const { packagedExecutableCandidates } = require(
-  path.join(HEADLAMP_PACKAGE_DIR, 'scripts', 'smoke-app.ts')
+  path.join(HEADLAMP_PACKAGE_DIR, 'src', 'lib', 'smoke-app.ts')
 );
 
 test('the installed package is a complete pinned source distribution', () => {
   assert.equal(fs.lstatSync(HEADLAMP_PACKAGE_DIR).isSymbolicLink(), false);
   assert.equal(packageManifest.name, '@headlamp-k8s/headlamp-source');
   assert.equal(packageManifest.version, VERSION);
-  assert.deepEqual(packageManifest.files, ['source', 'scripts']);
+  assert.deepEqual(packageManifest.files, ['source', 'src']);
   assert.equal(packageManifest.repository.url, 'https://github.com/kubernetes-sigs/headlamp.git');
   assert.deepEqual(rootManifest.headlampSource, {
     revision: '69bfa236dab6c1c00658e11af1d21762d00c0700',
@@ -125,7 +125,7 @@ test('source builds use explicit, reviewed install scripts', () => {
   }
   assert.equal(
     packageManifest.scripts.prepare,
-    'node --experimental-strip-types scripts/update-source.ts --prepare --root ../..'
+    'node --experimental-strip-types src/bin/update-source.ts --prepare --root ../..'
   );
   assert.equal(
     packageManifest.scripts['install:all'],
@@ -219,7 +219,7 @@ test('the root package supports the standard npm start command', () => {
   assert.equal(rootManifest.scripts.postinstall, 'npm run install:all');
   assert.equal(
     rootManifest.scripts['headlamp:prepare'],
-    'node --experimental-strip-types packages/headlamp-source/scripts/update-source.ts --prepare --root .'
+    'node --experimental-strip-types packages/headlamp-source/src/bin/update-source.ts --prepare --root .'
   );
   assert.equal(typeof rootManifest.scripts.dev, 'string');
 });

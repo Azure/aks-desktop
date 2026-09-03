@@ -12,8 +12,8 @@ const {
   sourceVersion,
   updateHeadlampSource,
   validateTrackedSourcePath,
-} = require('../scripts/update-source.ts');
-const { composePatchSeries } = require('../scripts/compose-patches.ts');
+} = require('./update-source.ts');
+const { composePatchSeries } = require('./compose-patches.ts');
 
 const tempDirs = [];
 

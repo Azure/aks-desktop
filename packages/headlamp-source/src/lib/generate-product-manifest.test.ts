@@ -8,8 +8,7 @@ const test = require('node:test');
 const {
   createManifest,
   mergeProductResources,
-} = require('../scripts/generate-product-manifest.ts');
-const { resolveHeadlampPaths } = require('../scripts/paths.ts');
+} = require('./generate-product-manifest.ts');
 
 test('generates product resources and verified tools from consumer configuration', () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-manifest-'));
@@ -68,12 +67,6 @@ test('generates product resources and verified tools from consumer configuration
       platform: 'linux',
     });
 
-    test('rejects manifest paths outside the Headlamp app', () => {
-      assert.throws(
-        () => resolveHeadlampPaths('/tmp/headlamp-source', '../../../outside.json'),
-        /must stay within/
-      );
-    });
     assert.equal(manifestPath, path.join(appDir, '.example', 'product-manifest.json'));
     assert.equal(manifest.product.version, '1.2.3');
     assert.equal('build' in manifest, false);

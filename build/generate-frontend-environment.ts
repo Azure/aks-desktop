@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const { resolveInstalledHeadlampPaths } = require(
-  '../packages/headlamp-source/scripts/paths.ts'
+  '../packages/headlamp-source/src/lib/paths.ts'
 );
 
 const ROOT_DIR = path.dirname(__dirname);

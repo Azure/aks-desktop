@@ -15,7 +15,7 @@ import { execSync } from 'child_process';
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
 const { appDir: HEADLAMP_APP_DIR } = require(
-  '../packages/headlamp-source/scripts/paths.ts'
+  '../packages/headlamp-source/src/lib/paths.ts'
 ).resolveInstalledHeadlampPaths(ROOT_DIR);
 
 console.log('==========================================');

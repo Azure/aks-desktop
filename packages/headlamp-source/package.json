@@ -14,13 +14,13 @@
   },
   "files": [
     "source",
-    "scripts"
+    "src"
   ],
   "dependencies": {
     "tsx": "4.23.1"
   },
   "scripts": {
-    "prepare": "node --experimental-strip-types scripts/update-source.ts --prepare --root ../..",
+    "prepare": "node --experimental-strip-types src/bin/update-source.ts --prepare --root ../..",
     "install:all": "npm --prefix source run install:all",
     "build": "npm --prefix source run build",
     "build:backend": "npm --prefix source run backend:build",
@@ -36,14 +36,14 @@
     "start:backend": "npm --prefix source run start:backend",
     "start:frontend": "npm --prefix source run start:frontend",
     "start:app": "npm --prefix source run app:start:client",
-    "bundle:plugins": "tsx scripts/bundle-plugins.ts",
-    "manifest:generate": "tsx scripts/generate-product-manifest.ts",
-    "manifest:check": "tsx scripts/generate-product-manifest.ts --check",
-    "patches:compose": "tsx scripts/compose-patches.ts",
-    "smoke:app": "tsx scripts/smoke-app.ts",
-    "source:prepare": "tsx scripts/update-source.ts --prepare",
-    "source:update": "tsx scripts/update-source.ts",
-    "test:helpers": "npm run tsc:helpers && tsx --test test/*.test.ts",
+    "bundle:plugins": "tsx src/bin/bundle-plugins.ts",
+    "manifest:generate": "tsx src/bin/generate-product-manifest.ts",
+    "manifest:check": "tsx src/bin/generate-product-manifest.ts --check",
+    "patches:compose": "tsx src/bin/compose-patches.ts",
+    "smoke:app": "tsx src/bin/smoke-app.ts",
+    "source:prepare": "tsx src/bin/update-source.ts --prepare",
+    "source:update": "tsx src/bin/update-source.ts",
+    "test:helpers": "npm run tsc:helpers && tsx --test src/lib/*.test.ts test/*.test.ts",
     "test:package": "npm run tsc:helpers && tsx --test test/headlamp-package.test.ts",
     "tsc:helpers": "tsc --noEmit -p tsconfig.json",
     "test": "npm --prefix source test",

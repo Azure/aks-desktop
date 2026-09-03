@@ -33,7 +33,7 @@ import {
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
 const { distDir: HEADLAMP_DIST_DIR } = require(
-  '../packages/headlamp-source/scripts/paths.ts'
+  '../packages/headlamp-source/src/lib/paths.ts'
 ).resolveInstalledHeadlampPaths(ROOT_DIR);
 const CURRENT_PLATFORM = process.platform;
 const STAGED_TARGET = readStagedTarget(ROOT_DIR);

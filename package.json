@@ -52,7 +52,7 @@
     "headlamp:manifest": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run manifest:generate",
     "headlamp:frontend-env": "tsx ./build/generate-frontend-environment.ts",
     "headlamp:patches": "npm --prefix packages/headlamp-source run patches:compose --",
-    "headlamp:prepare": "node --experimental-strip-types packages/headlamp-source/scripts/update-source.ts --prepare --root .",
+    "headlamp:prepare": "node --experimental-strip-types packages/headlamp-source/src/bin/update-source.ts --prepare --root .",
     "headlamp:assemble": "npm run headlamp:tools && npm run headlamp:translations && npm run plugin:setup && npm run headlamp:manifest && npm run headlamp:frontend-env",
     "headlamp:doctor": "npm run test:headlamp-package && npm --prefix node_modules/@headlamp-k8s/headlamp-source run manifest:check",
     "headlamp:source": "npm --prefix packages/headlamp-source run source:update --",

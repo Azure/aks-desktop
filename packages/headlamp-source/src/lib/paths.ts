@@ -1,11 +1,8 @@
+/**
+ * Path resolution shared by the source-package scripts and AKS build tooling. Every
+ * consumer-provided relative path is constrained to its owning package directory.
+ */
 const path = require('node:path');
-
-const SCRIPT_PURPOSE = 'Resolve Headlamp package paths without allowing directory traversal.';
-const SCRIPT_USAGE = `Import API:
-
-  resolveWithin(root, relativePath, name)
-  resolveHeadlampPaths(packageDir, manifest?)
-  resolveInstalledHeadlampPaths(projectDir, manifest?)`;
 
 /**
  * Resolves a relative path while preventing traversal outside a root.
@@ -64,8 +61,6 @@ function resolveInstalledHeadlampPaths(projectDir, manifest) {
 }
 
 module.exports = {
-  SCRIPT_PURPOSE,
-  SCRIPT_USAGE,
   resolveHeadlampPaths,
   resolveInstalledHeadlampPaths,
   resolveWithin,

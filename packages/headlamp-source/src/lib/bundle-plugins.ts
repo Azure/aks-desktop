@@ -1,20 +1,10 @@
 /**
- * Materializes each product-declared plugin into Headlamp's shipped-plugin directory.
- * Workspace plugins are installed and built; package plugins are copied from node_modules;
- * archive and file plugins are delegated to Headlamp's installer. Every result replaces its
- * previous destination, must match the configured package identity, and receives product-owned
- * metadata without consumer-only source fields.
+ * Builds and validates product-declared plugins before copying them into Headlamp's shipped-plugin
+ * directory. Workspace, package, archive, and file-backed plugins share one identity contract.
  */
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-
-const SCRIPT_PURPOSE =
-  'Bundle configured Headlamp plugins into the shipped-plugins directory.';
-const SCRIPT_USAGE = `Usage: bundle-plugins.ts [--help]
-
-Reads headlamp.plugins from the consumer package.json. Workspace plugins are
-installed and built; prebuilt package plugins are copied from node_modules.`;
 
 const VALID_PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i;
 const VALID_SHA256 = /^[a-f0-9]{64}$/i;
@@ -280,7 +270,7 @@ function validatePluginConfiguration(plugins) {
  */
 function bundleConfiguredPlugins(
   root = projectRoot(),
-  pluginsDir = path.resolve(__dirname, '..', 'source', '.plugins')
+  pluginsDir = path.resolve(__dirname, '..', '..', 'source', '.plugins')
 ) {
   const project = readProject(root);
   const plugins = project.headlamp?.plugins;
@@ -298,17 +288,7 @@ function bundleConfiguredPlugins(
   }
 }
 
-if (require.main === module) {
-  if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log(`${SCRIPT_PURPOSE}\n\n${SCRIPT_USAGE}`);
-  } else {
-    bundleConfiguredPlugins();
-  }
-}
-
 module.exports = {
-  SCRIPT_PURPOSE,
-  SCRIPT_USAGE,
   bundleConfiguredPlugins,
   bundlePlugin,
   copyPlugin,

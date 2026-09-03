@@ -7,7 +7,7 @@ const test = require('node:test');
 const {
   copyDirectoryContents,
   removePathPattern,
-} = require('../scripts/file-operations.ts');
+} = require('./file-operations.ts');
 
 test('copies visible directory contents recursively', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-copy-'));

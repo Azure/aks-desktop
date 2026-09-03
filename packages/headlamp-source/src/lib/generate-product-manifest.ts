@@ -1,3 +1,7 @@
+/**
+ * Generates platform-specific Headlamp product metadata, resolves packaged resources, and records
+ * external-tool digests for post-build verification.
+ */
 const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -6,13 +10,6 @@ const { resolveHeadlampPaths, resolveWithin } = require('./paths.ts');
 const { createProductTemplate: createTemplate, projectManifest } = require(
   './product-manifest.ts'
 );
-
-const SCRIPT_PURPOSE =
-  'Generate or verify product metadata, resources, and external-tool digests.';
-const SCRIPT_USAGE = `Usage: generate-product-manifest.ts [--check] [--help]
-
-  --check  Verify the generated manifest without writing changes.
-  --help   Show this help text.`;
 
 /**
  * Calculates the SHA-256 digest of a file.
@@ -134,7 +131,7 @@ function createProductTemplate(rootDir = path.resolve(process.env.INIT_CWD || pr
  */
 function createManifest(options: any = {}) {
   const rootDir = path.resolve(options.rootDir || process.env.INIT_CWD || process.cwd());
-  const packageDir = path.resolve(options.packageDir || path.join(__dirname, '..'));
+  const packageDir = path.resolve(options.packageDir || path.join(__dirname, '..', '..'));
   const project = projectManifest(rootDir);
   const build = project.headlamp?.build;
   if (!build || !Array.isArray(build.resources) || !Array.isArray(build.externalTools)) {
@@ -241,21 +238,9 @@ function verifyManifest(options?: any): void {
 }
 
 module.exports = {
-  SCRIPT_PURPOSE,
-  SCRIPT_USAGE,
   createManifest,
   createProductTemplate,
   generateManifest,
   mergeProductResources,
   verifyManifest,
 };
-
-if (require.main === module) {
-  if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log(`${SCRIPT_PURPOSE}\n\n${SCRIPT_USAGE}`);
-  } else if (process.argv.includes('--check')) {
-    verifyManifest();
-  } else {
-    generateManifest();
-  }
-}

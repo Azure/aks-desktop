@@ -1,11 +1,9 @@
+/**
+ * Product-manifest helpers shared by generation and tests. Consumer-only build and plugin source
+ * fields are removed before runtime metadata is written into the Headlamp application.
+ */
 const fs = require('node:fs');
 const path = require('node:path');
-
-const SCRIPT_PURPOSE = 'Create runtime Headlamp product metadata from consumer configuration.';
-const SCRIPT_USAGE = `Import API:
-
-  createProductTemplate(project)
-  projectManifest(root?)`;
 
 /**
  * Creates runtime product metadata from consumer configuration.
@@ -34,8 +32,6 @@ function projectManifest(root = path.resolve(process.env.INIT_CWD || process.cwd
 }
 
 module.exports = {
-  SCRIPT_PURPOSE,
-  SCRIPT_USAGE,
   createProductTemplate,
   projectManifest,
 };

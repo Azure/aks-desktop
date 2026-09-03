@@ -1,3 +1,7 @@
+/**
+ * Verifies, copies, and fingerprints a pinned Headlamp checkout while keeping package metadata,
+ * the aggregate patch, and npm lockfile integrity synchronized.
+ */
 const { createHash } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -8,18 +12,6 @@ const {
   composePatchSeries,
   materializeHeadlampPatch,
 } = require('./compose-patches.ts');
-
-const SCRIPT_PURPOSE =
-  'Materialize or update pinned Headlamp source, package metadata, and patch integrity.';
-const SCRIPT_USAGE = `Usage:
-  update-source.ts --prepare [--root <path>] [--source <checkout>] [--help]
-  update-source.ts --source <checkout> [--revision <sha>] [--root <path>] [--help]
-
-  --prepare          Materialize the configured source and aggregate patch.
-  --source <path>    Clean Headlamp checkout used instead of fetching source.
-  --revision <sha>   Full source revision used in update mode.
-  --root <path>      Consumer project root.
-  --help             Show this help text.`;
 
 const PACKAGE_NAME: string = '@headlamp-k8s/headlamp-source';
 const SOURCE_REPOSITORY = 'https://github.com/kubernetes-sigs/headlamp.git';
@@ -469,7 +461,7 @@ function prepareHeadlampSource(
   options: PrepareHeadlampSourceOptions = {}
 ): PrepareHeadlampSourceResult {
   const rootDir = path.resolve(options.rootDir || process.env.INIT_CWD || process.cwd());
-  const packageDir = path.resolve(options.packageDir || path.join(__dirname, '..'));
+  const packageDir = path.resolve(options.packageDir || path.join(__dirname, '..', '..'));
   const config = readJson(path.join(rootDir, 'package.json')).headlampSource;
   if (!config) {
     throw new Error('package.json must declare headlampSource');
@@ -546,7 +538,7 @@ function updateHeadlampSource(
   options: UpdateHeadlampSourceOptions
 ): UpdateHeadlampSourceResult {
   const rootDir = path.resolve(options.rootDir || process.env.INIT_CWD || process.cwd());
-  const packageDir = path.resolve(options.packageDir || path.join(__dirname, '..'));
+  const packageDir = path.resolve(options.packageDir || path.join(__dirname, '..', '..'));
   const projectPath = path.join(rootDir, 'package.json');
   const lockPath = path.join(rootDir, 'package-lock.json');
   const project = readJson(projectPath);
@@ -616,44 +608,7 @@ function updateHeadlampSource(
   };
 }
 
-/**
- * Reads a named option value from the process command line.
- *
- * @param name - Command-line option name.
- * @returns The following option value, or `undefined` when absent.
- */
-function argument(name) {
-  const index = process.argv.indexOf(name);
-  return index === -1 ? undefined : process.argv[index + 1];
-}
-
-if (require.main === module) {
-  if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log(`${SCRIPT_PURPOSE}\n\n${SCRIPT_USAGE}`);
-  } else {
-    const rootDir = argument('--root');
-    if (process.argv.includes('--prepare')) {
-      prepareHeadlampSource({
-        rootDir,
-        sourceDir: argument('--source'),
-      });
-    } else {
-      const sourceDir = argument('--source');
-      if (!sourceDir) {
-        throw new Error(SCRIPT_USAGE);
-      }
-      updateHeadlampSource({
-        rootDir,
-        sourceDir,
-        revision: argument('--revision'),
-      });
-    }
-  }
-}
-
 module.exports = {
-  SCRIPT_PURPOSE,
-  SCRIPT_USAGE,
   prepareHeadlampSource,
   removeAzureArtifactsResolutions,
   sourceVersion,

@@ -35,7 +35,7 @@ of editing generated package metadata, lockfile entries, or patches separately.
 
 ### Script API
 
-`scripts/update-source.ts` exports these typed functions:
+`src/lib/update-source.ts` exports these typed functions:
 
 | Function | Parameters | Returns |
 | --- | --- | --- |

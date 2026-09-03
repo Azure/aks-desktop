@@ -1,11 +1,9 @@
+/**
+ * Safe filesystem helpers shared by source-package build scripts. Directory copies omit hidden
+ * entries, and wildcard removal expands only the final path segment.
+ */
 const fs = require('node:fs');
 const path = require('node:path');
-
-const SCRIPT_PURPOSE = 'Provide safe file-copy and wildcard-removal helpers.';
-const SCRIPT_USAGE = `Import API:
-
-  copyDirectoryContents(source, destination)
-  removePathPattern(pattern)`;
 
 /**
  * Copies visible entries from one directory into another.
@@ -55,8 +53,6 @@ function removePathPattern(pattern: string): void {
 }
 
 module.exports = {
-  SCRIPT_PURPOSE,
-  SCRIPT_USAGE,
   copyDirectoryContents,
   removePathPattern,
 };

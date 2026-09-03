@@ -7,7 +7,7 @@ import { spawnSync } from 'child_process';
 import * as path from 'path';
 
 const { resolveInstalledHeadlampPaths } = require(
-  '../packages/headlamp-source/scripts/paths.ts'
+  '../packages/headlamp-source/src/lib/paths.ts'
 );
 
 const ROOT_DIR = path.dirname(__dirname);

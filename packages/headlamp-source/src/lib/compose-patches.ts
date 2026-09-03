@@ -1,15 +1,12 @@
+/**
+ * Parses and composes the ordered Headlamp patch series, then verifies or updates the aggregate
+ * npm patch and its lockfile integrity.
+ */
 const { createHash } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-
-const SCRIPT_PURPOSE =
-  'Generate or verify the aggregate Headlamp npm patch and lockfile integrity.';
-const SCRIPT_USAGE = `Usage: compose-patches.ts [--check] [--help]
-
-  --check  Verify the aggregate patch and integrity without writing changes.
-  --help   Show this help text.`;
 
 const PACKAGE_NAME: string = '@headlamp-k8s/headlamp-source';
 const SERIES_ENTRY_PATTERN =
@@ -257,17 +254,7 @@ function updateHeadlampPatch(rootDir = process.env.INIT_CWD || process.cwd(), ch
   console.log(`Composed ${patchPath}`);
 }
 
-if (require.main === module) {
-  if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log(`${SCRIPT_PURPOSE}\n\n${SCRIPT_USAGE}`);
-  } else {
-    updateHeadlampPatch(undefined, process.argv.includes('--check'));
-  }
-}
-
 module.exports = {
-  SCRIPT_PURPOSE,
-  SCRIPT_USAGE,
   composePatchSeries,
   materializeHeadlampPatch,
   parsePatchSeries,

@@ -4,7 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { composePatchSeries, parsePatchSeries } = require('../scripts/compose-patches.ts');
+const { composePatchSeries, parsePatchSeries } = require('./compose-patches.ts');
 
 test('accepts an ordered patch series with leading and internal numbering gaps', () => {
   assert.deepEqual(

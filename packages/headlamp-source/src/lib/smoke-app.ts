@@ -1,30 +1,11 @@
+/**
+ * Resolves packaged application executables, reserves readiness ports, launches Headlamp
+ * headlessly, and terminates the complete process tree after a bounded HTTP probe.
+ */
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
-
-const SCRIPT_PURPOSE =
-  'Launch a packaged Headlamp application headlessly and verify HTTP readiness.';
-const SCRIPT_USAGE = `Usage: smoke-app.ts [options]
-
-  --dist <path>        Application distribution directory.
-  --executable <path>  Packaged executable; auto-detected when omitted.
-  --port <number>      Local readiness port (default: an available port).
-  --timeout <ms>       Maximum readiness wait (default: 30000).
-  --no-sandbox         Pass Electron's --no-sandbox option.
-  --help               Show this help text.`;
-
-/**
- * Reads the value following a command-line option.
- *
- * @param args - Command-line arguments to search.
- * @param name - Option name whose value is requested.
- * @returns The option value, or `undefined` when absent.
- */
-function option(args: string[], name: string) {
-  const index = args.indexOf(name);
-  return index >= 0 ? args[index + 1] : undefined;
-}
 
 /**
  * Reads and validates the consumer's Headlamp product configuration.
@@ -284,28 +265,7 @@ async function smoke(executable, port, timeout, disableSandbox) {
   }
 }
 
-if (require.main === module) {
-  const args = process.argv.slice(2);
-  if (args.includes('--help') || args.includes('-h')) {
-    console.log(`${SCRIPT_PURPOSE}\n\n${SCRIPT_USAGE}`);
-  } else {
-    const dist = option(args, '--dist') || path.resolve(__dirname, '..', 'source', 'app', 'dist');
-    const executable = option(args, '--executable') || resolvePackagedExecutable(dist);
-    smoke(
-      executable,
-      Number(option(args, '--port') || 0),
-      Number(option(args, '--timeout') || 30_000),
-      args.includes('--no-sandbox')
-    ).catch(error => {
-      console.error(error.message);
-      process.exitCode = 1;
-    });
-  }
-}
-
 module.exports = {
-  SCRIPT_PURPOSE,
-  SCRIPT_USAGE,
   packagedExecutableCandidates,
   fetchHtmlWithin,
   reserveReadinessPort,

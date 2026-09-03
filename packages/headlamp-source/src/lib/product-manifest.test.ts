@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { createProductTemplate } = require('../scripts/product-manifest.ts');
+const { createProductTemplate } = require('./product-manifest.ts');
 
 const runCommands = [
   {

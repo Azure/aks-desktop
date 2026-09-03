@@ -4,7 +4,7 @@ import test from 'node:test';
 
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const { sourceDir: HEADLAMP_SOURCE_DIR } = require(
-  path.join(ROOT_DIR, 'packages', 'headlamp-source', 'scripts', 'paths.ts')
+  path.join(ROOT_DIR, 'packages', 'headlamp-source', 'src', 'lib', 'paths.ts')
 ).resolveInstalledHeadlampPaths(ROOT_DIR);
 const { runPlugin } = require(
   path.join(HEADLAMP_SOURCE_DIR, 'frontend', 'src', 'plugin', 'runPlugin.ts')

@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { fetchHtmlWithin, reserveReadinessPort } = require('../scripts/smoke-app.ts');
+const { fetchHtmlWithin, reserveReadinessPort } = require('./smoke-app.ts');
 
 test('reserves an available readiness port exclusively', async () => {
   const first: any = await reserveReadinessPort();

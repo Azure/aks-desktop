@@ -12,7 +12,7 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 
 const { resolveInstalledHeadlampPaths } = require(
-  '../packages/headlamp-source/scripts/paths.ts'
+  '../packages/headlamp-source/src/lib/paths.ts'
 );
 
 const ASSET_PLATFORM: Record<string, string> = {

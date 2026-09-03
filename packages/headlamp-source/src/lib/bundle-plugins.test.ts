@@ -11,7 +11,7 @@ const {
   bundlePlugin,
   copyPlugin,
   validatePluginConfiguration,
-} = require('../scripts/bundle-plugins.ts');
+} = require('./bundle-plugins.ts');
 
 const tempDirs: string[] = [];
 

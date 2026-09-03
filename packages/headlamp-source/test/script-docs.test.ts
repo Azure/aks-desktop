@@ -5,8 +5,8 @@ import * as path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
 
-const SCRIPTS_DIR = path.resolve(__dirname, '..', 'scripts');
-const SCRIPT_FILES = fs.readdirSync(SCRIPTS_DIR).filter(file => file.endsWith('.ts')).sort();
+const SOURCE_DIR = path.resolve(__dirname, '..', 'src');
+const BIN_DIR = path.join(SOURCE_DIR, 'bin');
 const CLI_FILES = [
   'bundle-plugins.ts',
   'compose-patches.ts',
@@ -14,6 +14,13 @@ const CLI_FILES = [
   'smoke-app.ts',
   'update-source.ts',
 ];
+const SCRIPT_FILES = fs
+  .readdirSync(SOURCE_DIR, { recursive: true })
+  .filter(
+    (file): file is string =>
+      typeof file === 'string' && file.endsWith('.ts') && !file.endsWith('.test.ts')
+  )
+  .sort();
 
 function attachedTsdoc(sourceFile: ts.SourceFile, node: ts.Node): string {
   const ranges = ts.getLeadingCommentRanges(sourceFile.text, node.getFullStart()) || [];
@@ -60,7 +67,7 @@ test('all named source-script functions have complete TSDoc', () => {
   let functionCount = 0;
 
   for (const file of SCRIPT_FILES) {
-    const filePath = path.join(SCRIPTS_DIR, file);
+    const filePath = path.join(SOURCE_DIR, file);
     const sourceFile = ts.createSourceFile(
       filePath,
       fs.readFileSync(filePath, 'utf8'),
@@ -99,9 +106,9 @@ test('all named source-script functions have complete TSDoc', () => {
   assert.deepEqual(errors, []);
 });
 
-test('all source scripts expose purpose and usage metadata near the top', () => {
-  for (const file of SCRIPT_FILES) {
-    const source = fs.readFileSync(path.join(SCRIPTS_DIR, file), 'utf8');
+test('all source script CLIs expose purpose and usage metadata at the top', () => {
+  for (const file of CLI_FILES) {
+    const source = fs.readFileSync(path.join(BIN_DIR, file), 'utf8');
     const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const declarations = new Map<string, ts.VariableStatement>();
 
@@ -120,10 +127,23 @@ test('all source scripts expose purpose and usage metadata near the top', () => 
       const declaration = declarations.get(name);
       assert.ok(declaration, `${file} must declare ${name}`);
       const line = sourceFile.getLineAndCharacterOfPosition(declaration.getStart(sourceFile)).line;
-      assert.ok(line < 40, `${file}:${name} must be near the top of the file`);
+      assert.ok(line < 15, `${file}:${name} must be at the top of the file`);
       assert.match(declaration.getText(sourceFile), /['`][\s\S]*\S[\s\S]*['`]/);
       assert.match(source, new RegExp(`module\\.exports = \\{[\\s\\S]*\\b${name}\\b`));
     }
+  }
+});
+
+test('source bins delegate to libraries and libraries contain no CLI concerns', () => {
+  for (const file of CLI_FILES) {
+    const source = fs.readFileSync(path.join(BIN_DIR, file), 'utf8');
+    assert.match(source, new RegExp(`require\\(['"]\\.\\./lib/${file.replace('.', '\\.')}['"]\\)`));
+    assert.match(source, /require\.main === module/);
+  }
+
+  for (const file of SCRIPT_FILES.filter(file => file.startsWith(`lib${path.sep}`))) {
+    const source = fs.readFileSync(path.join(SOURCE_DIR, file), 'utf8');
+    assert.doesNotMatch(source, /SCRIPT_PURPOSE|SCRIPT_USAGE|process\.argv|require\.main/);
   }
 });
 
@@ -133,7 +153,7 @@ test('all source-script interfaces and fields have TSDoc', () => {
   let fieldCount = 0;
 
   for (const file of SCRIPT_FILES) {
-    const filePath = path.join(SCRIPTS_DIR, file);
+    const filePath = path.join(SOURCE_DIR, file);
     const sourceFile = ts.createSourceFile(
       filePath,
       fs.readFileSync(filePath, 'utf8'),
@@ -172,7 +192,7 @@ test('source-script CLIs print reusable purpose and usage help', () => {
   const tsxCli = path.resolve(__dirname, '..', '..', '..', 'node_modules', 'tsx', 'dist', 'cli.mjs');
 
   for (const file of CLI_FILES) {
-    const scriptPath = path.join(SCRIPTS_DIR, file);
+    const scriptPath = path.join(BIN_DIR, file);
     const { SCRIPT_PURPOSE, SCRIPT_USAGE } = require(scriptPath);
     const result = spawnSync(process.execPath, [tsxCli, scriptPath, '--help'], {
       encoding: 'utf8',

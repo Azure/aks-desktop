@@ -24,10 +24,10 @@ import {
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
 const { appDir: HEADLAMP_APP_DIR } = require(
-  '../packages/headlamp-source/scripts/paths.ts'
+  '../packages/headlamp-source/src/lib/paths.ts'
 ).resolveInstalledHeadlampPaths(ROOT_DIR);
 const { copyDirectoryContents, removePathPattern } = require(
-  '../packages/headlamp-source/scripts/file-operations.ts'
+  '../packages/headlamp-source/src/lib/file-operations.ts'
 );
 const { parseTargetArgs } = require('./aks-mcp-config.ts');
 const {
