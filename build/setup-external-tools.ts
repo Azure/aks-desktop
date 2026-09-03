@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { parseTargetArgs, resolveTargetArch } from './aks-mcp-config';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
@@ -20,14 +21,16 @@ console.log('Setting up external tools for AKS desktop');
 console.log('==========================================');
 console.log('');
 
-// Detect platform
-const PLATFORM = process.platform;
+const targetArgs = parseTargetArgs(process.argv.slice(2));
+const PLATFORM = targetArgs.platform ?? process.platform;
+const TARGET_ARCH = resolveTargetArch(targetArgs.arch);
 if (!['linux', 'darwin', 'win32'].includes(PLATFORM)) {
   console.error(`❌ Unknown platform: ${PLATFORM}`);
   process.exit(1);
 }
 
 console.log(`Platform: ${PLATFORM}`);
+console.log(`Architecture: ${TARGET_ARCH}`);
 console.log('');
 
 // Define paths after platform is detected
@@ -41,10 +44,11 @@ console.log('Installing Azure CLI...');
 console.log('==========================================');
 
 try {
-  execSync(`npx --yes tsx "${path.join(SCRIPT_DIR, 'download-az-cli.ts')}"`, {
-    stdio: 'inherit',
-    cwd: ROOT_DIR
-  });
+  execSync(
+    `npx --yes tsx "${path.join(SCRIPT_DIR, 'download-az-cli.ts')}" ` +
+      `--platform=${PLATFORM} --arch=${TARGET_ARCH}`,
+    { stdio: 'inherit', cwd: ROOT_DIR }
+  );
 } catch (error) {
   console.error('❌ ERROR: Failed to install Azure CLI');
   process.exit(1);
@@ -81,13 +85,13 @@ console.log('Installing aks-mcp...');
 console.log('==========================================');
 
 // Forward --platform/--arch so cross-architecture packaging stages the right binary.
-const targetArgs = process.argv
+const forwardedTargetArgs = process.argv
   .slice(2)
   .filter(argument => /^--(platform|arch)=[a-z0-9_]+$/.test(argument));
 
 try {
   execSync(
-    `npx --yes tsx "${path.join(SCRIPT_DIR, 'download-aks-mcp.ts')}" ${targetArgs.join(' ')}`.trim(),
+    `npx --yes tsx "${path.join(SCRIPT_DIR, 'download-aks-mcp.ts')}" ${forwardedTargetArgs.join(' ')}`.trim(),
     {
       stdio: 'inherit',
       cwd: ROOT_DIR

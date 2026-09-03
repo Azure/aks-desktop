@@ -40,8 +40,7 @@ function download(url: string, destination: string): Promise<void> {
       .get(url, response => {
         if (
           response.statusCode &&
-          response.statusCode >= 300 &&
-          response.statusCode < 400 &&
+          [301, 302, 303, 307, 308].includes(response.statusCode) &&
           response.headers.location
         ) {
           response.resume();

@@ -175,7 +175,10 @@ extends:
                   echo "=== END GO ENVIRONMENT ==="
 
                   echo "Building AKS desktop Linux application..."
-                  npm run build:linux
+                  # This pool is amd64, and the bundled Python runs during
+                  # assembly, so only x64 can be built here. Linux arm64 is
+                  # built on a native arm64 runner in build-app-linux.yml.
+                  npm run build:linux:x64
                   echo "✅ Build complete"
 
                   echo "=== POST-BUILD DEBUG ==="

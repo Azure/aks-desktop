@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Copyright (c) Microsoft Corporation. 
+// Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
 /**
@@ -10,7 +10,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import {
   aksMcpBinaryName,
   isSupportedAksMcpArch,
@@ -19,17 +19,21 @@ import {
   resolveAksMcpTarget,
   resolveTargetArch,
 } from './aks-mcp-config';
-import { readAzureCliConfig, resolveAzCliVersion } from './az-cli-config';
 import {
   getExtensionTimeoutResult,
   readRequiredAzureCliExtensions,
 } from './azure-cli-verification';
+import {
+  readStagedAzureCliTarget,
+  resolveAzureCliTarget,
+} from './az-cli-config';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
 const CURRENT_PLATFORM = process.platform;
 const STAGED_TARGET = readStagedTarget(ROOT_DIR);
 const TARGET_ARCH = STAGED_TARGET?.arch ?? resolveTargetArch();
+const AZURE_CLI_TARGET = resolveAzureCliTarget(ROOT_DIR, CURRENT_PLATFORM, TARGET_ARCH);
 
 // Read product name from headlamp app package.json
 const HEADLAMP_PACKAGE_JSON = path.join(ROOT_DIR, 'headlamp', 'app', 'package.json');
@@ -40,17 +44,6 @@ try {
   PRODUCT_NAME = packageJson.productName || PRODUCT_NAME;
 } catch (error) {
   console.warn(`Warning: Could not read product name from ${HEADLAMP_PACKAGE_JSON}, using default: ${PRODUCT_NAME}`);
-}
-
-// Read the pinned Azure CLI version from the repo's package.json so the
-// invocation test can catch a bundle left over from before a version bump.
-const ROOT_PACKAGE_JSON = path.join(ROOT_DIR, 'package.json');
-let AZURE_CLI_PINNED_VERSION = '';
-
-try {
-  AZURE_CLI_PINNED_VERSION = resolveAzCliVersion(readAzureCliConfig(ROOT_DIR), CURRENT_PLATFORM) || '';
-} catch (error) {
-  console.warn(`Warning: Could not read Azure CLI version pin from ${ROOT_PACKAGE_JSON}`);
 }
 
 // Determine the correct build output directory based on platform. Packaging a
@@ -187,6 +180,23 @@ function testAzureCliStructure(): void {
   );
 }
 
+/** Test: verify setup staged the CLI requested by this package target. */
+function testAzureCliTarget(): void {
+  const staged = readStagedAzureCliTarget(ROOT_DIR);
+  const matches =
+    staged?.platform === AZURE_CLI_TARGET.platform &&
+    staged.arch === AZURE_CLI_TARGET.arch &&
+    staged.bundleArch === AZURE_CLI_TARGET.bundleArch &&
+    staged.fingerprint === AZURE_CLI_TARGET.fingerprint;
+  addResult(
+    'Azure CLI target',
+    matches,
+    matches
+      ? `Staged for ${staged.platform}/${staged.arch} (bundle ${staged.bundleArch})`
+      : `Target marker does not match ${CURRENT_PLATFORM}/${TARGET_ARCH}`
+  );
+}
+
 /**
  * Test: Verify Azure CLI executable exists and is executable
  */
@@ -237,6 +247,7 @@ function testAzureCliExecutable(): void {
       );
     }
   }
+
 }
 
 /**
@@ -377,8 +388,10 @@ function testAzureCliInvocation(): void {
 
     addResult(
       'Azure CLI invocation',
-      true,
-      `Successfully invoked, version: ${azureCliVersion}`
+      azureCliVersion === AZURE_CLI_TARGET.version,
+      azureCliVersion === AZURE_CLI_TARGET.version
+        ? `Successfully invoked pinned version: ${azureCliVersion}`
+        : `Found version ${azureCliVersion}, expected ${AZURE_CLI_TARGET.version}`
     );
 
     // Every extension the build configures must actually be there. The
@@ -412,27 +425,14 @@ function testAzureCliInvocation(): void {
         : 'aks-preview extension is not bundled, as expected'
     );
 
-    if (AZURE_CLI_PINNED_VERSION) {
-      const versionMatchesPin = azureCliVersion === AZURE_CLI_PINNED_VERSION;
-      addResult(
-        'Azure CLI version matches pin',
-        versionMatchesPin,
-        versionMatchesPin
-          ? `Bundled version ${azureCliVersion} matches the pinned ${AZURE_CLI_PINNED_VERSION}`
-          : `Bundled version ${azureCliVersion} does not match the pinned ${AZURE_CLI_PINNED_VERSION}; the external-tools directory may be stale and need to be removed and rebuilt`
-      );
-    } else {
-      logWarning('  Could not determine pinned Azure CLI version, skipping version match check');
-    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    // Don't fail the test on timeout in CI, just warn
     if (errorMessage.includes('ETIMEDOUT')) {
       logWarning(`Azure CLI invocation timed out (this can happen in CI environments)`);
       addResult(
         'Azure CLI invocation',
-        true,
-        'Skipped due to timeout (executable exists and is valid)'
+        false,
+        'Timed out before the bundled CLI could be validated'
       );
       const extensionResult = getExtensionTimeoutResult(requiredExtensions);
       addResult(extensionResult.name, extensionResult.passed, extensionResult.message);
@@ -483,13 +483,12 @@ function testPythonInvocation(): void {
     );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    // Don't fail the test on timeout in CI, just warn
     if (errorMessage.includes('ETIMEDOUT')) {
       logWarning(`Python invocation timed out (this can happen in CI environments)`);
       addResult(
         'Python invocation',
-        true,
-        'Skipped due to timeout (executable exists and is valid)'
+        false,
+        'Timed out before the bundled Python could be validated'
       );
     } else {
       addResult(
@@ -565,6 +564,31 @@ function testAksMcpBinary(): void {
 
   if (!exists) {
     return;
+  }
+
+  // Native packaging jobs must prove that the packaged binary can actually
+  // start. Cross-architecture jobs still get checksum validation below, but
+  // cannot safely execute a binary for a different CPU on every build host.
+  const helperArch = CURRENT_PLATFORM === 'darwin' ? 'x64' : TARGET_ARCH;
+  if (helperArch === process.arch) {
+    try {
+      const version = execFileSync(aksMcpBinary, ['--version'], {
+        encoding: 'utf-8',
+        timeout: 30000,
+        windowsHide: true,
+      }).trim();
+      addResult(
+        'aks-mcp invocation',
+        version.startsWith('aks-mcp version '),
+        version.split(/\r?\n/, 1)[0] || 'Version output was empty'
+      );
+    } catch (error) {
+      addResult(
+        'aks-mcp invocation',
+        false,
+        `Failed to execute packaged binary: ${error instanceof Error ? error.message : error}`
+      );
+    }
   }
 
   // The checksum is architecture specific, so this also catches a binary built
@@ -699,6 +723,7 @@ function main(): void {
   // Run all tests
   testExternalToolsDir();
   testAzureCliStructure();
+  testAzureCliTarget();
   testAzureCliExecutable();
   testPythonBundled();
   testPythonLibDirectory();
