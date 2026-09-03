@@ -274,6 +274,87 @@ function extractZip(archivePath: string, outputDir: string): void {
 }
 
 /**
+ * Strip credentials out of text before it reaches the build log. A pip index
+ * URL carrying a PAT (`https://user:token@pkgs.dev.azure.com/...`) is routine
+ * for an internal feed, and CI only masks secrets it was told about - so the
+ * diagnostics below, which exist to reveal exactly that kind of index
+ * configuration, must not print the token along with it.
+ */
+function redactCredentials(text: string): string {
+  return text.replace(/\/\/[^/\s:@]+:[^/\s@]+@/g, '//***:***@');
+}
+
+/**
+ * Log the interpreter and pip identity used for extension installs, so an
+ * environment difference (a pip.ini pointing at an internal index, blocked
+ * PyPI egress, etc.) is visible in the build log even when every extension
+ * install succeeds. Best-effort only - none of these probes are required for
+ * the actual install to work, so a probe failing here must not fail the build.
+ */
+function logPipDiagnostics(pythonExe: string): void {
+  console.log('--- pip diagnostics ---');
+  const probes: Array<[string, string]> = [
+    ['interpreter', `"${pythonExe}" -V`],
+    ['pip version', `"${pythonExe}" -m pip -V`],
+    ['pip config', `"${pythonExe}" -m pip config debug`],
+  ];
+  for (const [label, cmd] of probes) {
+    try {
+      const output = execSync(cmd, { encoding: 'utf-8' }).trim();
+      console.log(`${label}: ${redactCredentials(output)}`);
+    } catch (error) {
+      console.warn(`⚠️  Could not determine ${label}: ${error}`);
+    }
+  }
+  console.log('------------------------');
+}
+
+/**
+ * Install a single Azure CLI extension, capturing pip's real error on failure.
+ * `az extension add` swallows pip's own stdout/stderr unless --debug is passed,
+ * so a pip failure shows up as an opaque "Pip failed with status code 1" with
+ * no indication of why (wrong index, blocked egress, a corporate pip.ini,
+ * etc). On failure we re-run once with --debug purely to capture and print
+ * that context - the diagnostic re-run is never authoritative (pip's own
+ * state, e.g. its cache, can behave differently the second time), so its
+ * outcome is ignored and the original error is always what gets thrown.
+ */
+function addAzCliExtension(pythonExe: string, extension: string, extensionDir: string): void {
+  const env = { ...process.env, AZURE_EXTENSION_DIR: extensionDir };
+  try {
+    execSync(`"${pythonExe}" -m azure.cli extension add -n ${extension}`, {
+      stdio: 'inherit',
+      env,
+    });
+  } catch (error) {
+    console.error(`  ❌ ERROR: Failed to install extension ${extension}`);
+    console.error(`     Error: ${error}`);
+
+    console.error(`     Re-running with --debug to capture pip's underlying error...`);
+    try {
+      // Merge stderr into stdout so the captured text has everything pip
+      // printed, regardless of which stream it used.
+      const debugOutput = execSync(
+        `"${pythonExe}" -m azure.cli extension add -n ${extension} --debug 2>&1`,
+        { env, encoding: 'utf-8' }
+      );
+      console.error(`     ----- --debug output (retry succeeded) -----`);
+      console.error(redactCredentials(debugOutput));
+      console.error(`     ---------------------------------------------`);
+    } catch (debugError) {
+      // execSync throws with the merged output on .stdout when the command
+      // exits non-zero; fall back to the error itself if that's not present.
+      const output = (debugError as { stdout?: string })?.stdout ?? String(debugError);
+      console.error(`     ----- --debug output -----`);
+      console.error(redactCredentials(output));
+      console.error(`     ---------------------------`);
+    }
+
+    throw error;
+  }
+}
+
+/**
  * Install Azure CLI with Python (bundled for Linux and macOS)
  */
 async function installAzCliWithPython(platform: string): Promise<string[]> {
@@ -337,22 +418,11 @@ async function installAzCliWithPython(platform: string): Promise<string[]> {
   // no marker is written and the incomplete bundle can't pass as staged.
   const installedExtensions: string[] = [];
   if (AZ_CLI_EXTENSIONS && AZ_CLI_EXTENSIONS.length > 0) {
+    logPipDiagnostics(venvPython);
     console.log(`Installing Azure CLI extensions: ${AZ_CLI_EXTENSIONS.join(', ')}`);
     for (const extension of AZ_CLI_EXTENSIONS) {
       console.log(`  → Installing extension: ${extension}`);
-      try {
-        execSync(`"${venvPython}" -m azure.cli extension add -n ${extension}`, {
-          stdio: 'inherit',
-          env: {
-            ...process.env,
-            AZURE_EXTENSION_DIR: path.join(venvDir, 'extensions')
-          }
-        });
-      } catch (error) {
-        console.error(`  ❌ ERROR: Failed to install extension ${extension}`);
-        console.error(`     Error: ${error}`);
-        throw error;
-      }
+      addAzCliExtension(venvPython, extension, path.join(venvDir, 'extensions'));
       installedExtensions.push(extension);
     }
     console.log('✅ Extensions installation complete');
@@ -531,22 +601,11 @@ async function installAzCliWindows(): Promise<string[]> {
   const installedExtensions: string[] = [];
   if (AZ_CLI_EXTENSIONS && AZ_CLI_EXTENSIONS.length > 0) {
     const winPython = path.join(TARGET_DIR, 'python.exe');
+    logPipDiagnostics(winPython);
     console.log(`Installing Azure CLI extensions: ${AZ_CLI_EXTENSIONS.join(', ')}`);
     for (const extension of AZ_CLI_EXTENSIONS) {
       console.log(`  → Installing extension: ${extension}`);
-      try {
-        execSync(`"${winPython}" -m azure.cli extension add -n ${extension}`, {
-          stdio: 'inherit',
-          env: {
-            ...process.env,
-            AZURE_EXTENSION_DIR: extensionDir,
-          },
-        });
-      } catch (error) {
-        console.error(`  ❌ ERROR: Failed to install extension ${extension}`);
-        console.error(`     Error: ${error}`);
-        throw error;
-      }
+      addAzCliExtension(winPython, extension, extensionDir);
       installedExtensions.push(extension);
     }
     console.log('✅ Extensions installation complete');
