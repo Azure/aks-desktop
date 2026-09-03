@@ -401,6 +401,38 @@
         ]
       },
       {
+        "environment": "development",
+        "pluginLocation": "development",
+        "plugins": [
+          {
+            "bundleName": "ai-assistant",
+            "packageName": "@headlamp-k8s/ai-assistant"
+          }
+        ],
+        "commands": [
+          {
+            "tool": "gh",
+            "args": [
+              "auth",
+              "token"
+            ]
+          },
+          {
+            "tool": "az",
+            "args": [
+              "account",
+              "get-access-token",
+              "--resource",
+              "https://management.azure.com/",
+              "--query",
+              "accessToken",
+              "-o",
+              "tsv"
+            ]
+          }
+        ]
+      },
+      {
         "environment": "production",
         "pluginLocation": "shipped",
         "plugins": [
@@ -549,6 +581,38 @@
               "config"
             ],
             "allowTrailingArgs": true
+          }
+        ]
+      },
+      {
+        "environment": "production",
+        "pluginLocation": "shipped",
+        "plugins": [
+          {
+            "bundleName": "ai-assistant",
+            "packageName": "@headlamp-k8s/ai-assistant"
+          }
+        ],
+        "commands": [
+          {
+            "tool": "gh",
+            "args": [
+              "auth",
+              "token"
+            ]
+          },
+          {
+            "tool": "az",
+            "args": [
+              "account",
+              "get-access-token",
+              "--resource",
+              "https://management.azure.com/",
+              "--query",
+              "accessToken",
+              "-o",
+              "tsv"
+            ]
           }
         ]
       }

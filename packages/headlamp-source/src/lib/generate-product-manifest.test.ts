@@ -35,6 +35,14 @@ test('generates product resources and verified tools from consumer configuration
             source: 'plugins/example',
           },
         ],
+        runCommands: [
+          {
+            environment: 'development',
+            pluginLocation: 'development',
+            plugins: [{ bundleName: 'example', packageName: 'example' }],
+            commands: [{ tool: 'examplectl', args: ['detect'] }],
+          },
+        ],
         build: {
           manifest: '.example/product-manifest.json',
           resources: [
@@ -71,6 +79,14 @@ test('generates product resources and verified tools from consumer configuration
     assert.equal(manifest.product.version, '1.2.3');
     assert.equal('build' in manifest, false);
     assert.equal('source' in manifest.plugins[0], false);
+    assert.deepEqual(manifest.runCommands, [
+      {
+        environment: 'development',
+        pluginLocation: 'development',
+        plugins: [{ bundleName: 'example', packageName: 'example' }],
+        commands: [{ tool: 'examplectl', args: ['detect'] }],
+      },
+    ]);
     assert.deepEqual(manifest.resources, {
       common: [
         { from: 'existing-common', to: 'existing-common' },

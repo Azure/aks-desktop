@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import test from 'node:test';
 
@@ -8,6 +9,12 @@ const { sourceDir: HEADLAMP_SOURCE_DIR } = require(
 ).resolveInstalledHeadlampPaths(ROOT_DIR);
 const { runPlugin } = require(
   path.join(HEADLAMP_SOURCE_DIR, 'frontend', 'src', 'plugin', 'runPlugin.ts')
+);
+const { productPluginCommandPolicies } = require(
+  path.join(HEADLAMP_SOURCE_DIR, 'app', 'scripts', 'build-manifest.ts')
+);
+const { isRunCommandAllowed } = require(
+  path.join(HEADLAMP_SOURCE_DIR, 'app', 'electron', 'runCommandPolicy.ts')
 );
 const { getStartClusterProxyCapability } = require(
   path.join(
@@ -81,4 +88,34 @@ test('the Headlamp loader does not expose a capability it did not inject', () =>
 
   assert.deepEqual(errors, []);
   assert.equal(integrationGlobal.__aksProxyCapability, undefined);
+});
+
+test('the product grants AI assistant auto-detect commands in every app environment', () => {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')
+  ).headlamp;
+
+  for (const environment of ['development', 'production'] as const) {
+    const policy = productPluginCommandPolicies(manifest, environment).find(
+      (candidate: { packageName: string }) =>
+        candidate.packageName === '@headlamp-k8s/ai-assistant'
+    );
+    assert.ok(policy, `Missing ${environment} AI assistant command policy`);
+    assert.equal(isRunCommandAllowed(policy.grants, 'gh', ['auth', 'token']), true);
+    assert.equal(
+      isRunCommandAllowed(policy.grants, 'az', [
+        'account',
+        'get-access-token',
+        '--resource',
+        'https://management.azure.com/',
+        '--query',
+        'accessToken',
+        '-o',
+        'tsv',
+      ]),
+      true
+    );
+    assert.equal(isRunCommandAllowed(policy.grants, 'gh', ['repo', 'delete']), false);
+    assert.equal(isRunCommandAllowed(policy.grants, 'az', ['account', 'clear']), false);
+  }
 });

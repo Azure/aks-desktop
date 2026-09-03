@@ -298,13 +298,28 @@ test('AKS product policy owns development and production command grants', () => 
         plugins: [{ bundleName: 'aks-desktop', packageName: 'aks-desktop' }],
       },
       {
+        environment: 'development',
+        pluginLocation: 'development',
+        plugins: [
+          { bundleName: 'ai-assistant', packageName: '@headlamp-k8s/ai-assistant' },
+        ],
+      },
+      {
         environment: 'production',
         pluginLocation: 'shipped',
         plugins: [{ bundleName: 'aks-desktop', packageName: 'aks-desktop' }],
       },
+      {
+        environment: 'production',
+        pluginLocation: 'shipped',
+        plugins: [
+          { bundleName: 'ai-assistant', packageName: '@headlamp-k8s/ai-assistant' },
+        ],
+      },
     ]
   );
-  assert.deepEqual(policies[0].commands, policies[1].commands);
+  assert.deepEqual(policies[0].commands, policies[2].commands);
+  assert.deepEqual(policies[1].commands, policies[3].commands);
   assert.equal(policies.every(policy => policy.pluginExecutables === undefined), true);
   const productGrants = policies[0].commands;
   assert.equal(productGrants.some(grant => 'command' in grant), false);
@@ -326,6 +341,22 @@ test('AKS product policy owns development and production command grants', () => 
     ),
     'Missing kubectl config command grant'
   );
+  assert.deepEqual(policies[1].commands, [
+    { tool: 'gh', args: ['auth', 'token'] },
+    {
+      tool: 'az',
+      args: [
+        'account',
+        'get-access-token',
+        '--resource',
+        'https://management.azure.com/',
+        '--query',
+        'accessToken',
+        '-o',
+        'tsv',
+      ],
+    },
+  ]);
 });
 
 test('container builds do not require repository metadata', () => {
