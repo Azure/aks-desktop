@@ -119,6 +119,23 @@ test('the source package exports app and container build scripts', () => {
   );
 });
 
+test('the Headlamp loader gates development plugins through the hardened preload API', () => {
+  const pluginLoader = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'frontend', 'src', 'plugin', 'index.ts'),
+    'utf8'
+  );
+  const preload = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'app', 'electron', 'preload.ts'),
+    'utf8'
+  );
+
+  assert.match(pluginLoader, /await filterDisabledDevelopmentPlugins\(/);
+  assert.match(
+    preload,
+    /getDevelopmentPluginsEnabled: \(\) => ipcRenderer\.invoke\('get-development-plugins'\)/
+  );
+});
+
 test('source builds use explicit, reviewed install scripts', () => {
   for (const lifecycle of ['preinstall', 'install', 'postinstall']) {
     assert.equal(packageManifest.scripts[lifecycle], undefined);

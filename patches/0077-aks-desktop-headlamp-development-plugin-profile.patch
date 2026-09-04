@@ -1,4 +1,4 @@
-From d6f6d86536e1ab3c2db0466249e6e2ab76421da0 Mon Sep 17 00:00:00 2001
+From c6350dd2b8d86062856bb4ef90cb1ac2122e5a0e Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 3 Sep 2026 21:07:15 +0200
 Subject: [PATCH] aksd: app: Share development plugin profile
@@ -10,7 +10,7 @@ Subject: [PATCH] aksd: app: Share development plugin profile
  3 files changed, 20 insertions(+), 4 deletions(-)
 
 diff --git a/app/electron/main.ts b/app/electron/main.ts
-index 628c9c356..6525c520d 100644
+index 085e02197..b0c9e2926 100644
 --- a/app/electron/main.ts
 +++ b/app/electron/main.ts
 @@ -14,7 +14,6 @@
@@ -21,15 +21,15 @@ index 628c9c356..6525c520d 100644
  import { ChildProcessWithoutNullStreams, execFileSync, spawn } from 'child_process';
  import dotenv from 'dotenv';
  import {
-@@ -79,6 +78,7 @@ import {
+@@ -78,6 +77,7 @@ import {
    runScript,
    setupRunCmdHandlers,
  } from './runCmd';
 +import { pluginConfigDirName } from './runtimeProductIdentity';
  import { setupSecureStorageHandlers } from './secureStorage';
- import {
-   areDevelopmentPluginsEnabled,
-@@ -104,11 +104,13 @@ import {
+ import { areDevelopmentPluginsEnabled, loadSettings, SETTINGS_PATH } from './settings';
+ import { getShellEnv } from './shellEnv';
+@@ -98,11 +98,13 @@ import {
    saveZoomFactor,
  } from './zoom';
  
@@ -44,7 +44,7 @@ index 628c9c356..6525c520d 100644
  
  // On Linux, force the GTK 3 backend. Electron 36+ defaults to GTK 4, which
  // conflicts with GTK 2/3 symbols pulled into the process by IM modules and
-@@ -132,7 +134,6 @@ dotenv.config({ path: path.join(process.resourcesPath, '.env') });
+@@ -126,7 +128,6 @@ dotenv.config({ path: path.join(process.resourcesPath, '.env') });
  const settings = loadSettings(SETTINGS_PATH);
  const ensureCertificates = createCertificateSetup(settings);
  

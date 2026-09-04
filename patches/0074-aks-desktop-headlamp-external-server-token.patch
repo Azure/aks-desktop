@@ -1,4 +1,4 @@
-From 5a8fc4577c78ea5fca341d03489dbfda5a162ad8 Mon Sep 17 00:00:00 2001
+From 899614eb8b2f8edaa490ca8e39a8e23d51fd25fd Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Wed, 2 Sep 2026 19:32:05 +0200
 Subject: [PATCH] app: backend-token: Coordinate external development server
@@ -253,7 +253,7 @@ index 000000000..2a7e25098
 +  }
 +}
 diff --git a/app/electron/main.ts b/app/electron/main.ts
-index cd8d8573e..3bc188a00 100644
+index adbb5fa63..231926409 100644
 --- a/app/electron/main.ts
 +++ b/app/electron/main.ts
 @@ -15,7 +15,6 @@
@@ -270,9 +270,9 @@ index cd8d8573e..3bc188a00 100644
  import { withBackendMemoryDefaults } from './backendMemory';
 +import { resolveBackendToken, waitForExternalBackend } from './backendToken';
  import { createCertificateSetup } from './certificates';
- import { confirmEnableDevelopmentPlugins } from './developmentPlugins';
+ import { setupDevelopmentPluginsHandlers } from './developmentPlugins';
  import { startWindowsVMDetection, waitForWindowsVMDetection } from './hardwareAcceleration';
-@@ -139,7 +139,12 @@ if (isDev) {
+@@ -133,7 +133,12 @@ if (isDev) {
  } else {
    frontendPath = path.join(process.resourcesPath, 'frontend', 'index.html');
  }
@@ -286,7 +286,7 @@ index cd8d8573e..3bc188a00 100644
  
  const startUrl = (
    process.env.ELECTRON_START_URL ||
-@@ -218,7 +223,6 @@ const defaultPort = args.port || 4466;
+@@ -212,7 +217,6 @@ const defaultPort = args.port || 4466;
  let actualPort = defaultPort; // Will be updated when backend starts
  const MAX_PORT_ATTEMPTS = Math.abs(Number(process.env.HEADLAMP_MAX_PORT_ATTEMPTS) || 100); // Maximum number of ports to try
  
@@ -294,7 +294,7 @@ index cd8d8573e..3bc188a00 100644
  const legalDocumentsResourcePath = getLegalDocumentsResourcePath(isDev, process.resourcesPath);
  const appBuildManifestPath = isDev
    ? resolveBuildManifestPath()
-@@ -1417,6 +1421,10 @@ function startElectron() {
+@@ -1425,6 +1429,10 @@ function startElectron() {
    console.log('Check for updates: ', shouldCheckForUpdates);
  
    async function startServerIfNeeded() {
@@ -306,7 +306,7 @@ index cd8d8573e..3bc188a00 100644
        try {
          // Try to start the server (it will find an available port)
 diff --git a/app/package.json b/app/package.json
-index 653db26e0..54f2b2e55 100644
+index 6a020ca6c..25a186927 100644
 --- a/app/package.json
 +++ b/app/package.json
 @@ -19,8 +19,8 @@
