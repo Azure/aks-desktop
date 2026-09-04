@@ -53,5 +53,12 @@
   "Yes": "예",
   "You are about to install a plugin from: {{ url }}\nDo you want to proceed?": "다음 위치에서 플러그 인을 설치하려고 합니다. {{ url }}\n계속하시겠습니까?",
   "Zoom In": "확대",
-  "Zoom Out": "축소"
+  "Zoom Out": "축소",
+  "OAuth callback failed": "",
+  "The OAuth callback could not be completed. Please try again.": "",
+  "Cancel": "취소",
+  "Development plugins run local code and may request command access. Only enable this mode if you trust every plugin in the development plugins directory.": "",
+  "Enable": "사용",
+  "Enable Plugin Development Mode?": "",
+  "Plugin Development Mode": ""
 }

@@ -14,6 +14,9 @@ import { execSync } from 'child_process';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
+const { appDir: HEADLAMP_APP_DIR } = require(
+  '../packages/headlamp-source/src/lib/paths.ts'
+).resolveInstalledHeadlampPaths(ROOT_DIR);
 
 console.log('==========================================');
 console.log('Setting up external tools for AKS desktop');
@@ -31,7 +34,7 @@ console.log(`Platform: ${PLATFORM}`);
 console.log('');
 
 // Define paths after platform is detected
-const EXTERNAL_TOOLS_DIR = path.join(ROOT_DIR, 'headlamp', 'app', 'resources', 'external-tools');
+const EXTERNAL_TOOLS_DIR = path.join(HEADLAMP_APP_DIR, 'resources', 'external-tools');
 const EXTERNAL_TOOLS_BIN = path.join(EXTERNAL_TOOLS_DIR, 'bin');
 const AZ_CLI_DIR = path.join(EXTERNAL_TOOLS_DIR, 'az-cli', PLATFORM);
 
@@ -40,11 +43,18 @@ console.log('==========================================');
 console.log('Installing Azure CLI...');
 console.log('==========================================');
 
+// Forward --platform/--arch so each package target stages matching tools.
+const targetArgs = process.argv
+  .slice(2)
+  .filter(argument => /^--(platform|arch)=[a-z0-9_]+$/.test(argument));
+
 try {
-  execSync(`npx --yes tsx "${path.join(SCRIPT_DIR, 'download-az-cli.ts')}"`, {
+  execSync(
+    `npx --yes tsx "${path.join(SCRIPT_DIR, 'download-az-cli.ts')}" ${targetArgs.join(' ')}`.trim(), {
     stdio: 'inherit',
     cwd: ROOT_DIR
-  });
+    }
+  );
 } catch (error) {
   console.error('❌ ERROR: Failed to install Azure CLI');
   process.exit(1);
@@ -79,11 +89,6 @@ if (fs.existsSync(KUBELOGIN_SCRIPT)) {
 console.log('==========================================');
 console.log('Installing aks-mcp...');
 console.log('==========================================');
-
-// Forward --platform/--arch so cross-architecture packaging stages the right binary.
-const targetArgs = process.argv
-  .slice(2)
-  .filter(argument => /^--(platform|arch)=[a-z0-9_]+$/.test(argument));
 
 try {
   execSync(

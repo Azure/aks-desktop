@@ -53,5 +53,12 @@
   "Yes": "Igen",
   "You are about to install a plugin from: {{ url }}\nDo you want to proceed?": "Beépülő modul telepítésére készül innen: {{ url }}\nFolytatja?",
   "Zoom In": "Nagyítás",
-  "Zoom Out": "Kicsinyítés"
+  "Zoom Out": "Kicsinyítés",
+  "OAuth callback failed": "",
+  "The OAuth callback could not be completed. Please try again.": "",
+  "Cancel": "Mégse",
+  "Development plugins run local code and may request command access. Only enable this mode if you trust every plugin in the development plugins directory.": "",
+  "Enable": "Engedélyezés",
+  "Enable Plugin Development Mode?": "",
+  "Plugin Development Mode": ""
 }

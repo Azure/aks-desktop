@@ -53,5 +53,12 @@
   "Yes": "Sim",
   "You are about to install a plugin from: {{ url }}\nDo you want to proceed?": "Está prestes a instalar um plug-in e: {{ url }}\nPretende continuar?",
   "Zoom In": "Ampliar",
-  "Zoom Out": "Reduzir"
+  "Zoom Out": "Reduzir",
+  "OAuth callback failed": "",
+  "The OAuth callback could not be completed. Please try again.": "",
+  "Cancel": "Cancelar",
+  "Development plugins run local code and may request command access. Only enable this mode if you trust every plugin in the development plugins directory.": "",
+  "Enable": "Ativar",
+  "Enable Plugin Development Mode?": "",
+  "Plugin Development Mode": ""
 }

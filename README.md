@@ -15,86 +15,37 @@ Please download the latest release for your platform from the [Releases](https:/
 
 ## Development
 
-To run AKS desktop locally, follow these steps:
+Install Node.js 22.22.2 or newer, then install the repository's pinned npm
+version. Node.js 22 ships with npm 10, which cannot apply this repository's npm
+patches.
 
-1. Clone the repository:
+```bash
+npm install --global npm@12.0.1
+npm --version
+```
 
-   ```bash
-   git clone --recurse-submodules https://github.com/Azure/aks-desktop.git
-   ```
+The reported npm version must be 12.0.1 before continuing.
 
-2. Navigate to the project directory:
+```bash
+npm install
+npm start
+```
 
-   ```bash
-   cd aks-desktop
-   ```
+To build the application after installing dependencies:
 
-3. Install the dependencies:
+```bash
+npm run build
+```
 
-   ```bash
-   ./scripts/headlamp-submodule.sh --reset
-   npm install
-   npm run install:all
-   ```
-
-4. Check for the resource folder:
-
-   Ensure that the `resources` folder exists in the `headlamp/app` directory.
-   If `headlamp/app/resources` does not exist, run the following command from the root directory.
-
-   ```bash
-   npm run plugin:setup
-   ```
-
-5. Build the Headlamp backend server:
-
-   Navigate to the `headlamp` directory and build the backend server
-
-   ```bash
-   cd headlamp
-   make backend
-   ```
-
-6. Start the application at the root directory:
-
-   Navigate back to the root directory and start the application in development mode:
-
-   ```bash
-   npm run dev
-   ```
-
-## How to Build
-
-To get started with AKS desktop, follow these steps:
-
-1. Clone the repository:
-
-   ```bash
-   git clone --recurse-submodules https://github.com/Azure/aks-desktop.git
-   ```
-
-2. Navigate to the project directory:
-
-   ```bash
-   cd aks-desktop
-   ```
-
-3. Install the dependencies:
-
-   ```bash
-   ./scripts/headlamp-submodule.sh --reset
-   npm install
-   npm run install:all
-   ```
-
-4. Build the project:
-   ```bash
-   npm run build
-   ```
+The default build targets the host architecture. Release targets can also be
+built explicitly with `npm run build:linux:arm64`, `npm run build:mac:arm64`,
+or `npm run build:win:arm64` on the corresponding host platform.
 
 ## Documentation
 
 - [Cluster Requirements](docs/cluster-requirements.md) — What your AKS cluster needs for the best AKS desktop experience
+- [Headlamp source configuration](packages/headlamp-source/README.md) — `headlampSource` and `headlamp` fields
+- [Headlamp source maintenance](MAINTENANCE.md#headlamp-distribution) — Source updates and patch rebases
 - [AKS Desktop Documentation](https://aka.ms/aks/aks-desktop)
 - [AKS Managed Namespaces](https://learn.microsoft.com/en-us/azure/aks/managed-namespaces)
 

@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "22.22.2"
 
 jobs:
   plugin-packaging:
@@ -27,10 +27,57 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm_root="$(mktemp -d "$RUNNER_TEMP/npm.XXXXXX")"
+          npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
+          echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$npm_root/node_modules/.bin:$PATH"
+          npm ci
 
       - name: Run plugin packaging tests
         run: npm run test:build
+
+  headlamp-distribution:
+    name: Test Headlamp distribution
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: |
+          npm_root="$(mktemp -d "$RUNNER_TEMP/npm.XXXXXX")"
+          npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
+          echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$npm_root/node_modules/.bin:$PATH"
+          npm ci
+
+      - name: Test the package CLI
+        run: npm run test:headlamp-package
+
+      - name: Verify the npm-native Headlamp patch
+        run: npm run test:headlamp-patches
+
+      - name: Test Headlamp source
+        run: |
+          npm --prefix node_modules/@headlamp-k8s/headlamp-source/source run backend:test
+          npm --prefix node_modules/@headlamp-k8s/headlamp-source/source run frontend:test -- \
+            --run \
+            --exclude src/make-env.test.js \
+            --exclude src/packageScripts.test.js \
+            --exclude src/filesFilter/filesFilter.test.ts
+
+      - name: Type-check Headlamp source
+        run: npm --prefix node_modules/@headlamp-k8s/headlamp-source run tsc
+
+      - name: Lint Headlamp source
+        run: npm --prefix node_modules/@headlamp-k8s/headlamp-source run lint
 
   find_changed_plugins:
     name: Find changed plugins
@@ -227,21 +274,18 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: |
+            package-lock.json
             plugins/aks-desktop/package-lock.json
             plugins/ai-assistant/package-lock.json
             plugins/plugin-catalog/package-lock.json
 
-      - name: Install dependencies (aks-desktop)
-        working-directory: plugins/aks-desktop
-        run: npm ci
-
-      - name: Install dependencies (ai-assistant)
-        working-directory: plugins/ai-assistant
-        run: npm ci
-
-      - name: Install dependencies (plugin-catalog)
-        working-directory: plugins/plugin-catalog
-        run: npm ci
+      - name: Install dependencies
+        run: |
+          npm_root="$(mktemp -d "$RUNNER_TEMP/npm.XXXXXX")"
+          npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
+          echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$npm_root/node_modules/.bin:$PATH"
+          npm ci
 
       - name: Generate English locale (aks-desktop)
         working-directory: plugins/aks-desktop

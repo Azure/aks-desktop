@@ -100,7 +100,18 @@ test('uses the executable suffix only on Windows', () => {
   assert.equal(aksMcpBinaryName('linux'), 'aks-mcp');
   assert.equal(
     aksMcpBinaryPath('/repo', 'darwin'),
-    path.join('/repo', 'headlamp', 'app', 'resources', 'external-tools', 'bin', 'aks-mcp')
+    path.join(
+      '/repo',
+      'node_modules',
+      '@headlamp-k8s',
+      'headlamp-source',
+      'source',
+      'app',
+      'resources',
+      'external-tools',
+      'bin',
+      'aks-mcp'
+    )
   );
 });
 
@@ -191,7 +202,16 @@ test('round-trips the staged target and tolerates a missing or corrupt marker', 
   });
 
   fs.writeFileSync(
-    path.join(rootDir, 'headlamp', 'app', 'resources', '.aks-mcp-target.json'),
+    path.join(
+      rootDir,
+      'node_modules',
+      '@headlamp-k8s',
+      'headlamp-source',
+      'source',
+      'app',
+      'resources',
+      '.aks-mcp-target.json'
+    ),
     'not json'
   );
   assert.equal(readStagedTarget(rootDir), undefined);

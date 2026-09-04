@@ -13,6 +13,6 @@ This project has adopted the [Microsoft Open Source Code of Conduct](https://ope
 For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/)
 or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
 
-## Submodule Related Contributions
+## Headlamp Source Contributions
 
-Please refer to the [MAINTENANCE.md](MAINTENANCE.md) file for details on changes to the Headlamp submodule.
+See [MAINTENANCE.md](MAINTENANCE.md) for Headlamp source updates and patches.

@@ -1,0 +1,148 @@
+From 7ec7a47c8ec04df99dbef1c198dd4576296ed786 Mon Sep 17 00:00:00 2001
+From: Rene Dudfield <renedudfield@microsoft.com>
+Date: Wed, 2 Sep 2026 22:15:00 +0200
+Subject: [PATCH] app: product: Apply runtime product identity
+
+Set Electron's runtime name from the selected product manifest before modules
+resolve per-product storage paths. This keeps development profiles isolated in
+the same way as packaged branded applications.
+---
+ app/electron/main.ts                        |  1 +
+ app/electron/runtimeProductIdentity.test.ts | 68 +++++++++++++++++++++
+ app/electron/runtimeProductIdentity.ts      | 41 +++++++++++++
+ 3 files changed, 109 insertions(+)
+ create mode 100644 app/electron/runtimeProductIdentity.test.ts
+ create mode 100644 app/electron/runtimeProductIdentity.ts
+
+diff --git a/app/electron/main.ts b/app/electron/main.ts
+--- a/app/electron/main.ts
++++ b/app/electron/main.ts
+@@ -14,6 +14,7 @@
+  * limitations under the License.
+  */
+ 
++import './runtimeProductIdentity';
+ import { ChildProcessWithoutNullStreams, execFileSync, spawn } from 'child_process';
+ import dotenv from 'dotenv';
+ import {
+diff --git a/app/electron/runtimeProductIdentity.test.ts b/app/electron/runtimeProductIdentity.test.ts
+new file mode 100644
+--- /dev/null
++++ b/app/electron/runtimeProductIdentity.test.ts
+@@ -0,0 +1,68 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++const runtimeApp = vi.hoisted(() => ({
++  getName: vi.fn(() => 'Headlamp'),
++  getPath: vi.fn(() => '/Users/test/Library/Application Support/Headlamp'),
++  setName: vi.fn(),
++  setPath: vi.fn(),
++}));
++
++vi.mock('electron', () => ({ app: runtimeApp }));
++
++import { applyRuntimeProductIdentity } from './runtimeProductIdentity';
++
++describe('applyRuntimeProductIdentity', () => {
++  beforeEach(() => {
++    runtimeApp.getName.mockReturnValue('Headlamp');
++    runtimeApp.getPath.mockReturnValue('/Users/test/Library/Application Support/Headlamp');
++    runtimeApp.getName.mockClear();
++    runtimeApp.getPath.mockClear();
++    runtimeApp.setName.mockClear();
++    runtimeApp.setPath.mockClear();
++  });
++
++  it('uses the product display name for the Electron runtime', () => {
++    expect(
++      applyRuntimeProductIdentity(runtimeApp, {
++        product: { name: 'aks-desktop', productName: 'AKS Desktop' },
++      })
++    ).toBe('AKS Desktop');
++    expect(runtimeApp.setName).toHaveBeenCalledWith('AKS Desktop');
++    expect(runtimeApp.setPath).toHaveBeenCalledWith(
++      'userData',
++      '/Users/test/Library/Application Support/AKS Desktop'
++    );
++  });
++
++  it('preserves the package name when product metadata is absent', () => {
++    expect(applyRuntimeProductIdentity(runtimeApp, {})).toBe('Headlamp');
++    expect(runtimeApp.setName).not.toHaveBeenCalled();
++    expect(runtimeApp.setPath).not.toHaveBeenCalled();
++  });
++
++  it('preserves an explicitly customized user data path', () => {
++    runtimeApp.getPath.mockReturnValue('/tmp/custom-profile');
++
++    expect(
++      applyRuntimeProductIdentity(runtimeApp, { product: { productName: 'AKS Desktop' } })
++    ).toBe('AKS Desktop');
++    expect(runtimeApp.setName).toHaveBeenCalledWith('AKS Desktop');
++    expect(runtimeApp.setPath).not.toHaveBeenCalled();
++  });
++});
+diff --git a/app/electron/runtimeProductIdentity.ts b/app/electron/runtimeProductIdentity.ts
+new file mode 100644
+--- /dev/null
++++ b/app/electron/runtimeProductIdentity.ts
+@@ -0,0 +1,41 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { app } from 'electron';
++import path from 'node:path';
++import { applyProductMetadata, loadBuildManifest } from '../scripts/build-manifest';
++
++type RuntimeAppIdentity = Pick<Electron.App, 'getName' | 'getPath' | 'setName' | 'setPath'>;
++
++/** Applies the product manifest's display name to Electron before storage paths are resolved. */
++export function applyRuntimeProductIdentity(
++  runtimeApp: RuntimeAppIdentity,
++  manifest: unknown
++): string {
++  const { productName } = applyProductMetadata<{ productName?: string }>({}, manifest);
++  if (productName) {
++    const packageName = runtimeApp.getName();
++    const userDataPath = runtimeApp.getPath('userData');
++    runtimeApp.setName(productName);
++    if (path.basename(userDataPath) === packageName) {
++      runtimeApp.setPath('userData', path.join(path.dirname(userDataPath), productName));
++    }
++    return productName;
++  }
++  return runtimeApp.getName();
++}
++
++applyRuntimeProductIdentity(app, loadBuildManifest());
+-- 
+2.51.0

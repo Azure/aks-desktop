@@ -1,0 +1,23 @@
+From 8603e2f62ff714b41d45edd29384f0579df919e1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 2 Sep 2026 18:12:06 +0200
+Subject: [PATCH] app: package: Approve Electron install script
+
+---
+ app/package.json | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/app/package.json b/app/package.json
+index c2cb461b0..14e08c21d 100644
+--- a/app/package.json
++++ b/app/package.json
+@@ -9,6 +9,9 @@
+     "npm": ">=11.0.0",
+     "node": ">=22.6.0"
+   },
++  "allowScripts": {
++    "electron": true
++  },
+   "scripts": {
+     "build": "npm run copy-icons && npm run copy-plugins && npm run compile-electron && electron-builder --config electron-builder.config.ts --dir --publish never",
+     "compile-electron": "node scripts/build-electron.js",

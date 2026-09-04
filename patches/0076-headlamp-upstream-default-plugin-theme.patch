@@ -1,0 +1,661 @@
+From b32682e1dd4f41b72c9f6ec34cd6ca9c7f9bdc2b Mon Sep 17 00:00:00 2001
+From: Rene Dudfield <renedudfield@microsoft.com>
+Date: Wed, 2 Sep 2026 22:55:00 +0200
+Subject: [PATCH] frontend: plugins: Support a default app theme
+
+Allow a plugin to select its registered theme when the user has no saved theme
+preference. Registration and selection update Redux together, so the first
+render does not remain on the operating system theme.
+---
+ frontend/src/i18n/locales/ar/translation.json |  4 +--
+ frontend/src/i18n/locales/bn/translation.json |  4 +--
+ frontend/src/i18n/locales/cs/translation.json |  4 +--
+ frontend/src/i18n/locales/de/translation.json |  4 +--
+ frontend/src/i18n/locales/en/translation.json |  4 +--
+ frontend/src/i18n/locales/es/translation.json |  4 +--
+ frontend/src/i18n/locales/fr/translation.json |  4 +--
+ frontend/src/i18n/locales/he/translation.json |  4 +--
+ frontend/src/i18n/locales/hi/translation.json |  4 +--
+ frontend/src/i18n/locales/hu/translation.json |  4 +--
+ frontend/src/i18n/locales/id/translation.json |  4 +--
+ frontend/src/i18n/locales/it/translation.json |  4 +--
+ frontend/src/i18n/locales/ja/translation.json |  4 +--
+ frontend/src/i18n/locales/ko/translation.json |  4 +--
+ frontend/src/i18n/locales/nl/translation.json |  4 +--
+ frontend/src/i18n/locales/pl/translation.json |  4 +--
+ .../src/i18n/locales/pt-br/translation.json   |  4 +--
+ .../src/i18n/locales/pt-pt/translation.json   |  4 +--
+ frontend/src/i18n/locales/ru/translation.json |  4 +--
+ frontend/src/i18n/locales/sv/translation.json |  4 +--
+ frontend/src/i18n/locales/ta/translation.json |  4 +--
+ frontend/src/i18n/locales/tr/translation.json |  4 +--
+ frontend/src/i18n/locales/ur/translation.json |  4 +--
+ .../src/i18n/locales/zh-tw/translation.json   |  4 +--
+ frontend/src/i18n/locales/zh/translation.json |  4 +--
+ frontend/src/plugin/registry.test.ts          | 29 +++++++++++++++++++
+ frontend/src/plugin/registry.tsx              |  8 +++--
+ 27 files changed, 85 insertions(+), 52 deletions(-)
+
+diff --git a/frontend/src/i18n/locales/ar/translation.json b/frontend/src/i18n/locales/ar/translation.json
+index 826f18efc..abcc099f3 100644
+--- a/frontend/src/i18n/locales/ar/translation.json
++++ b/frontend/src/i18n/locales/ar/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 ثانية",
+   "1 minute": "دقيقة واحدة",
+   "5 minutes": "5 دقائق",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "إضافة",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "حدث خطأ أثناء حذف الإضافة {{ itemName }}",
+   "Uh-oh! Something went wrong.": "عذرًا! حدث خطأ ما.",
+   "Error loading {{ routeName }}": "حدث خطأ أثناء تحميل {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "يجب أن يحتوي اسم الكتلة فقط على أحرف وأرقام صغيرة أو '-'، ويجب أن يبدأ وينتهي بحرف أو رقم.",
+   "Error": "خطأ",
+   "Okay": "حسنًا",
+diff --git a/frontend/src/i18n/locales/bn/translation.json b/frontend/src/i18n/locales/bn/translation.json
+index 3a0cae9bd..cc4f15a66 100644
+--- a/frontend/src/i18n/locales/bn/translation.json
++++ b/frontend/src/i18n/locales/bn/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "৩০ সেকেন্ড",
+   "1 minute": "১ মিনিট",
+   "5 minutes": "৫ মিনিট",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "যোগ করুন",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Plugin delete করতে Error {{ itemName }}।",
+   "Uh-oh! Something went wrong.": "আহ-ওহ! ",
+   "Error loading {{ routeName }}": "Loading Error {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Clusterের নামটিতে অবশ্যই কেবল ছোট আলফানিউমেরিক অক্ষর বা '-' থাকতে হবে এবং এটি অবশ্যই একটি আলফানিউমেরিক চরিত্রের সাথে শুরু এবং শেষ করতে হবে।",
+   "Error": "Error",
+   "Okay": "ঠিক আছে",
+diff --git a/frontend/src/i18n/locales/cs/translation.json b/frontend/src/i18n/locales/cs/translation.json
+index 50f4a96fa..814cb0a92 100644
+--- a/frontend/src/i18n/locales/cs/translation.json
++++ b/frontend/src/i18n/locales/cs/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 s",
+   "1 minute": "1 minuta",
+   "5 minutes": "5 min",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Přidat",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Při odstraňování modulu plug-in {{ itemName }} došlo k chybě.",
+   "Uh-oh! Something went wrong.": "Ale ne! Něco se nepovedlo.",
+   "Error loading {{ routeName }}": "Chyba při načítání {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Název clusteru musí obsahovat pouze malé alfanumerické znaky nebo znak - a musí začínat a končit alfanumerickým znakem.",
+   "Error": "Chyba",
+   "Okay": "OK",
+diff --git a/frontend/src/i18n/locales/de/translation.json b/frontend/src/i18n/locales/de/translation.json
+index 5908a48f3..e6dc042d7 100644
+--- a/frontend/src/i18n/locales/de/translation.json
++++ b/frontend/src/i18n/locales/de/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Hinzufügen",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "Oh-oh! Etwas ist schief gelaufen.",
+   "Error loading {{ routeName }}": "",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "",
+   "Error": "Error",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/en/translation.json b/frontend/src/i18n/locales/en/translation.json
+index 92c8e5c39..cc204a904 100644
+--- a/frontend/src/i18n/locales/en/translation.json
++++ b/frontend/src/i18n/locales/en/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 seconds",
+   "1 minute": "1 minute",
+   "5 minutes": "5 minutes",
++  "Could not open cluster": "Could not open cluster",
++  "Retry": "Retry",
+   "Connecting to \"{{cluster}}\"": "Connecting to \"{{cluster}}\"",
+   "Preparing cluster…": "Preparing cluster…",
+   "Add": "Add",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Error deleting plugin {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Uh-oh! Something went wrong.",
+   "Error loading {{ routeName }}": "Error loading {{ routeName }}",
+-  "Could not open cluster": "Could not open cluster",
+-  "Retry": "Retry",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.",
+   "Error": "Error",
+   "Okay": "Okay",
+diff --git a/frontend/src/i18n/locales/es/translation.json b/frontend/src/i18n/locales/es/translation.json
+index d5ef5fbb1..0efcb19db 100644
+--- a/frontend/src/i18n/locales/es/translation.json
++++ b/frontend/src/i18n/locales/es/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Añadir",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "¡Ups! Algo ha fallado.",
+   "Error loading {{ routeName }}": "Error al cargar {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "El nombre del cluster debe contener solo caracteres alfanuméricos en minúsculas o '-', y debe comenzar y terminar con un carácter alfanumérico.",
+   "Error": "Error",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/fr/translation.json b/frontend/src/i18n/locales/fr/translation.json
+index fce124115..12c6201fa 100644
+--- a/frontend/src/i18n/locales/fr/translation.json
++++ b/frontend/src/i18n/locales/fr/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 secondes",
+   "1 minute": "1 minute",
+   "5 minutes": "5 minutes",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Ajouter",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Erreur lors de la suppression du plugin {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Uh-oh ! Quelque chose s'est mal passé.",
+   "Error loading {{ routeName }}": "Erreur lors du chargement de {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Le nom du cluster ne doit contenir que des caractères alphanumériques minuscules ou '-', et doit commencer et se terminer par un caractère alphanumérique.",
+   "Error": "Erreur",
+   "Okay": "D'accord",
+diff --git a/frontend/src/i18n/locales/he/translation.json b/frontend/src/i18n/locales/he/translation.json
+index c08b76900..5e308d0b1 100644
+--- a/frontend/src/i18n/locales/he/translation.json
++++ b/frontend/src/i18n/locales/he/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 seconds",
+   "1 minute": "1 minute",
+   "5 minutes": "5 minutes",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Add",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Error deleting plugin {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Uh-oh! Something went wrong.",
+   "Error loading {{ routeName }}": "Error loading {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.",
+   "Error": "Error",
+   "Okay": "Okay",
+diff --git a/frontend/src/i18n/locales/hi/translation.json b/frontend/src/i18n/locales/hi/translation.json
+index a3a273aa3..7ff303206 100644
+--- a/frontend/src/i18n/locales/hi/translation.json
++++ b/frontend/src/i18n/locales/hi/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "",
+   "Error loading {{ routeName }}": "",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "",
+   "Error": "",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/hu/translation.json b/frontend/src/i18n/locales/hu/translation.json
+index 276cc84db..a1e80c889 100644
+--- a/frontend/src/i18n/locales/hu/translation.json
++++ b/frontend/src/i18n/locales/hu/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 másodperc",
+   "1 minute": "1 perc",
+   "5 minutes": "5 perc",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Hozzáadás",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Hiba történt a(z) {{ itemName }} beépülő modul törlése során.",
+   "Uh-oh! Something went wrong.": "Hoppá! Hiba történt.",
+   "Error loading {{ routeName }}": "Hiba a(z) {{ routeName }} betöltése során",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "A fürtök neve csak kisbetűs alfanumerikus karaktereket tartalmazhat, valamint alfanumerikus karakterrel kell kezdődnie és végződnie.",
+   "Error": "Hiba",
+   "Okay": "OK",
+diff --git a/frontend/src/i18n/locales/id/translation.json b/frontend/src/i18n/locales/id/translation.json
+index 68b278d6c..19f4e291e 100644
+--- a/frontend/src/i18n/locales/id/translation.json
++++ b/frontend/src/i18n/locales/id/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 detik",
+   "1 minute": "1 menit",
+   "5 minutes": "5 menit",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Tambahkan",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Kesalahan saat menghapus plugin {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Oh, tidak! Terjadi kesalahan.",
+   "Error loading {{ routeName }}": "Kesalahan saat memuat {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Nama kluster hanya boleh berisi karakter alfanumerik huruf kecil atau '-', dan harus dimulai dan diakhiri dengan karakter alfanumerik.",
+   "Error": "Kesalahan",
+   "Okay": "Ok",
+diff --git a/frontend/src/i18n/locales/it/translation.json b/frontend/src/i18n/locales/it/translation.json
+index cc215378e..52464f8c5 100644
+--- a/frontend/src/i18n/locales/it/translation.json
++++ b/frontend/src/i18n/locales/it/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Aggiungi",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "Ops! Qualcosa è andato storto.",
+   "Error loading {{ routeName }}": "Errore durante il caricamento di {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Il nome del cluster può contenere solo caratteri alfanumerici minuscoli o '-', e deve iniziare e terminare con un carattere alfanumerico.",
+   "Error": "Errore",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/ja/translation.json b/frontend/src/i18n/locales/ja/translation.json
+index 407ef0f7f..705917597 100644
+--- a/frontend/src/i18n/locales/ja/translation.json
++++ b/frontend/src/i18n/locales/ja/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "追加",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "あれっ！何か問題が発生しました。",
+   "Error loading {{ routeName }}": "{{ routeName }} の読み込み中にエラーが発生しました",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "クラスター名は小文字の英数字または「-」のみを含み、最初と最後は英数字である必要があります。",
+   "Error": "エラー",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/ko/translation.json b/frontend/src/i18n/locales/ko/translation.json
+index 5dcd316a8..4b87a947a 100644
+--- a/frontend/src/i18n/locales/ko/translation.json
++++ b/frontend/src/i18n/locales/ko/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "추가",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "앗! 문제가 발생했습니다.",
+   "Error loading {{ routeName }}": "{{ routeName }} 로드를 실패했습니다.",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "클러스터 이름은 소문자 영숫자 또는 '-'만 포함할 수 있으며, 영숫자로 시작하고 끝나야 합니다.",
+   "Error": "오류",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/nl/translation.json b/frontend/src/i18n/locales/nl/translation.json
+index 24ecd9c04..c7bf4c8d9 100644
+--- a/frontend/src/i18n/locales/nl/translation.json
++++ b/frontend/src/i18n/locales/nl/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 seconden",
+   "1 minute": "1 minuut",
+   "5 minutes": "5 minuten",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Toevoegen",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Fout bij het verwijderen van invoegtoepassing {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Oeps! Er is iets misgegaan.",
+   "Error loading {{ routeName }}": "Fout bij het laden van {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "De clusternaam mag alleen kleine alfanumerieke tekens of -bevatten en moet beginnen en eindigen met een alfanumeriek teken.",
+   "Error": "Fout",
+   "Okay": "OK",
+diff --git a/frontend/src/i18n/locales/pl/translation.json b/frontend/src/i18n/locales/pl/translation.json
+index 1939d741d..6b1262e47 100644
+--- a/frontend/src/i18n/locales/pl/translation.json
++++ b/frontend/src/i18n/locales/pl/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 s",
+   "1 minute": "1 minuta",
+   "5 minutes": "5 minut",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Dodaj",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Błąd podczas usuwania wtyczki {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Niestety Wystąpił problem.",
+   "Error loading {{ routeName }}": "Błąd ładowania {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Nazwa klastra może zawierać tylko małe znaki alfanumeryczne lub znak „-” oraz musi zaczynać się i kończyć znakiem alfanumerycznym.",
+   "Error": "Błąd",
+   "Okay": "OK",
+diff --git a/frontend/src/i18n/locales/pt-br/translation.json b/frontend/src/i18n/locales/pt-br/translation.json
+index a463db601..6737848f0 100644
+--- a/frontend/src/i18n/locales/pt-br/translation.json
++++ b/frontend/src/i18n/locales/pt-br/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 segundos",
+   "1 minute": "1 minuto",
+   "5 minutes": "5 minutos",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Adicionar",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Erro ao excluir o plug-in {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Oh-oh! Algo correu mal.",
+   "Error loading {{ routeName }}": "Erro ao carregar {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "O nome do cluster deve conter apenas caracteres alfanuméricos minúsculos ou '-', e deve começar e terminar com um carácter alfanumérico.",
+   "Error": "Erro",
+   "Okay": "Ok",
+diff --git a/frontend/src/i18n/locales/pt-pt/translation.json b/frontend/src/i18n/locales/pt-pt/translation.json
+index 0731cc7d4..0f0498a98 100644
+--- a/frontend/src/i18n/locales/pt-pt/translation.json
++++ b/frontend/src/i18n/locales/pt-pt/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "",
+   "1 minute": "",
+   "5 minutes": "",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "",
+   "Error loading {{ routeName }}": "",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "",
+   "Error": "",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/ru/translation.json b/frontend/src/i18n/locales/ru/translation.json
+index dc1c76dcc..8dfec9e48 100644
+--- a/frontend/src/i18n/locales/ru/translation.json
++++ b/frontend/src/i18n/locales/ru/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 секунд",
+   "1 minute": "1 минута",
+   "5 minutes": "5 минут",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Добавить",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Ошибка удаления плагина {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Ой-ой! Что-то пошло не так.",
+   "Error loading {{ routeName }}": "Ошибка загрузки {{ routeName }}.",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Имя кластера должно содержать только строчные буквенно-цифровые символы или «-» и должно начинаться и заканчиваться буквенно-цифровым символом.",
+   "Error": "Ошибка",
+   "Okay": "Хорошо",
+diff --git a/frontend/src/i18n/locales/sv/translation.json b/frontend/src/i18n/locales/sv/translation.json
+index c75c5a3f1..f4fba7b5d 100644
+--- a/frontend/src/i18n/locales/sv/translation.json
++++ b/frontend/src/i18n/locales/sv/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 sekunder",
+   "1 minute": "1 minut",
+   "5 minutes": "5 minuter",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Lägg till",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "Fel vid borttagning av plugin {{ itemName }}.",
+   "Uh-oh! Something went wrong.": "Hoppsan! Något blev fel.",
+   "Error loading {{ routeName }}": "Fel vid inläsning av {{ routeName }}",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Klusternamnet får bara innehålla gemena alfanumeriska tecken och bindestreck och de måste börja och sluta med ett alfanumeriskt tecken.",
+   "Error": "Fel",
+   "Okay": "Ok",
+diff --git a/frontend/src/i18n/locales/ta/translation.json b/frontend/src/i18n/locales/ta/translation.json
+index 591aa39f2..6180eb90e 100644
+--- a/frontend/src/i18n/locales/ta/translation.json
++++ b/frontend/src/i18n/locales/ta/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 விநாடிகள்",
+   "1 minute": "1 நிமிடம்",
+   "5 minutes": "5 நிமிடங்கள்",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "சேர்",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "",
+   "Uh-oh! Something went wrong.": "அய்யோ! ஏதோ பிழை நேர்ந்தது.",
+   "Error loading {{ routeName }}": "{{ routeName }} ஏற்றுவதில் பிழை",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "க்ளஸ்டர் பெயர் சிறிய எழுத்துக்கள், எண்கள் அல்லது '-' மட்டுமே கொண்டிருக்க வேண்டும், மேலும் எழுத்து அல்லது எண்ணுடன் தொடங்கி முடிய வேண்டும்.",
+   "Error": "பிழை",
+   "Okay": "சரி",
+diff --git a/frontend/src/i18n/locales/tr/translation.json b/frontend/src/i18n/locales/tr/translation.json
+index 8a4f6911c..8efc3f817 100644
+--- a/frontend/src/i18n/locales/tr/translation.json
++++ b/frontend/src/i18n/locales/tr/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 saniye",
+   "1 minute": "1 dakika",
+   "5 minutes": "5 dakika",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "Ekle",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "{{ itemName }} eklentisi silinirken hata oluştu.",
+   "Uh-oh! Something went wrong.": "Hay aksi! Bir sorun oluştu.",
+   "Error loading {{ routeName }}": "{{ routeName }} yüklenirken hata oluştu",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Küme adı, yalnızca küçük harf alfasayısal karakterler veya '-' içermeli ve alfasayısal bir karakter ile başlayıp bitmelidir.",
+   "Error": "Hata",
+   "Okay": "Tamam",
+diff --git a/frontend/src/i18n/locales/ur/translation.json b/frontend/src/i18n/locales/ur/translation.json
+index 321b8d626..76262d09e 100644
+--- a/frontend/src/i18n/locales/ur/translation.json
++++ b/frontend/src/i18n/locales/ur/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 سیکنڈ",
+   "1 minute": "1 منٹ",
+   "5 minutes": "5 منٹ",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "شامل کریں",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "پلگ ان {{ itemName }} حذف کرنے میں خرابی",
+   "Uh-oh! Something went wrong.": "اوہ! کچھ غلط ہو گیا",
+   "Error loading {{ routeName }}": "{{ routeName }} لوڈ کرنے میں خرابی",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "کلسٹر کے نام میں صرف چھوٹے حروف، اعداد یا '-' شامل ہو سکتے ہیں اور نام کا آغاز اور اختتام حرف یا عدد سے ہونا چاہیے",
+   "Error": "خرابی",
+   "Okay": "ٹھیک ہے",
+diff --git a/frontend/src/i18n/locales/zh-tw/translation.json b/frontend/src/i18n/locales/zh-tw/translation.json
+index e136fc849..64c36af14 100644
+--- a/frontend/src/i18n/locales/zh-tw/translation.json
++++ b/frontend/src/i18n/locales/zh-tw/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 秒",
+   "1 minute": "1 分鐘",
+   "5 minutes": "5 分鐘",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "新增",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "刪除外掛 {{ itemName }} 時出錯。",
+   "Uh-oh! Something went wrong.": "哎呀！出現問題。",
+   "Error loading {{ routeName }}": "讀取 {{ routeName }} 時出錯",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "叢集名稱只能包含小寫字母數字字元或 '-'，且必須以字母數字字元開頭和結尾。",
+   "Error": "錯誤",
+   "Okay": "",
+diff --git a/frontend/src/i18n/locales/zh/translation.json b/frontend/src/i18n/locales/zh/translation.json
+index ae0360e68..d21acba8c 100644
+--- a/frontend/src/i18n/locales/zh/translation.json
++++ b/frontend/src/i18n/locales/zh/translation.json
+@@ -52,6 +52,8 @@
+   "30 seconds": "30 秒",
+   "1 minute": "1 分钟",
+   "5 minutes": "5 分钟",
++  "Could not open cluster": "",
++  "Retry": "",
+   "Connecting to \"{{cluster}}\"": "",
+   "Preparing cluster…": "",
+   "Add": "新增",
+@@ -141,8 +143,6 @@
+   "Error deleting plugin {{ itemName }}.": "删除插件 {{ itemName }} 时出错。",
+   "Uh-oh! Something went wrong.": "哎呀！出现问题。",
+   "Error loading {{ routeName }}": "读取 {{ routeName }} 时出错",
+-  "Could not open cluster": "",
+-  "Retry": "",
+   "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "集群名称只能包含小写字母数字字符或 '-'，且必须以字母数字字符开头和结尾。",
+   "Error": "错误",
+   "Okay": "好的",
+diff --git a/frontend/src/plugin/registry.test.ts b/frontend/src/plugin/registry.test.ts
+index 3468b3301..1ee44fd55 100644
+--- a/frontend/src/plugin/registry.test.ts
++++ b/frontend/src/plugin/registry.test.ts
+@@ -41,6 +41,7 @@ vi.mock('../components/resourceMap/sources/definitions/relationIds', () => ({
+ }));
+ 
+ import {
++  registerAppTheme,
+   registerClusterEmptyState,
+   registerClusterProviderPreOpen,
+   registerResourceRelationProvider,
+@@ -357,3 +358,31 @@ describe('registerResourceRelationProvider', () => {
+     expect(hook).toHaveBeenCalledOnce();
+   });
+ });
++
++describe('registerAppTheme', () => {
++  beforeEach(() => {
++    localStorage.clear();
++    activeStore = configureStore({ reducer: reducers });
++  });
++
++  afterEach(() => {
++    localStorage.clear();
++  });
++
++  it('selects a registered first-run default theme', () => {
++    registerAppTheme({ name: 'Product Theme', base: 'light' }, { default: true });
++
++    expect(activeStore.getState().theme.name).toBe('Product Theme');
++    expect(localStorage.headlampThemePreference).toBe('Product Theme');
++  });
++
++  it('preserves an existing user theme preference', () => {
++    localStorage.setItem('headlampThemePreference', 'Dark');
++    const currentTheme = activeStore.getState().theme.name;
++
++    registerAppTheme({ name: 'Product Theme', base: 'light' }, { default: true });
++
++    expect(activeStore.getState().theme.name).toBe(currentTheme);
++    expect(localStorage.getItem('headlampThemePreference')).toBe('Dark');
++  });
++});
+diff --git a/frontend/src/plugin/registry.tsx b/frontend/src/plugin/registry.tsx
+index d2b357b51..9ee5b9847 100644
+--- a/frontend/src/plugin/registry.tsx
++++ b/frontend/src/plugin/registry.tsx
+@@ -1115,6 +1115,7 @@ export function registerClusterProviderPreOpen(hook: ClusterPreOpenHook): void {
+  * Theme name should be unique
+  *
+  * @param theme - App Theme definition
++ * @param options - Theme registration options.
+  *
+  * @example
+  *
+@@ -1124,11 +1125,14 @@ export function registerClusterProviderPreOpen(hook: ClusterPreOpenHook): void {
+  *   base: "light",
+  *   primary: "#ff0000",
+  *   secondary: "#333",
+- * })
++ * }, { default: true })
+  *
+  */
+-export function registerAppTheme(theme: AppTheme) {
++export function registerAppTheme(theme: AppTheme, options: { default?: boolean } = {}) {
+   store.dispatch(themeSlice.actions.addCustomAppTheme(theme));
++  if (options.default && !localStorage.getItem('headlampThemePreference')) {
++    store.dispatch(themeSlice.actions.setTheme(theme.name));
++  }
+ }
+ 
+ /**

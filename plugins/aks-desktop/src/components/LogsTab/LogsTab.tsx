@@ -2,8 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-// @ts-ignore todo: LogsViewer is not importing
-import { LogsViewer } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
+import { WorkloadLogs } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { type KubeObject } from '@kinvolk/headlamp-plugin/lib/lib/k8s/cluster';
 import { Box } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
@@ -69,7 +68,10 @@ const LogsTab = ({ projectResources }: LogsTabProps) => {
             </Box>
           )}
           {selectedDeployment && (
-            <LogsViewer item={selectedDeployment} key={selectedDeployment.jsonData.metadata.uid} />
+            <WorkloadLogs
+              item={selectedDeployment}
+              key={selectedDeployment.jsonData.metadata.uid}
+            />
           )}
         </>
       )}

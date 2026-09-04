@@ -5,7 +5,10 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { mergeMissing } from "./translation-manager.mjs";
+import {
+  headlampLocaleName,
+  mergeMissing,
+} from "./translation-manager.mjs";
 
 function createLocalesDir(t) {
   const localesDir = fs.mkdtempSync(
@@ -27,6 +30,24 @@ test("collect preserves existing translations while scaffolding new keys", (t) =
     managerPath,
     fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
   );
+  for (const namespace of ["translation", "glossary", "app"]) {
+    writeFile(
+      path.join(
+        root,
+        "node_modules",
+        "@headlamp-k8s",
+        "headlamp-source",
+        "source",
+        "frontend",
+        "src",
+        "i18n",
+        "locales",
+        "en",
+        `${namespace}.json`
+      ),
+      "{}"
+    );
+  }
   writeFile(
     path.join(
       root,
@@ -56,6 +77,58 @@ test("collect preserves existing translations while scaffolding new keys", (t) =
     existing: "Vorhanden",
     added: "",
   });
+});
+
+test("collect preserves a translation when its key moves between namespaces", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(
+    managerPath,
+    fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
+  );
+  const frontendLocales = path.join(
+    root,
+    "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales/en"
+  );
+  writeFile(path.join(frontendLocales, "translation.json"), JSON.stringify({ About: "About" }));
+  writeFile(path.join(frontendLocales, "glossary.json"), "{}");
+  writeFile(path.join(frontendLocales, "app.json"), "{}");
+  const oldNamespace = path.join(
+    root,
+    "Localize/locales/fr/frontend-glossary.json"
+  );
+  writeFile(oldNamespace, JSON.stringify({ About: "À propos de" }));
+
+  const result = spawnSync(process.execPath, [managerPath, "collect"], {
+    encoding: "utf-8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(
+    JSON.parse(
+      fs.readFileSync(
+        path.join(root, "Localize/locales/fr/frontend-translation.json"),
+        "utf-8"
+      )
+    ),
+    { About: "À propos de" }
+  );
+});
+
+test("collect rejects a missing installed Headlamp translation source", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(
+    managerPath,
+    fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
+  );
+
+  const result = spawnSync(process.execPath, [managerPath, "collect"], {
+    encoding: "utf-8",
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Required translation source is missing/);
 });
 
 test("collected Prometheus metric count uses correct English plurals", () => {
@@ -152,4 +225,75 @@ test("mergeMissing preserves the target locale CRLF line endings", (t) => {
     fs.readFileSync(targetPath, "utf-8"),
     '{\r\n  "existing": "Existant",\r\n  "added": "Ajoute"\r\n}\r\n'
   );
+});
+
+test("maps OneLoc locale names to Headlamp locale directories", () => {
+  assert.equal(headlampLocaleName("pt-BR"), "pt-br");
+  assert.equal(headlampLocaleName("pt-PT"), "pt-pt");
+  assert.equal(headlampLocaleName("zh-Hans"), "zh");
+  assert.equal(headlampLocaleName("zh-Hant"), "zh-tw");
+  assert.equal(headlampLocaleName("fr"), "fr");
+});
+
+test("distribute-headlamp updates only installed Headlamp locales", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(
+    managerPath,
+    fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
+  );
+  writeFile(
+    path.join(root, "Localize", "locales", "fr", "frontend-translation.json"),
+    JSON.stringify({ greeting: "Bonjour" })
+  );
+  writeFile(
+    path.join(root, "Localize", "locales", "fr", "plugin-translation.json"),
+    JSON.stringify({ greeting: "Plugin" })
+  );
+
+  const result = spawnSync(process.execPath, [managerPath, "distribute-headlamp"], {
+    encoding: "utf-8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const headlampLocale = path.join(
+    root,
+    "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales/fr/translation.json"
+  );
+  assert.deepEqual(JSON.parse(fs.readFileSync(headlampLocale, "utf-8")), {
+    greeting: "Bonjour",
+  });
+  assert.equal(
+    fs.existsSync(path.join(root, "plugins/aks-desktop/locales/fr/translation.json")),
+    false
+  );
+});
+
+test("distribute-headlamp writes mapped Headlamp locale directories", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(
+    managerPath,
+    fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
+  );
+  writeFile(
+    path.join(
+      root,
+      "Localize/locales/pt-BR/frontend-translation.json"
+    ),
+    JSON.stringify({ greeting: "Ola" })
+  );
+
+  const result = spawnSync(process.execPath, [managerPath, "distribute-headlamp"], {
+    encoding: "utf-8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const headlampLocale = path.join(
+    root,
+    "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales/pt-br/translation.json"
+  );
+  assert.deepEqual(JSON.parse(fs.readFileSync(headlampLocale, "utf-8")), {
+    greeting: "Ola",
+  });
 });

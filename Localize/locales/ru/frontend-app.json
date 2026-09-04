@@ -53,5 +53,12 @@
   "Yes": "Да",
   "You are about to install a plugin from: {{ url }}\nDo you want to proceed?": "Вы собираетесь установить подключаемый модуль из: {{ url }}\nХотите продолжить?",
   "Zoom In": "Увеличить масштаб",
-  "Zoom Out": "Уменьшить масштаб"
+  "Zoom Out": "Уменьшить масштаб",
+  "OAuth callback failed": "",
+  "The OAuth callback could not be completed. Please try again.": "",
+  "Cancel": "Отмена",
+  "Development plugins run local code and may request command access. Only enable this mode if you trust every plugin in the development plugins directory.": "",
+  "Enable": "Включить",
+  "Enable Plugin Development Mode?": "",
+  "Plugin Development Mode": ""
 }

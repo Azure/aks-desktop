@@ -53,5 +53,12 @@
   "Yes": "是",
   "You are about to install a plugin from: {{ url }}\nDo you want to proceed?": "你将要从以下位置安装插件: {{ url }}\n是否继续?",
   "Zoom In": "放大",
-  "Zoom Out": "缩小"
+  "Zoom Out": "缩小",
+  "OAuth callback failed": "",
+  "The OAuth callback could not be completed. Please try again.": "",
+  "Cancel": "取消",
+  "Development plugins run local code and may request command access. Only enable this mode if you trust every plugin in the development plugins directory.": "",
+  "Enable": "启用",
+  "Enable Plugin Development Mode?": "",
+  "Plugin Development Mode": ""
 }

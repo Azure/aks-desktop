@@ -7,6 +7,7 @@ import {
   registerAppBarAction,
   registerAppLogo,
   registerAppTheme,
+  registerClusterEmptyState,
   registerClusterProviderDialog,
   registerClusterProviderMenuItem,
   registerClusterProviderPreOpen,
@@ -14,7 +15,6 @@ import {
   registerPluginSettings,
   registerProjectDeleteButton,
   registerProjectDetailsTab,
-  // @ts-ignore todo: registerProjectHeaderAction is not exported properly
   registerProjectHeaderAction,
   registerProjectOverviewSection,
   registerRoute,
@@ -32,6 +32,7 @@ import {
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
 import ClusterCapabilityCard from './components/ClusterCapabilityCard/ClusterCapabilityCard';
+import AKSClusterEmptyState from './components/ClusterEmptyState/AKSClusterEmptyState';
 import ConfigurePipelineButton from './components/ConfigurePipeline/ConfigurePipelineButton';
 import ContactUsButton from './components/ContactUs/ContactUsButton';
 import CreateAKSProject from './components/CreateAKSProject/CreateAKSProject';
@@ -69,6 +70,27 @@ import {
   isAzureRbacProject,
 } from './utils/shared/isAksProject';
 import { azureTheme } from './utils/shared/theme';
+
+type ProjectOverviewRegistration = Parameters<typeof registerProjectOverviewSection>[0];
+type ConditionalProjectOverviewRegistration = ProjectOverviewRegistration & {
+  isEnabled?: (props: { project: ProjectDefinition }) => Promise<boolean>;
+};
+
+function registerConditionalProjectOverviewSection(
+  registration: ConditionalProjectOverviewRegistration
+) {
+  registerProjectOverviewSection(registration);
+}
+
+function ConfigurePipelineHeaderAction(
+  props: React.ComponentProps<typeof ConfigurePipelineButton>
+) {
+  return (
+    <GitHubAuthProvider>
+      <ConfigurePipelineButton project={props.project} setSelectedTab={props.setSelectedTab} />
+    </GitHubAuthProvider>
+  );
+}
 
 Headlamp.setAppMenu(menus => {
   // Find the Help menu
@@ -128,13 +150,10 @@ if (Headlamp.isRunningAsApp()) {
 
   // register azure logo
   registerAppLogo(AzureLogo);
+  registerClusterEmptyState(AKSClusterEmptyState);
 
   // register the theme and make it default
-  registerAppTheme(azureTheme);
-  if (!localStorage.getItem('headlampThemePreference')) {
-    localStorage.setItem('headlampThemePreference', 'Azure Theme');
-    localStorage.setItem('cached-current-theme', `${azureTheme}`);
-  }
+  registerAppTheme(azureTheme, { default: true });
 
   // Initialize Azure auth status on window object for Headlamp integration
   (window as any).__azureAuthStatus = {
@@ -480,30 +499,26 @@ registerPluginSettings(
   false
 );
 
-registerProjectOverviewSection({
+registerConditionalProjectOverviewSection({
   id: 'cluster-capabilities',
-  // @ts-ignore todo: there is an isEnabled prop in registerProjectOverviewSection it's just not present in the types yet. We need to push our changes to headlamp
   isEnabled: isAksProject,
   component: ({ project }) => <ClusterCapabilityCard project={project} />,
 });
 
-registerProjectOverviewSection({
+registerConditionalProjectOverviewSection({
   id: 'scaling-overview',
-  // @ts-ignore todo: there is an isEnabled prop in registerProjectOverviewSection it's just not present in the types yet. We need to push our changes to headlamp
   isEnabled: isAksProject,
   component: ({ project }) => <ScalingCard project={project} />,
 });
 
-registerProjectOverviewSection({
+registerConditionalProjectOverviewSection({
   id: 'metrics-overview',
-  // @ts-ignore todo: there is an isEnabled prop in registerProjectOverviewSection it's just not present in the types yet. We need to push our changes to headlamp
   isEnabled: isAksProject,
   component: ({ project }) => <MetricsCard project={project} />,
 });
 
-registerProjectOverviewSection({
+registerConditionalProjectOverviewSection({
   id: 'pipeline-overview',
-  // @ts-expect-error isEnabled exists at runtime but is missing from ProjectOverviewSection types
   isEnabled: props =>
     previewFeaturesStore.get()?.githubPipelines ? isAksProject(props) : Promise.resolve(false),
   // GitHubAuthProvider is duplicated across three registrations (here, DeployTab, and
@@ -534,12 +549,7 @@ registerProjectHeaderAction({
 
 registerProjectHeaderAction({
   id: 'configure-pipeline',
-  // setSelectedTab is provided by the headlamp fork (PR #406) but not yet in published types
-  component: (props: { project: ProjectDefinition; setSelectedTab?: (tabId: string) => void }) => (
-    <GitHubAuthProvider>
-      <ConfigurePipelineButton project={props.project} setSelectedTab={props.setSelectedTab} />
-    </GitHubAuthProvider>
-  ),
+  component: ConfigurePipelineHeaderAction,
 });
 
 // Register custom delete button for AKS Desktop + ARM-managed projects only
