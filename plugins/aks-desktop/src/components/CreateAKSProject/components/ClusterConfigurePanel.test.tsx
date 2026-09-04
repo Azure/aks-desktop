@@ -151,6 +151,43 @@ describe('ClusterConfigurePanel', () => {
     expect(container.innerHTML).toBe('');
   });
 
+  test('omits the network policy note when showNetworkPolicyNote is false', () => {
+    const capabilities = makeCapabilities({ networkPolicy: 'none', prometheusEnabled: false });
+
+    render(
+      <ClusterConfigurePanel
+        {...defaultProps}
+        capabilities={capabilities}
+        showNetworkPolicyNote={false}
+      />
+    );
+
+    expect(
+      screen.queryAllByText(/Network policy engine cannot be changed after cluster creation/)
+    ).toHaveLength(0);
+    // Addon configuration stays available.
+    expect(screen.getByText('Azure Monitor Metrics (Managed Prometheus)')).toBeTruthy();
+  });
+
+  test('returns null when the network policy note is suppressed and no addons are missing', () => {
+    const capabilities = makeCapabilities({
+      prometheusEnabled: true,
+      kedaEnabled: true,
+      vpaEnabled: true,
+      networkPolicy: 'none',
+    });
+
+    const { container } = render(
+      <ClusterConfigurePanel
+        {...defaultProps}
+        capabilities={capabilities}
+        showNetworkPolicyNote={false}
+      />
+    );
+
+    expect(container.innerHTML).toBe('');
+  });
+
   test('calls enableClusterAddon once with all selected addons', async () => {
     const capabilities = makeCapabilities({
       prometheusEnabled: false,

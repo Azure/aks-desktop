@@ -5,6 +5,7 @@ import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Alert,
+  AlertTitle,
   Autocomplete,
   Box,
   Button,
@@ -14,6 +15,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Divider,
   TextField,
   Typography,
 } from '@mui/material';
@@ -165,34 +167,41 @@ export default function RegisterAKSClusterDialogPure({
             </Alert>
           )}
 
-          {notice && <Alert severity="info">{notice}</Alert>}
+          {/* Pre-registration notices are irrelevant once the cluster is registered,
+              so they give way to the success summary. */}
+          {registrationCompleted ? (
+            success && (
+              <Alert severity="success" onClose={onDismissSuccess}>
+                <AlertTitle>{t('Cluster registered')}</AlertTitle>
+                {success}
+              </Alert>
+            )
+          ) : (
+            <>
+              {notice && <Alert severity="info">{notice}</Alert>}
 
-          {success && (
-            <Alert severity="success" onClose={onDismissSuccess}>
-              {success}
-            </Alert>
-          )}
+              {subscriptionRefresh.status === 'refreshing' && (
+                <Alert severity="info">
+                  {t('Showing cached Azure subscriptions while checking for updates.')}
+                </Alert>
+              )}
 
-          {subscriptionRefresh.status === 'refreshing' && (
-            <Alert severity="info">
-              {t('Showing cached Azure subscriptions while checking for updates.')}
-            </Alert>
-          )}
+              {subscriptionRefresh.status === 'updated' && (
+                <Alert severity="success">
+                  {subscriptionRefresh.addedCount > 0
+                    ? t('{{count}} new Azure subscription(s) loaded.', {
+                        count: subscriptionRefresh.addedCount,
+                      })
+                    : t('Azure subscription list updated.')}
+                </Alert>
+              )}
 
-          {subscriptionRefresh.status === 'updated' && (
-            <Alert severity="success">
-              {subscriptionRefresh.addedCount > 0
-                ? t('{{count}} new Azure subscription(s) loaded.', {
-                    count: subscriptionRefresh.addedCount,
-                  })
-                : t('Azure subscription list updated.')}
-            </Alert>
-          )}
-
-          {subscriptionRefresh.status === 'failed' && (
-            <Alert severity="warning">
-              {t('Showing cached Azure subscriptions because the refresh failed.')}
-            </Alert>
+              {subscriptionRefresh.status === 'failed' && (
+                <Alert severity="warning">
+                  {t('Showing cached Azure subscriptions because the refresh failed.')}
+                </Alert>
+              )}
+            </>
           )}
 
           {capabilitiesLoading && (
@@ -200,6 +209,17 @@ export default function RegisterAKSClusterDialogPure({
               <CircularProgress size={16} aria-hidden="true" />
               <Typography variant="body2" color="textSecondary">
                 Checking cluster capabilities...
+              </Typography>
+            </Box>
+          )}
+
+          {capabilities && registrationCompleted && (
+            <Box>
+              <Divider sx={{ mb: 1.5 }} />
+              <Typography variant="body2" color="text.secondary">
+                {t(
+                  'Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.'
+                )}
               </Typography>
             </Box>
           )}
@@ -215,7 +235,11 @@ export default function RegisterAKSClusterDialogPure({
             (!capabilities.networkPolicy || capabilities.networkPolicy === 'none') && (
               <Alert severity="warning" sx={{ mb: 1 }}>
                 No network policy engine configured. Network policies will not be enforced. This
-                must be set at cluster creation.
+                cannot be changed after cluster creation — create a new cluster with{' '}
+                <code>
+                  --network-plugin azure --network-plugin-mode overlay --network-dataplane cilium
+                </code>{' '}
+                for full network policy support.
               </Alert>
             )}
 
@@ -232,6 +256,7 @@ export default function RegisterAKSClusterDialogPure({
                 resourceGroup={selectedCluster.resourceGroup}
                 clusterName={selectedCluster.name}
                 onConfigured={onConfigured ?? (() => {})}
+                showNetworkPolicyNote={false}
               />
             )}
 
@@ -260,7 +285,9 @@ export default function RegisterAKSClusterDialogPure({
             </Alert>
           )}
 
-          {!isChecking && isLoggedIn && (
+          {/* Cluster selection controls are hidden once registration completes so
+              the terminal screen only shows the registration result and config. */}
+          {!isChecking && isLoggedIn && !registrationCompleted && (
             <>
               <Autocomplete
                 fullWidth
