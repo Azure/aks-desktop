@@ -213,3 +213,142 @@ describe('RegisterAKSClusterDialogPure subscription refresh notices', () => {
     expect(screen.queryByText(/subscription list updated/i)).not.toBeInTheDocument();
   });
 });
+
+describe('RegisterAKSClusterDialogPure post-registration screen', () => {
+  afterEach(cleanup);
+
+  const SELECTED_SUBSCRIPTION = {
+    id: 'sub-1',
+    name: 'Production',
+    state: 'Enabled',
+    tenantId: TENANT_A,
+  };
+  const SELECTED_CLUSTER = {
+    name: 'aks-prod',
+    resourceGroup: 'rg-prod',
+    location: 'eastus',
+    kubernetesVersion: '1.32.0',
+    provisioningState: 'Succeeded',
+  };
+
+  /** Args carrying every pre-registration notice, so the tests prove they are dropped. */
+  const registeredArgs: RegisterAKSClusterDialogPureProps = {
+    ...baseArgs,
+    registrationSucceeded: true,
+    success: "Cluster 'aks-prod' successfully merged in kubeconfig",
+    notice: 'AKS Hybrid & Edge clusters are not listed.',
+    subscriptionRefresh: { status: 'updated', addedCount: 2 },
+    tenants: [{ id: TENANT_A, name: 'Contoso' }],
+    selectedTenant: { id: TENANT_A, name: 'Contoso' },
+    tenantInputValue: 'Contoso',
+    subscriptions: [SELECTED_SUBSCRIPTION],
+    selectedSubscription: SELECTED_SUBSCRIPTION,
+    subscriptionInputValue: 'Production',
+    clusters: [SELECTED_CLUSTER],
+    filteredClusters: [SELECTED_CLUSTER],
+    selectedCluster: SELECTED_CLUSTER,
+    clusterInputValue: 'aks-prod',
+  };
+
+  test('drops pre-registration notices once registration succeeds', () => {
+    render(<RegisterAKSClusterDialogPure {...registeredArgs} />);
+
+    expect(screen.queryByText(/AKS Hybrid & Edge clusters are not listed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/new azure subscription/i)).not.toBeInTheDocument();
+  });
+
+  test('keeps showing those notices before registration', () => {
+    render(
+      <RegisterAKSClusterDialogPure {...registeredArgs} registrationSucceeded={false} success="" />
+    );
+
+    expect(screen.getByText(/AKS Hybrid & Edge clusters are not listed/)).toBeInTheDocument();
+    expect(screen.getByText(/new azure subscription/i)).toBeInTheDocument();
+  });
+
+  test('hides the cluster selection controls once registration succeeds', () => {
+    render(<RegisterAKSClusterDialogPure {...registeredArgs} />);
+
+    expect(screen.queryByRole('combobox', { name: 'Tenant' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Subscription' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'AKS Cluster' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Selected Cluster Details')).not.toBeInTheDocument();
+  });
+
+  test('heads the success alert with a registered title', () => {
+    render(<RegisterAKSClusterDialogPure {...registeredArgs} />);
+
+    expect(screen.getByText('Cluster registered')).toBeInTheDocument();
+    expect(screen.getByText(/successfully merged in kubeconfig/)).toBeInTheDocument();
+  });
+
+  test('frames the remaining capability findings as optional', () => {
+    render(
+      <RegisterAKSClusterDialogPure
+        {...registeredArgs}
+        capabilities={{
+          sku: 'Base',
+          aadEnabled: true,
+          azureRbacEnabled: false,
+          networkPolicy: 'none',
+          networkPlugin: 'azure',
+          prometheusEnabled: false,
+          containerInsightsEnabled: false,
+          kedaEnabled: false,
+          vpaEnabled: false,
+        }}
+      />
+    );
+
+    // The findings themselves stay surfaced, not hidden behind the framing.
+    expect(screen.getByText(/optional recommendations/)).toBeInTheDocument();
+    expect(screen.getByText(/Azure RBAC for Kubernetes is not enabled/)).toBeInTheDocument();
+    expect(screen.getByText(/No network policy engine configured/)).toBeInTheDocument();
+    expect(screen.getByTestId('cluster-configure-panel')).toBeInTheDocument();
+  });
+
+  test('states the network policy impact and fix exactly once', () => {
+    render(
+      <RegisterAKSClusterDialogPure
+        {...registeredArgs}
+        capabilities={{
+          sku: 'Base',
+          aadEnabled: true,
+          azureRbacEnabled: true,
+          networkPolicy: 'none',
+          networkPlugin: 'azure',
+          prometheusEnabled: false,
+          containerInsightsEnabled: false,
+          kedaEnabled: false,
+          vpaEnabled: false,
+        }}
+      />
+    );
+
+    expect(screen.getAllByText(/Network policies will not be enforced/)).toHaveLength(1);
+    expect(screen.getAllByText(/--network-plugin azure/)).toHaveLength(1);
+  });
+
+  test('omits the optional framing before registration completes', () => {
+    render(
+      <RegisterAKSClusterDialogPure
+        {...registeredArgs}
+        registrationSucceeded={false}
+        success=""
+        capabilities={{
+          sku: 'Base',
+          aadEnabled: true,
+          azureRbacEnabled: false,
+          networkPolicy: 'none',
+          networkPlugin: 'azure',
+          prometheusEnabled: false,
+          containerInsightsEnabled: false,
+          kedaEnabled: false,
+          vpaEnabled: false,
+        }}
+      />
+    );
+
+    expect(screen.queryByText(/optional recommendations/)).not.toBeInTheDocument();
+  });
+});

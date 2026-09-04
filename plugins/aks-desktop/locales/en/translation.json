@@ -19,6 +19,8 @@
   "Cluster '{{cluster}}' successfully connected": "Cluster '{{cluster}}' successfully connected",
   "Failed to register cluster: {{message}}": "Failed to register cluster: {{message}}",
   "Cluster '{{cluster}}' successfully merged in kubeconfig": "Cluster '{{cluster}}' successfully merged in kubeconfig",
+  "Cluster registered": "Cluster registered",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
   "Register AKS Cluster": "Register AKS Cluster",
   "Showing cached Azure subscriptions while checking for updates.": "Showing cached Azure subscriptions while checking for updates.",
   "{{count}} new Azure subscription(s) loaded._one": "{{count}} new Azure subscription(s) loaded.",
