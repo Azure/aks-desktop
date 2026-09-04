@@ -1112,6 +1112,51 @@ export function getPluginBinDirectories(pluginsDir: string): string[] {
 }
 
 /**
+ * Removes empty and duplicate PATH entries while preserving order.
+ *
+ * addToPath can run more than once per session (bundled plugins, user plugins),
+ * so without this the same bin directories accumulate on every call. Windows
+ * paths are compared case-insensitively because the filesystem is too.
+ *
+ * @param entries - The candidate PATH entries, most significant first.
+ * @returns The deduplicated entries.
+ */
+function dedupePathEntries(entries: string[]): string[] {
+  const seen = new Set<string>();
+
+  return entries.filter(entry => {
+    if (!entry) return false;
+    const key = process.platform === 'win32' ? entry.toLowerCase() : entry;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Reads the current PATH and rewrites it under a single key.
+ *
+ * Windows environment variables are case-insensitive, but `process.env` is a
+ * plain object, so `Path` and `PATH` can coexist and spawned processes may read
+ * whichever one they find first. Deleting every casing before assigning keeps a
+ * single authoritative `PATH`.
+ *
+ * @param buildPath - Receives the existing PATH and returns the new one.
+ */
+function setProcessPath(buildPath: (existingPath: string) => string): void {
+  if (process.platform !== 'win32') {
+    process.env.PATH = buildPath(process.env.PATH || '');
+    return;
+  }
+
+  const existingPath = process.env.PATH || process.env.Path || '';
+  for (const key of Object.keys(process.env)) {
+    if (key.toLowerCase() === 'path') delete process.env[key];
+  }
+  process.env.PATH = buildPath(existingPath);
+}
+
+/**
  * Adds directories to the PATH environment variable
  *
  * @param dirs - Directories to add to PATH
@@ -1121,8 +1166,9 @@ export function addToPath(dirs: string[], description: string): void {
   if (dirs.length === 0) return;
 
   const pathSeparator = process.platform === 'win32' ? ';' : ':';
-  const existingPath = process.env.PATH || '';
-  process.env.PATH = [...dirs, existingPath].join(pathSeparator);
+  setProcessPath(existingPath =>
+    dedupePathEntries([...dirs, ...existingPath.split(pathSeparator)]).join(pathSeparator)
+  );
   const message = `Added ${dirs.length} ${description} bin directories to PATH`;
   console.info(message);
 }

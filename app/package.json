@@ -73,7 +73,6 @@
           "target": "AppImage",
           "arch": [
             "x64",
-            "armv7l",
             "arm64"
           ]
         },
@@ -81,7 +80,6 @@
           "target": "tar.gz",
           "arch": [
             "x64",
-            "armv7l",
             "arm64"
           ]
         },
@@ -107,14 +105,7 @@
     "mac": {
       "appId": "com.microsoft.aks-desktop",
       "provisioningProfile": "mac/aks-desktop.provisionprofile",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64"
-          ]
-        }
-      ],
+      "target": "dmg",
       "gatekeeperAssess": false,
       "hardenedRuntime": true,
       "notarize": false,

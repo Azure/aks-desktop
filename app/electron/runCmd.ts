@@ -298,10 +298,7 @@ export async function executeCommandWithShellEnv(
       const child = spawn(command, args, {
         ...options,
         shell: useShell,
-        env: {
-          ...shellEnv,
-          ...options.env,
-        },
+        env: mergeCommandEnvironment(shellEnv, options.env),
       });
 
       let stdout = '';
@@ -326,6 +323,48 @@ export async function executeCommandWithShellEnv(
       reject(error);
     }
   });
+}
+
+/**
+ * Merges a cached shell environment with per-command overrides.
+ *
+ * The shell environment is captured once and cached, so it can predate the
+ * bundled tool directories that are appended to `process.env.PATH` at startup.
+ * PATH is therefore always taken from the live process unless the command asks
+ * for its own.
+ *
+ * @param shellEnv - The cached shell environment.
+ * @param overrides - Environment variables specific to this command.
+ * @returns The environment to spawn the command with.
+ */
+export function mergeCommandEnvironment(
+  shellEnv: NodeJS.ProcessEnv,
+  overrides: NodeJS.ProcessEnv = {}
+): NodeJS.ProcessEnv {
+  const merged = { ...shellEnv, ...overrides };
+
+  if (process.platform === 'win32') {
+    // Windows environment variables are case-insensitive but JavaScript object
+    // keys are not, so the merged object can carry both `Path` and `PATH` and
+    // the child process may pick up the stale one. Collapse every casing into a
+    // single `PATH` entry.
+    const windowsPath =
+      overrides.PATH ??
+      overrides.Path ??
+      process.env.PATH ??
+      process.env.Path ??
+      shellEnv.PATH ??
+      shellEnv.Path;
+    for (const key of Object.keys(merged)) {
+      if (key.toLowerCase() === 'path') delete merged[key];
+    }
+    if (windowsPath !== undefined) merged.PATH = windowsPath;
+    return merged;
+  }
+
+  const commandPath = overrides.PATH ?? process.env.PATH ?? shellEnv.PATH;
+  if (commandPath !== undefined) merged.PATH = commandPath;
+  return merged;
 }
 
 /**
@@ -400,13 +439,14 @@ export async function handleRunCommand(
     console.log('Using shell on Windows');
   }
 
+  const commandEnv = (commandData.options as { env?: NodeJS.ProcessEnv }).env;
   const child: ChildProcessWithoutNullStreams = spawn(command, args, {
     ...commandData.options,
     shell: useShell,
-    env: {
-      ...shellEnv,
+    env: mergeCommandEnvironment(shellEnv, {
+      ...commandEnv,
       ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
-    },
+    }),
   });
   const untrackProxy = trackProxyChild(command, args, commandData.options, child);
 
