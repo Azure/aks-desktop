@@ -16,6 +16,10 @@ permissions:
 
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
     runs-on: macos-latest
     steps:
       - name: Install golang
@@ -35,10 +39,10 @@ jobs:
           submodules: recursive
 
       - name: Setup AKS desktop and Build Headlamp (macOS)
-        run: npm run build:mac
+        run: npm run build:mac:${{ matrix.arch }}
 
       - name: Upload macOS build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: aks-desktop-mac-dmgs
+          name: aks-desktop-mac-${{ matrix.arch }}
           path: headlamp/app/dist/aks-desktop*.dmg

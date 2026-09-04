@@ -5,11 +5,12 @@
   "private": true,
   "scripts": {
     "build": "npx --yes tsx ./build/build-host-platform.ts",
-    "build:linux": "npm run build:linux:x64 && npm run build:linux:arm64 && npm run build:linux:armv7l",
-    "build:linux:x64": "npx --yes tsx ./build/setup-plugins.ts --platform=linux --arch=x64 && cd headlamp && make app-build && cd app && npm run package -- --linux --x64",
-    "build:linux:arm64": "npx --yes tsx ./build/setup-plugins.ts --platform=linux --arch=arm64 && cd headlamp && make app-build && cd app && npm run package -- --linux AppImage tar.gz --arm64",
-    "build:linux:armv7l": "npx --yes tsx ./build/setup-plugins.ts --platform=linux --arch=armv7l && cd headlamp && make app-build && cd app && npm run package -- --linux AppImage tar.gz --armv7l",
-    "build:mac": "npm run plugin:setup && cd headlamp && make app-mac",
+    "build:linux": "npx --yes tsx ./build/build-linux-target.ts",
+    "build:linux:x64": "npm_config_target_arch=x64 npm run build:linux",
+    "build:linux:arm64": "npm_config_target_arch=arm64 npm run build:linux",
+    "build:mac": "npx --yes tsx ./build/build-mac-target.ts",
+    "build:mac:x64": "npm_config_target_arch=x64 npm run build:mac",
+    "build:mac:arm64": "npm_config_target_arch=arm64 npm run build:mac",
     "build:win": "npm run build:win:x64 && npm run build:win:arm64",
     "build:win:x64": "npx --yes tsx ./build/setup-plugins.ts --platform=win32 --arch=x64 && cd headlamp && make app-win-x64",
     "build:win:arm64": "npx --yes tsx ./build/setup-plugins.ts --platform=win32 --arch=arm64 && cd headlamp && make app-win-arm64",
@@ -18,7 +19,7 @@
     "build:unpacked:linux": "npm run plugin:setup && cd headlamp && make app-build",
     "build:unpacked:mac": "npm run plugin:setup && cd headlamp && make app-build",
     "build:unpacked:win": "npm run plugin:setup && cd headlamp && make app-build",
-    "test:build": "npx --yes tsx --test build/plugin-packaging.test.ts build/aks-mcp-config.test.ts build/azure-cli-verification.test.ts build/az-cli-config.test.ts",
+    "test:build": "npx --yes tsx --test build/plugin-packaging.test.ts build/aks-mcp-config.test.ts build/az-cli-config.test.ts build/azure-cli-verification.test.ts",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
     "test:post-build": "npx --yes tsx ./build/verify-bundled-tools.ts",
     "plugin:setup": "npx --yes tsx ./build/setup-plugins.ts",
@@ -50,12 +51,20 @@
     "externalTools": {
       "python": {
         "linux": {
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250723/cpython-3.10.18+20250723-x86_64_v3-unknown-linux-gnu-install_only_stripped.tar.gz",
-          "checksum": "b712e37fd4f50243afae019f0c325568129550b66598addb6dd9685d36b4625f"
+          "x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250723/cpython-3.10.18+20250723-x86_64_v3-unknown-linux-gnu-install_only_stripped.tar.gz",
+            "checksum": "b712e37fd4f50243afae019f0c325568129550b66598addb6dd9685d36b4625f"
+          },
+          "arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.10.19+20251028-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+            "checksum": "d8d813b5b021276b87dd24e0839ef30bc2f44e1d4513d5b81462d1c19a59950a"
+          }
         },
         "darwin": {
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.10.19+20251028-x86_64-apple-darwin-install_only_stripped.tar.gz",
-          "checksum": "ff636e82637a7768c499921188222322369584d1b6a2e85a898aba1e263d69f2"
+          "x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.10.19+20251028-x86_64-apple-darwin-install_only_stripped.tar.gz",
+            "checksum": "ff636e82637a7768c499921188222322369584d1b6a2e85a898aba1e263d69f2"
+          }
         }
       },
       "aksMcp": {
@@ -93,7 +102,10 @@
           "connectedk8s"
         ],
         "win32": {
-          "checksum": "fb55449e1ed1809da5408330ab2ddd52f71e50abcf53ded0d685d8315f0abb8a"
+          "x64": {
+            "url": "https://azcliprod.blob.core.windows.net/zip/azure-cli-2.89.0-x64.zip",
+            "checksum": "fb55449e1ed1809da5408330ab2ddd52f71e50abcf53ded0d685d8315f0abb8a"
+          }
         }
       }
     }

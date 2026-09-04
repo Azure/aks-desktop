@@ -60,7 +60,7 @@ export function getBundledAzPath(): string | null {
 
       if (platform === 'win32') {
         // Windows: Use .cmd wrapper
-        const azPath = `${resourcesPath}/az-cli/bin/az.cmd`;
+        const azPath = `${resourcesPath}/external-tools/az-cli/win32/bin/az.cmd`;
         console.debug('[AZ-CLI] Checking bundled Windows path:', azPath);
         if (fs && fs.existsSync(azPath)) {
           console.debug('[AZ-CLI] ✅ Found bundled Windows Azure CLI');
@@ -70,8 +70,8 @@ export function getBundledAzPath(): string | null {
         }
       } else if (platform === 'darwin') {
         // macOS: First try the wrapper (portable install), then check for direct az binary
-        const wrapperPath = `${resourcesPath}/az-cli/bin/az-wrapper`;
-        const directPath = `${resourcesPath}/az-cli/bin/az`;
+        const wrapperPath = `${resourcesPath}/external-tools/az-cli/darwin/bin/az-wrapper`;
+        const directPath = `${resourcesPath}/external-tools/az-cli/darwin/bin/az`;
 
         console.debug('[AZ-CLI] Checking bundled macOS paths:', { wrapperPath, directPath });
 
@@ -97,8 +97,8 @@ export function getBundledAzPath(): string | null {
         }
       } else if (platform === 'linux') {
         // Linux: First try the wrapper (portable install), then check for direct az binary
-        const wrapperPath = `${resourcesPath}/az-cli/bin/az-wrapper`;
-        const directPath = `${resourcesPath}/az-cli/bin/az`;
+        const wrapperPath = `${resourcesPath}/external-tools/az-cli/linux/bin/az-wrapper`;
+        const directPath = `${resourcesPath}/external-tools/az-cli/linux/bin/az`;
 
         console.debug('[AZ-CLI] Checking bundled Linux paths:', { wrapperPath, directPath });
 

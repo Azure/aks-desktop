@@ -18,10 +18,8 @@ import {
   resolveTargetArch,
 } from './aks-mcp-config';
 import {
-  expectedAzCliExtensions,
-  isAzCliStagedForTarget,
-  readAzureCliConfig,
-  resolveAzCliVersion,
+  isAzureCliStagedForTarget,
+  resolveAzureCliTarget,
 } from './az-cli-config';
 
 const SCRIPT_DIR = __dirname;
@@ -72,28 +70,15 @@ function isAksMcpStagedForTarget(): boolean {
 }
 
 const aksMcpStaged = isAksMcpStagedForTarget();
+const azureCliTarget = resolveAzureCliTarget(ROOT_DIR, targetPlatform, targetArch);
+const azureCliStaged = isAzureCliStagedForTarget(ROOT_DIR, azureCliTarget);
 
-// Unlike aks-mcp, download-az-cli.ts always stages for the build host
-// (process.platform), not the packaging --platform target, so check it
-// against the host rather than targetPlatform.
-const azureCliConfig = readAzureCliConfig(ROOT_DIR);
-const expectedAzCliVersion = resolveAzCliVersion(azureCliConfig, process.platform);
-const azCliStaged = isAzCliStagedForTarget(
-  ROOT_DIR,
-  process.platform,
-  expectedAzCliVersion,
-  expectedAzCliExtensions(azureCliConfig, process.platform)
-);
-
-if (!fs.existsSync(externalToolsDir) || !aksMcpStaged || !azCliStaged) {
+if (!fs.existsSync(externalToolsDir) || !aksMcpStaged || !azureCliStaged) {
   if (!aksMcpStaged && fs.existsSync(externalToolsDir)) {
     console.log(`aks-mcp is missing or not staged for ${targetPlatform}/${targetArch}.`);
   }
-  if (!azCliStaged && fs.existsSync(externalToolsDir)) {
-    console.log(
-      `Azure CLI is missing or not staged for ${process.platform} at the pinned version ` +
-        `(${expectedAzCliVersion ?? 'unknown'}).`
-    );
+  if (!azureCliStaged && fs.existsSync(externalToolsDir)) {
+    console.log(`Azure CLI is missing or not staged for ${targetPlatform}/${targetArch}.`);
   }
   console.log('Setting up external tools...');
   execSync(

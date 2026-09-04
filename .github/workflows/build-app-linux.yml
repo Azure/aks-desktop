@@ -16,7 +16,15 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Install golang
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -35,10 +43,13 @@ jobs:
           submodules: recursive
 
       - name: Setup AKS desktop and Build Headlamp (Linux)
-        run: npm run build:linux
+        run: npm run build:linux:${{ matrix.arch }}
 
       - name: Upload Linux build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: aks-desktop-linux
-          path: headlamp/app/dist/aks-desktop*.deb
+          name: aks-desktop-linux-${{ matrix.arch }}
+          path: |
+            headlamp/app/dist/aks-desktop*.AppImage
+            headlamp/app/dist/aks-desktop*.tar.gz
+            headlamp/app/dist/aks-desktop*.deb
