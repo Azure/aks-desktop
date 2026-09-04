@@ -1033,5 +1033,7 @@
   "Warning event: {{ reason }} ({{ eventCount }} times)": "",
   "Whoops! This page doesn't exist": "",
   "Your selection includes system namespaces. Deleting them may break your cluster.": "",
-  "Development Mode": ""
+  "Load development plugins": "",
+  "Load plugins from your local development directory. Only enable this when you trust every plugin in that directory.": "",
+  "Plugin Development Mode": ""
 }
