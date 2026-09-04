@@ -1,4 +1,4 @@
-From 899614eb8b2f8edaa490ca8e39a8e23d51fd25fd Mon Sep 17 00:00:00 2001
+From 3d82991441d6a272a4696ddf5519677da7fa8048 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Wed, 2 Sep 2026 19:32:05 +0200
 Subject: [PATCH] app: backend-token: Coordinate external development server
@@ -253,7 +253,7 @@ index 000000000..2a7e25098
 +  }
 +}
 diff --git a/app/electron/main.ts b/app/electron/main.ts
-index adbb5fa63..231926409 100644
+index d378e9ae1..6a8a21a9c 100644
 --- a/app/electron/main.ts
 +++ b/app/electron/main.ts
 @@ -15,7 +15,6 @@
@@ -294,7 +294,7 @@ index adbb5fa63..231926409 100644
  const legalDocumentsResourcePath = getLegalDocumentsResourcePath(isDev, process.resourcesPath);
  const appBuildManifestPath = isDev
    ? resolveBuildManifestPath()
-@@ -1425,6 +1429,10 @@ function startElectron() {
+@@ -1426,6 +1430,10 @@ function startElectron() {
    console.log('Check for updates: ', shouldCheckForUpdates);
  
    async function startServerIfNeeded() {

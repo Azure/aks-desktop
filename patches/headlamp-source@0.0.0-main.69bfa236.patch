@@ -268,10 +268,10 @@ index baf76fc06d7a093ea2554ee022f6fa1d8d43c598..f08c19eb4af4e87cda5f0439d7903772
        "id": "license",
 diff --git a/source/app/app-build-manifest.schema.json b/source/app/app-build-manifest.schema.json
 new file mode 100644
-index 0000000000000000000000000000000000000000..b4d01afaa8d69205742e1d3b57bce9b2cc7eb282
+index 0000000000000000000000000000000000000000..4d522e828af00a9c39b849e7c57cf5b855b5bc48
 --- /dev/null
 +++ b/source/app/app-build-manifest.schema.json
-@@ -0,0 +1,430 @@
+@@ -0,0 +1,421 @@
 +{
 +  "$schema": "http://json-schema.org/draft-07/schema#",
 +  "$id": "app-build-manifest.schema.json",
@@ -475,15 +475,6 @@ index 0000000000000000000000000000000000000000..b4d01afaa8d69205742e1d3b57bce9b2
 +                }
 +              }
 +            }
-+          }
-+        },
-+        {
-+          "if": {
-+            "properties": { "pluginLocation": { "const": "shipped" } },
-+            "required": ["pluginLocation"]
-+          },
-+          "then": {
-+            "not": { "required": ["pluginExecutables"] }
 +          }
 +        }
 +      ],
@@ -986,7 +977,7 @@ index 0000000000000000000000000000000000000000..2a7e2509875165d8ca53049d49ea26c9
 +  }
 +}
 diff --git a/source/app/electron/build-manifest.test.ts b/source/app/electron/build-manifest.test.ts
-index 8eb3694741712dfcf6ebbb667e96884a24defd12..04adc11106f155dd04e1954e5b8b6a27a9274c26 100644
+index 8eb3694741712dfcf6ebbb667e96884a24defd12..85914bdb12d7ce660e503553840f7ffb227f5489 100644
 --- a/source/app/electron/build-manifest.test.ts
 +++ b/source/app/electron/build-manifest.test.ts
 @@ -14,12 +14,17 @@
@@ -1020,7 +1011,15 @@ index 8eb3694741712dfcf6ebbb667e96884a24defd12..04adc11106f155dd04e1954e5b8b6a27
    verifyPackagedResources,
  } from '../scripts/build-manifest.ts';
  import {
-@@ -729,10 +737,308 @@ describe('packaged resource verification', () => {
+@@ -38,6 +46,7 @@ import {
+   extractArchive,
+   getArchiveFileName,
+   pathsReferToSameFile,
++  recordBundledPluginExecutableIntegrity,
+   resolveLocalPluginArchive,
+   validatePluginSource,
+   verifyArchiveDigest,
+@@ -729,10 +738,308 @@ describe('packaged resource verification', () => {
  });
  
  describe('build manifest selection', () => {
@@ -1329,11 +1328,11 @@ index 8eb3694741712dfcf6ebbb667e96884a24defd12..04adc11106f155dd04e1954e5b8b6a27
    it('resolves and loads an external product manifest', () => {
      const manifestFile = temporaryFile('{"plugins":[{"name":"example"}]}');
  
-@@ -749,6 +1055,280 @@ describe('build manifest selection', () => {
+@@ -749,6 +1056,293 @@ describe('build manifest selection', () => {
      expect(loadBuildManifest()).toEqual(expect.objectContaining({ plugins: expect.any(Array) }));
    });
  
-+  it('rejects plugin executables for shipped plugin identities', () => {
++  it('loads plugin executables for shipped plugin identities', () => {
 +    const manifest = {
 +      runCommands: [
 +        {
@@ -1349,10 +1348,23 @@ index 8eb3694741712dfcf6ebbb667e96884a24defd12..04adc11106f155dd04e1954e5b8b6a27
 +    const schema = JSON.parse(
 +      fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
 +    );
-+    expect(addFormats(new Ajv()).compile(schema)(manifest)).toBe(false);
-+    expect(() => loadBuildManifest(temporaryFile(JSON.stringify(manifest)))).toThrow(
-+      'Shipped plugin executables are unsupported'
-+    );
++    expect(addFormats(new Ajv()).compile(schema)(manifest)).toBe(true);
++    expect(
++      productPluginCommandPolicies(
++        loadBuildManifest(temporaryFile(JSON.stringify(manifest))),
++        'production'
++      )
++    ).toEqual([
++      expect.objectContaining({
++        bundleName: 'example-plugin',
++        source: 'shipped',
++        grants: [
++          expect.objectContaining({
++            executable: { source: 'plugin', path: 'bin/examplectl' },
++          }),
++        ],
++      }),
++    ]);
 +  });
 +
 +  it('rejects internal executable provenance in authored command grants', () => {
@@ -1610,12 +1622,83 @@ index 8eb3694741712dfcf6ebbb667e96884a24defd12..04adc11106f155dd04e1954e5b8b6a27
    it('rejects unsafe proxy URL patterns', () => {
      for (const proxyUrls of [
        ['file:///etc/passwd'],
+@@ -801,6 +1395,70 @@ describe('build manifest selection', () => {
+ });
+ 
+ describe('plugin archive integrity', () => {
++  it('copies and records only declared bundled executables', async () => {
++    const sourceDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-tar-source-'));
++    const extractionDirectory = fs.mkdtempSync(
++      path.join(os.tmpdir(), 'headlamp-plugin-extraction-')
++    );
++    const pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-plugin-root-'));
++    temporaryDirectories.push(sourceDirectory, extractionDirectory, pluginRoot);
++    const sourcePlugin = path.join(sourceDirectory, 'plugin');
++    fs.mkdirSync(path.join(sourcePlugin, 'bin'), { recursive: true });
++    fs.writeFileSync(path.join(sourcePlugin, 'main.js'), 'main');
++    fs.writeFileSync(
++      path.join(sourcePlugin, 'package.json'),
++      JSON.stringify({ name: '@example/plugin' })
++    );
++    fs.writeFileSync(path.join(sourcePlugin, 'bin', 'examplectl'), 'trusted executable');
++    fs.writeFileSync(path.join(sourcePlugin, 'bin', 'undeclared'), 'not packaged');
++    const archive = path.join(sourceDirectory, 'plugin.tar.gz');
++    await tar.c({ cwd: sourceDirectory, file: archive, gzip: true }, ['plugin']);
++
++    await extractArchive('example-plugin', archive, extractionDirectory, pluginRoot, undefined, [
++      'bin/examplectl',
++    ]);
++    const bundlePath = path.join(pluginRoot, 'example-plugin');
++    await recordBundledPluginExecutableIntegrity(bundlePath, ['bin/examplectl']);
++
++    expect(fs.readFileSync(path.join(bundlePath, 'bin', 'examplectl'), 'utf8')).toBe(
++      'trusted executable'
++    );
++    expect(fs.existsSync(path.join(bundlePath, 'bin', 'undeclared'))).toBe(false);
++    expect(JSON.parse(fs.readFileSync(path.join(bundlePath, 'package.json'), 'utf8'))).toEqual(
++      expect.objectContaining({
++        headlampPluginIntegrity: {
++          version: 1,
++          executables: {
++            'bin/examplectl': crypto
++              .createHash('sha256')
++              .update('trusted executable')
++              .digest('hex'),
++          },
++        },
++      })
++    );
++  });
++
++  it('rejects a shipped plugin archive missing a declared executable', async () => {
++    const sourceDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-tar-source-'));
++    const extractionDirectory = fs.mkdtempSync(
++      path.join(os.tmpdir(), 'headlamp-plugin-extraction-')
++    );
++    temporaryDirectories.push(sourceDirectory, extractionDirectory);
++    const sourcePlugin = path.join(sourceDirectory, 'plugin');
++    fs.mkdirSync(sourcePlugin);
++    fs.writeFileSync(path.join(sourcePlugin, 'main.js'), 'main');
++    fs.writeFileSync(path.join(sourcePlugin, 'package.json'), '{}');
++    const archive = path.join(sourceDirectory, 'plugin.tar.gz');
++    await tar.c({ cwd: sourceDirectory, file: archive, gzip: true }, ['plugin']);
++
++    await expect(
++      extractArchive('example-plugin', archive, extractionDirectory, undefined, undefined, [
++        'bin/examplectl',
++      ])
++    ).rejects.toThrow();
++  });
++
+   it('rejects missing and malformed plugin archives', async () => {
+     const extractionDirectory = fs.mkdtempSync(
+       path.join(os.tmpdir(), 'headlamp-plugin-extraction-')
 diff --git a/source/app/electron/developmentPlugins.test.ts b/source/app/electron/developmentPlugins.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..d00dcb3d40e3369aba01b7354dbaa5327ae2e324
+index 0000000000000000000000000000000000000000..5abc121b8bbef2966142b68d3a086a646cd6d81d
 --- /dev/null
 +++ b/source/app/electron/developmentPlugins.test.ts
-@@ -0,0 +1,196 @@
+@@ -0,0 +1,215 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -1792,6 +1875,25 @@ index 0000000000000000000000000000000000000000..d00dcb3d40e3369aba01b7354dbaa532
 +    );
 +  });
 +
++  it('restores the persisted state when saving fails', () => {
++    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
++    showMessageBoxSync.mockReturnValueOnce(0);
++    setDevelopmentPluginsEnabled.mockImplementationOnce(() => {
++      throw new Error('read-only settings');
++    });
++
++    handlers.get('set-development-plugins')!({ sender: webContents, senderFrame: mainFrame }, true);
++
++    expect(webContents.send).toHaveBeenCalledWith('development-plugins', false);
++    expect(revokeRunCmdCapabilities).not.toHaveBeenCalled();
++    expect(webContents.reload).not.toHaveBeenCalled();
++    expect(consoleError).toHaveBeenCalledWith(
++      'Failed to persist Plugin Development Mode:',
++      expect.any(Error)
++    );
++    consoleError.mockRestore();
++  });
++
 +  it('replaces handlers that target a previous window', () => {
 +    const previousRequestHandler = handlers.get('request-development-plugins')!;
 +    const previousSetHandler = handlers.get('set-development-plugins')!;
@@ -1814,10 +1916,10 @@ index 0000000000000000000000000000000000000000..d00dcb3d40e3369aba01b7354dbaa532
 +});
 diff --git a/source/app/electron/developmentPlugins.ts b/source/app/electron/developmentPlugins.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..9b022b0b6a26c6acc319138e24fc922fdb8d1404
+index 0000000000000000000000000000000000000000..1ebcf3c25032c401ec10dc78025f49cbc41e983f
 --- /dev/null
 +++ b/source/app/electron/developmentPlugins.ts
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,131 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -1920,7 +2022,13 @@ index 0000000000000000000000000000000000000000..9b022b0b6a26c6acc319138e24fc922f
 +      event.sender.send('development-plugins', currentlyEnabled);
 +      return;
 +    }
-+    setDevelopmentPluginsEnabled(enabled);
++    try {
++      setDevelopmentPluginsEnabled(enabled);
++    } catch (error) {
++      console.error('Failed to persist Plugin Development Mode:', error);
++      event.sender.send('development-plugins', currentlyEnabled);
++      return;
++    }
 +    revokeRunCmdCapabilities(ipcMain);
 +    mainWindow.webContents.reload();
 +  };
@@ -1944,7 +2052,7 @@ index 0000000000000000000000000000000000000000..9b022b0b6a26c6acc319138e24fc922f
 +  });
 +}
 diff --git a/source/app/electron/main.ts b/source/app/electron/main.ts
-index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe4f250b75 100644
+index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..f239918b42afe7dbc4f22f7b3a78f32d633d7601 100644
 --- a/source/app/electron/main.ts
 +++ b/source/app/electron/main.ts
 @@ -15,7 +15,6 @@
@@ -1984,9 +2092,10 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
    runScript,
    setupRunCmdHandlers,
  } from './runCmd';
-+import { pluginConfigDirName } from './runtimeProductIdentity';
- import { setupSecureStorageHandlers } from './secureStorage';
+-import { setupSecureStorageHandlers } from './secureStorage';
 -import { loadSettings, SETTINGS_PATH } from './settings';
++import { pluginConfigDirName } from './runtimeProductIdentity';
++import { isTrustedDocumentUrl, setupSecureStorageHandlers } from './secureStorage';
 +import { areDevelopmentPluginsEnabled, loadSettings, SETTINGS_PATH } from './settings';
  import { getShellEnv } from './shellEnv';
  import { shouldCheckForAppUpdates } from './shouldCheckForAppUpdates';
@@ -2028,7 +2137,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
  
  const startUrl = (
    process.env.ELECTRON_START_URL ||
-@@ -204,15 +219,28 @@ const defaultPort = args.port || 4466;
+@@ -204,15 +219,29 @@ const defaultPort = args.port || 4466;
  let actualPort = defaultPort; // Will be updated when backend starts
  const MAX_PORT_ATTEMPTS = Math.abs(Number(process.env.HEADLAMP_MAX_PORT_ATTEMPTS) || 100); // Maximum number of ports to try
  
@@ -2053,13 +2162,14 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
 +  return (
 +    !!window &&
 +    event.sender === window.webContents &&
-+    event.senderFrame === window.webContents.mainFrame
++    event.senderFrame === window.webContents.mainFrame &&
++    isTrustedDocumentUrl(event.senderFrame.url, startUrl)
 +  );
 +}
  let mcpClient: MCPClient | null = null;
  let isQuitting = false;
  let hasTray = false;
-@@ -272,7 +300,7 @@ class PluginManagerEventListeners {
+@@ -272,7 +301,7 @@ class PluginManagerEventListeners {
      };
    } = {};
  
@@ -2068,7 +2178,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
      this.cache = {};
    }
  
-@@ -305,6 +333,9 @@ class PluginManagerEventListeners {
+@@ -305,6 +334,9 @@ class PluginManagerEventListeners {
     */
    setupEventHandlers() {
      ipcMain.on('plugin-manager', async (event, data) => {
@@ -2078,7 +2188,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
        let eventData: Action;
  
        try {
-@@ -505,7 +536,10 @@ class PluginManagerEventListeners {
+@@ -505,7 +537,10 @@ class PluginManagerEventListeners {
        progress: { type: 'info', message: 'uninstalling plugin' },
      };
  
@@ -2090,7 +2200,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
  
      PluginManager.uninstall(pluginName, destinationFolder, progress => {
        updateCache(progress);
-@@ -1379,8 +1413,11 @@ function startElectron() {
+@@ -1379,8 +1414,11 @@ function startElectron() {
    // Default is 10, setting to 20 provides headroom for future additions
    ipcMain.setMaxListeners(20);
  
@@ -2104,7 +2214,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
    });
  
    let appVersion: string;
-@@ -1394,6 +1431,10 @@ function startElectron() {
+@@ -1394,6 +1432,10 @@ function startElectron() {
    console.log('Check for updates: ', shouldCheckForUpdates);
  
    async function startServerIfNeeded() {
@@ -2115,7 +2225,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
      if (!useExternalServer) {
        try {
          // Try to start the server (it will find an available port)
-@@ -1554,10 +1595,20 @@ function startElectron() {
+@@ -1554,10 +1596,20 @@ function startElectron() {
        webPreferences: {
          nodeIntegration: false,
          contextIsolation: true,
@@ -2136,7 +2246,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
  
      applyZoom();
  
-@@ -1674,8 +1725,11 @@ function startElectron() {
+@@ -1674,8 +1726,11 @@ function startElectron() {
        setMenu(mainWindow, currentMenu);
      });
  
@@ -2150,7 +2260,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
          checkForUpdates: shouldCheckForUpdates,
          appVersion,
          protocolScheme,
-@@ -1689,14 +1743,17 @@ function startElectron() {
+@@ -1689,14 +1744,17 @@ function startElectron() {
        readLegalDocument(legalDocumentsResourcePath, legalDocuments, id)
      );
  
@@ -2170,7 +2280,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
          return;
        }
  
-@@ -1719,30 +1776,40 @@ function startElectron() {
+@@ -1719,30 +1777,40 @@ function startElectron() {
      });
  
      ipcMain.on('locale', (event: IpcMainEvent, newLocale: string) => {
@@ -2218,7 +2328,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
  
      // Handle opening plugin folder in file explorer
      ipcMain.on(
-@@ -1751,6 +1818,9 @@ function startElectron() {
+@@ -1751,6 +1819,9 @@ function startElectron() {
          event: IpcMainEvent,
          pluginInfo: { folderName: string; type: 'development' | 'user' | 'shipped' }
        ) => {
@@ -2228,7 +2338,7 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
          let folderPath: string | null = null;
  
          if (pluginInfo.type === 'user') {
-@@ -1771,13 +1841,13 @@ function startElectron() {
+@@ -1771,13 +1842,13 @@ function startElectron() {
  
      // Also add bundled plugin bin directories to PATH
      const bundledPlugins = path.join(process.resourcesPath, '.plugins');
@@ -2244,7 +2354,16 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
      if (userPluginBinDirs.length > 0) {
        addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
      }
-@@ -1841,26 +1911,31 @@ function startElectron() {
+@@ -1785,7 +1856,7 @@ function startElectron() {
+     if (ENABLE_MCP) {
+       const configPath = path.join(app.getPath('userData'), 'mcp-tools-config.json');
+       const settingsPath = path.join(app.getPath('userData'), 'mcp-tools-settings.json');
+-      mcpClient = new MCPClient(configPath, settingsPath, ensureCertificates);
++      mcpClient = new MCPClient(configPath, settingsPath, ensureCertificates, startUrl);
+       await mcpClient.initialize();
+       mcpClient.setMainWindow(mainWindow);
+     }
+@@ -1841,26 +1912,31 @@ function startElectron() {
      }
    });
  
@@ -2295,15 +2414,17 @@ index 1e09d7561df95c3440b31e8f4a98ee6ef52bb94d..b0c9e292617591a660627946eb28efbe
  
  if (!isRunningScript) {
 diff --git a/source/app/electron/mcp/MCPClient.test.ts b/source/app/electron/mcp/MCPClient.test.ts
-index 761a1ce6ca18c05f9ec4a5f584a33498b21051a9..bd54c01eba27fb903c9c43f68d126edcfae21bd0 100644
+index 761a1ce6ca18c05f9ec4a5f584a33498b21051a9..4e96a55ed36ba55725e54ed493586fe5b95d4a44 100644
 --- a/source/app/electron/mcp/MCPClient.test.ts
 +++ b/source/app/electron/mcp/MCPClient.test.ts
-@@ -75,6 +75,22 @@ describe('MCPClient', () => {
+@@ -75,6 +75,30 @@ describe('MCPClient', () => {
      );
    });
  
-+  it('accepts MCP IPC only from the active window main frame', () => {
-+    const mainFrame = {};
++  it('accepts MCP IPC only from the trusted document in the active main frame', () => {
++    const trustedStartUrl = 'http://127.0.0.1:3000/';
++    const client = new MCPClient(cfgPath, settingsPath, undefined, trustedStartUrl);
++    const mainFrame = { url: `${trustedStartUrl}#settings` };
 +    const webContents = { mainFrame };
 +    client.setMainWindow({ webContents } as any);
 +
@@ -2316,25 +2437,47 @@ index 761a1ce6ca18c05f9ec4a5f584a33498b21051a9..bd54c01eba27fb903c9c43f68d126edc
 +    expect(() =>
 +      (client as any).assertTrustedIpcEvent({ sender: {}, senderFrame: mainFrame })
 +    ).toThrow('MCP IPC request rejected');
++    expect(() =>
++      (client as any).assertTrustedIpcEvent({
++        sender: webContents,
++        senderFrame: { ...mainFrame, url: 'http://127.0.0.1:3000.attacker.example/' },
++      })
++    ).toThrow('MCP IPC request rejected');
 +  });
 +
    it('initialize is idempotent and logs exactly once', async () => {
      await client.initialize();
      await client.initialize(); // second call should be a no-op
 diff --git a/source/app/electron/mcp/MCPClient.ts b/source/app/electron/mcp/MCPClient.ts
-index 9c6a50f9dadfd17f1cd9870b2b7eaac94afc69a0..3fc4c27c62b4b85f60ce220814e29a492867e8fc 100644
+index 9c6a50f9dadfd17f1cd9870b2b7eaac94afc69a0..9b1701a9fc013fa4eb743bff1336db41d6d76809 100644
 --- a/source/app/electron/mcp/MCPClient.ts
 +++ b/source/app/electron/mcp/MCPClient.ts
-@@ -15,7 +15,7 @@
+@@ -15,7 +15,8 @@
   */
  
  import type { DynamicStructuredTool } from '@langchain/core/dist/tools/index';
 -import { type BrowserWindow, dialog, ipcMain } from 'electron';
 +import { type BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron';
++import { isTrustedDocumentUrl } from '../secureStorage';
  import type { MultiServerMCPClient } from './MCPAdapter';
  import {
    hasClusterDependentServers,
-@@ -626,32 +626,48 @@ export default class MCPClient {
+@@ -82,11 +83,13 @@ export default class MCPClient {
+    * @param configPath - Path to the persisted MCP tool configuration.
+    * @param settingsPath - Path to the persisted MCP server settings.
+    * @param ensureCertificates - Initializes certificate trust before networking.
++   * @param trustedStartUrl - Exact Headlamp document URL authorized to invoke MCP IPC.
+    */
+   constructor(
+     configPath: string,
+     settingsPath: string,
+-    private readonly ensureCertificates: () => void = () => {}
++    private readonly ensureCertificates: () => void = () => {},
++    private readonly trustedStartUrl?: string
+   ) {
+     this.configPath = configPath;
+     this.settingsPath = settingsPath;
+@@ -626,32 +629,50 @@ export default class MCPClient {
      }
    }
  
@@ -2342,7 +2485,9 @@ index 9c6a50f9dadfd17f1cd9870b2b7eaac94afc69a0..3fc4c27c62b4b85f60ce220814e29a49
 +    if (
 +      !this.mainWindow ||
 +      event.sender !== this.mainWindow.webContents ||
-+      event.senderFrame !== this.mainWindow.webContents.mainFrame
++      event.senderFrame !== this.mainWindow.webContents.mainFrame ||
++      (this.trustedStartUrl !== undefined &&
++        !isTrustedDocumentUrl(event.senderFrame.url, this.trustedStartUrl))
 +    ) {
 +      throw new Error('MCP IPC request rejected');
 +    }
@@ -2398,7 +2543,7 @@ index 9c6a50f9dadfd17f1cd9870b2b7eaac94afc69a0..3fc4c27c62b4b85f60ce220814e29a49
  }
  
 diff --git a/source/app/electron/plugin-management.test.ts b/source/app/electron/plugin-management.test.ts
-index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f31007601d1b2af3 100644
+index 87984b60a33914f9fade3749c129d6b403e08a0e..eaf4aec6a0d507b3fbe2809edfdd261e3c01bbf3 100644
 --- a/source/app/electron/plugin-management.test.ts
 +++ b/source/app/electron/plugin-management.test.ts
 @@ -33,8 +33,17 @@ import {
@@ -2419,7 +2564,7 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f3100760
  } from './plugin-management';
  
  const TEST_DATA_BASE_DIR = path.join(os.tmpdir(), 'headlamp-test-data');
-@@ -42,6 +51,180 @@ const PLUGIN_DEST_BASE_DIR = path.join(os.tmpdir(), 'headlamp-test-plugins');
+@@ -42,6 +51,228 @@ const PLUGIN_DEST_BASE_DIR = path.join(os.tmpdir(), 'headlamp-test-plugins');
  const HEADLAMP_VERSION = '0.30.0';
  const ORIGINAL_PLATFORM = process.platform;
  
@@ -2442,71 +2587,119 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f3100760
 +    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-installation-receipt-'));
 +    temporaryDirectories.push(root);
 +    const bundle = path.join(root, 'plugin');
++    const receiptFile = path.join(root, 'app-state', 'plugin-installation-receipts.json');
 +    const script = path.join(bundle, 'manage.js');
 +    fs.mkdirSync(bundle);
 +    fs.writeFileSync(path.join(bundle, 'package.json'), '{"name":"@headlamp-k8s/minikube"}');
 +    fs.writeFileSync(script, 'trusted');
-+    return { root, bundle, script };
++    return { root, bundle, receiptFile, script };
 +  }
 +
 +  it('records installed files with the expected Artifact Hub identity', async () => {
-+    const { bundle } = fixture();
-+    await recordPluginInstallationIntegrity(bundle, identity);
++    const { bundle, receiptFile } = fixture();
++    await recordPluginInstallationIntegrity(bundle, identity, receiptFile);
 +
-+    await expect(verifyPluginInstallationIntegrity(bundle, identity)).resolves.toBe(true);
++    await expect(verifyPluginInstallationIntegrity(bundle, identity, receiptFile)).resolves.toBe(
++      true
++    );
 +    await expect(
-+      verifyPluginInstallationIntegrity(bundle, {
-+        repository: identity.repository,
-+        package: identity.package,
-+      })
++      verifyPluginInstallationIntegrity(
++        bundle,
++        {
++          repository: identity.repository,
++          package: identity.package,
++        },
++        receiptFile
++      )
 +    ).resolves.toBe(true);
 +    await expect(
-+      verifyPluginInstallationIntegrity(bundle, {
-+        repository: identity.repository,
-+        package: 'another-package',
-+      })
++      verifyPluginInstallationIntegrity(
++        bundle,
++        {
++          repository: identity.repository,
++          package: 'another-package',
++        },
++        receiptFile
++      )
 +    ).resolves.toBe(false);
 +    await expect(
-+      verifyPluginInstallationIntegrity(bundle, {
-+        ...identity,
-+        repositoryId: '61e223f8-49fe-47c5-9bf8-802e8f759cab',
-+      })
++      verifyPluginInstallationIntegrity(
++        bundle,
++        {
++          ...identity,
++          repositoryId: '61e223f8-49fe-47c5-9bf8-802e8f759cab',
++        },
++        receiptFile
++      )
 +    ).resolves.toBe(false);
++    expect(JSON.parse(fs.readFileSync(receiptFile, 'utf8')).receipts[0]).toEqual(
++      expect.objectContaining({
++        ...identity,
++        inventoryPath: fs.realpathSync(path.dirname(bundle)),
++        bundleName: path.basename(bundle),
++      })
++    );
 +    expect(
 +      JSON.parse(fs.readFileSync(path.join(bundle, 'package.json'), 'utf8')).headlampPluginIntegrity
-+        .installation
-+    ).toEqual(expect.objectContaining(identity));
++    ).toBeUndefined();
 +  });
 +
 +  it('rejects modified files and receipt-less legacy installations', async () => {
-+    const { bundle, script } = fixture();
++    const { bundle, receiptFile, script } = fixture();
 +
-+    await expect(verifyPluginInstallationIntegrity(bundle, identity)).resolves.toBe(false);
-+    await recordPluginInstallationIntegrity(bundle, identity);
++    await expect(verifyPluginInstallationIntegrity(bundle, identity, receiptFile)).resolves.toBe(
++      false
++    );
++    await recordPluginInstallationIntegrity(bundle, identity, receiptFile);
 +    fs.writeFileSync(script, 'replaced');
-+    await expect(verifyPluginInstallationIntegrity(bundle, identity)).resolves.toBe(false);
++    await expect(verifyPluginInstallationIntegrity(bundle, identity, receiptFile)).resolves.toBe(
++      false
++    );
 +  });
 +
-+  it('accepts receipt file maps regardless of property order', async () => {
-+    const { bundle } = fixture();
-+    await recordPluginInstallationIntegrity(bundle, identity);
++  it('rejects a forged package-local receipt and a copied bundle', async () => {
++    const { root, bundle, receiptFile } = fixture();
 +    const packagePath = path.join(bundle, 'package.json');
 +    const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-+    const files = packageJson.headlampPluginIntegrity.installation.files;
-+    packageJson.headlampPluginIntegrity.installation.files = Object.fromEntries(
-+      Object.entries(files).reverse()
-+    );
++    packageJson.headlampPluginIntegrity = { version: 1, installation: { ...identity, files: {} } };
 +    fs.writeFileSync(packagePath, JSON.stringify(packageJson));
 +
-+    await expect(verifyPluginInstallationIntegrity(bundle, identity)).resolves.toBe(true);
++    await expect(verifyPluginInstallationIntegrity(bundle, identity, receiptFile)).resolves.toBe(
++      false
++    );
++    await recordPluginInstallationIntegrity(bundle, identity, receiptFile);
++    const copiedBundle = path.join(root, 'other-inventory', 'plugin');
++    fs.cpSync(bundle, copiedBundle, { recursive: true });
++
++    await expect(
++      verifyPluginInstallationIntegrity(copiedBundle, identity, receiptFile)
++    ).resolves.toBe(false);
++  });
++
++  it('records a root file named __proto__ in the integrity map', async () => {
++    const { bundle, receiptFile } = fixture();
++    const specialFile = path.join(bundle, '__proto__');
++    fs.writeFileSync(specialFile, 'trusted');
++    await recordPluginInstallationIntegrity(bundle, identity, receiptFile);
++    fs.writeFileSync(specialFile, 'replaced');
++
++    await expect(verifyPluginInstallationIntegrity(bundle, identity, receiptFile)).resolves.toBe(
++      false
++    );
 +  });
 +
 +  it('prepares immutable script bytes and removes them after use', async () => {
-+    const { root, bundle, script } = fixture();
++    const { root, bundle, receiptFile, script } = fixture();
 +    const preparedRoot = path.join(root, 'prepared');
-+    await recordPluginInstallationIntegrity(bundle, identity);
++    await recordPluginInstallationIntegrity(bundle, identity, receiptFile);
 +
-+    const prepared = await preparePluginScript(bundle, 'manage.js', identity, preparedRoot);
++    const prepared = await preparePluginScript(
++      bundle,
++      'manage.js',
++      identity,
++      preparedRoot,
++      receiptFile
++    );
 +    expect(prepared.ok).toBe(true);
 +    if (!prepared.ok) return;
 +    fs.writeFileSync(script, 'replaced');
@@ -2600,7 +2793,7 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f3100760
  describe('default plugin directories', () => {
    afterEach(() => {
      Object.defineProperty(process, 'platform', { value: ORIGINAL_PLATFORM });
-@@ -92,6 +275,25 @@ describe('default plugin directories', () => {
+@@ -92,6 +323,25 @@ describe('default plugin directories', () => {
    );
  });
  
@@ -2626,7 +2819,7 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f3100760
  describe('plugin management loading', () => {
    it('defers installation-only dependencies', async () => {
      const tarFactory = vi.fn(() => ({}));
-@@ -113,6 +315,37 @@ describe('plugin management loading', () => {
+@@ -113,6 +363,37 @@ describe('plugin management loading', () => {
    });
  });
  
@@ -2664,7 +2857,7 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f3100760
  /**
   * Creates a unique test directory for a test
   * @param basePath Base directory path
-@@ -170,6 +403,9 @@ describe('PluginManager', () => {
+@@ -170,6 +451,9 @@ describe('PluginManager', () => {
      const minikubeBinary = platform === 'win32' ? 'minikube.exe' : 'minikube';
      const minikubePath = path.join(pluginDir, 'bin', minikubeBinary);
      expect(fs.existsSync(minikubePath)).toBe(true);
@@ -2674,7 +2867,7 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f3100760
  
      // Verify progress includes platform-specific download
      const platformMessages = progress.filter(
-@@ -242,6 +478,60 @@ describe('PluginManager', () => {
+@@ -242,6 +526,60 @@ describe('PluginManager', () => {
      }
    }, 30000);
  
@@ -2735,7 +2928,7 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f3100760
    it('should uninstall plugin from the same directory where it was installed', async () => {
      // Create unique directories for this test
      const testDataDir = getUniqueTestDir(TEST_DATA_BASE_DIR, 'uninstall-test-data');
-@@ -379,9 +669,13 @@ async function createPlatformSpecificTarball(testDataDir: string) {
+@@ -379,9 +717,13 @@ async function createPlatformSpecificTarball(testDataDir: string) {
  }
  
  /**
@@ -2751,7 +2944,7 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f3100760
    try {
      // Calculate checksums for the tarballs
      const pluginTarballPath = path.join(testDataDir, 'plugin-tarball.tar.gz');
-@@ -413,10 +707,12 @@ function mockArtifactHubAPI(testDataDir: string) {
+@@ -413,10 +755,12 @@ function mockArtifactHubAPI(testDataDir: string) {
      nock('https://artifacthub.io')
        .get('/api/v1/packages/headlamp/test-repo/headlamp_minikube')
        .reply(200, {
@@ -2765,7 +2958,7 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f3100760
            name: 'test-repo',
            user_alias: 'tester',
          },
-@@ -428,7 +724,8 @@ function mockArtifactHubAPI(testDataDir: string) {
+@@ -428,7 +772,8 @@ function mockArtifactHubAPI(testDataDir: string) {
            'headlamp/plugin/extra-files/0/url': platformSpecificArchiveURL,
            'headlamp/plugin/extra-files/0/checksum': `sha256:${platformSpecificChecksum}`,
            'headlamp/plugin/extra-files/0/arch': `${platform}/${arch}`,
@@ -2775,7 +2968,7 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f3100760
            'headlamp/plugin/extra-files/0/output/minikube/input':
              os.platform() === 'win32' ? 'minikube.exe' : 'minikube',
            // Add dummy entries for other platforms to ensure we only download the correct one
-@@ -480,10 +777,12 @@ function mockArtifactHubAPIWithoutPlatformSpecific(testDataDir: string) {
+@@ -480,10 +825,12 @@ function mockArtifactHubAPIWithoutPlatformSpecific(testDataDir: string) {
      nock('https://artifacthub.io')
        .get('/api/v1/packages/headlamp/test-repo/headlamp_minikube')
        .reply(200, {
@@ -2789,7 +2982,7 @@ index 87984b60a33914f9fade3749c129d6b403e08a0e..6b50efb2d3c3a1533d0a0c09f3100760
            user_alias: 'tester',
          },
 diff --git a/source/app/electron/plugin-management.ts b/source/app/electron/plugin-management.ts
-index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500939d9529 100644
+index 17a08fd556602a70761be976e7a4551ee2429c04..81399d1fd9b5a931ab9ef4f6e4c29dc7a1bb1b6a 100644
 --- a/source/app/electron/plugin-management.ts
 +++ b/source/app/electron/plugin-management.ts
 @@ -24,6 +24,7 @@
@@ -2812,7 +3005,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
      name: string;
      user_alias: string;
    };
-@@ -169,6 +172,478 @@ export interface ArtifactHubHeadlampPkg {
+@@ -169,6 +172,572 @@ export interface ArtifactHubHeadlampPkg {
    extraFiles?: Record<string, ExtraFile>;
  }
  
@@ -2829,7 +3022,14 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 +}
 +
 +interface PluginInstallationReceipt extends Required<ArtifactHubPluginIdentity> {
++  inventoryPath: string;
++  bundleName: string;
 +  files: Record<string, string>;
++}
++
++interface PluginInstallationReceiptStore {
++  version: 1;
++  receipts: PluginInstallationReceipt[];
 +}
 +
 +/**
@@ -2842,7 +3042,6 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 + */
 +interface PluginPackageIntegrity {
 +  version: 1;
-+  installation?: PluginInstallationReceipt;
 +  executables?: Record<string, string>;
 +}
 +
@@ -2852,6 +3051,10 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 +  'prepared-plugin-executables'
 +);
 +export const PREPARED_PLUGIN_SCRIPTS_PATH = path.join(PLUGIN_DATA_PATH, 'prepared-plugin-scripts');
++export const PLUGIN_INSTALLATION_RECEIPTS_PATH = path.join(
++  PLUGIN_DATA_PATH,
++  'plugin-installation-receipts.json'
++);
 +
 +/**
 + * Computes the SHA-256 digest of a plugin file.
@@ -2893,7 +3096,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 + * @throws When the bundle contains a symbolic link or non-file entry.
 + */
 +async function pluginBundleFiles(bundlePath: string): Promise<Record<string, string>> {
-+  const files: Record<string, string> = {};
++  const files: Record<string, string> = Object.create(null);
 +
 +  /** Visits one bundle directory and adds its regular files to the digest map. */
 +  async function visit(directory: string): Promise<void> {
@@ -2939,7 +3142,6 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 +      files &&
 +      Object.entries(files).every(([file, digest]) => file !== '' && /^[a-f0-9]{64}$/.test(digest));
 +    if (integrity?.version !== 1) return undefined;
-+    if (integrity.installation && !validFiles(integrity.installation.files)) return undefined;
 +    if (integrity.executables && !validFiles(integrity.executables)) {
 +      return undefined;
 +    }
@@ -2994,20 +3196,76 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 +  });
 +}
 +
++/** Reads structurally valid installation receipts from app-owned state. */
++function readPluginInstallationReceipts(receiptFile: string): PluginInstallationReceipt[] {
++  try {
++    const store = JSON.parse(
++      fs.readFileSync(receiptFile, 'utf8')
++    ) as PluginInstallationReceiptStore;
++    if (store.version !== 1 || !Array.isArray(store.receipts)) return [];
++    return store.receipts.filter(receipt => {
++      const validFiles =
++        receipt.files &&
++        Object.entries(receipt.files).every(
++          ([file, digest]) => file !== '' && /^[a-f0-9]{64}$/.test(digest)
++        );
++      return (
++        typeof receipt.inventoryPath === 'string' &&
++        path.isAbsolute(receipt.inventoryPath) &&
++        typeof receipt.bundleName === 'string' &&
++        receipt.bundleName !== '' &&
++        typeof receipt.repository === 'string' &&
++        typeof receipt.package === 'string' &&
++        typeof receipt.packageId === 'string' &&
++        typeof receipt.repositoryId === 'string' &&
++        Boolean(validFiles)
++      );
++    });
++  } catch {
++    return [];
++  }
++}
++
++/** Atomically replaces app-owned installation receipt state. */
++function writePluginInstallationReceipts(
++  receiptFile: string,
++  receipts: PluginInstallationReceipt[]
++): void {
++  fs.mkdirSync(path.dirname(receiptFile), { recursive: true, mode: 0o700 });
++  const temporaryFile = `${receiptFile}.${crypto.randomBytes(8).toString('hex')}.tmp`;
++  try {
++    fs.writeFileSync(temporaryFile, `${JSON.stringify({ version: 1, receipts }, null, 2)}\n`, {
++      flag: 'wx',
++      mode: 0o600,
++    });
++    fs.renameSync(temporaryFile, receiptFile);
++  } finally {
++    fs.rmSync(temporaryFile, { force: true });
++  }
++}
++
 +/**
-+ * Reads an installation receipt matching an expected Artifact Hub identity.
++ * Reads the app-owned installation receipt for one canonical bundle and Artifact Hub identity.
 + *
-+ * Matching IDs are not proof of provenance because the receipt is package-local and unauthenticated.
++ * The canonical inventory path and bundle directory are part of the authenticated lookup key, so
++ * a receipt for one installed location cannot authorize a bundle copied or pre-positioned elsewhere.
 + *
 + * @param bundlePath - Installed plugin bundle.
 + * @param identity - Artifact Hub identity expected by the caller.
++ * @param receiptFile - App-owned receipt store.
 + * @returns The matching receipt, or undefined when it is absent, malformed, or has different IDs.
 + */
 +export function readPluginInstallationReceipt(
 +  bundlePath: string,
-+  identity: ArtifactHubPluginIdentity
++  identity: ArtifactHubPluginIdentity,
++  receiptFile = PLUGIN_INSTALLATION_RECEIPTS_PATH
 +): PluginInstallationReceipt | undefined {
-+  const receipt = readPluginIntegrity(bundlePath)?.installation;
++  const canonicalBundle = fs.realpathSync(bundlePath);
++  const inventoryPath = path.dirname(canonicalBundle);
++  const bundleName = path.basename(canonicalBundle);
++  const receipt = readPluginInstallationReceipts(receiptFile).find(
++    candidate => candidate.inventoryPath === inventoryPath && candidate.bundleName === bundleName
++  );
 +  if (
 +    !receipt ||
 +    receipt.repository !== identity.repository ||
@@ -3023,15 +3281,15 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 +/**
 + * Records the current managed bundle contents and installer-supplied Artifact Hub identity.
 + *
-+ * The package-local receipt supports later consistency checks but is not authenticated storage.
-+ *
 + * @param bundlePath - Installed plugin bundle.
 + * @param identity - Artifact Hub identity obtained by the installation flow.
++ * @param receiptFile - App-owned receipt store.
 + * @throws When either identity field is not a UUID.
 + */
 +export async function recordPluginInstallationIntegrity(
 +  bundlePath: string,
-+  identity: Required<ArtifactHubPluginIdentity>
++  identity: Required<ArtifactHubPluginIdentity>,
++  receiptFile = PLUGIN_INSTALLATION_RECEIPTS_PATH
 +): Promise<void> {
 +  const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 +  const name = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -3043,34 +3301,43 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 +  ) {
 +    throw new Error('Invalid Artifact Hub plugin identity');
 +  }
-+  const receipt = {
++  const canonicalBundle = fs.realpathSync(bundlePath);
++  const receipt: PluginInstallationReceipt = {
 +    ...identity,
-+    files: await pluginBundleFiles(fs.realpathSync(bundlePath)),
++    inventoryPath: path.dirname(canonicalBundle),
++    bundleName: path.basename(canonicalBundle),
++    files: await pluginBundleFiles(canonicalBundle),
 +  };
-+  writePluginIntegrity(bundlePath, { installation: receipt });
++  const receipts = readPluginInstallationReceipts(receiptFile).filter(
++    candidate =>
++      candidate.inventoryPath !== receipt.inventoryPath ||
++      candidate.bundleName !== receipt.bundleName
++  );
++  writePluginInstallationReceipts(receiptFile, [...receipts, receipt]);
 +}
 +
 +/**
-+ * Checks the current bundle against its package-local receipt and an expected Artifact Hub identity.
++ * Checks a managed bundle against its app-owned receipt and expected Artifact Hub identity.
 + *
-+ * Threat model: this detects accidental corruption and post-install changes that do not also rewrite
-+ * the receipt. Because `package.json` is part of the plugin-controlled bundle and its integrity field
-+ * is excluded from the package digest, success does not authenticate publisher identity and does not
-+ * resist an actor who can replace or pre-position a bundle with a recomputed receipt. Callers must not
-+ * use this result by itself as proof that Headlamp installed the bundle from the claimed publisher.
++ * Provenance decisions must never use package-local metadata: a pre-positioned bundle can rewrite
++ * both its files and `package.json`. The receipt used here is created only by Headlamp's verified
++ * install flow and stored outside plugin-controlled inventory, bound to its canonical location.
 + *
 + * @param bundlePath - Installed plugin bundle.
 + * @param identity - Artifact Hub identity expected by the caller.
++ * @param receiptFile - App-owned receipt store.
 + * @returns Whether the receipt identity and all recorded file digests match.
 + */
 +export async function verifyPluginInstallationIntegrity(
 +  bundlePath: string,
-+  identity: ArtifactHubPluginIdentity
++  identity: ArtifactHubPluginIdentity,
++  receiptFile = PLUGIN_INSTALLATION_RECEIPTS_PATH
 +): Promise<boolean> {
-+  const receipt = readPluginInstallationReceipt(bundlePath, identity);
-+  if (!receipt) return false;
 +  try {
-+    const currentFiles = await pluginBundleFiles(fs.realpathSync(bundlePath));
++    const canonicalBundle = fs.realpathSync(bundlePath);
++    const receipt = readPluginInstallationReceipt(canonicalBundle, identity, receiptFile);
++    if (!receipt) return false;
++    const currentFiles = await pluginBundleFiles(canonicalBundle);
 +    const recordedPaths = Object.keys(receipt.files);
 +    return (
 +      Object.keys(currentFiles).length === recordedPaths.length &&
@@ -3078,6 +3345,25 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 +    );
 +  } catch {
 +    return false;
++  }
++}
++
++/** Removes app-owned provenance for an uninstalled bundle. */
++function removePluginInstallationReceipt(
++  bundlePath: string,
++  receiptFile = PLUGIN_INSTALLATION_RECEIPTS_PATH
++): void {
++  const canonicalBundle = fs.existsSync(bundlePath)
++    ? fs.realpathSync(bundlePath)
++    : path.resolve(bundlePath);
++  const inventoryPath = path.dirname(canonicalBundle);
++  const bundleName = path.basename(canonicalBundle);
++  const receipts = readPluginInstallationReceipts(receiptFile);
++  const retained = receipts.filter(
++    receipt => receipt.inventoryPath !== inventoryPath || receipt.bundleName !== bundleName
++  );
++  if (retained.length !== receipts.length) {
++    writePluginInstallationReceipts(receiptFile, retained);
 +  }
 +}
 +
@@ -3094,7 +3380,8 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 +  bundlePath: string,
 +  scriptPath: string,
 +  identity: ArtifactHubPluginIdentity,
-+  preparedRoot = PREPARED_PLUGIN_SCRIPTS_PATH
++  preparedRoot = PREPARED_PLUGIN_SCRIPTS_PATH,
++  receiptFile = PLUGIN_INSTALLATION_RECEIPTS_PATH
 +): Promise<{ ok: true; scriptPath: string } | { ok: false; reason: string }> {
 +  let preparedDirectory: string | undefined;
 +  try {
@@ -3111,7 +3398,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 +    ) {
 +      return { ok: false, reason: 'unavailable-file' };
 +    }
-+    const receipt = readPluginInstallationReceipt(canonicalBundle, identity);
++    const receipt = readPluginInstallationReceipt(canonicalBundle, identity, receiptFile);
 +    const digest = receipt?.files[relativeScript.split(path.sep).join('/')];
 +    if (!digest) return { ok: false, reason: 'missing-receipt' };
 +
@@ -3291,7 +3578,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
  /**
   * Move directories from currentPath to newPath by copying.
   * @param currentPath from this path
-@@ -240,7 +715,7 @@ export class PluginManager {
+@@ -240,7 +809,7 @@ export class PluginManager {
      signal: AbortSignal | null = null
    ) {
      try {
@@ -3300,7 +3587,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
          pluginData,
          headlampVersion,
          progressCallback,
-@@ -254,13 +729,26 @@ export class PluginManager {
+@@ -254,13 +823,26 @@ export class PluginManager {
          fs.mkdirSync(destinationFolder, { recursive: true });
        }
        // move the plugin to the destination folder
@@ -3329,7 +3616,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
          const binPath = path.join(destinationFolder, path.basename(name), 'bin');
          addToPath([binPath], 'installed plugin');
        }
-@@ -319,7 +807,7 @@ export class PluginManager {
+@@ -319,7 +901,7 @@ export class PluginManager {
        }
  
        // eslint-disable-next-line no-unused-vars
@@ -3338,7 +3625,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
          pluginData,
          headlampVersion,
          progressCallback,
-@@ -333,14 +821,32 @@ export class PluginManager {
+@@ -333,14 +915,32 @@ export class PluginManager {
          fs.mkdirSync(destinationFolder, { recursive: true });
        }
  
@@ -3379,7 +3666,15 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
        if (progressCallback) {
          progressCallback({ type: 'success', message: 'Plugin Updated' });
        }
-@@ -514,14 +1020,15 @@ function validateArchiveURL(archiveURL: string): boolean {
+@@ -383,6 +983,7 @@ export class PluginManager {
+ 
+       if (fs.existsSync(pluginDir)) {
+         fs.rmSync(pluginDir, { recursive: true, force: true });
++        removePluginInstallationReceipt(pluginDir);
+       } else {
+         throw new Error('Plugin not found');
+       }
+@@ -514,14 +1115,15 @@ function validateArchiveURL(archiveURL: string): boolean {
   * @param headlampVersion - The version of Headlamp for compatibility checking.
   * @param progressCallback - A callback function for reporting progress.
   * @param signal - An optional AbortSignal for cancellation.
@@ -3397,7 +3692,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
    // fetch plugin metadata
    if (signal && signal.aborted) {
      throw new Error('Download cancelled');
-@@ -553,10 +1060,9 @@ async function downloadExtractArchive(
+@@ -553,10 +1155,9 @@ async function downloadExtractArchive(
    }
  
    // Create temporary folder for extraction
@@ -3411,7 +3706,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
  
    // First, download and extract the main archive
    if (progressCallback) {
-@@ -571,22 +1077,26 @@ async function downloadExtractArchive(
+@@ -571,22 +1172,26 @@ async function downloadExtractArchive(
      signal
    );
  
@@ -3435,8 +3730,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 +    progressCallback,
 +    signal
 +  );
- 
--  return [pluginName, tempFolder];
++
 +  updatePluginPackage(tempFolder, packageJson => {
 +    packageJson.artifacthub = {
 +      name: pluginName,
@@ -3448,12 +3742,13 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
 +    };
 +    packageJson.isManagedByHeadlampPlugin = true;
 +  });
-+
+ 
+-  return [pluginName, tempFolder];
 +  return [pluginName, tempFolder, executablePaths];
  }
  
  /**
-@@ -619,15 +1129,17 @@ export function getMatchingExtraFiles(extraFiles: ArtifactHubHeadlampPkg['extraF
+@@ -619,15 +1224,17 @@ export function getMatchingExtraFiles(extraFiles: ArtifactHubHeadlampPkg['extraF
   * @param extractFolder - Folder where files should be extracted
   * @param progressCallback - Callback for progress updates
   * @param signal - Signal for cancellation
@@ -3473,7 +3768,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
    }
    const { matchingExtraFiles, currentArchString } = getMatchingExtraFiles(extraFiles);
  
-@@ -638,9 +1150,11 @@ async function downloadExtraFiles(
+@@ -638,9 +1245,11 @@ async function downloadExtraFiles(
          message: `No extra files found for platform ${currentArchString}`,
        });
      }
@@ -3486,7 +3781,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
    // Make sure bin directory exists
    const binDir = path.join(extractFolder, 'bin');
    if (!fs.existsSync(binDir)) {
-@@ -684,30 +1198,37 @@ async function downloadExtraFiles(
+@@ -684,30 +1293,37 @@ async function downloadExtraFiles(
  
      // move the files to the correct output location
      for (const value of Object.values(file.output)) {
@@ -3537,7 +3832,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
  
        if (progressCallback) {
          progressCallback({
-@@ -724,6 +1245,7 @@ async function downloadExtraFiles(
+@@ -724,6 +1340,7 @@ async function downloadExtraFiles(
        message: `Downloaded ${matchingExtraFiles.length} extra files for ${currentArchString}`,
      });
    }
@@ -3545,7 +3840,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
  }
  
  /**
-@@ -1026,10 +1548,15 @@ async function fetchPluginInfo(
+@@ -1026,10 +1643,15 @@ async function fetchPluginInfo(
      }
      const pkgResponse = await response.json();
      const pkg: ArtifactHubHeadlampPkg = {
@@ -3562,7 +3857,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
        archiveURL: pkgResponse.data['headlamp/plugin/archive-url'],
        archiveChecksum: pkgResponse.data['headlamp/plugin/archive-checksum'],
        distroCompat: pkgResponse.data['headlamp/plugin/distro-compat'],
-@@ -1123,14 +1650,14 @@ export function defaultKubeConfigsDir(): string {
+@@ -1123,14 +1745,14 @@ export function defaultKubeConfigsDir(): string {
   * Checks if a given folder is a valid plugin bin folder.
   *
   * @param {string} folder - The path to the folder to check. Should not include /bin in the path.
@@ -3580,7 +3875,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
    );
  }
  
-@@ -1138,9 +1665,10 @@ function validPluginBinFolder(folder: string): boolean {
+@@ -1138,9 +1760,10 @@ function validPluginBinFolder(folder: string): boolean {
   * Collects bin directories from all installed plugins.
   *
   * @param pluginsDir - The directory containing plugins
@@ -3592,7 +3887,7 @@ index 17a08fd556602a70761be976e7a4551ee2429c04..feeb590da6e0c1642a4e5108191e2500
    if (!fs.existsSync(pluginsDir)) {
      return [];
    }
-@@ -1152,7 +1680,7 @@ export function getPluginBinDirectories(pluginsDir: string): string[] {
+@@ -1152,7 +1775,7 @@ export function getPluginBinDirectories(pluginsDir: string): string[] {
      const pluginFolders = entries.filter(entry => entry.isDirectory());
  
      for (const pluginFolder of pluginFolders) {
@@ -5581,12 +5876,14 @@ index 0000000000000000000000000000000000000000..170a7cf7f7736117f3c2a29133086e55
 +  };
 +}
 diff --git a/source/app/electron/runCmd.test.ts b/source/app/electron/runCmd.test.ts
-index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e427628653 100644
+index 07ea3e48086050dd9390d9396449e0b7c1efea92..afeea552a631771a0aef35097d49c4d9f56cd4e9 100644
 --- a/source/app/electron/runCmd.test.ts
 +++ b/source/app/electron/runCmd.test.ts
-@@ -15,13 +15,33 @@
+@@ -14,14 +14,35 @@
+  * limitations under the License.
   */
  
++import crypto from 'crypto';
  import { EventEmitter } from 'events';
 +import fs from 'fs';
 +import os from 'os';
@@ -5619,7 +5916,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
  }));
  
  vi.mock('electron', () => ({
-@@ -34,8 +54,14 @@ vi.mock('child_process', () => ({
+@@ -34,8 +55,14 @@ vi.mock('child_process', () => ({
  }));
  
  vi.mock('./plugin-management', () => ({
@@ -5636,7 +5933,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
  }));
  
  vi.mock('./settings', () => ({
-@@ -59,13 +85,257 @@ vi.mock('./main', () => ({
+@@ -59,13 +86,350 @@ vi.mock('./main', () => ({
  import {
    addRunCmdConsent,
    checkPermissionSecret,
@@ -5652,6 +5949,8 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
  } from './runCmd';
  
 +describe('verifyPluginCommandPolicies', () => {
++  const source = 'console.log("trusted");';
++  const sourceDigest = crypto.createHash('sha256').update(source).digest('hex');
 +  const policies = [
 +    {
 +      bundleName: 'example-plugin',
@@ -5660,14 +5959,25 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +      grants: [{ tool: 'examplectl', args: ['project', 'list'] }],
 +    },
 +  ];
++  const registrations = [
++    {
++      bundleName: 'example-plugin',
++      packageName: '@example/plugin',
++      path: 'static-plugins/example-plugin',
++      source: 'shipped',
++      type: 'shipped',
++      sourceDigest,
++    },
++  ];
 +
 +  it('accepts an exact package identity from a regular shipped bundle', async () => {
 +    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-command-policy-'));
 +    const bundle = path.join(root, 'example-plugin');
 +    fs.mkdirSync(bundle);
 +    fs.writeFileSync(path.join(bundle, 'package.json'), '{"name":"@example/plugin"}');
++    fs.writeFileSync(path.join(bundle, 'main.js'), source);
 +    try {
-+      const result = await verifyPluginCommandPolicies(policies, {
++      const result = await verifyPluginCommandPolicies(policies, registrations, {
 +        development: path.join(root, 'development'),
 +        user: path.join(root, 'user'),
 +        shipped: root,
@@ -5683,21 +5993,23 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +    const bundle = path.join(root, 'example-plugin');
 +    fs.mkdirSync(bundle);
 +    fs.writeFileSync(path.join(bundle, 'package.json'), '{"name":"@attacker/plugin"}');
++    fs.writeFileSync(path.join(bundle, 'main.js'), source);
 +    try {
 +      const roots = {
 +        development: path.join(root, 'development'),
 +        user: path.join(root, 'user'),
 +        shipped: root,
 +      };
-+      expect(await verifyPluginCommandPolicies(policies, roots)).toEqual([]);
++      expect(await verifyPluginCommandPolicies(policies, registrations, roots)).toEqual([]);
 +      expect(
 +        await verifyPluginCommandPolicies(
 +          [{ ...policies[0], bundleName: '../example-plugin' }],
++          registrations,
 +          roots
 +        )
 +      ).toEqual([]);
 +      expect(
-+        await verifyPluginCommandPolicies(policies, {
++        await verifyPluginCommandPolicies(policies, registrations, {
 +          ...roots,
 +          shipped: path.join(root, 'missing'),
 +        })
@@ -5715,7 +6027,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +      writable: true,
 +    });
 +    try {
-+      expect(await verifyPluginCommandPolicies(policies)).toEqual([]);
++      expect(await verifyPluginCommandPolicies(policies, registrations)).toEqual([]);
 +    } finally {
 +      if (resourcesPathDescriptor) {
 +        Object.defineProperty(process, 'resourcesPath', resourcesPathDescriptor);
@@ -5730,6 +6042,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +    const bundle = path.join(root, 'example-plugin');
 +    fs.mkdirSync(bundle);
 +    fs.writeFileSync(path.join(bundle, 'package.json'), '{"name":"@example/plugin"}');
++    fs.writeFileSync(path.join(bundle, 'main.js'), source);
 +    const managedPolicy = {
 +      ...policies[0],
 +      source: 'user' as const,
@@ -5745,16 +6058,45 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +      user: root,
 +      shipped: path.join(root, 'shipped'),
 +    };
++    const userRegistrations = registrations.map(registration => ({
++      ...registration,
++      path: 'user-plugins/example-plugin',
++      source: 'user',
++      type: 'user',
++    }));
 +    try {
 +      verifyPluginInstallationIntegrityMock.mockResolvedValueOnce(false);
-+      expect(await verifyPluginCommandPolicies([managedPolicy], roots)).toEqual([]);
++      expect(await verifyPluginCommandPolicies([managedPolicy], userRegistrations, roots)).toEqual(
++        []
++      );
 +      expect(verifyPluginInstallationIntegrityMock).toHaveBeenCalledWith(
 +        bundle,
 +        managedPolicy.artifactHub
 +      );
 +
 +      verifyPluginInstallationIntegrityMock.mockResolvedValueOnce(true);
-+      expect(await verifyPluginCommandPolicies([managedPolicy], roots)).toEqual([managedPolicy]);
++      expect(await verifyPluginCommandPolicies([managedPolicy], userRegistrations, roots)).toEqual([
++        managedPolicy,
++      ]);
++    } finally {
++      fs.rmSync(root, { recursive: true });
++    }
++  });
++
++  it('rejects a capability when cached source differs from on-disk main.js', async () => {
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-command-policy-'));
++    const bundle = path.join(root, 'example-plugin');
++    fs.mkdirSync(bundle);
++    fs.writeFileSync(path.join(bundle, 'package.json'), '{"name":"@example/plugin"}');
++    fs.writeFileSync(path.join(bundle, 'main.js'), 'console.log("restored");');
++    try {
++      await expect(
++        verifyPluginCommandPolicies(policies, registrations, {
++          development: path.join(root, 'development'),
++          user: path.join(root, 'user'),
++          shipped: root,
++        })
++      ).resolves.toEqual([]);
 +    } finally {
 +      fs.rmSync(root, { recursive: true });
 +    }
@@ -5762,6 +6104,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +});
 +
 +describe('createProductCommandCapabilities', () => {
++  const sourceDigest = 'a'.repeat(64);
 +  const policies = [
 +    {
 +      bundleName: 'example-plugin',
@@ -5780,6 +6123,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +          path: 'static-plugins/example-plugin',
 +          source: 'shipped',
 +          type: 'shipped',
++          sourceDigest,
 +        },
 +      ],
 +      policies,
@@ -5799,6 +6143,48 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +    });
 +  });
 +
++  it('grants shipped AI Assistant system commands only to its exact identity', () => {
++    const aiPolicy = {
++      bundleName: 'headlamp_ai-assistant',
++      packageName: '@headlamp-k8s/ai-assistant',
++      source: 'shipped' as const,
++      grants: [{ tool: 'gh', args: ['auth'], allowTrailingArgs: true }],
++    };
++    const result = createProductCommandCapabilities(
++      [
++        {
++          bundleName: 'headlamp_ai-assistant',
++          packageName: '@headlamp-k8s/ai-assistant',
++          path: 'static-plugins/headlamp_ai-assistant',
++          source: 'shipped',
++          type: 'shipped',
++          sourceDigest,
++        },
++        {
++          bundleName: 'unrelated-plugin',
++          packageName: '@example/unrelated',
++          path: 'static-plugins/unrelated-plugin',
++          source: 'shipped',
++          type: 'shipped',
++          sourceDigest,
++        },
++      ],
++      [aiPolicy],
++      7
++    );
++
++    expect(result.capabilities).toEqual([
++      {
++        bundleName: 'headlamp_ai-assistant',
++        packageName: '@headlamp-k8s/ai-assistant',
++        capability: expect.stringMatching(/^[a-f0-9]{64}$/),
++      },
++    ]);
++    expect(result.capabilityRegistry.get(result.capabilities[0].capability)?.grants).toEqual([
++      { tool: 'gh', args: ['auth'], allowTrailingArgs: true },
++    ]);
++  });
++
 +  it('issues a capability for an exact development plugin policy', () => {
 +    const developmentPolicy = {
 +      ...policies[0],
@@ -5813,6 +6199,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +          path: 'plugins/example-plugin-dev',
 +          source: 'development',
 +          type: 'development',
++          sourceDigest,
 +        },
 +      ],
 +      [developmentPolicy],
@@ -5839,6 +6226,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +          path: 'plugins/example-plugin',
 +          source: 'development',
 +          type: 'user',
++          sourceDigest,
 +        },
 +      ],
 +      [developmentPolicy],
@@ -5862,6 +6250,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +          path: 'static-plugins/example-plugin',
 +          source: 'shipped',
 +          type: 'shipped',
++          sourceDigest,
 +          ...override,
 +        },
 +      ],
@@ -5880,6 +6269,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +      path: 'static-plugins/example-plugin',
 +      source: 'shipped',
 +      type: 'shipped',
++      sourceDigest,
 +    };
 +    const result = createProductCommandCapabilities(
 +      [registration, registration, registration],
@@ -5894,7 +6284,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
  it('does not cache process environment changes as shell overrides', () => {
    expect(
      environmentOverrides(
-@@ -79,6 +349,23 @@ it('uses process.env as the default comparison environment', () => {
+@@ -79,6 +443,23 @@ it('uses process.env as the default comparison environment', () => {
    expect(environmentOverrides(process.env)).toEqual({});
  });
  
@@ -5918,7 +6308,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
  describe('checkPermissionSecret', () => {
    const baseCommandData = {
      id: '1',
-@@ -299,10 +586,39 @@ describe('handleRunCommand', () => {
+@@ -299,10 +680,39 @@ describe('handleRunCommand', () => {
    let fakeEvent: any;
    let sentMessages: Array<[string, ...unknown[]]>;
  
@@ -5958,7 +6348,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
      childEmitter = new EventEmitter();
      childEmitter.stdout = new EventEmitter();
      childEmitter.stderr = new EventEmitter();
-@@ -320,6 +636,7 @@ describe('handleRunCommand', () => {
+@@ -320,6 +730,7 @@ describe('handleRunCommand', () => {
    });
  
    it('runs gh with the login-shell environment and reports child errors', async () => {
@@ -5966,7 +6356,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
      const fakeMainWindow = { id: 1 } as any;
      const permissionSecrets = { 'runCmd-gh': 99 };
  
-@@ -339,14 +656,23 @@ describe('handleRunCommand', () => {
+@@ -339,14 +750,23 @@ describe('handleRunCommand', () => {
        expect.objectContaining({ env: shellEnvironment })
      );
  
@@ -5992,7 +6382,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
    });
  
    it('reports exit only after stdout and stderr close', async () => {
-@@ -420,8 +746,9 @@ describe('handleRunCommand', () => {
+@@ -420,8 +840,9 @@ describe('handleRunCommand', () => {
    });
  
    it('reports synchronous spawn errors without rejecting', async () => {
@@ -6003,7 +6393,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
      });
      const eventData = {
        id: 'test-id',
-@@ -435,8 +762,17 @@ describe('handleRunCommand', () => {
+@@ -435,8 +856,17 @@ describe('handleRunCommand', () => {
        handleRunCommand(fakeEvent, eventData, { id: 1 } as any, { 'runCmd-gh': 99 })
      ).resolves.toBeUndefined();
  
@@ -6022,7 +6412,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
    });
  
    it('falls back to process.env when shell environment resolution fails', async () => {
-@@ -496,6 +832,830 @@ describe('handleRunCommand', () => {
+@@ -496,6 +926,830 @@ describe('handleRunCommand', () => {
      }
    });
  
@@ -6853,7 +7243,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
    it('initializes consent settings for a new command', async () => {
      const { loadSettings, saveSettings } = await import('./settings');
      vi.mocked(loadSettings).mockReturnValueOnce({});
-@@ -568,6 +1728,9 @@ describe('runScript', () => {
+@@ -568,6 +1822,9 @@ describe('runScript', () => {
    it('imports the script when path is inside static .plugins dir', () =>
      testScriptImport('/resources/.plugins/my-script.js'));
  
@@ -6863,7 +7253,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
    it('exits with error when script is outside allowed directories', async () => {
      const scriptPath = path.resolve('/not-allowed/my-script.js');
      process.argv = ['node', scriptPath];
-@@ -603,12 +1766,12 @@ describe('addRunCmdConsent', () => {
+@@ -603,12 +1860,12 @@ describe('addRunCmdConsent', () => {
      }
    });
  
@@ -6878,7 +7268,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
  
      expect(saveSettings).toHaveBeenCalledWith(
        '/fake/settings.json',
-@@ -684,6 +1847,35 @@ describe('removeRunCmdConsent', () => {
+@@ -684,6 +1941,35 @@ describe('removeRunCmdConsent', () => {
      const savedSettings = vi.mocked(saveSettings).mock.calls[0][1] as any;
      expect(savedSettings.confirmedCommands[command]).toBeUndefined();
    });
@@ -6914,7 +7304,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
  });
  
  describe('setupRunCmdHandlers', () => {
-@@ -695,35 +1887,283 @@ describe('setupRunCmdHandlers', () => {
+@@ -695,35 +1981,291 @@ describe('setupRunCmdHandlers', () => {
      expect(ipcMain.on).not.toHaveBeenCalled();
    });
  
@@ -6960,10 +7350,10 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
      requestSecrets();
 -    frameLoadHandler({}, false);
 +    webContentsHandlers.get('did-frame-navigate')!({}, 'https://headlamp.test/', 200, 'OK', false);
++    requestSecrets();
++    webContentsHandlers.get('did-start-navigation')!({}, 'https://headlamp.test/', false, true);
      requestSecrets();
 -    frameLoadHandler({}, true);
-+    webContentsHandlers.get('did-start-navigation')!({}, 'https://headlamp.test/', false, true);
-+    requestSecrets();
 +    webContentsHandlers.get('did-frame-navigate')!({}, 'https://headlamp.test/', 200, 'OK', true);
      requestSecrets();
  
@@ -6982,10 +7372,13 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +    ['packaged opt-in', false, true, 1],
 +    ['Electron development mode', true, false, 1],
 +  ])('issues development capabilities for %s', async (_name, isDevelopment, enabled, expected) => {
++    const pluginSource = 'console.log("development");';
++    const sourceDigest = crypto.createHash('sha256').update(pluginSource).digest('hex');
 +    const pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-development-gate-'));
 +    const bundleRoot = path.join(pluginRoot, 'example-plugin');
 +    fs.mkdirSync(bundleRoot);
 +    fs.writeFileSync(path.join(bundleRoot, 'package.json'), '{"name":"@example/plugin"}');
++    fs.writeFileSync(path.join(bundleRoot, 'main.js'), pluginSource);
 +    const invokeHandlers = new Map<string, (...args: any[]) => any>();
 +    const webContents = {
 +      id: 7,
@@ -7028,6 +7421,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +          path: 'plugins/example-plugin',
 +          source: 'development',
 +          type: 'development',
++          sourceDigest,
 +        },
 +      ]
 +    );
@@ -7040,6 +7434,8 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +    'revokes capabilities on %s',
 +    async lifecycle => {
 +      spawnMock.mockClear();
++      const pluginSource = 'console.log("shipped");';
++      const sourceDigest = crypto.createHash('sha256').update(pluginSource).digest('hex');
 +      const pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-command-register-'));
 +      const ipcHandlers = new Map<string, (...args: any[]) => any>();
 +      const invokeHandlers = new Map<string, (...args: any[]) => any>();
@@ -7093,6 +7489,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +      const bundleRoot = path.join(pluginRoot, 'example-plugin');
 +      fs.mkdirSync(bundleRoot);
 +      fs.writeFileSync(path.join(bundleRoot, 'package.json'), '{"name":"@example/plugin"}');
++      fs.writeFileSync(path.join(bundleRoot, 'main.js'), pluginSource);
 +      const capabilities = await invokeHandlers.get('register-plugin-command-capabilities')!(
 +        { sender: webContents, senderFrame: mainFrame },
 +        [
@@ -7102,6 +7499,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
 +            path: 'static-plugins/example-plugin',
 +            source: 'shipped',
 +            type: 'shipped',
++            sourceDigest,
 +          },
 +        ]
 +      );
@@ -7206,7 +7604,7 @@ index 07ea3e48086050dd9390d9396449e0b7c1efea92..b39f9d443e7a517c18f98dbd36bbe4e4
  });
  
 diff --git a/source/app/electron/runCmd.ts b/source/app/electron/runCmd.ts
-index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889beb135c79e 100644
+index 66df14e295bd1934c5de68ee3124efa805ebf9a6..3d93bd6950bd16be5be33850a3b3d7a3f798af9c 100644
 --- a/source/app/electron/runCmd.ts
 +++ b/source/app/electron/runCmd.ts
 @@ -22,7 +22,19 @@ import fs from 'node:fs';
@@ -7230,7 +7628,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
  import { loadSettings, saveSettings, SETTINGS_PATH } from './settings';
  
  /**
-@@ -42,6 +54,217 @@ interface CommandData {
+@@ -42,6 +54,251 @@ interface CommandData {
    options: {};
    /** The permission secrets for the command. */
    permissionSecrets: Record<string, number>;
@@ -7282,6 +7680,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
 + *   path: 'static-plugins/example-plugin',
 + *   source: 'shipped',
 + *   type: 'shipped',
++ *   sourceDigest: 'dd746362bdf7510734ba74a34f15e2a6a625e7e044efb0bc38da54b7cc316084',
 + * };
 + * ```
 + */
@@ -7296,6 +7695,8 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
 +  source: string;
 +  /** Plugin priority type. */
 +  type: string;
++  /** SHA-256 of the exact main.js source cached by the trusted renderer. */
++  sourceDigest: string;
 +}
 +
 +/**
@@ -7374,14 +7775,17 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
 + * installer receipt through `policy.artifactHub`.
 + *
 + * @param policies - Structurally validated policies loaded from the product manifest.
++ * @param registrations - Untrusted discovery claims including the trusted renderer's source hash.
 + * @param pluginRoots - Main-process filesystem root for each plugin inventory.
 + * @returns Policies whose installed bundle and package identity pass every verification check.
 + */
 +export async function verifyPluginCommandPolicies(
 +  policies: ProductPluginCommandPolicy[],
++  registrations: unknown,
 +  pluginRoots: PluginRoots = defaultPluginRoots()
 +): Promise<ProductPluginCommandPolicy[]> {
 +  const verifiedPolicies: ProductPluginCommandPolicy[] = [];
++  const registrationList = Array.isArray(registrations) ? registrations : [];
 +  for (const policy of policies) {
 +    const pluginRoot = pluginRoots[policy.source];
 +    let canonicalRoot: string;
@@ -7434,6 +7838,34 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
 +      ) {
 +        continue;
 +      }
++      const expectedPath = `${
++        { development: 'plugins', user: 'user-plugins', shipped: 'static-plugins' }[policy.source]
++      }/${policy.bundleName}`;
++      const matchingRegistrations = registrationList.filter(candidate => {
++        if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
++          return false;
++        }
++        const registration = candidate as Partial<PluginCommandRegistration>;
++        return (
++          registration.source === policy.source &&
++          registration.bundleName === policy.bundleName &&
++          registration.packageName === policy.packageName &&
++          typeof registration.path === 'string' &&
++          registration.path.replaceAll('\\', '/') === expectedPath &&
++          /^[a-f0-9]{64}$/.test(registration.sourceDigest ?? '')
++        );
++      });
++      if (matchingRegistrations.length !== 1) continue;
++      const mainFile = path.join(bundlePath, 'main.js');
++      const mainStat = fs.lstatSync(mainFile);
++      if (mainStat.isSymbolicLink() || !mainStat.isFile()) continue;
++      const canonicalMain = fs.realpathSync(mainFile);
++      if (path.dirname(canonicalMain) !== canonicalBundle) continue;
++      const sourceDigest = crypto
++        .createHash('sha256')
++        .update(fs.readFileSync(canonicalMain, 'utf8'))
++        .digest('hex');
++      if (sourceDigest !== matchingRegistrations[0].sourceDigest) continue;
 +      if (
 +        policy.artifactHub === undefined ||
 +        (await verifyPluginInstallationIntegrity(bundlePath, policy.artifactHub))
@@ -7448,7 +7880,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
  }
  
  /** Returns only values changed by shell initialization. */
-@@ -86,25 +309,62 @@ function confirmCommandDialog(command: string, mainWindow: BrowserWindow): boole
+@@ -86,25 +343,62 @@ function confirmCommandDialog(command: string, mainWindow: BrowserWindow): boole
   * @param args - The arguments to the command.
   * @returns true if the user has consented to running the command, false otherwise.
   */
@@ -7518,7 +7950,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
      if (settings?.confirmedCommands === undefined) {
        settings.confirmedCommands = {};
      }
-@@ -118,6 +378,123 @@ function checkCommandConsent(command: string, args: string[], mainWindow: Browse
+@@ -118,6 +412,123 @@ function checkCommandConsent(command: string, args: string[], mainWindow: Browse
    return true;
  }
  
@@ -7642,7 +8074,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
  const COMMANDS_WITH_CONSENT = {
    headlamp_minikube: [
      'minikube start',
-@@ -133,8 +510,37 @@ const COMMANDS_WITH_CONSENT = {
+@@ -133,8 +544,37 @@ const COMMANDS_WITH_CONSENT = {
      'scriptjs minikube/manage-minikube.js',
    ],
    headlamp_ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
@@ -7681,7 +8113,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
  
  /**
   * Adds the runCmd consent for the plugin.
-@@ -172,8 +578,8 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
+@@ -172,8 +612,8 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
      commands = COMMANDS_WITH_CONSENT.headlamp_ai_assistant;
    }
  
@@ -7692,7 +8124,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
    }
  
    for (const command of commands) {
-@@ -189,8 +595,9 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
+@@ -189,8 +629,9 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
   * Adds the runCmd consent for the plugin.
   *
   * @param pluginName The package.json name of the plugin.
@@ -7703,7 +8135,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
    const settings = loadSettings(SETTINGS_PATH);
    if (!settings.confirmedCommands) {
      return;
-@@ -211,6 +618,22 @@ export function removeRunCmdConsent(pluginName: string): void {
+@@ -211,6 +652,22 @@ export function removeRunCmdConsent(pluginName: string): void {
    for (const command of commands) {
      delete settings.confirmedCommands[command];
    }
@@ -7726,7 +8158,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
  
    saveSettings(SETTINGS_PATH, settings);
  }
-@@ -239,11 +662,141 @@ export function checkPermissionSecret(
+@@ -239,11 +696,143 @@ export function checkPermissionSecret(
    return [true, ''];
  }
  
@@ -7767,6 +8199,8 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
 +      typeof registration.bundleName !== 'string' ||
 +      typeof registration.packageName !== 'string' ||
 +      typeof registration.path !== 'string' ||
++      typeof registration.sourceDigest !== 'string' ||
++      !/^[a-f0-9]{64}$/.test(registration.sourceDigest) ||
 +      !['development', 'user', 'shipped'].includes(registration.source ?? '') ||
 +      !['development', 'user', 'shipped'].includes(registration.type ?? '')
 +    ) {
@@ -7869,7 +8303,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
    const userPlugins = defaultUserPluginsDir();
    if (fs.existsSync(path.join(userPlugins, scriptName))) {
      return path.join(userPlugins, scriptName);
-@@ -274,12 +827,18 @@ function getPluginsScriptPath(scriptName: string) {
+@@ -274,12 +863,18 @@ function getPluginsScriptPath(scriptName: string) {
   * @param mainWindow - The main browser window.
   * @param permissionSecrets - The permission secrets required for the command to run.
   *                            Checks against eventData.permissionSecrets.
@@ -7889,7 +8323,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
  ): Promise<void> {
    const commandId = typeof eventData?.id === 'string' ? eventData.id : undefined;
    const sendRejectedExit = (exitCode = -1) => {
-@@ -301,26 +860,53 @@ export async function handleRunCommand(
+@@ -301,26 +896,53 @@ export async function handleRunCommand(
    }
    const commandData = eventData as CommandData;
  
@@ -7953,7 +8387,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
    let shellEnvironment = process.env;
    try {
      const { getShellEnvironment } = await import('./main');
-@@ -329,6 +915,129 @@ export async function handleRunCommand(
+@@ -329,6 +951,129 @@ export async function handleRunCommand(
      console.warn('Failed to get shell environment, using process.env:', error);
    }
  
@@ -8083,7 +8517,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
    // If the command is 'scriptjs', we pass the HEADLAMP_RUN_SCRIPT=true
    // env var so that the Headlamp or Electron process runs the script.
    let child: ChildProcessWithoutNullStreams;
-@@ -337,12 +1046,16 @@ export async function handleRunCommand(
+@@ -337,12 +1082,16 @@ export async function handleRunCommand(
        ...commandData.options,
        shell: false,
        env: {
@@ -8101,7 +8535,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
      event.sender.send('command-stderr', commandData.id, message);
      event.sender.send('command-exit', commandData.id, -1);
      return;
-@@ -366,11 +1079,14 @@ export async function handleRunCommand(
+@@ -366,11 +1115,14 @@ export async function handleRunCommand(
    };
  
    child.on('error', (err: Error) => {
@@ -8116,7 +8550,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
      sendTerminalEvent(code);
    });
  }
-@@ -385,15 +1101,22 @@ export function runScript() {
+@@ -385,15 +1137,22 @@ export function runScript() {
    const baseDir = path.resolve(defaultPluginsDir());
    const userPluginsDir = path.resolve(defaultUserPluginsDir());
    const staticPluginsDir = path.resolve(path.join(process.resourcesPath, '.plugins'));
@@ -8143,7 +8577,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
      );
      process.exit(1);
    }
-@@ -411,14 +1134,31 @@ function cryptoRandom() {
+@@ -411,14 +1170,31 @@ function cryptoRandom() {
    return array[0] / (0xffffffff + 1);
  }
  
@@ -8176,7 +8610,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
    if (mainWindow === null) {
      console.error('Main window is null, cannot set up run command handlers');
      return;
-@@ -428,6 +1168,19 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
+@@ -428,6 +1204,19 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
    // This means that if the secrets are requested before the plugins are loaded, then
    // they will not be sent until the next time the app is reloaded.
    let pluginPermissionSecretsSent = false;
@@ -8196,7 +8630,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
    const permissionSecrets = {
      'runCmd-minikube': cryptoRandom(),
      'runCmd-scriptjs-minikube/manage-minikube.js': cryptoRandom(),
-@@ -436,25 +1189,90 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
+@@ -436,25 +1225,90 @@ export function setupRunCmdHandlers(mainWindow: BrowserWindow | null, ipcMain: E
      'runCmd-gh': cryptoRandom(),
      'runCmd-az': cryptoRandom(),
      'runCmd-scriptjs-azure-aks/azure-api.js': cryptoRandom(),
@@ -8235,7 +8669,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
 +    );
 +    const result = createProductCommandCapabilities(
 +      registrations,
-+      await verifyPluginCommandPolicies(enabledPolicies, pluginRoots),
++      await verifyPluginCommandPolicies(enabledPolicies, registrations, pluginRoots),
 +      mainWindow.webContents.id
 +    );
 +    capabilityRegistry = result.capabilityRegistry;
@@ -8295,7 +8729,7 @@ index 66df14e295bd1934c5de68ee3124efa805ebf9a6..af9a3c03de87ab6672b6fccb4d8889be
  }
  
  /**
-@@ -493,9 +1311,26 @@ export function validateCommandData(eventData: CommandDataPartial): [boolean, st
+@@ -493,9 +1347,26 @@ export function validateCommandData(eventData: CommandDataPartial): [boolean, st
      }
    }
  
@@ -9171,7 +9605,7 @@ index c2cb461b0b3034784a77582dbad678d409cf69fe..25a186927360ebf8e70f90352a1f3405
      "electron-builder": "^26.6.0",
      "esbuild": "^0.25.0",
 diff --git a/source/app/scripts/build-manifest.ts b/source/app/scripts/build-manifest.ts
-index 941565e89c2749cb3ea98d80b2826ebfebbb13b3..a0813593a098d0d928b5c9bc7dc0e8ed99ab84d7 100644
+index 941565e89c2749cb3ea98d80b2826ebfebbb13b3..767d263eb631c9240e7bd8a0a25b08fc45ce4b10 100644
 --- a/source/app/scripts/build-manifest.ts
 +++ b/source/app/scripts/build-manifest.ts
 @@ -18,6 +18,7 @@ import crypto from 'node:crypto';
@@ -9290,7 +9724,7 @@ index 941565e89c2749cb3ea98d80b2826ebfebbb13b3..a0813593a098d0d928b5c9bc7dc0e8ed
  
  export const DEFAULT_MANIFEST_FILE = path.join(scriptDirectory, '../app-build-manifest.json');
  
-@@ -297,12 +373,294 @@ export function validateBuildManifest(value: unknown): BuildManifest {
+@@ -297,12 +373,289 @@ export function validateBuildManifest(value: unknown): BuildManifest {
      }
    }
  
@@ -9420,11 +9854,6 @@ index 941565e89c2749cb3ea98d80b2826ebfebbb13b3..a0813593a098d0d928b5c9bc7dc0e8ed
 +
 +    const pluginExecutables = new Set<string>();
 +    if (policy.pluginExecutables !== undefined) {
-+      if (policy.pluginLocation === 'shipped') {
-+        throw new Error(
-+          `Shipped plugin executables are unsupported in build manifest runCommands[${index}]`
-+        );
-+      }
 +      if (!Array.isArray(policy.pluginExecutables) || policy.pluginExecutables.length > 64) {
 +        throw new Error(`Invalid build manifest runCommands[${index}].pluginExecutables`);
 +      }
@@ -9587,6 +10016,198 @@ index 941565e89c2749cb3ea98d80b2826ebfebbb13b3..a0813593a098d0d928b5c9bc7dc0e8ed
  /**
   * Applies supported product metadata from a build manifest.
   *
+diff --git a/source/app/scripts/setup-plugins.ts b/source/app/scripts/setup-plugins.ts
+index 0ffd7bce241af6ca4f6158c90cdead59c57c607c..85c6ea671712522bf821a960e37e56c6b03f58a6 100644
+--- a/source/app/scripts/setup-plugins.ts
++++ b/source/app/scripts/setup-plugins.ts
+@@ -26,8 +26,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
+ import zlib from 'node:zlib';
+ import * as tar from 'tar';
+ import {
++  type BuildManifest,
+   DEFAULT_MANIFEST_FILE,
+   loadBuildManifest,
++  productPluginCommandPolicies,
+   resolveBuildManifestPath,
+ } from './build-manifest.ts';
+ 
+@@ -57,12 +59,6 @@ type PluginSource = {
+   enabledByDefault?: boolean;
+ };
+ 
+-/** Parsed subset of an app build manifest used during plugin setup. */
+-type BuildManifest = {
+-  /** Plugin archives to validate and install in declaration order. */
+-  plugins?: PluginSource[];
+-};
+-
+ export type ExtractionLimits = {
+   maxEntries: number;
+   maxBytes: number;
+@@ -85,7 +81,9 @@ const DEFAULT_DOWNLOAD_LIMITS: DownloadLimits = {
+ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+ const PLUGIN_FOLDER = path.join(scriptDirectory, '../../.plugins');
+ const MANIFEST_FILE = resolveBuildManifestPath();
+-const manifest = loadBuildManifest(MANIFEST_FILE) as BuildManifest;
++const manifest = loadBuildManifest(MANIFEST_FILE) as Omit<BuildManifest, 'plugins'> & {
++  plugins?: PluginSource[];
++};
+ // The reviewed in-repo manifest predates digest metadata; externally selected manifests are
+ // untrusted and must pin every plugin source.
+ const externalManifest = !pathsReferToSameFile(MANIFEST_FILE, DEFAULT_MANIFEST_FILE);
+@@ -310,7 +308,8 @@ export async function extractArchive(
+   archivePath: string,
+   temporaryFolder: string = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-plugins')),
+   pluginRoot: string = PLUGIN_FOLDER,
+-  limits: ExtractionLimits = DEFAULT_EXTRACTION_LIMITS
++  limits: ExtractionLimits = DEFAULT_EXTRACTION_LIMITS,
++  executablePaths: string[] = []
+ ): Promise<void> {
+   console.log('Extracting archive', archivePath, 'to', temporaryFolder, '...');
+   let entryCount = 0;
+@@ -352,7 +351,9 @@ export async function extractArchive(
+ 
+   const mainLocations = globSync(path.join(temporaryFolder, '*', 'main.js').replace(/\\/g, '/'));
+   const mainLocation = mainLocations[0];
++  let packageFolder: string;
+   if (mainLocation && fs.existsSync(mainLocation)) {
++    packageFolder = path.dirname(mainLocation);
+     copyExtractedRegularFile(mainLocation, path.join(pluginFolder, 'main.js'), temporaryFolder);
+     copyExtractedRegularFile(
+       path.join(path.dirname(mainLocation), 'package.json'),
+@@ -360,6 +361,7 @@ export async function extractArchive(
+       temporaryFolder
+     );
+   } else if (fs.existsSync(path.join(temporaryFolder, 'package', 'dist'))) {
++    packageFolder = path.join(temporaryFolder, 'package');
+     copyExtractedRegularFile(
+       path.join(temporaryFolder, 'package', 'dist', 'main.js'),
+       path.join(pluginFolder, 'main.js'),
+@@ -373,6 +375,13 @@ export async function extractArchive(
+   } else {
+     throw new Error(`Failed to find plugin content within archive: ${archivePath}`);
+   }
++  for (const executablePath of executablePaths) {
++    const source = path.join(packageFolder, executablePath);
++    const platformSource =
++      process.platform === 'win32' && !fs.existsSync(source) ? `${source}.exe` : source;
++    const destination = path.join(pluginFolder, path.relative(packageFolder, platformSource));
++    copyExtractedRegularFile(platformSource, destination, temporaryFolder);
++  }
+ }
+ 
+ function copyExtractedRegularFile(
+@@ -389,9 +398,40 @@ function copyExtractedRegularFile(
+   if (!fs.lstatSync(source).isFile()) {
+     throw new Error(`Extracted plugin file must be a regular file: ${source}`);
+   }
++  fs.mkdirSync(path.dirname(destination), { recursive: true });
+   fs.copyFileSync(realSource, destination);
+ }
+ 
++/** Records trusted digests for declared executables in a shipped plugin bundle. */
++export async function recordBundledPluginExecutableIntegrity(
++  bundlePath: string,
++  executablePaths: string[]
++): Promise<void> {
++  if (executablePaths.length === 0) return;
++  const executables: Record<string, string> = Object.create(null);
++  for (const executablePath of executablePaths) {
++    const requested = path.join(bundlePath, executablePath);
++    const platformPath =
++      process.platform === 'win32' && !fs.existsSync(requested) ? `${requested}.exe` : requested;
++    const hash = crypto.createHash('sha256');
++    await pipeline(fs.createReadStream(platformPath), hash);
++    executables[executablePath.split(path.sep).join('/')] = hash.digest('hex');
++  }
++  const packageJsonPath = path.join(bundlePath, 'package.json');
++  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as Record<
++    string,
++    unknown
++  >;
++  const currentIntegrity =
++    typeof packageJson.headlampPluginIntegrity === 'object' &&
++    packageJson.headlampPluginIntegrity !== null &&
++    !Array.isArray(packageJson.headlampPluginIntegrity)
++      ? (packageJson.headlampPluginIntegrity as Record<string, unknown>)
++      : {};
++  packageJson.headlampPluginIntegrity = { ...currentIntegrity, version: 1, executables };
++  fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
++}
++
+ /**
+  * Downloads a plugin archive over HTTPS.
+  *
+@@ -545,7 +585,8 @@ export async function fetchArchive(
+   name: string,
+   url: string,
+   sha256: string | undefined,
+-  pluginRoot: string = PLUGIN_FOLDER
++  pluginRoot: string = PLUGIN_FOLDER,
++  executablePaths: string[] = []
+ ): Promise<void> {
+   const archiveName = getArchiveFileName(url);
+   fs.mkdirSync(pluginRoot, { recursive: true });
+@@ -555,7 +596,14 @@ export async function fetchArchive(
+   try {
+     await downloadFile(url, archivePath);
+     verifyArchiveDigest(archivePath, sha256);
+-    await extractArchive(name, archivePath, temporaryFolder, pluginRoot);
++    await extractArchive(
++      name,
++      archivePath,
++      temporaryFolder,
++      pluginRoot,
++      DEFAULT_EXTRACTION_LIMITS,
++      executablePaths
++    );
+   } finally {
+     fs.rmSync(temporaryFolder, { recursive: true, force: true });
+   }
+@@ -624,12 +672,23 @@ function replacePluginFolder(stagingFolder: string): void {
+ export async function main(): Promise<void> {
+   const plugins = manifest.plugins ?? [];
+   plugins.forEach(plugin => validatePluginSource(plugin));
++  const shippedExecutablePaths = new Map<string, string[]>();
++  for (const policy of productPluginCommandPolicies(manifest, 'production')) {
++    if (policy.source !== 'shipped') continue;
++    const paths = policy.grants.flatMap(grant =>
++      grant.executable?.source === 'plugin' ? [grant.executable.path] : []
++    );
++    shippedExecutablePaths.set(policy.bundleName, [
++      ...new Set([...(shippedExecutablePaths.get(policy.bundleName) ?? []), ...paths]),
++    ]);
++  }
+ 
+   const stagingFolder = fs.mkdtempSync(path.join(path.dirname(PLUGIN_FOLDER), '.plugins-stage-'));
+   try {
+     for (const { name, packageName, archive, file, sha256, enabledByDefault } of plugins) {
++      const executablePaths = shippedExecutablePaths.get(name) ?? [];
+       if (archive) {
+-        await fetchArchive(name, archive, sha256, stagingFolder);
++        await fetchArchive(name, archive, sha256, stagingFolder, executablePaths);
+       }
+       if (file) {
+         const sourceArchive = resolveLocalPluginArchive(MANIFEST_FILE, file);
+@@ -640,7 +699,9 @@ export async function main(): Promise<void> {
+             name,
+             privateArchive.archivePath,
+             privateArchive.directory,
+-            stagingFolder
++            stagingFolder,
++            DEFAULT_EXTRACTION_LIMITS,
++            executablePaths
+           );
+         } finally {
+           fs.rmSync(privateArchive.directory, { recursive: true, force: true });
+@@ -649,6 +710,7 @@ export async function main(): Promise<void> {
+       const packageJsonPath = path.join(stagingFolder, name, 'package.json');
+       verifyPluginIdentity(packageJsonPath, packageName);
+       applyEnabledByDefault(stagingFolder, name, enabledByDefault);
++      await recordBundledPluginExecutableIntegrity(path.join(stagingFolder, name), executablePaths);
+     }
+     replacePluginFolder(stagingFolder);
+   } finally {
 diff --git a/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md b/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b065f6620f
@@ -9803,10 +10424,10 @@ index d0bf10fc95550679ab48f28c2547842b55f054df..20188fce0c68ab96cc3dceff1dbf9831
  
 diff --git a/source/docs/development/plugins/command-capabilities.md b/source/docs/development/plugins/command-capabilities.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..7f82b146fbff072760b4f439ecf6bd1084b2e075
+index 0000000000000000000000000000000000000000..bea2e680fad209c4c40b168bd62922fac6238395
 --- /dev/null
 +++ b/source/docs/development/plugins/command-capabilities.md
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,294 @@
 +---
 +title: Desktop Command Capabilities
 +sidebar_label: Desktop Commands
@@ -9919,10 +10540,13 @@ index 0000000000000000000000000000000000000000..7f82b146fbff072760b4f439ecf6bd10
 +entry names one command identifier, and Headlamp derives its bundle-relative
 +path as `bin/<tool>`. Headlamp never falls back between the plugin and system
 +origins. A missing, invalid, or undeclared plugin executable fails closed.
-+Plugin-owned executables are supported only for development and managed-user
-+inventories, where the development trust boundary or plugin-manager installation
-+flow can establish the required integrity metadata. Shipped policies must use
-+system commands; the build rejects `pluginExecutables` for shipped inventory.
++For managed-user plugins, the verified plugin-manager installation flow records
++the executable integrity metadata. For shipped plugins, the packaging flow copies
++only manifest-declared executables into the app's plugin inventory and records
++their digests before the inventory is included in the packaged application. The
++application package and its signing boundary establish provenance for these
++shipped bytes. At runtime, non-development plugin executables are verified,
++copied into an app-owned temporary directory, and rehashed before execution.
 +
 +Headlamp's checked-in manifest provides production managed-plugin policies only
 +where Artifact Hub package paths are known. Development-only policies may also
@@ -9996,19 +10620,26 @@ index 0000000000000000000000000000000000000000..7f82b146fbff072760b4f439ecf6bd10
 +It stores the reviewed policy in the main process and never accepts grants from
 +the renderer.
 +
++Before plugin code executes, the trusted renderer hashes the exact fetched
++`main.js` source it has cached. Electron independently hashes the corresponding
++file in the verified bundle and issues a capability only when those digests
++match. The cached bytes that execute are therefore the same source Electron
++authorized, even if a writable plugin file changes during loading.
++
 +Authorization and user consent are separate decisions. Consent is requested only
 +after product authorization succeeds and is scoped to the plugin identity,
 +canonical tool, and reviewed argument prefix. Commands are executed directly
 +with `shell: false`.
 +
-+For a managed plugin installation, Electron writes integrity metadata into the
-+installed plugin's `package.json`. It records the Artifact Hub repository and
-+package names, their IDs, and the SHA-256 digest of every regular file in the
-+bundle. The `package.json` digest is calculated from its contents without the
-+integrity field, avoiding a self-reference. Capability registration verifies
-+the expected repository and package names, any pinned IDs, and all recorded
-+files. Missing files, additional files, symbolic links, digest changes, and
-+identity mismatches fail closed.
++For a managed plugin installation, Electron writes an app-owned installation
++receipt outside plugin-controlled inventory. It records the canonical inventory
++path and bundle directory, the Artifact Hub repository and package names, their
++IDs, and the SHA-256 digest of every regular file in the bundle. Capability
++registration verifies the installed location, expected repository and package
++names, any pinned IDs, and all recorded files. Missing files, additional files,
++symbolic links, digest changes, identity mismatches, and bundles copied to
++another inventory fail closed. Package-local metadata is never used to prove
++installation provenance because a pre-positioned bundle can rewrite it.
 +
 +For `scriptjs`, Electron copies the receipt-matched script into a unique
 +app-owned directory and launches only those staged bytes. The copy is removed
@@ -10021,8 +10652,8 @@ index 0000000000000000000000000000000000000000..7f82b146fbff072760b4f439ecf6bd10
 +starts and rejects missing or mismatched digests. It copies matching bytes into
 +a unique app-owned directory and starts the process from that verified copy, so
 +replacing the plugin-bundle path after hashing cannot change what is executed.
-+The copy is removed after the child process terminates. Updating or uninstalling
-+a plugin replaces or removes its `package.json` with the rest of the bundle.
++The copy is removed after the child process terminates. Updating a plugin
++replaces its app-owned installation receipt; uninstalling removes it.
 +
 +Managed plugins installed by a Headlamp release that did not record installation
 +integrity metadata must be updated or reinstalled before they can receive
@@ -15962,10 +16593,10 @@ index 0000000000000000000000000000000000000000..2fc8d0598b38af4a1e49a44b8292638b
 +}
 diff --git a/source/frontend/src/plugin/commandCapabilities.test.ts b/source/frontend/src/plugin/commandCapabilities.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..e7ccedbb5f2dcc9daedf23f06a5b8b90a3867fc1
+index 0000000000000000000000000000000000000000..107f6edcc3a897d68f0a4a09660189ca98d67354
 --- /dev/null
 +++ b/source/frontend/src/plugin/commandCapabilities.test.ts
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,127 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -15988,6 +16619,7 @@ index 0000000000000000000000000000000000000000..e7ccedbb5f2dcc9daedf23f06a5b8b90
 +  commandCapabilityRegistration,
 +  createPluginRunCommand,
 +  findCommandCapability,
++  pluginSourceDigest,
 +} from './commandCapabilities';
 +import { PluginInfo } from './pluginsSlice';
 +
@@ -16001,21 +16633,35 @@ index 0000000000000000000000000000000000000000..e7ccedbb5f2dcc9daedf23f06a5b8b90
 +};
 +
 +describe('commandCapabilityRegistration', () => {
++  const sourceDigest = 'a'.repeat(64);
++
 +  it('preserves package, bundle, path, and provenance', () => {
-+    expect(commandCapabilityRegistration(plugin, 'static-plugins/example-plugin')).toEqual({
++    expect(
++      commandCapabilityRegistration(plugin, 'static-plugins/example-plugin', sourceDigest)
++    ).toEqual({
 +      bundleName: 'example-plugin',
 +      packageName: '@example/plugin',
 +      path: 'static-plugins/example-plugin',
 +      source: 'shipped',
 +      type: 'shipped',
++      sourceDigest,
 +    });
 +  });
 +
 +  it('rejects incomplete inventory metadata', () => {
-+    expect(commandCapabilityRegistration({ ...plugin, source: undefined }, 'path')).toBeUndefined();
 +    expect(
-+      commandCapabilityRegistration({ ...plugin, folderName: undefined }, 'path')
++      commandCapabilityRegistration({ ...plugin, source: undefined }, 'path', sourceDigest)
 +    ).toBeUndefined();
++    expect(
++      commandCapabilityRegistration({ ...plugin, folderName: undefined }, 'path', sourceDigest)
++    ).toBeUndefined();
++    expect(commandCapabilityRegistration(plugin, 'path', 'invalid')).toBeUndefined();
++  });
++
++  it('hashes the exact cached source', async () => {
++    await expect(pluginSourceDigest('console.log("trusted");')).resolves.toBe(
++      'dd746362bdf7510734ba74a34f15e2a6a625e7e044efb0bc38da54b7cc316084'
++    );
 +  });
 +});
 +
@@ -16080,10 +16726,10 @@ index 0000000000000000000000000000000000000000..e7ccedbb5f2dcc9daedf23f06a5b8b90
 +});
 diff --git a/source/frontend/src/plugin/commandCapabilities.ts b/source/frontend/src/plugin/commandCapabilities.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b9a1a610b08c65776150a432b909555fd4a1533a
+index 0000000000000000000000000000000000000000..b2ef71847a4f70d1e07987c4dba3f9346bd59ca8
 --- /dev/null
 +++ b/source/frontend/src/plugin/commandCapabilities.ts
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,176 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -16116,6 +16762,7 @@ index 0000000000000000000000000000000000000000..b9a1a610b08c65776150a432b909555f
 + *   path: 'static-plugins/example-plugin',
 + *   source: 'shipped',
 + *   type: 'shipped',
++ *   sourceDigest: 'dd746362bdf7510734ba74a34f15e2a6a625e7e044efb0bc38da54b7cc316084',
 + * };
 + * ```
 + */
@@ -16130,6 +16777,8 @@ index 0000000000000000000000000000000000000000..b9a1a610b08c65776150a432b909555f
 +  source: string;
 +  /** Plugin priority type. */
 +  type: string;
++  /** SHA-256 of the exact main.js source cached for execution. */
++  sourceDigest: string;
 +}
 +
 +/**
@@ -16169,13 +16818,20 @@ index 0000000000000000000000000000000000000000..b9a1a610b08c65776150a432b909555f
 + *
 + * @param plugin - Package metadata combined with backend inventory metadata.
 + * @param pluginPath - URL path used to load the plugin.
++ * @param sourceDigest - SHA-256 of the fetched source that will execute.
 + * @returns A registration claim, or undefined when identity metadata is incomplete.
 + */
 +export function commandCapabilityRegistration(
 +  plugin: PluginInfo,
-+  pluginPath: string
++  pluginPath: string,
++  sourceDigest: string
 +): PluginCommandRegistration | undefined {
-+  if (!plugin.folderName || !plugin.source || !plugin.type) {
++  if (
++    !plugin.folderName ||
++    !plugin.source ||
++    !plugin.type ||
++    !/^[a-f0-9]{64}$/.test(sourceDigest)
++  ) {
 +    return undefined;
 +  }
 +  return {
@@ -16184,7 +16840,14 @@ index 0000000000000000000000000000000000000000..b9a1a610b08c65776150a432b909555f
 +    path: pluginPath,
 +    source: plugin.source,
 +    type: plugin.type,
++    sourceDigest,
 +  };
++}
++
++/** Returns the SHA-256 digest of the exact JavaScript source string that will execute. */
++export async function pluginSourceDigest(source: string): Promise<string> {
++  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(source));
++  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 +}
 +
 +/**
@@ -16383,10 +17046,10 @@ index 0000000000000000000000000000000000000000..7d26c67ac5a2d4e31a9ac0288aca7f26
 +  return enabled ? plugins : plugins.filter(plugin => plugin.type !== 'development');
 +}
 diff --git a/source/frontend/src/plugin/index.ts b/source/frontend/src/plugin/index.ts
-index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa38cf2830 100644
+index f49d3a67c45f01f4510ba158c00d47445fd11796..c4edb36f0338383e043cfe1ac7355b6731df263f 100644
 --- a/source/frontend/src/plugin/index.ts
 +++ b/source/frontend/src/plugin/index.ts
-@@ -53,15 +53,27 @@ import * as Utils from '../lib/util';
+@@ -53,15 +53,28 @@ import * as Utils from '../lib/util';
  import { eventAction, HeadlampEventType } from '../redux/headlampEventSlice';
  import store from '../redux/stores/store';
  import * as stateless from '../stateless/index';
@@ -16400,6 +17063,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
 +  createPluginRunCommand,
 +  findCommandCapability,
 +  PluginCommandCapability,
++  pluginSourceDigest,
 +} from './commandCapabilities';
 +import { filterDisabledDevelopmentPlugins } from './developmentPlugins';
  import { Headlamp, Plugin } from './lib';
@@ -16416,7 +17080,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
    ApiProxy,
    ReactMonacoEditor: {
      ...ReactMonacoEditor,
-@@ -108,6 +120,18 @@ window.pluginLib = {
+@@ -108,6 +121,18 @@ window.pluginLib = {
    Activity,
    stateless,
  };
@@ -16435,7 +17099,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
  
  // backwards compat.
  window.pluginLib.MuiCore = window.pluginLib.MuiMaterial;
-@@ -335,26 +359,6 @@ export function updateSettingsPackages(
+@@ -335,26 +360,6 @@ export function updateSettingsPackages(
    });
  }
  
@@ -16462,7 +17126,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
  const PLUGIN_LOADING_ERROR = HeadlampEventType.PLUGIN_LOADING_ERROR;
  const consoleError = console.error;
  const storeDispatch = store.dispatch;
-@@ -452,9 +456,11 @@ export async function fetchAndExecutePlugins(
+@@ -452,9 +457,11 @@ export async function fetchAndExecutePlugins(
      name: string;
    }
  
@@ -16477,7 +17141,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
  
    // Extract paths for fetching plugin files
    const pluginPaths = pluginMetadataList.map(metadata => metadata.path);
-@@ -505,6 +511,15 @@ export async function fetchAndExecutePlugins(
+@@ -505,6 +512,15 @@ export async function fetchAndExecutePlugins(
    const sources = await sourcesPromise;
    const packageInfos = await packageInfosPromise;
    const permissionSecrets = await permissionSecretsPromise;
@@ -16493,13 +17157,20 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
  
    // Update settings to include all plugin versions (by name + type)
    let updatedSettingsPackages = updateSettingsPackages(packageInfos, settingsPackages);
-@@ -583,12 +598,20 @@ export async function fetchAndExecutePlugins(
+@@ -583,12 +599,27 @@ export async function fetchAndExecutePlugins(
          secureStorageNamespaces.filter((namespace): namespace is string => Boolean(namespace))
        )
      : {};
 +  const commandCapabilitiesBridge = window?.desktopApi?.commandCapabilities;
++  const sourceDigestsToExecute = await Promise.all(sourcesToExecute.map(pluginSourceDigest));
 +  const commandCapabilityRegistrations = packageInfosToExecute
-+    .map((plugin, index) => commandCapabilityRegistration(plugin, pluginPathsToExecute[index]))
++    .map((plugin, index) =>
++      commandCapabilityRegistration(
++        plugin,
++        pluginPathsToExecute[index],
++        sourceDigestsToExecute[index]
++      )
++    )
 +    .filter(registration => registration !== undefined);
 +  const commandCapabilities: PluginCommandCapability[] = commandCapabilitiesBridge
 +    ? await commandCapabilitiesBridge.register(commandCapabilityRegistrations)
@@ -16514,7 +17185,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
    const internalRunCommand = runCommand;
    const PrivateFunction = Function;
    const internalRunPlugin = runPlugin;
-@@ -611,7 +634,7 @@ export async function fetchAndExecutePlugins(
+@@ -611,7 +642,7 @@ export async function fetchAndExecutePlugins(
          pluginPath: pluginPathsToExecute[index],
          packageName: packageInfosToExecute[index].name,
          packageVersion: packageInfosToExecute[index].version || '',
@@ -16523,7 +17194,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
          handleError: handlePluginRunError,
          getAllowedPermissions: (pluginName, pluginPath, secrets): Record<string, number> => {
            const secretsToReturn: Record<string, number> = {};
-@@ -637,76 +660,51 @@ export async function fetchAndExecutePlugins(
+@@ -637,76 +668,51 @@ export async function fetchAndExecutePlugins(
              secretsToReturn['runCmd-az'] = secrets['runCmd-az'];
            }
  
@@ -16566,25 +17237,6 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
 -                pluginDesktopApiReceive
 -              );
 -            }
--            argumentNames.push('pluginRunCommand', 'pluginPath');
--            argumentValues.push(pluginRunCommand, pluginPath);
--          }
--
--          if (isPackage['@headlamp-k8s/ai-assistant']) {
--            function pluginRunCommand(
--              command: 'gh' | 'az',
--              args: string[],
--              options: {}
--            ): ReturnType<typeof internalRunCommand> {
--              return internalRunCommand(
--                command,
--                args,
--                options,
--                allowedPermissions,
--                pluginDesktopApiSend,
--                pluginDesktopApiReceive
--              );
--            }
 +          const isTrustedAksDesktop = isTrustedClusterProxyPlugin(
 +            isPackage['aks-desktop'],
 +            packageInfosToExecute[index].source,
@@ -16607,6 +17259,25 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
 +            argumentValues.push(productRunCommand, pluginPath);
            }
  
+-          if (isPackage['@headlamp-k8s/ai-assistant']) {
+-            function pluginRunCommand(
+-              command: 'gh' | 'az',
+-              args: string[],
+-              options: {}
+-            ): ReturnType<typeof internalRunCommand> {
+-              return internalRunCommand(
+-                command,
+-                args,
+-                options,
+-                allowedPermissions,
+-                pluginDesktopApiSend,
+-                pluginDesktopApiReceive
+-              );
+-            }
+-            argumentNames.push('pluginRunCommand', 'pluginPath');
+-            argumentValues.push(pluginRunCommand, pluginPath);
+-          }
+-
 -          if (isPackage['azure-aks']) {
 -            function pluginRunCommand(
 -              command: 'scriptjs',
@@ -16635,7 +17306,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
            }
  
            const storageNamespace = secureStorageNamespaces[index];
-@@ -736,7 +734,9 @@ export async function fetchAndExecutePlugins(
+@@ -736,7 +742,9 @@ export async function fetchAndExecutePlugins(
      return 0;
    });
  
@@ -16646,7 +17317,7 @@ index f49d3a67c45f01f4510ba158c00d47445fd11796..4b96c71102f98d4f27fcfe95abfbcdfa
  
    // Initialize plugin i18n after plugins are loaded
    await initializePluginsI18n(packageInfos, pluginPaths);
-@@ -806,11 +806,11 @@ async function afterPluginsRun(
+@@ -806,11 +814,11 @@ async function afterPluginsRun(
   *
   * @returns promise with permissions secrets like { 'runCmd-minikube': 1235555 }
   */
