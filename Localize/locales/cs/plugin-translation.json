@@ -83,7 +83,7 @@
   "Avg Response Time": "Průměrná doba odezvy",
   "Azure Account": "Účet Azure",
   "Azure Authentication": "Ověřování Azure",
-  "Azure CLI requirements not met": "Azure CLI requirements not met",
+  "Azure CLI requirements not met": "Požadavky Azure CLI nejsou splněné.",
   "Azure Monitor Metrics (Managed Prometheus)": "Metriky Azure Monitoru (spravovaný Prometheus)",
   "Azure Role Assignments": "Přiřazení rolí Azure",
   "Azure sign-in is required to configure workload identity.": "Ke konfiguraci identity úlohy se vyžaduje přihlášení k Azure.",

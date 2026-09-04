@@ -83,7 +83,7 @@
   "Avg Response Time": "Rata-Rata Waktu Respons",
   "Azure Account": "Akun Azure",
   "Azure Authentication": "Autentikasi Azure",
-  "Azure CLI requirements not met": "Azure CLI requirements not met",
+  "Azure CLI requirements not met": "Persyaratan Azure CLI tidak terpenuhi",
   "Azure Monitor Metrics (Managed Prometheus)": "Metrik Azure Monitor (Prometheus Terkelola)",
   "Azure Role Assignments": "Penetapan Peran Azure",
   "Azure sign-in is required to configure workload identity.": "Proses masuk Azure diperlukan untuk mengonfigurasi identitas beban kerja.",

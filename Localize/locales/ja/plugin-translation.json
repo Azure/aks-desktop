@@ -83,7 +83,7 @@
   "Avg Response Time": "平均応答時間",
   "Azure Account": "Azure アカウント",
   "Azure Authentication": "Azure 認証",
-  "Azure CLI requirements not met": "Azure CLI requirements not met",
+  "Azure CLI requirements not met": "Azure CLI の要件が満たされていません",
   "Azure Monitor Metrics (Managed Prometheus)": "Azure Monitor のメトリック (マネージド Prometheus)",
   "Azure Role Assignments": "Azure ロールの割り当て",
   "Azure sign-in is required to configure workload identity.": "ワークロード ID を構成するには、Azure へのサインインが必要です。",

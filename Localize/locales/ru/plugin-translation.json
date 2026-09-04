@@ -83,7 +83,7 @@
   "Avg Response Time": "Среднее время отклика",
   "Azure Account": "Учетная запись Azure",
   "Azure Authentication": "Проверка подлинности Azure",
-  "Azure CLI requirements not met": "Azure CLI requirements not met",
+  "Azure CLI requirements not met": "Требования Azure CLI не выполнены",
   "Azure Monitor Metrics (Managed Prometheus)": "Метрики Azure Monitor (управляемый Prometheus)",
   "Azure Role Assignments": "Назначения ролей Azure",
   "Azure sign-in is required to configure workload identity.": "Для настройки удостоверения рабочей нагрузки требуется вход в Azure.",

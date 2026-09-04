@@ -83,7 +83,7 @@
   "Avg Response Time": "Ortalama Yanıt Süresi",
   "Azure Account": "Azure Hesabı",
   "Azure Authentication": "Azure Kimlik Doğrulaması",
-  "Azure CLI requirements not met": "Azure CLI requirements not met",
+  "Azure CLI requirements not met": "Azure CLI gereksinimleri karşılanmadı",
   "Azure Monitor Metrics (Managed Prometheus)": "Azure İzleyici Ölçümleri (Yönetilen Prometheus)",
   "Azure Role Assignments": "Azure Rol Atamaları",
   "Azure sign-in is required to configure workload identity.": "İş yükü kimliğini yapılandırmak için Azure oturumu açılması gerekir.",

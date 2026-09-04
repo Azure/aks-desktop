@@ -83,7 +83,7 @@
   "Avg Response Time": "Durchschnittliche Antwortzeit",
   "Azure Account": "Azure-Konto",
   "Azure Authentication": "Azure-Authentifizierung",
-  "Azure CLI requirements not met": "Azure CLI requirements not met",
+  "Azure CLI requirements not met": "Azure CLI-Anforderungen nicht erfüllt",
   "Azure Monitor Metrics (Managed Prometheus)": "Azure Monitor-Metriken (verwalteter Prometheus)",
   "Azure Role Assignments": "Azure-Rollenzuweisungen",
   "Azure sign-in is required to configure workload identity.": "Eine Azure-Anmeldung ist erforderlich, um die Workloadidentität zu konfigurieren.",

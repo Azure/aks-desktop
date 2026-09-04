@@ -83,7 +83,7 @@
   "Avg Response Time": "Átlagos válaszidő",
   "Azure Account": "Azure-fiók",
   "Azure Authentication": "Azure-hitelesítés",
-  "Azure CLI requirements not met": "Azure CLI requirements not met",
+  "Azure CLI requirements not met": "Az Azure CLI követelményei nem teljesülnek",
   "Azure Monitor Metrics (Managed Prometheus)": "Azure Monitor metrikák (felügyelt Prometheus)",
   "Azure Role Assignments": "Azure-beli szerepkör-hozzárendelések",
   "Azure sign-in is required to configure workload identity.": "A számításifeladat-identitás konfigurálásához Azure-bejelentkezés szükséges.",

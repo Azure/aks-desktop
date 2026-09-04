@@ -83,7 +83,7 @@
   "Avg Response Time": "평균 응답 시간",
   "Azure Account": "Azure 계정",
   "Azure Authentication": "Azure 인증",
-  "Azure CLI requirements not met": "Azure CLI requirements not met",
+  "Azure CLI requirements not met": "Azure CLI 요구 사항이 충족되지 않음",
   "Azure Monitor Metrics (Managed Prometheus)": "Azure Monitor 메트릭(관리 Prometheus)",
   "Azure Role Assignments": "Azure 역할 할당",
   "Azure sign-in is required to configure workload identity.": "워크로드 ID를 구성하려면 Azure 로그인이 필요합니다.",

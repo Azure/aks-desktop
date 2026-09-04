@@ -83,7 +83,7 @@
   "Avg Response Time": "Średni czas odpowiedzi",
   "Azure Account": "Konto platformy Azure",
   "Azure Authentication": "Uwierzytelnianie platformy Azure",
-  "Azure CLI requirements not met": "Azure CLI requirements not met",
+  "Azure CLI requirements not met": "Wymagania interfejsu wiersza polecenia platformy Azure nie zostały spełnione",
   "Azure Monitor Metrics (Managed Prometheus)": "Metryki usługi Azure Monitor (zarządzany zestaw narzędzi Prometheus)",
   "Azure Role Assignments": "Przypisania ról na platformie Azure",
   "Azure sign-in is required to configure workload identity.": "Do skonfigurowania tożsamości obciążenia wymagane jest logowanie do platformy Azure.",

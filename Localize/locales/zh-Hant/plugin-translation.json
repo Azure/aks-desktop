@@ -83,7 +83,7 @@
   "Avg Response Time": "平均回應時間",
   "Azure Account": "Azure 帳戶",
   "Azure Authentication": "Azure 驗證",
-  "Azure CLI requirements not met": "Azure CLI requirements not met",
+  "Azure CLI requirements not met": "不符合 Azure CLI 需求",
   "Azure Monitor Metrics (Managed Prometheus)": "Azure 監視器計量 (受控 Prometheus)",
   "Azure Role Assignments": "Azure 角色指派",
   "Azure sign-in is required to configure workload identity.": "需要 Azure 登入，才能設定工作負載身分識別。",
