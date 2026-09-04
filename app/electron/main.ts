@@ -1527,6 +1527,38 @@ async function initializeShellEnvironment(): Promise<NodeJS.ProcessEnv> {
 
 async function startElectron() {
   console.info('App starting...');
+
+  // Install bundled command paths before starting the backend, loading the
+  // renderer, or initializing MCP. Any of those can spawn a command and cache
+  // its environment, so doing this later makes the bundled CLI intermittently
+  // disappear for the lifetime of the process.
+  const resourcesDir = isDev ? path.join(__dirname, '..', 'resources') : process.resourcesPath;
+  const externalToolsDir = path.join(resourcesDir, 'external-tools');
+  const externalToolsBinPath = path.join(externalToolsDir, 'bin');
+  const azCliBinPath = path.join(externalToolsDir, 'az-cli', process.platform, 'bin');
+
+  console.log(`[AKS-Desktop] Looking for Azure CLI at: ${azCliBinPath}`);
+  const bundledPluginBinDirs = getPluginBinDirectories(
+    path.join(process.resourcesPath, '.plugins')
+  );
+  if (bundledPluginBinDirs.length > 0) {
+    addToPath(bundledPluginBinDirs, 'bundled plugin');
+  }
+  const userPluginBinDirs = getPluginBinDirectories(defaultUserPluginsDir());
+  if (userPluginBinDirs.length > 0) {
+    addToPath(userPluginBinDirs, 'user plugin');
+  }
+  if (fs.existsSync(externalToolsBinPath)) {
+    addToPath([externalToolsBinPath], 'external tools');
+  } else {
+    console.warn(`[AKS-Desktop] External tools not found at: ${externalToolsBinPath}`);
+  }
+  if (fs.existsSync(azCliBinPath)) {
+    addToPath([azCliBinPath], 'Azure CLI');
+  } else {
+    console.warn(`[AKS-Desktop] Bundled Azure CLI not found at: ${azCliBinPath}`);
+  }
+
   // add run cmd consent for aks-desktop to avoid consent dialogs for the aks-desktop plugin
   addRunCmdConsent({ name: 'aks-desktop' });
   addRunCmdConsent({ name: '@headlamp-k8s/ai-assistant' });
@@ -2017,62 +2049,12 @@ async function startElectron() {
       }
     );
 
-    // Also add bundled plugin bin directories to PATH
-    const bundledPlugins = path.join(process.resourcesPath, '.plugins');
-    const bundledPluginBinDirs = getPluginBinDirectories(bundledPlugins);
-    if (bundledPluginBinDirs.length > 0) {
-      addToPath(bundledPluginBinDirs, 'bundled plugin');
-    }
-
-    // Add the installed plugins as well
-    const userPluginBinDirs = getPluginBinDirectories(defaultUserPluginsDir());
-    if (userPluginBinDirs.length > 0) {
-      addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
-    }
-
     if (ENABLE_MCP) {
       const configPath = path.join(app.getPath('userData'), 'mcp-tools-config.json');
       const settingsPath = path.join(app.getPath('userData'), 'mcp-tools-settings.json');
-      mcpClient = new MCPClient(configPath, settingsPath);
+      mcpClient = new MCPClient(configPath, settingsPath, resourcesDir);
       await mcpClient.initialize();
       mcpClient.setMainWindow(mainWindow);
-    }
-
-    // Add bundled Azure CLI and external tools to PATH
-    // In dev mode: look in headlamp/app/resources/external-tools (relative to main.ts location)
-    // In production: look in process.resourcesPath/external-tools
-    const platformDir = process.platform;
-    const resourcesDir = isDev
-      ? path.join(__dirname, '..', 'resources') // From electron/ dir, go up to app/, then to resources/
-      : process.resourcesPath;
-    const azCliBinPath = path.join(resourcesDir, 'external-tools', 'az-cli', platformDir, 'bin');
-    const externalToolsBinPath = path.join(resourcesDir, 'external-tools', 'bin');
-
-    console.log(`[AKS-Desktop] __dirname: ${__dirname}`);
-    console.log(`[AKS-Desktop] resourcesDir: ${resourcesDir}`);
-    console.log(`[AKS-Desktop] Looking for Azure CLI at: ${azCliBinPath}`);
-    console.log(`[AKS-Desktop] Looking for external tools at: ${externalToolsBinPath}`);
-
-    // Add external tools bin directory (contains az-kubelogin.py)
-    if (fs.existsSync(externalToolsBinPath)) {
-      console.log(`[AKS-Desktop] Found external tools, adding to PATH: ${externalToolsBinPath}`);
-      addToPath([externalToolsBinPath], 'External Tools');
-    } else {
-      console.warn(`[AKS-Desktop] External tools not found at: ${externalToolsBinPath}`);
-    }
-
-    // Add Azure CLI bin directory
-    if (fs.existsSync(azCliBinPath)) {
-      console.log(`[AKS-Desktop] Found bundled Azure CLI, adding to PATH: ${azCliBinPath}`);
-      addToPath([azCliBinPath], 'Azure CLI');
-    } else {
-      console.warn(`[AKS-Desktop] Bundled Azure CLI not found at: ${azCliBinPath}`);
-      console.warn(`[AKS-Desktop] Platform: ${process.platform}, isDev: ${isDev}`);
-      if (isDev) {
-        console.warn(
-          `[AKS-Desktop] Tip: Run build process to download Azure CLI to headlamp/app/resources/external-tools/`
-        );
-      }
     }
   }
 

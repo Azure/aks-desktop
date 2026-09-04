@@ -14,9 +14,17 @@
  * limitations under the License.
  */
 
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { loadSettings, saveSettings } from '../settings';
-import { expandEnvAndResolvePaths, loadMCPSettings, saveMCPSettings } from './MCPSettings';
+import {
+  expandEnvAndResolvePaths,
+  loadMCPSettings,
+  resolveMCPServerCommand,
+  saveMCPSettings,
+} from './MCPSettings';
 import * as MCP from './MCPSettings';
 
 vi.mock('../settings', () => ({
@@ -240,6 +248,36 @@ describe('MultiServerMCPClient', () => {
     const entry = result['withCluster'] as any;
     // the expand function should have replaced the placeholder
     expect(entry.args).toEqual(['connect', 'my-current-cluster']);
+  });
+
+  it('uses the packaged aks-mcp executable instead of relying on PATH', () => {
+    const resourcesPath = fs.mkdtempSync(path.join(os.tmpdir(), 'aks-mcp-resources-'));
+    const binDir = path.join(resourcesPath, 'external-tools', 'bin');
+    const binaryName = process.platform === 'win32' ? 'aks-mcp.exe' : 'aks-mcp';
+    const bundledCommand = path.join(binDir, binaryName);
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(bundledCommand, 'test');
+
+    try {
+      expect(resolveMCPServerCommand('aks-mcp', resourcesPath)).toBe(bundledCommand);
+      expect(resolveMCPServerCommand('/custom/aks-mcp', resourcesPath)).toBe('/custom/aks-mcp');
+    } finally {
+      fs.rmSync(resourcesPath, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves the packaged aks-mcp.exe on Windows', () => {
+    const resourcesPath = fs.mkdtempSync(path.join(os.tmpdir(), 'aks-mcp-resources-'));
+    const bundledCommand = path.join(resourcesPath, 'external-tools', 'bin', 'aks-mcp.exe');
+    fs.mkdirSync(path.dirname(bundledCommand), { recursive: true });
+    fs.writeFileSync(bundledCommand, 'test');
+
+    try {
+      expect(resolveMCPServerCommand('aks-mcp', resourcesPath, 'win32')).toBe(bundledCommand);
+      expect(resolveMCPServerCommand('AKS-MCP.EXE', resourcesPath, 'win32')).toBe(bundledCommand);
+    } finally {
+      fs.rmSync(resourcesPath, { recursive: true, force: true });
+    }
   });
 });
 

@@ -22,6 +22,7 @@ import {
   addRunCmdConsent,
   checkPermissionSecret,
   handleRunCommand,
+  mergeCommandEnvironment,
   removeRunCmdConsent,
   setupRunCmdHandlers,
   validateCommandData,
@@ -165,6 +166,31 @@ describe('checkPermissionSecret', () => {
       permissionSecrets: { 'runCmd-scriptjs-plugins/minikube/myscript.js': 42 },
     };
     expect(checkPermissionSecret(commandData, permissionSecrets)[0]).toBe(true);
+  });
+});
+
+describe('mergeCommandEnvironment', () => {
+  it('uses the current process PATH instead of a stale cached Windows Path', async () => {
+    await withPlatform('win32', () => {
+      const originalPath = process.env.PATH;
+      process.env.PATH = 'C:\\app\\resources\\external-tools\\az-cli\\win32\\bin;C:\\Windows';
+      try {
+        const env = mergeCommandEnvironment({ Path: 'C:\\Windows', PATH: 'C:\\stale' });
+        expect(env.PATH).toBe(process.env.PATH);
+        expect('Path' in env).toBe(false);
+      } finally {
+        if (originalPath === undefined) delete process.env.PATH;
+        else process.env.PATH = originalPath;
+      }
+    });
+  });
+
+  it('honors an explicit PATH override for one command', async () => {
+    await withPlatform('win32', () => {
+      const env = mergeCommandEnvironment({ Path: 'C:\\cached' }, { Path: 'C:\\command-specific' });
+      expect(env.PATH).toBe('C:\\command-specific');
+      expect('Path' in env).toBe(false);
+    });
   });
 });
 
@@ -343,6 +369,36 @@ describe('handleRunCommand - child process error event', () => {
 
     expect(sentMessages).toContainEqual(['command-stderr', 'test-id', 'spawn error']);
     expect(sentMessages).toContainEqual(['command-exit', 'test-id', -1]);
+  });
+});
+
+describe('handleRunCommand - command environment', () => {
+  it('passes per-command env overrides through to the spawned process', async () => {
+    const childEmitter = new EventEmitter() as any;
+    childEmitter.stdout = new EventEmitter();
+    childEmitter.stderr = new EventEmitter();
+
+    const { spawn } = await import('child_process');
+    (spawn as Mock).mockReset();
+    (spawn as Mock).mockReturnValue(childEmitter);
+
+    const fakeEvent = { sender: { send: vi.fn() } } as any;
+
+    await handleRunCommand(
+      fakeEvent,
+      {
+        id: 'env-id',
+        command: 'minikube',
+        args: ['start'],
+        options: { env: { HEADLAMP_TEST_VAR: 'from-command' } },
+        permissionSecrets: { 'runCmd-minikube': 99 },
+      },
+      { id: 1 } as any,
+      { 'runCmd-minikube': 99 }
+    );
+
+    const spawnEnv = (spawn as Mock).mock.calls[0][2].env;
+    expect(spawnEnv.HEADLAMP_TEST_VAR).toBe('from-command');
   });
 });
 

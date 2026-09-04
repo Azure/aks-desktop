@@ -69,14 +69,16 @@ export default class MCPClient {
   private initializationPromise: Promise<void> | null = null;
 
   private settingsPath: string;
+  private resourcesPath?: string;
   private clusters: string[] = [];
 
   private currentClusters: string[] | null = null;
   private oldClusters: string[] | null = null;
 
-  constructor(configPath: string, settingsPath: string) {
+  constructor(configPath: string, settingsPath: string, resourcesPath?: string) {
     this.configPath = configPath;
     this.settingsPath = settingsPath;
+    this.resourcesPath = resourcesPath;
     this.setupIpcHandlers();
   }
 
@@ -133,7 +135,11 @@ export default class MCPClient {
    */
   private async doInitializeClient(): Promise<void> {
     try {
-      const mcpServers = makeMcpServersFromSettings(this.settingsPath, this.clusters);
+      const mcpServers = makeMcpServersFromSettings(
+        this.settingsPath,
+        this.clusters,
+        this.resourcesPath
+      );
 
       // If no enabled servers, skip initialization
       if (Object.keys(mcpServers).length === 0) {

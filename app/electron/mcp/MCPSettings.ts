@@ -16,6 +16,7 @@
 
 import type { ClientConfig } from '@langchain/mcp-adapters';
 import { type BrowserWindow, dialog } from 'electron';
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { loadSettings, saveSettings } from '../settings';
@@ -156,7 +157,8 @@ export function expandEnvAndResolvePaths(args: string[], cluster: string | null 
  */
 export function makeMcpServersFromSettings(
   settingsPath: string,
-  clusters: string[]
+  clusters: string[],
+  resourcesPath?: string
 ): ClientConfig['mcpServers'] {
   const mcpServers: ClientConfig['mcpServers'] = {};
 
@@ -185,7 +187,7 @@ export function makeMcpServersFromSettings(
 
     mcpServers[server.name] = {
       transport: 'stdio',
-      command: server.command,
+      command: resolveMCPServerCommand(server.command, resourcesPath),
       args: expandedArgs,
       env: serverEnv as Record<string, string>,
       restart: {
@@ -197,6 +199,31 @@ export function makeMcpServersFromSettings(
   }
 
   return mcpServers;
+}
+
+/**
+ * Resolve the built-in aks-mcp command directly to the packaged executable.
+ * This avoids depending on Windows PATH/PATHEXT propagation during MCP startup.
+ * Other commands, custom paths, and development installs keep their configured
+ * value unchanged.
+ */
+export function resolveMCPServerCommand(
+  command: string,
+  resourcesPath?: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  if (!resourcesPath || !['aks-mcp', 'aks-mcp.exe'].includes(command.toLowerCase())) {
+    return command;
+  }
+
+  const binaryName = platform === 'win32' ? 'aks-mcp.exe' : 'aks-mcp';
+  const bundledCommand = path.join(resourcesPath, 'external-tools', 'bin', binaryName);
+  if (fs.existsSync(bundledCommand)) {
+    return bundledCommand;
+  }
+
+  console.warn(`Bundled aks-mcp executable not found at: ${bundledCommand}`);
+  return command;
 }
 
 /**
