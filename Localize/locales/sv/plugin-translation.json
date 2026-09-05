@@ -83,7 +83,7 @@
   "Avg Response Time": "Genomsnittlig svarstid",
   "Azure Account": "Azure-konto",
   "Azure Authentication": "Azure-autentisering",
-  "Azure CLI requirements not met": "Azure CLI requirements not met",
+  "Azure CLI requirements not met": "Azure CLI-kraven har inte uppfyllts",
   "Azure Monitor Metrics (Managed Prometheus)": "Azure Monitor-mått (hanterad Prometheus)",
   "Azure Role Assignments": "Azure-rolltilldelningar",
   "Azure sign-in is required to configure workload identity.": "Azure-inloggning krävs för att konfigurera arbetsbelastningsidentitet.",
