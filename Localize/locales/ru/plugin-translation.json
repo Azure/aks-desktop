@@ -134,6 +134,7 @@
   "Cluster is still being created. Please wait until creation completes.": "Кластер всё еще создается. Дождитесь завершения создания.",
   "Cluster is stopped. Please start the cluster before deploying.": "Кластер остановлен. Перед развертыванием запустите кластер.",
   "Cluster Not Ready": "Кластер не готов",
+  "Cluster registered": "Cluster registered",
   "Collapse panel": "Свернуть панель",
   "Complete authorization on your browser screen": "Завершите авторизацию на экране браузера",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "Завершите установку в браузере. Обновление произойдет автоматически после установки приложения в {{repoName}}.",
@@ -753,5 +754,6 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Вы можете свернуть эту панель. Ход выполнения сохранен и возобновится при возвращении.",
   "You need to be logged in to Azure to register AKS clusters.": "Для регистрации кластеров AKS вам нужно войти в Azure.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Ваш проект AKS \"{{projectName}}\" создан и готов к использованию.",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
   "Your project \"{{projectName}}\" is ready to use.": "Ваш проект \"{{projectName}}\" готов к использованию."
 }

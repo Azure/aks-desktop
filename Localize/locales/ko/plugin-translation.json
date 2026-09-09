@@ -134,6 +134,7 @@
   "Cluster is still being created. Please wait until creation completes.": "클러스터가 아직 만들어지는 중입니다. 만들기가 완료될 때까지 기다리세요.",
   "Cluster is stopped. Please start the cluster before deploying.": "클러스터가 중지되었습니다. 배포하기 전에 클러스터를 시작하세요.",
   "Cluster Not Ready": "클러스터가 준비되지 않음",
+  "Cluster registered": "Cluster registered",
   "Collapse panel": "패널 축소",
   "Complete authorization on your browser screen": "브라우저 화면에서 권한 부여 완료",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "브라우저에서 설치를 완료합니다. {{repoName}}에 앱이 설치되면 자동으로 업데이트됩니다.",
@@ -753,5 +754,6 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "이 패널은 축소할 수 있습니다. 진행 상황이 저장되며, 돌아오면 이어서 계속됩니다.",
   "You need to be logged in to Azure to register AKS clusters.": "AKS 클러스터를 등록하려면 Azure에 로그인해야 합니다.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "AKS 프로젝트 \"{{projectName}}\"이(가) 만들어졌으며 사용할 준비가 되었습니다.",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
   "Your project \"{{projectName}}\" is ready to use.": "\"{{projectName}}\" 프로젝트를 사용할 준비가 완료되었습니다."
 }

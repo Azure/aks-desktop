@@ -134,6 +134,7 @@
   "Cluster is still being created. Please wait until creation completes.": "仍在建立叢集。請等待建立完成。",
   "Cluster is stopped. Please start the cluster before deploying.": "已停止叢集。部署之前，請先啟動該叢集。",
   "Cluster Not Ready": "叢集未就緒",
+  "Cluster registered": "Cluster registered",
   "Collapse panel": "摺疊面板",
   "Complete authorization on your browser screen": "在您的瀏覽器畫面上完成授權",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "在您的瀏覽器中完成安裝。一旦應用程式安裝在 {{repoName}} 上，將會自動更新。",
@@ -753,5 +754,6 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "您可以摺疊此面板。進度已儲存，當您回來時將會繼續。",
   "You need to be logged in to Azure to register AKS clusters.": "您必須登入 Azure 以註冊 AKS 叢集。",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "已建立您的 AKS 專案「{{projectName}}」且已隨時可用。",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
   "Your project \"{{projectName}}\" is ready to use.": "您的專案「{{projectName}}」已可供使用。"
 }
