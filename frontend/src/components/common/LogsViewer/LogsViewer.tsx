@@ -18,7 +18,7 @@
 
 import { Box, Checkbox, FormControlLabel, MenuItem, TextField } from '@mui/material';
 import { useMemo, useState } from 'react';
-import { Trans } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { useDeploymentLogs, usePodLogs } from '../../../lib/k8s/api/v2/fetchLogs';
 import { KubeContainer } from '../../../lib/k8s/cluster';
 import type DaemonSet from '../../../lib/k8s/daemonSet';
@@ -29,6 +29,7 @@ import type ReplicaSet from '../../../lib/k8s/replicaSet';
 import type StatefulSet from '../../../lib/k8s/statefulSet';
 import { ClusterGroupErrorMessage } from '../../cluster/ClusterGroupErrorMessage';
 import { useLocalStorageState } from '../../globalSearch/useLocalStorageState';
+import ActionButton from '../ActionButton';
 import { LogDisplay } from './LogDisplay';
 import { useParsedLogs } from './ParsedLog';
 import { SeveritySelector } from './SeveritySelector';
@@ -43,6 +44,7 @@ export function LogsViewer({
   initialContainer?: string;
   defaultSeverities?: string[];
 }) {
+  const { t } = useTranslation();
   const containers: KubeContainer[] =
     item.kind === 'Pod' ? item.spec.containers : item.spec.template.spec.containers;
   const [severityFilter, setSeverityFilter] = useState<Set<string> | undefined>(
@@ -71,6 +73,29 @@ export function LogsViewer({
   );
 
   const logs = filtered;
+
+  function downloadLogs() {
+    // Cuts off the last 5 digits of the timestamp to remove the milliseconds
+    const time = new Date().toISOString().replace(/:/g, '-').slice(0, -5);
+    const content = Array.isArray(rawLogs)
+      ? rawLogs.join('\n')
+      : // Multi-pod (Logs tab): tag each line with its pod and sort by timestamp to match the view.
+        Object.entries(rawLogs)
+          .flatMap(([pod, podLogs]) => podLogs.map(log => ({ pod, log })))
+          .sort((a, b) => a.log.localeCompare(b.log))
+          .map(({ pod, log }) => `[${pod}] ${log}`)
+          .join('\n');
+    const element = document.createElement('a');
+    const file = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(file);
+    element.href = url;
+    element.download = `${item.getName()}_${container}_${time}.txt`;
+    // Required for FireFox
+    document.body.appendChild(element);
+    element.click();
+    element.remove();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <>
@@ -115,6 +140,9 @@ export function LogsViewer({
               {l}
             </MenuItem>
           ))}
+          <MenuItem value={-1}>
+            <Trans>All</Trans>
+          </MenuItem>
         </TextField>
 
         <SeveritySelector
@@ -158,6 +186,14 @@ export function LogsViewer({
           }
           label={<Trans>Wrap lines</Trans>}
         />
+
+        <Box sx={{ ml: 'auto' }}>
+          <ActionButton
+            description={t('Download')}
+            onClick={downloadLogs}
+            icon="mdi:file-download-outline"
+          />
+        </Box>
       </Box>
       {logsError && <ClusterGroupErrorMessage errors={[logsError]} />}
       <LogDisplay

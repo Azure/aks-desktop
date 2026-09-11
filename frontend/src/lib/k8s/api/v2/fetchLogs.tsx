@@ -46,12 +46,17 @@ function fetchLogs({
   onError: Dispatch<SetStateAction<ApiError | undefined>>;
 }) {
   let isCurrent = true;
-  const url = makeUrl(`/api/v1/namespaces/${namespace}/pods/${podName}/log`, {
+  const query: Record<string, string> = {
     container,
     follow: 'true',
     timestamps: 'true',
-    tailLines: String(lines),
-  });
+  };
+  // Negative tailLines parameter fetches all logs. If it's non negative, it fetches
+  // the tailLines number of logs.
+  if (lines !== -1) {
+    query.tailLines = String(lines);
+  }
+  const url = makeUrl(`/api/v1/namespaces/${namespace}/pods/${podName}/log`, query);
 
   let buffer: string[] = [];
   const intervalId = setInterval(() => {
