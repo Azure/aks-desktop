@@ -134,7 +134,7 @@
   "Cluster is still being created. Please wait until creation completes.": "A fürt létrehozása még folyamatban van. Várjon, amíg a létrehozás befejeződik.",
   "Cluster is stopped. Please start the cluster before deploying.": "A fürt leállt. Az üzembe helyezés előtt indítsa el a fürtöt.",
   "Cluster Not Ready": "A fürt nem áll készen",
-  "Cluster registered": "Cluster registered",
+  "Cluster registered": "Fürt regisztrálva",
   "Collapse panel": "Panel összecsukása",
   "Complete authorization on your browser screen": "Engedélyezés végrehajtása a böngésző képernyőjén",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "Végezze el a telepítést a böngészőben. Ez automatikusan frissül, amint az alkalmazás telepítve lesz a(z) {{repoName}} adattárban.",
@@ -754,6 +754,6 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Összecsukhatja ezt a panelt. Az állapot mentve van, és a visszatérésekor folytatódik.",
   "You need to be logged in to Azure to register AKS clusters.": "Az AKS-fürtök regisztrálásához be kell jelentkeznie az Azure-ba.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "A(z) {{projectName}} AKS-projekt létrejött, és használatra kész.",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "A fürt regisztrálva van és használatra kész. Az alábbi elemek nem kötelező ajánlások – a befejezéshez válassza a Kész gombot.",
   "Your project \"{{projectName}}\" is ready to use.": "A(z) {{projectName}} projekt használatra kész."
 }

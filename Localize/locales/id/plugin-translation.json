@@ -134,7 +134,7 @@
   "Cluster is still being created. Please wait until creation completes.": "Kluster masih sedang dibuat. Harap tunggu hingga pembuatan selesai.",
   "Cluster is stopped. Please start the cluster before deploying.": "Kluster dihentikan. Mulai kluster sebelum menyebarkan.",
   "Cluster Not Ready": "Kluster Belum Siap",
-  "Cluster registered": "Cluster registered",
+  "Cluster registered": "Kluster terdaftar",
   "Collapse panel": "Ciutkan panel",
   "Complete authorization on your browser screen": "Selesaikan otorisasi di layar browser Anda",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "Selesaikan penginstalan di browser Anda. Aplikasi akan diperbarui secara otomatis setelah terinstal di {{repoName}}.",
@@ -754,6 +754,6 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Anda dapat menciutkan panel ini. Kemajuan disimpan dan akan dilanjutkan saat Anda kembali.",
   "You need to be logged in to Azure to register AKS clusters.": "Anda harus masuk ke Azure untuk mendaftarkan kluster AKS.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Proyek AKS Anda \"{{projectName}}\" telah dibuat dan siap digunakan.",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Kluster Anda telah terdaftar dan siap digunakan. Item di bawah ini adalah rekomendasi opsional — pilih Selesai untuk mengakhiri.",
   "Your project \"{{projectName}}\" is ready to use.": "Proyek \"{{projectName}}\" Anda siap digunakan."
 }

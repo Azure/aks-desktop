@@ -134,7 +134,7 @@
   "Cluster is still being created. Please wait until creation completes.": "Le cluster est toujours en cours de création. Veuillez patienter jusqu’à la fin de la création.",
   "Cluster is stopped. Please start the cluster before deploying.": "Le cluster est arrêté. Veuillez démarrer le cluster avant le déploiement.",
   "Cluster Not Ready": "Cluster non prêt",
-  "Cluster registered": "Cluster registered",
+  "Cluster registered": "Cluster enregistré",
   "Collapse panel": "Réduire le volet",
   "Complete authorization on your browser screen": "Autorisation complète sur l’écran de votre navigateur",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "Terminez l’installation dans votre navigateur. Cette opération est automatiquement mise à jour une fois que l’application est installée sur {{repoName}}.",
@@ -754,6 +754,6 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Vous pouvez réduire ce panneau. Votre progression est enregistrée et reprendra lorsque vous reviendrez.",
   "You need to be logged in to Azure to register AKS clusters.": "Vous devez être connecté à Azure pour inscrire des clusters AKS.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Votre projet AKS « {{projectName}} » a été créé et est prêt à être utilisé.",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Votre cluster est enregistré et prêt à l’utilisation. Les éléments ci-dessous sont des recommandations facultatives – sélectionnez Terminé pour finaliser.",
   "Your project \"{{projectName}}\" is ready to use.": "Votre projet « {{projectName}} » est prêt à être utilisé."
 }

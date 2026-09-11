@@ -134,7 +134,7 @@
   "Cluster is still being created. Please wait until creation completes.": "El clúster aún se está creando. Espere hasta que se complete la creación.",
   "Cluster is stopped. Please start the cluster before deploying.": "El clúster está detenido. Inicie el clúster antes de la implementación.",
   "Cluster Not Ready": "El clúster no está listo",
-  "Cluster registered": "Cluster registered",
+  "Cluster registered": "Clúster registrado",
   "Collapse panel": "Contraer panel",
   "Complete authorization on your browser screen": "Completa la autorización en la pantalla del navegador",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "Completa la instalación en tu navegador. Se actualizará automáticamente una vez que la aplicación esté instalada en {{repoName}}.",
@@ -754,6 +754,6 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Puedes contraer este panel. El progreso se ha guardado y se reanudará cuando vuelvas.",
   "You need to be logged in to Azure to register AKS clusters.": "Debe haber iniciado sesión en Azure para registrar clústeres de AKS.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "El proyecto de AKS \"{{projectName}}\" se ha creado y está listo para usarse.",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "El clúster está registrado y listo para usarse. Los siguientes elementos son recomendaciones opcionales: seleccione Listo para finalizar.",
   "Your project \"{{projectName}}\" is ready to use.": "Tu proyecto \"{{projectName}}\" está listo para usarse."
 }

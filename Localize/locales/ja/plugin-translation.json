@@ -134,7 +134,7 @@
   "Cluster is still being created. Please wait until creation completes.": "クラスターはまだ作成中です。作成が完了するまでお待ちください。",
   "Cluster is stopped. Please start the cluster before deploying.": "クラスターは停止しています。デプロイする前にクラスターを開始してください。",
   "Cluster Not Ready": "クラスターが準備できていません",
-  "Cluster registered": "Cluster registered",
+  "Cluster registered": "クラスターが登録されました",
   "Collapse panel": "パネルを折りたたむ",
   "Complete authorization on your browser screen": "ブラウザー画面で認可を完了する",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "ブラウザーでインストールを完了します。これは、アプリが {{repoName}} にインストールされると自動的に更新されます。",
@@ -754,6 +754,6 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "このパネルは折りたたむことができます。進行状況は保存され、戻ると再開されます。",
   "You need to be logged in to Azure to register AKS clusters.": "AKS クラスターを登録するには、Azure にログインする必要があります。",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "AKS プロジェクト \"{{projectName}}\" が作成され、使用する準備ができました。",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "クラスターが登録され、使用する準備ができました。以下の項目は任意の推奨事項です。終了するには、[完了] を選択します。",
   "Your project \"{{projectName}}\" is ready to use.": "プロジェクト \"{{projectName}}\" が使用できる状態です。"
 }

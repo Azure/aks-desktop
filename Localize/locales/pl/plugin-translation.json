@@ -134,7 +134,7 @@
   "Cluster is still being created. Please wait until creation completes.": "Trwa tworzenie klastra. Zaczekaj na zakończenie tworzenia.",
   "Cluster is stopped. Please start the cluster before deploying.": "Klaster jest zatrzymany. Uruchom klaster przed wdrożeniem.",
   "Cluster Not Ready": "Klaster nie jest gotowy",
-  "Cluster registered": "Cluster registered",
+  "Cluster registered": "Zarejestrowano klaster",
   "Collapse panel": "Zwiń panel",
   "Complete authorization on your browser screen": "Ukończ autoryzację na ekranie przeglądarki",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "Ukończ instalację w przeglądarce. Spowoduje to wykonanie automatycznej aktualizacji po zainstalowaniu aplikacji w repozytorium {{repoName}}.",
@@ -754,6 +754,6 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Możesz zwinąć ten panel. Postęp jest zapisywany i zostanie wznowiony po powrocie.",
   "You need to be logged in to Azure to register AKS clusters.": "Aby zarejestrować klastry usługi AKS, musisz zalogować się na platformie Azure.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Projekt usługi AKS „{{projectName}}” został utworzony i jest gotowy do użycia.",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Klaster jest zarejestrowany i gotowy do użycia. Poniższe elementy są opcjonalnymi rekomendacjami — wybierz pozycję Gotowe, aby zakończyć.",
   "Your project \"{{projectName}}\" is ready to use.": "Projekt „{{projectName}}” jest gotowy do użycia."
 }
