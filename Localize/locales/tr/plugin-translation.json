@@ -134,7 +134,7 @@
   "Cluster is still being created. Please wait until creation completes.": "Kümeyi oluşturma işlemi devam ediyor. Lütfen oluşturma tamamlanana kadar bekleyin.",
   "Cluster is stopped. Please start the cluster before deploying.": "Küme durduruldu. Dağıtımdan önce lütfen kümeyi başlatın.",
   "Cluster Not Ready": "Küme Hazır Değil",
-  "Cluster registered": "Cluster registered",
+  "Cluster registered": "Küme kaydedildi",
   "Collapse panel": "Paneli daralt",
   "Complete authorization on your browser screen": "Tarayıcı ekranında yetkilendirmeyi tamamla",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "Yüklemeyi tarayıcınızda tamamlayın. Uygulama {{repoName}} üzerinde yüklendiğinde otomatik olarak güncellenecektir.",
@@ -754,6 +754,6 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Bu paneli daraltabilirsiniz. İlerleme kaydedilir ve geri döndüğünüzde işlem devam eder.",
   "You need to be logged in to Azure to register AKS clusters.": "AKS kümelerini kaydetmek için Azure hesabınızda oturum açmanız gerekir.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "\"{{projectName}}\" AKS projeniz oluşturuldu ve kullanıma hazır.",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Kümeniz kaydedildi ve kullanıma hazır. Aşağıdaki öğeler isteğe bağlı önerilerdir. İşlemi tamamlamak için Bitti'yi seçin.",
   "Your project \"{{projectName}}\" is ready to use.": "\"{{projectName}}\" projeniz kullanıma hazır."
 }

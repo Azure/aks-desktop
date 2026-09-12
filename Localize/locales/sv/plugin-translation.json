@@ -134,7 +134,7 @@
   "Cluster is still being created. Please wait until creation completes.": "Klustret håller fortfarande på att skapas. Vänta tills det är klart.",
   "Cluster is stopped. Please start the cluster before deploying.": "Klustret har stoppats. Starta klustret innan du distribuerar.",
   "Cluster Not Ready": "Klustret är inte klart",
-  "Cluster registered": "Cluster registered",
+  "Cluster registered": "Klustret har registrerats",
   "Collapse panel": "Dölj panel",
   "Complete authorization on your browser screen": "Slutför auktoriseringen på webbläsarskärmen",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "Slutför installationen i webbläsaren. Det här uppdateras automatiskt när appen har installerats på {{repoName}}.",
@@ -754,6 +754,6 @@
   "You can collapse this panel. Progress is saved and will resume when you return.": "Du kan fälla ihop den här panelen. Förloppet sparas och återupptas när du kommer tillbaka.",
   "You need to be logged in to Azure to register AKS clusters.": "Du måste vara inloggad i Azure för att registrera AKS-kluster.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Ditt AKS-projekt {{projectName}} har skapats och är redo att användas.",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Klustret är registrerat och klart att användas. Rekommendationerna nedan är valfria — välj Klar för att slutföra.",
   "Your project \"{{projectName}}\" is ready to use.": "Projektet \"{{projectName}}\" är klart att använda."
 }
