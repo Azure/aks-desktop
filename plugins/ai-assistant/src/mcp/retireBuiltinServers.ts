@@ -14,44 +14,39 @@
  * limitations under the License.
  */
 
-import {
-  createAksMcpServer,
-  reconcileBuiltinServers,
-} from '@headlamp-k8s/ai-common/mcp/config/builtinServers';
-import type { MCPServer, MCPSettings } from '@headlamp-k8s/ai-common/mcp/types';
-import { isAksDesktopHost } from '@headlamp-k8s/ai-ui/mcp/host';
+import { reconcileBuiltinServers } from '@headlamp-k8s/ai-common/mcp/config/builtinServers';
+import type { MCPSettings } from '@headlamp-k8s/ai-common/mcp/types';
 import { pluginStore } from '../pluginState';
 
 const EMPTY_MCP_CONFIG: MCPSettings = { enabled: false, servers: [] };
 
-/** @returns Built-in MCP servers the current desktop host preconfigures. */
-function getBuiltinServersForHost(): MCPServer[] {
-  return isAksDesktopHost() ? [createAksMcpServer()] : [];
-}
-
 /**
- * Preconfigures host-provided MCP servers and keeps their definitions current.
+ * Removes servers seeded by earlier plugin versions when their definitions are
+ * still unchanged. Customized servers remain user-owned and are preserved.
  *
- * @returns Resolves once reconciliation has been attempted.
+ * This is an upgrade migration for persisted `seededBuiltinMCPServers` state.
+ * The startup call and this module can be removed after releases containing
+ * that state no longer need a supported upgrade path.
  */
-export async function seedBuiltinMCPServers(): Promise<void> {
-  const builtinServers = getBuiltinServersForHost();
-  if (builtinServers.length === 0) return;
+export async function retireBuiltinMCPServers(): Promise<void> {
+  const previousState = pluginStore.get()?.seededBuiltinMCPServers;
+  if (!previousState || Object.keys(previousState).length === 0) return;
 
   const mcpApi = typeof window === 'undefined' ? undefined : window.desktopApi?.mcp;
   if (!mcpApi) return;
 
   try {
     const response = await mcpApi.getConfig();
-    // Seeding against a fallback config would drop servers the read failed to return.
     if (!response?.success || !Array.isArray(response.config?.servers)) {
-      console.error('Failed to read MCP configuration before seeding:', response?.error);
+      console.error(
+        'Failed to read MCP configuration before retiring built-in servers:',
+        response?.error
+      );
       return;
     }
-    const currentConfig = { ...EMPTY_MCP_CONFIG, ...response.config } as MCPSettings;
 
-    const previousState = pluginStore.get()?.seededBuiltinMCPServers;
-    const result = reconcileBuiltinServers(currentConfig, builtinServers, previousState);
+    const currentConfig = { ...EMPTY_MCP_CONFIG, ...response.config } as MCPSettings;
+    const result = reconcileBuiltinServers(currentConfig, [], previousState);
     if (!result.changed) {
       if (result.stateChanged) {
         pluginStore.update({ seededBuiltinMCPServers: result.state });
@@ -61,7 +56,7 @@ export async function seedBuiltinMCPServers(): Promise<void> {
 
     const updateResponse = await mcpApi.updateConfig(result.config);
     if (!updateResponse?.success) {
-      console.error('Failed to preconfigure built-in MCP servers:', updateResponse?.error);
+      console.error('Failed to retire built-in MCP servers:', updateResponse?.error);
       return;
     }
 
@@ -70,6 +65,6 @@ export async function seedBuiltinMCPServers(): Promise<void> {
       seededBuiltinMCPServers: result.state,
     });
   } catch (error) {
-    console.error('Error preconfiguring built-in MCP servers:', error);
+    console.error('Error retiring built-in MCP servers:', error);
   }
 }

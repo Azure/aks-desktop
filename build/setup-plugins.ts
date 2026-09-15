@@ -8,15 +8,11 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { copyShippedPlugin } from './plugin-packaging';
 import {
-  aksMcpBinaryPath,
-  isExecutable,
-  isSupportedAksMcpArch,
-  matchesChecksum,
   parseTargetArgs,
-  readStagedTarget,
-  resolveAksMcpTarget,
+  removeRetiredAksMcpArtifacts,
   resolveTargetArch,
-} from './aks-mcp-config';
+  writeBuildTarget,
+} from './build-target';
 import {
   expectedAzCliExtensions,
   isAzCliStagedForTarget,
@@ -31,6 +27,14 @@ const ROOT_DIR = path.dirname(SCRIPT_DIR);
 console.log('==========================================');
 console.log('Checking external tools...');
 console.log('==========================================');
+
+// Validate the checkout before marker or tool setup can create paths beneath it.
+if (!fs.existsSync(path.join(ROOT_DIR, 'headlamp'))) {
+  console.log("Error: Headlamp repository directory 'headlamp' not found.");
+  console.log(`Root directory: ${ROOT_DIR}`);
+  console.log(fs.readdirSync(ROOT_DIR));
+  process.exit(1);
+}
 
 const externalToolsDir = path.join(
   ROOT_DIR,
@@ -52,30 +56,16 @@ for (const value of [targetPlatform, targetArch]) {
   }
 }
 console.log(`Target: ${targetPlatform}/${targetArch}`);
+// Clean before the Azure CLI cache check so a fully cached build cannot retain
+// an external tool retired after the cache was populated.
+removeRetiredAksMcpArtifacts(ROOT_DIR);
+writeBuildTarget(ROOT_DIR, { platform: targetPlatform, arch: targetArch });
 
 // Individual tools are checked against their pinned checksum, so incremental
 // builds also pick up tools that were added or whose version or target
 // architecture changed since the last setup, without deleting the directory.
-function isAksMcpStagedForTarget(): boolean {
-  const staged = readStagedTarget(ROOT_DIR);
-  if (staged?.platform !== targetPlatform || staged?.arch !== targetArch) {
-    return false;
-  }
-  if (!isSupportedAksMcpArch(targetArch)) {
-    return !fs.existsSync(aksMcpBinaryPath(ROOT_DIR, targetPlatform));
-  }
-  const aksMcp = resolveAksMcpTarget(ROOT_DIR, targetPlatform, targetArch);
-  return (
-    matchesChecksum(aksMcp.targetPath, aksMcp.expectedChecksum) &&
-    isExecutable(aksMcp.targetPath, targetPlatform)
-  );
-}
-
-const aksMcpStaged = isAksMcpStagedForTarget();
-
-// Unlike aks-mcp, download-az-cli.ts always stages for the build host
-// (process.platform), not the packaging --platform target, so check it
-// against the host rather than targetPlatform.
+// download-az-cli.ts stages for the build host (process.platform), not the
+// packaging --platform target, so check it against the host.
 const azureCliConfig = readAzureCliConfig(ROOT_DIR);
 const expectedAzCliVersion = resolveAzCliVersion(azureCliConfig, process.platform);
 const azCliStaged = isAzCliStagedForTarget(
@@ -85,10 +75,7 @@ const azCliStaged = isAzCliStagedForTarget(
   expectedAzCliExtensions(azureCliConfig, process.platform)
 );
 
-if (!fs.existsSync(externalToolsDir) || !aksMcpStaged || !azCliStaged) {
-  if (!aksMcpStaged && fs.existsSync(externalToolsDir)) {
-    console.log(`aks-mcp is missing or not staged for ${targetPlatform}/${targetArch}.`);
-  }
+if (!fs.existsSync(externalToolsDir) || !azCliStaged) {
   if (!azCliStaged && fs.existsSync(externalToolsDir)) {
     console.log(
       `Azure CLI is missing or not staged for ${process.platform} at the pinned version ` +
@@ -96,26 +83,14 @@ if (!fs.existsSync(externalToolsDir) || !aksMcpStaged || !azCliStaged) {
     );
   }
   console.log('Setting up external tools...');
-  execSync(
-    `npx --yes tsx "${path.join(SCRIPT_DIR, 'setup-external-tools.ts')}" ` +
-      `--platform=${targetPlatform} --arch=${targetArch}`,
-    {
-      stdio: 'inherit',
-    }
-  );
+  execSync(`npx --yes tsx "${path.join(SCRIPT_DIR, 'setup-external-tools.ts')}"`, {
+    stdio: 'inherit',
+  });
 } else {
   console.log('External tools already present. Skipping setup.');
   console.log(
     `To re-setup (e.g. after changing the Azure CLI pin), remove: ${externalToolsDir}`
   );
-}
-
-// Ensure we are in the repository with the headlamp directory
-if (!fs.existsSync(path.join(ROOT_DIR, 'headlamp'))) {
-  console.log("Error: Headlamp repository directory 'headlamp' not found.");
-  console.log(`Root directory: ${ROOT_DIR}`);
-  console.log(fs.readdirSync(ROOT_DIR));
-  process.exit(1);
 }
 
 // List of plugins to build and bundle
