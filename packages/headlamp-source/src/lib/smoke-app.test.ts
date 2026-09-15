@@ -1,12 +1,38 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
 const {
   fetchHtmlWithin,
   packagedExecutableCandidates,
+  resolvePackagedExecutable,
   reserveReadinessPort,
 } = require('./smoke-app.ts');
+
+test('resolves the recorded Windows target without falling back to a stale host bundle', t => {
+  const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'windows-smoke-'));
+  t.after(() => fs.rmSync(dist, { recursive: true, force: true }));
+  const manifest = { product: { productName: 'example' } };
+  const armExecutable = path.join(dist, 'win-arm64-unpacked', 'example.exe');
+  for (const directory of ['win-unpacked', 'win-arm64-unpacked']) {
+    fs.mkdirSync(path.join(dist, directory));
+    fs.writeFileSync(path.join(dist, directory, 'example.exe'), 'fixture');
+  }
+  const marker = path.join(dist, '.package-target.json');
+  fs.writeFileSync(marker, JSON.stringify({ platform: 'win32', arch: 'arm64' }));
+  assert.equal(resolvePackagedExecutable(dist, manifest, 'win32', 'x64'), armExecutable);
+  fs.rmSync(armExecutable);
+  assert.throws(() => resolvePackagedExecutable(dist, manifest, 'win32', 'x64'), /not found/);
+  fs.writeFileSync(marker, JSON.stringify({ platform: 'linux', arch: 'arm64' }));
+  assert.throws(() => resolvePackagedExecutable(dist, manifest, 'win32', 'x64'), /Invalid package target/);
+  fs.rmSync(marker);
+  assert.equal(
+    resolvePackagedExecutable(dist, manifest, 'win32', 'x64'),
+    path.join(dist, 'win-unpacked', 'example.exe')
+  );
+});
 
 test('uses the configured macOS executable name for the app bundle and binary', () => {
   const manifest = {

@@ -62,7 +62,9 @@ function packagedExecutableCandidates(
     );
   }
   if (platform === 'win32') {
-    return [`win-${architecture}-unpacked`, 'win-unpacked'].map(directory =>
+    const directories = [`win-${architecture}-unpacked`];
+    if (architecture === 'x64') directories.push('win-unpacked');
+    return directories.map(directory =>
       path.resolve(dist, directory, `${executableName}.exe`)
     );
   }
@@ -78,10 +80,26 @@ function packagedExecutableCandidates(
  * Finds the first packaged executable emitted for the current product.
  *
  * @param dist - Headlamp app distribution directory.
+ * @param manifest - Product configuration used to derive executable names.
+ * @param platform - Host platform used when no package target is recorded.
+ * @param architecture - Host architecture used when no package target is recorded.
  * @returns The existing packaged executable path.
  */
-function resolvePackagedExecutable(dist) {
-  const candidates = packagedExecutableCandidates(dist);
+function resolvePackagedExecutable(
+  dist,
+  manifest = readProductConfig(),
+  platform = process.platform,
+  architecture = process.arch
+) {
+  const targetRecord = path.join(dist, '.package-target.json');
+  if (fs.existsSync(targetRecord)) {
+    const target = JSON.parse(fs.readFileSync(targetRecord, 'utf8'));
+    if (target.platform !== platform || !['x64', 'arm64'].includes(target.arch)) {
+      throw new Error(`Invalid package target for ${platform}: ${JSON.stringify(target)}`);
+    }
+    architecture = target.arch;
+  }
+  const candidates = packagedExecutableCandidates(dist, manifest, platform, architecture);
   const executable = candidates.find(
     candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile()
   );

@@ -2,6 +2,8 @@
 // Licensed under the Apache 2.0.
 
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 
@@ -10,8 +12,23 @@ import {
   npmInvocation,
   packageArguments,
   packageEnvironment,
+  stageBackendExecutable,
   validatePackageHost,
 } from './package-target';
+
+test('stages the newly built backend under the Windows packaging filename', t => {
+  const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'windows-backend-'));
+  t.after(() => fs.rmSync(sourceDir, { recursive: true, force: true }));
+  const backend = path.join(sourceDir, 'backend');
+  fs.mkdirSync(backend);
+  fs.writeFileSync(path.join(backend, 'headlamp-server'), 'new backend');
+  fs.writeFileSync(path.join(backend, 'headlamp-server.exe'), 'stale backend');
+  stageBackendExecutable(sourceDir, 'win32');
+  assert.equal(fs.readFileSync(path.join(backend, 'headlamp-server.exe'), 'utf8'), 'new backend');
+  fs.rmSync(path.join(backend, 'headlamp-server'));
+  assert.throws(() => stageBackendExecutable(sourceDir, 'win32'), /ENOENT/);
+  assert.doesNotThrow(() => stageBackendExecutable(sourceDir, 'linux'));
+});
 
 test('maps each supported target to one Electron Builder architecture', () => {
   assert.deepEqual(packageArguments('linux', 'x64'), ['--linux', '--x64']);
@@ -78,7 +95,10 @@ test('uses the managed Mac dmgbuild launcher unless the caller overrides it', ()
     '/workspace',
     {}
   );
-  assert.equal(generated.CUSTOM_DMGBUILD_PATH, path.join('/workspace', 'build', 'dmgbuild-managed-mac.cjs'));
+  assert.equal(
+    generated.CUSTOM_DMGBUILD_PATH,
+    path.join('/workspace', 'build', 'dmgbuild-managed-mac.cjs')
+  );
 
   const overridden = packageEnvironment(
     { platform: 'darwin', arch: 'arm64' },
