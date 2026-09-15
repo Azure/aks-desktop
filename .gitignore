@@ -6,6 +6,7 @@
 out
 dist
 node_modules
+headlamp/
 vsix
 .vscode-test/
 *.vsix
@@ -247,6 +248,9 @@ PublishScripts/
 *.snupkg
 # The packages folder can be ignored because of Package Restore
 **/[Pp]ackages/*
+!packages/
+!packages/headlamp-source/
+.headlamp-main/
 # except build/, which is used as an MSBuild target.
 !**/[Pp]ackages/build/
 # and the ai-assistant workspace packages, which are source we track.
@@ -454,3 +458,8 @@ FodyWeavers.xsd
 
 # Old translation files
 **/locales/**/*_old.json
+
+# The package skeleton is tracked; installation materializes pinned upstream source.
+!packages/headlamp-source/**
+packages/headlamp-source/.source-*
+packages/headlamp-source/source/
