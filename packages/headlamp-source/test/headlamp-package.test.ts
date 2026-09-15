@@ -464,7 +464,7 @@ test('packaged executable paths come from product metadata', () => {
     )
   );
   assert.ok(
-    packagedExecutableCandidates('/dist', manifest, 'win32').includes(
+    packagedExecutableCandidates('/dist', manifest, 'win32', 'x64').includes(
       path.resolve('/dist/win-unpacked/example.exe')
     )
   );
