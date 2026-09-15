@@ -18,7 +18,7 @@ vi.mock('../shared/quoteForPlatform', () => ({
   quoteForPlatform: (value: string) => value,
 }));
 
-import { searchAzureADUsers } from '../azure/az-ad';
+import { resolveAzureADUser, searchAzureADUsers } from '../azure/az-ad';
 
 describe('searchAzureADUsers', () => {
   beforeEach(() => {
@@ -165,5 +165,23 @@ describe('searchAzureADUsers', () => {
         expect.stringContaining("startswith(displayName,'alice')"),
       ])
     );
+  });
+});
+
+describe('resolveAzureADUser', () => {
+  beforeEach(() => {
+    mockExecCommand.mockReset();
+  });
+
+  test('returns Conditional Access errors to the caller', async () => {
+    mockExecCommand.mockResolvedValue({
+      stdout: '',
+      stderr: 'AADSTS530084: Access has been blocked by conditional access token protection.',
+    });
+
+    const result = await resolveAzureADUser('alice@contoso.com');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('AADSTS530084');
   });
 });
