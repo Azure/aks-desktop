@@ -754,8 +754,6 @@
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "你的 AKS 项目“{{projectName}}”已创建且准备就绪。",
   "Your project \"{{projectName}}\" is ready to use.": "你的项目“{{projectName}}”已可供使用。",
   "Azure CLI requirements not met": "",
-  "Cluster registered": "",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "",
   "Object ID entered": "",
   "User search failed": "",
   "Try searching again. If the problem continues, check your Azure sign-in.": "",
