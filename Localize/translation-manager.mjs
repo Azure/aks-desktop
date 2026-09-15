@@ -183,6 +183,9 @@ function collect() {
 
   for (const source of SOURCES) {
     const translationMemory = collectTranslationMemory(source);
+    const englishNamespaces = source.namespaces.map((ns) =>
+      readJson(path.join(source.sourceDir, "en", `${ns}.json`)) ?? {}
+    );
     for (const ns of source.namespaces) {
       const srcPath = path.join(source.sourceDir, "en", `${ns}.json`);
       const data = readJson(srcPath);
@@ -194,9 +197,16 @@ function collect() {
       }
 
       const output = {};
-      const sortedEntries = Object.entries(data).sort(([a], [b]) =>
-        a.localeCompare(b)
-      );
+      const sortedEntries = Object.entries(data)
+        .map(([key, value]) => [
+          key,
+          source.name === "frontend" && ns === "app" && !value
+            ? englishNamespaces
+                .map((namespace) => namespace[key])
+                .find((text) => typeof text === "string" && text.trim()) || key
+            : value,
+        ])
+        .sort(([a], [b]) => a.localeCompare(b));
       for (const [key, value] of sortedEntries) {
         output[key] = value;
         const comment = lockedComment(String(value));

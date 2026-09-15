@@ -119,6 +119,29 @@ test("collect preserves a translation when its key moves between namespaces", (t
   );
 });
 
+test("collect fills blank English app messages without replacing translations", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(managerPath, fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url)));
+  const frontend = path.join(root, "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales/en");
+  writeFile(path.join(frontend, "translation.json"), JSON.stringify({ Cancel: "Cancel", Enable: "Enable feature" }));
+  writeFile(path.join(frontend, "glossary.json"), "{}");
+  writeFile(path.join(frontend, "app.json"), JSON.stringify({ Cancel: "", Enable: "", "Plugin Development Mode": "", Existing: "Existing text" }));
+  const translated = path.join(root, "Localize/locales/fr/frontend-app.json");
+  writeFile(translated, JSON.stringify({ Cancel: "Annuler", Enable: "Activer", "Plugin Development Mode": "", Existing: "Texte existant" }));
+  const run = () => spawnSync(process.execPath, [managerPath, "collect"], { encoding: "utf8" });
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  const english = path.join(root, "Localize/locales/en/frontend-app.json");
+  assert.deepEqual(JSON.parse(fs.readFileSync(english, "utf8")), {
+    Cancel: "Cancel", Enable: "Enable feature", Existing: "Existing text", "Plugin Development Mode": "Plugin Development Mode",
+  });
+  assert.equal(JSON.parse(fs.readFileSync(translated, "utf8")).Cancel, "Annuler");
+  const once = fs.readFileSync(english, "utf8");
+  assert.equal(run().status, 0);
+  assert.equal(fs.readFileSync(english, "utf8"), once);
+});
+
 test("collect rejects a missing installed Headlamp translation source", (t) => {
   const root = createLocalesDir(t);
   const managerPath = path.join(root, "Localize", "translation-manager.mjs");
