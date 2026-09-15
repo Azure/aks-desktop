@@ -7,16 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { copyShippedPlugin } from './plugin-packaging';
-import {
-  aksMcpBinaryPath,
-  isExecutable,
-  isSupportedAksMcpArch,
-  matchesChecksum,
-  parseTargetArgs,
-  readStagedTarget,
-  resolveAksMcpTarget,
-  resolveTargetArch,
-} from './aks-mcp-config';
+import { parseTargetArgs, resolveTargetArch, writeStagedTarget } from './build-target';
 
 const SCRIPT_DIR = __dirname;
 const ROOT_DIR = path.dirname(SCRIPT_DIR);
@@ -47,30 +38,7 @@ for (const value of [targetPlatform, targetArch]) {
 }
 console.log(`Target: ${targetPlatform}/${targetArch}`);
 
-// Individual tools are checked against their pinned checksum, so incremental
-// builds also pick up tools that were added or whose version or target
-// architecture changed since the last setup, without deleting the directory.
-function isAksMcpStagedForTarget(): boolean {
-  const staged = readStagedTarget(ROOT_DIR);
-  if (staged?.platform !== targetPlatform || staged?.arch !== targetArch) {
-    return false;
-  }
-  if (!isSupportedAksMcpArch(targetArch)) {
-    return !fs.existsSync(aksMcpBinaryPath(ROOT_DIR, targetPlatform));
-  }
-  const aksMcp = resolveAksMcpTarget(ROOT_DIR, targetPlatform, targetArch);
-  return (
-    matchesChecksum(aksMcp.targetPath, aksMcp.expectedChecksum) &&
-    isExecutable(aksMcp.targetPath, targetPlatform)
-  );
-}
-
-const aksMcpStaged = isAksMcpStagedForTarget();
-
-if (!fs.existsSync(externalToolsDir) || !aksMcpStaged) {
-  if (!aksMcpStaged && fs.existsSync(externalToolsDir)) {
-    console.log(`aks-mcp is missing or not staged for ${targetPlatform}/${targetArch}.`);
-  }
+if (!fs.existsSync(externalToolsDir)) {
   console.log('Setting up external tools...');
   execSync(
     `npx --yes tsx "${path.join(SCRIPT_DIR, 'setup-external-tools.ts')}" ` +
@@ -83,6 +51,9 @@ if (!fs.existsSync(externalToolsDir) || !aksMcpStaged) {
   console.log('External tools already present. Skipping setup.');
   console.log(`To re-setup, remove: ${externalToolsDir}`);
 }
+
+// Post-build verification reads this to know which architecture was packaged.
+writeStagedTarget(ROOT_DIR, { platform: targetPlatform, arch: targetArch });
 
 // Ensure we are in the repository with the headlamp directory
 if (!fs.existsSync(path.join(ROOT_DIR, 'headlamp'))) {
