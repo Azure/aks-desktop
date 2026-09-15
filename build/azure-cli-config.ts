@@ -72,6 +72,25 @@ export function installRequiredExtensions(
 const SUPPORTED_ARCHES = new Set(['arm64', 'x64']);
 const SUPPORTED_PLATFORMS = new Set(['darwin', 'linux', 'win32']);
 
+/** Passes ZIP paths as literal data rather than interpolated PowerShell source. */
+export function windowsZipExtraction(
+  archivePath: string,
+  outputDir: string,
+  env: NodeJS.ProcessEnv = process.env
+) {
+  return {
+    command: 'powershell.exe',
+    args: [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      "$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $env:AKS_ZIP_ARCHIVE -DestinationPath $env:AKS_ZIP_DESTINATION -Force",
+    ],
+    env: { ...env, AKS_ZIP_ARCHIVE: archivePath, AKS_ZIP_DESTINATION: outputDir },
+  };
+}
+
 /** Resolves and validates the platform-specific Azure CLI runtime configuration. */
 export function resolveAzureCliTarget(
   rootDir: string,

@@ -12,7 +12,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as https from 'https';
 import * as http from 'http';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { createHash } from 'crypto';
 import { createWriteStream, createReadStream } from 'fs';
 import {
@@ -35,6 +35,7 @@ const {
   installRequiredExtensions,
   resolveAzureCliTarget,
   verifyRequiredArtifact,
+  windowsZipExtraction,
 } = require('./azure-cli-config.ts');
 const EXTERNAL_TOOLS_DIR = path.join(HEADLAMP_APP_DIR, 'resources', 'external-tools');
 const AZ_CLI_DIR = path.join(EXTERNAL_TOOLS_DIR, 'az-cli');
@@ -227,7 +228,8 @@ function extractZip(archivePath: string, outputDir: string): void {
   if (process.platform === 'win32') {
     try {
       // Use PowerShell's Expand-Archive on Windows - it's more reliable than tar for ZIP files
-      execSync(`powershell -Command "Expand-Archive -Path '${archivePath}' -DestinationPath '${outputDir}' -Force"`, { stdio: 'inherit' });
+      const extraction = windowsZipExtraction(archivePath, outputDir);
+      execFileSync(extraction.command, extraction.args, { stdio: 'inherit', env: extraction.env });
     } catch (err) {
       console.error('Failed to extract ZIP.');
       throw err;
