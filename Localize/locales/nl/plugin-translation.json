@@ -753,7 +753,5 @@
   "You need to be logged in to Azure to register AKS clusters.": "Je moet zijn aangemeld bij Azure om AKS-clusters te registreren.",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Je AKS-project {{projectName}} is gemaakt en is klaar voor gebruik.",
   "Your project \"{{projectName}}\" is ready to use.": "Je project '{{projectName}}' is klaar voor gebruik.",
-  "Azure CLI requirements not met": "",
-  "Cluster registered": "",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": ""
+  "Azure CLI requirements not met": ""
 }
