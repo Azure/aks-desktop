@@ -20,8 +20,8 @@ To build all plugins, use the build script from the root directory:
 npm run plugin:setup
 ```
 
-The source-package bundler will for each plugin declared in
-`package.json#headlamp.plugins`:
+For each plugin declared in `package.json#headlamp.plugins`, the source-package
+bundler will:
 
 1. Navigate to the plugin directory
 2. Install dependencies
