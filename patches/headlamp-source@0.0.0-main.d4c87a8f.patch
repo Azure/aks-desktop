@@ -2414,6 +2414,353 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..e61a43725409aeda07806e9e4daf2301
  }
  
  /** Revokes every command capability issued by handlers registered on this IPC instance. */
+diff --git a/source/app/electron/secureStorage.test.ts b/source/app/electron/secureStorage.test.ts
+index 5049372a888d0cb3788d7e8fd9ff7a054349d3e7..2f2d080353155766d4f06bc1458c94355d99d852 100644
+--- a/source/app/electron/secureStorage.test.ts
++++ b/source/app/electron/secureStorage.test.ts
+@@ -73,7 +73,7 @@ describe('secure storage validation', () => {
+     'rejects an invalid namespace or key: %s',
+     value => {
+       expect(isValidNamespace(value) && isValidKey(value)).toBe(false);
+-    }
++    },
+   );
+ 
+   it('creates distinct opaque capabilities for valid namespaces', () => {
+@@ -91,7 +91,7 @@ describe('secure storage validation', () => {
+   it('rejects invalid and excessive registration values', () => {
+     expect(createSecureStorageCapabilities('example').capabilities).toEqual({});
+     expect(createSecureStorageCapabilities(new Array(257).fill('example')).capabilities).toEqual(
+-      {}
++      {},
+     );
+     expect(isValidNamespace('a'.repeat(215))).toBe(false);
+     expect(isValidKey('a'.repeat(129))).toBe(false);
+@@ -121,7 +121,7 @@ describe('secure storage validation', () => {
+     const storagePath = path.join(directory, 'secure-storage.json');
+     fs.writeFileSync(
+       storagePath,
+-      JSON.stringify({ '@example/one:token': 'a'.repeat(MAX_STORAGE_FILE_BYTES) })
++      JSON.stringify({ '@example/one:token': 'a'.repeat(MAX_STORAGE_FILE_BYTES) }),
+     );
+     const read = vi.spyOn(fs, 'readFileSync');
+ 
+@@ -140,7 +140,7 @@ describe('secure storage validation', () => {
+     const read = vi
+       .spyOn(fs, 'readFileSync')
+       .mockReturnValue(
+-        JSON.stringify({ '@example/one:token': 'a'.repeat(MAX_STORAGE_FILE_BYTES) })
++        JSON.stringify({ '@example/one:token': 'a'.repeat(MAX_STORAGE_FILE_BYTES) }),
+       );
+ 
+     try {
+@@ -159,7 +159,7 @@ describe('secure storage validation', () => {
+       expect(() =>
+         writeSecureStorageFile(storagePath, {
+           '@example/one:token': 'a'.repeat(MAX_STORAGE_FILE_BYTES),
+-        })
++        }),
+       ).toThrow('Secure storage size limit reached');
+       expect(fs.existsSync(storagePath)).toBe(false);
+       expect(fs.readdirSync(directory)).toEqual([]);
+@@ -181,7 +181,9 @@ describe('PluginSecureStorage', () => {
+     backend.value = 'secret_service';
+     encryptionAvailable.value = true;
+     vi.mocked(safeStorage.encryptString).mockClear();
+-    vi.mocked(safeStorage.decryptString).mockClear();
++    vi.mocked(safeStorage.decryptString)
++      .mockReset()
++      .mockImplementation(value => value.toString().replace(/^encrypted:/, ''));
+   });
+ 
+   afterEach(() => {
+@@ -202,6 +204,87 @@ describe('PluginSecureStorage', () => {
+     });
+   });
+ 
++  it('moves legacy AKS GitHub ciphertext only into the shipped plugin namespace', () => {
++    const legacy = 'aks-desktop:github-auth';
++    const scoped = `shipped--aks-desktop:${legacy}`;
++    const ciphertext = Buffer.from('encrypted:refresh-token').toString('base64');
++    fs.writeFileSync(storagePath, JSON.stringify({ [legacy]: ciphertext }));
++
++    for (const namespace of ['user--aks-desktop', 'development--aks-desktop', 'shipped--other']) {
++      expect(storage.load(namespace, legacy)).toEqual({ success: true, value: null });
++    }
++    expect(readSecureStorageFile(storagePath)).toEqual({ [legacy]: ciphertext });
++    expect(storage.load('shipped--aks-desktop', 'other-key')).toEqual({
++      success: true,
++      value: null,
++    });
++    expect(storage.load('shipped--aks-desktop', legacy)).toEqual({
++      success: true,
++      value: 'refresh-token',
++    });
++    expect(readSecureStorageFile(storagePath)).toEqual({ [scoped]: ciphertext });
++    expect(safeStorage.encryptString).not.toHaveBeenCalled();
++    expect(storage.load('shipped--aks-desktop', legacy).value).toBe('refresh-token');
++  });
++
++  it('keeps the scoped GitHub token when retiring a stale legacy copy', () => {
++    const key = 'aks-desktop:github-auth';
++    const scoped = `shipped--aks-desktop:${key}`;
++    const ciphertext = Buffer.from('encrypted:current-token').toString('base64');
++    fs.writeFileSync(
++      storagePath,
++      JSON.stringify({
++        [key]: Buffer.from('encrypted:stale-token').toString('base64'),
++        [scoped]: ciphertext,
++      }),
++    );
++    expect(storage.load('shipped--aks-desktop', key).value).toBe('current-token');
++    expect(readSecureStorageFile(storagePath)).toEqual({ [scoped]: ciphertext });
++  });
++
++  it('preserves the legacy token when decryption or migration persistence fails', () => {
++    const key = 'aks-desktop:github-auth';
++    const original = JSON.stringify({ [key]: Buffer.from('encrypted:token').toString('base64') });
++    fs.writeFileSync(storagePath, original);
++    vi.mocked(safeStorage.decryptString).mockImplementationOnce(() => {
++      throw new Error('locked keychain');
++    });
++    expect(storage.load('shipped--aks-desktop', key).success).toBe(false);
++    expect(fs.readFileSync(storagePath, 'utf8')).toBe(original);
++    const rename = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
++      throw new Error('read-only storage');
++    });
++    try {
++      expect(storage.load('shipped--aks-desktop', key).success).toBe(false);
++      expect(fs.readFileSync(storagePath, 'utf8')).toBe(original);
++    } finally {
++      rename.mockRestore();
++    }
++    expect(storage.load('shipped--aks-desktop', key).value).toBe('token');
++  });
++
++  it('retires legacy GitHub tokens on save and delete without reviving signed-out users', () => {
++    const key = 'aks-desktop:github-auth';
++    const ciphertext = Buffer.from('encrypted:stale').toString('base64');
++    fs.writeFileSync(storagePath, JSON.stringify({ [key]: ciphertext }));
++    expect(storage.save('user--aks-desktop', key, 'user-token').success).toBe(true);
++    expect(readSecureStorageFile(storagePath)[key]).toBe(ciphertext);
++    expect(storage.save('shipped--aks-desktop', key, 'new-token').success).toBe(true);
++    expect(readSecureStorageFile(storagePath)[key]).toBeUndefined();
++    fs.writeFileSync(
++      storagePath,
++      JSON.stringify({ ...readSecureStorageFile(storagePath), [key]: ciphertext }),
++    );
++    expect(storage.delete('shipped--aks-desktop', key).success).toBe(true);
++    expect(storage.load('shipped--aks-desktop', key)).toEqual({ success: true, value: null });
++    expect(storage.load('user--aks-desktop', key).value).toBe('user-token');
++    fs.writeFileSync(storagePath, JSON.stringify({ [key]: ciphertext }));
++    expect(storage.delete('user--aks-desktop', key).success).toBe(true);
++    expect(readSecureStorageFile(storagePath)[key]).toBe(ciphertext);
++    expect(storage.delete('shipped--aks-desktop', key).success).toBe(true);
++    expect(storage.load('shipped--aks-desktop', key).value).toBeNull();
++  });
++
+   it('deletes only the calling plugin value', () => {
+     storage.save('@example/one', 'token', 'first');
+     storage.save('@example/two', 'token', 'second');
+@@ -256,7 +339,7 @@ describe('PluginSecureStorage', () => {
+ 
+   it('enforces each plugin entry limit while allowing updates', () => {
+     const entries = Object.fromEntries(
+-      Array.from({ length: 256 }, (_, index) => [`@example/one:key-${index}`, 'encrypted:value'])
++      Array.from({ length: 256 }, (_, index) => [`@example/one:key-${index}`, 'encrypted:value']),
+     );
+     fs.writeFileSync(storagePath, JSON.stringify(entries));
+ 
+@@ -269,7 +352,7 @@ describe('PluginSecureStorage', () => {
+ 
+   it('enforces the persisted namespace limit while allowing existing namespaces', () => {
+     const entries = Object.fromEntries(
+-      Array.from({ length: 256 }, (_, index) => [`plugin-${index}:token`, 'encrypted:value'])
++      Array.from({ length: 256 }, (_, index) => [`plugin-${index}:token`, 'encrypted:value']),
+     );
+     fs.writeFileSync(storagePath, JSON.stringify(entries));
+ 
+@@ -385,7 +468,7 @@ describe('PluginSecureStorage', () => {
+         '@example/one:token': 'encrypted:value',
+         '../invalid:token': 'encrypted:other',
+         constructor: 'encrypted:other',
+-      })
++      }),
+     );
+ 
+     expect(readSecureStorageFile(storagePath)).toEqual({
+@@ -395,6 +478,47 @@ describe('PluginSecureStorage', () => {
+ });
+ 
+ describe('setupSecureStorageHandlers', () => {
++  it('requires the shipped capability and trusted frame before migrating the legacy token', t => {
++    const trustedStartUrl = 'file:///trusted/headlamp/index.html';
++    const mainFrame = { url: trustedStartUrl };
++    const webContents = { mainFrame, on: vi.fn() };
++    const event = { sender: webContents, senderFrame: mainFrame };
++    userDataPath.value = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-legacy-token-ipc-'));
++    const storagePath = path.join(userDataPath.value, 'secure-storage.json');
++    t.onTestFinished(() => fs.rmSync(userDataPath.value, { recursive: true, force: true }));
++    const key = 'aks-desktop:github-auth';
++    const original = JSON.stringify({
++      [key]: Buffer.from('encrypted:refresh-token').toString('base64'),
++    });
++    fs.writeFileSync(storagePath, original);
++    handlers.clear();
++    setupSecureStorageHandlers({ webContents } as never, trustedStartUrl);
++    const register = handlers.get(SECURE_STORAGE_REGISTER)!;
++    const load = handlers.get(SECURE_STORAGE_LOAD)!;
++    const capabilities = register(event, ['user--aks-desktop', 'shipped--aks-desktop']) as Record<
++      string,
++      string
++    >;
++    const shipped = capabilities['shipped--aks-desktop'];
++    expect(load(event, 'shipped--aks-desktop', key)).toMatchObject({ success: false });
++    expect(load(event, capabilities['user--aks-desktop'], key)).toEqual({
++      success: true,
++      value: null,
++    });
++    expect(load({ sender: {}, senderFrame: mainFrame }, shipped, key)).toMatchObject({
++      success: false,
++    });
++    expect(
++      load({ sender: webContents, senderFrame: { url: trustedStartUrl } }, shipped, key),
++    ).toMatchObject({ success: false });
++    mainFrame.url = 'https://untrusted.example/';
++    expect(load(event, shipped, key)).toMatchObject({ success: false });
++    expect(fs.readFileSync(storagePath, 'utf8')).toBe(original);
++    mainFrame.url = trustedStartUrl;
++    expect(load(event, shipped, key)).toEqual({ success: true, value: 'refresh-token' });
++    expect(readSecureStorageFile(storagePath)[key]).toBeUndefined();
++  });
++
+   it('revokes capabilities while a new main-frame document is loading', () => {
+     const listeners = new Map<string, (...args: unknown[]) => void>();
+     const trustedStartUrl = 'file:///trusted/headlamp/index.html';
+@@ -454,7 +578,7 @@ describe('setupSecureStorageHandlers', () => {
+     expect(register(event, ['@example/sibling'])).toEqual({});
+     mainFrame.url = `${trustedStartUrl}#/`;
+     expect(
+-      register({ sender: webContents, senderFrame: { url: mainFrame.url } }, ['@example/frame'])
++      register({ sender: webContents, senderFrame: { url: mainFrame.url } }, ['@example/frame']),
+     ).toEqual({});
+ 
+     const capabilities = register(event, ['@example/one']) as Record<string, string>;
+@@ -522,7 +646,7 @@ describe('setupSecureStorageHandlers', () => {
+     const secondEvent = { sender: secondWebContents, senderFrame: secondFrame };
+ 
+     expect(() =>
+-      setupSecureStorageHandlers({ webContents: secondWebContents } as never, trustedStartUrl)
++      setupSecureStorageHandlers({ webContents: secondWebContents } as never, trustedStartUrl),
+     ).not.toThrow();
+ 
+     const register = handlers.get(SECURE_STORAGE_REGISTER)!;
+diff --git a/source/app/electron/secureStorage.ts b/source/app/electron/secureStorage.ts
+index 7a6ce832755838335ed56c52dcad7909cfae047b..3fdaa78dd6369268e11523ad81aaeb4e3d9f9827 100644
+--- a/source/app/electron/secureStorage.ts
++++ b/source/app/electron/secureStorage.ts
+@@ -167,6 +167,19 @@ function storedKey(namespace: string, key: string): string {
+   return `${namespace}:${key}`;
+ }
+ 
++/**
++ * Identifies the one legacy token owned by the shipped AKS Desktop plugin.
++ *
++ * @param namespace - Namespace recovered from the caller's storage capability.
++ * @param key - Validated plugin-local storage key.
++ * @returns The legacy persisted key, or undefined for every other caller and key.
++ */
++function legacyGitHubKey(namespace: string, key: string): string | undefined {
++  return namespace === 'shipped--aks-desktop' && key === 'aks-desktop:github-auth'
++    ? key
++    : undefined;
++}
++
+ /**
+  * Checks whether a persisted key contains a valid namespace and local key.
+  *
+@@ -341,6 +354,8 @@ export class PluginSecureStorage {
+       }
+ 
+       data[entry] = safeStorage.encryptString(value).toString('base64');
++      const legacy = legacyGitHubKey(namespace, key);
++      if (legacy) delete data[legacy];
+       writeSecureStorageFile(this.storagePath, data);
+       return { success: true };
+     } catch {
+@@ -370,19 +385,28 @@ export class PluginSecureStorage {
+       return { success: false, error: 'Unable to load secure storage value' };
+     }
+     const entry = storedKey(namespace, key);
+-    const encrypted = data[entry];
++    const legacy = legacyGitHubKey(namespace, key);
++    const encrypted = data[entry] ?? (legacy ? data[legacy] : undefined);
+     if (!encrypted) {
+       return { success: true, value: null };
+     }
+ 
++    let value: string;
+     try {
+-      return {
+-        success: true,
+-        value: safeStorage.decryptString(Buffer.from(encrypted, 'base64')),
+-      };
++      value = safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+     } catch {
+       return { success: false, error: 'Unable to decrypt secure storage value' };
+     }
++    if (legacy && legacy in data) {
++      data[entry] = encrypted;
++      delete data[legacy];
++      try {
++        writeSecureStorageFile(this.storagePath, data);
++      } catch {
++        return { success: false, error: 'Unable to migrate secure storage value' };
++      }
++    }
++    return { success: true, value };
+   }
+ 
+   /**
+@@ -403,10 +427,12 @@ export class PluginSecureStorage {
+     try {
+       const data = readSecureStorageFile(this.storagePath);
+       const entry = storedKey(namespace, key);
+-      if (!(entry in data)) {
++      const legacy = legacyGitHubKey(namespace, key);
++      if (!(entry in data) && !(legacy && legacy in data)) {
+         return { success: true };
+       }
+       delete data[entry];
++      if (legacy) delete data[legacy];
+       writeSecureStorageFile(this.storagePath, data);
+       return { success: true };
+     } catch {
+@@ -452,14 +478,14 @@ export function createSecureStorageCapabilities(namespaces: unknown): SecureStor
+  */
+ export function setupSecureStorageHandlers(
+   mainWindow: BrowserWindow,
+-  trustedStartUrl: string
++  trustedStartUrl: string,
+ ): void {
+   for (const channel of SECURE_STORAGE_CHANNELS) {
+     ipcMain.removeHandler(channel);
+   }
+ 
+   const storage = new PluginSecureStorage(
+-    path.join(app.getPath('userData'), 'secure-storage.json')
++    path.join(app.getPath('userData'), 'secure-storage.json'),
+   );
+   let registrationAllowed = true;
+   let namespaceByCapability = new Map<string, string>();
+@@ -515,6 +541,6 @@ export function setupSecureStorageHandlers(
+         registrationAllowed = isTrustedDocumentUrl(url, trustedStartUrl);
+         namespaceByCapability.clear();
+       }
+-    }
++    },
+   );
+ }
 diff --git a/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md b/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b065f6620f
