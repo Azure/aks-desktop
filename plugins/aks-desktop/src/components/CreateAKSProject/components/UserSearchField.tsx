@@ -4,7 +4,11 @@
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Autocomplete, Box, CircularProgress, TextField, Typography } from '@mui/material';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { resolveAzureADUser, searchAzureADUsers } from '../../../utils/azure/az-ad';
+import {
+  isAzureADLookupUnavailable,
+  resolveAzureADUser,
+  searchAzureADUsers,
+} from '../../../utils/azure/az-ad';
 import { isEntraObjectId, isUserPrincipalName } from '../../../utils/shared/entraIdentifiers';
 
 /** What the field resolves a user to. See {@link UserAssignment} for why both. */
@@ -69,6 +73,8 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
   const [options, setOptions] = useState<UserOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchAvailable, setSearchAvailable] = useState<boolean | null>(null);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [noUsersFound, setNoUsersFound] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
 
@@ -85,6 +91,7 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
     // A complete identifier is taken at face value rather than searched for.
     if (query.length < 2 || isEntraObjectId(query) || isUserPrincipalName(query)) {
       setOptions([]);
+      setNoUsersFound(false);
       return;
     }
 
@@ -98,17 +105,17 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
       }
       if (!result.success) {
         // Only permanently disable search for known CA/permission errors
-        const isPermissionError =
-          result.error?.includes('AADSTS530084') ||
-          result.error?.includes('AADSTS50079') ||
-          result.error?.includes('Authorization_RequestDenied') ||
-          result.error?.includes('Insufficient privileges');
+        const isPermissionError = isAzureADLookupUnavailable(result.error);
         if (isPermissionError) {
           setSearchAvailable(false);
         }
+        setSearchFailed(!isPermissionError);
+        setNoUsersFound(false);
         setOptions([]);
       } else {
         setSearchAvailable(true);
+        setSearchFailed(false);
+        setNoUsersFound(result.users.length === 0);
         setOptions(
           result.users.map(user => ({
             id: user.id,
@@ -123,6 +130,8 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
       if (thisRequestId !== requestIdRef.current) {
         return;
       }
+      setSearchFailed(true);
+      setNoUsersFound(false);
       setOptions([]);
     } finally {
       if (thisRequestId === requestIdRef.current) {
@@ -148,9 +157,18 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
       const thisRequestId = ++requestIdRef.current;
       resolveAzureADUser(typed)
         .then(res => {
-          if (thisRequestId !== requestIdRef.current || !res.success || !res.user) {
+          if (thisRequestId !== requestIdRef.current) {
             return;
           }
+          if (!res.success || !res.user) {
+            const isPermissionError = isAzureADLookupUnavailable(res.error);
+            if (isPermissionError) {
+              setSearchAvailable(false);
+            }
+            setSearchFailed(false);
+            return;
+          }
+          setSearchFailed(false);
           onChange({
             objectId: res.user.id,
             upn: res.user.userPrincipalName,
@@ -158,7 +176,9 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
           });
         })
         .catch(() => {
-          /* keep the partial selection; validation reports what is missing */
+          if (thisRequestId === requestIdRef.current) {
+            setSearchFailed(false);
+          }
         });
     },
     [onChange]
@@ -173,6 +193,8 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
       }
 
       setInputValue(newInputValue);
+      setSearchFailed(false);
+      setNoUsersFound(false);
 
       // Drops a search queued for the previous, shorter text. Without this it
       // fires after the transition below, bumps the request id — invalidating the
@@ -210,6 +232,9 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
       // Partial input supersedes a resolver started for the previous complete
       // identifier immediately, including when directory search is unavailable.
       requestIdRef.current += 1;
+      if (isEntraObjectId(value) || displayName) {
+        onChange({ objectId: '' });
+      }
 
       // If search is known to be unavailable, only propagate valid UUIDs
       // (non-UUID intermediate text stays local to avoid parent validation errors)
@@ -221,11 +246,12 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
       }
+      setLoading(true);
       debounceTimer.current = setTimeout(() => {
         performSearch(newInputValue);
       }, 350);
     },
-    [applyTypedValue, onChange, performSearch, searchAvailable]
+    [applyTypedValue, displayName, onChange, performSearch, searchAvailable, value]
   );
 
   const handleOptionSelect = useCallback(
@@ -331,11 +357,44 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
           );
         }}
         noOptionsText={
-          inputValue.length >= 2 && !loading
+          showFallbackMessage
+            ? t('User search is not available')
+            : searchFailed
+            ? t('User search failed')
+            : noUsersFound
             ? t('No users found')
             : t('Type at least 2 characters to search')
         }
       />
+      {searchFailed && (
+        <Alert severity="error" sx={{ mt: 1, py: 0 }}>
+          <Typography variant="caption">
+            {t(
+              'User search failed. Check your Azure sign-in and try again, or enter the sign-in name or object ID directly.'
+            )}
+          </Typography>
+        </Alert>
+      )}
+      {noUsersFound && (
+        <Typography
+          role="status"
+          variant="caption"
+          color="text.secondary"
+          sx={{ mt: 1, display: 'block' }}
+        >
+          {t('No users found')}
+        </Typography>
+      )}
+      {isEntraObjectId(value) && !displayName && (
+        <Typography
+          role="status"
+          variant="caption"
+          color="success.main"
+          sx={{ mt: 1, display: 'block' }}
+        >
+          {t('Object ID entered')}
+        </Typography>
+      )}
       {showFallbackMessage && (
         <Alert severity="info" sx={{ mt: 1, py: 0 }}>
           <Typography variant="caption">

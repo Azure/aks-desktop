@@ -13,6 +13,7 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
 }));
 
 vi.mock('../../../utils/azure/az-ad', () => ({
+  isAzureADLookupUnavailable: () => false,
   resolveAzureADUser: vi.fn().mockResolvedValue({ success: false }),
   searchAzureADUsers: vi.fn().mockResolvedValue({ success: true, users: [] }),
 }));
