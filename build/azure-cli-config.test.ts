@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -12,7 +13,44 @@ import {
   installRequiredExtensions,
   resolveAzureCliTarget,
   verifyRequiredArtifact,
+  windowsZipExtraction,
 } from './azure-cli-config';
+
+test('passes Windows ZIP paths as literal environment values', () => {
+  const archive = "C:\\O'Brien [build] & tools\\input.zip";
+  const destination = "C:\\O'Brien [build] & tools\\out";
+  const invocation = windowsZipExtraction(archive, destination, { PATH: 'existing' });
+  assert.equal(invocation.command, 'powershell.exe');
+  assert.match(invocation.args.at(-1)!, /Expand-Archive -LiteralPath \$env:AKS_ZIP_ARCHIVE/);
+  assert.match(invocation.args.at(-1)!, /\$ErrorActionPreference = 'Stop'/);
+  assert.ok(invocation.args.every(argument =>
+    !argument.includes(archive) && !argument.includes(destination)
+  ));
+  assert.deepEqual(invocation.env, {
+    PATH: 'existing',
+    AKS_ZIP_ARCHIVE: archive,
+    AKS_ZIP_DESTINATION: destination,
+  });
+});
+
+test('extracts Windows ZIPs under paths containing quotes and wildcards', {
+  skip: process.platform !== 'win32',
+}, t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aks-O'Brien [build] & tools-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const input = path.join(root, 'input');
+  fs.mkdirSync(input);
+  const payload = path.join(input, 'payload.txt');
+  fs.writeFileSync(payload, 'zip contents');
+  const archive = path.join(root, 'input.zip');
+  execFileSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-Command',
+    "$ErrorActionPreference = 'Stop'; Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory($env:AKS_ZIP_INPUT, $env:AKS_ZIP_ARCHIVE)",
+  ], { env: { ...process.env, AKS_ZIP_INPUT: input, AKS_ZIP_ARCHIVE: archive } });
+  const extraction = windowsZipExtraction(archive, path.join(root, 'out'));
+  execFileSync(extraction.command, extraction.args, { env: extraction.env });
+  assert.equal(fs.readFileSync(path.join(root, 'out', 'payload.txt'), 'utf8'), 'zip contents');
+});
 
 function createRoot(): string {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azure-cli-config-'));
