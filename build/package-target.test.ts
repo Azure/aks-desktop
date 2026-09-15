@@ -2,6 +2,8 @@
 // Licensed under the Apache 2.0.
 
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 
@@ -10,8 +12,63 @@ import {
   npmInvocation,
   packageArguments,
   packageEnvironment,
+  packageTarget,
+  stageBackendExecutable,
   validatePackageHost,
 } from './package-target';
+
+for (const failPackaging of [false, true]) {
+  test(`reports build output only after successful packaging (failure: ${failPackaging})`, t => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build output-'));
+    t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+    const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
+    const distDir = path.join(sourceDir, 'app', 'dist');
+    const targetRecord = path.join(distDir, '.package-target.json');
+    const target = { platform: process.platform, arch: process.arch };
+    fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
+    fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+    let packaged = false;
+    const messages: string[] = [];
+    t.mock.method(console, 'log', (message: string) => {
+      assert.ok(packaged);
+      assert.deepEqual(JSON.parse(fs.readFileSync(targetRecord, 'utf8')), target);
+      messages.push(message);
+    });
+    const runStep = (args: string[], cwd: string) => {
+      assert.equal(messages.length, 0);
+      if (args[1] === 'package') {
+        assert.equal(cwd, path.join(sourceDir, 'app'));
+        if (failPackaging) throw new Error('packaging failed');
+        fs.mkdirSync(distDir, { recursive: true });
+        packaged = true;
+      }
+    };
+    if (failPackaging) {
+      assert.throws(() => packageTarget(target, rootDir, runStep), /packaging failed/);
+      assert.deepEqual(messages, []);
+      assert.equal(fs.existsSync(targetRecord), false);
+    } else {
+      packageTarget(target, rootDir, runStep);
+      assert.deepEqual(messages, [
+        `\nBuild complete (${target.platform}/${target.arch}).\nOutput directory: ${path.resolve(distDir)}`,
+      ]);
+    }
+  });
+}
+
+test('stages the newly built backend under the Windows packaging filename', t => {
+  const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'windows-backend-'));
+  t.after(() => fs.rmSync(sourceDir, { recursive: true, force: true }));
+  const backend = path.join(sourceDir, 'backend');
+  fs.mkdirSync(backend);
+  fs.writeFileSync(path.join(backend, 'headlamp-server'), 'new backend');
+  fs.writeFileSync(path.join(backend, 'headlamp-server.exe'), 'stale backend');
+  stageBackendExecutable(sourceDir, 'win32');
+  assert.equal(fs.readFileSync(path.join(backend, 'headlamp-server.exe'), 'utf8'), 'new backend');
+  fs.rmSync(path.join(backend, 'headlamp-server'));
+  assert.throws(() => stageBackendExecutable(sourceDir, 'win32'), /ENOENT/);
+  assert.doesNotThrow(() => stageBackendExecutable(sourceDir, 'linux'));
+});
 
 test('maps each supported target to one Electron Builder architecture', () => {
   assert.deepEqual(packageArguments('linux', 'x64'), ['--linux', '--x64']);
@@ -78,7 +135,10 @@ test('uses the managed Mac dmgbuild launcher unless the caller overrides it', ()
     '/workspace',
     {}
   );
-  assert.equal(generated.CUSTOM_DMGBUILD_PATH, path.join('/workspace', 'build', 'dmgbuild-managed-mac.cjs'));
+  assert.equal(
+    generated.CUSTOM_DMGBUILD_PATH,
+    path.join('/workspace', 'build', 'dmgbuild-managed-mac.cjs')
+  );
 
   const overridden = packageEnvironment(
     { platform: 'darwin', arch: 'arm64' },

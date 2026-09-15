@@ -8,6 +8,7 @@
  * and delegates the final application build to the installed Headlamp source package.
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 
 const { resolveInstalledHeadlampPaths } = require(
@@ -105,28 +106,47 @@ function runNpm(args: string[], cwd: string, env = process.env): void {
   }
 }
 
-/** Stages all product inputs and builds one validated platform/architecture package. */
+/** Stages the upstream backend under the filename required by Windows packaging. */
+export function stageBackendExecutable(sourceDir: string, platform: NodeJS.Platform): void {
+  if (platform === 'win32') {
+    const backend = path.join(sourceDir, 'backend');
+    fs.copyFileSync(path.join(backend, 'headlamp-server'), path.join(backend, 'headlamp-server.exe'));
+  }
+}
+
+/**
+ * Stages product inputs, builds one package target, and reports its output directory.
+ * @param target - Platform and architecture to package.
+ * @param rootDir - Consumer project root.
+ * @param runStep - Runs a build step; replaceable for orchestration tests.
+ */
 export function packageTarget(
   target: PackageTarget,
-  rootDir = ROOT_DIR
+  rootDir = ROOT_DIR,
+  runStep = runNpm
 ): void {
   validatePackageHost(target);
 
-  const { sourceDir, appDir } = resolveInstalledHeadlampPaths(rootDir);
+  const { sourceDir, appDir, distDir } = resolveInstalledHeadlampPaths(rootDir);
   const targetArgs = [
     `--platform=${target.platform}`,
     `--arch=${target.arch}`,
   ];
   const buildEnv = packageEnvironment(target, rootDir);
+  const targetRecord = path.join(distDir, '.package-target.json');
+  fs.rmSync(targetRecord, { force: true });
 
-  runNpm(['run', 'headlamp:install'], rootDir, buildEnv);
-  runNpm(['run', 'headlamp:tools', '--', ...targetArgs], rootDir);
-  runNpm(['run', 'headlamp:translations'], rootDir);
-  runNpm(['run', 'plugin:setup'], rootDir);
-  runNpm(['run', 'headlamp:manifest'], rootDir);
-  runNpm(['run', 'headlamp:frontend-env'], rootDir);
-  runNpm(['run', 'frontend:build'], sourceDir, buildEnv);
-  runNpm(['run', 'package', '--', ...packageArguments(target.platform, target.arch)], appDir, buildEnv);
+  runStep(['run', 'headlamp:install'], rootDir, buildEnv);
+  stageBackendExecutable(sourceDir, target.platform);
+  runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir);
+  runStep(['run', 'headlamp:translations'], rootDir);
+  runStep(['run', 'plugin:setup'], rootDir);
+  runStep(['run', 'headlamp:manifest'], rootDir);
+  runStep(['run', 'headlamp:frontend-env'], rootDir);
+  runStep(['run', 'frontend:build'], sourceDir, buildEnv);
+  runStep(['run', 'package', '--', ...packageArguments(target.platform, target.arch)], appDir, buildEnv);
+  fs.writeFileSync(targetRecord, `${JSON.stringify(target)}\n`);
+  console.log(`\nBuild complete (${target.platform}/${target.arch}).\nOutput directory: ${path.resolve(distDir)}`);
 }
 
 /** Reads a `--name=value` option from the package-target command line. */
