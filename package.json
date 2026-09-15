@@ -27,7 +27,7 @@
     "build:unpacked:mac": "npm run build:unpacked",
     "build:unpacked:win": "npm run build:unpacked",
     "build:container": "npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:container",
-  "test:build": "npm --prefix packages/headlamp-source run test:helpers && tsx --test build/build-target.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/generate-frontend-environment.test.ts build/package-target.test.ts build/product-manifest-verification.test.ts build/start-development.test.ts test/integration/*.test.ts",
+    "test:build": "npm --prefix packages/headlamp-source run test:helpers && tsx --test build/build-target.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/generate-frontend-environment.test.ts build/package-target.test.ts build/product-manifest-verification.test.ts build/start-development.test.ts test/integration/*.test.ts",
     "test:headlamp-package": "npm --prefix packages/headlamp-source run test:package && tsx --test test/integration/headlamp-package.test.ts",
     "test:headlamp-patches": "npm run headlamp:patches -- --check && npm run test:headlamp-package",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
@@ -653,7 +653,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.d4c87a8f.patch",
-    "integrity": "sha512-QxdepuLEsWoU+L5IPsmlT2EdoI8j/+mTKPRpteuhm/a8QQXDdtjbA4/iPnLZx5PamhvyM6+ljd/giRTv8k4W7A=="
+    "integrity": "sha512-WPFg7hyInPKSe+EeL9jjypEPTZjASXqCnzP/Yti+93F/4o+UNE9hP4Um3G+rM6Qwj3g2BStQNR2f41cXuY6pnQ=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
