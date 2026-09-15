@@ -161,7 +161,6 @@
   "Cluster is still being created. Please wait until creation completes.": "Cluster is still being created. Please wait until creation completes.",
   "Cluster is stopped. Please start the cluster before deploying.": "Cluster is stopped. Please start the cluster before deploying.",
   "Cluster Not Ready": "Cluster Not Ready",
-  "Cluster registered": "Cluster registered",
   "Collapse panel": "Collapse panel",
   "Complete authorization on your browser screen": "Complete authorization on your browser screen",
   "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.": "Complete the installation in your browser. This will update automatically once the app is installed on {{repoName}}.",
@@ -875,6 +874,5 @@
   "You need to be logged in to Azure to register AKS clusters.": "You need to be logged in to Azure to register AKS clusters.",
   "_You need to be logged in to Azure to register AKS clusters..comment": "{Locked=\"Azure\"}",
   "Your AKS project \"{{projectName}}\" has been created and is ready to use.": "Your AKS project \"{{projectName}}\" has been created and is ready to use.",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.",
   "Your project \"{{projectName}}\" is ready to use.": "Your project \"{{projectName}}\" is ready to use."
 }
