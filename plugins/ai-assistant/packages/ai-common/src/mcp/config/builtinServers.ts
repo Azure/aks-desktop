@@ -16,53 +16,6 @@
 
 import type { MCPServer, MCPSettings } from '../types';
 
-/** Server name used for the Azure Kubernetes Service MCP server. */
-export const AKS_MCP_SERVER_NAME = 'aks-mcp';
-
-/**
- * Components enabled for the preconfigured `aks-mcp` server.
- *
- * `aks-mcp` enables every component by default and refuses to start when any
- * enabled component's CLI is missing from `PATH`. These components need only
- * the bundled Azure CLI. The `kubectl`, `helm`, `cilium`, and `hubble`
- * components each require their own binary, so they are opt-in: add them to the
- * server arguments in MCP settings once the CLI is installed.
- */
-const AKS_MCP_COMPONENTS = [
-  'az_cli',
-  'monitor',
-  'fleet',
-  'network',
-  'compute',
-  'detectors',
-  'advisor',
-  'inspektorgadget',
-].join(',');
-
-/**
- * Builds the preconfigured `aks-mcp` server definition.
- *
- * The command is left unqualified so it resolves from `PATH`; hosts that ship
- * the binary (AKS Desktop) prepend their bundled tools directory to `PATH`.
- *
- * @returns The default `aks-mcp` stdio server definition.
- */
-export function createAksMcpServer(): MCPServer {
-  return {
-    name: AKS_MCP_SERVER_NAME,
-    command: 'aks-mcp',
-    args: [
-      '--transport',
-      'stdio',
-      '--access-level',
-      'readonly',
-      '--enabled-components',
-      AKS_MCP_COMPONENTS,
-    ],
-    enabled: true,
-  };
-}
-
 /** The parts of a built-in server the plugin owns, as last written by it. */
 export interface BuiltinServerDefinition {
   /** Executable used to start the server. */
@@ -155,8 +108,11 @@ function normalizeState(previous: PersistedBuiltinServerState): BuiltinServerSta
  *
  * A built-in is added once. On later runs its command and arguments are
  * refreshed so improvements reach existing installs, but only while the user
- * has not edited them; a customized or deleted server is left untouched. The
- * `enabled` and `autoApprove` toggles always belong to the user.
+ * has not edited them. Retired built-ins are removed when they still match the
+ * last plugin-owned definition; customized or deleted servers are left
+ * untouched. The `enabled` and `autoApprove` toggles always belong to the user.
+ * Passing an empty `builtinServers` list retires every definition still tracked
+ * in `previousState`.
  *
  * @param config - Currently persisted MCP configuration.
  * @param builtinServers - Server definitions the host wants preconfigured.
@@ -174,6 +130,25 @@ export function reconcileBuiltinServers(
   let enabled = config.enabled;
   let changed = false;
   let stateChanged = false;
+
+  const builtinKeys = new Set(builtinServers.map(server => toKey(server.name)));
+  for (const [key, lastWritten] of Object.entries(state)) {
+    if (builtinKeys.has(key)) continue;
+
+    delete nextState[key];
+    stateChanged = true;
+
+    const index = servers.findIndex(server => toKey(server.name) === key);
+    if (index === -1 || lastWritten === null) continue;
+    if (!isSameDefinition(toDefinition(servers[index]), lastWritten)) continue;
+
+    servers.splice(index, 1);
+    changed = true;
+  }
+
+  if (changed && servers.length === 0) {
+    enabled = false;
+  }
 
   for (const builtin of builtinServers) {
     const key = toKey(builtin.name);
