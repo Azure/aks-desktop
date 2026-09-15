@@ -21,7 +21,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const OUTPUT_DIR = path.join(ROOT, "Localize/locales");
@@ -369,7 +369,7 @@ function main() {
 
 if (
   process.argv[1] &&
-  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+  fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])
 ) {
   main();
 }
