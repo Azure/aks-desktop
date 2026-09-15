@@ -755,5 +755,9 @@
   "Your project \"{{projectName}}\" is ready to use.": "O seu projeto “{{projectName}}” está pronto a ser utilizado.",
   "Azure CLI requirements not met": "",
   "Cluster registered": "",
-  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": ""
+  "Your cluster is registered and ready to use. The items below are optional recommendations — select Done to finish.": "",
+  "Object ID entered": "",
+  "User search failed": "",
+  "Try searching again. If the problem continues, check your Azure sign-in.": "",
+  "User search is not available": ""
 }

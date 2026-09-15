@@ -60,8 +60,12 @@ export const AccessStep: React.FC<AccessStepProps> = ({
   const handleAssignmentChange = (index: number, selection: UserSelection) => {
     const updatedAssignments = [...formData.userAssignments];
     const prevAssignment = updatedAssignments[index];
+    const preserveManualUpn =
+      requiresUpn && selection.preserveExistingUpn && prevAssignment?.upnManuallyEntered;
     const nextUpn =
-      requiresUpn && selection.upn === undefined ? prevAssignment?.upn : selection.upn;
+      selection.upn === undefined && preserveManualUpn ? prevAssignment?.upn : selection.upn;
+    const upnManuallyEntered =
+      selection.upn === undefined ? preserveManualUpn : selection.upnManuallyEntered === true;
 
     const identityChanged =
       prevAssignment?.objectId !== selection.objectId || prevAssignment?.upn !== nextUpn;
@@ -69,24 +73,36 @@ export const AccessStep: React.FC<AccessStepProps> = ({
     const nextDisplayName =
       selection.displayName ?? (identityChanged ? '' : prevAssignment?.displayName);
 
-    updatedAssignments[index] = {
+    const nextAssignment: UserAssignment = {
       ...prevAssignment,
       objectId: selection.objectId,
       upn: nextUpn,
       displayName: nextDisplayName,
     };
+    if (upnManuallyEntered) {
+      nextAssignment.upnManuallyEntered = true;
+    } else {
+      delete nextAssignment.upnManuallyEntered;
+    }
+    updatedAssignments[index] = nextAssignment;
     onFormDataChange({ userAssignments: updatedAssignments });
   };
 
   const handleUpnChange = (index: number, upn: string) => {
     const updatedAssignments = [...formData.userAssignments];
     const prevAssignment = updatedAssignments[index];
-    updatedAssignments[index] = {
+    const nextAssignment: UserAssignment = {
       ...prevAssignment,
       upn,
       displayName:
         prevAssignment.displayName === prevAssignment.upn ? upn : prevAssignment.displayName,
     };
+    if (upn.trim()) {
+      nextAssignment.upnManuallyEntered = true;
+    } else {
+      delete nextAssignment.upnManuallyEntered;
+    }
+    updatedAssignments[index] = nextAssignment;
     onFormDataChange({ userAssignments: updatedAssignments });
   };
 

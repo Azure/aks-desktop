@@ -15,6 +15,17 @@ export interface AzureADUser {
   userPrincipalName: string;
 }
 
+/** Identifies authentication or authorization errors that make Entra directory lookup unavailable. */
+export function isAzureADLookupUnavailable(error?: string): boolean {
+  return (
+    error?.includes('AADSTS530084') ||
+    error?.includes('AADSTS50079') ||
+    error?.includes('Authorization_RequestDenied') ||
+    error?.includes('Insufficient privileges') ||
+    false
+  );
+}
+
 /**
  * Searches Azure AD users by display name or email prefix.
  * Uses `az ad user list` with OData `--filter` for display name, mail, and UPN.
@@ -52,19 +63,7 @@ export async function searchAzureADUsers(
     'Searching Azure AD users:',
     'search Azure AD users',
     stdout => JSON.parse(stdout || '[]'),
-    stderr => {
-      // Surface conditional-access / permission errors to the caller so the UI
-      // can permanently disable search and fall back to manual UUID entry.
-      if (
-        stderr.includes('AADSTS530084') ||
-        stderr.includes('AADSTS50079') ||
-        stderr.includes('Authorization_RequestDenied') ||
-        stderr.includes('Insufficient privileges')
-      ) {
-        return { success: false, error: stderr };
-      }
-      return null;
-    }
+    stderr => (isAzureADLookupUnavailable(stderr) ? { success: false, error: stderr } : null)
   );
 
   return { success: result.success, users: result.data ?? [], error: result.error };
@@ -105,7 +104,8 @@ export async function resolveAzureADUser(
     ],
     'Resolving Azure AD user:',
     'resolve Azure AD user',
-    stdout => JSON.parse(stdout || 'null')
+    stdout => JSON.parse(stdout || 'null'),
+    stderr => (isAzureADLookupUnavailable(stderr) ? { success: false, error: stderr } : null)
   );
 
   if (!result.success || !result.data) {

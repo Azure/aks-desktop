@@ -71,6 +71,8 @@ export interface UserAssignment {
    * typed by hand and the directory could not be read.
    */
   upn?: string;
+  /** Whether the UPN was entered independently and may be kept while replacing the object ID. */
+  upnManuallyEntered?: boolean;
   role: string;
 }
 
