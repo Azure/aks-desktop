@@ -4,7 +4,7 @@
 /**
  * Shares the package target between setup and post-build verification.
  *
- * `setup-plugins.ts` and `verify-bundled-tools.ts` run as separate processes,
+ * `setup-external-tools.ts` and `verify-bundled-tools.ts` run as separate processes,
  * so npm's target-architecture variables are not guaranteed to reach the
  * verifier. The marker lets it inspect the output directory built most
  * recently. This module also removes retired artifacts from incremental build
@@ -14,7 +14,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const BUILD_TARGET_FILE = path.join('headlamp', 'app', 'resources', '.build-target.json');
+const { resolveInstalledHeadlampPaths } = require(
+  '../packages/headlamp-source/src/lib/paths.ts'
+);
 
 /** Platform and architecture selected by the packaging command. */
 export interface BuildTarget {
@@ -42,14 +44,16 @@ export function resolveTargetArch(arch?: string): string {
 
 /** Records the package target for a later post-build verification process. */
 export function writeBuildTarget(rootDir: string, target: BuildTarget): void {
-  const markerPath = path.join(rootDir, BUILD_TARGET_FILE);
+  const { appDir } = resolveInstalledHeadlampPaths(rootDir);
+  const markerPath = path.join(appDir, 'resources', '.build-target.json');
   fs.mkdirSync(path.dirname(markerPath), { recursive: true });
   fs.writeFileSync(markerPath, `${JSON.stringify(target, null, 2)}\n`);
 }
 
 /** @returns The most recently recorded package target, if the marker is valid. */
 export function readBuildTarget(rootDir: string): BuildTarget | undefined {
-  const markerPath = path.join(rootDir, BUILD_TARGET_FILE);
+  const { appDir } = resolveInstalledHeadlampPaths(rootDir);
+  const markerPath = path.join(appDir, 'resources', '.build-target.json');
   if (!fs.existsSync(markerPath)) {
     return undefined;
   }
@@ -67,7 +71,8 @@ export function readBuildTarget(rootDir: string): BuildTarget | undefined {
  * otherwise a rebuild could package a binary that is no longer downloaded.
  */
 export function removeRetiredAksMcpArtifacts(rootDir: string): void {
-  const resourcesDir = path.join(rootDir, 'headlamp', 'app', 'resources');
+  const { appDir } = resolveInstalledHeadlampPaths(rootDir);
+  const resourcesDir = path.join(appDir, 'resources');
   for (const retiredPath of [
     path.join(resourcesDir, 'external-tools', 'bin', 'aks-mcp'),
     path.join(resourcesDir, 'external-tools', 'bin', 'aks-mcp.exe'),

@@ -8,14 +8,34 @@ Navigation guide for AI coding agents. For Headlamp plugin API examples see [`pl
 | --- | --- | --- | --- |
 | **Plugin** | `plugins/aks-desktop/` | AKS-specific UI, Azure integration, Kubernetes operations | Most changes go here |
 | **Build** | `build/` | Plugin setup, external tool bundling (Azure CLI, Python), post-build verification | Packaging, bundled tool versions, installer behavior |
-| **Headlamp fork** | `headlamp/` (submodule) | Electron shell, backend server, frontend framework | Only when plugin system cannot achieve the goal |
+| **Source package** | `packages/headlamp-source/` | Reusable Headlamp source assembly and build entry points | Consumer-independent behavior |
+| **Headlamp patches** | `patches/` | Changes to the pinned Electron shell, backend, and frontend | Only when the product manifest or plugin APIs cannot express the behavior |
 
-Headlamp fork commits must use a prefix:
+Headlamp source is generated under `packages/headlamp-source/source/` and installed
+under `node_modules/@headlamp-k8s/headlamp-source/`. Do not edit generated copies as
+the source of a fix. See [`MAINTENANCE.md`](./MAINTENANCE.md) for source updates and
+the patch workflow.
 
-- `aksd:` -- AKS Desktop-specific changes
-- `upstreamable:` -- bug fixes, performance improvements, or features to contribute back upstream
+## Source-Package Boundary
 
-See [`MAINTENANCE.md`](./MAINTENANCE.md) for the full fork rebase workflow.
+- `headlamp-source` is independent of AKS Desktop and must support other consumers.
+	AKS code may depend on the package; the package must not import AKS build code,
+	plugins, or product assets.
+- Product names, versions, icons, command grants, shipped plugins, external-tool
+	selections, and downstream patches belong to the consumer. Pass them through the
+	documented configuration rather than adding AKS-specific branches to the package.
+- Package helper tests belong beside the helpers in `packages/headlamp-source/src/lib/`.
+	Use temporary, synthetic consumer projects. Package contract tests in
+	`packages/headlamp-source/test/` may read the package's own metadata, but must not
+	discover this repository's root manifest, lockfile, plugins, icons, or installed app.
+- Tests that need real AKS configuration or its installed, patched Headlamp belong
+	in the existing `test/integration/` directory. `headlamp-package.test.ts` there
+	owns the product version, branding, policy, installation, and patch contracts.
+- Run `npm --prefix packages/headlamp-source run test:helpers` for reusable helpers
+	and contracts. From the repository root, `npm run test:headlamp-package` runs
+	package contracts plus AKS integration tests and remains the CI entry point.
+- If a package test needs an AKS fixture from this checkout, move that assertion
+	to the consumer suite instead of making the package depend on the checkout layout.
 
 ## Decision Tree -- "Where does my change go?"
 
@@ -30,7 +50,9 @@ See [`MAINTENANCE.md`](./MAINTENANCE.md) for the full fork rebase workflow.
 | Component-local types | Co-located in the component directory (e.g., `plugins/aks-desktop/src/components/DeployWizard/components/types.ts`) |
 | Plugin registration | `plugins/aks-desktop/src/index.tsx` |
 | Build / packaging | `build/` |
-| Headlamp core | `headlamp/` (commit prefix: `aksd:` or `upstreamable:`) |
+| Reusable source assembly | `packages/headlamp-source/` |
+| AKS source-package integration tests | `test/integration/` |
+| Headlamp core | `patches/` (see `MAINTENANCE.md`) |
 
 ## Module Boundary Rules
 
@@ -87,4 +109,4 @@ Use `registerProjectDetailsTab()` or `registerProjectOverviewSection()` in `src/
 ## Cross-References
 
 - **Headlamp plugin API examples and patterns**: [`plugins/aks-desktop/AGENTS.md`](./plugins/aks-desktop/AGENTS.md)
-- **Fork maintenance and rebase workflow**: [`MAINTENANCE.md`](./MAINTENANCE.md)
+- **Source-package maintenance and patch workflow**: [`MAINTENANCE.md`](./MAINTENANCE.md)

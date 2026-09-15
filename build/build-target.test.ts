@@ -50,6 +50,9 @@ test('writeBuildTarget persists the target used by later build steps', () => {
     assert.equal(readBuildTarget(rootDir), undefined);
     writeBuildTarget(rootDir, { platform: 'linux', arch: 'arm64' });
     assert.deepEqual(readBuildTarget(rootDir), { platform: 'linux', arch: 'arm64' });
+    assert.ok(fs.existsSync(path.join(rootDir, 'node_modules', '@headlamp-k8s',
+      'headlamp-source', 'source', 'app', 'resources', '.build-target.json')));
+    assert.equal(fs.existsSync(path.join(rootDir, 'headlamp')), false);
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
@@ -57,7 +60,8 @@ test('writeBuildTarget persists the target used by later build steps', () => {
 
 test('removeRetiredAksMcpArtifacts removes stale binaries and target metadata', () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'retired-aks-mcp-'));
-  const resourcesDir = path.join(rootDir, 'headlamp', 'app', 'resources');
+  const resourcesDir = path.join(rootDir, 'node_modules', '@headlamp-k8s',
+    'headlamp-source', 'source', 'app', 'resources');
   const binDir = path.join(resourcesDir, 'external-tools', 'bin');
   const retiredPaths = [
     path.join(binDir, 'aks-mcp'),
