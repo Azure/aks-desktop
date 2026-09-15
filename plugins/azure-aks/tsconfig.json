@@ -1,0 +1,11 @@
+{
+  "extends": "./node_modules/@kinvolk/headlamp-plugin/config/plugins-tsconfig.json",
+  "include": ["./src/**/*"],
+  "exclude": ["./src/utils/test/**/*"],
+  "compilerOptions": {
+    // other options
+    "jsx": "react",
+    "esModuleInterop": true,
+    "module": "esnext"
+  }
+}
