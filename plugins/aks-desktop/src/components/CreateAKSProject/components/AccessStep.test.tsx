@@ -13,6 +13,7 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
 }));
 
 vi.mock('../../../utils/azure/az-ad', () => ({
+  isAzureADLookupUnavailable: () => false,
   resolveAzureADUser: vi.fn().mockResolvedValue({ success: false }),
   searchAzureADUsers: vi.fn().mockResolvedValue({ success: true, users: [] }),
 }));
@@ -33,6 +34,7 @@ const formData: FormData = {
     {
       objectId: '',
       upn: 'someone@contoso.com',
+      upnManuallyEntered: true,
       displayName: 'someone@contoso.com',
       role: 'Writer',
     },
@@ -84,10 +86,41 @@ describe('AccessStep', () => {
         {
           objectId: '00000000-1111-2222-3333-444444444444',
           upn: 'someone@contoso.com',
+          upnManuallyEntered: true,
           displayName: '',
           role: 'Writer',
         },
       ],
+    });
+  });
+
+  it('clears a derived UPN when a resolved identity is replaced', () => {
+    const onFormDataChange = vi.fn();
+    render(
+      <AccessStep
+        formData={{
+          ...formData,
+          userAssignments: [
+            {
+              objectId: '00000000-1111-2222-3333-444444444444',
+              upn: 'old-user@contoso.com',
+              displayName: 'Old User',
+              role: 'Writer',
+            },
+          ],
+        }}
+        onFormDataChange={onFormDataChange}
+        validation={{ isValid: true, errors: [], warnings: [] }}
+        requiresUpn
+      />
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: /Assignee 1/i }), {
+      target: { value: 'new' },
+    });
+
+    expect(onFormDataChange).toHaveBeenCalledWith({
+      userAssignments: [{ objectId: '', upn: undefined, displayName: '', role: 'Writer' }],
     });
   });
 });
