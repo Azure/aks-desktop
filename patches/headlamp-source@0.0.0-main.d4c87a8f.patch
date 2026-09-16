@@ -298,10 +298,10 @@ index b6eebc2366e7581f13089821e687cdcfe2c93cfd..c9db07662f9b6c2624224b6c33292cf5
      const validChannels = [
 diff --git a/source/app/electron/proxies.test.ts b/source/app/electron/proxies.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b482d8f029de25db10aca4e5bf11b7ed77f66593
+index 0000000000000000000000000000000000000000..06498ae7c4c3a59905895099f9c718a974d79e51
 --- /dev/null
 +++ b/source/app/electron/proxies.test.ts
-@@ -0,0 +1,1034 @@
+@@ -0,0 +1,1061 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -826,6 +826,33 @@ index 0000000000000000000000000000000000000000..b482d8f029de25db10aca4e5bf11b7ed
 +    expect(spawnMock).not.toHaveBeenCalled();
 +  });
 +
++  it('flushes Python readiness output without changing the shell environment', async () => {
++    const child = proxyChild();
++    spawnMock.mockReturnValue(child);
++    const { handlers, ipcMain } = ipcMainMock();
++    const environment = { PATH: '/test/bin', PYTHONUNBUFFERED: '0' };
++    setupProxyHandlers(
++      { id: 1 } as Electron.BrowserWindow,
++      ipcMain,
++      PROXY_CAPABILITY,
++      async () => environment
++    );
++
++    const result = handlers.get('start-cluster-proxy')!(
++      {} as Electron.IpcMainInvokeEvent,
++      proxyRequest('cluster-a')
++    );
++    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
++    child.stderr.emit('data', 'WARNING: kubeconfig permissions are 644.');
++    child.stdout.emit('data', "Start sending kubectl requests on 'cluster-a' context\n");
++    await expect(result).resolves.toEqual({ success: true });
++    expect(spawnMock.mock.calls[0][2].env).toEqual({
++      PATH: '/test/bin',
++      PYTHONUNBUFFERED: '1',
++    });
++    expect(environment.PYTHONUNBUFFERED).toBe('0');
++  });
++
 +  it('coalesces duplicate starts for the same cluster', async () => {
 +    const child = proxyChild();
 +    spawnMock.mockReturnValue(child);
@@ -1338,10 +1365,10 @@ index 0000000000000000000000000000000000000000..b482d8f029de25db10aca4e5bf11b7ed
 +});
 diff --git a/source/app/electron/proxies.ts b/source/app/electron/proxies.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..696f106f805015d26dac76bb995332c1077dd4f8
+index 0000000000000000000000000000000000000000..32addd4e234419016390979dae822de430c192f6
 --- /dev/null
 +++ b/source/app/electron/proxies.ts
-@@ -0,0 +1,691 @@
+@@ -0,0 +1,694 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -1845,7 +1872,10 @@ index 0000000000000000000000000000000000000000..696f106f805015d26dac76bb995332c1
 +    if (isShuttingDown) {
 +      return { result: { success: false, error: 'The app is shutting down.' } };
 +    }
-+    const env = sanitizeProxyEnvironment(await getEnvironment());
++    const env = sanitizeProxyEnvironment({
++      ...(await getEnvironment()),
++      PYTHONUNBUFFERED: '1',
++    });
 +    if (isShuttingDown) {
 +      return { result: { success: false, error: 'The app is shutting down.' } };
 +    }
