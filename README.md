@@ -43,6 +43,11 @@ or `npm run build:win:arm64` on the corresponding host platform.
 
 ### Build output
 
+The AKS tool setup stages `build/aks-tool-environment.cjs` beside the bundled CLI.
+The product manifest selects it as the command-environment callback, so AKS verifies
+its tool paths and digests and places them ahead of login-shell installations.
+This policy is AKS-owned; Headlamp only invokes the configured app-owned callback.
+
 After a successful build, the command prints the absolute output directory.
 Installers, archives, and unpacked applications are written under the installed
 Headlamp package, **not** a `dist/` directory at the repository root:

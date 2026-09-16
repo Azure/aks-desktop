@@ -24,6 +24,9 @@ the patch workflow.
 - Product names, versions, icons, command grants, shipped plugins, external-tool
 	selections, and downstream patches belong to the consumer. Pass them through the
 	documented configuration rather than adding AKS-specific branches to the package.
+- AKS runtime tool selection and digest checks belong in `build/aks-tool-environment.cjs`.
+  Headlamp's `0071` patch provides only the app-owned `commandEnvironment` callback;
+  do not move AKS's `external-tools` interpretation into Headlamp or its documentation.
 - Package helper tests belong beside the helpers in `packages/headlamp-source/src/lib/`.
 	Use temporary, synthetic consumer projects. Package contract tests in
 	`packages/headlamp-source/test/` may read the package's own metadata, but must not

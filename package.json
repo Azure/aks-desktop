@@ -122,6 +122,7 @@
     "revision": "d4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0"
   },
   "headlamp": {
+    "commandEnvironment": "external-tools/aks-tool-environment.cjs",
     "product": {
       "name": "aks-desktop",
       "productName": "AKS desktop",
@@ -1011,7 +1012,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.d4c87a8f.patch",
-    "integrity": "sha512-WSUb9IUiFVEpiQQjAEuAk5s8PmcsQ4Uh7r8EMwDNWfoCladLWMXDkhvExAhdG+6G0h0SFPOVUZCncgMyDY6J5w=="
+    "integrity": "sha512-H+MkhBp2+UFe1LCfPa/9xafTPPnokqo0aSUBcH+TpPoNgnSP3XwhFX1Q+HM49Xl1vcFl1VMy3iBe7db6pE+N+Q=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [

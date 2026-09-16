@@ -7,21 +7,21 @@ Verify capability checks, Windows entry points, readiness failures, handler
 
 replacement, stream draining, serialization, and shutdown behavior.
 ---
- app/electron/build-manifest.test.ts    |   11 +
+ app/electron/build-manifest.test.ts    |   33 +
  app/electron/plugin-management.test.ts |   20 +
  app/electron/preload.test.ts           |   17 +
- app/electron/proxies.test.ts           | 1061 ++++++++++++++++++++++++
- app/electron/quitCleanup.test.ts       |   77 ++
- app/electron/runCmd.test.ts            |   73 +-
- 6 files changed, 1252 insertions(+), 7 deletions(-)
+ app/electron/proxies.test.ts           | 1061 ++++++++++++++++++++++++++++++++
+ app/electron/quitCleanup.test.ts       |   77 +++
+ app/electron/runCmd.test.ts            |  147 ++++-
+ 6 files changed, 1338 insertions(+), 17 deletions(-)
  create mode 100644 app/electron/proxies.test.ts
  create mode 100644 app/electron/quitCleanup.test.ts
 
 diff --git a/app/electron/build-manifest.test.ts b/app/electron/build-manifest.test.ts
-index 11b5f6cae..bddf7167a 100644
+index 11b5f6cae639b95a840bfd82f1809c6271951e51..43a158e4cf5e289e9dff61e7a694d32cdc89e116 100644
 --- a/app/electron/build-manifest.test.ts
 +++ b/app/electron/build-manifest.test.ts
-@@ -851,6 +851,17 @@ describe('build manifest selection', () => {
+@@ -851,6 +851,39 @@ describe('build manifest selection', () => {
      );
    });
  
@@ -36,11 +36,33 @@ index 11b5f6cae..bddf7167a 100644
 +    expect(identities).not.toContain('development:azure-aks:azure-aks');
 +  });
 +
++  it('validates the optional app-owned command environment module', () => {
++    const schema = JSON.parse(
++      fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
++    );
++    const validate = addFormats(new Ajv()).compile(schema);
++    for (const [commandEnvironment, valid] of [
++      [undefined, true],
++      ['runtime/environment.cjs', true],
++      ['', false],
++      [null, false],
++      ['/outside.cjs', false],
++      ['C:\\outside.cjs', false],
++      ['callback.js', false],
++      ['a\0.cjs', false],
++    ] as const) {
++      const manifest = commandEnvironment === undefined ? {} : { commandEnvironment };
++      expect(validate(manifest)).toBe(valid);
++      if (valid) expect(() => validateBuildManifest(manifest)).not.toThrow();
++      else expect(() => validateBuildManifest(manifest)).toThrow('commandEnvironment');
++    }
++  });
++
    it('requires schema command arguments to contain a non-whitespace character', () => {
      const schema = JSON.parse(
        fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
 diff --git a/app/electron/plugin-management.test.ts b/app/electron/plugin-management.test.ts
-index 0c235601c..85f49250d 100644
+index 0c235601cc97ce5970fddb96fbc2371d5b28ca3f..85f49250db8ff26a0b3c1efd198ddf7435ded48c 100644
 --- a/app/electron/plugin-management.test.ts
 +++ b/app/electron/plugin-management.test.ts
 @@ -33,6 +33,7 @@ import {
@@ -78,7 +100,7 @@ index 0c235601c..85f49250d 100644
    it('defers installation-only dependencies', async () => {
      const tarFactory = vi.fn(() => ({}));
 diff --git a/app/electron/preload.test.ts b/app/electron/preload.test.ts
-index b78577b36..d967e12cf 100644
+index b78577b36913aea2d6302310f5a4b95123da1031..d967e12cf9e2f0c12498a8510a98ba2b42372399 100644
 --- a/app/electron/preload.test.ts
 +++ b/app/electron/preload.test.ts
 @@ -59,6 +59,23 @@ describe('desktop preload API', () => {
@@ -1174,7 +1196,7 @@ index 0000000000000000000000000000000000000000..06498ae7c4c3a59905895099f9c718a9
 +});
 diff --git a/app/electron/quitCleanup.test.ts b/app/electron/quitCleanup.test.ts
 new file mode 100644
-index 000000000..428fb425e
+index 0000000000000000000000000000000000000000..428fb425e897c3d98f34c96b92eb2145fb71d59a
 --- /dev/null
 +++ b/app/electron/quitCleanup.test.ts
 @@ -0,0 +1,77 @@
@@ -1256,10 +1278,18 @@ index 000000000..428fb425e
 +  }
 +});
 diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
-index fd313b5ba..ca6f05831 100644
+index fd313b5bafc57b7c50de4aecb790204bd4d136e5..e9dff112f34456ebdcc45a6e968b9b43d3b456aa 100644
 --- a/app/electron/runCmd.test.ts
 +++ b/app/electron/runCmd.test.ts
-@@ -597,6 +597,25 @@ describe('validateCommandData', () => {
+@@ -85,6 +85,7 @@ vi.mock('./main', () => ({
+ 
+ import {
+   addRunCmdConsent,
++  applyCommandEnvironment,
+   checkPermissionSecret,
+   createProductCommandCapabilities,
+   environmentOverrides,
+@@ -597,6 +598,25 @@ describe('validateCommandData', () => {
      ).toBe(false);
    });
  
@@ -1285,7 +1315,7 @@ index fd313b5ba..ca6f05831 100644
    it('returns false if permissionSecrets is not an object', () => {
      expect(
        validateCommandData({
-@@ -769,6 +788,40 @@ describe('handleRunCommand', () => {
+@@ -769,6 +789,40 @@ describe('handleRunCommand', () => {
      consoleError.mockRestore();
    });
  
@@ -1326,7 +1356,35 @@ index fd313b5ba..ca6f05831 100644
    it('reports exit only after stdout and stderr close', async () => {
      const eventData = {
        id: 'test-id',
-@@ -1800,19 +1853,17 @@ describe('addRunCmdConsent', () => {
+@@ -869,9 +923,8 @@ describe('handleRunCommand', () => {
+     consoleError.mockRestore();
+   });
+ 
+-  it('falls back to process.env when shell environment resolution fails', async () => {
+-    getShellEnvironmentMock.mockRejectedValue(new Error('shell unavailable'));
+-    vi.stubEnv('HEADLAMP_TEST_ENV', 'current');
++  it('rejects commands when the app-owned command environment is unavailable', async () => {
++    getShellEnvironmentMock.mockRejectedValue(new Error('App-owned command environment failed'));
+     const eventData = {
+       id: 'test-id',
+       command: 'gh',
+@@ -883,13 +936,8 @@ describe('handleRunCommand', () => {
+     await expect(
+       handleRunCommand(fakeEvent, eventData, { id: 1 } as any, { 'runCmd-gh': 99 })
+     ).resolves.toBeUndefined();
+-    expect(spawnMock).toHaveBeenCalledWith(
+-      'gh',
+-      ['auth', 'token'],
+-      expect.objectContaining({
+-        env: expect.objectContaining({ HEADLAMP_TEST_ENV: 'current' }),
+-      })
+-    );
++    expect(spawnMock).not.toHaveBeenCalled();
++    expect(sentMessages).toContainEqual(['command-exit', 'test-id', -1]);
+   });
+ 
+   it('runs plugin scripts with the Electron executable', async () => {
+@@ -1800,19 +1848,17 @@ describe('addRunCmdConsent', () => {
      }
    });
  
@@ -1349,7 +1407,7 @@ index fd313b5ba..ca6f05831 100644
        })
      );
    });
-@@ -1941,9 +1992,14 @@ describe('setupRunCmdHandlers', () => {
+@@ -1941,9 +1987,14 @@ describe('setupRunCmdHandlers', () => {
        on: vi.fn((channel: string, handler: (...args: any[]) => void) => {
          ipcHandlers.set(channel, handler);
        }),
@@ -1366,7 +1424,7 @@ index fd313b5ba..ca6f05831 100644
      } as any;
  
      setupRunCmdHandlers(mainWindow, ipcMain, [], 'https://headlamp.test/');
-@@ -1960,6 +2016,9 @@ describe('setupRunCmdHandlers', () => {
+@@ -1960,6 +2011,9 @@ describe('setupRunCmdHandlers', () => {
  
      expect(send).toHaveBeenCalledTimes(2);
      expect(ipcHandlers.has('run-command')).toBe(true);
@@ -1376,6 +1434,72 @@ index fd313b5ba..ca6f05831 100644
      expect(ipcMain.handle).toHaveBeenCalledWith(
        'register-plugin-command-capabilities',
        expect.any(Function)
+@@ -2202,6 +2256,65 @@ describe('setupRunCmdHandlers', () => {
+   });
+ });
+ 
++describe('app-owned command environment', () => {
++  it('uses a resource callback after shell setup without mutating its input', () => {
++    const directory = fs.realpathSync(
++      fs.mkdtempSync(path.join(os.tmpdir(), 'command environment-'))
++    );
++    try {
++      fs.writeFileSync(
++        path.join(directory, 'environment.cjs'),
++        'exports.configureEnvironment = (env, manifest, root) => { env.PATH = root + ":" + env.PATH; return env; };'
++      );
++      const environment = { PATH: '/shell', HOME: '/home' };
++      expect(
++        applyCommandEnvironment(environment, { commandEnvironment: 'environment.cjs' }, directory)
++      ).toEqual({ PATH: `${directory}:/shell`, HOME: '/home' });
++      expect(environment.PATH).toBe('/shell');
++      expect(applyCommandEnvironment(environment, {}, '/absent')).toEqual(environment);
++      for (const modulePath of [
++        '../outside.cjs',
++        '/tmp/outside.cjs',
++        'C:\\outside.cjs',
++        'file.js',
++      ]) {
++        expect(() =>
++          applyCommandEnvironment(environment, { commandEnvironment: modulePath }, directory)
++        ).toThrow();
++      }
++      fs.mkdirSync(path.join(directory, '.plugins'));
++      fs.copyFileSync(
++        path.join(directory, 'environment.cjs'),
++        path.join(directory, '.plugins', 'plugin.cjs')
++      );
++      expect(() =>
++        applyCommandEnvironment(
++          environment,
++          { commandEnvironment: '.plugins/plugin.cjs' },
++          directory
++        )
++      ).toThrow('app-owned resource');
++      for (const [index, source] of [
++        'exports.configureEnvironment = () => { throw new Error("unavailable"); };',
++        'exports.configureEnvironment = () => ({ PATH: 1 });',
++        'exports.configureEnvironment = async () => ({});',
++        'module.exports = {};',
++      ].entries()) {
++        fs.writeFileSync(path.join(directory, `invalid-${index}.cjs`), source);
++        expect(() =>
++          applyCommandEnvironment(
++            environment,
++            { commandEnvironment: `invalid-${index}.cjs` },
++            directory
++          )
++        ).toThrow();
++      }
++    } finally {
++      fs.rmSync(directory, { recursive: true, force: true });
++    }
++  });
++});
++
+ describe('command consent', () => {
+   const fakeMainWindow = { id: 1 } as any;
+   const permissionSecrets = { 'runCmd-gh': 99 };
 
 From 64b0d687e0a63aac89252f5d5483e8bb016f50cf Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
@@ -1593,6 +1717,7 @@ index 000000000..0c85fdf18
 +  });
 +});
 
+
 From 19534297ab7263f251e0aca803035850ef182e2c Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 14:03:45 +0530
@@ -1608,21 +1733,23 @@ readiness, replace recreated handlers, drain streams, and clean up on quit.
 Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 ---
  app/app-build-manifest.json         |  12 -
- app/electron/main.ts                |  47 +-
+ app/app-build-manifest.schema.json  |   5 +
+ app/electron/main.ts                |  57 +--
  app/electron/plugin-management.ts   |  13 +-
  app/electron/preload.ts             |   7 +
- app/electron/proxies.ts             | 694 ++++++++++++++++++++++++++++
- app/electron/quitCleanup.ts         |  70 +++
- app/electron/runCmd.ts              |  30 +-
- frontend/src/plugin/clusterProxy.ts |  91 ++++
+ app/electron/proxies.ts             | 694 ++++++++++++++++++++++++++++++++++++
+ app/electron/quitCleanup.ts         |  70 ++++
+ app/electron/runCmd.ts              |  86 +++-
+ app/scripts/build-manifest.ts       |  14 +
+ frontend/src/plugin/clusterProxy.ts |  91 +++++
  frontend/src/plugin/index.ts        |  27 +-
- 9 files changed, 941 insertions(+), 50 deletions(-)
+ 11 files changed, 1024 insertions(+), 52 deletions(-)
  create mode 100644 app/electron/proxies.ts
  create mode 100644 app/electron/quitCleanup.ts
  create mode 100644 frontend/src/plugin/clusterProxy.ts
 
 diff --git a/app/app-build-manifest.json b/app/app-build-manifest.json
-index f08c19eb4..1ef923d8d 100644
+index f08c19eb4af4e87cda5f0439d7903772c0da3dfa..1ef923d8d2de2e25547d2dcfcee05d2b44bacdc3 100644
 --- a/app/app-build-manifest.json
 +++ b/app/app-build-manifest.json
 @@ -255,18 +255,6 @@
@@ -1644,11 +1771,27 @@ index f08c19eb4..1ef923d8d 100644
      }
    ],
    "legalDocuments": [
+diff --git a/app/app-build-manifest.schema.json b/app/app-build-manifest.schema.json
+index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..84c16af3657131f25e2145b364011db84348dd4a 100644
+--- a/app/app-build-manifest.schema.json
++++ b/app/app-build-manifest.schema.json
+@@ -26,6 +26,11 @@
+       "description": "Plugins downloaded and bundled into the desktop package.",
+       "items": { "$ref": "#/definitions/plugin" }
+     },
++    "commandEnvironment": {
++      "type": "string",
++      "description": "Optional app-owned CommonJS resource exporting configureEnvironment(environment, manifest, resourcesDirectory). Called after login-shell setup for commands and managed proxies. This is trusted application code, not a plugin entry point. The module must stay within resources and outside .plugins.",
++      "pattern": "^(?![A-Za-z]:)(?![/\\\\])[^\\u0000]+\\.cjs$"
++    },
+     "commandSets": {
+       "type": "object",
+       "description": "Reusable named command grant arrays. A runCommands policy composes one or more with commandSets instead of repeating commands.",
 diff --git a/app/electron/main.ts b/app/electron/main.ts
-index 261e750f0..e002c33e2 100644
+index f1a61e976f05ee502ecb42eb140be1c58871bbb7..0675a46bebd5f587fd89ccb7c9bdc1b4d9e0afb4 100644
 --- a/app/electron/main.ts
 +++ b/app/electron/main.ts
-@@ -72,6 +72,8 @@ import {
+@@ -68,8 +68,11 @@ import {
  } from './plugin-management';
  import { readProtocolScheme } from './protocol';
  import { createProtocolHandler } from './protocolHandler';
@@ -1656,8 +1799,27 @@ index 261e750f0..e002c33e2 100644
 +import { createBeforeQuitHandler } from './quitCleanup';
  import {
    addRunCmdConsent,
++  applyCommandEnvironment,
    environmentOverrides,
-@@ -1938,13 +1940,13 @@ function startElectron() {
+   removeRunCmdConsent,
+   runScript,
+@@ -703,7 +706,14 @@ export async function getShellEnvironment(): Promise<NodeJS.ProcessEnv> {
+         return {};
+       });
+   }
+-  return { ...process.env, ...(await shellEnvironmentPromise) };
++  const resourcesDirectory = isDev
++    ? path.resolve(__dirname, '../resources')
++    : process.resourcesPath;
++  return applyCommandEnvironment(
++    { ...process.env, ...(await shellEnvironmentPromise) },
++    loadBuildManifest(appBuildManifestPath),
++    resourcesDirectory
++  );
+ }
+ 
+ /**
+@@ -1840,13 +1850,13 @@ function startElectron() {
  
      // Also add bundled plugin bin directories to PATH
      const bundledPlugins = path.join(process.resourcesPath, '.plugins');
@@ -1673,7 +1835,7 @@ index 261e750f0..e002c33e2 100644
      if (userPluginBinDirs.length > 0) {
        addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
      }
-@@ -2034,26 +2036,31 @@ function startElectron() {
+@@ -1935,26 +1945,31 @@ function startElectron() {
      }
    });
  
@@ -1724,7 +1886,7 @@ index 261e750f0..e002c33e2 100644
  
  if (!isRunningScript) {
 diff --git a/app/electron/plugin-management.ts b/app/electron/plugin-management.ts
-index 663f90b32..509765943 100644
+index 663f90b32f4c1fc6b262d2de704532f039140c38..509765943583971b1ae384e2d75b75366d3c607e 100644
 --- a/app/electron/plugin-management.ts
 +++ b/app/electron/plugin-management.ts
 @@ -850,7 +850,7 @@ export class PluginManager {
@@ -1776,7 +1938,7 @@ index 663f90b32..509765943 100644
        }
  
 diff --git a/app/electron/preload.ts b/app/electron/preload.ts
-index aefdd21cb..33a63e19e 100644
+index b6eebc2366e7581f13089821e687cdcfe2c93cfd..c9db07662f9b6c2624224b6c33292cf57adcdcc6 100644
 --- a/app/electron/preload.ts
 +++ b/app/electron/preload.ts
 @@ -16,6 +16,7 @@
@@ -2502,7 +2664,7 @@ index 0000000000000000000000000000000000000000..32addd4e234419016390979dae822de4
 +}
 diff --git a/app/electron/quitCleanup.ts b/app/electron/quitCleanup.ts
 new file mode 100644
-index 000000000..170a7cf7f
+index 0000000000000000000000000000000000000000..170a7cf7f7736117f3c2a29133086e55b864cfdc
 --- /dev/null
 +++ b/app/electron/quitCleanup.ts
 @@ -0,0 +1,70 @@
@@ -2577,7 +2739,7 @@ index 000000000..170a7cf7f
 +  };
 +}
 diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
-index 0d6d46e1a..e61a43725 100644
+index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..62d38a9bbbf5de67baa2eb48f7ed01dd51386ba9 100644
 --- a/app/electron/runCmd.ts
 +++ b/app/electron/runCmd.ts
 @@ -32,6 +32,7 @@ import {
@@ -2588,7 +2750,68 @@ index 0d6d46e1a..e61a43725 100644
  import { isRunCommandAllowed, RunCommandGrant } from './runCommandPolicy';
  import { isTrustedDocumentUrl } from './secureStorage';
  import { loadSettings, saveSettings, SETTINGS_PATH } from './settings';
-@@ -543,12 +544,10 @@ const COMMANDS_WITH_CONSENT = {
+@@ -300,6 +301,60 @@ export async function verifyPluginCommandPolicies(
+   return verifiedPolicies;
+ }
+ 
++/**
++ * Applies an optional app-owned environment callback, never a renderer/plugin supplied module.
++ *
++ * @param environment - Merged process and login-shell environment; the callback receives a copy.
++ * @param manifest - Trusted application build manifest selecting the optional commandEnvironment module.
++ * @param resourcesDirectory - App resources root used to resolve and confine the callback module.
++ * @returns A copy of the callback's environment, or a copy of the input when no module is configured.
++ * @throws When the module is invalid or outside app-owned resources, the callback throws, or its
++ * return value is not a synchronous environment object.
++ */
++export function applyCommandEnvironment(
++  environment: NodeJS.ProcessEnv,
++  manifest: Record<string, unknown>,
++  resourcesDirectory: string
++): NodeJS.ProcessEnv {
++  const modulePath = manifest.commandEnvironment;
++  if (modulePath === undefined) return { ...environment };
++  if (
++    typeof modulePath !== 'string' ||
++    !modulePath.endsWith('.cjs') ||
++    modulePath.includes('\0') ||
++    path.posix.isAbsolute(modulePath) ||
++    path.win32.isAbsolute(modulePath)
++  ) {
++    throw new Error('commandEnvironment must reference a resource-relative CommonJS module');
++  }
++  const root = fs.realpathSync(resourcesDirectory);
++  const candidate = path.resolve(root, modulePath);
++  if (!isPathWithin(root, candidate)) throw new Error('commandEnvironment escapes resources');
++  const canonical = fs.realpathSync(candidate);
++  if (
++    !isPathWithin(root, canonical) ||
++    !fs.statSync(canonical).isFile() ||
++    isPathWithin(path.join(root, '.plugins'), canonical)
++  ) {
++    throw new Error('commandEnvironment must be an app-owned resource');
++  }
++  const { configureEnvironment } = require(canonical);
++  if (typeof configureEnvironment !== 'function') {
++    throw new Error('commandEnvironment must export configureEnvironment');
++  }
++  const result = configureEnvironment({ ...environment }, manifest, root);
++  if (
++    !result ||
++    typeof result !== 'object' ||
++    Array.isArray(result) ||
++    typeof result.then === 'function' ||
++    Object.values(result).some(value => value !== undefined && typeof value !== 'string')
++  ) {
++    throw new Error('commandEnvironment must return an environment object synchronously');
++  }
++  return { ...result };
++}
++
+ /** Returns only values changed by shell initialization. */
+ export function environmentOverrides(
+   environment: NodeJS.ProcessEnv,
+@@ -543,12 +598,10 @@ const COMMANDS_WITH_CONSENT = {
      'scriptjs minikube/manage-minikube.js',
    ],
    headlamp_ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
@@ -2601,7 +2824,7 @@ index 0d6d46e1a..e61a43725 100644
  const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
    ['development\0@headlamp-k8s/minikube\0minikube', LEGACY_MINIKUBE_COMMANDS],
    ['development\0@headlamp-k8s/minikube\0headlamp_minikube', LEGACY_MINIKUBE_COMMANDS],
-@@ -571,7 +570,6 @@ const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
+@@ -571,7 +624,6 @@ const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
      'development\0@headlamp-k8s/ai-assistantprerelease\0headlamp_ai_assistantprerelease',
      LEGACY_AI_ASSISTANT_COMMANDS,
    ],
@@ -2609,7 +2832,7 @@ index 0d6d46e1a..e61a43725 100644
  ]);
  
  /**
-@@ -610,10 +608,6 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
+@@ -610,10 +662,6 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
      commands = COMMANDS_WITH_CONSENT.headlamp_ai_assistant;
    }
  
@@ -2620,7 +2843,21 @@ index 0d6d46e1a..e61a43725 100644
    for (const command of commands) {
      if (!settings.confirmedCommands[command]) {
        settings.confirmedCommands[command] = true;
-@@ -1081,7 +1075,7 @@ export async function handleRunCommand(
+@@ -939,7 +987,12 @@ export async function handleRunCommand(
+     const { getShellEnvironment } = await import('./main');
+     shellEnvironment = await getShellEnvironment();
+   } catch (error) {
+-    console.warn('Failed to get shell environment, using process.env:', error);
++    console.error(
++      'Command environment unavailable',
++      commandFailureContext(spawnFailureReason(error))
++    );
++    sendRejectedExit(-1);
++    return;
+   }
+ 
+   // Get the command and args to run. With the correct paths for "scriptjs" commands.
+@@ -1081,7 +1134,7 @@ export async function handleRunCommand(
        ...commandData.options,
        shell: false,
        env: {
@@ -2629,7 +2866,7 @@ index 0d6d46e1a..e61a43725 100644
            ? systemCommandEnvironment(shellEnvironment, pluginRoots)
            : shellEnvironment),
          ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
-@@ -1169,6 +1163,11 @@ function cryptoRandom() {
+@@ -1169,6 +1222,11 @@ function cryptoRandom() {
    return array[0] / (0xffffffff + 1);
  }
  
@@ -2641,7 +2878,7 @@ index 0d6d46e1a..e61a43725 100644
  /**
   * Sets up the IPC handlers for running commands.
   * Called in the main process to handle 'run-command' events.
-@@ -1218,8 +1217,9 @@ export function setupRunCmdHandlers(
+@@ -1218,8 +1276,9 @@ export function setupRunCmdHandlers(
      'runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js': cryptoRandom(),
      'runCmd-gh': cryptoRandom(),
      'runCmd-az': cryptoRandom(),
@@ -2652,7 +2889,7 @@ index 0d6d46e1a..e61a43725 100644
  
    const requestPermissionSecrets = () => {
      if (!pluginPermissionSecretsSent) {
-@@ -1279,13 +1279,23 @@ export function setupRunCmdHandlers(
+@@ -1279,13 +1338,18 @@ export function setupRunCmdHandlers(
        event,
        eventData,
        mainWindow,
@@ -2666,20 +2903,47 @@ index 0d6d46e1a..e61a43725 100644
    runCmdIpcListeners.set(ipcMain, { requestPermissionSecrets, revokeCapabilities, runCommand });
 +
 +  setupProxyHandlers(mainWindow, ipcMain, startClusterProxy, async () => {
-+    try {
-+      const { getShellEnvironment } = await import('./main');
-+      return await getShellEnvironment();
-+    } catch (error) {
-+      console.warn('Failed to get shell environment, using process.env:', error);
-+      return process.env;
-+    }
++    const { getShellEnvironment } = await import('./main');
++    return getShellEnvironment();
 +  });
  }
  
  /** Revokes every command capability issued by handlers registered on this IPC instance. */
+diff --git a/app/scripts/build-manifest.ts b/app/scripts/build-manifest.ts
+index 4e9e40f6c791a92cb9679b0abf4550c2d5e1c020..9d9fbf9a03c82af06919cd749386894cc1f51e62 100644
+--- a/app/scripts/build-manifest.ts
++++ b/app/scripts/build-manifest.ts
+@@ -30,6 +30,8 @@ type ManifestEnvironment = {
+ };
+ 
+ export type BuildManifest = {
++  /** Trusted app-owned CommonJS resource that configures the command environment. */
++  commandEnvironment?: string;
+   /** URL glob patterns the packaged backend may proxy. */
+   'proxy-urls'?: string[];
+ 
+@@ -342,6 +344,18 @@ export function validateBuildManifest(value: unknown): BuildManifest {
+   }
+ 
+   const manifest = value as BuildManifest;
++  if (
++    manifest.commandEnvironment !== undefined &&
++    (typeof manifest.commandEnvironment !== 'string' ||
++      !manifest.commandEnvironment.endsWith('.cjs') ||
++      manifest.commandEnvironment.includes('\0') ||
++      path.posix.isAbsolute(manifest.commandEnvironment) ||
++      path.win32.isAbsolute(manifest.commandEnvironment))
++  ) {
++    throw new Error(
++      'Build manifest commandEnvironment must reference a resource-relative CommonJS module'
++    );
++  }
+   const proxyUrls = manifest['proxy-urls'];
+   if (proxyUrls !== undefined) {
+     if (!Array.isArray(proxyUrls) || proxyUrls.some(pattern => typeof pattern !== 'string')) {
 diff --git a/frontend/src/plugin/clusterProxy.ts b/frontend/src/plugin/clusterProxy.ts
 new file mode 100644
-index 000000000..9bc24088f
+index 0000000000000000000000000000000000000000..9bc24088f31eefe465154de87ba6c9396a9c924c
 --- /dev/null
 +++ b/frontend/src/plugin/clusterProxy.ts
 @@ -0,0 +1,91 @@
@@ -2775,7 +3039,7 @@ index 000000000..9bc24088f
 +  return [['startClusterProxy'], [startClusterProxy]];
 +}
 diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
-index 4b6058651..d4345e718 100644
+index 4b60586511c1f17343ec7c4666f67ac4e18573fe..d4345e7181d9a4ce82afe7dda3a94d7ed0b67333 100644
 --- a/frontend/src/plugin/index.ts
 +++ b/frontend/src/plugin/index.ts
 @@ -53,6 +53,7 @@ import * as Utils from '../lib/util';
@@ -4084,6 +4348,7 @@ index 5b8b25aa9..3784d2a4b 100644
 +    }
 +  });
  });
+
 
 From 98199204e48faf12f603f7d1cf00ec57d7e14968 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
@@ -5580,6 +5845,7 @@ index 20333b976..6a864f5d3 100644
    DefaultSidebars,
    HeadlampEvent,
 
+
 From dd7ea3c3afa70a4b0c140057ca9feaa4b63d9e02 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 13:58:34 +0530
@@ -6172,6 +6438,7 @@ index 5e82427f7..930e224b3 100644
    "Error": "错误",
    "Okay": "好的",
 
+
 From 9a4a70e8bea4effe72afa6c9b6655aa61750ca6f Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:45:44 +0200
@@ -6237,6 +6504,7 @@ index 746f7d2b7..a49a4ad21 100644
  
    it('updates the config before notifying the page after deleting a cluster', async () => {
 
+
 From 1446d354d2e1c20396e74faebe7e75f045017185 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 14:04:30 +0530
@@ -6293,6 +6561,7 @@ index 3e4942e0f..f8bd763a3 100644
          {menuItems.map((Item, index) => {
            return (
              <Item
+
 
 From e85812159dda5d4369e617ba2974335824ea3a4d Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
@@ -6545,6 +6814,7 @@ index 000000000..b36e9bfbe
 +</body>
 \ No newline at end of file
 
+
 From bb489343224080e06531d632859f813558d9c61d Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:46:21 +0200
@@ -6554,15 +6824,16 @@ Publish the interface, hook, and registration API in the committed TypeDoc
 
 layout and link the functionality guide to that reference.
 ---
- .../plugin_registry.ClusterPreOpenContext.md  | 74 +++++++++++++++++++
- .../api/modules/plugin_registry.md            | 69 +++++++++++++++++
- .../plugins/functionality/index.md            | 16 ++++
- 3 files changed, 159 insertions(+)
+ .../plugin_registry.ClusterPreOpenContext.md       | 74 ++++++++++++++++++++++
+ docs/development/api/modules/plugin_registry.md    | 69 ++++++++++++++++++++
+ docs/development/app.md                            | 15 +++++
+ docs/development/plugins/functionality/index.md    | 16 +++++
+ 4 files changed, 174 insertions(+)
  create mode 100644 docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 
 diff --git a/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md b/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 new file mode 100644
-index 000000000..7860e0a28
+index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b065f6620f
 --- /dev/null
 +++ b/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 @@ -0,0 +1,74 @@
@@ -6641,7 +6912,7 @@ index 000000000..7860e0a28
 +
 +[redux/clusterProviderSlice.ts:70](https://github.com/kubernetes-sigs/headlamp/blob/1079044ed/frontend/src/redux/clusterProviderSlice.ts#L70)
 diff --git a/docs/development/api/modules/plugin_registry.md b/docs/development/api/modules/plugin_registry.md
-index 6fec43fd4..47366b429 100644
+index 6fec43fd49dc7de94ec5091c780f19b50bf81e1b..47366b42925d015b57f529b7557c8b8f5b457564 100644
 --- a/docs/development/api/modules/plugin_registry.md
 +++ b/docs/development/api/modules/plugin_registry.md
 @@ -18,6 +18,7 @@
@@ -6734,8 +7005,34 @@ index 6fec43fd4..47366b429 100644
  ### registerCustomCreateProject
  
  ▸ **registerCustomCreateProject**(`customCreateProject`): `void`
+diff --git a/docs/development/app.md b/docs/development/app.md
+index e8dce28b8f3cd77de057fee958921830325dec40..c19699db9682ea3b1ef0f06c38b0e7298c7223c1 100644
+--- a/docs/development/app.md
++++ b/docs/development/app.md
+@@ -245,6 +245,21 @@ The optional `platforms` array accepts `linux`, `mac`, and `win`. An entry witho
+ is missing, escapes the resources directory, is a directory or symbolic link,
+ or does not match its declared digest.
+ 
++#### Command environment callback
++
++A custom application can set `commandEnvironment` to the resource-relative path
++of a CommonJS module, for example `runtime/environment.cjs`. The module exports
++`configureEnvironment(environment, manifest, resourcesDirectory)` and returns an
++environment object synchronously. Headlamp calls it after login-shell setup for
++plugin commands and managed proxies. Without it, environment behavior is unchanged.
++
++This is trusted application code, not a plugin API. The module must remain within
++app resources and outside `.plugins`; development builds load it from `app/resources`.
++The product must package the module using `resources`. Callback errors prevent
++command execution instead of silently reverting to a different environment.
++Existing command authorization, consent, and plugin PATH filtering still apply.
++Products own any tool selection or verification policy implemented by the callback.
++
+ ## Development workflow
+ 
+ The typical development workflow for the desktop app:
 diff --git a/docs/development/plugins/functionality/index.md b/docs/development/plugins/functionality/index.md
-index a9f9ce750..33f736573 100644
+index a9f9ce75021825b683f7a7e7dc9751b7af322c2e..33f73657373aeab8e6165868ac76a497394187ba 100644
 --- a/docs/development/plugins/functionality/index.md
 +++ b/docs/development/plugins/functionality/index.md
 @@ -186,6 +186,22 @@ be shared with workloads or other cluster users.

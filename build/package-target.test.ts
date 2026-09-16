@@ -2,10 +2,56 @@
 // Licensed under the Apache 2.0.
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
+
+const { withAksToolPaths, stageAksToolEnvironment } = require('./aks-tool-environment.cjs');
+
+for (const platform of ['darwin', 'linux', 'win32']) {
+  test(`stages AKS runtime tooling and prefers verified bundled tools on ${platform}`, context => {
+    const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aks runtime-')));
+    context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    stageAksToolEnvironment(directory);
+    const staged = path.join(directory, 'external-tools', 'aks-tool-environment.cjs');
+    assert.ok(fs.readFileSync(staged).equals(fs.readFileSync(path.join(__dirname, 'aks-tool-environment.cjs'))));
+    const runtime = require(staged);
+    const name = platform === 'win32' ? 'az.cmd' : 'az';
+    fs.writeFileSync(path.join(directory, 'external-tools', name), 'bundled CLI');
+    const entry = { path: `external-tools/${name}`, sha256: createHash('sha256').update('bundled CLI').digest('hex') };
+    const manifest = { 'external-tools': [{ id: 'az', platforms: { [platform]: entry } }] };
+    const key = platform === 'win32' ? 'Path' : 'PATH';
+    const environment = { [key]: '/shell/bin', HOME: '/home' };
+    assert.deepEqual(runtime.withAksToolPaths(environment, manifest, directory, platform), {
+      [key]: `${path.join(directory, 'external-tools')}${platform === 'win32' ? ';' : ':'}/shell/bin`, HOME: '/home',
+    });
+    assert.equal(environment[key], '/shell/bin');
+    fs.writeFileSync(path.join(directory, 'external-tools', name), 'changed');
+    assert.throws(() => runtime.withAksToolPaths(environment, manifest, directory, platform), /integrity mismatch/);
+    entry.path = '../outside';
+    assert.throws(() => runtime.withAksToolPaths(environment, manifest, directory, platform), /escapes resources/);
+    entry.path = 'missing';
+    assert.throws(() => runtime.withAksToolPaths(environment, manifest, directory, platform), /ENOENT/);
+  });
+}
+
+test('AKS runtime accepts confined wrapper links but rejects escaped tools', { skip: process.platform === 'win32' }, context => {
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aks wrapper-')));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const resources = path.join(directory, 'resources');
+  fs.mkdirSync(resources);
+  fs.writeFileSync(path.join(resources, 'wrapper'), 'wrapper');
+  fs.symlinkSync('wrapper', path.join(resources, 'az'));
+  const entry = { path: 'az', sha256: createHash('sha256').update('wrapper').digest('hex') };
+  const manifest = { 'external-tools': [{ id: 'az', platforms: { [process.platform]: entry } }] };
+  assert.equal(withAksToolPaths({ PATH: '/shell' }, manifest, resources).PATH, `${resources}${path.delimiter}/shell`);
+  fs.writeFileSync(path.join(directory, 'outside'), 'wrapper');
+  fs.unlinkSync(path.join(resources, 'az'));
+  fs.symlinkSync('../outside', path.join(resources, 'az'));
+  assert.throws(() => withAksToolPaths({}, manifest, resources), /escapes resources/);
+});
 
 import {
   npmExecutable,

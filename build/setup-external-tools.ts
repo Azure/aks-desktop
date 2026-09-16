@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+const { stageAksToolEnvironment } = require('./aks-tool-environment.cjs');
 import {
   parseTargetArgs,
   removeRetiredAksMcpArtifacts,
@@ -71,6 +72,7 @@ console.log('');
 
 // Create bin directory for external tools scripts
 fs.mkdirSync(EXTERNAL_TOOLS_BIN, { recursive: true });
+stageAksToolEnvironment(path.join(HEADLAMP_APP_DIR, 'resources'));
 
 // Install az-kubelogin.py script
 const KUBELOGIN_SCRIPT = path.join(SCRIPT_DIR, 'az-kubelogin.py');
