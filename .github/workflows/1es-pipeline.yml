@@ -22,14 +22,14 @@ extends:
   parameters:
     pool:
       name: ${{ parameters.poolName }}
-      ${{ if ne(parameters.windowsImage, '') }}:
+      ${{ if ne(parameters.windowsImage, 'default') }}:
         image: ${{ parameters.windowsImage }}
       os: windows
       hostArchitecture: amd64
     sdl:
       sourceAnalysisPool:
         name: ${{ parameters.poolName }}
-        ${{ if ne(parameters.windowsImage, '') }}:
+        ${{ if ne(parameters.windowsImage, 'default') }}:
           image: ${{ parameters.windowsImage }}
         os: windows
         hostArchitecture: amd64
