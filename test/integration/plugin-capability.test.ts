@@ -126,7 +126,7 @@ test('the product grants AI assistant auto-detect commands in every app environm
   }
 });
 
-test('AKS approvals preserve main a6b824650 without expanding authorization', () => {
+test('AKS approvals retain main defaults plus scoped directory reads', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')).headlamp;
   for (const environment of ['development', 'production'] as const) {
     const policy = productPluginCommandPolicies(manifest, environment).find(
@@ -144,6 +144,8 @@ test('AKS approvals preserve main a6b824650 without expanding authorization', ()
       ...prefixes.map(prefix => ({ tool: 'az', args: [prefix], allowTrailingArgs: true })),
       { tool: 'kubectl', args: ['top'], allowTrailingArgs: true },
       { tool: 'kubectl', args: ['config'], allowTrailingArgs: true },
+      { tool: 'az', args: ['ad', 'user', 'list'], allowTrailingArgs: true },
+      { tool: 'az', args: ['ad', 'user', 'show'], allowTrailingArgs: true },
     ]);
     assert.equal(policy.consent, undefined);
     assert.equal(policy.source, environment === 'development' ? 'development' : 'shipped');
@@ -158,5 +160,31 @@ test('AKS approvals preserve main a6b824650 without expanding authorization', ()
     assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', []), true);
     assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', ['unknown']), false);
     assert.equal(isRunCommandAllowed(policy.grants, 'sh', ['-c', 'command']), false);
+  }
+});
+
+test('AKS project user lookup approvals do not approve directory writes or other plugins', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')).headlamp;
+  for (const environment of ['development', 'production'] as const) {
+    const policies = productPluginCommandPolicies(manifest, environment);
+    const policy = policies.find((candidate: { packageName: string }) => candidate.packageName === 'aks-desktop');
+    assert.ok(policy);
+    for (const args of [
+      ['ad', 'user', 'list', '--filter', "startswith(displayName,'Example')", '--output', 'json'],
+      ['ad', 'user', 'show', '--id', 'user@example.com', '--output', 'json'],
+    ]) {
+      assert.equal(isRunCommandAllowed(policy.grants, 'az', args), true);
+      assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', args), true);
+      for (const other of policies.filter((candidate: { packageName: string }) => candidate.packageName !== 'aks-desktop')) {
+        assert.equal(isRunCommandAllowed(other.approvedCommands ?? [], 'az', args), false);
+      }
+    }
+    for (const args of [
+      ['ad'], ['ad', 'user'], ['ad', 'user', 'delete', '--id', 'user@example.com'],
+      ['ad', 'user', 'update', '--id', 'user@example.com'], ['ad', 'user', 'create'],
+      ['ad', 'app', 'create'], ['ad', 'group', 'delete'], ['ad', 'user', 'list-extra'],
+    ]) {
+      assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', args), false);
+    }
   }
 });

@@ -391,6 +391,24 @@
               "config"
             ],
             "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad",
+              "user",
+              "list"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad",
+              "user",
+              "show"
+            ],
+            "allowTrailingArgs": true
           }
         ],
         "plugins": [
@@ -756,6 +774,24 @@
             "tool": "kubectl",
             "args": [
               "config"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad",
+              "user",
+              "list"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad",
+              "user",
+              "show"
             ],
             "allowTrailingArgs": true
           }
