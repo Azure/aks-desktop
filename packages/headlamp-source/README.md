@@ -115,7 +115,7 @@ consumer-only `build` field.
 | `build.manifest` | Yes | Path to the generated product manifest, relative to the materialized Headlamp app directory. The path must remain inside that directory. |
 | `build.productNames` | No | Product display-name overrides keyed by `linux`, `mac`, or `win`. The selected name replaces `product.productName`; the package identifier and release version remain unchanged. |
 | `build.icons` | No | Product-owned packaging icons keyed by `linux`, `mac`, or `win`. Each path is relative to the consumer repository root. The active platform's file must exist; manifest generation resolves it for Electron Builder. The macOS icon also supplies the default DMG volume icon. |
-| `build.frontendEnvironment` | No | Public `REACT_APP_*` string values written to the materialized frontend's `.env.local` before development or packaging builds. Never place secrets in this object. |
+| `build.frontendEnvironment` | No | Public `REACT_APP_*` values written by the consumer's frontend-environment build step to `.env.local` before development or packaging. Values are strings, or `{ "file": "project-relative.svg" }` references to PNG/SVG assets embedded as data URLs. This supplies error-page graphics without runtime asset-path dependencies. Never place secrets in this object. |
 | `build.resources` | Yes | Resources copied into the application. Each entry has `base`, `from`, and `to`. |
 | `build.resources[].base` | Yes | `headlampApp` resolves `from` from the Headlamp app directory; `project` resolves it from the consumer repository root. |
 | `build.resources[].from` | Yes | Source path beneath the selected base directory. |

@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
+import { parseEnv } from 'node:util';
 
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const PACKAGE_DIR = path.join(ROOT_DIR, 'packages', 'headlamp-source');
@@ -539,6 +540,32 @@ for (const [platform, platformKey] of [
     }
   });
 }
+
+test('error and not-found graphics use the product-owned artwork', context => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'aks error graphics-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const { generateFrontendEnvironment } = require(path.join(ROOT_DIR, 'build', 'generate-frontend-environment.ts'));
+  const { sourceDir } = require(path.join(PACKAGE_DIR, 'src', 'lib', 'paths.ts')).resolveInstalledHeadlampPaths(directory);
+  fs.mkdirSync(path.join(sourceDir, 'frontend'), { recursive: true });
+  fs.mkdirSync(path.join(directory, 'build', 'icons'), { recursive: true });
+  fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify(rootManifest));
+  const graphics = [
+    ['ERROR', 'aks-desktop-error.svg'],
+    ['NOT_FOUND', 'aks-desktop-not-found.svg'],
+  ];
+  for (const [, graphic] of graphics) {
+    fs.copyFileSync(path.join(ROOT_DIR, 'build', 'icons', graphic), path.join(directory, 'build', 'icons', graphic));
+  }
+  const environment = parseEnv(fs.readFileSync(generateFrontendEnvironment(directory), 'utf8'));
+  for (const [page, graphic] of graphics) {
+    const key = `REACT_APP_HEADLAMP_${page}_PAGE_GRAPHIC`;
+    const asset = fs.readFileSync(path.join(ROOT_DIR, 'build', 'icons', graphic));
+    assert.deepEqual(rootManifest.headlamp.build.frontendEnvironment[key], { file: `build/icons/${graphic}` });
+    assert.equal(environment[key], `data:image/svg+xml;base64,${asset.toString('base64')}`);
+    assert.match(environment[`REACT_APP_HEADLAMP_${page}_PAGE_TITLE`] ?? '', /AKS Desktop/);
+  }
+  assert.notEqual(environment.REACT_APP_HEADLAMP_ERROR_PAGE_GRAPHIC, environment.REACT_APP_HEADLAMP_NOT_FOUND_PAGE_GRAPHIC);
+});
 
 test('product packaging declares valid AKS icons for every desktop platform', () => {
   const icons = rootManifest.headlamp.build.icons;

@@ -171,7 +171,13 @@
       },
       "frontendEnvironment": {
         "REACT_APP_HEADLAMP_ERROR_PAGE_TITLE": "AKS Desktop encountered an error",
-        "REACT_APP_HEADLAMP_NOT_FOUND_PAGE_TITLE": "Page not found in AKS Desktop"
+        "REACT_APP_HEADLAMP_ERROR_PAGE_GRAPHIC": {
+          "file": "build/icons/aks-desktop-error.svg"
+        },
+        "REACT_APP_HEADLAMP_NOT_FOUND_PAGE_TITLE": "Page not found in AKS Desktop",
+        "REACT_APP_HEADLAMP_NOT_FOUND_PAGE_GRAPHIC": {
+          "file": "build/icons/aks-desktop-not-found.svg"
+        }
       },
       "resources": [
         {

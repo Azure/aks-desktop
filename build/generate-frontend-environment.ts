@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const { resolveInstalledHeadlampPaths } = require(
+const { resolveInstalledHeadlampPaths, resolveWithin } = require(
   '../packages/headlamp-source/src/lib/paths.ts'
 );
 
@@ -46,9 +46,23 @@ export function generateFrontendEnvironment(rootDir = ROOT_DIR): string {
     throw new Error('package.json must declare headlamp.build.frontendEnvironment');
   }
 
+  const values = Object.fromEntries(Object.entries(environment).map(([key, value]) => {
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const asset = value as { file?: unknown };
+      const extension = typeof asset.file === 'string' ? path.extname(asset.file).toLowerCase() : '';
+      const mediaType = extension === '.png' ? 'image/png' : extension === '.svg' ? 'image/svg+xml' : undefined;
+      if (Object.keys(asset).length !== 1 || typeof asset.file !== 'string' || !mediaType) {
+        throw new Error(`Frontend environment asset must specify a PNG or SVG file: ${key}`);
+      }
+      const file = resolveWithin(rootDir, asset.file, 'Frontend environment asset');
+      return [key, `data:${mediaType};base64,${fs.readFileSync(file).toString('base64')}`];
+    }
+    return [key, value];
+  }));
+
   const { sourceDir } = resolveInstalledHeadlampPaths(rootDir);
   const outputPath = path.join(sourceDir, 'frontend', OUTPUT_FILE);
-  fs.writeFileSync(outputPath, serializeFrontendEnvironment(environment));
+  fs.writeFileSync(outputPath, serializeFrontendEnvironment(values));
   return outputPath;
 }
 
