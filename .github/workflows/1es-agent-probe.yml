@@ -1,0 +1,51 @@
+# Temporary provisioning probe: no application build, signing, or publishing.
+trigger: none
+
+parameters:
+  - name: poolName
+    type: string
+    default: staging-pool-amd64-mariner-2
+  - name: windowsImage
+    type: string
+    default: azcu-agent-amd64-windows-25-mms-img
+
+resources:
+  repositories:
+    - repository: 1esPipelines
+      type: git
+      name: 1ESPipelineTemplates/1ESPipelineTemplates
+      ref: refs/tags/release
+
+extends:
+  template: v1/1ES.Unofficial.PipelineTemplate.yml@1esPipelines
+  parameters:
+    pool:
+      name: ${{ parameters.poolName }}
+      image: ${{ parameters.windowsImage }}
+      os: windows
+      hostArchitecture: amd64
+    sdl:
+      sourceAnalysisPool:
+        name: ${{ parameters.poolName }}
+        image: ${{ parameters.windowsImage }}
+        os: windows
+        hostArchitecture: amd64
+      git:
+        submodules: false
+        longpaths: true
+    stages:
+      - stage: Probe
+        jobs:
+          - job: WindowsAgent
+            timeoutInMinutes: 10
+            steps:
+              - checkout: none
+              - powershell: |
+                  $ErrorActionPreference = 'Stop'
+                  if ($env:OS -ne 'Windows_NT') { throw 'Expected a Windows agent' }
+                  Write-Host "Windows agent provisioned: $env:AGENT_NAME"
+                  [System.Environment]::OSVersion.VersionString
+                  foreach ($tool in @('git', 'bash', 'node', 'npm', 'go')) {
+                    Get-Command $tool -ErrorAction SilentlyContinue | Select-Object Name, Source
+                  }
+                displayName: Verify Windows agent provisioning
