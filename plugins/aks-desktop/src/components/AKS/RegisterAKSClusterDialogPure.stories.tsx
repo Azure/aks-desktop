@@ -288,23 +288,10 @@ Success.args = {
   success: "Cluster 'prod-aks-cluster' successfully merged in kubeconfig",
 };
 
-/** Terminal screen with follow-ups: pre-registration notices are gone, findings are depicted as optional. */
-export const SuccessWithOptionalRecommendations = Template.bind({});
-SuccessWithOptionalRecommendations.args = {
+/** Successful registration keeps selection controls locked and exposes the terminal action. */
+export const SelectionControlsLockedAfterSuccess = Template.bind({});
+SelectionControlsLockedAfterSuccess.args = {
   ...Success.args,
-  notice: 'AKS Hybrid & Edge clusters are not listed.',
-  subscriptionRefresh: { status: 'updated', addedCount: 2 },
-  capabilities: {
-    sku: 'Base',
-    aadEnabled: true,
-    azureRbacEnabled: false,
-    networkPolicy: 'none',
-    networkPlugin: 'azure',
-    prometheusEnabled: false,
-    containerInsightsEnabled: false,
-    kedaEnabled: false,
-    vpaEnabled: false,
-  },
 };
 
 /** Success alert dismissed while the dialog remains terminal with only Done available. */

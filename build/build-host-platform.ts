@@ -12,13 +12,16 @@
 import { execSync } from 'child_process';
 import * as path from 'path';
 
-const SCRIPTS: Record<string, string> = {
-  linux: 'build:linux',
-  darwin: 'build:mac',
-  win32: 'build:win',
+const PLATFORM_NAMES: Record<string, string> = {
+  linux: 'linux',
+  darwin: 'mac',
+  win32: 'win',
 };
 
-const script = SCRIPTS[process.platform];
+const platform = PLATFORM_NAMES[process.platform];
+const script = platform && ['arm64', 'x64'].includes(process.arch)
+  ? `build:${platform}:${process.arch}`
+  : undefined;
 
 if (!script) {
   console.error(`Unsupported build platform: ${process.platform}`);

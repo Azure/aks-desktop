@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import type { ClusterPreOpenContext } from '@kinvolk/headlamp-plugin/lib';
 import {
   checkClusterReachable,
   startProxy,
@@ -73,13 +74,7 @@ export async function aksHybridEdgePreOpenHook({
   clusterConf,
   signal,
   reportProgress,
-}: {
-  cluster: string;
-  clusterConf?: any;
-  signal?: AbortSignal;
-  /** Reports progress text to the "connecting" popup Headlamp shows while we prepare. */
-  reportProgress?: (message: string) => void;
-}): Promise<void> {
+}: ClusterPreOpenContext): Promise<void> {
   if (!cluster) {
     return;
   }

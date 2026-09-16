@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+   width="500"
+   height="250"
+   viewBox="0 0 500 250"
+   fill="none"
+   version="1.1"
+   xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="clip0_142:2">
+      <rect
+         width="318.41"
+         height="328.58701"
+         fill="#ffffff"
+         transform="translate(178)"
+         x="0"
+         y="0" />
+    </clipPath>
+  </defs>
+  <g transform="matrix(0.60643765,0,0,0.60643765,277.09697,25.816265)" style="fill:#0079d9;fill-opacity:1">
+    <g aria-label=":(" transform="matrix(20.57155,0,0,20.57155,2847.3993,-2033.2268)" style="white-space:pre;shape-inside:url(#rect746);fill:#0079d9;fill-opacity:1">
+      <path d="m -152.13867,106.98093 q 0,-1.69336 0.52734,-3.04102 0.53321,-1.34765 1.63477,-2.53711 h 1.01953 q -1.0957,1.21875 -1.61133,2.58985 -0.50976,1.37109 -0.50976,3 0,1.62304 0.5039,2.98828 0.50977,1.36523 1.61719,2.60156 h -1.01953 q -1.10742,-1.19531 -1.63477,-2.54297 -0.52734,-1.35351 -0.52734,-3.03515 z" style="font-family:Arial;fill:#0079d9;fill-opacity:1" />
+    </g>
+    <circle style="fill:#0079d9;fill-opacity:1" cx="-332.11414" cy="119.08469" r="12.871583" />
+    <circle style="fill:#0079d9;fill-opacity:1" cx="-332.11414" cy="213.81749" r="12.871583" />
+  </g>
+</svg>

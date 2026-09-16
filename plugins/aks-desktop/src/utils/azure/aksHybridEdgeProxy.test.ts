@@ -33,15 +33,15 @@ import {
 
 const targetA = { subscriptionId: 'sub-a', resourceGroup: 'rg-a', clusterName: 'cluster-a' };
 
-describe('aksHybridEdgeProxy — start/stop delegate to the app layer', () => {
+describe('aksHybridEdgeProxy — injected app capability', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStartClusterProxy.mockResolvedValue({ success: true });
-    (window as any).desktopApi = { startClusterProxy: mockStartClusterProxy };
+    vi.stubGlobal('startClusterProxy', mockStartClusterProxy);
   });
 
   afterEach(() => {
-    delete (window as any).desktopApi;
+    vi.unstubAllGlobals();
   });
 
   test('startProxy sends a cluster-keyed start intent to the main process', async () => {
@@ -55,9 +55,10 @@ describe('aksHybridEdgeProxy — start/stop delegate to the app layer', () => {
   });
 
   test('startProxy fails cleanly when the desktop bridge is unavailable', async () => {
-    delete (window as any).desktopApi;
+    vi.stubGlobal('startClusterProxy', undefined);
     const res = await startProxy(targetA);
     expect(res.success).toBe(false);
+    expect(res.error).toBe('Desktop proxy capability is not available.');
     expect(mockStartClusterProxy).not.toHaveBeenCalled();
   });
 
