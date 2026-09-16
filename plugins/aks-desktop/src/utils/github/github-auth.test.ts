@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useGitHubAuth } from '../../components/GitHubPipeline/hooks/useGitHubAuth';
 import {
   clearTokens,
   isTokenExpired,
@@ -18,6 +20,11 @@ vi.mock('./secure-storage', () => ({
   secureStorageSave: vi.fn().mockResolvedValue(false),
   secureStorageLoad: vi.fn().mockResolvedValue(null),
   secureStorageDelete: vi.fn().mockResolvedValue(false),
+}));
+
+vi.mock('./github-api', () => ({
+  createOctokitClient: vi.fn(),
+  getCurrentUser: vi.fn(),
 }));
 
 /**
@@ -52,6 +59,19 @@ describe('github-auth', () => {
   });
 
   describe('startBrowserOAuth', () => {
+    it.each(['startGitHubOAuth', 'onGitHubOAuthCallback'])(
+      'reports unavailable authentication when %s is absent',
+      async method => {
+        const api = mockDesktopApi({ [method]: undefined });
+        await expect(startBrowserOAuth()).rejects.toThrow(
+          'GitHub browser authentication is not available in this desktop build.'
+        );
+        if (typeof api.startGitHubOAuth === 'function') {
+          expect(api.startGitHubOAuth).not.toHaveBeenCalled();
+        }
+      }
+    );
+
     it('should call desktopApi.startGitHubOAuth', async () => {
       const api = mockDesktopApi();
 
@@ -79,6 +99,13 @@ describe('github-auth', () => {
   });
 
   describe('onOAuthCallback', () => {
+    it('does not crash project creation when the host has no GitHub OAuth bridge', () => {
+      mockDesktopApi({ onGitHubOAuthCallback: undefined });
+      const unsubscribe = onOAuthCallback(vi.fn());
+      expect(unsubscribe).toBeTypeOf('function');
+      expect(() => unsubscribe()).not.toThrow();
+    });
+
     it('should call desktopApi.onGitHubOAuthCallback with the provided callback', () => {
       const unsubscribe = vi.fn();
       const api = mockDesktopApi({
@@ -100,6 +127,12 @@ describe('github-auth', () => {
   });
 
   describe('refreshAccessToken', () => {
+    it('reports unavailable refresh when the host lacks the legacy method', async () => {
+      mockDesktopApi({ refreshGitHubOAuth: undefined });
+      await expect(refreshAccessToken('synthetic-refresh-token')).rejects.toThrow(
+        'GitHub token refresh is not available in this desktop build.'
+      );
+    });
     it('should return new tokens on success', async () => {
       const expiresAt = new Date(Date.now() + 28800 * 1000).toISOString();
       const api = mockDesktopApi({
@@ -137,6 +170,36 @@ describe('github-auth', () => {
         'desktopApi not available — not running in Electron'
       );
     });
+  });
+
+  it('mounts the project auth hook on current Headlamp and contains unavailable login errors', async () => {
+    mockDesktopApi({
+      startGitHubOAuth: undefined,
+      onGitHubOAuthCallback: undefined,
+      refreshGitHubOAuth: undefined,
+    });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { result, unmount } = renderHook(() => useGitHubAuth());
+    await waitFor(() => expect(result.current.authState.isRestoring).toBe(false));
+    expect(result.current.authState.error).toBeNull();
+    await act(async () => {
+      await result.current.startOAuth();
+    });
+    expect(result.current.authState.isAuthorizingBrowser).toBe(false);
+    expect(result.current.authState.error).toBe(
+      'GitHub browser authentication is not available in this desktop build.'
+    );
+    expect(consoleError).toHaveBeenCalledOnce();
+    unmount();
+  });
+
+  it('unsubscribes the project auth hook from a supported legacy OAuth bridge', async () => {
+    const unsubscribe = vi.fn();
+    mockDesktopApi({ onGitHubOAuthCallback: vi.fn().mockReturnValue(unsubscribe) });
+    const { result, unmount } = renderHook(() => useGitHubAuth());
+    await waitFor(() => expect(result.current.authState.isRestoring).toBe(false));
+    unmount();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
   describe('isTokenExpired', () => {
