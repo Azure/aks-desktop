@@ -13,6 +13,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { readBuildTarget, resolveTargetArch } from './build-target';
 import { readAzureCliConfig, resolveAzCliVersion } from './az-cli-config';
+import { verifyMacBundleArchitecture } from './macos-bundle-verification';
 import {
   getExtensionTimeoutResult,
   readRequiredAzureCliExtensions,
@@ -148,6 +149,16 @@ function addResult(name: string, passed: boolean, message: string) {
     logSuccess(`${name}: ${message}`);
   } else {
     logError(`${name}: ${message}`);
+  }
+}
+
+function testMacArchitecture(): void {
+  if (CURRENT_PLATFORM !== 'darwin') return;
+  try {
+    const count = verifyMacBundleArchitecture(path.dirname(path.dirname(RESOURCES_DIR)), TARGET_ARCH);
+    addResult('Native macOS payload', true, `${count} Mach-O files include ${TARGET_ARCH}; bundled Python runs natively`);
+  } catch (error) {
+    addResult('Native macOS payload', false, String(error));
   }
 }
 
@@ -699,6 +710,7 @@ function main(): void {
   testAzureCliExecutable();
   testPythonBundled();
   testPythonLibDirectory();
+  testMacArchitecture();
   testKubeloginScript();
   testReadmeExists();
 

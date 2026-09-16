@@ -20,7 +20,7 @@ extends:
   parameters:
     pool:
       name: Azure Pipelines
-      image: macOS-latest
+      image: macOS-15
       os: macOS
     sdl:
       sourceAnalysisPool:
@@ -39,11 +39,16 @@ extends:
       - stage: Build_arm64
         displayName: 'Build (arm64)'
         dependsOn: []  # Explicitly no dependencies - run in parallel with x64
-        # The bundled Azure CLI and Python runtime are currently x64-only.
-        condition: eq(1, 0)
         jobs:
           - job: BuildJob_arm64
             displayName: 'Build macOS Application (Apple Silicon)'
+            # Hosted ARM64 availability is organization-gated; never fall back
+            # to Intel/Rosetta and label that output as a native ARM64 build.
+            pool:
+              name: Azure Pipelines
+              image: macOS-15-arm64
+              os: macOS
+              hostArchitecture: arm64
             timeoutInMinutes: 120
             variables:
               - group: AKS Desktop
@@ -62,6 +67,12 @@ extends:
                   artifactName: unsigned-dmg-arm64
                   displayName: 'Publish Unsigned DMG (arm64)'
             steps:
+              - bash: |
+                  set -euo pipefail
+                  echo "Native host architecture: $(uname -m)"
+                  test "$(uname -m)" = arm64
+                displayName: 'Require native Apple Silicon host'
+
               # Install tools
               - task: GoTool@0
                 displayName: Install Go
@@ -75,6 +86,13 @@ extends:
                 inputs:
                   versionSpec: ${{ parameters.nodeVersion }}
 
+              - bash: |
+                  set -euo pipefail
+                  echo "Node architecture: $(node -p process.arch)"
+                  test "$(node -p process.arch)" = arm64
+                  test "$(go env GOARCH)" = arm64
+                displayName: 'Require native ARM64 build tools'
+
               - checkout: self
                 submodules: false
 
@@ -82,38 +100,34 @@ extends:
               - task: Cache@2
                 displayName: 'Cache npm dependencies (plugin)'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | plugins/aks-desktop/package-lock.json'
+                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | plugins/aks-desktop/package-lock.json'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
+                    npm | "$(Agent.OS)" | "$(ARCH)" |
                   path: 'plugins/aks-desktop/node_modules'
 
               - task: Cache@2
                 displayName: 'Cache npm dependencies (headlamp frontend)'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-frontend'
+                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | headlamp-frontend'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
+                    npm | "$(Agent.OS)" | "$(ARCH)" |
                   path: 'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules'
 
               - task: Cache@2
                 displayName: 'Cache npm dependencies (headlamp app)'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-app'
+                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | headlamp-app'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
+                    npm | "$(Agent.OS)" | "$(ARCH)" |
                   path: 'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules'
 
               - task: Cache@2
                 displayName: 'Cache Go modules'
                 inputs:
-                  key: 'go | "$(Agent.OS)" | "${{ parameters.goVersion }}" | **/go.sum'
+                  key: 'go | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" | **/go.sum'
                   restoreKeys: |
-                    go | "$(Agent.OS)" | "${{ parameters.goVersion }}" |
-                    go | "$(Agent.OS)" |
-                    go |
+                    go | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" |
+                    go | "$(Agent.OS)" | "$(ARCH)" |
                   path: '$(HOME)/go/pkg/mod'
 
               # Download certificates (needed for local signing during build)
@@ -583,38 +597,34 @@ extends:
               - task: Cache@2
                 displayName: 'Cache npm dependencies (plugin)'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | plugins/aks-desktop/package-lock.json'
+                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | plugins/aks-desktop/package-lock.json'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
+                    npm | "$(Agent.OS)" | "$(ARCH)" |
                   path: 'plugins/aks-desktop/node_modules'
 
               - task: Cache@2
                 displayName: 'Cache npm dependencies (headlamp frontend)'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-frontend'
+                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | headlamp-frontend'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
+                    npm | "$(Agent.OS)" | "$(ARCH)" |
                   path: 'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules'
 
               - task: Cache@2
                 displayName: 'Cache npm dependencies (headlamp app)'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-app'
+                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | headlamp-app'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
+                    npm | "$(Agent.OS)" | "$(ARCH)" |
                   path: 'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules'
 
               - task: Cache@2
                 displayName: 'Cache Go modules'
                 inputs:
-                  key: 'go | "$(Agent.OS)" | "${{ parameters.goVersion }}" | **/go.sum'
+                  key: 'go | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" | **/go.sum'
                   restoreKeys: |
-                    go | "$(Agent.OS)" | "${{ parameters.goVersion }}" |
-                    go | "$(Agent.OS)" |
-                    go |
+                    go | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" |
+                    go | "$(Agent.OS)" | "$(ARCH)" |
                   path: '$(HOME)/go/pkg/mod'
 
               # Download certificates (needed for local signing during build)
