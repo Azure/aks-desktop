@@ -102,6 +102,7 @@ not copied into the generated runtime manifest.
 | `checkForUpdates` | No | Whether the packaged application checks for updates. |
 | `legalDocuments` | No | Legal document descriptors. Each entry has an `id`, display `title`, and packaged `file` name. |
 | `platforms` | By desktop build | Per-platform packaging metadata. `linux`, `mac`, and `win` may define `executableName`; `mac` may also define `appId`. |
+| `runCommands` | No | Reviewed command grants for exact plugin identities and inventories. `commands` (or `commandSets`) authorizes execution. A separate optional `approvedCommands` list supplies default consent for development or shipped plugins only; requests must match both lists to skip the prompt, and saved denials still apply. Empty approval arguments match only no-argument invocations. |
 
 Additional product-manifest fields supported by Headlamp may be placed under
 `headlamp`; they are copied to the generated manifest unless they are the

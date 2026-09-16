@@ -101,6 +101,12 @@ test('the product grants AI assistant auto-detect commands in every app environm
         candidate.packageName === '@headlamp-k8s/ai-assistant'
     );
     assert.ok(policy, `Missing ${environment} AI assistant command policy`);
+    assert.deepEqual(policy.approvedCommands, [
+      { tool: 'gh', args: ['auth'], allowTrailingArgs: true },
+      { tool: 'az', args: ['account'], allowTrailingArgs: true },
+      { tool: 'az', args: ['cognitiveservices'], allowTrailingArgs: true },
+    ]);
+    assert.equal(policy.source, environment === 'development' ? 'development' : 'shipped');
     assert.equal(isRunCommandAllowed(policy.grants, 'gh', ['auth', 'token']), true);
     assert.equal(
       isRunCommandAllowed(policy.grants, 'az', [
@@ -117,5 +123,40 @@ test('the product grants AI assistant auto-detect commands in every app environm
     );
     assert.equal(isRunCommandAllowed(policy.grants, 'gh', ['repo', 'delete']), false);
     assert.equal(isRunCommandAllowed(policy.grants, 'az', ['account', 'clear']), false);
+  }
+});
+
+test('AKS approvals preserve main a6b824650 without expanding authorization', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')).headlamp;
+  for (const environment of ['development', 'production'] as const) {
+    const policy = productPluginCommandPolicies(manifest, environment).find(
+      (candidate: { packageName: string }) => candidate.packageName === 'aks-desktop'
+    );
+    assert.ok(policy, `Missing ${environment} AKS command policy`);
+    assert.equal(policy.bundleName, 'aks-desktop');
+    const prefixes = [
+      '--version', 'version', 'login', 'logout', 'config', 'aks', 'connectedk8s',
+      'aksarc', 'extension', 'feature', 'provider', 'account', 'role', 'graph',
+      'acr', 'group', 'vm', 'alerts-management', 'monitor',
+    ];
+    assert.deepEqual(policy.approvedCommands, [
+      { tool: 'az', args: [] },
+      ...prefixes.map(prefix => ({ tool: 'az', args: [prefix], allowTrailingArgs: true })),
+      { tool: 'kubectl', args: ['top'], allowTrailingArgs: true },
+      { tool: 'kubectl', args: ['config'], allowTrailingArgs: true },
+    ]);
+    assert.equal(policy.consent, undefined);
+    assert.equal(policy.source, environment === 'development' ? 'development' : 'shipped');
+    for (const args of [['version'], ['account', 'show', '-o', 'json'], ['extension', 'list']]) {
+      assert.equal(isRunCommandAllowed(policy.grants, 'az', args), true);
+      assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', args), true);
+    }
+    assert.equal(isRunCommandAllowed(policy.grants, 'az', ['rest']), true);
+    assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', ['rest']), false);
+    assert.equal(isRunCommandAllowed(policy.approvedCommands, 'kubectl', ['top', 'nodes']), true);
+    assert.equal(isRunCommandAllowed(policy.grants, 'kubectl', ['top', 'nodes']), false);
+    assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', []), true);
+    assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', ['unknown']), false);
+    assert.equal(isRunCommandAllowed(policy.grants, 'sh', ['-c', 'command']), false);
   }
 });
