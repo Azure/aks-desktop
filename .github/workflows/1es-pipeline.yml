@@ -1,5 +1,6 @@
 # Temporary provisioning probe: no application build, signing, or publishing.
 trigger: none
+pr: none
 
 parameters:
   - name: poolName
@@ -21,13 +22,15 @@ extends:
   parameters:
     pool:
       name: ${{ parameters.poolName }}
-      image: ${{ parameters.windowsImage }}
+      ${{ if ne(parameters.windowsImage, '') }}:
+        image: ${{ parameters.windowsImage }}
       os: windows
       hostArchitecture: amd64
     sdl:
       sourceAnalysisPool:
         name: ${{ parameters.poolName }}
-        image: ${{ parameters.windowsImage }}
+        ${{ if ne(parameters.windowsImage, '') }}:
+          image: ${{ parameters.windowsImage }}
         os: windows
         hostArchitecture: amd64
       git:
