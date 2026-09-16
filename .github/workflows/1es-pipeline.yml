@@ -128,16 +128,9 @@ extends:
                   go env | grep -E "GOPROXY|GOSUMDB|PROXY"
                   echo "=== END GO ENVIRONMENT ==="
 
-                  npm_root="$(mktemp -d "${AGENT_TEMPDIRECTORY:-${TMPDIR:-/tmp}}/npm.XXXXXX")"
-                  npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
-                  echo "##vso[task.prependpath]$npm_root/node_modules/.bin"
-                  export PATH="$npm_root/node_modules/.bin:$PATH"
-                  npm ci
-                  echo "Building AKS desktop Windows application..."
-                  if ! npm run build:win-ci || \
-                    ! npm run test:distribution; then
-                    exit 1
-                  fi
+                  # Keep native npm paths out of Bash PATH and MSYS argument conversion.
+                  node --test build/windows-ci.test.cjs
+                  npm run ci:windows
                   echo "✅ Build complete"
 
                   echo "=== POST-BUILD DEBUG ==="
