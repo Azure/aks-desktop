@@ -14,6 +14,7 @@ import { execSync } from 'child_process';
 import { readBuildTarget, resolveTargetArch } from './build-target';
 import { readAzureCliConfig, resolveAzCliVersion } from './az-cli-config';
 import { verifyMacBundleArchitecture } from './macos-bundle-verification';
+import { verifyMacBundleRuntime } from './macos-runtime-verification';
 import {
   getExtensionTimeoutResult,
   readRequiredAzureCliExtensions,
@@ -85,12 +86,20 @@ if (CURRENT_PLATFORM === 'win32') {
   );
 }
 
-const BUILD_DIST_DIR = path.join(DIST_DIR, PLATFORM_DIR);
+// Final notarized bundles are verified outside the generated build directory.
+const appArgument = process.argv.find(argument => argument.startsWith('--app='));
+if (appArgument && (CURRENT_PLATFORM !== 'darwin' || !appArgument.slice(6))) {
+  throw new Error('--app=<path> requires a macOS application path');
+}
+const MAC_APP_DIR = appArgument
+  ? path.resolve(appArgument.slice(6))
+  : path.join(DIST_DIR, PLATFORM_DIR, `${PRODUCT_NAME}.app`);
+const BUILD_DIST_DIR = appArgument ? MAC_APP_DIR : path.join(DIST_DIR, PLATFORM_DIR);
 
 // On macOS, the app is bundled in a .app directory structure
 let RESOURCES_DIR: string;
 if (CURRENT_PLATFORM === 'darwin') {
-  RESOURCES_DIR = path.join(BUILD_DIST_DIR, `${PRODUCT_NAME}.app`, 'Contents', 'Resources');
+  RESOURCES_DIR = path.join(MAC_APP_DIR, 'Contents', 'Resources');
 } else {
   RESOURCES_DIR = path.join(BUILD_DIST_DIR, 'resources');
 }
@@ -157,6 +166,12 @@ function testMacArchitecture(): void {
   try {
     const count = verifyMacBundleArchitecture(path.dirname(path.dirname(RESOURCES_DIR)), TARGET_ARCH);
     addResult('Native macOS payload', true, `${count} Mach-O files include ${TARGET_ARCH}; bundled Python runs natively`);
+    const evidence = verifyMacBundleRuntime(MAC_APP_DIR, {
+      targetArch: TARGET_ARCH,
+      expectedCliVersion: AZURE_CLI_PINNED_VERSION,
+      requiredExtensions: readRequiredAzureCliExtensions(ROOT_DIR),
+    });
+    addResult('Native macOS runtime', true, JSON.stringify(evidence));
   } catch (error) {
     addResult('Native macOS payload', false, String(error));
   }

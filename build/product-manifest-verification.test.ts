@@ -43,8 +43,10 @@ for (const platform of ['linux', 'darwin', 'win32']) {
     };
     const product = { name: 'aks-desktop', productName: platform === 'linux' ? 'AKS-Desktop' : 'AKS desktop', version: '9.8.7' };
     for (const version of ['9.8.7', '0.45.0']) {
-      const results = runInNewContext(`${code}\ntestProductAssembly(); results;`, {
-        exports: {}, __dirname, process: { platform }, console: { log() {}, warn() {} },
+      const checked = runInNewContext(`${code}\ntestProductAssembly(); ({ results, resources: RESOURCES_DIR });`, {
+        exports: {}, __dirname,
+        process: { platform, argv: platform === 'darwin' ? ['node', filename, '--app=/qualification/AKS desktop.app'] : [] },
+        console: { log() {}, warn() {} },
         require: (name: string) => name === 'fs' ? {
           existsSync: () => true,
           readFileSync: (file: string) => JSON.stringify(
@@ -54,7 +56,10 @@ for (const platform of ['linux', 'darwin', 'win32']) {
           ),
         } : require(name),
       });
-      assert.equal(results.find((result: { name: string }) => result.name === 'Product manifest').passed, version === project.version);
+      assert.equal(checked.results.find((result: { name: string }) => result.name === 'Product manifest').passed, version === project.version);
+      if (platform === 'darwin') {
+        assert.equal(checked.resources, path.join(path.resolve('/qualification/AKS desktop.app'), 'Contents', 'Resources'));
+      }
     }
   });
 }

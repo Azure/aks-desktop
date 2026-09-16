@@ -42,11 +42,11 @@ extends:
         jobs:
           - job: BuildJob_arm64
             displayName: 'Build macOS Application (Apple Silicon)'
-            # Hosted ARM64 availability is organization-gated; never fall back
-            # to Intel/Rosetta and label that output as a native ARM64 build.
+            # This existing PAYG pool uses vmImage; 1ES would translate image
+            # into a self-hosted ImageOverride demand for this pool name.
             pool:
-              name: Azure Pipelines
-              image: macOS-15-arm64
+              name: GitHub-hosted Agents
+              vmImage: macos-26-arm64
               os: macOS
               hostArchitecture: arm64
             timeoutInMinutes: 120
@@ -56,6 +56,8 @@ extends:
                 value: https://packagefeedproxy.microsoft.io/npm/
               - name: NPM_CONFIG_REPLACE_REGISTRY_HOST
                 value: npmjs
+              - name: NPM_CONFIG_CACHE
+                value: $(Pipeline.Workspace)/.npm
               - name: ARCH
                 value: arm64
               - name: ARCH_DISPLAY
@@ -66,6 +68,10 @@ extends:
                   targetPath: $(Build.ArtifactStagingDirectory)/build-output
                   artifactName: unsigned-dmg-arm64
                   displayName: 'Publish Unsigned DMG (arm64)'
+                - output: pipelineArtifact
+                  targetPath: $(Build.ArtifactStagingDirectory)/macos-verification
+                  artifactName: macos-verification-arm64
+                  displayName: 'Publish macOS verification tools (arm64)'
             steps:
               - bash: |
                   set -euo pipefail
@@ -96,38 +102,23 @@ extends:
               - checkout: self
                 submodules: false
 
-              # Cache dependencies
+              # Cache downloads, not node_modules that npm ci replaces.
               - task: Cache@2
-                displayName: 'Cache npm dependencies (plugin)'
+                displayName: 'Cache npm downloads'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | plugins/aks-desktop/package-lock.json'
+                  key: 'npm-download-v1 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | plugins/*/package-lock.json'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" | "$(ARCH)" |
-                  path: 'plugins/aks-desktop/node_modules'
+                    npm-download-v1 | "$(Agent.OS)" | "$(ARCH)" |
+                  path: '$(Pipeline.Workspace)/.npm'
 
-              - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp frontend)'
-                inputs:
-                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | headlamp-frontend'
-                  restoreKeys: |
-                    npm | "$(Agent.OS)" | "$(ARCH)" |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules'
-
-              - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp app)'
-                inputs:
-                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | headlamp-app'
-                  restoreKeys: |
-                    npm | "$(Agent.OS)" | "$(ARCH)" |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules'
-
+              # npm ci materializes Headlamp AND builds its backend. Hash the
+              # tracked source selection before that lifecycle consumes Go modules.
               - task: Cache@2
                 displayName: 'Cache Go modules'
                 inputs:
-                  key: 'go | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" | **/go.sum'
+                  key: 'go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" | package.json | package-lock.json | patches/*.patch'
                   restoreKeys: |
-                    go | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" |
-                    go | "$(Agent.OS)" | "$(ARCH)" |
+                    go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" |
                   path: '$(HOME)/go/pkg/mod'
 
               # Download certificates (needed for local signing during build)
@@ -287,6 +278,14 @@ extends:
                   echo "Copied DMGs:"
                   ls -la "$(Build.ArtifactStagingDirectory)/build-output/"
                 displayName: "Copy DMGs to Staging"
+
+              - bash: |
+                  set -euo pipefail
+                  VERIFY="$(Build.ArtifactStagingDirectory)/macos-verification"
+                  mkdir -p "$VERIFY"
+                  cp build/verify-macos-signing.sh "$VERIFY/"
+                  node -p "require('./package.json').headlamp.platforms.mac.appId" > "$VERIFY/expected-bundle-id.txt"
+                displayName: 'Stage macOS verification tools'
 
       - stage: Sign_arm64
         displayName: 'Sign (arm64)'
@@ -366,62 +365,16 @@ extends:
                     ]
                   SessionTimeout: 60
 
-              # Verify signatures and extract Bundle ID
+              - task: DownloadPipelineArtifact@2
+                displayName: 'Download macOS verification tools'
+                inputs:
+                  artifactName: macos-verification-arm64
+                  targetPath: $(Pipeline.Workspace)/macos-verification
+
               - bash: |
-                  set -e
-                  echo "=== VERIFYING DEVELOPER SIGNATURES ==="
-
-                  DMG_FILES=$(find "$(Pipeline.Workspace)/signed-dmg" -type f -name "*.dmg")
-
-                  if [ -z "$DMG_FILES" ]; then
-                    echo "❌ No DMG files found"
-                    exit 1
-                  fi
-
-                  FIRST_DMG=$(echo "$DMG_FILES" | head -1)
-                  echo "Extracting Bundle ID from: $FIRST_DMG"
-
-                  MOUNT_DIR=$(mktemp -d)
-                  hdiutil attach "$FIRST_DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
-
-                  APP_PATH=$(find "$MOUNT_DIR" -type d -name "*.app" -maxdepth 1 | head -1)
-
-                  if [ -n "$APP_PATH" ]; then
-                    INFO_PLIST="$APP_PATH/Contents/Info.plist"
-                    if [ -f "$INFO_PLIST" ]; then
-                      BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST" 2>/dev/null || echo "")
-
-                      if [ -n "$BUNDLE_ID" ]; then
-                        echo "✅ Bundle ID: $BUNDLE_ID"
-                        echo "##vso[task.setvariable variable=BundleIdentifier;isOutput=true]$BUNDLE_ID"
-                      else
-                        echo "❌ Failed to extract Bundle ID"
-                        exit 1
-                      fi
-                    fi
-                  fi
-
-                  hdiutil detach "$MOUNT_DIR" -quiet || true
-
-                  # Verify all DMGs are signed
-                  echo ""
-                  echo "Verifying signatures on all DMGs..."
-                  echo "$DMG_FILES" | while read -r DMG_PATH; do
-                    echo ""
-                    echo "=== Verifying: $(basename "$DMG_PATH") ==="
-
-                    if codesign -dvvv "$DMG_PATH" 2>&1 | grep -q "Developer ID Application"; then
-                      echo "✅ DMG is signed with Developer ID"
-                      codesign -dvvv "$DMG_PATH" 2>&1 | grep -E "Authority|TeamIdentifier|Identifier"
-                    else
-                      echo "❌ DMG signature verification failed"
-                      codesign -dvvv "$DMG_PATH" 2>&1 || true
-                      exit 1
-                    fi
-                  done
-
-                  echo ""
-                  echo "=== DEVELOPER SIGNATURE VERIFICATION COMPLETE ==="
+                  set -euo pipefail
+                  VERIFY="$(Pipeline.Workspace)/macos-verification"
+                  bash "$VERIFY/verify-macos-signing.sh" signed "$(Pipeline.Workspace)/signed-dmg" "$(cat "$VERIFY/expected-bundle-id.txt")"
                 displayName: "Verify Developer Signatures"
                 name: VerifySign
 
@@ -442,8 +395,8 @@ extends:
               outputs:
                 - output: pipelineArtifact
                   targetPath: $(Pipeline.Workspace)/notarized-dmg
-                  artifactName: aks-desktop-signed-arm64
-                  displayName: 'Publish Notarized DMG (arm64)'
+                  artifactName: notarized-dmg-arm64
+                  displayName: 'Publish DMG for native qualification (arm64)'
             steps:
               - checkout: none
               
@@ -505,50 +458,64 @@ extends:
                     ]
                   SessionTimeout: 240
 
-              # Verify notarization
+              - task: DownloadPipelineArtifact@2
+                displayName: 'Download macOS verification tools'
+                inputs:
+                  artifactName: macos-verification-arm64
+                  targetPath: $(Pipeline.Workspace)/macos-verification
+
               - bash: |
-                  set -e
-                  echo "=== VERIFYING NOTARIZED DMGs ==="
-
-                  DMG_FILES=$(find "$(Pipeline.Workspace)/notarized-dmg" -type f -name "*.dmg")
-
-                  if [ -z "$DMG_FILES" ]; then
-                    echo "❌ No DMG files found"
-                    exit 1
-                  fi
-
-                  echo "$DMG_FILES" | while read -r DMG_PATH; do
-                    echo ""
-                    echo "=== Verifying: $(basename "$DMG_PATH") ==="
-                    echo "File size: $(ls -lh "$DMG_PATH" | awk '{print $5}')"
-
-                    VERIFY_DIR=$(mktemp -d)
-                    hdiutil attach "$DMG_PATH" -mountpoint "$VERIFY_DIR" -nobrowse -quiet
-
-                    APP_FOR_VERIFY=$(find "$VERIFY_DIR" -type d -name "*.app" -maxdepth 1 | head -1)
-
-                    if [ -n "$APP_FOR_VERIFY" ]; then
-                      echo "Checking notarization status..."
-                      if spctl -a -vv -t install "$APP_FOR_VERIFY" 2>&1 | grep -q "accepted"; then
-                        echo "✅ App is notarized and accepted by Gatekeeper"
-                      else
-                        echo "⚠️ Notarization status check:"
-                        spctl -a -vv -t install "$APP_FOR_VERIFY" 2>&1 || true
-                      fi
-
-                      echo ""
-                      echo "Verifying code signature..."
-                      codesign -vvv --deep --strict "$APP_FOR_VERIFY" 2>&1 || echo "Code signature check complete"
-                    else
-                      echo "⚠️ No .app bundle found in DMG"
-                    fi
-
-                    hdiutil detach "$VERIFY_DIR" -quiet || true
-                  done
-
-                  echo ""
-                  echo "=== NOTARIZATION VERIFICATION COMPLETE ==="
+                  set -euo pipefail
+                  VERIFY="$(Pipeline.Workspace)/macos-verification"
+                  bash "$VERIFY/verify-macos-signing.sh" notarized "$(Pipeline.Workspace)/notarized-dmg" "$(cat "$VERIFY/expected-bundle-id.txt")"
                 displayName: "Verify Notarized DMGs"
+
+      - stage: Qualify_arm64
+        displayName: 'Qualify signed application (arm64)'
+        dependsOn: Notarize_arm64
+        condition: succeeded('Notarize_arm64')
+        jobs:
+          - job: QualifyJob_arm64
+            displayName: 'Run the final signed application natively'
+            timeoutInMinutes: 30
+            pool:
+              name: GitHub-hosted Agents
+              vmImage: macos-26-arm64
+              os: macOS
+              hostArchitecture: arm64
+            templateContext:
+              outputs:
+                - output: pipelineArtifact
+                  targetPath: $(Build.ArtifactStagingDirectory)/qualified-dmg
+                  artifactName: aks-desktop-signed-arm64
+                  displayName: 'Publish Qualified Notarized DMG (arm64)'
+                - output: pipelineArtifact
+                  targetPath: $(Build.ArtifactStagingDirectory)/qualification-evidence
+                  artifactName: macos-qualification-arm64
+                  displayName: 'Publish native qualification evidence'
+            steps:
+              - checkout: self
+                submodules: false
+              - task: NodeTool@0
+                inputs:
+                  versionSpec: ${{ parameters.nodeVersion }}
+              - task: DownloadPipelineArtifact@2
+                inputs:
+                  artifactName: notarized-dmg-arm64
+                  targetPath: $(Pipeline.Workspace)/notarized-dmg
+              - bash: |
+                  set -euo pipefail
+                  test "$(uname -m)" = arm64
+                  test "$(node -p process.arch)" = arm64
+                  npm_root="$(mktemp -d "${AGENT_TEMPDIRECTORY:-${TMPDIR:-/tmp}}/npm.XXXXXX")"
+                  npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
+                  export PATH="$npm_root/node_modules/.bin:$PATH"
+                  # Verification helpers only: never rebuild the signed artifact.
+                  npm ci --ignore-scripts --no-audit --no-fund
+                  EVIDENCE="$(Build.ArtifactStagingDirectory)/qualification-evidence"
+                  mkdir -p "$EVIDENCE"
+                  bash build/qualify-macos-dmg.sh "$(Pipeline.Workspace)/notarized-dmg" "$(Build.ArtifactStagingDirectory)/qualified-dmg" "$(node -p "require('./package.json').headlamp.platforms.mac.appId")" 2>&1 | tee "$EVIDENCE/qualification.log"
+                displayName: 'Verify final signatures, native tools, and application smoke'
 
       # ===================================================================
       # X64 PIPELINE - Build, Sign, and Notarize for Intel
@@ -566,6 +533,8 @@ extends:
                 value: https://packagefeedproxy.microsoft.io/npm/
               - name: NPM_CONFIG_REPLACE_REGISTRY_HOST
                 value: npmjs
+              - name: NPM_CONFIG_CACHE
+                value: $(Pipeline.Workspace)/.npm
               - name: ARCH
                 value: x64
               - name: ARCH_DISPLAY
@@ -576,6 +545,10 @@ extends:
                   targetPath: $(Build.ArtifactStagingDirectory)/build-output
                   artifactName: unsigned-dmg-x64
                   displayName: 'Publish Unsigned DMG (x64)'
+                - output: pipelineArtifact
+                  targetPath: $(Build.ArtifactStagingDirectory)/macos-verification
+                  artifactName: macos-verification-x64
+                  displayName: 'Publish macOS verification tools (x64)'
             steps:
               # Install tools
               - task: GoTool@0
@@ -593,38 +566,23 @@ extends:
               - checkout: self
                 submodules: false
 
-              # Cache dependencies
+              # Cache downloads, not node_modules that npm ci replaces.
               - task: Cache@2
-                displayName: 'Cache npm dependencies (plugin)'
+                displayName: 'Cache npm downloads'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | plugins/aks-desktop/package-lock.json'
+                  key: 'npm-download-v1 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | plugins/*/package-lock.json'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" | "$(ARCH)" |
-                  path: 'plugins/aks-desktop/node_modules'
+                    npm-download-v1 | "$(Agent.OS)" | "$(ARCH)" |
+                  path: '$(Pipeline.Workspace)/.npm'
 
-              - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp frontend)'
-                inputs:
-                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | headlamp-frontend'
-                  restoreKeys: |
-                    npm | "$(Agent.OS)" | "$(ARCH)" |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules'
-
-              - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp app)'
-                inputs:
-                  key: 'npm | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | headlamp-app'
-                  restoreKeys: |
-                    npm | "$(Agent.OS)" | "$(ARCH)" |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules'
-
+              # npm ci materializes Headlamp AND builds its backend. Hash the
+              # tracked source selection before that lifecycle consumes Go modules.
               - task: Cache@2
                 displayName: 'Cache Go modules'
                 inputs:
-                  key: 'go | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" | **/go.sum'
+                  key: 'go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" | package.json | package-lock.json | patches/*.patch'
                   restoreKeys: |
-                    go | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" |
-                    go | "$(Agent.OS)" | "$(ARCH)" |
+                    go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" |
                   path: '$(HOME)/go/pkg/mod'
 
               # Download certificates (needed for local signing during build)
@@ -785,6 +743,14 @@ extends:
                   ls -la "$(Build.ArtifactStagingDirectory)/build-output/"
                 displayName: "Copy DMGs to Staging"
 
+              - bash: |
+                  set -euo pipefail
+                  VERIFY="$(Build.ArtifactStagingDirectory)/macos-verification"
+                  mkdir -p "$VERIFY"
+                  cp build/verify-macos-signing.sh "$VERIFY/"
+                  node -p "require('./package.json').headlamp.platforms.mac.appId" > "$VERIFY/expected-bundle-id.txt"
+                displayName: 'Stage macOS verification tools'
+
       - stage: Sign_x64
         displayName: 'Sign (x64)'
         dependsOn: Build_x64
@@ -863,62 +829,16 @@ extends:
                     ]
                   SessionTimeout: 60
 
-              # Verify signatures and extract Bundle ID
+              - task: DownloadPipelineArtifact@2
+                displayName: 'Download macOS verification tools'
+                inputs:
+                  artifactName: macos-verification-x64
+                  targetPath: $(Pipeline.Workspace)/macos-verification
+
               - bash: |
-                  set -e
-                  echo "=== VERIFYING DEVELOPER SIGNATURES ==="
-
-                  DMG_FILES=$(find "$(Pipeline.Workspace)/signed-dmg" -type f -name "*.dmg")
-
-                  if [ -z "$DMG_FILES" ]; then
-                    echo "❌ No DMG files found"
-                    exit 1
-                  fi
-
-                  FIRST_DMG=$(echo "$DMG_FILES" | head -1)
-                  echo "Extracting Bundle ID from: $FIRST_DMG"
-
-                  MOUNT_DIR=$(mktemp -d)
-                  hdiutil attach "$FIRST_DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
-
-                  APP_PATH=$(find "$MOUNT_DIR" -type d -name "*.app" -maxdepth 1 | head -1)
-
-                  if [ -n "$APP_PATH" ]; then
-                    INFO_PLIST="$APP_PATH/Contents/Info.plist"
-                    if [ -f "$INFO_PLIST" ]; then
-                      BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST" 2>/dev/null || echo "")
-
-                      if [ -n "$BUNDLE_ID" ]; then
-                        echo "✅ Bundle ID: $BUNDLE_ID"
-                        echo "##vso[task.setvariable variable=BundleIdentifier;isOutput=true]$BUNDLE_ID"
-                      else
-                        echo "❌ Failed to extract Bundle ID"
-                        exit 1
-                      fi
-                    fi
-                  fi
-
-                  hdiutil detach "$MOUNT_DIR" -quiet || true
-
-                  # Verify all DMGs are signed
-                  echo ""
-                  echo "Verifying signatures on all DMGs..."
-                  echo "$DMG_FILES" | while read -r DMG_PATH; do
-                    echo ""
-                    echo "=== Verifying: $(basename "$DMG_PATH") ==="
-
-                    if codesign -dvvv "$DMG_PATH" 2>&1 | grep -q "Developer ID Application"; then
-                      echo "✅ DMG is signed with Developer ID"
-                      codesign -dvvv "$DMG_PATH" 2>&1 | grep -E "Authority|TeamIdentifier|Identifier"
-                    else
-                      echo "❌ DMG signature verification failed"
-                      codesign -dvvv "$DMG_PATH" 2>&1 || true
-                      exit 1
-                    fi
-                  done
-
-                  echo ""
-                  echo "=== DEVELOPER SIGNATURE VERIFICATION COMPLETE ==="
+                  set -euo pipefail
+                  VERIFY="$(Pipeline.Workspace)/macos-verification"
+                  bash "$VERIFY/verify-macos-signing.sh" signed "$(Pipeline.Workspace)/signed-dmg" "$(cat "$VERIFY/expected-bundle-id.txt")"
                 displayName: "Verify Developer Signatures"
                 name: VerifySign
 
@@ -1002,47 +922,14 @@ extends:
                     ]
                   SessionTimeout: 240
 
-              # Verify notarization
+              - task: DownloadPipelineArtifact@2
+                displayName: 'Download macOS verification tools'
+                inputs:
+                  artifactName: macos-verification-x64
+                  targetPath: $(Pipeline.Workspace)/macos-verification
+
               - bash: |
-                  set -e
-                  echo "=== VERIFYING NOTARIZED DMGs ==="
-
-                  DMG_FILES=$(find "$(Pipeline.Workspace)/notarized-dmg" -type f -name "*.dmg")
-
-                  if [ -z "$DMG_FILES" ]; then
-                    echo "❌ No DMG files found"
-                    exit 1
-                  fi
-
-                  echo "$DMG_FILES" | while read -r DMG_PATH; do
-                    echo ""
-                    echo "=== Verifying: $(basename "$DMG_PATH") ==="
-                    echo "File size: $(ls -lh "$DMG_PATH" | awk '{print $5}')"
-
-                    VERIFY_DIR=$(mktemp -d)
-                    hdiutil attach "$DMG_PATH" -mountpoint "$VERIFY_DIR" -nobrowse -quiet
-
-                    APP_FOR_VERIFY=$(find "$VERIFY_DIR" -type d -name "*.app" -maxdepth 1 | head -1)
-
-                    if [ -n "$APP_FOR_VERIFY" ]; then
-                      echo "Checking notarization status..."
-                      if spctl -a -vv -t install "$APP_FOR_VERIFY" 2>&1 | grep -q "accepted"; then
-                        echo "✅ App is notarized and accepted by Gatekeeper"
-                      else
-                        echo "⚠️ Notarization status check:"
-                        spctl -a -vv -t install "$APP_FOR_VERIFY" 2>&1 || true
-                      fi
-
-                      echo ""
-                      echo "Verifying code signature..."
-                      codesign -vvv --deep --strict "$APP_FOR_VERIFY" 2>&1 || echo "Code signature check complete"
-                    else
-                      echo "⚠️ No .app bundle found in DMG"
-                    fi
-
-                    hdiutil detach "$VERIFY_DIR" -quiet || true
-                  done
-
-                  echo ""
-                  echo "=== NOTARIZATION VERIFICATION COMPLETE ==="
+                  set -euo pipefail
+                  VERIFY="$(Pipeline.Workspace)/macos-verification"
+                  bash "$VERIFY/verify-macos-signing.sh" notarized "$(Pipeline.Workspace)/notarized-dmg" "$(cat "$VERIFY/expected-bundle-id.txt")"
                 displayName: "Verify Notarized DMGs"

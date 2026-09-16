@@ -1,99 +1,156 @@
-# Native macOS arm64 release qualification
+# Native macOS ARM64 release qualification
 
-The arm64 release must build natively and retain the same ESRP developer-signing
-and notarization chain as the existing release pipeline. An Intel/Rosetta build
-or unsigned substitute is not an arm64 release candidate.
+## Contract
 
-## Changes
+The ARM64 release contains native ARM64 Electron, Go backend, Python, Azure CLI
+native dependencies, and the required CLI extensions. Rosetta is not a fallback.
+The existing native-host guard, artifact pins, localization/source-package
+assembly, and ESRP developer-signing/notarization operations remain in place.
 
-- `Build_arm64` is enabled on the explicit `macOS-15-arm64` image, with 1ES
-  `hostArchitecture: arm64`. A shell host check runs before tool setup; Node and
-  Go architecture checks run before dependency caches/install/build steps.
-- The default pool is pinned to Intel `macOS-15`, rather than the moving
-  `macOS-latest` label. The arm64 build overrides it; existing signing and
-  notarization jobs retain the default pool and their successful-stage dependencies.
-- npm and Go cache keys and restore prefixes include `$(ARCH)` so native modules
-  cannot be restored from a different architecture's cache.
-- `npm run test:distribution` now checks the actual macOS application payload.
-  Bundled Python must report the target native architecture in isolated mode.
-  Every discovered thin/universal Mach-O file must include the target slice,
-  including Python extensions and libraries without executable permission bits.
-  Framework symlinks are checked once; links escaping the application fail.
-  A target marker or a shell-wrapper checksum is not sufficient evidence.
-- Existing final artifact names remain `aks-desktop-signed-arm64` and
-  `aks-desktop-signed-x64`. No signing connection, certificate, entitlement,
-  notarization identity, dependency version or artifact pin was changed.
+**Local tests and pipeline preview are not release qualification.** No new
+macOS build, final artifact hash, or signed-app execution has been obtained for
+this candidate. Each push and build dispatch/retry requires separate approval.
 
-The prior x64-only comment was stale: `package.json` already selects native
-Python for Darwin arm64, and Unix Azure CLI is installed through that Python.
-The existing arm64 Python archive was fetched read-only, matched its configured
-SHA256 `069ac156f66c6774e332ad55d6e556a5f20c45fbdd7a267a5274ad918d895cde`, and its
-Python executable was confirmed to have the arm64 Mach-O CPU type. This is not
-a substitute for executing Python and Azure CLI on a real Mac.
+## Why the historical build is not the native reference
 
-## Hosted runner availability
+- ADO **245500**, source `77d87385acd16b5888f7d7c3be71c4b29c3a357d`, produced both
+  final artifacts: ARM64 **401848** and x64 **401901**, version **0.10.0**. ARM
+  log 41 shows Electron ARM64 packaging but x86_64 Python and wheels. All eight
+  signing/notarization logs contain positive checks, including Microsoft team
+  `UBF8T346G9`, Gatekeeper acceptance and valid app signatures. Its overall
+  `partiallySucceeded` status does not mean those artifacts were absent.
+- ADO **247834**, source `0872a4b5410ae42feac10a47f4f3e68ebe2750f0`, produced no
+  artifacts. The attempted `macOS-15-arm64` image in `Azure Pipelines` failed
+  before allocation. Intel failed hashing missing `**/go.sum`: source-package
+  materialization now happens during npm installation, not recursive checkout.
+- Current main **0383574da8a88ca2bb560300b8a1502c971406c1** already passed native
+  GitHub CI **35120504316**, job **104876780383**: ARM64 Node/Go/Python, ARM64
+  packaging, bundled CLI/Python invocation and application smoke. Developer ID
+  signing was skipped, Go was **1.26.8**, and a complete Mach-O audit was absent.
+  This supports native feasibility, not qualification of this repair.
 
-Microsoft's hosted-agent documentation currently says the macOS 15 ARM64
-limited public preview is paused for new organizations; existing users can
-continue. The `Azure Pipelines` pool exists in AzureContainerUpstream, but its
-agent-list API does not expose an allocation/eligibility guarantee for this image.
+## Native ADO selection
 
-Do not silently replace the arm64 image with `macOS-15`, weaken the native-host
-checks, or remove the arm64 asset if allocation fails. Confirm hosted ARM access
-or obtain explicit approval for a native self-hosted macOS pool first.
+The existing `GitHub-hosted Agents` pool (**179**), Kubernetes queue **1531**,
+was confirmed through read-only API calls. Pipeline permissions reported all
+pipelines authorized. Microsoft documents `macos-26-arm64` for this pool. It is
+**PAYG, with no free tier, and in preview**; do not enable billing or provision
+another pool without approval. Pool existence/authorization does not guarantee
+successful allocation.
 
-Reference: [Microsoft-hosted agents](https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/hosted?view=azure-devops&tabs=macos-images).
+The ARM build and final ARM qualification job specify:
 
-## Verification performed
-
-From an isolated worktree at base `0383574da8a88ca2bb560300b8a1502c971406c1`:
-
-```sh
-# Install metadata/test dependencies without application build lifecycle scripts.
-npm exec --yes --package=npm@12.0.1 -- npm ci --ignore-scripts --no-audit --no-fund
-
-node_modules/.bin/tsx --test build/*.test.ts
-npm --prefix packages/headlamp-source run test:helpers
+```yaml
+pool:
+  name: GitHub-hosted Agents
+  vmImage: macos-26-arm64
+  os: macOS
+  hostArchitecture: arm64
 ```
 
-- Build tests: **76 passed**, one Windows-only ZIP test skipped.
-- Source-package helper tests: **67 passed**.
-- Targeted TypeScript checking of the new verifier/tests and
-  `build/verify-bundled-tools.ts` passed.
-- New tests cover wrong Python architecture, missing target slices, thin/fat
-  binaries, escaped/internal symlinks, absent native payload, pipeline host
-  selection, architecture-isolated caches and retained signing/notarization edges.
-- The modified full YAML compiled against the actual ADO definition1000 using
-  the `/preview` API with `previewRun: true` and `yamlOverride`. Its compiled
-  `BuildJob_arm64` pool retained `vmImage: macOS-15-arm64` and
-  `hostArchitecture: arm64`. **Preview created no run and proves neither runner
-  allocation nor a successful package/sign/notarize operation.**
+Use **vmImage**, not **image**. The actual 1ES release template translates
+`image` to `vmImage` only for the `Azure Pipelines` pool; for this named pool it
+instead emits an `ImageOverride` demand. An in-memory preview against definition
+1000 confirmed explicit `vmImage` survives compilation. Preview queues no job.
+Intel build/signing/notarization retain the `Azure Pipelines` / `macOS-15` pool.
+Node **22.22.2**, npm **12.0.1**, and Go **1.26.3** remain the release toolchain.
 
-## Required live qualification
+References: [Microsoft documentation](https://learn.microsoft.com/en-us/azure/devops/pipelines/agents/github-hosted)
+and [Apple Silicon announcement](https://devblogs.microsoft.com/devops/apple-silicon-and-xcode-27-images-availabile-in-pay-as-you-go-preview/).
 
-After separate approval of the exact source branch/commit and build dispatch:
+## Cache and verification changes
 
-1. Confirm the ARM job is allocated, `uname -m`, Node and Go are native arm64.
-2. Verify the pinned Python download, native Azure CLI and required extensions
-   install and execute successfully through the bundled runtime.
-3. Run packaging and `test:distribution`, including the actual Python and Mach-O
-   checks and application smoke test. Do not claim native execution from Linux
-   unit tests whose macOS command boundary is stubbed.
-4. Complete ESRP developer signing and notarization, and retain positive
-   verification evidence for the produced arm64 DMG.
-5. Confirm both macOS artifacts are eligible alongside the required Windows EXE,
-   Linux DEB and Linux tarball. A partial build cannot authorize publication.
+- Cache npm downloads outside `node_modules`; root `npm ci` replaces the old
+  cached Headlamp dependency directories. Child installs inherit the download
+  cache through `NPM_CONFIG_CACHE`.
+- Restore Go modules before npm lifecycle scripts materialize and build the
+  backend. Cache keys hash tracked package metadata, locks and reviewed patches
+  available at checkout, rather than a not-yet-existing `go.sum`. Restore
+  prefixes retain OS/architecture/toolchain isolation.
+- Require native verifier execution and reject translated processes. Require
+  actual Electron, backend and Python executables, then check every discovered
+  Mach-O target slice, including non-executable native libraries and extensions.
+  Confined framework symlinks are deduplicated; escaped links fail.
+- Inspect target-slice Mach-O deployment commands with `otool`. A payload whose
+  minimum macOS exceeds the app's `LSMinimumSystemVersion`, or lacks deployment
+  metadata, fails. Logs record per-file minimum versions. This checks consistency
+  with the advertised minimum; it does not establish an approved historical
+  support floor or substitute for running on that oldest supported OS.
+- Execute isolated bundled Python native-binding exercises (SSL, SQLite, ctypes,
+  cryptography, psutil, OpenSSL), verify module origins stay in the bundled CLI,
+  check the pinned CLI version and load actual commands from `resource-graph`,
+  `alertsmanagement`, and `connectedk8s`. Dynamic extension installation and
+  telemetry are disabled. These are offline loading checks, not cloud mutation
+  or authenticated cluster-operation tests.
+- `verify-macos-signing.sh` requires valid DMG/app signatures, exact Microsoft
+  Developer ID authority/team, the expected product bundle ID, and exactly one
+  root app. Notarized mode also requires a valid stapled DMG ticket and positive
+  Gatekeeper assessments. Missing bundles or failed checks cannot become warnings.
 
-No branch push, build dispatch, signing run or release publication was performed
-as part of the local checks or the preview-only compilation above.
+## Final artifact gate
+
+`Notarize_arm64` publishes intermediate `notarized-dmg-arm64`. A native
+`Qualify_arm64` job downloads those exact bytes, verifies signatures/notarization,
+mounts read-only, and copies the app into temporary storage. It runs the product,
+architecture and runtime checks against that copied app, then the existing
+application/backend HTTP-readiness smoke test. Signature verification runs again
+following execution. No build, re-signing or repackaging is permitted in this job.
+
+Only after success does it copy the original DMG into final artifact
+**aks-desktop-signed-arm64**. Its SHA256, ADO build/source IDs and checks are
+recorded in **macos-qualification-arm64** / `qualification.log`. The Intel final
+artifact remains **aks-desktop-signed-x64**, with native pre-sign distribution
+smoke and fail-closed final signature/notarization checks.
+
+The same ARM qualification can be run from this checkout on a native ARM Mac:
+
+```sh
+# Install verifier dependencies only with pinned npm; do not rebuild the app.
+npm ci --ignore-scripts --no-audit --no-fund
+BUILD_BUILDID='<actual ADO build ID>' BUILD_SOURCEVERSION='<actual source SHA>' \
+  bash build/qualify-macos-dmg.sh \
+    /path/to/notarized-dmgs /path/to/qualified-output com.microsoft.aksdesktop
+```
+
+Use the expected bundle ID from the approved source, not a value inferred from
+an arbitrary downloaded app. Normal packaged verification also accepts an
+explicit final app: `PYTHONDONTWRITEBYTECODE=1 npm run test:post-build -- --app='/path/AKS desktop.app'`.
+The app and backend smoke is separate: `npm run headlamp:smoke -- --executable
+'/path/AKS desktop.app/Contents/MacOS/AKS desktop'`.
+
+## Remaining live gates and decisions
+
+1. Obtain approval for the exact source push, then separately for one build
+   dispatch with its source SHA and toolchain. No automatic external retries.
+2. Prove native allocation, installed tool versions, dependency installation,
+   actual packaging, all signature/notarization checks and final ARM qualification.
+   Collect final ARM and Intel artifact IDs, filenames, sizes and SHA256 hashes.
+3. The failed run's **SDL Sources** job also could not allocate its configured
+   Windows image. This repair does not change that pool or bypass the security
+   scan; its owner must resolve the blocker under separate authorization.
+4. Current consumer macOS bundle ID is **com.microsoft.aksdesktop**, whereas
+   historical signing reported **com.microsoft.aks-desktop**. This repair does
+   not silently change current identity. Reconcile supported upgrade/keychain/
+   provisioning behavior before release. A copied provisioning file alone is
+   not proof the generated Electron Builder configuration uses it.
+5. Confirm the advertised minimum macOS against the supported release baseline
+   and test on that OS. New-host compilation and load-command consistency alone
+   cannot prove backwards compatibility.
+6. Complete a normal interactive launch of the final signed app on Apple Silicon
+   in addition to the automated headless/backend smoke. No such manual check has
+   been performed in this Linux session.
+
+See `implementation-notes.md` for fresh local commands/results and limitations.
 
 ## Reviewer focus
 
-1. Why does the native ARM pool override apply to the build job rather than
-   replacing the pool for every signing/notarization job?
-2. Why is `Agent.OS` alone insufficient to identify these dependency caches?
-3. What different failures do Python's execution architecture and Mach-O slice
-   checks detect?
-4. What does the preview API establish, and what still requires real allocation?
-5. Which source publication, build and release operations still require their
-   own explicit approvals?
+Scrutinize the actual compiled pool selectors, cache inputs before npm lifecycle
+execution, and the final publication dependency. Signing checks intentionally
+fail closed; real macOS output/exit behavior still needs qualification. No
+source-package, localization, product identity or tool-version pins changed.
+
+1. Why does this named hosted pool require explicit `vmImage` in 1ES?
+2. Why is moving the Go cache after ordinary `npm ci` too late?
+3. What does the Mach-O deployment check establish, and what does it not prove?
+4. Why must isolated Python probes also use `-B` against a signed application?
+5. Which evidence is still required before this candidate can be called qualified?
