@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import React, { createContext, useContext } from 'react';
+import { usePreviewFeatures } from '../../hooks/usePreviewFeatures';
 import type { UseGitHubAuthResult } from './hooks/useGitHubAuth';
 import { useGitHubAuth } from './hooks/useGitHubAuth';
 
@@ -10,6 +11,11 @@ type GitHubAuthContextValue = UseGitHubAuthResult;
 const GitHubAuthContext = createContext<GitHubAuthContextValue | null>(null);
 
 export const GitHubAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { githubPipelines } = usePreviewFeatures();
+  return githubPipelines ? <EnabledGitHubAuthProvider>{children}</EnabledGitHubAuthProvider> : null;
+};
+
+const EnabledGitHubAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const auth = useGitHubAuth();
   return <GitHubAuthContext.Provider value={auth}>{children}</GitHubAuthContext.Provider>;
 };

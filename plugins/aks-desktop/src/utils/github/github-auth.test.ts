@@ -1,9 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, render, renderHook, waitFor } from '@testing-library/react';
+import { createElement, useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  GitHubAuthProvider,
+  useGitHubAuthContext,
+} from '../../components/GitHubPipeline/GitHubAuthContext';
 import { useGitHubAuth } from '../../components/GitHubPipeline/hooks/useGitHubAuth';
+import { usePreviewFeatures } from '../../hooks/usePreviewFeatures';
 import {
   clearTokens,
   isTokenExpired,
@@ -25,6 +31,10 @@ vi.mock('./secure-storage', () => ({
 vi.mock('./github-api', () => ({
   createOctokitClient: vi.fn(),
   getCurrentUser: vi.fn(),
+}));
+
+vi.mock('../../hooks/usePreviewFeatures', () => ({
+  usePreviewFeatures: vi.fn(() => ({ githubPipelines: false })),
 }));
 
 /**
@@ -50,6 +60,7 @@ function mockDesktopApi(overrides: Record<string, unknown> = {}) {
 describe('github-auth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(usePreviewFeatures).mockReturnValue({ githubPipelines: false });
   });
 
   afterEach(() => {
@@ -200,6 +211,58 @@ describe('github-auth', () => {
     await waitFor(() => expect(result.current.authState.isRestoring).toBe(false));
     unmount();
     expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('does not initialize GitHub auth or mount pipeline UI while the feature is disabled', async () => {
+    const { secureStorageLoad } = await import('./secure-storage');
+    const child = vi.fn(() => null);
+    const view = render(createElement(GitHubAuthProvider, null, createElement(child)));
+    expect(child).not.toHaveBeenCalled();
+    expect(secureStorageLoad).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it('mounts auth on enable and unsubscribes and unmounts pipeline UI on disable', async () => {
+    const { secureStorageLoad } = await import('./secure-storage');
+    const unsubscribe = vi.fn();
+    const api = mockDesktopApi({ onGitHubOAuthCallback: vi.fn().mockReturnValue(unsubscribe) });
+    const mounted = vi.fn();
+    const unmounted = vi.fn();
+    function PipelineChild() {
+      const { authState } = useGitHubAuthContext();
+      useEffect(() => {
+        mounted();
+        return unmounted;
+      }, []);
+      return createElement('span', null, authState.isRestoring ? 'Restoring' : 'Ready');
+    }
+    const tree = createElement(GitHubAuthProvider, null, createElement(PipelineChild));
+    const view = render(tree);
+    expect(api.onGitHubOAuthCallback).not.toHaveBeenCalled();
+    expect(secureStorageLoad).not.toHaveBeenCalled();
+
+    vi.mocked(usePreviewFeatures).mockReturnValue({ githubPipelines: true });
+    view.rerender(createElement(GitHubAuthProvider, null, createElement(PipelineChild)));
+    await view.findByText('Ready');
+    expect(mounted).toHaveBeenCalledOnce();
+    expect(secureStorageLoad).toHaveBeenCalledOnce();
+    expect(api.onGitHubOAuthCallback).toHaveBeenCalledOnce();
+    expect(api.startGitHubOAuth).not.toHaveBeenCalled();
+
+    vi.mocked(usePreviewFeatures).mockReturnValue({ githubPipelines: false });
+    view.rerender(createElement(GitHubAuthProvider, null, createElement(PipelineChild)));
+    expect(view.queryByText('Ready')).toBeNull();
+    expect(unmounted).toHaveBeenCalledOnce();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(secureStorageLoad).toHaveBeenCalledOnce();
+
+    vi.mocked(usePreviewFeatures).mockReturnValue({ githubPipelines: true });
+    view.rerender(createElement(GitHubAuthProvider, null, createElement(PipelineChild)));
+    await view.findByText('Ready');
+    expect(mounted).toHaveBeenCalledTimes(2);
+    expect(api.onGitHubOAuthCallback).toHaveBeenCalledTimes(2);
+    view.unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(2);
   });
 
   describe('isTokenExpired', () => {
