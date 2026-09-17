@@ -43,6 +43,7 @@ extends:
       - stage: Stage
         jobs:
           - job: HostJob
+            timeoutInMinutes: 120
             variables:
               NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
               NPM_CONFIG_REPLACE_REGISTRY_HOST: npmjs
@@ -111,23 +112,27 @@ extends:
                 displayName: "Debug: Checkout"
               - bash: |
                   set -e
-                  echo "=== INSTALL BINUTILS START ==="
-                  if command -v ld >/dev/null 2>&1; then
-                    echo "binutils is already installed, skipping install."
-                  else
-                    echo "binutils not found, installing via tdnf..."
+                  echo "=== INSTALL BUILD PREREQUISITES START ==="
+                  packages=()
+                  command -v ld >/dev/null 2>&1 || packages+=(binutils)
+                  command -v make >/dev/null 2>&1 || packages+=(make)
+
+                  if [ "${#packages[@]}" -gt 0 ]; then
+                    echo "Installing via tdnf: ${packages[*]}"
                     if [ "$(id -u)" -eq 0 ]; then
-                      tdnf install -y binutils
+                      tdnf install -y "${packages[@]}"
                     else
-                      sudo -n tdnf install -y binutils
+                      sudo -n tdnf install -y "${packages[@]}"
                     fi
-                    echo "binutils installed successfully."
+                  else
+                    echo "Build prerequisites are already installed."
                   fi
 
-                  echo "binutils version:"
+                  echo "Installed build prerequisites:"
                   ld --version | head -n 1
-                  echo "=== INSTALL BINUTILS END ==="
-                displayName: "Install binutils"
+                  make --version | head -n 1
+                  echo "=== INSTALL BUILD PREREQUISITES END ==="
+                displayName: "Install build prerequisites"
               # Build the Windows application
               - bash: |
                   set -e  # fail the step when the build fails
@@ -161,8 +166,9 @@ extends:
                   export PATH="$npm_root/node_modules/.bin:$PATH"
                   npm ci
                   echo "Building AKS desktop Linux application..."
+                  # TODO: Restore the app smoke when the image includes Electron runtime libraries.
                   if ! npm run build:linux || \
-                    ! npm run test:distribution -- --no-sandbox; then
+                    ! npm run test:post-build; then
                     exit 1
                   fi
                   echo "✅ Build complete"
