@@ -18,6 +18,10 @@ parameters:
 extends:
   template: v1/1ES.Unofficial.PipelineTemplate.yml@1esPipelines
   parameters:
+    featureFlags:
+      golang:
+        internalModuleProxy:
+          enabled: true
     pool:
       name: Azure Pipelines
       image: macOS-latest
@@ -51,6 +55,10 @@ extends:
                 value: https://packagefeedproxy.microsoft.io/npm/
               - name: NPM_CONFIG_REPLACE_REGISTRY_HOST
                 value: npmjs
+              - name: PIP_INDEX_URL
+                value: https://packagefeedproxy.microsoft.io/pypi/simple/
+              - name: NPM_CONFIG_CACHE
+                value: $(Pipeline.Workspace)/.npm
               - name: ARCH
                 value: arm64
               - name: ARCH_DISPLAY
@@ -78,42 +86,21 @@ extends:
               - checkout: self
                 submodules: false
 
-              # Cache dependencies
+              # Cache downloads, not node_modules that npm ci replaces.
               - task: Cache@2
-                displayName: 'Cache npm dependencies (plugin)'
+                displayName: 'Cache npm downloads'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | plugins/aks-desktop/package-lock.json'
+                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/ai-assistant/package-lock.json | plugins/plugin-catalog/package-lock.json'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'plugins/aks-desktop/node_modules'
-
-              - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp frontend)'
-                inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-frontend'
-                  restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules'
-
-              - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp app)'
-                inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-app'
-                  restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules'
+                    npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
+                  path: '$(Pipeline.Workspace)/.npm'
 
               - task: Cache@2
                 displayName: 'Cache Go modules'
                 inputs:
-                  key: 'go | "$(Agent.OS)" | "${{ parameters.goVersion }}" | **/go.sum'
+                  key: 'go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" | package.json | package-lock.json | patches/*.patch'
                   restoreKeys: |
-                    go | "$(Agent.OS)" | "${{ parameters.goVersion }}" |
-                    go | "$(Agent.OS)" |
-                    go |
+                    go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" |
                   path: '$(HOME)/go/pkg/mod'
 
               # Download certificates (needed for local signing during build)
@@ -211,8 +198,6 @@ extends:
                   cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
 
                   export NODE_OPTIONS="--max-old-space-size=4096"
-                  export GOPROXY="https://proxy.golang.org,direct"
-                  export GOSUMDB="sum.golang.org"
                   export GONOPROXY=""
                   export GOPRIVATE=""
                   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
@@ -552,6 +537,10 @@ extends:
                 value: https://packagefeedproxy.microsoft.io/npm/
               - name: NPM_CONFIG_REPLACE_REGISTRY_HOST
                 value: npmjs
+              - name: PIP_INDEX_URL
+                value: https://packagefeedproxy.microsoft.io/pypi/simple/
+              - name: NPM_CONFIG_CACHE
+                value: $(Pipeline.Workspace)/.npm
               - name: ARCH
                 value: x64
               - name: ARCH_DISPLAY
@@ -579,42 +568,21 @@ extends:
               - checkout: self
                 submodules: false
 
-              # Cache dependencies
+              # Cache downloads, not node_modules that npm ci replaces.
               - task: Cache@2
-                displayName: 'Cache npm dependencies (plugin)'
+                displayName: 'Cache npm downloads'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | plugins/aks-desktop/package-lock.json'
+                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/ai-assistant/package-lock.json | plugins/plugin-catalog/package-lock.json'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'plugins/aks-desktop/node_modules'
-
-              - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp frontend)'
-                inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-frontend'
-                  restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules'
-
-              - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp app)'
-                inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-app'
-                  restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules'
+                    npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
+                  path: '$(Pipeline.Workspace)/.npm'
 
               - task: Cache@2
                 displayName: 'Cache Go modules'
                 inputs:
-                  key: 'go | "$(Agent.OS)" | "${{ parameters.goVersion }}" | **/go.sum'
+                  key: 'go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" | package.json | package-lock.json | patches/*.patch'
                   restoreKeys: |
-                    go | "$(Agent.OS)" | "${{ parameters.goVersion }}" |
-                    go | "$(Agent.OS)" |
-                    go |
+                    go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" |
                   path: '$(HOME)/go/pkg/mod'
 
               # Download certificates (needed for local signing during build)
@@ -712,8 +680,6 @@ extends:
                   cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
 
                   export NODE_OPTIONS="--max-old-space-size=4096"
-                  export GOPROXY="https://proxy.golang.org,direct"
-                  export GOSUMDB="sum.golang.org"
                   export GONOPROXY=""
                   export GOPRIVATE=""
                   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
