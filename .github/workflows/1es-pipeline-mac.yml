@@ -39,6 +39,8 @@ extends:
       - stage: Build_arm64
         displayName: 'Build (arm64)'
         dependsOn: []  # Explicitly no dependencies - run in parallel with x64
+        # No Apple Silicon agent is currently available in GitHub-hosted Agents.
+        condition: eq(1, 0)
         jobs:
           - job: BuildJob_arm64
             displayName: 'Build macOS Application (Apple Silicon)'
@@ -106,9 +108,9 @@ extends:
               - task: Cache@2
                 displayName: 'Cache npm downloads'
                 inputs:
-                  key: 'npm-download-v1 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | plugins/*/package-lock.json'
+                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/ai-assistant/package-lock.json | plugins/plugin-catalog/package-lock.json'
                   restoreKeys: |
-                    npm-download-v1 | "$(Agent.OS)" | "$(ARCH)" |
+                    npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
                   path: '$(Pipeline.Workspace)/.npm'
 
               # npm ci materializes Headlamp AND builds its backend. Hash the
@@ -570,9 +572,9 @@ extends:
               - task: Cache@2
                 displayName: 'Cache npm downloads'
                 inputs:
-                  key: 'npm-download-v1 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | plugins/*/package-lock.json'
+                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/ai-assistant/package-lock.json | plugins/plugin-catalog/package-lock.json'
                   restoreKeys: |
-                    npm-download-v1 | "$(Agent.OS)" | "$(ARCH)" |
+                    npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
                   path: '$(Pipeline.Workspace)/.npm'
 
               # npm ci materializes Headlamp AND builds its backend. Hash the

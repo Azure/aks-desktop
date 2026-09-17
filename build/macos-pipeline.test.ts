@@ -16,9 +16,9 @@ function stage(name: string): string {
   return block.split('      - stage: ')[0];
 }
 
-test('passes a hosted vmImage rather than a self-hosted ImageOverride input to 1ES', () => {
+test('keeps unavailable native ARM64 hosting disabled', () => {
   const arm = stage('Build_arm64');
-  assert.doesNotMatch(arm, /condition: eq\(1, 0\)/);
+  assert.match(arm, /condition: eq\(1, 0\)/);
   const pool = arm.split('            pool:\n')[1]?.split('            timeoutInMinutes:')[0];
   assert.ok(pool);
   assert.match(pool, /name: GitHub-hosted Agents/);
@@ -67,6 +67,9 @@ test('cache file inputs exist at checkout before npm lifecycle builds the backen
       const inputs = cache.split(/\n\s+(?:- task:|- checkout:|- bash:)/)[0];
       const key = inputs.match(/key: '([^']+)'/)?.[1];
       assert.ok(key);
+      if (key.startsWith('npm-download')) {
+        assert.doesNotMatch(key, /\*/, `${name}: npm cache key must use explicit files`);
+      }
       const files = key
         .split('|')
         .map((part) => part.trim())
