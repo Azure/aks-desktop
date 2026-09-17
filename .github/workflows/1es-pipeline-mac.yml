@@ -18,6 +18,10 @@ parameters:
 extends:
   template: v1/1ES.Unofficial.PipelineTemplate.yml@1esPipelines
   parameters:
+    featureFlags:
+      golang:
+        internalModuleProxy:
+          enabled: true
     pool:
       name: Azure Pipelines
       image: macOS-latest
@@ -51,6 +55,8 @@ extends:
                 value: https://packagefeedproxy.microsoft.io/npm/
               - name: NPM_CONFIG_REPLACE_REGISTRY_HOST
                 value: npmjs
+              - name: PIP_INDEX_URL
+                value: https://packagefeedproxy.microsoft.io/pypi/simple/
               - name: NPM_CONFIG_CACHE
                 value: $(Pipeline.Workspace)/.npm
               - name: ARCH
@@ -192,8 +198,6 @@ extends:
                   cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
 
                   export NODE_OPTIONS="--max-old-space-size=4096"
-                  export GOPROXY="https://proxy.golang.org,direct"
-                  export GOSUMDB="sum.golang.org"
                   export GONOPROXY=""
                   export GOPRIVATE=""
                   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
@@ -533,6 +537,8 @@ extends:
                 value: https://packagefeedproxy.microsoft.io/npm/
               - name: NPM_CONFIG_REPLACE_REGISTRY_HOST
                 value: npmjs
+              - name: PIP_INDEX_URL
+                value: https://packagefeedproxy.microsoft.io/pypi/simple/
               - name: NPM_CONFIG_CACHE
                 value: $(Pipeline.Workspace)/.npm
               - name: ARCH
@@ -674,8 +680,6 @@ extends:
                   cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
 
                   export NODE_OPTIONS="--max-old-space-size=4096"
-                  export GOPROXY="https://proxy.golang.org,direct"
-                  export GOSUMDB="sum.golang.org"
                   export GONOPROXY=""
                   export GOPRIVATE=""
                   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
