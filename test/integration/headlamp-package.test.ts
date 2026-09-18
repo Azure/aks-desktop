@@ -167,6 +167,14 @@ test('source builds use explicit, reviewed install scripts', () => {
   for (const script of ['dev-only-app', 'dev-only-app:debug']) {
     assert.match(appManifest.scripts[script], /HEADLAMP_BACKEND_TOKEN=headlamp/);
   }
+  assert.doesNotMatch(appManifest.scripts.package, /npm run build/);
+  assert.match(appManifest.scripts.package, /npm run copy-icons/);
+  assert.match(appManifest.scripts.package, /npm run copy-plugins/);
+  assert.match(appManifest.scripts.package, /npm run compile-electron/);
+  assert.equal(
+    (appManifest.scripts.package.match(/(?:^|&& )electron-builder build/g) ?? []).length,
+    1
+  );
 
   const frontendManifest = JSON.parse(
     fs.readFileSync(
@@ -179,10 +187,8 @@ test('source builds use explicit, reviewed install scripts', () => {
   assert.match(frontendManifest.scripts.start, /REACT_APP_HEADLAMP_BACKEND_TOKEN=headlamp/);
   assert.match(sourceManifest.scripts['backend:start'], /HEADLAMP_BACKEND_TOKEN=headlamp/);
   assert.equal(frontendManifest.scripts.postbuild, 'tsx ./scripts/precompress-build.ts build');
-  assert.equal(
-    frontendManifest.scripts['postbuild:rsbuild'],
-    'tsx ./scripts/precompress-build.ts build'
-  );
+  assert.equal(frontendManifest.scripts['build:rsbuild'], undefined);
+  assert.equal(frontendManifest.scripts['postbuild:rsbuild'], undefined);
   assert.equal(sourceManifest.devDependencies.tsx, '4.23.1');
   assert.match(sourceManifest.scripts['app:build'], /tsx \.\/scripts\/setup-plugins\.ts/);
   assert.match(sourceManifest.scripts['app:build:dir'], /tsx \.\/scripts\/setup-plugins\.ts/);
