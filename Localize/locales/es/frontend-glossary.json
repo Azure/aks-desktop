@@ -159,7 +159,7 @@
   "Liveness Probes": "Sondeos de ejecución",
   "Load Balancer Class": "Clase de equilibrador de carga",
   "Load Balancer Source Ranges": "Intervalos de origen de equilibrador de carga",
-  "Load more": "Load more",
+  "Load more": "Cargar más",
   "Logs: {{ itemName }}": "Registros: {{ itemName }}",
   "Lower Bound": "Límite inferior",
   "Machine ID": "Id. de máquina",
@@ -332,7 +332,7 @@
   "Volume Name": "Volume Name",
   "VPAs": "VPA",
   "Webhooks": "Webhooks",
-  "Workload": "Workload",
+  "Workload": "Carga de trabajo",
   "Workloads": "Cargas de trabajo",
   "Workloads (scheduling)": "Workloads (scheduling)",
   "Yes": "Sí"
