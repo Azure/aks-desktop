@@ -32,7 +32,7 @@ jobs:
           npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
           echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
           export PATH="$npm_root/node_modules/.bin:$PATH"
-          npm ci
+          npm ci --prefer-offline --no-audit --no-fund
 
       - name: Run plugin packaging tests
         run: npm run test:build
@@ -56,7 +56,7 @@ jobs:
           npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
           echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
           export PATH="$npm_root/node_modules/.bin:$PATH"
-          npm ci
+          npm ci --prefer-offline --no-audit --no-fund
 
       - name: Test the package CLI
         run: npm run test:headlamp-package
@@ -191,7 +191,7 @@ jobs:
             changed_plugins=$(printf '%s\n' "$changed_files" | grep '^plugins/' | awk -F/ '{print $2}' | sort -u)
           fi
 
-          TRANSLATION_PLUGINS=(aks-desktop ai-assistant plugin-catalog)
+          TRANSLATION_PLUGINS=(aks-desktop plugin-catalog)
           plugin_dirs=()
           has_translation_plugins=false
 
@@ -352,7 +352,6 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             plugins/aks-desktop/package-lock.json
-            plugins/ai-assistant/package-lock.json
             plugins/plugin-catalog/package-lock.json
 
       - name: Install dependencies
@@ -361,14 +360,10 @@ jobs:
           npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
           echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
           export PATH="$npm_root/node_modules/.bin:$PATH"
-          npm ci
+          npm ci --prefer-offline --no-audit --no-fund
 
       - name: Generate English locale (aks-desktop)
         working-directory: plugins/aks-desktop
-        run: npm run i18n
-
-      - name: Generate English locale (ai-assistant)
-        working-directory: plugins/ai-assistant
         run: npm run i18n
 
       - name: Generate English locale (plugin-catalog)

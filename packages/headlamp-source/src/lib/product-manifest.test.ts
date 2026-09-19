@@ -12,7 +12,7 @@ const runCommands = [
   },
 ];
 
-test('creates product configuration without consumer-only plugin sources', () => {
+test('creates product configuration with only release plugin sources', () => {
   const template = createProductTemplate({
     version: '1.2.3',
     headlamp: {
@@ -26,6 +26,13 @@ test('creates product configuration without consumer-only plugin sources', () =>
           source: 'plugins/example',
           enabledByDefault: true,
         },
+        {
+          name: 'release-plugin',
+          packageName: '@example/release-plugin',
+          archive: 'https://example.invalid/release-plugin.tar.gz',
+          sha256: 'a'.repeat(64),
+          enabledByDefault: false,
+        },
       ],
     },
   });
@@ -36,9 +43,11 @@ test('creates product configuration without consumer-only plugin sources', () =>
     runCommands,
     plugins: [
       {
-        name: 'example-plugin',
-        packageName: '@example/plugin',
-        enabledByDefault: true,
+        name: 'release-plugin',
+        packageName: '@example/release-plugin',
+        archive: 'https://example.invalid/release-plugin.tar.gz',
+        sha256: 'a'.repeat(64),
+        enabledByDefault: false,
       },
     ],
   });

@@ -94,7 +94,7 @@ export function packageEnvironment(
     ...env,
     GOARCH: target.arch === 'x64' ? 'amd64' : target.arch,
     HEADLAMP_BUILD_MANIFEST: BUILD_MANIFEST,
-    HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: '1',
+    HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'aks-desktop,plugin-catalog',
     npm_config_arch: target.arch,
     npm_config_platform: target.platform,
     npm_config_target_arch: target.arch,
@@ -156,14 +156,17 @@ export function packageTarget(
     runTimedStep('stage external tools', () =>
       runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir)
     );
+    runTimedStep('generate product manifest', () =>
+      runStep(['run', 'headlamp:manifest'], rootDir)
+    );
+    runTimedStep('install release plugins', () =>
+      runStep(['run', 'plugin:install-releases'], rootDir, buildEnv)
+    );
     runTimedStep('distribute translations', () =>
       runStep(['run', 'headlamp:translations'], rootDir)
     );
     runTimedStep('bundle plugins', () =>
       runStep(['run', 'plugin:setup'], rootDir, buildEnv)
-    );
-    runTimedStep('generate product manifest', () =>
-      runStep(['run', 'headlamp:manifest'], rootDir)
     );
     runTimedStep('generate frontend environment', () =>
       runStep(['run', 'headlamp:frontend-env'], rootDir)

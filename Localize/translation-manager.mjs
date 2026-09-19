@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-// Collects translation keys from the in-repo plugins, installed Headlamp source,
-// and external headlamp-plugins repository into JSON files for the translation
-// team, and distributes completed translations back to their locale directories.
+// Collects translation keys from in-repo plugins, staged release plugins,
+// installed Headlamp source, and the external headlamp-plugins repository into
+// JSON files for the translation team, then distributes completed translations.
 //
 // Usage:
 //   node Localize/translation-manager.mjs collect
@@ -15,7 +15,8 @@
 //     `mergeDir` targets (the external plugins repo) only receive keys that
 //     are still missing there, so community translations always win.
 //
-// The external plugins repo is expected as a sibling checkout ("../plugins");
+// Release plugins must be staged before collection. The external plugins repo is
+// expected as a sibling checkout ("../plugins");
 // override with the HEADLAMP_PLUGINS_DIR environment variable. Missing external
 // plugin directories are skipped; the installed Headlamp source is required.
 
@@ -38,6 +39,16 @@ function externalPluginLocales(name) {
 /* Locales dir of a plugin vendored in this repo. */
 function localPluginLocales(name) {
   return path.join(ROOT, "plugins", name, "locales");
+}
+
+/* Locales dir of a release plugin staged for desktop packaging. */
+function packagedPluginLocales(name) {
+  return path.join(
+    ROOT,
+    "node_modules/@headlamp-k8s/headlamp-source/source/.plugins",
+    name,
+    "locales",
+  );
 }
 
 const HEADLAMP_LOCALES = {
@@ -82,9 +93,8 @@ const SOURCES = [
   },
   {
     name: "ai-assistant",
-    sourceDir: localPluginLocales("ai-assistant"),
-    replaceDir: localPluginLocales("ai-assistant"),
-    mergeDir: externalPluginLocales("ai-assistant"),
+    sourceDir: packagedPluginLocales("ai-assistant"),
+    replaceDir: packagedPluginLocales("ai-assistant"),
     namespaces: ["translation"],
   },
   {
@@ -431,11 +441,14 @@ function main() {
     distribute();
   } else if (command === "distribute-headlamp") {
     distribute(new Set(["frontend"]));
+  } else if (command === "distribute-packaged") {
+    distribute(new Set(["frontend", "ai-assistant"]));
   } else {
     console.log("Usage:");
     console.log("  node Localize/translation-manager.mjs collect");
     console.log("  node Localize/translation-manager.mjs distribute");
     console.log("  node Localize/translation-manager.mjs distribute-headlamp");
+    console.log("  node Localize/translation-manager.mjs distribute-packaged");
     process.exit(1);
   }
 }

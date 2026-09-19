@@ -164,7 +164,7 @@ extends:
                   npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
                   echo "##vso[task.prependpath]$npm_root/node_modules/.bin"
                   export PATH="$npm_root/node_modules/.bin:$PATH"
-                  npm ci
+                  npm ci --prefer-offline --no-audit --no-fund
                   echo "Building AKS desktop Linux application..."
                   # TODO: Restore the app smoke when the image includes Electron runtime libraries.
                   if ! npm run build:linux || \
