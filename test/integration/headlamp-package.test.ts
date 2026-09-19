@@ -273,7 +273,7 @@ test('root builds package supported host targets independently', () => {
   assert.equal(rootManifest.scripts['build:linux:armv7l'], undefined);
   assert.equal(
     rootManifest.scripts['headlamp:translations'],
-    'node Localize/translation-manager.mjs distribute-headlamp'
+    'node Localize/translation-manager.mjs distribute-packaged'
   );
   assert.match(rootManifest.scripts['headlamp:assemble'], /headlamp:translations/);
 });
@@ -341,7 +341,18 @@ test('package targets have verified external tool runtimes', () => {
   assert.equal(windowsArm.runtimeArch, 'x64');
 });
 
-test('all shipped plugin workspaces are packaged and installed', () => {
+test('shipped plugins use verified workspace and release sources', () => {
+  const aiAssistant = (rootManifest.headlamp.plugins as any[]).find(
+    plugin => plugin.name === 'ai-assistant'
+  );
+  assert.deepEqual(aiAssistant, {
+    name: 'ai-assistant',
+    packageName: '@headlamp-k8s/ai-assistant',
+    archive:
+      'https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.0-alpha/headlamp-k8s-ai-assistant-0.4.0-alpha.tar.gz',
+    sha256: '3c969569432e7374975b6993ed7865087669dddaa54777106e0af32d8209068f',
+    enabledByDefault: true,
+  });
   const catalog = (rootManifest.headlamp.plugins as any[]).find(
     plugin => plugin.name === 'plugin-catalog'
   );
@@ -353,10 +364,14 @@ test('all shipped plugin workspaces are packaged and installed', () => {
   });
   assert.equal(rootManifest.scripts['install:all'], 'tsx ./build/install-dependencies.ts');
   assert.equal(rootManifest.scripts['headlamp:install'], 'tsx ./build/install-headlamp-desktop.ts');
-  for (const script of ['plugin:install', 'ai-assistant:install', 'plugin-catalog:install']) {
+  for (const script of ['plugin:install', 'plugin-catalog:install']) {
     assert.match(rootManifest.scripts[script], /^npm ci --prefix /);
     assert.match(rootManifest.scripts[script], /--prefer-offline --no-audit --no-fund$/);
   }
+  assert.equal(rootManifest.scripts['ai-assistant:install'], undefined);
+  assert.equal(rootManifest.scripts['ai-assistant:build'], undefined);
+  assert.match(rootManifest.scripts['i18n:collect'], /plugin:install-releases/);
+  assert.match(rootManifest.scripts['headlamp:translations'], /distribute-packaged/);
 });
 
 test('AKS product policy owns development and production command grants', () => {

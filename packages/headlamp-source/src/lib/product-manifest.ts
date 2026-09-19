@@ -26,7 +26,9 @@ function createProductTemplate(project: any, platform = process.platform) {
     template.product.productName = productName;
   }
   template.product.version = project.version;
-  template.plugins = plugins.map(({ source: _source, ...plugin }) => plugin);
+  template.plugins = plugins
+    .filter(plugin => plugin.archive !== undefined || plugin.file !== undefined)
+    .map(({ source: _source, ...plugin }) => plugin);
   return template;
 }
 

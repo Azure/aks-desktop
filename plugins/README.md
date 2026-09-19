@@ -7,10 +7,9 @@ This directory contains the plugins for the AKS desktop application.
 - `aks-desktop/` - The main AKS desktop plugin for Headlamp
   - Contains the TypeScript source code, configuration files, and tests
   - Built and deployed as a Headlamp plugin
-- `ai-assistant/` - AI Assistant plugin for Headlamp (Preview)
-  - Provides conversational AI capabilities for Kubernetes cluster management
-  - Disabled by default; must be enabled in Settings
-  - See [ai-assistant/README.md](ai-assistant/README.md) for details
+
+AI Assistant is pinned as a verified GitHub release in the root product
+manifest rather than maintained as an in-repository plugin workspace.
 
 ## Building Plugins
 
@@ -20,8 +19,8 @@ To build all plugins, use the build script from the root directory:
 npm run plugin:setup
 ```
 
-For each plugin declared in `package.json#headlamp.plugins`, the source-package
-bundler will:
+For each workspace plugin declared in `package.json#headlamp.plugins`, the
+source-package bundler will:
 
 1. Navigate to the plugin directory
 2. Install dependencies
@@ -29,12 +28,15 @@ bundler will:
 4. Copy the compiled files into Headlamp's local `.plugins` directory so the
   app can load and package them
 
+Release plugins are downloaded from their pinned manifest URL, checksum
+verified, and extracted directly into the same `.plugins` directory.
+
 ## Development
 
 Each plugin has its own package.json and can be developed independently:
 
 ```bash
-cd plugins/aks-desktop   # or plugins/ai-assistant
+cd plugins/aks-desktop
 npm install
 npm run start  # For development mode
 npm run build  # For production build

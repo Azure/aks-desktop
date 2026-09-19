@@ -90,11 +90,15 @@ function runNpm(args, cwd) {
  * Decides whether a packaging build can reuse a plugin's clean install.
  *
  * @param pluginDir - Plugin workspace containing npm's hidden lockfile.
+ * @param pluginName - Configured bundle name selected for dependency reuse.
  * @param env - Environment controlling dependency reuse.
  * @returns Whether bundling should skip npm ci.
  */
-function reusePluginDependencies(pluginDir, env = process.env) {
-  if (env[REUSE_PLUGIN_DEPENDENCIES_ENV] !== '1') {
+function reusePluginDependencies(pluginDir, pluginName, env = process.env) {
+  const reusablePlugins = new Set(
+    (env[REUSE_PLUGIN_DEPENDENCIES_ENV] || '').split(',').filter(Boolean)
+  );
+  if (!reusablePlugins.has(pluginName)) {
     return false;
   }
   if (!fs.existsSync(path.join(pluginDir, 'node_modules', '.package-lock.json'))) {
@@ -205,7 +209,7 @@ function bundlePlugin(projectDir, pluginsDir, plugin) {
   }
 
   validatePlugin(pluginDir, plugin);
-  if (!reusePluginDependencies(pluginDir)) {
+  if (!reusePluginDependencies(pluginDir, plugin.name)) {
     runNpm(['ci', '--prefer-offline', '--no-audit', '--no-fund'], pluginDir);
   }
   runNpm(['run', 'build'], pluginDir);
@@ -301,8 +305,13 @@ function bundleConfiguredPlugins(
   }
   validatePluginConfiguration(plugins);
 
-  fs.rmSync(pluginsDir, { recursive: true, force: true });
   fs.mkdirSync(pluginsDir, { recursive: true });
+  const configuredNames = new Set(plugins.map(plugin => plugin.name));
+  for (const entry of fs.readdirSync(pluginsDir)) {
+    if (!configuredNames.has(entry)) {
+      fs.rmSync(path.join(pluginsDir, entry), { recursive: true, force: true });
+    }
+  }
   for (const plugin of plugins) {
     if (plugin.source !== undefined) {
       bundlePlugin(root, pluginsDir, plugin);

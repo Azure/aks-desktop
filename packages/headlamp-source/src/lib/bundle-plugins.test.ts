@@ -82,15 +82,26 @@ test('runs the npm JavaScript CLI through Node when available', () => {
 
 test('reuses only a verified plugin dependency tree during packaging', () => {
   const { pluginDir } = createPlugin('example-plugin');
-  assert.equal(reusePluginDependencies(pluginDir, {}), false);
+  assert.equal(reusePluginDependencies(pluginDir, 'example', {}), false);
+  assert.equal(
+    reusePluginDependencies(pluginDir, 'other', {
+      HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
+    }),
+    false
+  );
   assert.throws(
-    () => reusePluginDependencies(pluginDir, { HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: '1' }),
+    () =>
+      reusePluginDependencies(pluginDir, 'example', {
+        HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
+      }),
     /missing plugin dependencies/
   );
   fs.mkdirSync(path.join(pluginDir, 'node_modules'), { recursive: true });
   fs.writeFileSync(path.join(pluginDir, 'node_modules', '.package-lock.json'), '{}');
   assert.equal(
-    reusePluginDependencies(pluginDir, { HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: '1' }),
+    reusePluginDependencies(pluginDir, 'example', {
+      HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
+    }),
     true
   );
 });
@@ -286,7 +297,7 @@ test('copies a prebuilt npm dependency as a shipped plugin', () => {
   );
 });
 
-test('leaves pinned archives for the Headlamp shipped-plugin installer', () => {
+test('preserves installed release plugins while bundling workspaces', () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'example-archive-'));
   tempDirs.push(rootDir);
   const pluginsDir = path.join(rootDir, '.plugins');
@@ -305,10 +316,15 @@ test('leaves pinned archives for the Headlamp shipped-plugin installer', () => {
       },
     })
   );
+  const releaseDir = path.join(pluginsDir, 'archive-plugin');
+  fs.mkdirSync(releaseDir, { recursive: true });
+  fs.writeFileSync(path.join(releaseDir, 'main.js'), 'release bundle');
+  fs.mkdirSync(path.join(pluginsDir, 'retired-plugin'));
 
   bundleConfiguredPlugins(rootDir, pluginsDir);
 
-  assert.deepEqual(fs.readdirSync(pluginsDir), []);
+  assert.deepEqual(fs.readdirSync(pluginsDir), ['archive-plugin']);
+  assert.equal(fs.readFileSync(path.join(releaseDir, 'main.js'), 'utf8'), 'release bundle');
 });
 
 test('rejects ambiguous or unverified shipped-plugin sources', () => {

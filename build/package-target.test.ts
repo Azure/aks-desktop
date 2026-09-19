@@ -140,9 +140,10 @@ test('packages installed dependencies once and reports timestamped phase timings
   assert.equal(commands.includes('root:run headlamp:install'), false);
   assert.deepEqual(commands, [
     'root:run headlamp:tools -- --platform=' + process.platform + ' --arch=' + process.arch,
+    'root:run headlamp:manifest',
+    'root:run plugin:install-releases',
     'root:run headlamp:translations',
     'root:run plugin:setup',
-    'root:run headlamp:manifest',
     'root:run headlamp:frontend-env',
     'source:run frontend:build',
     `app:run package -- ${packageArguments(process.platform, process.arch).join(' ')}`,
@@ -239,7 +240,10 @@ test('uses the managed Mac dmgbuild launcher unless the caller overrides it', ()
     generated.CUSTOM_DMGBUILD_PATH,
     path.join('/workspace', 'build', 'dmgbuild-managed-mac.cjs')
   );
-  assert.equal(generated.HEADLAMP_REUSE_PLUGIN_DEPENDENCIES, '1');
+  assert.equal(
+    generated.HEADLAMP_REUSE_PLUGIN_DEPENDENCIES,
+    'aks-desktop,plugin-catalog'
+  );
 
   const overridden = packageEnvironment(
     { platform: 'darwin', arch: 'arm64' },

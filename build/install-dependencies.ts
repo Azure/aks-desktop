@@ -15,7 +15,6 @@ const ROOT_DIR = path.dirname(__dirname);
 export const DEPENDENCY_INSTALL_STEPS = [
   { name: 'install Headlamp dependencies', script: 'headlamp:install' },
   { name: 'install AKS plugin dependencies', script: 'plugin:install' },
-  { name: 'install AI Assistant dependencies', script: 'ai-assistant:install' },
   { name: 'install plugin catalog dependencies', script: 'plugin-catalog:install' },
 ] as const;
 
