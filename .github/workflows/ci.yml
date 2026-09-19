@@ -124,7 +124,9 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ steps.go-version.outputs.version }}
-          cache-dependency-path: packages/headlamp-source/source/backend/go.sum
+          cache-dependency-path: |
+            packages/headlamp-source/package.json
+            patches/*.patch
 
       - name: Setup pinned npm on Linux and macOS
         if: runner.os != 'Windows'

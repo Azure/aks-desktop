@@ -118,18 +118,18 @@ extends:
               - task: Cache@2
                 displayName: 'Cache Go module downloads'
                 inputs:
-                  key: 'go-mod-v2 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" | packages/headlamp-source/source/backend/go.mod | packages/headlamp-source/source/backend/go.sum'
+                  key: 'go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
                   restoreKeys: |
-                    go-mod-v2 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" |
+                    go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" |
                   path: '$(GOMODCACHE)'
                   cacheHitVar: GO_MODULE_CACHE_HIT
 
               - task: Cache@2
                 displayName: 'Cache Go build outputs'
                 inputs:
-                  key: 'go-build-v2 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" | packages/headlamp-source/source/backend/go.mod | packages/headlamp-source/source/backend/go.sum | packages/headlamp-source/source/backend/**/*.go | patches/*.patch'
+                  key: 'go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
                   restoreKeys: |
-                    go-build-v2 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" |
+                    go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" |
                   path: '$(GOCACHE)'
                   cacheHitVar: GO_BUILD_CACHE_HIT
 

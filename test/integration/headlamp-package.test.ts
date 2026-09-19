@@ -353,16 +353,13 @@ test('build workflows derive Go and cache modules plus compiled outputs', () => 
     assert.equal(workflow.match(/path: '\$\(GOMODCACHE\)'/g)?.length, expectedCacheCount);
     assert.equal(workflow.match(/path: '\$\(GOCACHE\)'/g)?.length, expectedCacheCount);
     for (const key of workflow.match(/^\s+key: 'go-.+$/gm) ?? []) {
-      assert.match(key, /backend\/go\.mod/);
-      assert.match(key, /backend\/go\.sum/);
-      assert.doesNotMatch(key, /package\.json/);
-      if (key.includes('go-mod-v2')) {
-        assert.doesNotMatch(key, /\$\(ARCH\)|patches|\*\*\/\*\.go/);
+      assert.match(key, /\$\(Build\.SourceVersion\)/);
+      assert.doesNotMatch(key, /backend\/go\.(?:mod|sum)/);
+      if (key.includes('go-mod-v3')) {
+        assert.doesNotMatch(key, /\$\(ARCH\)/);
       }
-      if (key.includes('go-build-v2')) {
+      if (key.includes('go-build-v3')) {
         assert.match(key, /\$\(ARCH\)/);
-        assert.match(key, /backend\/\*\*\/\*\.go/);
-        assert.match(key, /patches\/\*\.patch/);
       }
     }
   }
@@ -377,7 +374,8 @@ test('build workflows derive Go and cache modules plus compiled outputs', () => 
     assert.ok(workflow.indexOf('Setup nodejs') < workflow.indexOf('Resolve Headlamp Go version'));
     assert.ok(workflow.indexOf('Resolve Headlamp Go version') < workflow.indexOf('Install golang'));
     assert.match(workflow, /go-version: \$\{\{ steps\.go-version\.outputs\.version \}\}/);
-    assert.match(workflow, /cache-dependency-path: packages\/headlamp-source\/source\/backend\/go\.sum/);
+    assert.match(workflow, /cache-dependency-path:[\s\S]+packages\/headlamp-source\/package\.json/);
+    assert.match(workflow, /cache-dependency-path:[\s\S]+patches\/\*\.patch/);
     assert.doesNotMatch(workflow, /go-version: '1\.26\./);
   }
 
@@ -389,7 +387,8 @@ test('build workflows derive Go and cache modules plus compiled outputs', () => 
   assert.ok(ciWorkflow.indexOf('Setup Node.js') < ciWorkflow.indexOf('Resolve Headlamp Go version'));
   assert.ok(ciWorkflow.indexOf('Resolve Headlamp Go version') < ciWorkflow.indexOf('Setup Go'));
   assert.match(ciWorkflow, /go-version: \$\{\{ steps\.go-version\.outputs\.version \}\}/);
-  assert.match(ciWorkflow, /cache-dependency-path: packages\/headlamp-source\/source\/backend\/go\.sum/);
+  assert.match(ciWorkflow, /cache-dependency-path:[\s\S]+packages\/headlamp-source\/package\.json/);
+  assert.match(ciWorkflow, /cache-dependency-path:[\s\S]+patches\/\*\.patch/);
 });
 
 test('package targets have verified external tool runtimes', () => {
