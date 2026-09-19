@@ -346,6 +346,11 @@ test('all shipped plugin workspaces are packaged and installed', () => {
     enabledByDefault: true,
   });
   assert.equal(rootManifest.scripts['install:all'], 'tsx ./build/install-dependencies.ts');
+  assert.equal(rootManifest.scripts['headlamp:install'], 'tsx ./build/install-headlamp-desktop.ts');
+  for (const script of ['plugin:install', 'ai-assistant:install', 'plugin-catalog:install']) {
+    assert.match(rootManifest.scripts[script], /^npm ci --prefix /);
+    assert.match(rootManifest.scripts[script], /--prefer-offline --no-audit --no-fund$/);
+  }
 });
 
 test('AKS product policy owns development and production command grants', () => {
