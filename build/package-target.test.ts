@@ -59,6 +59,7 @@ import {
   packageArguments,
   packageEnvironment,
   packageTarget,
+  requiresTargetDependencyInstall,
   stageBackendExecutable,
   validatePackageHost,
 } from './package-target';
@@ -76,9 +77,11 @@ for (const failPackaging of [false, true]) {
     let packaged = false;
     const messages: string[] = [];
     t.mock.method(console, 'log', (message: string) => {
-      assert.ok(packaged);
-      assert.deepEqual(JSON.parse(fs.readFileSync(targetRecord, 'utf8')), target);
-      messages.push(message);
+      if (message.startsWith('\nBuild complete')) {
+        assert.ok(packaged);
+        assert.deepEqual(JSON.parse(fs.readFileSync(targetRecord, 'utf8')), target);
+        messages.push(message);
+      }
     });
     const runStep = (args: string[], cwd: string) => {
       assert.equal(messages.length, 0);
@@ -114,6 +117,38 @@ test('stages the newly built backend under the Windows packaging filename', t =>
   fs.rmSync(path.join(backend, 'headlamp-server'));
   assert.throws(() => stageBackendExecutable(sourceDir, 'win32'), /ENOENT/);
   assert.doesNotThrow(() => stageBackendExecutable(sourceDir, 'linux'));
+});
+
+test('packages installed dependencies once and reports timestamped phase timings', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'package timing-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
+  const appDir = path.join(sourceDir, 'app');
+  fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+
+  const commands: string[] = [];
+  const messages: string[] = [];
+  t.mock.method(console, 'log', (message: string) => messages.push(message));
+  packageTarget({ platform: process.platform, arch: process.arch }, rootDir, (args, cwd) => {
+    commands.push(`${cwd === rootDir ? 'root' : cwd === sourceDir ? 'source' : 'app'}:${args.join(' ')}`);
+    if (cwd === appDir && args[1] === 'package') {
+      fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
+    }
+  });
+
+  assert.equal(commands.includes('root:run headlamp:install'), false);
+  assert.deepEqual(commands, [
+    'root:run headlamp:tools -- --platform=' + process.platform + ' --arch=' + process.arch,
+    'root:run headlamp:translations',
+    'root:run plugin:setup',
+    'root:run headlamp:manifest',
+    'root:run headlamp:frontend-env',
+    'source:run frontend:build',
+    `app:run package -- ${packageArguments(process.platform, process.arch).join(' ')}`,
+  ]);
+  assert.match(messages.join('\n'), /\[build-timing\].+started at \d{4}-\d{2}-\d{2}T/);
+  assert.match(messages.join('\n'), /\[build-timing\].+completed in \d+\.\d{3}s/);
 });
 
 test('maps each supported target to one Electron Builder architecture', () => {
@@ -153,6 +188,25 @@ test('requires a native architecture on Linux and macOS hosts', () => {
     /native x64 build host/
   );
   assert.doesNotThrow(() => validatePackageHost({ platform: 'win32', arch: 'arm64' }, 'win32', 'x64'));
+});
+
+test('reinstalls target dependencies only for cross-architecture packages', () => {
+  assert.equal(
+    requiresTargetDependencyInstall({ platform: 'darwin', arch: 'arm64' }, 'arm64'),
+    false
+  );
+  assert.equal(
+    requiresTargetDependencyInstall({ platform: 'linux', arch: 'x64' }, 'x64'),
+    false
+  );
+  assert.equal(
+    requiresTargetDependencyInstall({ platform: 'win32', arch: 'x64' }, 'x64'),
+    false
+  );
+  assert.equal(
+    requiresTargetDependencyInstall({ platform: 'win32', arch: 'arm64' }, 'x64'),
+    true
+  );
 });
 
 test('uses the Windows npm command shim', () => {

@@ -278,6 +278,37 @@ test('root builds package supported host targets independently', () => {
   assert.match(rootManifest.scripts['headlamp:assemble'], /headlamp:translations/);
 });
 
+test('macOS builds report UTC timestamps for each outer build phase', () => {
+  const workflow = fs.readFileSync(
+    path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
+    'utf8'
+  );
+  for (const phase of [
+    'npm bootstrap',
+    'root npm ci',
+    'architecture configuration',
+    'build attempt',
+    'distribution verification',
+    'artifact collection',
+  ]) {
+    assert.equal(
+      workflow.match(new RegExp(`\\[build-timing\\] ${phase}(?: .+)? started at`, 'g'))?.length,
+      2
+    );
+  }
+  for (const phase of [
+    'npm bootstrap',
+    'root npm ci',
+    'architecture configuration',
+    'artifact collection',
+  ]) {
+    assert.equal(
+      workflow.match(new RegExp(`\\[build-timing\\] ${phase} completed in`, 'g'))?.length,
+      2
+    );
+  }
+});
+
 test('package targets have verified external tool runtimes', () => {
   const azureCli = rootManifest.config.externalTools.azureCli;
   assert.equal(azureCli.version, '2.90.0');
@@ -314,7 +345,7 @@ test('all shipped plugin workspaces are packaged and installed', () => {
     source: 'plugins/plugin-catalog',
     enabledByDefault: true,
   });
-  assert.match(rootManifest.scripts['install:all'], /plugin-catalog:install/);
+  assert.equal(rootManifest.scripts['install:all'], 'tsx ./build/install-dependencies.ts');
 });
 
 test('AKS product policy owns development and production command grants', () => {
