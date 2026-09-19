@@ -61,6 +61,7 @@ import {
   packageTarget,
   requiresTargetDependencyInstall,
   stageBackendExecutable,
+  unpackedArguments,
   validatePackageHost,
 } from './package-target';
 
@@ -152,6 +153,34 @@ test('packages installed dependencies once and reports timestamped phase timings
   assert.match(messages.join('\n'), /\[build-timing\].+completed in \d+\.\d{3}s/);
 });
 
+test('assembles an unpacked app without running distributable packaging', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'unpacked app-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
+  const appDir = path.join(sourceDir, 'app');
+  fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+  const commands: string[] = [];
+  t.mock.method(console, 'log', () => undefined);
+
+  packageTarget(
+    { platform: process.platform, arch: process.arch },
+    rootDir,
+    (args, cwd) => {
+      commands.push(`${cwd === appDir ? 'app' : 'other'}:${args.join(' ')}`);
+      if (cwd === appDir && args[1] === 'build') {
+        fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
+      }
+    },
+    { unpacked: true }
+  );
+
+  assert.ok(commands.includes(
+    `app:run build -- ${unpackedArguments(process.platform, process.arch).join(' ')}`
+  ));
+  assert.equal(commands.some(command => command.startsWith('app:run package')), false);
+});
+
 test('maps each supported target to one Electron Builder architecture', () => {
   assert.deepEqual(packageArguments('linux', 'x64'), ['--linux', '--x64']);
   assert.deepEqual(packageArguments('linux', 'arm64'), [
@@ -164,6 +193,9 @@ test('maps each supported target to one Electron Builder architecture', () => {
   assert.deepEqual(packageArguments('darwin', 'arm64'), ['--mac', 'dmg', '--arm64']);
   assert.deepEqual(packageArguments('win32', 'x64'), ['--win', '--x64']);
   assert.deepEqual(packageArguments('win32', 'arm64'), ['--win', '--arm64']);
+  assert.deepEqual(unpackedArguments('darwin', 'arm64'), ['--mac', '--arm64']);
+  assert.deepEqual(unpackedArguments('linux', 'arm64'), ['--linux', '--arm64']);
+  assert.deepEqual(unpackedArguments('win32', 'x64'), ['--win', '--x64']);
 });
 
 test('rejects unsupported platform and architecture pairs', () => {

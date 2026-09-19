@@ -3,3 +3,4 @@
 0103 source 0103-headlamp-product-command-preapproval.patch
 0104 source 0104-headlamp-upstream-rsbuild-default.patch
 0105 source 0105-headlamp-single-pass-package.patch
+0106 source 0106-headlamp-electron-build-timings.patch
