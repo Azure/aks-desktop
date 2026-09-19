@@ -46,7 +46,10 @@ test('the installed package is a complete pinned source distribution', () => {
   assert.deepEqual(rootManifest.headlampSource, {
     revision: 'd4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0',
   });
-  assert.deepEqual(packageManifest.headlampSource, rootManifest.headlampSource);
+  assert.deepEqual(packageManifest.headlampSource, {
+    ...rootManifest.headlampSource,
+    goVersion: '1.26.8',
+  });
   for (const file of [
     'package.json',
     'Dockerfile',
@@ -307,6 +310,12 @@ test('macOS builds report UTC timestamps for each outer build phase', () => {
       2
     );
   }
+  assert.equal(
+    workflow.match(
+      /done\n\s+verification_started=\$SECONDS\n\s+echo "\[build-timing\] distribution verification started/g
+    )?.length,
+    2
+  );
 });
 
 test('macOS builds cache verified Azure CLI extensions after npm ci', () => {

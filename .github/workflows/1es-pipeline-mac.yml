@@ -280,11 +280,7 @@ extends:
                     echo "[build-timing] build attempt $((RETRY_COUNT + 1)) started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
                     if npm run "build:mac:$(ARCH)"; then
-                      echo "[build-timing] distribution verification started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                      if npm run test:distribution; then
-                        SUCCESS=true
-                        echo "✅ Build complete for $(ARCH_DISPLAY) at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                      fi
+                      SUCCESS=true
                     fi
 
                     if [ "$SUCCESS" = false ]; then
@@ -301,6 +297,12 @@ extends:
                       echo "[build-timing] build attempt $((RETRY_COUNT + 1)) completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                     fi
                   done
+
+                  verification_started=$SECONDS
+                  echo "[build-timing] distribution verification started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                  npm run test:distribution
+                  echo "[build-timing] distribution verification completed in $((SECONDS - verification_started))s"
+                  echo "✅ Build complete for $(ARCH_DISPLAY) at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                 displayName: "Build AKS desktop ($(ARCH_DISPLAY))"
 
               # Copy DMGs to staging directory
@@ -838,11 +840,7 @@ extends:
                     echo "[build-timing] build attempt $((RETRY_COUNT + 1)) started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
                     if npm run "build:mac:$(ARCH)"; then
-                      echo "[build-timing] distribution verification started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                      if npm run test:distribution; then
-                        SUCCESS=true
-                        echo "✅ Build complete for $(ARCH_DISPLAY) at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                      fi
+                      SUCCESS=true
                     fi
 
                     if [ "$SUCCESS" = false ]; then
@@ -859,6 +857,12 @@ extends:
                       echo "[build-timing] build attempt $((RETRY_COUNT + 1)) completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                     fi
                   done
+
+                  verification_started=$SECONDS
+                  echo "[build-timing] distribution verification started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                  npm run test:distribution
+                  echo "[build-timing] distribution verification completed in $((SECONDS - verification_started))s"
+                  echo "✅ Build complete for $(ARCH_DISPLAY) at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                 displayName: "Build AKS desktop ($(ARCH_DISPLAY))"
 
               # Copy DMGs to staging directory
