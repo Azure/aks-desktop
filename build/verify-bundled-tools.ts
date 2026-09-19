@@ -15,6 +15,7 @@ import { readBuildTarget, resolveTargetArch } from './build-target';
 import { readAzureCliConfig, resolveAzCliVersion } from './az-cli-config';
 import {
   getExtensionTimeoutResult,
+  readRequiredAzureCliExtensionVersions,
   readRequiredAzureCliExtensions,
 } from './azure-cli-verification';
 import {
@@ -462,13 +463,23 @@ function testAzureCliInvocation(): void {
     // points AZURE_EXTENSION_DIR at — so every platform is verified.
     const bundledExtensions = versionData.extensions ?? {};
     const missingExtensions = requiredExtensions.filter(name => !bundledExtensions[name]);
+    const requiredExtensionVersions = readRequiredAzureCliExtensionVersions(ROOT_DIR);
+    const mismatchedExtensions = requiredExtensions.filter(
+      name =>
+        requiredExtensionVersions[name] &&
+        bundledExtensions[name] !== requiredExtensionVersions[name]
+    );
 
     addResult(
       'Azure CLI extensions',
-      missingExtensions.length === 0,
-      missingExtensions.length === 0
-        ? `All required extensions bundled: ${requiredExtensions.join(', ')}`
-        : `Missing required extension(s): ${missingExtensions.join(', ')}`
+      missingExtensions.length === 0 && mismatchedExtensions.length === 0,
+      missingExtensions.length > 0
+        ? `Missing required extension(s): ${missingExtensions.join(', ')}`
+        : mismatchedExtensions.length > 0
+          ? `Extension version mismatch: ${mismatchedExtensions
+              .map(name => `${name}=${bundledExtensions[name]} (expected ${requiredExtensionVersions[name]})`)
+              .join(', ')}`
+          : `All required extensions bundled at pinned versions: ${requiredExtensions.join(', ')}`
     );
 
     // aks-preview shadows the core `az aks namespace` implementation the

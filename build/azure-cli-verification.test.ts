@@ -9,6 +9,7 @@ import { afterEach, test } from "node:test";
 
 import {
   getExtensionTimeoutResult,
+  readRequiredAzureCliExtensionVersions,
   readRequiredAzureCliExtensions,
 } from "./azure-cli-verification";
 
@@ -43,7 +44,10 @@ test("reads required Azure CLI extensions from package configuration", () => {
     JSON.stringify({
       config: {
         externalTools: {
-          azureCli: { extensions: ["aks-preview", "connectedk8s"] },
+          azureCli: {
+            extensions: ["aks-preview", "connectedk8s"],
+            extensionVersions: { "aks-preview": "19.0.0", connectedk8s: "1.11.3" },
+          },
         },
       },
     })
@@ -53,6 +57,10 @@ test("reads required Azure CLI extensions from package configuration", () => {
     "aks-preview",
     "connectedk8s",
   ]);
+  assert.deepEqual(readRequiredAzureCliExtensionVersions(rootDir), {
+    "aks-preview": "19.0.0",
+    connectedk8s: "1.11.3",
+  });
 });
 
 test("returns no required extensions for missing or malformed configuration", () => {

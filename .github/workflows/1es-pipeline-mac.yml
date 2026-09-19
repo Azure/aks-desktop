@@ -60,6 +60,8 @@ extends:
                 value: $(Pipeline.Workspace)/.go/pkg/mod
               - name: GOCACHE
                 value: $(Pipeline.Workspace)/.go/build
+              - name: AZ_CLI_EXTENSION_CACHE_DIR
+                value: $(Pipeline.Workspace)/.azure-cli-extensions/$(ARCH)
               - name: ARCH
                 value: arm64
               - name: ARCH_DISPLAY
@@ -230,6 +232,26 @@ extends:
                   echo "[build-timing] architecture configuration completed in $((SECONDS - step_started))s"
 
                 displayName: "Configure Architecture in package.json ($(ARCH))"
+
+              - bash: |
+                  set -e
+                  cache_key="$(node --import tsx build/azure-cli-cache-key.ts --platform=darwin --arch=$(ARCH))"
+                  echo "Azure CLI cache identity: $cache_key"
+                  echo "##vso[task.setvariable variable=AZ_CLI_CACHE_KEY]$cache_key"
+                  mkdir -p "$(AZ_CLI_EXTENSION_CACHE_DIR)"
+                displayName: 'Resolve Azure CLI extension cache'
+
+              - task: Cache@2
+                displayName: 'Cache Azure CLI extensions'
+                inputs:
+                  key: 'azure-cli-extensions-v1 | "$(Agent.OS)" | "$(ARCH)" | "$(AZ_CLI_CACHE_KEY)"'
+                  path: '$(AZ_CLI_EXTENSION_CACHE_DIR)'
+                  cacheHitVar: AZ_CLI_EXTENSION_CACHE_HIT
+
+              - bash: |
+                  echo "[build-timing] Azure CLI extension cache result: $(AZ_CLI_EXTENSION_CACHE_HIT)"
+                  du -sh "$(AZ_CLI_EXTENSION_CACHE_DIR)" 2>/dev/null || true
+                displayName: 'Report Azure CLI cache result'
 
               # Build application
               - bash: |
@@ -596,6 +618,8 @@ extends:
                 value: $(Pipeline.Workspace)/.go/pkg/mod
               - name: GOCACHE
                 value: $(Pipeline.Workspace)/.go/build
+              - name: AZ_CLI_EXTENSION_CACHE_DIR
+                value: $(Pipeline.Workspace)/.azure-cli-extensions/$(ARCH)
               - name: ARCH
                 value: x64
               - name: ARCH_DISPLAY
@@ -766,6 +790,26 @@ extends:
                   echo "[build-timing] architecture configuration completed in $((SECONDS - step_started))s"
 
                 displayName: "Configure Architecture in package.json ($(ARCH))"
+
+              - bash: |
+                  set -e
+                  cache_key="$(node --import tsx build/azure-cli-cache-key.ts --platform=darwin --arch=$(ARCH))"
+                  echo "Azure CLI cache identity: $cache_key"
+                  echo "##vso[task.setvariable variable=AZ_CLI_CACHE_KEY]$cache_key"
+                  mkdir -p "$(AZ_CLI_EXTENSION_CACHE_DIR)"
+                displayName: 'Resolve Azure CLI extension cache'
+
+              - task: Cache@2
+                displayName: 'Cache Azure CLI extensions'
+                inputs:
+                  key: 'azure-cli-extensions-v1 | "$(Agent.OS)" | "$(ARCH)" | "$(AZ_CLI_CACHE_KEY)"'
+                  path: '$(AZ_CLI_EXTENSION_CACHE_DIR)'
+                  cacheHitVar: AZ_CLI_EXTENSION_CACHE_HIT
+
+              - bash: |
+                  echo "[build-timing] Azure CLI extension cache result: $(AZ_CLI_EXTENSION_CACHE_HIT)"
+                  du -sh "$(AZ_CLI_EXTENSION_CACHE_DIR)" 2>/dev/null || true
+                displayName: 'Report Azure CLI cache result'
 
               # Build application
               - bash: |

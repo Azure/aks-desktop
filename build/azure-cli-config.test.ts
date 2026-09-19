@@ -10,6 +10,10 @@ import test from 'node:test';
 
 import {
   azureCliCacheIdentity,
+  azureCliCacheKey,
+  azureCliExtensionsToInstall,
+  azureCliExtensionsToRemove,
+  azureCliVersionDataMatchesTarget,
   installRequiredExtensions,
   resolveAzureCliTarget,
   verifyRequiredArtifact,
@@ -73,6 +77,10 @@ function createRoot(): string {
           azureCli: {
             version: '2.90.0',
             extensions: ['resource-graph', 'connectedk8s'],
+            extensionVersions: {
+              'resource-graph': '2.1.1',
+              connectedk8s: '1.11.3',
+            },
             darwin: {
               x64: { url: 'mac-x64', checksum: 'mac-x64-sum' },
               arm64: { url: 'mac-arm64', checksum: 'mac-arm64-sum' },
@@ -131,17 +139,63 @@ test('rejects targets without a verified runtime', () => {
 });
 
 test('includes sorted extensions in the staged cache identity', () => {
-  const identity = azureCliCacheIdentity({
+  const target = {
     platform: 'linux',
     arch: 'arm64',
     version: '2.90.0',
     extensions: ['resource-graph', 'connectedk8s'],
+    extensionVersions: {
+      'resource-graph': '2.1.1',
+      connectedk8s: '1.11.3',
+    },
     python: { url: 'python', checksum: 'python-sum' },
     cliPackage: { url: 'cli', checksum: 'cli-sum' },
-  });
+  };
+  const identity = azureCliCacheIdentity(target);
   assert.deepEqual(identity.extensions, ['connectedk8s', 'resource-graph']);
   assert.equal(identity.pythonChecksum, 'python-sum');
   assert.equal(identity.packageChecksum, 'cli-sum');
+  assert.deepEqual(identity.extensionVersions, {
+    connectedk8s: '1.11.3',
+    'resource-graph': '2.1.1',
+  });
+  assert.match(azureCliCacheKey(target), /^[0-9a-f]{64}$/);
+  assert.notEqual(
+    azureCliCacheKey(target),
+    azureCliCacheKey({
+      ...target,
+      extensionVersions: { ...target.extensionVersions, connectedk8s: '1.11.4' },
+    })
+  );
+  assert.equal(
+    azureCliVersionDataMatchesTarget(target, {
+      'azure-cli': '2.90.0',
+      extensions: { connectedk8s: '1.11.3', 'resource-graph': '2.1.1' },
+    }),
+    true
+  );
+  assert.equal(
+    azureCliVersionDataMatchesTarget(target, {
+      'azure-cli': '2.90.0',
+      extensions: { connectedk8s: '1.11.2', 'resource-graph': '2.1.1' },
+    }),
+    false
+  );
+  assert.deepEqual(
+    azureCliExtensionsToInstall(target, {
+      connectedk8s: '1.11.2',
+      'resource-graph': '2.1.1',
+    }),
+    ['connectedk8s']
+  );
+  assert.deepEqual(
+    azureCliExtensionsToRemove(target, {
+      connectedk8s: '1.11.3',
+      'resource-graph': '2.1.1',
+      'aks-preview': '19.0.0',
+    }),
+    ['aks-preview']
+  );
 });
 
 test('generates a relocatable self-contained Unix wrapper', () => {

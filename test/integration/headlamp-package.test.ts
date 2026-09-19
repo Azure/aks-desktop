@@ -309,6 +309,29 @@ test('macOS builds report UTC timestamps for each outer build phase', () => {
   }
 });
 
+test('macOS builds cache verified Azure CLI extensions after npm ci', () => {
+  const workflow = fs.readFileSync(
+    path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
+    'utf8'
+  );
+  assert.equal(workflow.match(/Resolve Azure CLI extension cache/g)?.length, 2);
+  assert.equal(workflow.match(/Cache Azure CLI extensions/g)?.length, 2);
+  assert.equal(workflow.match(/Report Azure CLI cache result/g)?.length, 2);
+  assert.equal(workflow.match(/azure-cli-cache-key\.ts --platform=darwin --arch=\$\(ARCH\)/g)?.length, 2);
+  assert.equal(workflow.match(/cacheHitVar: AZ_CLI_EXTENSION_CACHE_HIT/g)?.length, 2);
+  assert.equal(workflow.match(/azure-cli-extensions-v1/g)?.length, 2);
+  assert.equal(workflow.match(/path: '\$\(AZ_CLI_EXTENSION_CACHE_DIR\)'/g)?.length, 2);
+  assert.doesNotMatch(workflow, /azure-cli-extensions-v1[^\n]+restoreKeys/);
+
+  for (const stageName of ['Build_arm64', 'Build_x64']) {
+    const start = workflow.indexOf(`- stage: ${stageName}`);
+    const end = workflow.indexOf('\n      - stage:', start + 1);
+    const stage = workflow.slice(start, end === -1 ? undefined : end);
+    assert.ok(stage.indexOf('npm ci --prefer-offline') < stage.indexOf('Cache Azure CLI extensions'));
+    assert.ok(stage.indexOf('Cache Azure CLI extensions') < stage.indexOf('Build AKS desktop'));
+  }
+});
+
 test('build workflows derive Go and cache modules plus compiled outputs', () => {
   for (const [file, expectedCacheCount] of [
     ['1es-pipeline.yml', 1],
@@ -372,6 +395,11 @@ test('build workflows derive Go and cache modules plus compiled outputs', () => 
 test('package targets have verified external tool runtimes', () => {
   const azureCli = rootManifest.config.externalTools.azureCli;
   assert.equal(azureCli.version, '2.90.0');
+  assert.deepEqual(azureCli.extensionVersions, {
+    'resource-graph': '2.1.1',
+    alertsmanagement: '1.0.0b2',
+    connectedk8s: '1.11.3',
+  });
   for (const platform of ['linux', 'darwin']) {
     for (const arch of ['x64', 'arm64']) {
       const python = rootManifest.config.externalTools.python[platform][arch];

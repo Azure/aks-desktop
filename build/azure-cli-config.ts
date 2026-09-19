@@ -8,6 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'node:crypto';
 
 import { resolveTargetArch } from './build-target';
 
@@ -20,6 +21,7 @@ interface RuntimeConfig {
 interface AzureCliConfig {
   version?: string;
   extensions?: string[];
+  extensionVersions?: Record<string, string>;
   linux?: Record<string, RuntimeConfig>;
   darwin?: Record<string, RuntimeConfig>;
   win32?: Record<string, RuntimeConfig>;
@@ -35,6 +37,7 @@ export interface AzureCliTarget {
   arch: string;
   version: string;
   extensions: string[];
+  extensionVersions: Record<string, string>;
   python?: RuntimeConfig;
   cliPackage?: RuntimeConfig;
 }
@@ -46,9 +49,50 @@ export function azureCliCacheIdentity(target: AzureCliTarget) {
     runtimeArch: target.cliPackage?.runtimeArch || target.arch,
     version: target.version,
     extensions: [...target.extensions].sort(),
+    extensionVersions: Object.fromEntries(
+      Object.entries(target.extensionVersions).sort(([left], [right]) => left.localeCompare(right))
+    ),
     pythonChecksum: target.python?.checksum,
     packageChecksum: target.cliPackage?.checksum,
   };
+}
+
+/** Returns a filesystem-safe digest for a fully staged Azure CLI bundle. */
+export function azureCliCacheKey(target: AzureCliTarget): string {
+  return createHash('sha256')
+    .update(JSON.stringify(azureCliCacheIdentity(target)))
+    .digest('hex');
+}
+
+/** Checks the reported CLI and extension versions against the pinned target. */
+export function azureCliVersionDataMatchesTarget(
+  target: AzureCliTarget,
+  versionData: Record<string, any>
+): boolean {
+  if (versionData['azure-cli'] !== target.version) return false;
+  const installedExtensions = versionData.extensions ?? {};
+  return target.extensions.every(
+    extension => installedExtensions[extension] === target.extensionVersions[extension]
+  );
+}
+
+/** Returns configured extensions whose installed version is absent or stale. */
+export function azureCliExtensionsToInstall(
+  target: AzureCliTarget,
+  installedExtensions: Record<string, string> = {}
+): string[] {
+  return target.extensions.filter(
+    extension => installedExtensions[extension] !== target.extensionVersions[extension]
+  );
+}
+
+/** Returns cached extensions that are not part of the reviewed target configuration. */
+export function azureCliExtensionsToRemove(
+  target: AzureCliTarget,
+  installedExtensions: Record<string, string> = {}
+): string[] {
+  const configured = new Set(target.extensions);
+  return Object.keys(installedExtensions).filter(extension => !configured.has(extension));
 }
 
 /** Requires an asynchronously verified build artifact. */
@@ -121,7 +165,13 @@ export function resolveAzureCliTarget(
     arch: targetArch,
     version,
     extensions: azureCli.extensions ?? [],
+    extensionVersions: azureCli.extensionVersions ?? {},
   };
+  for (const extension of target.extensions) {
+    if (!target.extensionVersions[extension]) {
+      throw new Error(`No pinned version configured for Azure CLI extension ${extension}`);
+    }
+  }
 
   if (platform === 'win32') {
     target.cliPackage = azureCli.win32?.[targetArch];
