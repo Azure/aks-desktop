@@ -20,6 +20,8 @@ interface RuntimeConfig {
 interface AzureCliConfig {
   version?: string;
   extensions?: string[];
+  linux?: Record<string, RuntimeConfig>;
+  darwin?: Record<string, RuntimeConfig>;
   win32?: Record<string, RuntimeConfig>;
 }
 
@@ -34,18 +36,18 @@ export interface AzureCliTarget {
   version: string;
   extensions: string[];
   python?: RuntimeConfig;
-  windowsPackage?: RuntimeConfig;
+  cliPackage?: RuntimeConfig;
 }
 
 /** Returns the stable fields that determine whether an Azure CLI staging cache is reusable. */
 export function azureCliCacheIdentity(target: AzureCliTarget) {
   return {
     platform: target.platform,
-    runtimeArch: target.windowsPackage?.runtimeArch || target.arch,
+    runtimeArch: target.cliPackage?.runtimeArch || target.arch,
     version: target.version,
     extensions: [...target.extensions].sort(),
     pythonChecksum: target.python?.checksum,
-    packageChecksum: target.windowsPackage?.checksum,
+    packageChecksum: target.cliPackage?.checksum,
   };
 }
 
@@ -122,8 +124,8 @@ export function resolveAzureCliTarget(
   };
 
   if (platform === 'win32') {
-    target.windowsPackage = azureCli.win32?.[targetArch];
-    if (!target.windowsPackage?.url || !target.windowsPackage.checksum) {
+    target.cliPackage = azureCli.win32?.[targetArch];
+    if (!target.cliPackage?.url || !target.cliPackage.checksum) {
       throw new Error(
         `No verified Azure CLI package configured for ${platform}/${targetArch}`
       );
@@ -136,6 +138,12 @@ export function resolveAzureCliTarget(
   target.python = python?.[unixPlatform]?.[targetArch];
   if (!target.python?.url || !target.python.checksum) {
     throw new Error(`No verified Python runtime configured for ${platform}/${targetArch}`);
+  }
+  target.cliPackage = azureCli[unixPlatform]?.[targetArch];
+  if (!target.cliPackage?.url || !target.cliPackage.checksum) {
+    throw new Error(
+      `No verified Azure CLI package configured for ${platform}/${targetArch}`
+    );
   }
   return target;
 }

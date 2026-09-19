@@ -110,6 +110,21 @@ export const WINDOWS_AZ_CLI_ORIGINAL_FILENAME = 'az-original.cmd';
 
 /** Directory (relative to the az-cli target dir) the Windows wrapper points AZURE_EXTENSION_DIR at. */
 export const WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME = 'cliextensions';
+export const UNIX_AZ_CLI_EXTENSIONS_DIRNAME = 'cliextensions';
+
+/** Generates a relocatable wrapper for an official Unix Azure CLI tarball. */
+export function generateUnixAzWrapperScript(): string {
+  return `#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+CLI_DIR="$(dirname "$SCRIPT_DIR")"
+
+export AZ_PYTHON="$CLI_DIR/python/bin/python3"
+export AZURE_EXTENSION_DIR="$CLI_DIR/${UNIX_AZ_CLI_EXTENSIONS_DIRNAME}"
+exec "$CLI_DIR/libexec/bin/az" "$@"
+`;
+}
 
 /**
  * Generates the `bin/az.cmd` that replaces the zip's stock script. Microsoft's

@@ -278,16 +278,21 @@ test('root builds package supported host targets independently', () => {
   assert.match(rootManifest.scripts['headlamp:assemble'], /headlamp:translations/);
 });
 
-test('ARM64 package targets have verified external tool runtimes', () => {
-  for (const platform of ['linux', 'darwin']) {
-    assert.match(rootManifest.config.externalTools.python[platform].arm64.url, /aarch64/);
-    assert.match(
-      rootManifest.config.externalTools.python[platform].arm64.checksum,
-      /^[0-9a-f]{64}$/
-    );
-  }
+test('package targets have verified external tool runtimes', () => {
   const azureCli = rootManifest.config.externalTools.azureCli;
-  assert.equal(azureCli.version, '2.89.0');
+  assert.equal(azureCli.version, '2.90.0');
+  for (const platform of ['linux', 'darwin']) {
+    for (const arch of ['x64', 'arm64']) {
+      const python = rootManifest.config.externalTools.python[platform][arch];
+      assert.match(python.url, /^https:\/\//);
+      assert.match(python.checksum, /^[0-9a-f]{64}$/);
+
+      const cliPackage = azureCli[platform][arch];
+      assert.match(cliPackage.url, new RegExp(`/azure-cli-${azureCli.version}/`));
+      assert.match(cliPackage.url, /\.tar\.gz$/);
+      assert.match(cliPackage.checksum, /^[0-9a-f]{64}$/);
+    }
+  }
   const windowsArm = azureCli.win32.arm64;
   assert.equal(
     new URL(windowsArm.url).pathname.split('/').at(-1),
