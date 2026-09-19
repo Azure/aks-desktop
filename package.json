@@ -12,6 +12,7 @@
     "start": "npm run dev",
     "postinstall": "npm run headlamp:patch-installed && npm run install:all",
     "build": "tsx ./build/build-host-platform.ts",
+    "build:diagnostic": "cross-env DEBUG=electron-builder,electron-builder:* tsx ./build/build-host-platform.ts",
     "build:linux": "npm run build:linux:x64",
     "build:linux:x64": "tsx ./build/package-target.ts --platform=linux --arch=x64",
     "build:linux:arm64": "tsx ./build/package-target.ts --platform=linux --arch=arm64",
@@ -23,19 +24,24 @@
     "build:win:arm64": "tsx ./build/package-target.ts --platform=win32 --arch=arm64",
     "build:win-ci": "npm run build:win:x64",
     "ci:windows": "node build/windows-ci.cjs",
-    "build:unpacked": "npm run headlamp:install && npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:app:unpacked",
-    "build:unpacked:linux": "npm run build:unpacked",
-    "build:unpacked:mac": "npm run build:unpacked",
-    "build:unpacked:win": "npm run build:unpacked",
+    "build:unpacked": "tsx ./build/build-host-platform.ts --unpacked",
+    "build:unpacked:diagnostic": "cross-env DEBUG=electron-builder,electron-builder:* tsx ./build/build-host-platform.ts --unpacked",
+    "build:unpacked:linux:x64": "tsx ./build/package-target.ts --platform=linux --arch=x64 --unpacked",
+    "build:unpacked:linux:arm64": "tsx ./build/package-target.ts --platform=linux --arch=arm64 --unpacked",
+    "build:unpacked:mac:x64": "tsx ./build/package-target.ts --platform=darwin --arch=x64 --unpacked",
+    "build:unpacked:mac:arm64": "tsx ./build/package-target.ts --platform=darwin --arch=arm64 --unpacked",
+    "build:unpacked:win:x64": "tsx ./build/package-target.ts --platform=win32 --arch=x64 --unpacked",
+    "build:unpacked:win:arm64": "tsx ./build/package-target.ts --platform=win32 --arch=arm64 --unpacked",
     "build:container": "npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:container",
-    "test:build": "node --test build/windows-ci.test.cjs && npm --prefix packages/headlamp-source run test:helpers && tsx --test build/build-target.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/generate-frontend-environment.test.ts build/package-target.test.ts build/product-manifest-verification.test.ts build/start-development.test.ts test/integration/*.test.ts",
+    "test:build": "node --test build/windows-ci.test.cjs && npm --prefix packages/headlamp-source run test:helpers && tsx --test build/build-target.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/generate-frontend-environment.test.ts build/go-version.test.ts build/install-dependencies.test.ts build/install-headlamp-desktop.test.ts build/install-release-plugins.test.ts build/package-target.test.ts build/product-manifest-verification.test.ts build/start-development.test.ts test/integration/*.test.ts",
     "test:headlamp-package": "npm --prefix packages/headlamp-source run test:package && tsx --test test/integration/headlamp-package.test.ts",
     "test:headlamp-patches": "npm run headlamp:patches -- --check && npm run test:headlamp-package",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
     "test:post-build": "tsx ./build/verify-bundled-tools.ts",
     "test:distribution": "npm run test:post-build && npm run headlamp:smoke --",
     "plugin:setup": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run bundle:plugins",
-    "plugin:install": "cd plugins/aks-desktop && npm install",
+    "plugin:install-releases": "tsx ./build/install-release-plugins.ts",
+    "plugin:install": "npm ci --prefix plugins/aks-desktop --prefer-offline --no-audit --no-fund",
     "plugin:build": "cd plugins/aks-desktop && npm run build",
     "plugin:start": "cd plugins/aks-desktop && npm start",
     "plugin:test": "cd plugins/aks-desktop && npm test",
@@ -43,34 +49,28 @@
     "plugin:test:all": "cd plugins/aks-desktop && npm run test:all",
     "plugin:format": "cd plugins/aks-desktop && npm run format",
     "plugin:package": "cd plugins/aks-desktop && npm run package",
-    "plugin-catalog:install": "cd plugins/plugin-catalog && npm install",
-    "ai-assistant:install": "cd plugins/ai-assistant && npm install",
-    "ai-assistant:build": "cd plugins/ai-assistant && npm run build",
-    "ai-assistant:start": "cd plugins/ai-assistant && npm start",
-    "ai-assistant:test": "cd plugins/ai-assistant && npm test",
-    "ai-assistant:lint": "cd plugins/ai-assistant && npm run lint",
-    "ai-assistant:format": "cd plugins/ai-assistant && npm run format",
+    "plugin-catalog:install": "npm ci --prefix plugins/plugin-catalog --prefer-offline --no-audit --no-fund",
     "headlamp:manifest": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run manifest:generate",
     "headlamp:frontend-env": "tsx ./build/generate-frontend-environment.ts",
     "headlamp:patches": "npm --prefix packages/headlamp-source run patches:compose --",
     "headlamp:patch-installed": "node --experimental-strip-types packages/headlamp-source/src/bin/compose-patches.ts --apply node_modules/@headlamp-k8s/headlamp-source",
     "headlamp:prepare": "node --experimental-strip-types packages/headlamp-source/src/bin/update-source.ts --prepare --root .",
-    "headlamp:assemble": "npm run headlamp:tools && npm run headlamp:translations && npm run plugin:setup && npm run headlamp:manifest && npm run headlamp:frontend-env",
+    "headlamp:assemble": "npm run headlamp:tools && npm run headlamp:manifest && npm run plugin:install-releases && npm run headlamp:translations && npm run plugin:setup && npm run headlamp:frontend-env",
     "headlamp:doctor": "npm run test:headlamp-package && npm --prefix node_modules/@headlamp-k8s/headlamp-source run manifest:check",
     "headlamp:source": "npm --prefix packages/headlamp-source run source:update --",
     "headlamp:smoke": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run smoke:app --",
     "headlamp:tools": "tsx ./build/setup-external-tools.ts",
-    "headlamp:translations": "node Localize/translation-manager.mjs distribute-headlamp",
-    "headlamp:install": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run install:all",
+    "headlamp:translations": "node Localize/translation-manager.mjs distribute-packaged",
+    "headlamp:install": "tsx ./build/install-headlamp-desktop.ts",
     "headlamp:build": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run build",
-    "install:all": "npm run headlamp:install && npm run plugin:install && npm run ai-assistant:install && npm run plugin-catalog:install",
-    "build:all": "npm run headlamp:build && npm run plugin:build && npm run ai-assistant:build",
+    "install:all": "tsx ./build/install-dependencies.ts",
+    "build:all": "npm run headlamp:build && npm run plugin:build",
     "predev": "npm run headlamp:install && npm run headlamp:assemble",
     "dev": "tsx ./build/start-development.ts",
-    "dev:services": "cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json concurrently --kill-others --names \"PLUGIN,AI-ASSISTANT,BACKEND,FRONTEND,APP\" -c \"cyan,blue,green,yellow,magenta\" \"npm run plugin:start\" \"npm run ai-assistant:start\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:backend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:frontend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:app\"",
+    "dev:services": "cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json concurrently --kill-others --names \"PLUGIN,BACKEND,FRONTEND,APP\" -c \"cyan,green,yellow,magenta\" \"npm run plugin:start\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:backend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:frontend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:app\"",
     "prepare": "husky",
     "knip": "knip",
-    "i18n:collect": "node Localize/translation-manager.mjs collect",
+    "i18n:collect": "npm run plugin:install-releases && node Localize/translation-manager.mjs collect",
     "i18n:distribute": "node Localize/translation-manager.mjs distribute"
   },
   "config": {
@@ -78,41 +78,66 @@
       "python": {
         "linux": {
           "x64": {
-            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250723/cpython-3.10.18+20250723-x86_64_v3-unknown-linux-gnu-install_only_stripped.tar.gz",
-            "checksum": "b712e37fd4f50243afae019f0c325568129550b66598addb6dd9685d36b4625f"
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+            "checksum": "02c092dc99ca4d37a9ac7ea2fc154e3bd7fa1b33195b714bfb7eb6d5a6bd3632"
           },
           "arm64": {
-            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.10.19%2B20251028-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
-            "checksum": "d8d813b5b021276b87dd24e0839ef30bc2f44e1d4513d5b81462d1c19a59950a"
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+            "checksum": "fd3f24236faa41b8548cd59b7ee5e703af9651d6ab097498676a9727fdd3285b"
           }
         },
         "darwin": {
           "x64": {
-            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.10.19%2B20251028-x86_64-apple-darwin-install_only_stripped.tar.gz",
-            "checksum": "ff636e82637a7768c499921188222322369584d1b6a2e85a898aba1e263d69f2"
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-x86_64-apple-darwin-install_only_stripped.tar.gz",
+            "checksum": "25bd3a638d4820ee027317888c5057bddf5b304521f59d776ae3bea6830d0c7f"
           },
           "arm64": {
-            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.10.19%2B20251028-aarch64-apple-darwin-install_only_stripped.tar.gz",
-            "checksum": "069ac156f66c6774e332ad55d6e556a5f20c45fbdd7a267a5274ad918d895cde"
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-aarch64-apple-darwin-install_only_stripped.tar.gz",
+            "checksum": "c3223d5924a0ed0ef5958a750377c362d0957587f896c0f6c635ae4b39e0f337"
           }
         }
       },
       "azureCli": {
-        "version": "2.89.0",
+        "version": "2.90.0",
         "extensions": [
           "resource-graph",
           "alertsmanagement",
           "connectedk8s"
         ],
+        "extensionVersions": {
+          "resource-graph": "2.1.1",
+          "alertsmanagement": "1.0.0b2",
+          "connectedk8s": "1.11.3"
+        },
+        "linux": {
+          "x64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-linux-x86_64.tar.gz",
+            "checksum": "9b2a19ad37bbe578e506a2643e974c99d3ee141b2f94cdb6f064a342e5c4eae1"
+          },
+          "arm64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-linux-arm64.tar.gz",
+            "checksum": "df71d304216c1adb1bf6957f0386ea320d32beaf7019f927e0b7e4cf2d2a4df5"
+          }
+        },
+        "darwin": {
+          "x64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-macos-x86_64.tar.gz",
+            "checksum": "4617d8d16350dbee34f8024059ac768e0cfbdb7ec8f637abdfdaab1e5c9ba0ce"
+          },
+          "arm64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-macos-arm64.tar.gz",
+            "checksum": "1cdcf8dc99ece8c10d198d9451d7ac0905a4d63aea5fac5fcf903bdf2aba93b3"
+          }
+        },
         "win32": {
           "x64": {
-            "url": "https://azcliprod.blob.core.windows.net/zip/azure-cli-2.89.0-x64.zip",
-            "checksum": "fb55449e1ed1809da5408330ab2ddd52f71e50abcf53ded0d685d8315f0abb8a",
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-x64.zip",
+            "checksum": "c4ef59b14f0edd074427fd9981e57b0780965ccdcf6191c033fdf4b4361f33d7",
             "runtimeArch": "x64"
           },
           "arm64": {
-            "url": "https://azcliprod.blob.core.windows.net/zip/azure-cli-2.89.0-x64.zip",
-            "checksum": "fb55449e1ed1809da5408330ab2ddd52f71e50abcf53ded0d685d8315f0abb8a",
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-x64.zip",
+            "checksum": "c4ef59b14f0edd074427fd9981e57b0780965ccdcf6191c033fdf4b4361f33d7",
             "runtimeArch": "x64"
           }
         }
@@ -1019,7 +1044,8 @@
       {
         "name": "ai-assistant",
         "packageName": "@headlamp-k8s/ai-assistant",
-        "source": "plugins/ai-assistant",
+        "archive": "https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.0-alpha/headlamp-k8s-ai-assistant-0.4.0-alpha.tar.gz",
+        "sha256": "3c969569432e7374975b6993ed7865087669dddaa54777106e0af32d8209068f",
         "enabledByDefault": true
       },
       {
@@ -1049,7 +1075,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.d4c87a8f.patch",
-    "integrity": "sha512-H+MkhBp2+UFe1LCfPa/9xafTPPnokqo0aSUBcH+TpPoNgnSP3XwhFX1Q+HM49Xl1vcFl1VMy3iBe7db6pE+N+Q=="
+    "integrity": "sha512-yOyM6HnAqkg8aBVUCrYHYplZ948qtDL8yImIDnO+/YPH6QJJDt8G/MhMMNdpmJ6Ph9J4ROeFavxdwhuxgktkMg=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
@@ -1057,12 +1083,6 @@
     ],
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx,json,css,scss,md}": [
       "node .husky/format-plugin.js"
-    ],
-    "plugins/ai-assistant/**/*.{js,jsx,ts,tsx}": [
-      "node .husky/lint-ai-assistant.js"
-    ],
-    "plugins/ai-assistant/**/*.{js,jsx,ts,tsx,json,css,scss,md}": [
-      "node .husky/format-ai-assistant.js"
     ]
   },
   "repository": {

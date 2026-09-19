@@ -8,6 +8,7 @@ const path = require('node:path');
 
 const VALID_PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i;
 const VALID_SHA256 = /^[a-f0-9]{64}$/i;
+const REUSE_PLUGIN_DEPENDENCIES_ENV = 'HEADLAMP_REUSE_PLUGIN_DEPENDENCIES';
 
 /**
  * Resolves the consumer project root for plugin bundling.
@@ -83,6 +84,27 @@ function runNpm(args, cwd) {
   if (result.status !== 0) {
     throw new Error(`npm ${args.join(' ')} failed in ${cwd}`);
   }
+}
+
+/**
+ * Decides whether a packaging build can reuse a plugin's clean install.
+ *
+ * @param pluginDir - Plugin workspace containing npm's hidden lockfile.
+ * @param pluginName - Configured bundle name selected for dependency reuse.
+ * @param env - Environment controlling dependency reuse.
+ * @returns Whether bundling should skip npm ci.
+ */
+function reusePluginDependencies(pluginDir, pluginName, env = process.env) {
+  const reusablePlugins = new Set(
+    (env[REUSE_PLUGIN_DEPENDENCIES_ENV] || '').split(',').filter(Boolean)
+  );
+  if (!reusablePlugins.has(pluginName)) {
+    return false;
+  }
+  if (!fs.existsSync(path.join(pluginDir, 'node_modules', '.package-lock.json'))) {
+    throw new Error(`Cannot reuse missing plugin dependencies in ${pluginDir}`);
+  }
+  return true;
 }
 
 /**
@@ -187,7 +209,9 @@ function bundlePlugin(projectDir, pluginsDir, plugin) {
   }
 
   validatePlugin(pluginDir, plugin);
-  runNpm(['ci'], pluginDir);
+  if (!reusePluginDependencies(pluginDir, plugin.name)) {
+    runNpm(['ci', '--prefer-offline', '--no-audit', '--no-fund'], pluginDir);
+  }
   runNpm(['run', 'build'], pluginDir);
   return copyPlugin(pluginDir, pluginsDir, plugin, false);
 }
@@ -281,8 +305,13 @@ function bundleConfiguredPlugins(
   }
   validatePluginConfiguration(plugins);
 
-  fs.rmSync(pluginsDir, { recursive: true, force: true });
   fs.mkdirSync(pluginsDir, { recursive: true });
+  const configuredNames = new Set(plugins.map(plugin => plugin.name));
+  for (const entry of fs.readdirSync(pluginsDir)) {
+    if (!configuredNames.has(entry)) {
+      fs.rmSync(path.join(pluginsDir, entry), { recursive: true, force: true });
+    }
+  }
   for (const plugin of plugins) {
     if (plugin.source !== undefined) {
       bundlePlugin(root, pluginsDir, plugin);
@@ -295,6 +324,7 @@ module.exports = {
   bundlePlugin,
   copyPlugin,
   npmInvocation,
+  reusePluginDependencies,
   resolvePluginDir,
   validatePluginConfiguration,
 };

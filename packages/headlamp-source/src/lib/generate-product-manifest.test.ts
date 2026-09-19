@@ -78,7 +78,7 @@ test('generates product resources and verified tools from consumer configuration
     assert.equal(manifestPath, path.join(appDir, '.example', 'product-manifest.json'));
     assert.equal(manifest.product.version, '1.2.3');
     assert.equal('build' in manifest, false);
-    assert.equal('source' in manifest.plugins[0], false);
+    assert.deepEqual(manifest.plugins, []);
     assert.deepEqual(manifest.runCommands, [
       {
         environment: 'development',

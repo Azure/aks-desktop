@@ -10,6 +10,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { runTimedStep } from './build-timing';
 
 const { resolveInstalledHeadlampPaths } = require(
   '../packages/headlamp-source/src/lib/paths.ts'
@@ -24,6 +25,10 @@ const BUILD_MANIFEST = '.aks-desktop/product-manifest.json';
 interface PackageTarget {
   platform: NodeJS.Platform;
   arch: string;
+}
+
+interface PackageOptions {
+  unpacked?: boolean;
 }
 
 const PACKAGE_ARGS: Record<string, string[]> = {
@@ -44,6 +49,13 @@ export function packageArguments(platform: NodeJS.Platform, arch: string): strin
   return [...args];
 }
 
+/** Maps a supported target to Electron Builder arguments for directory-only output. */
+export function unpackedArguments(platform: NodeJS.Platform, arch: string): string[] {
+  packageArguments(platform, arch);
+  const platformFlag = platform === 'darwin' ? '--mac' : platform === 'win32' ? '--win' : '--linux';
+  return [platformFlag, `--${arch}`];
+}
+
 /** Rejects package targets that cannot execute their required tools on the current host. */
 export function validatePackageHost(
   target: PackageTarget,
@@ -58,6 +70,14 @@ export function validatePackageHost(
       `${target.platform} ${target.arch} packages require a native ${target.arch} build host`
     );
   }
+}
+
+/** Returns whether packaging needs dependencies reinstalled for another CPU architecture. */
+export function requiresTargetDependencyInstall(
+  target: PackageTarget,
+  hostArch: string = process.arch
+): boolean {
+  return target.arch !== hostArch;
 }
 
 /** Returns the platform-specific npm executable used by child build steps. */
@@ -85,6 +105,7 @@ export function packageEnvironment(
     ...env,
     GOARCH: target.arch === 'x64' ? 'amd64' : target.arch,
     HEADLAMP_BUILD_MANIFEST: BUILD_MANIFEST,
+    HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'aks-desktop,plugin-catalog',
     npm_config_arch: target.arch,
     npm_config_platform: target.platform,
     npm_config_target_arch: target.arch,
@@ -123,7 +144,8 @@ export function stageBackendExecutable(sourceDir: string, platform: NodeJS.Platf
 export function packageTarget(
   target: PackageTarget,
   rootDir = ROOT_DIR,
-  runStep = runNpm
+  runStep = runNpm,
+  options: PackageOptions = {}
 ): void {
   validatePackageHost(target);
 
@@ -136,17 +158,53 @@ export function packageTarget(
   const targetRecord = path.join(distDir, '.package-target.json');
   fs.rmSync(targetRecord, { force: true });
 
-  runStep(['run', 'headlamp:install'], rootDir, buildEnv);
-  stageBackendExecutable(sourceDir, target.platform);
-  runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir);
-  runStep(['run', 'headlamp:translations'], rootDir);
-  runStep(['run', 'plugin:setup'], rootDir);
-  runStep(['run', 'headlamp:manifest'], rootDir);
-  runStep(['run', 'headlamp:frontend-env'], rootDir);
-  runStep(['run', 'frontend:build'], sourceDir, buildEnv);
-  runStep(['run', 'package', '--', ...packageArguments(target.platform, target.arch)], appDir, buildEnv);
-  fs.writeFileSync(targetRecord, `${JSON.stringify(target)}\n`);
-  console.log(`\nBuild complete (${target.platform}/${target.arch}).\nOutput directory: ${path.resolve(distDir)}`);
+  runTimedStep(`package ${target.platform}/${target.arch}`, () => {
+    if (requiresTargetDependencyInstall(target)) {
+      runTimedStep('install target dependencies', () =>
+        runStep(['run', 'headlamp:install'], rootDir, buildEnv)
+      );
+    }
+    runTimedStep('stage backend executable', () => stageBackendExecutable(sourceDir, target.platform));
+    runTimedStep('stage external tools', () =>
+      runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir)
+    );
+    runTimedStep('generate product manifest', () =>
+      runStep(['run', 'headlamp:manifest'], rootDir)
+    );
+    runTimedStep('install release plugins', () =>
+      runStep(['run', 'plugin:install-releases'], rootDir, buildEnv)
+    );
+    runTimedStep('distribute translations', () =>
+      runStep(['run', 'headlamp:translations'], rootDir)
+    );
+    runTimedStep('bundle plugins', () =>
+      runStep(['run', 'plugin:setup'], rootDir, buildEnv)
+    );
+    runTimedStep('generate frontend environment', () =>
+      runStep(['run', 'headlamp:frontend-env'], rootDir)
+    );
+    runTimedStep('build frontend', () =>
+      runStep(['run', 'frontend:build'], sourceDir, buildEnv)
+    );
+    runTimedStep(options.unpacked ? 'assemble unpacked application' : 'package application', () =>
+      runStep(
+        [
+          'run',
+          options.unpacked ? 'build' : 'package',
+          '--',
+          ...(options.unpacked
+            ? unpackedArguments(target.platform, target.arch)
+            : packageArguments(target.platform, target.arch)),
+        ],
+        appDir,
+        buildEnv
+      )
+    );
+    fs.writeFileSync(targetRecord, `${JSON.stringify(target)}\n`);
+    console.log(
+      `\nBuild complete (${target.platform}/${target.arch}).\nOutput directory: ${path.resolve(distDir)}`
+    );
+  });
 }
 
 /** Reads a `--name=value` option from the package-target command line. */
@@ -161,5 +219,7 @@ if (require.main === module) {
   if (!platform || !arch) {
     throw new Error('Usage: package-target.ts --platform=<platform> --arch=<arch>');
   }
-  packageTarget({ platform, arch });
+  packageTarget({ platform, arch }, ROOT_DIR, runNpm, {
+    unpacked: process.argv.includes('--unpacked'),
+  });
 }

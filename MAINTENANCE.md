@@ -136,10 +136,15 @@ produces translated files into `Localize/locales/{lang}/`. The
 `Localize/LocProject.json` file configures this pipeline.
 
 The covered sources are the installed Headlamp frontend,
-`plugins/aks-desktop/`, `plugins/ai-assistant/`, `plugins/plugin-catalog/`, and
-the external `keda`, `cert-manager`, and `prometheus` plugins.
+`plugins/aks-desktop/`, `plugins/plugin-catalog/`, the staged `ai-assistant`
+release, and the external `keda`, `cert-manager`, and `prometheus` plugins.
 
-External plugins live in the separate Headlamp plugins repository, expected as a sibling checkout at `../plugins`. Override the location with the `HEADLAMP_PLUGINS_DIR` environment variable. If the repository is not present, those sources are skipped, so CI only verifies the in-repo sources.
+AI Assistant is staged from the pinned GitHub release before collection, and
+AKS-managed translations are overlaid onto that release before packaging.
+Other external plugins live in the separate Headlamp plugins repository,
+expected as a sibling checkout at `../plugins`. Override the location with the
+`HEADLAMP_PLUGINS_DIR` environment variable. Missing external sources are
+skipped.
 
 ### Workflow
 

@@ -16,6 +16,8 @@ import { execFileSync, execSync } from 'child_process';
 import { createHash } from 'crypto';
 import { createWriteStream, createReadStream } from 'fs';
 import {
+  generateUnixAzWrapperScript,
+  UNIX_AZ_CLI_EXTENSIONS_DIRNAME,
   generateWindowsAzWrapperScript,
   WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME,
   WINDOWS_AZ_CLI_ORIGINAL_FILENAME,
@@ -26,12 +28,15 @@ const ROOT_DIR = path.dirname(SCRIPT_DIR);
 const { appDir: HEADLAMP_APP_DIR } = require(
   '../packages/headlamp-source/src/lib/paths.ts'
 ).resolveInstalledHeadlampPaths(ROOT_DIR);
-const { copyDirectoryContents, removePathPattern } = require(
+const { copyDirectoryContents } = require(
   '../packages/headlamp-source/src/lib/file-operations.ts'
 );
 const { parseTargetArgs } = require('./build-target.ts');
 const {
   azureCliCacheIdentity,
+  azureCliExtensionsToInstall,
+  azureCliExtensionsToRemove,
+  azureCliVersionDataMatchesTarget,
   installRequiredExtensions,
   resolveAzureCliTarget,
   verifyRequiredArtifact,
@@ -57,9 +62,11 @@ const target = resolveAzureCliTarget(ROOT_DIR, TARGET_PLATFORM, args.arch);
 const PYTHON_URL = target.python?.url;
 const PYTHON_CHECKSUM = target.python?.checksum;
 const AZ_CLI_VERSION = target.version;
-const AZ_CLI_URL = target.windowsPackage?.url;
-const AZ_CLI_CHECKSUM = target.windowsPackage?.checksum;
+const AZ_CLI_URL = target.cliPackage?.url;
+const AZ_CLI_CHECKSUM = target.cliPackage?.checksum;
 const AZ_CLI_EXTENSIONS = target.extensions;
+const AZ_CLI_EXTENSION_VERSIONS = target.extensionVersions;
+const AZ_CLI_EXTENSION_CACHE_DIR = process.env.AZ_CLI_EXTENSION_CACHE_DIR;
 
 console.log('==========================================');
 console.log(`Downloading Azure CLI v${AZ_CLI_VERSION}`);
@@ -90,7 +97,9 @@ process.on('SIGINT', () => {
 
 // Check if already installed
 const azWrapperPath = path.join(TARGET_DIR, 'bin', CURRENT_PLATFORM === 'win32' ? 'az.cmd' : 'az-wrapper');
-const pythonPath = CURRENT_PLATFORM === 'win32' ? undefined : path.join(TARGET_DIR, 'bin', 'python3');
+const pythonPath = CURRENT_PLATFORM === 'win32'
+  ? undefined
+  : path.join(TARGET_DIR, 'python', 'bin', 'python3');
 let existingTarget;
 try {
   existingTarget = JSON.parse(fs.readFileSync(STAGED_TARGET_PATH, 'utf8'));
@@ -102,12 +111,22 @@ if (
   (pythonPath === undefined || fs.existsSync(pythonPath)) &&
   JSON.stringify(existingTarget) === JSON.stringify(stagedTarget)
 ) {
-  console.log(`✅ Azure CLI already installed for ${target.platform}/${target.arch}`);
-  console.log(`   Location: ${TARGET_DIR}`);
-  console.log('');
-  console.log('To force re-download, remove the directory first:');
-  console.log(`   rm -rf ${TARGET_DIR}`);
-  process.exit(0);
+  try {
+    const versionData = JSON.parse(
+      execFileSync(azWrapperPath, ['version', '--output', 'json'], {
+        encoding: 'utf8',
+        timeout: 120000,
+      })
+    );
+    if (azureCliVersionDataMatchesTarget(target, versionData)) {
+      console.log(`✅ Azure CLI cache verified for ${target.platform}/${target.arch}`);
+      console.log(`   Location: ${TARGET_DIR}`);
+      process.exit(0);
+    }
+    console.log('Azure CLI cache versions do not match the pinned target; rebuilding.');
+  } catch (error) {
+    console.log(`Azure CLI cache verification failed; rebuilding: ${error}`);
+  }
 }
 fs.rmSync(TARGET_DIR, { recursive: true, force: true });
 fs.mkdirSync(TARGET_DIR, { recursive: true });
@@ -239,201 +258,104 @@ function extractZip(archivePath: string, outputDir: string): void {
   }
 }
 
-/**
- * Install Azure CLI with Python (bundled for Linux and macOS)
- */
-async function installAzCliWithPython(platform: string): Promise<string[]> {
-  let pythonBin: string;
-
-  // Download and use bundled Python for both Linux and macOS
-  if (!PYTHON_URL) {
-    console.error(`❌ ERROR: No Python URL configured for platform: ${platform}`);
-    console.error(`   Please add python.${platform}.url to package.json config.externalTools`);
-    throw new Error('Python URL not configured');
+/** Install official Unix Azure CLI and Python archives without pip resolution. */
+async function installPrebuiltAzCliWithPython(platform: string): Promise<string[]> {
+  if (!PYTHON_URL || !AZ_CLI_URL) {
+    throw new Error(`Prebuilt Azure CLI or Python URL not configured for ${platform}/${target.arch}`);
   }
 
   const pythonArchive = path.join(TEMP_DIR, `python-${platform}.tar.gz`);
+  const cliArchive = path.join(TEMP_DIR, `azure-cli-${platform}.tar.gz`);
+  await Promise.all([
+    downloadFile(PYTHON_URL, pythonArchive),
+    downloadFile(AZ_CLI_URL, cliArchive),
+  ]);
+  await Promise.all([
+    verifyRequiredArtifact(verifyChecksum(pythonArchive, PYTHON_CHECKSUM, 'Python'), 'Python'),
+    verifyRequiredArtifact(
+      verifyChecksum(cliArchive, AZ_CLI_CHECKSUM, `Azure CLI ${AZ_CLI_VERSION}`),
+      `Azure CLI ${AZ_CLI_VERSION}`
+    ),
+  ]);
 
-  // Download Python
-  try {
-    await downloadFile(PYTHON_URL, pythonArchive);
-  } catch (error) {
-    console.error('❌ ERROR: Failed to download Python');
-    throw error;
-  }
-
-  // Verify checksum
-  if (PYTHON_CHECKSUM) {
-    const verified = await verifyChecksum(pythonArchive, PYTHON_CHECKSUM, 'Python');
-    if (!verified) {
-      throw new Error('Python checksum verification failed');
-    }
-  }
-
-  // Extract Python
   const pythonExtractDir = path.join(TEMP_DIR, `python-${platform}`);
   extractTarGz(pythonArchive, pythonExtractDir);
-
-  // Find the python directory (it's nested in python/install/)
+  extractTarGz(cliArchive, TARGET_DIR);
   const pythonRoot = path.join(pythonExtractDir, 'python');
-  if (!fs.existsSync(pythonRoot)) {
-    throw new Error('Python extraction failed - directory not found');
+  if (!fs.existsSync(path.join(pythonRoot, 'bin', 'python3'))) {
+    throw new Error('Python extraction failed - executable not found');
   }
+  copyDirectoryContents(pythonRoot, path.join(TARGET_DIR, 'python'), true);
 
-  console.log('Installing Azure CLI using bundled Python...');
-  pythonBin = path.join(pythonRoot, 'bin', 'python3');
-
-  // Create a virtual environment
-  const venvDir = path.join(TEMP_DIR, `venv-${platform}`);
-  execSync(`"${pythonBin}" -m venv "${venvDir}"`, { stdio: 'inherit' });
-
-  // Install Azure CLI in the venv
-  const venvPython = path.join(venvDir, 'bin', 'python');
-  const venvPip = path.join(venvDir, 'bin', 'pip');
-
-  console.log('Upgrading pip...');
-  execSync(`"${venvPip}" install --upgrade pip setuptools wheel`, { stdio: 'inherit' });
-
-  console.log('Installing Azure CLI packages...');
-  execSync(`"${venvPip}" install azure-cli==${AZ_CLI_VERSION}`, { stdio: 'inherit' });
-
-  // Install Azure CLI extensions. A failed install must abort the build
-  // rather than be swallowed: writeStagedAzCli() only runs once main()'s
-  // switch on CURRENT_PLATFORM returns successfully, so throwing here means
-  // no marker is written and the incomplete bundle can't pass as staged.
-  const installedExtensions: string[] = [];
-  if (AZ_CLI_EXTENSIONS && AZ_CLI_EXTENSIONS.length > 0) {
-    console.log(`Installing Azure CLI extensions: ${AZ_CLI_EXTENSIONS.join(', ')}`);
-    installRequiredExtensions(AZ_CLI_EXTENSIONS, (extension: string) => {
-      console.log(`  → Installing extension: ${extension}`);
-      try {
-        execSync(`"${venvPython}" -m azure.cli extension add -n ${extension}`, {
-          stdio: 'inherit',
-          env: {
-            ...process.env,
-            AZURE_EXTENSION_DIR: path.join(venvDir, 'extensions')
-          }
-        });
-      } catch (error) {
-        console.error(`  ❌ ERROR: Failed to install extension ${extension}`);
-        console.error(`     Error: ${error}`);
-        throw error;
-      }
-      installedExtensions.push(extension);
-    });
-    console.log('✅ Extensions installation complete');
-  }
-
-  // Copy Python and Azure CLI to target
-  console.log(`Copying bundled Python and Azure CLI to ${TARGET_DIR}...`);
-  copyDirectoryContents(pythonRoot, TARGET_DIR, true);
-
-  // Copy Azure CLI packages from venv to bundled Python's site-packages
-  const pythonVersion = execSync(`"${pythonBin}" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"`, { encoding: 'utf-8' }).trim();
-  const venvSitePackages = path.join(venvDir, 'lib', `python${pythonVersion}`, 'site-packages');
-  const targetSitePackages = path.join(TARGET_DIR, 'lib', `python${pythonVersion}`, 'site-packages');
-
-  if (fs.existsSync(venvSitePackages)) {
-    console.log('Copying Azure CLI packages...');
-    copyDirectoryContents(venvSitePackages, targetSitePackages);
-  }
-
-  // Copy Azure CLI extensions
-  const venvExtensionsDir = path.join(venvDir, 'extensions');
-  const targetExtensionsDir = path.join(TARGET_DIR, 'cliextensions');
-  if (fs.existsSync(venvExtensionsDir)) {
-    console.log('Copying Azure CLI extensions...');
-    copyDirectoryContents(venvExtensionsDir, targetExtensionsDir);
-  }
-
-  // Create wrapper script
-  const binDir = path.join(TARGET_DIR, 'bin');
-  fs.mkdirSync(binDir, { recursive: true });
-
-  const azWrapper = path.join(binDir, 'az-wrapper');
-
-  // Both Linux and macOS: Use bundled Python
-  fs.writeFileSync(azWrapper, `#!/bin/bash
-# Azure CLI wrapper - uses bundled Python
-
-SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-CLI_DIR="$(dirname "$SCRIPT_DIR")"
-
-# Set AZ_INSTALLER environment variable
-export AZ_INSTALLER="BUNDLED"
-
-# Use bundled extensions directory
-export AZURE_EXTENSION_DIR="$CLI_DIR/cliextensions"
-
-# Run Python with the azure.cli module using the bundled Python
-exec "$SCRIPT_DIR/python3" -m azure.cli "$@"
-`, { mode: 0o755 });
-
-  // Create 'az' symlink
-  const azSymlink = path.join(binDir, 'az');
-  if (fs.existsSync(azSymlink)) {
-    fs.unlinkSync(azSymlink);
-  }
-  fs.symlinkSync('az-wrapper', azSymlink);
-
-  // Cleanup to reduce size
-  console.log('Optimizing bundle size...');
-
-  // Remove pip, setuptools, and wheel (not needed after installation)
-  const cleanupDirs = [
-    path.join(targetSitePackages, 'pip'),
-    path.join(targetSitePackages, 'pip-*'),
-    path.join(targetSitePackages, 'setuptools'),
-    path.join(targetSitePackages, 'setuptools-*'),
-    path.join(targetSitePackages, 'wheel'),
-    path.join(targetSitePackages, 'wheel-*'),
-    // Remove .dist-info directories for removed packages
-    path.join(targetSitePackages, 'pip*.dist-info'),
-    path.join(targetSitePackages, 'setuptools*.dist-info'),
-    path.join(targetSitePackages, 'wheel*.dist-info'),
-  ];
-
-  for (const dir of cleanupDirs) {
-    try {
-      removePathPattern(dir);
-    } catch (error) {
-      // Ignore errors - directory might not exist
-    }
-  }
-
-  // Remove __pycache__ directories and .pyc files in test directories
+  const targetExtensionDir = path.join(TARGET_DIR, UNIX_AZ_CLI_EXTENSIONS_DIRNAME);
+  const extensionDir = AZ_CLI_EXTENSION_CACHE_DIR
+    ? path.resolve(AZ_CLI_EXTENSION_CACHE_DIR)
+    : targetExtensionDir;
+  fs.mkdirSync(extensionDir, { recursive: true });
+  const stockAz = path.join(TARGET_DIR, 'bin', 'az');
+  const bundledPython = path.join(TARGET_DIR, 'python', 'bin', 'python3');
+  const extensionEnvironment = {
+    ...process.env,
+    AZ_PYTHON: bundledPython,
+    AZURE_EXTENSION_DIR: extensionDir,
+  };
+  let versionData: Record<string, any> = { extensions: {} };
   try {
-    execSync(`find "${targetSitePackages}" -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true`, { stdio: 'pipe' });
-    execSync(`find "${targetSitePackages}" -type d -name "test" -exec rm -rf {} + 2>/dev/null || true`, { stdio: 'pipe' });
+    versionData = JSON.parse(
+      execFileSync(stockAz, ['version', '--output', 'json'], {
+        encoding: 'utf8',
+        env: extensionEnvironment,
+      })
+    );
   } catch (error) {
-    // Ignore errors
+    console.log(`Azure CLI extension cache verification failed; rebuilding: ${error}`);
+    fs.rmSync(extensionDir, { recursive: true, force: true });
+    fs.mkdirSync(extensionDir, { recursive: true });
   }
-
-  // Remove unnecessary Python standard library components
-  const stdlibCleanup = [
-    path.join(TARGET_DIR, 'lib', `python${pythonVersion}`, 'idlelib'),  // IDLE IDE
-    path.join(TARGET_DIR, 'lib', `python${pythonVersion}`, 'lib2to3'),  // Python 2 to 3 converter
-    path.join(TARGET_DIR, 'lib', `python${pythonVersion}`, 'tkinter'),  // GUI toolkit
-    path.join(TARGET_DIR, 'lib', `python${pythonVersion}`, 'ensurepip'), // pip installer
-    path.join(TARGET_DIR, 'lib', `python${pythonVersion}`, 'distutils'), // Deprecated
-    path.join(TARGET_DIR, 'lib', 'tcl8*'),
-    path.join(TARGET_DIR, 'lib', 'tk8*'),
-    path.join(TARGET_DIR, 'lib', 'Tix*'),
-    path.join(TARGET_DIR, 'lib', 'itcl*'),
-    path.join(TARGET_DIR, 'lib', 'thread*'),
-  ];
-
-  for (const dir of stdlibCleanup) {
-    try {
-      removePathPattern(dir);
-    } catch (error) {
-      // Ignore errors
+  const extensionsToInstall = azureCliExtensionsToInstall(target, versionData.extensions);
+  for (const extension of azureCliExtensionsToRemove(target, versionData.extensions)) {
+    execFileSync(stockAz, ['extension', 'remove', '-n', extension], {
+      stdio: 'inherit',
+      env: extensionEnvironment,
+    });
+  }
+  installRequiredExtensions(extensionsToInstall, (extension: string) => {
+    if (versionData.extensions?.[extension]) {
+      execFileSync(stockAz, ['extension', 'remove', '-n', extension], {
+        stdio: 'inherit',
+        env: extensionEnvironment,
+      });
     }
+    execFileSync(stockAz, [
+      'extension', 'add', '-n', extension,
+      '--version', AZ_CLI_EXTENSION_VERSIONS[extension],
+      '--yes', '--allow-preview', 'true',
+    ], {
+      stdio: 'inherit',
+      env: extensionEnvironment,
+    });
+  });
+  const finalVersionData = JSON.parse(
+    execFileSync(stockAz, ['version', '--output', 'json'], {
+      encoding: 'utf8',
+      env: extensionEnvironment,
+    })
+  );
+  if (!azureCliVersionDataMatchesTarget(target, finalVersionData)) {
+    throw new Error('Azure CLI or extension versions do not match the pinned target');
+  }
+  if (extensionDir !== targetExtensionDir) {
+    fs.rmSync(targetExtensionDir, { recursive: true, force: true });
+    copyDirectoryContents(extensionDir, targetExtensionDir, true);
   }
 
-  console.log(`✅ Azure CLI installed for ${platform}`);
-
-  return installedExtensions;
+  const binDir = path.join(TARGET_DIR, 'bin');
+  const azWrapper = path.join(binDir, 'az-wrapper');
+  fs.writeFileSync(azWrapper, generateUnixAzWrapperScript(), { mode: 0o755 });
+  fs.rmSync(stockAz, { force: true });
+  fs.symlinkSync('az-wrapper', stockAz);
+  console.log(`✅ Prebuilt Azure CLI installed for ${platform}`);
+  return [...AZ_CLI_EXTENSIONS];
 }
 
 /**
@@ -476,7 +398,10 @@ async function installAzCliWindows(): Promise<string[]> {
   }
   fs.renameSync(stockAzCmd, originalAzCmd);
   fs.writeFileSync(stockAzCmd, generateWindowsAzWrapperScript());
-  const extensionDir = path.join(TARGET_DIR, WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME);
+  const targetExtensionDir = path.join(TARGET_DIR, WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME);
+  const extensionDir = AZ_CLI_EXTENSION_CACHE_DIR
+    ? path.resolve(AZ_CLI_EXTENSION_CACHE_DIR)
+    : targetExtensionDir;
   fs.mkdirSync(extensionDir, { recursive: true });
 
   console.log('✅ Windows Azure CLI ready');
@@ -484,23 +409,52 @@ async function installAzCliWindows(): Promise<string[]> {
   // Install the configured extensions into the same app-owned directory the
   // wrapper points AZURE_EXTENSION_DIR at, using the CLI's own bundled
   // python.exe (extracted at the top level of TARGET_DIR by the zip). A
-  // failed install must abort the build rather than be swallowed, matching
-  // installAzCliWithPython: the staged target marker is written only after
-  // main()'s switch returns successfully, so an incomplete bundle cannot pass
-  // as staged.
+  // Failed installs abort before the staged target marker is written, so an
+  // incomplete bundle cannot pass as staged.
   const installedExtensions: string[] = [];
   if (AZ_CLI_EXTENSIONS && AZ_CLI_EXTENSIONS.length > 0) {
     const winPython = path.join(TARGET_DIR, 'python.exe');
+    const extensionEnvironment = {
+      ...process.env,
+      AZURE_EXTENSION_DIR: extensionDir,
+    };
+    let versionData: Record<string, any> = { extensions: {} };
+    try {
+      versionData = JSON.parse(
+        execFileSync(winPython, ['-m', 'azure.cli', 'version', '--output', 'json'], {
+          encoding: 'utf8',
+          env: extensionEnvironment,
+        })
+      );
+    } catch (error) {
+      console.log(`Azure CLI extension cache verification failed; rebuilding: ${error}`);
+      fs.rmSync(extensionDir, { recursive: true, force: true });
+      fs.mkdirSync(extensionDir, { recursive: true });
+    }
+    const extensionsToInstall = azureCliExtensionsToInstall(target, versionData.extensions);
+    for (const extension of azureCliExtensionsToRemove(target, versionData.extensions)) {
+      execFileSync(winPython, ['-m', 'azure.cli', 'extension', 'remove', '-n', extension], {
+        stdio: 'inherit',
+        env: extensionEnvironment,
+      });
+    }
     console.log(`Installing Azure CLI extensions: ${AZ_CLI_EXTENSIONS.join(', ')}`);
-    for (const extension of AZ_CLI_EXTENSIONS) {
+    for (const extension of extensionsToInstall) {
       console.log(`  → Installing extension: ${extension}`);
       try {
-        execSync(`"${winPython}" -m azure.cli extension add -n ${extension}`, {
+        if (versionData.extensions?.[extension]) {
+          execFileSync(winPython, ['-m', 'azure.cli', 'extension', 'remove', '-n', extension], {
+            stdio: 'inherit',
+            env: extensionEnvironment,
+          });
+        }
+        execFileSync(winPython, [
+          '-m', 'azure.cli', 'extension', 'add', '-n', extension,
+          '--version', AZ_CLI_EXTENSION_VERSIONS[extension],
+          '--yes', '--allow-preview', 'true',
+        ], {
           stdio: 'inherit',
-          env: {
-            ...process.env,
-            AZURE_EXTENSION_DIR: extensionDir,
-          },
+          env: extensionEnvironment,
         });
       } catch (error) {
         console.error(`  ❌ ERROR: Failed to install extension ${extension}`);
@@ -509,10 +463,23 @@ async function installAzCliWindows(): Promise<string[]> {
       }
       installedExtensions.push(extension);
     }
+    const finalVersionData = JSON.parse(
+      execFileSync(winPython, ['-m', 'azure.cli', 'version', '--output', 'json'], {
+        encoding: 'utf8',
+        env: extensionEnvironment,
+      })
+    );
+    if (!azureCliVersionDataMatchesTarget(target, finalVersionData)) {
+      throw new Error('Azure CLI or extension versions do not match the pinned target');
+    }
+    if (extensionDir !== targetExtensionDir) {
+      fs.rmSync(targetExtensionDir, { recursive: true, force: true });
+      copyDirectoryContents(extensionDir, targetExtensionDir, true);
+    }
     console.log('✅ Extensions installation complete');
   }
 
-  return installedExtensions;
+  return AZ_CLI_EXTENSION_CACHE_DIR ? [...AZ_CLI_EXTENSIONS] : installedExtensions;
 }
 
 /**
@@ -526,12 +493,12 @@ async function main() {
         installedExtensions = await installAzCliWindows();
         break;
       case 'darwin':
-        console.log('🍎 Installing macOS Azure CLI with bundled Python...');
-        installedExtensions = await installAzCliWithPython('darwin');
+        console.log('🍎 Installing prebuilt macOS Azure CLI with bundled Python...');
+        installedExtensions = await installPrebuiltAzCliWithPython('darwin');
         break;
       case 'linux':
-        console.log('🐧 Installing Linux Azure CLI with bundled Python...');
-        installedExtensions = await installAzCliWithPython('linux');
+        console.log('🐧 Installing prebuilt Linux Azure CLI with bundled Python...');
+        installedExtensions = await installPrebuiltAzCliWithPython('linux');
         break;
     }
 

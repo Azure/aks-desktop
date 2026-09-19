@@ -11,13 +11,14 @@ parameters:
   - name: nodeVersion
     type: string
     default: 22.22.2
-  - name: goVersion
-    type: string
-    default: 1.26.3
 
 extends:
   template: v1/1ES.Unofficial.PipelineTemplate.yml@1esPipelines
   parameters:
+    featureFlags:
+      golang:
+        internalModuleProxy:
+          enabled: true
     pool:
       name: Azure Pipelines
       image: macOS-latest
@@ -39,7 +40,7 @@ extends:
       - stage: Build_arm64
         displayName: 'Build (arm64)'
         dependsOn: []  # Explicitly no dependencies - run in parallel with x64
-        # The bundled Azure CLI and Python runtime are currently x64-only.
+        # Keep disabled until the pool provides the native ARM64 host required by package-target.
         condition: eq(1, 0)
         jobs:
           - job: BuildJob_arm64
@@ -51,6 +52,16 @@ extends:
                 value: https://packagefeedproxy.microsoft.io/npm/
               - name: NPM_CONFIG_REPLACE_REGISTRY_HOST
                 value: npmjs
+              - name: PIP_INDEX_URL
+                value: https://packagefeedproxy.microsoft.io/pypi/simple/
+              - name: NPM_CONFIG_CACHE
+                value: $(Pipeline.Workspace)/.npm
+              - name: GOMODCACHE
+                value: $(Pipeline.Workspace)/.go/pkg/mod
+              - name: GOCACHE
+                value: $(Pipeline.Workspace)/.go/build
+              - name: AZ_CLI_EXTENSION_CACHE_DIR
+                value: $(Pipeline.Workspace)/.azure-cli-extensions/$(ARCH)
               - name: ARCH
                 value: arm64
               - name: ARCH_DISPLAY
@@ -63,11 +74,8 @@ extends:
                   displayName: 'Publish Unsigned DMG (arm64)'
             steps:
               # Install tools
-              - task: GoTool@0
-                displayName: Install Go
-                retryCountOnTaskFailure: 3
-                inputs:
-                  version: ${{ parameters.goVersion }}
+              - checkout: self
+                submodules: false
 
               - task: NodeTool@0
                 displayName: Install Node.js
@@ -75,46 +83,58 @@ extends:
                 inputs:
                   versionSpec: ${{ parameters.nodeVersion }}
 
-              - checkout: self
-                submodules: false
+              - bash: |
+                  set -e
+                  go_version="$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build/go-version.ts)"
+                  echo "Headlamp Go toolchain: $go_version"
+                  echo "##vso[task.setvariable variable=HEADLAMP_GO_VERSION]$go_version"
+                displayName: Resolve Headlamp Go version
 
-              # Cache dependencies
-              - task: Cache@2
-                displayName: 'Cache npm dependencies (plugin)'
+              - task: GoTool@0
+                displayName: Install Go
+                retryCountOnTaskFailure: 3
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | plugins/aks-desktop/package-lock.json'
+                  version: $(HEADLAMP_GO_VERSION)
+
+              # Cache downloads, not node_modules that npm ci replaces.
+              - task: Cache@2
+                displayName: 'Cache npm downloads'
+                inputs:
+                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/plugin-catalog/package-lock.json'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'plugins/aks-desktop/node_modules'
+                    npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
+                  path: '$(Pipeline.Workspace)/.npm'
+
+              - bash: |
+                  set -e
+                  mkdir -p "$(GOMODCACHE)" "$(GOCACHE)"
+                  echo "GOMODCACHE=$(go env GOMODCACHE)"
+                  echo "GOCACHE=$(go env GOCACHE)"
+                  echo "GOTOOLCHAIN=$(go env GOTOOLCHAIN)"
+                displayName: 'Configure Go caches'
 
               - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp frontend)'
+                displayName: 'Cache Go module downloads'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-frontend'
+                  key: 'go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules'
+                    go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOMODCACHE)'
+                  cacheHitVar: GO_MODULE_CACHE_HIT
 
               - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp app)'
+                displayName: 'Cache Go build outputs'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-app'
+                  key: 'go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules'
+                    go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOCACHE)'
+                  cacheHitVar: GO_BUILD_CACHE_HIT
 
-              - task: Cache@2
-                displayName: 'Cache Go modules'
-                inputs:
-                  key: 'go | "$(Agent.OS)" | "${{ parameters.goVersion }}" | **/go.sum'
-                  restoreKeys: |
-                    go | "$(Agent.OS)" | "${{ parameters.goVersion }}" |
-                    go | "$(Agent.OS)" |
-                    go |
-                  path: '$(HOME)/go/pkg/mod'
+              - bash: |
+                  echo "[build-timing] Go module cache result: $(GO_MODULE_CACHE_HIT)"
+                  echo "[build-timing] Go build cache result: $(GO_BUILD_CACHE_HIT)"
+                displayName: 'Report Go cache results'
 
               # Download certificates (needed for local signing during build)
               - task: DownloadSecureFile@1
@@ -174,13 +194,22 @@ extends:
               # Update package.json to set correct architecture
               - bash: |
                   set -e
-                  echo "Updating package.json to build for $(ARCH)..."
+                  step_started=$SECONDS
+                  echo "[build-timing] npm bootstrap started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
                   npm_root="$(mktemp -d "${AGENT_TEMPDIRECTORY:-${TMPDIR:-/tmp}}/npm.XXXXXX")"
                   npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
                   echo "##vso[task.prependpath]$npm_root/node_modules/.bin"
                   export PATH="$npm_root/node_modules/.bin:$PATH"
-                  npm ci
+                  echo "[build-timing] npm bootstrap completed in $((SECONDS - step_started))s"
+
+                  step_started=$SECONDS
+                  echo "[build-timing] root npm ci started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                  npm ci --prefer-offline --no-audit --no-fund
+                  echo "[build-timing] root npm ci completed in $((SECONDS - step_started))s"
+
+                  step_started=$SECONDS
+                  echo "[build-timing] architecture configuration started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                   cd node_modules/@headlamp-k8s/headlamp-source/source/app
 
                   # Use Node.js to safely modify the JSON
@@ -200,8 +229,29 @@ extends:
                   # Verify the change
                   echo "Verifying package.json mac.target configuration:"
                   grep -A 5 '"mac"' package.json | grep -A 3 '"arch"' || echo "Configuration updated"
+                  echo "[build-timing] architecture configuration completed in $((SECONDS - step_started))s"
 
                 displayName: "Configure Architecture in package.json ($(ARCH))"
+
+              - bash: |
+                  set -e
+                  cache_key="$(node --import tsx build/azure-cli-cache-key.ts --platform=darwin --arch=$(ARCH))"
+                  echo "Azure CLI cache identity: $cache_key"
+                  echo "##vso[task.setvariable variable=AZ_CLI_CACHE_KEY]$cache_key"
+                  mkdir -p "$(AZ_CLI_EXTENSION_CACHE_DIR)"
+                displayName: 'Resolve Azure CLI extension cache'
+
+              - task: Cache@2
+                displayName: 'Cache Azure CLI extensions'
+                inputs:
+                  key: 'azure-cli-extensions-v1 | "$(Agent.OS)" | "$(ARCH)" | "$(AZ_CLI_CACHE_KEY)"'
+                  path: '$(AZ_CLI_EXTENSION_CACHE_DIR)'
+                  cacheHitVar: AZ_CLI_EXTENSION_CACHE_HIT
+
+              - bash: |
+                  echo "[build-timing] Azure CLI extension cache result: $(AZ_CLI_EXTENSION_CACHE_HIT)"
+                  du -sh "$(AZ_CLI_EXTENSION_CACHE_DIR)" 2>/dev/null || true
+                displayName: 'Report Azure CLI cache result'
 
               # Build application
               - bash: |
@@ -210,9 +260,7 @@ extends:
 
                   cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
 
-                  export NODE_OPTIONS="--max-old-space-size=4096"
-                  export GOPROXY="https://proxy.golang.org,direct"
-                  export GOSUMDB="sum.golang.org"
+                  export NODE_OPTIONS="--max-old-space-size=2048"
                   export GONOPROXY=""
                   export GOPRIVATE=""
                   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
@@ -229,12 +277,14 @@ extends:
                   SUCCESS=false
 
                   while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
-                    echo "Build attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES for $(ARCH)..."
+                    echo "[build-timing] build attempt $((RETRY_COUNT + 1)) started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
-                    if npm run "build:mac:$(ARCH)" && npm run test:distribution; then
+                    if npm run "build:mac:$(ARCH)"; then
                       SUCCESS=true
-                      echo "✅ Build complete for $(ARCH_DISPLAY)"
-                    else
+                    fi
+
+                    if [ "$SUCCESS" = false ]; then
+                      echo "[build-timing] build attempt $((RETRY_COUNT + 1)) failed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                       RETRY_COUNT=$((RETRY_COUNT + 1))
                       if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
                         echo "⚠️ Build failed, retrying in 30 seconds..."
@@ -243,14 +293,23 @@ extends:
                         echo "❌ Build failed after $MAX_RETRIES attempts"
                         exit 1
                       fi
+                    else
+                      echo "[build-timing] build attempt $((RETRY_COUNT + 1)) completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                     fi
                   done
+
+                  verification_started=$SECONDS
+                  echo "[build-timing] distribution verification started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                  npm run test:distribution
+                  echo "[build-timing] distribution verification completed in $((SECONDS - verification_started))s"
+                  echo "✅ Build complete for $(ARCH_DISPLAY) at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                 displayName: "Build AKS desktop ($(ARCH_DISPLAY))"
 
               # Copy DMGs to staging directory
               - bash: |
                   set -e
-                  echo "Copying built DMGs to staging directory..."
+                  step_started=$SECONDS
+                  echo "[build-timing] artifact collection started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
                   DMG_FILES=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*.dmg")
 
@@ -272,6 +331,7 @@ extends:
 
                   echo "Copied DMGs:"
                   ls -la "$(Build.ArtifactStagingDirectory)/build-output/"
+                  echo "[build-timing] artifact collection completed in $((SECONDS - step_started))s"
                 displayName: "Copy DMGs to Staging"
 
       - stage: Sign_arm64
@@ -552,6 +612,16 @@ extends:
                 value: https://packagefeedproxy.microsoft.io/npm/
               - name: NPM_CONFIG_REPLACE_REGISTRY_HOST
                 value: npmjs
+              - name: PIP_INDEX_URL
+                value: https://packagefeedproxy.microsoft.io/pypi/simple/
+              - name: NPM_CONFIG_CACHE
+                value: $(Pipeline.Workspace)/.npm
+              - name: GOMODCACHE
+                value: $(Pipeline.Workspace)/.go/pkg/mod
+              - name: GOCACHE
+                value: $(Pipeline.Workspace)/.go/build
+              - name: AZ_CLI_EXTENSION_CACHE_DIR
+                value: $(Pipeline.Workspace)/.azure-cli-extensions/$(ARCH)
               - name: ARCH
                 value: x64
               - name: ARCH_DISPLAY
@@ -564,11 +634,8 @@ extends:
                   displayName: 'Publish Unsigned DMG (x64)'
             steps:
               # Install tools
-              - task: GoTool@0
-                displayName: Install Go
-                retryCountOnTaskFailure: 3
-                inputs:
-                  version: ${{ parameters.goVersion }}
+              - checkout: self
+                submodules: false
 
               - task: NodeTool@0
                 displayName: Install Node.js
@@ -576,46 +643,58 @@ extends:
                 inputs:
                   versionSpec: ${{ parameters.nodeVersion }}
 
-              - checkout: self
-                submodules: false
+              - bash: |
+                  set -e
+                  go_version="$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build/go-version.ts)"
+                  echo "Headlamp Go toolchain: $go_version"
+                  echo "##vso[task.setvariable variable=HEADLAMP_GO_VERSION]$go_version"
+                displayName: Resolve Headlamp Go version
 
-              # Cache dependencies
-              - task: Cache@2
-                displayName: 'Cache npm dependencies (plugin)'
+              - task: GoTool@0
+                displayName: Install Go
+                retryCountOnTaskFailure: 3
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | plugins/aks-desktop/package-lock.json'
+                  version: $(HEADLAMP_GO_VERSION)
+
+              # Cache downloads, not node_modules that npm ci replaces.
+              - task: Cache@2
+                displayName: 'Cache npm downloads'
+                inputs:
+                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/plugin-catalog/package-lock.json'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'plugins/aks-desktop/node_modules'
+                    npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
+                  path: '$(Pipeline.Workspace)/.npm'
+
+              - bash: |
+                  set -e
+                  mkdir -p "$(GOMODCACHE)" "$(GOCACHE)"
+                  echo "GOMODCACHE=$(go env GOMODCACHE)"
+                  echo "GOCACHE=$(go env GOCACHE)"
+                  echo "GOTOOLCHAIN=$(go env GOTOOLCHAIN)"
+                displayName: 'Configure Go caches'
 
               - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp frontend)'
+                displayName: 'Cache Go module downloads'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-frontend'
+                  key: 'go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules'
+                    go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOMODCACHE)'
+                  cacheHitVar: GO_MODULE_CACHE_HIT
 
               - task: Cache@2
-                displayName: 'Cache npm dependencies (headlamp app)'
+                displayName: 'Cache Go build outputs'
                 inputs:
-                  key: 'npm | "$(Agent.OS)" | package-lock.json | headlamp-app'
+                  key: 'go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
                   restoreKeys: |
-                    npm | "$(Agent.OS)" |
-                    npm |
-                  path: 'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules'
+                    go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOCACHE)'
+                  cacheHitVar: GO_BUILD_CACHE_HIT
 
-              - task: Cache@2
-                displayName: 'Cache Go modules'
-                inputs:
-                  key: 'go | "$(Agent.OS)" | "${{ parameters.goVersion }}" | **/go.sum'
-                  restoreKeys: |
-                    go | "$(Agent.OS)" | "${{ parameters.goVersion }}" |
-                    go | "$(Agent.OS)" |
-                    go |
-                  path: '$(HOME)/go/pkg/mod'
+              - bash: |
+                  echo "[build-timing] Go module cache result: $(GO_MODULE_CACHE_HIT)"
+                  echo "[build-timing] Go build cache result: $(GO_BUILD_CACHE_HIT)"
+                displayName: 'Report Go cache results'
 
               # Download certificates (needed for local signing during build)
               - task: DownloadSecureFile@1
@@ -675,13 +754,22 @@ extends:
               # Update package.json to set correct architecture
               - bash: |
                   set -e
-                  echo "Updating package.json to build for $(ARCH)..."
+                  step_started=$SECONDS
+                  echo "[build-timing] npm bootstrap started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
                   npm_root="$(mktemp -d "${AGENT_TEMPDIRECTORY:-${TMPDIR:-/tmp}}/npm.XXXXXX")"
                   npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
                   echo "##vso[task.prependpath]$npm_root/node_modules/.bin"
                   export PATH="$npm_root/node_modules/.bin:$PATH"
-                  npm ci
+                  echo "[build-timing] npm bootstrap completed in $((SECONDS - step_started))s"
+
+                  step_started=$SECONDS
+                  echo "[build-timing] root npm ci started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                  npm ci --prefer-offline --no-audit --no-fund
+                  echo "[build-timing] root npm ci completed in $((SECONDS - step_started))s"
+
+                  step_started=$SECONDS
+                  echo "[build-timing] architecture configuration started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                   cd node_modules/@headlamp-k8s/headlamp-source/source/app
 
                   # Use Node.js to safely modify the JSON
@@ -701,8 +789,29 @@ extends:
                   # Verify the change
                   echo "Verifying package.json mac.target configuration:"
                   grep -A 5 '"mac"' package.json | grep -A 3 '"arch"' || echo "Configuration updated"
+                  echo "[build-timing] architecture configuration completed in $((SECONDS - step_started))s"
 
                 displayName: "Configure Architecture in package.json ($(ARCH))"
+
+              - bash: |
+                  set -e
+                  cache_key="$(node --import tsx build/azure-cli-cache-key.ts --platform=darwin --arch=$(ARCH))"
+                  echo "Azure CLI cache identity: $cache_key"
+                  echo "##vso[task.setvariable variable=AZ_CLI_CACHE_KEY]$cache_key"
+                  mkdir -p "$(AZ_CLI_EXTENSION_CACHE_DIR)"
+                displayName: 'Resolve Azure CLI extension cache'
+
+              - task: Cache@2
+                displayName: 'Cache Azure CLI extensions'
+                inputs:
+                  key: 'azure-cli-extensions-v1 | "$(Agent.OS)" | "$(ARCH)" | "$(AZ_CLI_CACHE_KEY)"'
+                  path: '$(AZ_CLI_EXTENSION_CACHE_DIR)'
+                  cacheHitVar: AZ_CLI_EXTENSION_CACHE_HIT
+
+              - bash: |
+                  echo "[build-timing] Azure CLI extension cache result: $(AZ_CLI_EXTENSION_CACHE_HIT)"
+                  du -sh "$(AZ_CLI_EXTENSION_CACHE_DIR)" 2>/dev/null || true
+                displayName: 'Report Azure CLI cache result'
 
               # Build application
               - bash: |
@@ -711,9 +820,7 @@ extends:
 
                   cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
 
-                  export NODE_OPTIONS="--max-old-space-size=4096"
-                  export GOPROXY="https://proxy.golang.org,direct"
-                  export GOSUMDB="sum.golang.org"
+                  export NODE_OPTIONS="--max-old-space-size=2048"
                   export GONOPROXY=""
                   export GOPRIVATE=""
                   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
@@ -730,12 +837,14 @@ extends:
                   SUCCESS=false
 
                   while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
-                    echo "Build attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES for $(ARCH)..."
+                    echo "[build-timing] build attempt $((RETRY_COUNT + 1)) started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
-                    if npm run "build:mac:$(ARCH)" && npm run test:distribution; then
+                    if npm run "build:mac:$(ARCH)"; then
                       SUCCESS=true
-                      echo "✅ Build complete for $(ARCH_DISPLAY)"
-                    else
+                    fi
+
+                    if [ "$SUCCESS" = false ]; then
+                      echo "[build-timing] build attempt $((RETRY_COUNT + 1)) failed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                       RETRY_COUNT=$((RETRY_COUNT + 1))
                       if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
                         echo "⚠️ Build failed, retrying in 30 seconds..."
@@ -744,14 +853,23 @@ extends:
                         echo "❌ Build failed after $MAX_RETRIES attempts"
                         exit 1
                       fi
+                    else
+                      echo "[build-timing] build attempt $((RETRY_COUNT + 1)) completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                     fi
                   done
+
+                  verification_started=$SECONDS
+                  echo "[build-timing] distribution verification started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                  npm run test:distribution
+                  echo "[build-timing] distribution verification completed in $((SECONDS - verification_started))s"
+                  echo "✅ Build complete for $(ARCH_DISPLAY) at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                 displayName: "Build AKS desktop ($(ARCH_DISPLAY))"
 
               # Copy DMGs to staging directory
               - bash: |
                   set -e
-                  echo "Copying built DMGs to staging directory..."
+                  step_started=$SECONDS
+                  echo "[build-timing] artifact collection started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
                   DMG_FILES=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*.dmg")
 
@@ -773,6 +891,7 @@ extends:
 
                   echo "Copied DMGs:"
                   ls -la "$(Build.ArtifactStagingDirectory)/build-output/"
+                  echo "[build-timing] artifact collection completed in $((SECONDS - step_started))s"
                 displayName: "Copy DMGs to Staging"
 
       - stage: Sign_x64

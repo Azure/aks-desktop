@@ -8,6 +8,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'node:crypto';
 
 import { resolveTargetArch } from './build-target';
 
@@ -20,6 +21,9 @@ interface RuntimeConfig {
 interface AzureCliConfig {
   version?: string;
   extensions?: string[];
+  extensionVersions?: Record<string, string>;
+  linux?: Record<string, RuntimeConfig>;
+  darwin?: Record<string, RuntimeConfig>;
   win32?: Record<string, RuntimeConfig>;
 }
 
@@ -33,20 +37,62 @@ export interface AzureCliTarget {
   arch: string;
   version: string;
   extensions: string[];
+  extensionVersions: Record<string, string>;
   python?: RuntimeConfig;
-  windowsPackage?: RuntimeConfig;
+  cliPackage?: RuntimeConfig;
 }
 
 /** Returns the stable fields that determine whether an Azure CLI staging cache is reusable. */
 export function azureCliCacheIdentity(target: AzureCliTarget) {
   return {
     platform: target.platform,
-    runtimeArch: target.windowsPackage?.runtimeArch || target.arch,
+    runtimeArch: target.cliPackage?.runtimeArch || target.arch,
     version: target.version,
     extensions: [...target.extensions].sort(),
+    extensionVersions: Object.fromEntries(
+      Object.entries(target.extensionVersions).sort(([left], [right]) => left.localeCompare(right))
+    ),
     pythonChecksum: target.python?.checksum,
-    packageChecksum: target.windowsPackage?.checksum,
+    packageChecksum: target.cliPackage?.checksum,
   };
+}
+
+/** Returns a filesystem-safe digest for a fully staged Azure CLI bundle. */
+export function azureCliCacheKey(target: AzureCliTarget): string {
+  return createHash('sha256')
+    .update(JSON.stringify(azureCliCacheIdentity(target)))
+    .digest('hex');
+}
+
+/** Checks the reported CLI and extension versions against the pinned target. */
+export function azureCliVersionDataMatchesTarget(
+  target: AzureCliTarget,
+  versionData: Record<string, any>
+): boolean {
+  if (versionData['azure-cli'] !== target.version) return false;
+  const installedExtensions = versionData.extensions ?? {};
+  return target.extensions.every(
+    extension => installedExtensions[extension] === target.extensionVersions[extension]
+  );
+}
+
+/** Returns configured extensions whose installed version is absent or stale. */
+export function azureCliExtensionsToInstall(
+  target: AzureCliTarget,
+  installedExtensions: Record<string, string> = {}
+): string[] {
+  return target.extensions.filter(
+    extension => installedExtensions[extension] !== target.extensionVersions[extension]
+  );
+}
+
+/** Returns cached extensions that are not part of the reviewed target configuration. */
+export function azureCliExtensionsToRemove(
+  target: AzureCliTarget,
+  installedExtensions: Record<string, string> = {}
+): string[] {
+  const configured = new Set(target.extensions);
+  return Object.keys(installedExtensions).filter(extension => !configured.has(extension));
 }
 
 /** Requires an asynchronously verified build artifact. */
@@ -119,11 +165,17 @@ export function resolveAzureCliTarget(
     arch: targetArch,
     version,
     extensions: azureCli.extensions ?? [],
+    extensionVersions: azureCli.extensionVersions ?? {},
   };
+  for (const extension of target.extensions) {
+    if (!target.extensionVersions[extension]) {
+      throw new Error(`No pinned version configured for Azure CLI extension ${extension}`);
+    }
+  }
 
   if (platform === 'win32') {
-    target.windowsPackage = azureCli.win32?.[targetArch];
-    if (!target.windowsPackage?.url || !target.windowsPackage.checksum) {
+    target.cliPackage = azureCli.win32?.[targetArch];
+    if (!target.cliPackage?.url || !target.cliPackage.checksum) {
       throw new Error(
         `No verified Azure CLI package configured for ${platform}/${targetArch}`
       );
@@ -136,6 +188,12 @@ export function resolveAzureCliTarget(
   target.python = python?.[unixPlatform]?.[targetArch];
   if (!target.python?.url || !target.python.checksum) {
     throw new Error(`No verified Python runtime configured for ${platform}/${targetArch}`);
+  }
+  target.cliPackage = azureCli[unixPlatform]?.[targetArch];
+  if (!target.cliPackage?.url || !target.cliPackage.checksum) {
+    throw new Error(
+      `No verified Azure CLI package configured for ${platform}/${targetArch}`
+    );
   }
   return target;
 }
