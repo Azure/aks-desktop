@@ -57,6 +57,7 @@
     "typescript": "^6.0.3"
   },
   "headlampSource": {
-    "revision": "d4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0"
+    "revision": "d4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0",
+    "goVersion": "1.26.8"
   }
 }
