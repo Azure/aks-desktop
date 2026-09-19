@@ -90,7 +90,7 @@ extends:
               - task: Cache@2
                 displayName: 'Cache npm downloads'
                 inputs:
-                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/ai-assistant/package-lock.json | plugins/plugin-catalog/package-lock.json'
+                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/plugin-catalog/package-lock.json'
                   restoreKeys: |
                     npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
                   path: '$(Pipeline.Workspace)/.npm'
@@ -172,7 +172,7 @@ extends:
 
                   step_started=$SECONDS
                   echo "[build-timing] root npm ci started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                  npm ci
+                  npm ci --prefer-offline --no-audit --no-fund
                   echo "[build-timing] root npm ci completed in $((SECONDS - step_started))s"
 
                   step_started=$SECONDS
@@ -594,7 +594,7 @@ extends:
               - task: Cache@2
                 displayName: 'Cache npm downloads'
                 inputs:
-                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/ai-assistant/package-lock.json | plugins/plugin-catalog/package-lock.json'
+                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/plugin-catalog/package-lock.json'
                   restoreKeys: |
                     npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
                   path: '$(Pipeline.Workspace)/.npm'
@@ -676,7 +676,7 @@ extends:
 
                   step_started=$SECONDS
                   echo "[build-timing] root npm ci started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                  npm ci
+                  npm ci --prefer-offline --no-audit --no-fund
                   echo "[build-timing] root npm ci completed in $((SECONDS - step_started))s"
 
                   step_started=$SECONDS
