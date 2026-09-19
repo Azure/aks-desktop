@@ -11,6 +11,7 @@ const {
   bundlePlugin,
   copyPlugin,
   npmInvocation,
+  reusePluginDependencies,
   validatePluginConfiguration,
 } = require('./bundle-plugins.ts');
 const { spawn, spawnSync } = require('./npm-command.ts');
@@ -77,6 +78,21 @@ test('runs the npm JavaScript CLI through Node when available', () => {
     command: 'npm.cmd',
     args: ['ci'],
   });
+});
+
+test('reuses only a verified plugin dependency tree during packaging', () => {
+  const { pluginDir } = createPlugin('example-plugin');
+  assert.equal(reusePluginDependencies(pluginDir, {}), false);
+  assert.throws(
+    () => reusePluginDependencies(pluginDir, { HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: '1' }),
+    /missing plugin dependencies/
+  );
+  fs.mkdirSync(path.join(pluginDir, 'node_modules'), { recursive: true });
+  fs.writeFileSync(path.join(pluginDir, 'node_modules', '.package-lock.json'), '{}');
+  assert.equal(
+    reusePluginDependencies(pluginDir, { HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: '1' }),
+    true
+  );
 });
 
 test('copies a scoped plugin to a direct shipped-plugin directory', () => {

@@ -239,6 +239,7 @@ test('uses the managed Mac dmgbuild launcher unless the caller overrides it', ()
     generated.CUSTOM_DMGBUILD_PATH,
     path.join('/workspace', 'build', 'dmgbuild-managed-mac.cjs')
   );
+  assert.equal(generated.HEADLAMP_REUSE_PLUGIN_DEPENDENCIES, '1');
 
   const overridden = packageEnvironment(
     { platform: 'darwin', arch: 'arm64' },
