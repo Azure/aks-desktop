@@ -99,6 +99,11 @@
           "alertsmanagement",
           "connectedk8s"
         ],
+        "extensionVersions": {
+          "resource-graph": "2.1.1",
+          "alertsmanagement": "1.0.0b2",
+          "connectedk8s": "1.11.3"
+        },
         "linux": {
           "x64": {
             "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-linux-x86_64.tar.gz",

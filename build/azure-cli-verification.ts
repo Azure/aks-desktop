@@ -33,6 +33,24 @@ export function readRequiredAzureCliExtensions(rootDir: string): string[] {
   }
 }
 
+/** Reads exact versions required for configured Azure CLI extensions. */
+export function readRequiredAzureCliExtensionVersions(rootDir: string): Record<string, string> {
+  try {
+    const rootPackageJson = JSON.parse(
+      fs.readFileSync(path.join(rootDir, "package.json"), "utf-8")
+    );
+    const versions = rootPackageJson?.config?.externalTools?.azureCli?.extensionVersions;
+    if (!versions || typeof versions !== "object" || Array.isArray(versions)) return {};
+    return Object.fromEntries(
+      Object.entries(versions).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string"
+      )
+    );
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Builds the failed extension result used when `az version` times out.
  *

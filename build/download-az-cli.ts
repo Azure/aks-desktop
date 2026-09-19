@@ -34,6 +34,9 @@ const { copyDirectoryContents } = require(
 const { parseTargetArgs } = require('./build-target.ts');
 const {
   azureCliCacheIdentity,
+  azureCliExtensionsToInstall,
+  azureCliExtensionsToRemove,
+  azureCliVersionDataMatchesTarget,
   installRequiredExtensions,
   resolveAzureCliTarget,
   verifyRequiredArtifact,
@@ -62,6 +65,8 @@ const AZ_CLI_VERSION = target.version;
 const AZ_CLI_URL = target.cliPackage?.url;
 const AZ_CLI_CHECKSUM = target.cliPackage?.checksum;
 const AZ_CLI_EXTENSIONS = target.extensions;
+const AZ_CLI_EXTENSION_VERSIONS = target.extensionVersions;
+const AZ_CLI_EXTENSION_CACHE_DIR = process.env.AZ_CLI_EXTENSION_CACHE_DIR;
 
 console.log('==========================================');
 console.log(`Downloading Azure CLI v${AZ_CLI_VERSION}`);
@@ -106,12 +111,22 @@ if (
   (pythonPath === undefined || fs.existsSync(pythonPath)) &&
   JSON.stringify(existingTarget) === JSON.stringify(stagedTarget)
 ) {
-  console.log(`✅ Azure CLI already installed for ${target.platform}/${target.arch}`);
-  console.log(`   Location: ${TARGET_DIR}`);
-  console.log('');
-  console.log('To force re-download, remove the directory first:');
-  console.log(`   rm -rf ${TARGET_DIR}`);
-  process.exit(0);
+  try {
+    const versionData = JSON.parse(
+      execFileSync(azWrapperPath, ['version', '--output', 'json'], {
+        encoding: 'utf8',
+        timeout: 120000,
+      })
+    );
+    if (azureCliVersionDataMatchesTarget(target, versionData)) {
+      console.log(`✅ Azure CLI cache verified for ${target.platform}/${target.arch}`);
+      console.log(`   Location: ${TARGET_DIR}`);
+      process.exit(0);
+    }
+    console.log('Azure CLI cache versions do not match the pinned target; rebuilding.');
+  } catch (error) {
+    console.log(`Azure CLI cache verification failed; rebuilding: ${error}`);
+  }
 }
 fs.rmSync(TARGET_DIR, { recursive: true, force: true });
 fs.mkdirSync(TARGET_DIR, { recursive: true });
@@ -272,22 +287,67 @@ async function installPrebuiltAzCliWithPython(platform: string): Promise<string[
   }
   copyDirectoryContents(pythonRoot, path.join(TARGET_DIR, 'python'), true);
 
-  const extensionDir = path.join(TARGET_DIR, UNIX_AZ_CLI_EXTENSIONS_DIRNAME);
+  const targetExtensionDir = path.join(TARGET_DIR, UNIX_AZ_CLI_EXTENSIONS_DIRNAME);
+  const extensionDir = AZ_CLI_EXTENSION_CACHE_DIR
+    ? path.resolve(AZ_CLI_EXTENSION_CACHE_DIR)
+    : targetExtensionDir;
   fs.mkdirSync(extensionDir, { recursive: true });
   const stockAz = path.join(TARGET_DIR, 'bin', 'az');
   const bundledPython = path.join(TARGET_DIR, 'python', 'bin', 'python3');
-  const installedExtensions: string[] = [];
-  installRequiredExtensions(AZ_CLI_EXTENSIONS, (extension: string) => {
-    execFileSync(stockAz, ['extension', 'add', '-n', extension, '--yes'], {
+  const extensionEnvironment = {
+    ...process.env,
+    AZ_PYTHON: bundledPython,
+    AZURE_EXTENSION_DIR: extensionDir,
+  };
+  let versionData: Record<string, any> = { extensions: {} };
+  try {
+    versionData = JSON.parse(
+      execFileSync(stockAz, ['version', '--output', 'json'], {
+        encoding: 'utf8',
+        env: extensionEnvironment,
+      })
+    );
+  } catch (error) {
+    console.log(`Azure CLI extension cache verification failed; rebuilding: ${error}`);
+    fs.rmSync(extensionDir, { recursive: true, force: true });
+    fs.mkdirSync(extensionDir, { recursive: true });
+  }
+  const extensionsToInstall = azureCliExtensionsToInstall(target, versionData.extensions);
+  for (const extension of azureCliExtensionsToRemove(target, versionData.extensions)) {
+    execFileSync(stockAz, ['extension', 'remove', '-n', extension], {
       stdio: 'inherit',
-      env: {
-        ...process.env,
-        AZ_PYTHON: bundledPython,
-        AZURE_EXTENSION_DIR: extensionDir,
-      },
+      env: extensionEnvironment,
     });
-    installedExtensions.push(extension);
+  }
+  installRequiredExtensions(extensionsToInstall, (extension: string) => {
+    if (versionData.extensions?.[extension]) {
+      execFileSync(stockAz, ['extension', 'remove', '-n', extension], {
+        stdio: 'inherit',
+        env: extensionEnvironment,
+      });
+    }
+    execFileSync(stockAz, [
+      'extension', 'add', '-n', extension,
+      '--version', AZ_CLI_EXTENSION_VERSIONS[extension],
+      '--yes', '--allow-preview', 'true',
+    ], {
+      stdio: 'inherit',
+      env: extensionEnvironment,
+    });
   });
+  const finalVersionData = JSON.parse(
+    execFileSync(stockAz, ['version', '--output', 'json'], {
+      encoding: 'utf8',
+      env: extensionEnvironment,
+    })
+  );
+  if (!azureCliVersionDataMatchesTarget(target, finalVersionData)) {
+    throw new Error('Azure CLI or extension versions do not match the pinned target');
+  }
+  if (extensionDir !== targetExtensionDir) {
+    fs.rmSync(targetExtensionDir, { recursive: true, force: true });
+    copyDirectoryContents(extensionDir, targetExtensionDir, true);
+  }
 
   const binDir = path.join(TARGET_DIR, 'bin');
   const azWrapper = path.join(binDir, 'az-wrapper');
@@ -295,7 +355,7 @@ async function installPrebuiltAzCliWithPython(platform: string): Promise<string[
   fs.rmSync(stockAz, { force: true });
   fs.symlinkSync('az-wrapper', stockAz);
   console.log(`✅ Prebuilt Azure CLI installed for ${platform}`);
-  return installedExtensions;
+  return [...AZ_CLI_EXTENSIONS];
 }
 
 /**
@@ -338,7 +398,10 @@ async function installAzCliWindows(): Promise<string[]> {
   }
   fs.renameSync(stockAzCmd, originalAzCmd);
   fs.writeFileSync(stockAzCmd, generateWindowsAzWrapperScript());
-  const extensionDir = path.join(TARGET_DIR, WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME);
+  const targetExtensionDir = path.join(TARGET_DIR, WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME);
+  const extensionDir = AZ_CLI_EXTENSION_CACHE_DIR
+    ? path.resolve(AZ_CLI_EXTENSION_CACHE_DIR)
+    : targetExtensionDir;
   fs.mkdirSync(extensionDir, { recursive: true });
 
   console.log('✅ Windows Azure CLI ready');
@@ -351,16 +414,47 @@ async function installAzCliWindows(): Promise<string[]> {
   const installedExtensions: string[] = [];
   if (AZ_CLI_EXTENSIONS && AZ_CLI_EXTENSIONS.length > 0) {
     const winPython = path.join(TARGET_DIR, 'python.exe');
+    const extensionEnvironment = {
+      ...process.env,
+      AZURE_EXTENSION_DIR: extensionDir,
+    };
+    let versionData: Record<string, any> = { extensions: {} };
+    try {
+      versionData = JSON.parse(
+        execFileSync(winPython, ['-m', 'azure.cli', 'version', '--output', 'json'], {
+          encoding: 'utf8',
+          env: extensionEnvironment,
+        })
+      );
+    } catch (error) {
+      console.log(`Azure CLI extension cache verification failed; rebuilding: ${error}`);
+      fs.rmSync(extensionDir, { recursive: true, force: true });
+      fs.mkdirSync(extensionDir, { recursive: true });
+    }
+    const extensionsToInstall = azureCliExtensionsToInstall(target, versionData.extensions);
+    for (const extension of azureCliExtensionsToRemove(target, versionData.extensions)) {
+      execFileSync(winPython, ['-m', 'azure.cli', 'extension', 'remove', '-n', extension], {
+        stdio: 'inherit',
+        env: extensionEnvironment,
+      });
+    }
     console.log(`Installing Azure CLI extensions: ${AZ_CLI_EXTENSIONS.join(', ')}`);
-    for (const extension of AZ_CLI_EXTENSIONS) {
+    for (const extension of extensionsToInstall) {
       console.log(`  → Installing extension: ${extension}`);
       try {
-        execSync(`"${winPython}" -m azure.cli extension add -n ${extension}`, {
+        if (versionData.extensions?.[extension]) {
+          execFileSync(winPython, ['-m', 'azure.cli', 'extension', 'remove', '-n', extension], {
+            stdio: 'inherit',
+            env: extensionEnvironment,
+          });
+        }
+        execFileSync(winPython, [
+          '-m', 'azure.cli', 'extension', 'add', '-n', extension,
+          '--version', AZ_CLI_EXTENSION_VERSIONS[extension],
+          '--yes', '--allow-preview', 'true',
+        ], {
           stdio: 'inherit',
-          env: {
-            ...process.env,
-            AZURE_EXTENSION_DIR: extensionDir,
-          },
+          env: extensionEnvironment,
         });
       } catch (error) {
         console.error(`  ❌ ERROR: Failed to install extension ${extension}`);
@@ -369,10 +463,23 @@ async function installAzCliWindows(): Promise<string[]> {
       }
       installedExtensions.push(extension);
     }
+    const finalVersionData = JSON.parse(
+      execFileSync(winPython, ['-m', 'azure.cli', 'version', '--output', 'json'], {
+        encoding: 'utf8',
+        env: extensionEnvironment,
+      })
+    );
+    if (!azureCliVersionDataMatchesTarget(target, finalVersionData)) {
+      throw new Error('Azure CLI or extension versions do not match the pinned target');
+    }
+    if (extensionDir !== targetExtensionDir) {
+      fs.rmSync(targetExtensionDir, { recursive: true, force: true });
+      copyDirectoryContents(extensionDir, targetExtensionDir, true);
+    }
     console.log('✅ Extensions installation complete');
   }
 
-  return installedExtensions;
+  return AZ_CLI_EXTENSION_CACHE_DIR ? [...AZ_CLI_EXTENSIONS] : installedExtensions;
 }
 
 /**
