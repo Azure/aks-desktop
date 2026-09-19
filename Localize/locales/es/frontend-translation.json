@@ -902,7 +902,7 @@
   "Succeeded": "Correcto",
   "Succeeded: {{ n }}": "Correcto: {{ n }}",
   "Successful Jobs History Limit": "Límite del historial de trabajos correctos",
-  "Summary (last {{count}} operations)_one": "Summary (last {{count}} operations)",
+  "Summary (last {{count}} operations)_one": "Resumen (últimas {{count}} operación)",
   "Summary (last {{count}} operations)_other": "Resumen (últimas {{count}} operaciones)",
   "Supports .yaml and .yml files": "Admite archivos .yaml y .yml",
   "Surge Node": "Nodo de sobrecarga",
