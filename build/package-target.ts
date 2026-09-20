@@ -27,6 +27,10 @@ interface PackageTarget {
   arch: string;
 }
 
+interface PackageOptions {
+  unpacked?: boolean;
+}
+
 const PACKAGE_ARGS: Record<string, string[]> = {
   'linux:x64': ['--linux', '--x64'],
   'linux:arm64': ['--linux', 'AppImage', 'tar.gz', '--arm64'],
@@ -43,6 +47,13 @@ export function packageArguments(platform: NodeJS.Platform, arch: string): strin
     throw new Error(`Unsupported package target: ${platform}/${arch}`);
   }
   return [...args];
+}
+
+/** Maps a supported target to Electron Builder arguments for directory-only output. */
+export function unpackedArguments(platform: NodeJS.Platform, arch: string): string[] {
+  packageArguments(platform, arch);
+  const platformFlag = platform === 'darwin' ? '--mac' : platform === 'win32' ? '--win' : '--linux';
+  return [platformFlag, `--${arch}`];
 }
 
 /** Rejects package targets that cannot execute their required tools on the current host. */
@@ -133,7 +144,8 @@ export function stageBackendExecutable(sourceDir: string, platform: NodeJS.Platf
 export function packageTarget(
   target: PackageTarget,
   rootDir = ROOT_DIR,
-  runStep = runNpm
+  runStep = runNpm,
+  options: PackageOptions = {}
 ): void {
   validatePackageHost(target);
 
@@ -174,9 +186,16 @@ export function packageTarget(
     runTimedStep('build frontend', () =>
       runStep(['run', 'frontend:build'], sourceDir, buildEnv)
     );
-    runTimedStep('package application', () =>
+    runTimedStep(options.unpacked ? 'assemble unpacked application' : 'package application', () =>
       runStep(
-        ['run', 'package', '--', ...packageArguments(target.platform, target.arch)],
+        [
+          'run',
+          options.unpacked ? 'build' : 'package',
+          '--',
+          ...(options.unpacked
+            ? unpackedArguments(target.platform, target.arch)
+            : packageArguments(target.platform, target.arch)),
+        ],
         appDir,
         buildEnv
       )
@@ -200,5 +219,7 @@ if (require.main === module) {
   if (!platform || !arch) {
     throw new Error('Usage: package-target.ts --platform=<platform> --arch=<arch>');
   }
-  packageTarget({ platform, arch });
+  packageTarget({ platform, arch }, ROOT_DIR, runNpm, {
+    unpacked: process.argv.includes('--unpacked'),
+  });
 }
