@@ -277,7 +277,7 @@ async function installPrebuiltAzCliWithPython(platform: string): Promise<string[
   const stockAz = path.join(TARGET_DIR, 'bin', 'az');
   const bundledPython = path.join(TARGET_DIR, 'python', 'bin', 'python3');
   const installedExtensions: string[] = [];
-  installRequiredExtensions(AZ_CLI_EXTENSIONS, extension => {
+  installRequiredExtensions(AZ_CLI_EXTENSIONS, (extension: string) => {
     execFileSync(stockAz, ['extension', 'add', '-n', extension, '--yes'], {
       stdio: 'inherit',
       env: {

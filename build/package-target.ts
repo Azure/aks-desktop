@@ -10,6 +10,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { runTimedStep } from './build-timing';
 
 const { resolveInstalledHeadlampPaths } = require(
   '../packages/headlamp-source/src/lib/paths.ts'
@@ -144,19 +145,41 @@ export function packageTarget(
   const targetRecord = path.join(distDir, '.package-target.json');
   fs.rmSync(targetRecord, { force: true });
 
-  if (requiresTargetDependencyInstall(target)) {
-    runStep(['run', 'headlamp:install'], rootDir, buildEnv);
-  }
-  stageBackendExecutable(sourceDir, target.platform);
-  runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir);
-  runStep(['run', 'headlamp:translations'], rootDir);
-  runStep(['run', 'plugin:setup'], rootDir);
-  runStep(['run', 'headlamp:manifest'], rootDir);
-  runStep(['run', 'headlamp:frontend-env'], rootDir);
-  runStep(['run', 'frontend:build'], sourceDir, buildEnv);
-  runStep(['run', 'package', '--', ...packageArguments(target.platform, target.arch)], appDir, buildEnv);
-  fs.writeFileSync(targetRecord, `${JSON.stringify(target)}\n`);
-  console.log(`\nBuild complete (${target.platform}/${target.arch}).\nOutput directory: ${path.resolve(distDir)}`);
+  runTimedStep(`package ${target.platform}/${target.arch}`, () => {
+    if (requiresTargetDependencyInstall(target)) {
+      runTimedStep('install target dependencies', () =>
+        runStep(['run', 'headlamp:install'], rootDir, buildEnv)
+      );
+    }
+    runTimedStep('stage backend executable', () => stageBackendExecutable(sourceDir, target.platform));
+    runTimedStep('stage external tools', () =>
+      runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir)
+    );
+    runTimedStep('distribute translations', () =>
+      runStep(['run', 'headlamp:translations'], rootDir)
+    );
+    runTimedStep('bundle plugins', () => runStep(['run', 'plugin:setup'], rootDir));
+    runTimedStep('generate product manifest', () =>
+      runStep(['run', 'headlamp:manifest'], rootDir)
+    );
+    runTimedStep('generate frontend environment', () =>
+      runStep(['run', 'headlamp:frontend-env'], rootDir)
+    );
+    runTimedStep('build frontend', () =>
+      runStep(['run', 'frontend:build'], sourceDir, buildEnv)
+    );
+    runTimedStep('package application', () =>
+      runStep(
+        ['run', 'package', '--', ...packageArguments(target.platform, target.arch)],
+        appDir,
+        buildEnv
+      )
+    );
+    fs.writeFileSync(targetRecord, `${JSON.stringify(target)}\n`);
+    console.log(
+      `\nBuild complete (${target.platform}/${target.arch}).\nOutput directory: ${path.resolve(distDir)}`
+    );
+  });
 }
 
 /** Reads a `--name=value` option from the package-target command line. */
