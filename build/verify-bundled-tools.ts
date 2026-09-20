@@ -101,6 +101,18 @@ interface TestResult {
   message: string;
 }
 
+/** Resolve the Python runtime bundled beside the Unix Azure CLI payload. */
+export function resolveBundledPythonPaths(azCliDir: string): {
+  executable: string;
+  libDir: string;
+} {
+  const pythonDir = path.join(azCliDir, 'python');
+  return {
+    executable: path.join(pythonDir, 'bin', 'python3'),
+    libDir: path.join(pythonDir, 'lib'),
+  };
+}
+
 const results: TestResult[] = [];
 
 /**
@@ -320,8 +332,7 @@ function testPythonBundled(): void {
   }
 
   const azCliDir = path.join(EXTERNAL_TOOLS_DIR, 'az-cli', CURRENT_PLATFORM);
-  const binDir = path.join(azCliDir, 'bin');
-  const pythonExecutable = path.join(binDir, 'python3');
+  const { executable: pythonExecutable } = resolveBundledPythonPaths(azCliDir);
 
   const exists = fs.existsSync(pythonExecutable);
   if (!exists) {
@@ -370,7 +381,7 @@ function testPythonLibDirectory(): void {
   }
 
   const azCliDir = path.join(EXTERNAL_TOOLS_DIR, 'az-cli', CURRENT_PLATFORM);
-  const libDir = path.join(azCliDir, 'lib');
+  const { libDir } = resolveBundledPythonPaths(azCliDir);
 
   const exists = fs.existsSync(libDir);
   if (!exists) {
@@ -527,8 +538,7 @@ function testPythonInvocation(): void {
   }
 
   const azCliDir = path.join(EXTERNAL_TOOLS_DIR, 'az-cli', CURRENT_PLATFORM);
-  const binDir = path.join(azCliDir, 'bin');
-  const pythonExecutable = path.join(binDir, 'python3');
+  const { executable: pythonExecutable } = resolveBundledPythonPaths(azCliDir);
 
   if (!fs.existsSync(pythonExecutable)) {
     addResult(

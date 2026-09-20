@@ -15,6 +15,7 @@ import {
   verifyRequiredArtifact,
   windowsZipExtraction,
 } from './azure-cli-config';
+import { generateUnixAzWrapperScript } from './az-cli-config';
 
 test('passes Windows ZIP paths as literal environment values', () => {
   const archive = "C:\\O'Brien [build] & tools\\input.zip";
@@ -70,8 +71,16 @@ function createRoot(): string {
             },
           },
           azureCli: {
-            version: '2.89.0',
+            version: '2.90.0',
             extensions: ['resource-graph', 'connectedk8s'],
+            darwin: {
+              x64: { url: 'mac-x64', checksum: 'mac-x64-sum' },
+              arm64: { url: 'mac-arm64', checksum: 'mac-arm64-sum' },
+            },
+            linux: {
+              x64: { url: 'linux-cli-x64', checksum: 'linux-cli-x64-sum' },
+              arm64: { url: 'linux-cli-arm64', checksum: 'linux-cli-arm64-sum' },
+            },
             win32: {
               x64: { url: 'win-x64', checksum: 'win-sum', runtimeArch: 'x64' },
               arm64: { url: 'win-x64', checksum: 'win-sum', runtimeArch: 'x64' },
@@ -87,8 +96,12 @@ function createRoot(): string {
 test('selects native Python for Linux and macOS package targets', () => {
   const rootDir = createRoot();
   try {
-    assert.equal(resolveAzureCliTarget(rootDir, 'darwin', 'arm64').python?.url, 'darwin-arm64');
-    assert.equal(resolveAzureCliTarget(rootDir, 'linux', 'arm64').python?.url, 'linux-arm64');
+    const darwin = resolveAzureCliTarget(rootDir, 'darwin', 'arm64');
+    assert.equal(darwin.python?.url, 'darwin-arm64');
+    assert.equal(darwin.cliPackage?.url, 'mac-arm64');
+    const linuxArm = resolveAzureCliTarget(rootDir, 'linux', 'arm64');
+    assert.equal(linuxArm.python?.url, 'linux-arm64');
+    assert.equal(linuxArm.cliPackage?.url, 'linux-cli-arm64');
     assert.equal(resolveAzureCliTarget(rootDir, 'linux', 'x64').python?.url, 'linux-x64');
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
@@ -99,8 +112,8 @@ test('uses the supported x64 Azure CLI runtime for Windows ARM packages', () => 
   const rootDir = createRoot();
   try {
     const target = resolveAzureCliTarget(rootDir, 'win32', 'arm64');
-    assert.equal(target.windowsPackage?.url, 'win-x64');
-    assert.equal(target.windowsPackage?.runtimeArch, 'x64');
+    assert.equal(target.cliPackage?.url, 'win-x64');
+    assert.equal(target.cliPackage?.runtimeArch, 'x64');
     assert.deepEqual(target.extensions, ['resource-graph', 'connectedk8s']);
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
@@ -121,12 +134,23 @@ test('includes sorted extensions in the staged cache identity', () => {
   const identity = azureCliCacheIdentity({
     platform: 'linux',
     arch: 'arm64',
-    version: '2.89.0',
+    version: '2.90.0',
     extensions: ['resource-graph', 'connectedk8s'],
     python: { url: 'python', checksum: 'python-sum' },
+    cliPackage: { url: 'cli', checksum: 'cli-sum' },
   });
   assert.deepEqual(identity.extensions, ['connectedk8s', 'resource-graph']);
   assert.equal(identity.pythonChecksum, 'python-sum');
+  assert.equal(identity.packageChecksum, 'cli-sum');
+});
+
+test('generates a relocatable self-contained Unix wrapper', () => {
+  const wrapper = generateUnixAzWrapperScript();
+  assert.match(wrapper, /AZ_PYTHON="\$CLI_DIR\/python\/bin\/python3"/);
+  assert.doesNotMatch(wrapper, /\$CLI_DIR\/bin\/python3/);
+  assert.match(wrapper, /AZURE_EXTENSION_DIR="\$CLI_DIR\/cliextensions"/);
+  assert.match(wrapper, /exec "\$CLI_DIR\/libexec\/bin\/az" "\$@"/);
+  assert.doesNotMatch(wrapper, /\/Users\//);
 });
 
 test('rejects an artifact whose checksum does not match', async () => {

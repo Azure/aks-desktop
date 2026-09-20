@@ -78,41 +78,61 @@
       "python": {
         "linux": {
           "x64": {
-            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250723/cpython-3.10.18+20250723-x86_64_v3-unknown-linux-gnu-install_only_stripped.tar.gz",
-            "checksum": "b712e37fd4f50243afae019f0c325568129550b66598addb6dd9685d36b4625f"
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+            "checksum": "02c092dc99ca4d37a9ac7ea2fc154e3bd7fa1b33195b714bfb7eb6d5a6bd3632"
           },
           "arm64": {
-            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.10.19%2B20251028-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
-            "checksum": "d8d813b5b021276b87dd24e0839ef30bc2f44e1d4513d5b81462d1c19a59950a"
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+            "checksum": "fd3f24236faa41b8548cd59b7ee5e703af9651d6ab097498676a9727fdd3285b"
           }
         },
         "darwin": {
           "x64": {
-            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.10.19%2B20251028-x86_64-apple-darwin-install_only_stripped.tar.gz",
-            "checksum": "ff636e82637a7768c499921188222322369584d1b6a2e85a898aba1e263d69f2"
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-x86_64-apple-darwin-install_only_stripped.tar.gz",
+            "checksum": "25bd3a638d4820ee027317888c5057bddf5b304521f59d776ae3bea6830d0c7f"
           },
           "arm64": {
-            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.10.19%2B20251028-aarch64-apple-darwin-install_only_stripped.tar.gz",
-            "checksum": "069ac156f66c6774e332ad55d6e556a5f20c45fbdd7a267a5274ad918d895cde"
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-aarch64-apple-darwin-install_only_stripped.tar.gz",
+            "checksum": "c3223d5924a0ed0ef5958a750377c362d0957587f896c0f6c635ae4b39e0f337"
           }
         }
       },
       "azureCli": {
-        "version": "2.89.0",
+        "version": "2.90.0",
         "extensions": [
           "resource-graph",
           "alertsmanagement",
           "connectedk8s"
         ],
+        "linux": {
+          "x64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-linux-x86_64.tar.gz",
+            "checksum": "9b2a19ad37bbe578e506a2643e974c99d3ee141b2f94cdb6f064a342e5c4eae1"
+          },
+          "arm64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-linux-arm64.tar.gz",
+            "checksum": "df71d304216c1adb1bf6957f0386ea320d32beaf7019f927e0b7e4cf2d2a4df5"
+          }
+        },
+        "darwin": {
+          "x64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-macos-x86_64.tar.gz",
+            "checksum": "4617d8d16350dbee34f8024059ac768e0cfbdb7ec8f637abdfdaab1e5c9ba0ce"
+          },
+          "arm64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-macos-arm64.tar.gz",
+            "checksum": "1cdcf8dc99ece8c10d198d9451d7ac0905a4d63aea5fac5fcf903bdf2aba93b3"
+          }
+        },
         "win32": {
           "x64": {
-            "url": "https://azcliprod.blob.core.windows.net/zip/azure-cli-2.89.0-x64.zip",
-            "checksum": "fb55449e1ed1809da5408330ab2ddd52f71e50abcf53ded0d685d8315f0abb8a",
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-x64.zip",
+            "checksum": "c4ef59b14f0edd074427fd9981e57b0780965ccdcf6191c033fdf4b4361f33d7",
             "runtimeArch": "x64"
           },
           "arm64": {
-            "url": "https://azcliprod.blob.core.windows.net/zip/azure-cli-2.89.0-x64.zip",
-            "checksum": "fb55449e1ed1809da5408330ab2ddd52f71e50abcf53ded0d685d8315f0abb8a",
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-x64.zip",
+            "checksum": "c4ef59b14f0edd074427fd9981e57b0780965ccdcf6191c033fdf4b4361f33d7",
             "runtimeArch": "x64"
           }
         }
