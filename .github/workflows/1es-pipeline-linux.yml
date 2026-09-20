@@ -12,9 +12,6 @@ parameters:
   - name: nodeVersion
     type: string
     default: 22.22.2
-  - name: goVersion
-    type: string
-    default: 1.26.3
 
 extends:
   # The pipeline extends the 1ES PT which will inject different SDL and compliance tasks.
@@ -49,6 +46,9 @@ extends:
               NPM_CONFIG_REPLACE_REGISTRY_HOST: npmjs
               # Bundled Azure CLI dependencies cannot reach pypi.org from this pool.
               PIP_INDEX_URL: https://packagefeedproxy.microsoft.io/pypi/simple/
+              GOMODCACHE: $(Pipeline.Workspace)/.go/pkg/mod
+              GOCACHE: $(Pipeline.Workspace)/.go/build
+              ARCH: x64
             # If the pipeline publishes artifacts, use `templateContext` to define the artifacts.
             # This will enable 1ES PT to run SDL analysis tools on the artifacts and then upload them.
             templateContext:
@@ -59,11 +59,27 @@ extends:
             # # Define the steps that the pipeline will run.
             # # In most cases, copy and paste the steps from the original pipeline.
             steps:
+              - checkout: self
+                submodules: false
+
+              - task: NodeTool@0
+                displayName: Install Node.js
+                retryCountOnTaskFailure: 3
+                inputs:
+                  versionSpec: ${{ parameters.nodeVersion }}
+
+              - bash: |
+                  set -e
+                  go_version="$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build/go-version.ts)"
+                  echo "Headlamp Go toolchain: $go_version"
+                  echo "##vso[task.setvariable variable=HEADLAMP_GO_VERSION]$go_version"
+                displayName: Resolve Headlamp Go version
+
               - task: GoTool@0
                 displayName: Install Go
                 retryCountOnTaskFailure: 3
                 inputs:
-                  version: ${{ parameters.goVersion }}
+                  version: $(HEADLAMP_GO_VERSION)
               # FIX: Install .NET SDK early (required for ESRP Code Signing)
               # Changed from "runtime" to "sdk" and added version specification
               - task: UseDotNet@2
@@ -74,18 +90,13 @@ extends:
               # TODO: Remove debug logging after pipeline is stable
               - bash: |
                   echo "=== GO INSTALLATION DEBUG ==="
-                  echo "Go version requested: ${{ parameters.goVersion }}"
+                  echo "Go version requested: $(HEADLAMP_GO_VERSION)"
                   go version || echo "Go not found in PATH"
                   echo "GOROOT: $GOROOT"
                   echo "GOPATH: $GOPATH"
                   echo "PATH: $PATH"
                   echo "=== END GO DEBUG ==="
                 displayName: "Debug: Go Installation"
-              - task: NodeTool@0
-                displayName: Install Node.js
-                retryCountOnTaskFailure: 3
-                inputs:
-                  versionSpec: ${{ parameters.nodeVersion }}
               # TODO: Remove debug logging after pipeline is stable
               - bash: |
                   echo "=== NODE.JS INSTALLATION DEBUG ==="
@@ -96,8 +107,36 @@ extends:
                   echo "PATH: $PATH"
                   echo "=== END NODE.JS DEBUG ==="
                 displayName: "Debug: Node.js Installation"
-              - checkout: self
-                submodules: false
+              - bash: |
+                  set -e
+                  mkdir -p "$(GOMODCACHE)" "$(GOCACHE)"
+                  echo "GOMODCACHE=$(go env GOMODCACHE)"
+                  echo "GOCACHE=$(go env GOCACHE)"
+                  echo "GOTOOLCHAIN=$(go env GOTOOLCHAIN)"
+                displayName: 'Configure Go caches'
+
+              - task: Cache@2
+                displayName: 'Cache Go module downloads'
+                inputs:
+                  key: 'go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
+                  restoreKeys: |
+                    go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOMODCACHE)'
+                  cacheHitVar: GO_MODULE_CACHE_HIT
+
+              - task: Cache@2
+                displayName: 'Cache Go build outputs'
+                inputs:
+                  key: 'go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
+                  restoreKeys: |
+                    go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOCACHE)'
+                  cacheHitVar: GO_BUILD_CACHE_HIT
+
+              - bash: |
+                  echo "[build-timing] Go module cache result: $(GO_MODULE_CACHE_HIT)"
+                  echo "[build-timing] Go build cache result: $(GO_BUILD_CACHE_HIT)"
+                displayName: 'Report Go cache results'
               # TODO: Remove debug logging after pipeline is stable
               - bash: |
                   echo "=== CHECKOUT DEBUG ==="

@@ -46,7 +46,10 @@ test('the installed package is a complete pinned source distribution', () => {
   assert.deepEqual(rootManifest.headlampSource, {
     revision: 'd4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0',
   });
-  assert.deepEqual(packageManifest.headlampSource, rootManifest.headlampSource);
+  assert.deepEqual(packageManifest.headlampSource, {
+    ...rootManifest.headlampSource,
+    goVersion: '1.26.8',
+  });
   for (const file of [
     'package.json',
     'Dockerfile',
@@ -313,6 +316,65 @@ test('macOS builds report UTC timestamps for each outer build phase', () => {
     )?.length,
     2
   );
+});
+
+test('build workflows derive Go and cache modules plus compiled outputs', () => {
+  for (const [file, expectedCacheCount] of [
+    ['1es-pipeline.yml', 1],
+    ['1es-pipeline-linux.yml', 1],
+    ['1es-pipeline-mac.yml', 2],
+  ] as const) {
+    const workflow = fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', file), 'utf8');
+    assert.doesNotMatch(workflow, /parameters\.goVersion|default: 1\.26\./);
+    assert.match(
+      workflow,
+      /node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build\/go-version\.ts/
+    );
+    assert.equal(workflow.match(/Resolve Headlamp Go version/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/Cache Go module downloads/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/Cache Go build outputs/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/cacheHitVar: GO_MODULE_CACHE_HIT/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/cacheHitVar: GO_BUILD_CACHE_HIT/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/Report Go cache results/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/path: '\$\(GOMODCACHE\)'/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/path: '\$\(GOCACHE\)'/g)?.length, expectedCacheCount);
+    for (const key of workflow.match(/^\s+key: 'go-.+$/gm) ?? []) {
+      assert.match(key, /\$\(Build\.SourceVersion\)/);
+      assert.doesNotMatch(key, /backend\/go\.(?:mod|sum)/);
+      if (key.includes('go-mod-v3')) {
+        assert.doesNotMatch(key, /\$\(ARCH\)/);
+      }
+      if (key.includes('go-build-v3')) {
+        assert.match(key, /\$\(ARCH\)/);
+      }
+    }
+  }
+
+  for (const file of ['build-app-linux.yml', 'build-app-mac.yml', 'build-app-win.yml']) {
+    const workflow = fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', file), 'utf8');
+    assert.match(
+      workflow,
+      /node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build\/go-version\.ts/
+    );
+    assert.ok(workflow.indexOf('Checkout this repository') < workflow.indexOf('Install golang'));
+    assert.ok(workflow.indexOf('Setup nodejs') < workflow.indexOf('Resolve Headlamp Go version'));
+    assert.ok(workflow.indexOf('Resolve Headlamp Go version') < workflow.indexOf('Install golang'));
+    assert.match(workflow, /go-version: \$\{\{ steps\.go-version\.outputs\.version \}\}/);
+    assert.match(workflow, /cache-dependency-path:[\s\S]+packages\/headlamp-source\/package\.json/);
+    assert.match(workflow, /cache-dependency-path:[\s\S]+patches\/\*\.patch/);
+    assert.doesNotMatch(workflow, /go-version: '1\.26\./);
+  }
+
+  const ciWorkflow = fs.readFileSync(
+    path.join(ROOT_DIR, '.github', 'workflows', 'ci.yml'),
+    'utf8'
+  );
+  assert.ok(ciWorkflow.indexOf('Checkout code') < ciWorkflow.indexOf('Setup Node.js'));
+  assert.ok(ciWorkflow.indexOf('Setup Node.js') < ciWorkflow.indexOf('Resolve Headlamp Go version'));
+  assert.ok(ciWorkflow.indexOf('Resolve Headlamp Go version') < ciWorkflow.indexOf('Setup Go'));
+  assert.match(ciWorkflow, /go-version: \$\{\{ steps\.go-version\.outputs\.version \}\}/);
+  assert.match(ciWorkflow, /cache-dependency-path:[\s\S]+packages\/headlamp-source\/package\.json/);
+  assert.match(ciWorkflow, /cache-dependency-path:[\s\S]+patches\/\*\.patch/);
 });
 
 test('package targets have verified external tool runtimes', () => {
