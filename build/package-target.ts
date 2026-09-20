@@ -60,6 +60,14 @@ export function validatePackageHost(
   }
 }
 
+/** Returns whether packaging needs dependencies reinstalled for another CPU architecture. */
+export function requiresTargetDependencyInstall(
+  target: PackageTarget,
+  hostArch: string = process.arch
+): boolean {
+  return target.arch !== hostArch;
+}
+
 /** Returns the platform-specific npm executable used by child build steps. */
 export function npmExecutable(platform: NodeJS.Platform = process.platform): string {
   return platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -136,7 +144,9 @@ export function packageTarget(
   const targetRecord = path.join(distDir, '.package-target.json');
   fs.rmSync(targetRecord, { force: true });
 
-  runStep(['run', 'headlamp:install'], rootDir, buildEnv);
+  if (requiresTargetDependencyInstall(target)) {
+    runStep(['run', 'headlamp:install'], rootDir, buildEnv);
+  }
   stageBackendExecutable(sourceDir, target.platform);
   runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir);
   runStep(['run', 'headlamp:translations'], rootDir);

@@ -59,6 +59,7 @@ import {
   packageArguments,
   packageEnvironment,
   packageTarget,
+  requiresTargetDependencyInstall,
   stageBackendExecutable,
   validatePackageHost,
 } from './package-target';
@@ -153,6 +154,25 @@ test('requires a native architecture on Linux and macOS hosts', () => {
     /native x64 build host/
   );
   assert.doesNotThrow(() => validatePackageHost({ platform: 'win32', arch: 'arm64' }, 'win32', 'x64'));
+});
+
+test('reinstalls target dependencies only for cross-architecture packages', () => {
+  assert.equal(
+    requiresTargetDependencyInstall({ platform: 'darwin', arch: 'arm64' }, 'arm64'),
+    false
+  );
+  assert.equal(
+    requiresTargetDependencyInstall({ platform: 'linux', arch: 'x64' }, 'x64'),
+    false
+  );
+  assert.equal(
+    requiresTargetDependencyInstall({ platform: 'win32', arch: 'x64' }, 'x64'),
+    false
+  );
+  assert.equal(
+    requiresTargetDependencyInstall({ platform: 'win32', arch: 'arm64' }, 'x64'),
+    true
+  );
 });
 
 test('uses the Windows npm command shim', () => {
