@@ -1,0 +1,30 @@
+From c8bde1770c96df5b0e4325e1697780f6f2047d48 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Fri, 18 Sep 2026 16:07:14 +0300
+Subject: [PATCH] app: package: Avoid duplicate Electron Builder pass
+
+The package script delegates to build, which creates an unpacked app with
+Electron Builder, and then invokes Electron Builder again for distributable
+artifacts. On constrained Intel macOS agents, the duplicate packaging work
+can exhaust the host after the frontend build has completed.
+
+Run the same icon, plugin, and Electron compilation preparation directly
+before the final packaging invocation. The final pass still runs the backend
+build and packaged-resource verification hooks.
+---
+ app/package.json | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/app/package.json b/app/package.json
+index e3ee370b1..f8b936731 100644
+--- a/app/package.json
++++ b/app/package.json
+@@ -26,7 +26,7 @@
+     "i18n-check": "npm run i18n -- --fail-on-update",
+     "lint": "cd .. && npm run frontend:lint",
+     "lint-fix": "cd .. && npm run frontend:lint:fix",
+-    "package": "npm run build && electron-builder build --config electron-builder.config.ts --publish never",
++    "package": "npm run copy-icons && npm run copy-plugins && npm run compile-electron && electron-builder build --config electron-builder.config.ts --publish never",
+     "package-msi": "npm run build && node windows/msi/build.js",
+     "start": "node scripts/start.js",
+     "star": "node scripts/start.js --star",

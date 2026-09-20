@@ -3653,6 +3653,19 @@ index 7a6ce832755838335ed56c52dcad7909cfae047b..52a524da572e1c340768114adc3b850f
        writeSecureStorageFile(this.storagePath, data);
        return { success: true };
      } catch {
+diff --git a/source/app/package.json b/source/app/package.json
+index e3ee370b17f66c9d7b3f11f89d796860d717d1e2..f8b936731308cd4f4dca307c8a440bd9de143133 100644
+--- a/source/app/package.json
++++ b/source/app/package.json
+@@ -26,7 +26,7 @@
+     "i18n-check": "npm run i18n -- --fail-on-update",
+     "lint": "cd .. && npm run frontend:lint",
+     "lint-fix": "cd .. && npm run frontend:lint:fix",
+-    "package": "npm run build && electron-builder build --config electron-builder.config.ts --publish never",
++    "package": "npm run copy-icons && npm run copy-plugins && npm run compile-electron && electron-builder build --config electron-builder.config.ts --publish never",
+     "package-msi": "npm run build && node windows/msi/build.js",
+     "start": "node scripts/start.js",
+     "star": "node scripts/start.js --star",
 diff --git a/source/app/scripts/build-manifest.ts b/source/app/scripts/build-manifest.ts
 index 4e9e40f6c791a92cb9679b0abf4550c2d5e1c020..c3dfac25ef35a0f86e79f291cb921ffc66e66710 100644
 --- a/source/app/scripts/build-manifest.ts
