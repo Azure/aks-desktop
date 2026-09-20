@@ -179,10 +179,8 @@ test('source builds use explicit, reviewed install scripts', () => {
   assert.match(frontendManifest.scripts.start, /REACT_APP_HEADLAMP_BACKEND_TOKEN=headlamp/);
   assert.match(sourceManifest.scripts['backend:start'], /HEADLAMP_BACKEND_TOKEN=headlamp/);
   assert.equal(frontendManifest.scripts.postbuild, 'tsx ./scripts/precompress-build.ts build');
-  assert.equal(
-    frontendManifest.scripts['postbuild:rsbuild'],
-    'tsx ./scripts/precompress-build.ts build'
-  );
+  assert.equal(frontendManifest.scripts['build:rsbuild'], undefined);
+  assert.equal(frontendManifest.scripts['postbuild:rsbuild'], undefined);
   assert.equal(sourceManifest.devDependencies.tsx, '4.23.1');
   assert.match(sourceManifest.scripts['app:build'], /tsx \.\/scripts\/setup-plugins\.ts/);
   assert.match(sourceManifest.scripts['app:build:dir'], /tsx \.\/scripts\/setup-plugins\.ts/);
