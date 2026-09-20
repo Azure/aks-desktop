@@ -59,6 +59,27 @@ for (const platform of ['linux', 'darwin', 'win32']) {
   });
 }
 
+test('bundled-tool verification uses the relocatable Unix Python layout', () => {
+  const filename = path.join(__dirname, 'verify-bundled-tools.ts');
+  const sourceFile = ts.createSourceFile(
+    filename, fs.readFileSync(filename, 'utf8'), ts.ScriptTarget.Latest, true
+  );
+  const declarations = ts.factory.updateSourceFile(sourceFile, sourceFile.statements.filter(statement =>
+    !(ts.isExpressionStatement(statement) && ts.isCallExpression(statement.expression) &&
+      ts.isIdentifier(statement.expression.expression) && statement.expression.expression.text === 'main')
+  ));
+  const code = ts.transpileModule(ts.createPrinter().printFile(declarations), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const paths = runInNewContext(`${code}\nresolveBundledPythonPaths('/az-cli');`, {
+    exports: {}, __dirname, process: { platform: 'darwin' }, console: { log() {}, warn() {} },
+    require,
+  });
+
+  assert.equal(paths.executable, path.join('/az-cli', 'python', 'bin', 'python3'));
+  assert.equal(paths.libDir, path.join('/az-cli', 'python', 'lib'));
+});
+
 test('accepts the configured packaged product identity', () => {
   assert.equal(productIdentityMatches(expected, expected), true);
 });
