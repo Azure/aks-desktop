@@ -197,7 +197,7 @@ extends:
 
                   cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
 
-                  export NODE_OPTIONS="--max-old-space-size=4096"
+                  export NODE_OPTIONS="--max-old-space-size=2048"
                   export GONOPROXY=""
                   export GOPRIVATE=""
                   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
@@ -679,7 +679,7 @@ extends:
 
                   cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
 
-                  export NODE_OPTIONS="--max-old-space-size=4096"
+                  export NODE_OPTIONS="--max-old-space-size=2048"
                   export GONOPROXY=""
                   export GOPRIVATE=""
                   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
