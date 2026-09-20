@@ -284,10 +284,27 @@ function CreateNamespaceContent() {
 
   return (
     <PageGrid maxWidth="lg" sx={{ margin: '0 auto' }}>
+      {/*
+        SectionBox's backLink prop renders a plain route link and exposes no
+        click hook, so it cannot emit the namespace-create cancelled event.
+        An explicit Back button is used instead, following the pattern in
+        AzureProfilePage. It is labelled "Back to home" to distinguish it from
+        the wizard's own Back control, which steps between visible steps.
+      */}
+      <Button
+        variant="text"
+        color="primary"
+        size="small"
+        aria-label={t('Back to home')}
+        onClick={onBack}
+        startIcon={<Icon icon="mdi:chevron-left" height={20} width={20} aria-hidden="true" />}
+        sx={{ alignSelf: 'flex-start' }}
+      >
+        {t('Back')}
+      </Button>
       <SectionBox
         title={t('Create New Namespace')}
         subtitle={t('Create a new namespace on an existing cluster and set it up as a project')}
-        backLink="/"
       >
         <Card elevation={2} sx={{ position: 'relative' }}>
           {/* Loading / Success / Error Overlay */}
