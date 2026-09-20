@@ -45,6 +45,7 @@ function createSourceCheckout() {
     ['LICENSE', 'license\n'],
     ['README.md', 'readme\n'],
     ['Dockerfile', 'FROM scratch\n'],
+    ['backend/go.mod', 'module example.invalid/headlamp/backend\n\ngo 1.26.0\n\ntoolchain go1.26.8\n'],
   ]) {
     fs.writeFileSync(path.join(sourceDir, file), contents);
   }
@@ -106,7 +107,7 @@ function createProject(commit) {
           'build:container': 'old',
           'build:plugins-container': 'old',
         },
-        headlampSource: { revision: commit },
+        headlampSource: { revision: commit, goVersion: '1.26.8' },
       },
       null,
       2
@@ -293,7 +294,10 @@ test('updates an unpacked source package from a clean exact commit', () => {
   assert.equal(result.packageDir, packageDir);
   assert.equal(packageManifest.version, version);
   assert.deepEqual(project.headlampSource, { revision: nextCommit });
-  assert.deepEqual(packageManifest.headlampSource, { revision: nextCommit });
+  assert.deepEqual(packageManifest.headlampSource, {
+    revision: nextCommit,
+    goVersion: '1.26.8',
+  });
   assert.equal(
     project.devDependencies['@headlamp-k8s/headlamp-source'],
     'file:packages/headlamp-source'

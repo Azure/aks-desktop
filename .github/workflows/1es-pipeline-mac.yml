@@ -11,9 +11,6 @@ parameters:
   - name: nodeVersion
     type: string
     default: 22.22.2
-  - name: goVersion
-    type: string
-    default: 1.26.3
 
 extends:
   template: v1/1ES.Unofficial.PipelineTemplate.yml@1esPipelines
@@ -59,6 +56,10 @@ extends:
                 value: https://packagefeedproxy.microsoft.io/pypi/simple/
               - name: NPM_CONFIG_CACHE
                 value: $(Pipeline.Workspace)/.npm
+              - name: GOMODCACHE
+                value: $(Pipeline.Workspace)/.go/pkg/mod
+              - name: GOCACHE
+                value: $(Pipeline.Workspace)/.go/build
               - name: ARCH
                 value: arm64
               - name: ARCH_DISPLAY
@@ -71,11 +72,8 @@ extends:
                   displayName: 'Publish Unsigned DMG (arm64)'
             steps:
               # Install tools
-              - task: GoTool@0
-                displayName: Install Go
-                retryCountOnTaskFailure: 3
-                inputs:
-                  version: ${{ parameters.goVersion }}
+              - checkout: self
+                submodules: false
 
               - task: NodeTool@0
                 displayName: Install Node.js
@@ -83,8 +81,18 @@ extends:
                 inputs:
                   versionSpec: ${{ parameters.nodeVersion }}
 
-              - checkout: self
-                submodules: false
+              - bash: |
+                  set -e
+                  go_version="$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build/go-version.ts)"
+                  echo "Headlamp Go toolchain: $go_version"
+                  echo "##vso[task.setvariable variable=HEADLAMP_GO_VERSION]$go_version"
+                displayName: Resolve Headlamp Go version
+
+              - task: GoTool@0
+                displayName: Install Go
+                retryCountOnTaskFailure: 3
+                inputs:
+                  version: $(HEADLAMP_GO_VERSION)
 
               # Cache downloads, not node_modules that npm ci replaces.
               - task: Cache@2
@@ -95,13 +103,36 @@ extends:
                     npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
                   path: '$(Pipeline.Workspace)/.npm'
 
+              - bash: |
+                  set -e
+                  mkdir -p "$(GOMODCACHE)" "$(GOCACHE)"
+                  echo "GOMODCACHE=$(go env GOMODCACHE)"
+                  echo "GOCACHE=$(go env GOCACHE)"
+                  echo "GOTOOLCHAIN=$(go env GOTOOLCHAIN)"
+                displayName: 'Configure Go caches'
+
               - task: Cache@2
-                displayName: 'Cache Go modules'
+                displayName: 'Cache Go module downloads'
                 inputs:
-                  key: 'go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" | package.json | package-lock.json | patches/*.patch'
+                  key: 'go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
                   restoreKeys: |
-                    go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" |
-                  path: '$(HOME)/go/pkg/mod'
+                    go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOMODCACHE)'
+                  cacheHitVar: GO_MODULE_CACHE_HIT
+
+              - task: Cache@2
+                displayName: 'Cache Go build outputs'
+                inputs:
+                  key: 'go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
+                  restoreKeys: |
+                    go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOCACHE)'
+                  cacheHitVar: GO_BUILD_CACHE_HIT
+
+              - bash: |
+                  echo "[build-timing] Go module cache result: $(GO_MODULE_CACHE_HIT)"
+                  echo "[build-timing] Go build cache result: $(GO_BUILD_CACHE_HIT)"
+                displayName: 'Report Go cache results'
 
               # Download certificates (needed for local signing during build)
               - task: DownloadSecureFile@1
@@ -563,6 +594,10 @@ extends:
                 value: https://packagefeedproxy.microsoft.io/pypi/simple/
               - name: NPM_CONFIG_CACHE
                 value: $(Pipeline.Workspace)/.npm
+              - name: GOMODCACHE
+                value: $(Pipeline.Workspace)/.go/pkg/mod
+              - name: GOCACHE
+                value: $(Pipeline.Workspace)/.go/build
               - name: ARCH
                 value: x64
               - name: ARCH_DISPLAY
@@ -575,11 +610,8 @@ extends:
                   displayName: 'Publish Unsigned DMG (x64)'
             steps:
               # Install tools
-              - task: GoTool@0
-                displayName: Install Go
-                retryCountOnTaskFailure: 3
-                inputs:
-                  version: ${{ parameters.goVersion }}
+              - checkout: self
+                submodules: false
 
               - task: NodeTool@0
                 displayName: Install Node.js
@@ -587,8 +619,18 @@ extends:
                 inputs:
                   versionSpec: ${{ parameters.nodeVersion }}
 
-              - checkout: self
-                submodules: false
+              - bash: |
+                  set -e
+                  go_version="$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build/go-version.ts)"
+                  echo "Headlamp Go toolchain: $go_version"
+                  echo "##vso[task.setvariable variable=HEADLAMP_GO_VERSION]$go_version"
+                displayName: Resolve Headlamp Go version
+
+              - task: GoTool@0
+                displayName: Install Go
+                retryCountOnTaskFailure: 3
+                inputs:
+                  version: $(HEADLAMP_GO_VERSION)
 
               # Cache downloads, not node_modules that npm ci replaces.
               - task: Cache@2
@@ -599,13 +641,36 @@ extends:
                     npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
                   path: '$(Pipeline.Workspace)/.npm'
 
+              - bash: |
+                  set -e
+                  mkdir -p "$(GOMODCACHE)" "$(GOCACHE)"
+                  echo "GOMODCACHE=$(go env GOMODCACHE)"
+                  echo "GOCACHE=$(go env GOCACHE)"
+                  echo "GOTOOLCHAIN=$(go env GOTOOLCHAIN)"
+                displayName: 'Configure Go caches'
+
               - task: Cache@2
-                displayName: 'Cache Go modules'
+                displayName: 'Cache Go module downloads'
                 inputs:
-                  key: 'go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" | package.json | package-lock.json | patches/*.patch'
+                  key: 'go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
                   restoreKeys: |
-                    go-source-v1 | "$(Agent.OS)" | "$(ARCH)" | "${{ parameters.goVersion }}" |
-                  path: '$(HOME)/go/pkg/mod'
+                    go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOMODCACHE)'
+                  cacheHitVar: GO_MODULE_CACHE_HIT
+
+              - task: Cache@2
+                displayName: 'Cache Go build outputs'
+                inputs:
+                  key: 'go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
+                  restoreKeys: |
+                    go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOCACHE)'
+                  cacheHitVar: GO_BUILD_CACHE_HIT
+
+              - bash: |
+                  echo "[build-timing] Go module cache result: $(GO_MODULE_CACHE_HIT)"
+                  echo "[build-timing] Go build cache result: $(GO_BUILD_CACHE_HIT)"
+                displayName: 'Report Go cache results'
 
               # Download certificates (needed for local signing during build)
               - task: DownloadSecureFile@1

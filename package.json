@@ -28,7 +28,7 @@
     "build:unpacked:mac": "npm run build:unpacked",
     "build:unpacked:win": "npm run build:unpacked",
     "build:container": "npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:container",
-    "test:build": "node --test build/windows-ci.test.cjs && npm --prefix packages/headlamp-source run test:helpers && tsx --test build/build-target.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/generate-frontend-environment.test.ts build/install-dependencies.test.ts build/install-headlamp-desktop.test.ts build/install-release-plugins.test.ts build/package-target.test.ts build/product-manifest-verification.test.ts build/start-development.test.ts test/integration/*.test.ts",
+    "test:build": "node --test build/windows-ci.test.cjs && npm --prefix packages/headlamp-source run test:helpers && tsx --test build/build-target.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/generate-frontend-environment.test.ts build/go-version.test.ts build/install-dependencies.test.ts build/install-headlamp-desktop.test.ts build/install-release-plugins.test.ts build/package-target.test.ts build/product-manifest-verification.test.ts build/start-development.test.ts test/integration/*.test.ts",
     "test:headlamp-package": "npm --prefix packages/headlamp-source run test:package && tsx --test test/integration/headlamp-package.test.ts",
     "test:headlamp-patches": "npm run headlamp:patches -- --check && npm run test:headlamp-package",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",

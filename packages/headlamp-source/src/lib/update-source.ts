@@ -479,7 +479,7 @@ function prepareHeadlampSource(
     packageManifest.version !== version ||
     packageManifest.repository?.url !== SOURCE_REPOSITORY ||
     packageManifest.repository?.commit !== revision ||
-    sourceVersion(packageManifest.headlampSource) !== version
+    packageManifest.headlampSource?.revision !== revision
   ) {
     throw new Error(
       'Headlamp source package metadata does not match package.json#headlampSource'
@@ -521,7 +521,14 @@ function updatePackageManifest(packageDir, config: HeadlampSourceConfig, version
   manifest.repository = manifest.repository || { type: 'git' };
   manifest.repository.url = SOURCE_REPOSITORY;
   manifest.repository.commit = config.revision;
-  manifest.headlampSource = { revision: config.revision };
+  const goMod = fs.readFileSync(path.join(packageDir, 'source', 'backend', 'go.mod'), 'utf8');
+  const goVersion =
+    goMod.match(/^toolchain\s+go([^\s]+)$/m)?.[1] ??
+    goMod.match(/^go\s+([^\s]+)$/m)?.[1];
+  if (!goVersion) {
+    throw new Error('Headlamp backend go.mod must declare a Go version');
+  }
+  manifest.headlampSource = { revision: config.revision, goVersion };
   manifest.scripts['build:container'] =
     `docker buildx build --pull --platform=local ` +
     `--build-arg HEADLAMP_SOURCE_COMMIT=${config.revision} ` +
