@@ -19,8 +19,9 @@ const PLATFORM_NAMES: Record<string, string> = {
 };
 
 const platform = PLATFORM_NAMES[process.platform];
+const unpacked = process.argv.includes('--unpacked');
 const script = platform && ['arm64', 'x64'].includes(process.arch)
-  ? `build:${platform}:${process.arch}`
+  ? `build:${unpacked ? 'unpacked:' : ''}${platform}:${process.arch}`
   : undefined;
 
 if (!script) {
