@@ -12,6 +12,7 @@
     "start": "npm run dev",
     "postinstall": "npm run headlamp:patch-installed && npm run install:all",
     "build": "tsx ./build/build-host-platform.ts",
+    "build:diagnostic": "cross-env DEBUG=electron-builder,electron-builder:* tsx ./build/build-host-platform.ts",
     "build:linux": "npm run build:linux:x64",
     "build:linux:x64": "tsx ./build/package-target.ts --platform=linux --arch=x64",
     "build:linux:arm64": "tsx ./build/package-target.ts --platform=linux --arch=arm64",
@@ -24,6 +25,7 @@
     "build:win-ci": "npm run build:win:x64",
     "ci:windows": "node build/windows-ci.cjs",
     "build:unpacked": "tsx ./build/build-host-platform.ts --unpacked",
+    "build:unpacked:diagnostic": "cross-env DEBUG=electron-builder,electron-builder:* tsx ./build/build-host-platform.ts --unpacked",
     "build:unpacked:linux:x64": "tsx ./build/package-target.ts --platform=linux --arch=x64 --unpacked",
     "build:unpacked:linux:arm64": "tsx ./build/package-target.ts --platform=linux --arch=arm64 --unpacked",
     "build:unpacked:mac:x64": "tsx ./build/package-target.ts --platform=darwin --arch=x64 --unpacked",
@@ -1073,7 +1075,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.d4c87a8f.patch",
-    "integrity": "sha512-PIZrFVzCZiqDQ0BWCyBgMb2VWdnYuZR4Vg/BfTKDKBrMTZyozZSD0kWQybpdPNlTlh+2UX/EiQN/PpF2DM1whA=="
+    "integrity": "sha512-FFzPXwNt8gG9rYIZbvo5MNP3PwxbIUW6G2hqQp+BA66IDumIssUP+20k2i2jkDUeHXC4DVrKtN82W1XBrt5Y2Q=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [

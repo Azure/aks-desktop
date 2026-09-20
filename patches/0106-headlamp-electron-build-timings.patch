@@ -1,0 +1,117 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rene Dudfield <renedudfield@microsoft.com>
+Date: Sat, 19 Sep 2026 15:30:00 +0300
+Subject: [PATCH] app: electron: Report package phase timings
+
+Electron Builder accounts for most of the local desktop build, but its backend,
+assembly, signing, and artifact phases are opaque in normal logs.
+
+Emit UTC start times and elapsed durations from the existing lifecycle hooks so
+local and CI profiles can identify the next worthwhile optimization.
+---
+ app/electron-builder.config.ts | 40 ++++++++++++++++++++++++++++++++++
+ app/scripts/after-pack.js      |  5 ++++
+ app/scripts/build-backend.js   |  5 ++++
+ 3 files changed, 50 insertions(+)
+
+diff --git a/app/scripts/build-backend.js b/app/scripts/build-backend.js
+index 9db1d9ea3..c2b53be14 100644
+--- a/app/scripts/build-backend.js
++++ b/app/scripts/build-backend.js
+@@ -35,6 +35,8 @@ function mapElectronArchToGoArch(electronArch) {
+ exports.mapElectronArchToGoArch = mapElectronArchToGoArch;
+ 
+ exports.default = async context => {
++  const startedAt = Date.now();
++  console.log(`[build-timing] Electron backend hook started at ${new Date(startedAt).toISOString()}`);
+   const arch = mapElectronArchToGoArch(context.arch);
+ 
+   let osName = '';
+@@ -57,4 +59,7 @@ exports.default = async context => {
+     },
+     cwd: '..',
+   });
++  console.log(
++    `[build-timing] Electron backend hook completed in ${((Date.now() - startedAt) / 1000).toFixed(3)}s`
++  );
+ };
+diff --git a/app/scripts/after-pack.js b/app/scripts/after-pack.js
+index af2b9417d..a245f4211 100644
+--- a/app/scripts/after-pack.js
++++ b/app/scripts/after-pack.js
+@@ -4,6 +4,8 @@ const fs = require('node:fs');
+ const path = require('node:path');
+ 
+ exports.default = async context => {
++  const startedAt = Date.now();
++  console.log(`[build-timing] Electron afterPack started at ${new Date(startedAt).toISOString()}`);
+   const { loadBuildManifest, verifyPackagedResources } = await import(
+     '../build/build-manifest.mjs'
+   );
+@@ -21,4 +23,7 @@ exports.default = async context => {
+   }
+ 
+   verifyPackagedResources(resourcesDirectory, loadBuildManifest(), context.electronPlatformName);
++  console.log(
++    `[build-timing] Electron afterPack completed in ${((Date.now() - startedAt) / 1000).toFixed(3)}s`
++  );
+ };
+diff --git a/app/electron-builder.config.ts b/app/electron-builder.config.ts
+--- a/app/electron-builder.config.ts
++++ b/app/electron-builder.config.ts
+@@ -57,6 +57,41 @@ const manifestFile = resolveBuildManifestPath();
+ const manifest = loadBuildManifest(manifestFile);
+ const defaultManifest = path.resolve(DEFAULT_MANIFEST_FILE);
+ const packageBuild = packageJson.build as ElectronBuilderConfiguration;
++const existingAfterPack = require('./scripts/after-pack.js').default as (context: unknown) => Promise<void>;
++
++let assemblyStartedAt: number | undefined;
++let signingStartedAt: number | undefined;
++const beforePack = () => {
++  assemblyStartedAt = Date.now();
++  console.log(`[build-timing] Electron app assembly started at ${new Date().toISOString()}`);
++};
++const afterPack = async (context: unknown) => {
++  await existingAfterPack(context);
++  console.log(
++    `[build-timing] Electron app assembly completed${assemblyStartedAt ? ` in ${((Date.now() - assemblyStartedAt) / 1000).toFixed(3)}s` : ''}`
++  );
++  signingStartedAt = Date.now();
++  console.log(`[build-timing] Electron signing started at ${new Date(signingStartedAt).toISOString()}`);
++};
++const afterSign = () => {
++  console.log(
++    `[build-timing] Electron signing completed${signingStartedAt ? ` in ${((Date.now() - signingStartedAt) / 1000).toFixed(3)}s` : ''}`
++  );
++};
++
++const artifactStarts = new Map<string, { name: string; startedAt: number }>();
++const artifactBuildStarted = (context: { targetPresentableName: string; file: string }) => {
++  const name = context.targetPresentableName || path.basename(context.file);
++  artifactStarts.set(context.file, { name, startedAt: Date.now() });
++  console.log(`[build-timing] Electron artifact ${name} started at ${new Date().toISOString()}`);
++};
++const artifactBuildCompleted = (context: { file: string; target: { name: string } | null }) => {
++  const timing = artifactStarts.get(context.file);
++  const name = timing?.name || context.target?.name || path.basename(context.file);
++  console.log(
++    `[build-timing] Electron artifact ${name} completed${timing ? ` in ${((Date.now() - timing.startedAt) / 1000).toFixed(3)}s` : ''}`
++  );
++};
+ 
+ const config: Configuration = applyBuildResources(
+   applyBuildTargets(
+@@ -64,6 +99,11 @@ const config: Configuration = applyBuildResources(
+       applyProductMetadata(
+         {
+           ...packageBuild,
++          beforePack,
++          afterPack,
++          afterSign,
++          artifactBuildStarted,
++          artifactBuildCompleted,
+           extraResources: packageBuild.extraResources.map(resource => {
+             // Preserve every resource except the default manifest entry.
+             if (
+-- 
+2.51.0
