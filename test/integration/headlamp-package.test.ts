@@ -330,7 +330,7 @@ test('macOS ARM64 builds require the hosted Apple Silicon image', () => {
 
   assert.doesNotMatch(armStage, /condition: eq\(1, 0\)/);
   assert.match(armStage, /name: Azure Pipelines/);
-  assert.match(armStage, /vmImage: macos-15-arm64/);
+  assert.match(armStage, /image: macOS-15-arm64/);
   assert.doesNotMatch(armStage, /hostArchitecture:/);
   assert.match(armStage, /test "\$\(uname -m\)" = arm64/);
   assert.match(armStage, /test "\$\(node -p process\.arch\)" = arm64/);

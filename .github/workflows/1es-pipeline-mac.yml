@@ -45,7 +45,7 @@ extends:
             displayName: 'Build macOS Application (Apple Silicon)'
             pool:
               name: Azure Pipelines
-              vmImage: macos-15-arm64
+              image: macOS-15-arm64
               os: macOS
             timeoutInMinutes: 120
             variables:
