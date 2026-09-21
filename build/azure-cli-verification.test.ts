@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -142,6 +143,34 @@ test("validates exact installed extension names and versions from wheel metadata
     missingInstalledWheelFiles(path.join(extensionRoot, "resource-graph")),
     []
   );
+  const authenticatedContents = "authenticated wheel payload";
+  const authenticatedHash = createHash("sha256")
+    .update(authenticatedContents)
+    .digest("base64url");
+  const authenticatedRecord =
+    `resource_graph/__init__.py,sha256=${authenticatedHash},${authenticatedContents.length}\n`;
+  fs.writeFileSync(
+    path.join(extensionRoot, "resource-graph", "resource_graph", "__init__.py"),
+    authenticatedContents
+  );
+  assert.deepEqual(
+    missingInstalledWheelFiles(
+      path.join(extensionRoot, "resource-graph"),
+      authenticatedRecord
+    ),
+    []
+  );
+  fs.writeFileSync(
+    path.join(extensionRoot, "resource-graph", "resource_graph", "__init__.py"),
+    "modified"
+  );
+  assert.deepEqual(
+    missingInstalledWheelFiles(
+      path.join(extensionRoot, "resource-graph"),
+      authenticatedRecord
+    ),
+    ["resource_graph/__init__.py (checksum mismatch)"]
+  );
   fs.rmSync(path.join(extensionRoot, "resource-graph", "resource_graph", "__init__.py"));
   assert.deepEqual(
     missingInstalledWheelFiles(path.join(extensionRoot, "resource-graph")),
@@ -162,5 +191,15 @@ test("invokes packaged runtimes only on a matching host", () => {
   assert.equal(canInvokePackagedRuntime("darwin", "x64", "darwin", "x64"), true);
   assert.equal(canInvokePackagedRuntime("darwin", "arm64", "darwin", "x64"), false);
   assert.equal(canInvokePackagedRuntime("linux", "x64", "darwin", "x64"), false);
+});
+
+test("authenticates retained extension wheels before ARM cache reuse", () => {
+  const installer = fs.readFileSync(
+    path.join(__dirname, "download-az-cli.ts"),
+    "utf8"
+  );
+  assert.match(installer, /const wheelPath = path\.join\(extensionDir, wheelName\)/);
+  assert.match(installer, /wheelChecksum !== extensionPackage\.checksum/);
+  assert.match(installer, /missingInstalledWheelFiles\([\s\S]+authenticatedRecord/);
 });
 

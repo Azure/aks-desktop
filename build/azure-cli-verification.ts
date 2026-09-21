@@ -3,6 +3,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 
 /** Result emitted by one bundled-tool verification check. */
 export interface ToolVerificationResult {
@@ -59,22 +60,29 @@ export function invalidInstalledAzureCliExtensions(
   return [...invalidConfigured, ...unexpected].sort();
 }
 
-/** Returns files listed by installed wheel RECORD metadata that are absent. */
-export function missingInstalledWheelFiles(extensionDir: string): string[] {
+/** Returns absent or modified files listed by wheel RECORD metadata. */
+export function missingInstalledWheelFiles(
+  extensionDir: string,
+  authenticatedRecord?: string
+): string[] {
   if (!fs.existsSync(extensionDir)) return [extensionDir];
   const missing: string[] = [];
-  const recordPaths: string[] = [];
-  for (const entry of fs.readdirSync(extensionDir, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !entry.name.endsWith('.dist-info')) continue;
-    const recordPath = path.join(extensionDir, entry.name, 'RECORD');
-    if (!fs.existsSync(recordPath)) {
-      missing.push(`${entry.name}/RECORD`);
-    } else {
-      recordPaths.push(recordPath);
+  const records: string[] = [];
+  if (authenticatedRecord !== undefined) {
+    records.push(authenticatedRecord);
+  } else {
+    for (const entry of fs.readdirSync(extensionDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !entry.name.endsWith('.dist-info')) continue;
+      const recordPath = path.join(extensionDir, entry.name, 'RECORD');
+      if (!fs.existsSync(recordPath)) {
+        missing.push(`${entry.name}/RECORD`);
+      } else {
+        records.push(fs.readFileSync(recordPath, 'utf8'));
+      }
     }
   }
-  for (const recordPath of recordPaths) {
-    for (const line of fs.readFileSync(recordPath, 'utf8').split('\n')) {
+  for (const recordContents of records) {
+    for (const line of recordContents.split('\n')) {
       if (!line) continue;
       const record = line.match(/^"?([^",]+)"?,([^,]*),/);
       const relativePath = record?.[1];
@@ -87,6 +95,14 @@ export function missingInstalledWheelFiles(extensionDir: string): string[] {
       }
       if (!fs.existsSync(installedPath)) {
         missing.push(relativePath);
+      } else if (authenticatedRecord !== undefined) {
+        const expectedHash = hash.slice('sha256='.length).replace(/=+$/, '');
+        const actualHash = createHash('sha256')
+          .update(fs.readFileSync(installedPath))
+          .digest('base64url');
+        if (actualHash !== expectedHash) {
+          missing.push(`${relativePath} (checksum mismatch)`);
+        }
       }
     }
   }

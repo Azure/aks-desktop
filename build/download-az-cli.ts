@@ -315,10 +315,31 @@ function verifyDarwinArm64Extensions(extensionDir: string): void {
     );
   }
   for (const extension of AZ_CLI_EXTENSIONS) {
-    const missingFiles = missingInstalledWheelFiles(path.join(extensionDir, extension));
+    const extensionPackage = AZ_CLI_EXTENSION_PACKAGES[extension];
+    const wheelName = path.basename(new URL(extensionPackage.url).pathname);
+    const wheelPath = path.join(extensionDir, wheelName);
+    if (!fs.existsSync(wheelPath)) {
+      throw new Error(`Pinned Azure CLI extension wheel not found: ${wheelName}`);
+    }
+    const wheelChecksum = createHash('sha256')
+      .update(fs.readFileSync(wheelPath))
+      .digest('hex');
+    if (wheelChecksum !== extensionPackage.checksum) {
+      throw new Error(`Pinned Azure CLI extension wheel checksum mismatch: ${wheelName}`);
+    }
+    const distributionName = extension.replaceAll('-', '_');
+    const recordPath =
+      `${distributionName}-${AZ_CLI_EXTENSION_VERSIONS[extension]}.dist-info/RECORD`;
+    const authenticatedRecord = execFileSync(
+      'unzip', ['-p', wheelPath, recordPath], { encoding: 'utf8' }
+    );
+    const missingFiles = missingInstalledWheelFiles(
+      path.join(extensionDir, extension),
+      authenticatedRecord
+    );
     if (missingFiles.length > 0) {
       throw new Error(
-        `Incomplete Azure CLI extension ${extension}: ${missingFiles.slice(0, 5).join(', ')}`
+        `Incomplete or modified Azure CLI extension ${extension}: ${missingFiles.slice(0, 5).join(', ')}`
       );
     }
   }
@@ -343,7 +364,7 @@ async function installDarwinArm64Extensions(extensionDir: string): Promise<void>
   for (const extension of AZ_CLI_EXTENSIONS) {
     const extensionPackage = AZ_CLI_EXTENSION_PACKAGES[extension];
     const wheelName = path.basename(new URL(extensionPackage.url).pathname);
-    const wheelPath = path.join(TEMP_DIR, wheelName);
+    const wheelPath = path.join(extensionDir, wheelName);
     const installDir = path.join(extensionDir, extension);
     await downloadFile(extensionPackage.url, wheelPath);
     await verifyRequiredArtifact(
@@ -603,18 +624,17 @@ async function installAzCliWindows(): Promise<string[]> {
  */
 async function main() {
   try {
-    let installedExtensions: string[] = [];
     switch (CURRENT_PLATFORM) {
       case 'win32':
-        installedExtensions = await installAzCliWindows();
+        await installAzCliWindows();
         break;
       case 'darwin':
         console.log('🍎 Installing prebuilt macOS Azure CLI with bundled Python...');
-        installedExtensions = await installPrebuiltAzCliWithPython('darwin');
+        await installPrebuiltAzCliWithPython('darwin');
         break;
       case 'linux':
         console.log('🐧 Installing prebuilt Linux Azure CLI with bundled Python...');
-        installedExtensions = await installPrebuiltAzCliWithPython('linux');
+        await installPrebuiltAzCliWithPython('linux');
         break;
     }
 
