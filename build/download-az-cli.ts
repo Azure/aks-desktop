@@ -15,6 +15,7 @@ import * as http from 'http';
 import { execFileSync, execSync } from 'child_process';
 import { createHash } from 'crypto';
 import { createWriteStream, createReadStream } from 'fs';
+import { invalidInstalledAzureCliExtensions } from './azure-cli-verification';
 import {
   generateUnixAzWrapperScript,
   UNIX_AZ_CLI_EXTENSIONS_DIRNAME,
@@ -284,11 +285,29 @@ function verifyDarwinArm64Libraries(rootDir: string): void {
   }
 }
 
+function verifyDarwinArm64Extensions(extensionDir: string): void {
+  const invalidExtensions = invalidInstalledAzureCliExtensions(
+    extensionDir,
+    AZ_CLI_EXTENSION_VERSIONS
+  );
+  if (invalidExtensions.length > 0) {
+    throw new Error(
+      `Missing or stale Azure CLI extension metadata: ${invalidExtensions.join(', ')}`
+    );
+  }
+  verifyDarwinArm64Libraries(extensionDir);
+}
+
 async function installDarwinArm64Extensions(extensionDir: string): Promise<void> {
   const markerPath = path.join(extensionDir, '.target.json');
   if (targetMarkerMatches(markerPath)) {
-    console.log('✅ Reusing verified macOS ARM64 Azure CLI extensions');
-    return;
+    try {
+      verifyDarwinArm64Extensions(extensionDir);
+      console.log('✅ Reusing verified macOS ARM64 Azure CLI extensions');
+      return;
+    } catch (error) {
+      console.log(`Azure CLI ARM64 extension cache verification failed; rebuilding: ${error}`);
+    }
   }
 
   fs.rmSync(extensionDir, { recursive: true, force: true });
@@ -318,8 +337,8 @@ async function installDarwinArm64Extensions(extensionDir: string): Promise<void>
     if (!fs.existsSync(metadataPath)) {
       throw new Error(`Cross-installed extension metadata not found: ${metadataPath}`);
     }
-    verifyDarwinArm64Libraries(installDir);
   }
+  verifyDarwinArm64Extensions(extensionDir);
   fs.writeFileSync(markerPath, `${JSON.stringify(stagedTarget, null, 2)}\n`);
 }
 

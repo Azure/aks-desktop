@@ -8,7 +8,10 @@ import * as path from "node:path";
 import { afterEach, test } from "node:test";
 
 import {
+  canInvokePackagedRuntime,
   getExtensionTimeoutResult,
+  invalidInstalledAzureCliExtensions,
+  readInstalledAzureCliExtensionVersion,
   readRequiredAzureCliExtensionVersions,
   readRequiredAzureCliExtensions,
 } from "./azure-cli-verification";
@@ -86,5 +89,45 @@ test("returns no required extensions when configuration is not a list", () => {
   );
 
   assert.deepEqual(readRequiredAzureCliExtensions(nonArrayRoot), []);
+});
+
+test("validates exact installed extension names and versions from wheel metadata", () => {
+  const extensionRoot = fs.mkdtempSync(path.join(os.tmpdir(), "aks-cli-extensions-"));
+  tempDirs.push(extensionRoot);
+  const resourceGraph = path.join(
+    extensionRoot,
+    "resource-graph",
+    "resource_graph-2.1.1.dist-info"
+  );
+  fs.mkdirSync(resourceGraph, { recursive: true });
+  fs.writeFileSync(
+    path.join(resourceGraph, "METADATA"),
+    "Name: resource-graph\nVersion: 2.1.1\n"
+  );
+
+  assert.equal(
+    readInstalledAzureCliExtensionVersion(
+      path.join(extensionRoot, "resource-graph"),
+      "resource-graph"
+    ),
+    "2.1.1"
+  );
+  assert.deepEqual(
+    invalidInstalledAzureCliExtensions(extensionRoot, {
+      "resource-graph": "2.1.1",
+      connectedk8s: "1.11.3",
+    }),
+    ["connectedk8s"]
+  );
+  assert.deepEqual(
+    invalidInstalledAzureCliExtensions(extensionRoot, { "resource-graph": "2.1.0" }),
+    ["resource-graph"]
+  );
+});
+
+test("invokes packaged runtimes only on a matching host", () => {
+  assert.equal(canInvokePackagedRuntime("darwin", "x64", "darwin", "x64"), true);
+  assert.equal(canInvokePackagedRuntime("darwin", "arm64", "darwin", "x64"), false);
+  assert.equal(canInvokePackagedRuntime("linux", "x64", "darwin", "x64"), false);
 });
 

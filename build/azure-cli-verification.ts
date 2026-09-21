@@ -14,6 +14,55 @@ export interface ToolVerificationResult {
   message: string;
 }
 
+function normalizedDistributionName(name: string): string {
+  return name.toLowerCase().replaceAll('_', '-');
+}
+
+/** Reads an extension's installed distribution version from wheel metadata. */
+export function readInstalledAzureCliExtensionVersion(
+  extensionDir: string,
+  extension: string
+): string | undefined {
+  if (!fs.existsSync(extensionDir)) return undefined;
+  for (const entry of fs.readdirSync(extensionDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.endsWith('.dist-info')) continue;
+    const metadataPath = path.join(extensionDir, entry.name, 'METADATA');
+    if (!fs.existsSync(metadataPath)) continue;
+    const metadata = fs.readFileSync(metadataPath, 'utf8');
+    const name = metadata.match(/^Name:\s*(.+)$/m)?.[1]?.trim();
+    const version = metadata.match(/^Version:\s*(.+)$/m)?.[1]?.trim();
+    if (name && version && normalizedDistributionName(name) === normalizedDistributionName(extension)) {
+      return version;
+    }
+  }
+  return undefined;
+}
+
+/** Returns pinned extensions whose installed wheel metadata is absent or stale. */
+export function invalidInstalledAzureCliExtensions(
+  extensionRoot: string,
+  extensionVersions: Record<string, string>
+): string[] {
+  return Object.entries(extensionVersions)
+    .filter(([extension, version]) =>
+      readInstalledAzureCliExtensionVersion(
+        path.join(extensionRoot, extension),
+        extension
+      ) !== version
+    )
+    .map(([extension]) => extension);
+}
+
+/** Returns whether a packaged native runtime can execute on the current host. */
+export function canInvokePackagedRuntime(
+  targetPlatform: string,
+  runtimeArch: string,
+  hostPlatform: string = process.platform,
+  hostArch: string = process.arch
+): boolean {
+  return targetPlatform === hostPlatform && runtimeArch === hostArch;
+}
+
 /**
  * Reads the Azure CLI extensions required by the repository build configuration.
  *
