@@ -23,6 +23,29 @@ test('installs only the Headlamp dependencies required by desktop packaging', ()
   assert.equal(commands.length, HEADLAMP_DESKTOP_INSTALL_STEPS.length);
 });
 
+test('can defer backend compilation to the architecture-aware package hook', () => {
+  const commands: string[] = [];
+  installHeadlampDesktopDependencies('/workspace/headlamp', (args, cwd) => {
+    commands.push(`${path.relative('/workspace/headlamp', cwd) || '.'}:${args.join(' ')}`);
+  }, { skipBackendBuild: true });
+
+  assert.deepEqual(commands, [
+    'frontend:ci --prefer-offline --no-audit --no-fund --omit=dev',
+    'app:ci --prefer-offline --no-audit --no-fund',
+  ]);
+});
+
+test('installs only app dependencies when reusing prepared frontend assets', () => {
+  const commands: string[] = [];
+  installHeadlampDesktopDependencies('/workspace/headlamp', (args, cwd) => {
+    commands.push(`${path.relative('/workspace/headlamp', cwd) || '.'}:${args.join(' ')}`);
+  }, { skipBackendBuild: true, skipFrontendInstall: true });
+
+  assert.deepEqual(commands, [
+    'app:ci --prefer-offline --no-audit --no-fund',
+  ]);
+});
+
 test('stops the Headlamp desktop install at the first failed step', t => {
   const commands: string[] = [];
   t.mock.method(console, 'log', () => undefined);

@@ -61,6 +61,7 @@ import {
   packageTarget,
   requiresTargetDependencyInstall,
   stageBackendExecutable,
+  targetDependencyEnvironment,
   unpackedArguments,
   validatePackageHost,
 } from './package-target';
@@ -151,6 +152,44 @@ test('packages installed dependencies once and reports timestamped phase timings
   ]);
   assert.match(messages.join('\n'), /\[build-timing\].+started at \d{4}-\d{2}-\d{2}T/);
   assert.match(messages.join('\n'), /\[build-timing\].+completed in \d+\.\d{3}s/);
+});
+
+test('reuses architecture-independent assets for a second package target', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prepared package-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
+  const appDir = path.join(sourceDir, 'app');
+  fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+  const commands: string[] = [];
+  t.mock.method(console, 'log', () => undefined);
+
+  packageTarget(
+    { platform: process.platform, arch: process.arch },
+    rootDir,
+    (args, cwd) => {
+      commands.push(`${cwd === rootDir ? 'root' : cwd === sourceDir ? 'source' : 'app'}:${args.join(' ')}`);
+      if (cwd === appDir && args[1] === 'package:prepared') {
+        fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
+      }
+    },
+    { reusePreparedAssets: true }
+  );
+
+  assert.deepEqual(commands, [
+    'root:run headlamp:tools -- --platform=' + process.platform + ' --arch=' + process.arch,
+    'root:run headlamp:manifest',
+    `app:run package:prepared -- ${packageArguments(process.platform, process.arch).join(' ')}`,
+  ]);
+});
+
+test('marks prepared target installs to reuse frontend dependencies', () => {
+  const environment = { PATH: '/tools' };
+  assert.equal(targetDependencyEnvironment(environment), environment);
+  assert.deepEqual(targetDependencyEnvironment(environment, true), {
+    PATH: '/tools',
+    HEADLAMP_SKIP_INSTALL_FRONTEND: 'true',
+  });
 });
 
 test('assembles an unpacked app without running distributable packaging', t => {

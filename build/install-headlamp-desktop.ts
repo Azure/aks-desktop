@@ -17,6 +17,11 @@ const ROOT_DIR = path.dirname(__dirname);
 const CLEAN_INSTALL_ARGS = ['ci', '--prefer-offline', '--no-audit', '--no-fund'] as const;
 const PRODUCTION_INSTALL_ARGS = [...CLEAN_INSTALL_ARGS, '--omit=dev'] as const;
 
+interface InstallHeadlampDesktopOptions {
+  skipBackendBuild?: boolean;
+  skipFrontendInstall?: boolean;
+}
+
 export const HEADLAMP_DESKTOP_INSTALL_STEPS = [
   {
     name: 'install Headlamp frontend dependencies',
@@ -54,10 +59,21 @@ function runNpm(args: readonly string[], cwd: string): void {
 /** Installs only the Headlamp dependencies needed to build the desktop application. */
 export function installHeadlampDesktopDependencies(
   sourceDir: string,
-  runStep: (args: readonly string[], cwd: string) => void = runNpm
+  runStep: (args: readonly string[], cwd: string) => void = runNpm,
+  options: InstallHeadlampDesktopOptions = {}
 ): void {
+  const skipBackendBuild = options.skipBackendBuild ??
+    process.env.HEADLAMP_SKIP_INSTALL_BACKEND_BUILD === 'true';
+  const skipFrontendInstall = options.skipFrontendInstall ??
+    process.env.HEADLAMP_SKIP_INSTALL_FRONTEND === 'true';
   runTimedStep('install Headlamp desktop dependencies', () => {
     for (const step of HEADLAMP_DESKTOP_INSTALL_STEPS) {
+      if (skipBackendBuild && step.name === 'build Headlamp backend') {
+        continue;
+      }
+      if (skipFrontendInstall && step.name === 'install Headlamp frontend dependencies') {
+        continue;
+      }
       runTimedStep(step.name, () =>
         runStep(step.args, path.resolve(sourceDir, step.relativeDirectory))
       );

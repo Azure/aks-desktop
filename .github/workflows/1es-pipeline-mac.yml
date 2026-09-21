@@ -36,6 +36,11 @@ extends:
     stages:
       # ===================================================================
       # SHARED MACOS BUILD - Package Intel and Apple Silicon on one worker
+      #
+      # AzureContainerUpstream has no available hosted ARM64 macOS runner and
+      # only one concurrent hosted macOS job. Separate architecture jobs would
+      # therefore serialize while repeating setup. Keep both packages on this
+      # Intel worker unless both constraints change; see MAINTENANCE.md.
       # ===================================================================
       - stage: Build_macOS
         displayName: 'Build (x64 + arm64)'
@@ -60,6 +65,8 @@ extends:
                 value: $(Pipeline.Workspace)/.go/build
               - name: AZ_CLI_EXTENSION_CACHE_ROOT
                 value: $(Pipeline.Workspace)/.azure-cli-extensions
+              - name: HEADLAMP_SKIP_INSTALL_BACKEND_BUILD
+                value: 'true'
             templateContext:
               outputs:
                 - output: pipelineArtifact
@@ -262,7 +269,11 @@ extends:
                     success=false
                     while [ $retry_count -lt 3 ] && [ "$success" = false ]; do
                       echo "[build-timing] build attempt $arch $((retry_count + 1)) started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                      if npm run "build:mac:$arch"; then
+                      if [ "$arch" = arm64 ]; then
+                        if npm run "build:mac:$arch" -- --reuse-prepared-assets; then
+                          success=true
+                        fi
+                      elif npm run "build:mac:$arch"; then
                         success=true
                       fi
                       if [ "$success" = false ]; then

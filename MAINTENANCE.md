@@ -118,6 +118,32 @@ root's `dist/`. See [build output](README.md#build-output) for each platform's
 installer formats and unpacked paths. Copy artifacts out of this generated
 package before reinstalling dependencies or deleting `node_modules`.
 
+### macOS release architecture
+
+The AzureContainerUpstream organization currently has no available hosted
+ARM64 macOS runner, and the AKS Desktop project can run only one hosted macOS
+job concurrently. Separate x64 and ARM64 build jobs would therefore run one
+after the other while repeating checkout, dependency installation, cache
+restore, certificate import, and keychain setup.
+
+`.github/workflows/1es-pipeline-mac.yml` intentionally builds both packages in
+one Intel-hosted job. It builds x64 first, then cross-packages ARM64. The ARM64
+package contains native ARM64 Electron, Go, Azure CLI, Python, and extension
+dependencies; host Python is used only to resolve those extension dependencies
+without executing target code.
+
+The second package reuses architecture-independent frontend, translation,
+plugin, icon, and compiled Electron assets. It must still reinstall native app
+dependencies, stage target-specific external tools, regenerate the product
+manifest, build the Go backend, run Electron Builder, and verify the package.
+The Intel worker cannot launch the ARM64 app, so ARM64 runs packaged-tool checks
+instead of the Electron launch smoke. Signing and notarization remain separate
+per architecture after the shared build job.
+
+Do not split the build job unless both an ARM64 macOS runner and at least two
+concurrent macOS jobs are available. After changing this flow, validate both
+unsigned artifacts and their signing and notarization stages.
+
 ### Ship static plugins
 
 Static plugins are declared in `package.json#headlamp.plugins`. Keep package

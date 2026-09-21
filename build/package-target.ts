@@ -29,6 +29,7 @@ interface PackageTarget {
 
 interface PackageOptions {
   unpacked?: boolean;
+  reusePreparedAssets?: boolean;
 }
 
 const PACKAGE_ARGS: Record<string, string[]> = {
@@ -118,6 +119,16 @@ export function packageEnvironment(
   };
 }
 
+/** Skips frontend installation when a later package target reuses its prepared output. */
+export function targetDependencyEnvironment(
+  buildEnv: NodeJS.ProcessEnv,
+  reusePreparedAssets = false
+): NodeJS.ProcessEnv {
+  return reusePreparedAssets
+    ? { ...buildEnv, HEADLAMP_SKIP_INSTALL_FRONTEND: 'true' }
+    : buildEnv;
+}
+
 /** Runs one npm build step and surfaces spawn or non-zero exit failures. */
 function runNpm(args: string[], cwd: string, env = process.env): void {
   const invocation = npmInvocation(args, process.platform, env);
@@ -151,6 +162,9 @@ export function packageTarget(
   options: PackageOptions = {}
 ): void {
   validatePackageHost(target);
+  if (options.unpacked && options.reusePreparedAssets) {
+    throw new Error('Prepared assets can only be reused for distributable packaging');
+  }
 
   const { sourceDir, appDir, distDir } = resolveInstalledHeadlampPaths(rootDir);
   const targetArgs = [
@@ -164,7 +178,11 @@ export function packageTarget(
   runTimedStep(`package ${target.platform}/${target.arch}`, () => {
     if (requiresTargetDependencyInstall(target)) {
       runTimedStep('install target dependencies', () =>
-        runStep(['run', 'headlamp:install'], rootDir, buildEnv)
+        runStep(
+          ['run', 'headlamp:install'],
+          rootDir,
+          targetDependencyEnvironment(buildEnv, options.reusePreparedAssets)
+        )
       );
     }
     runTimedStep('stage backend executable', () => stageBackendExecutable(sourceDir, target.platform));
@@ -174,26 +192,28 @@ export function packageTarget(
     runTimedStep('generate product manifest', () =>
       runStep(['run', 'headlamp:manifest'], rootDir)
     );
-    runTimedStep('install release plugins', () =>
-      runStep(['run', 'plugin:install-releases'], rootDir, buildEnv)
-    );
-    runTimedStep('distribute translations', () =>
-      runStep(['run', 'headlamp:translations'], rootDir)
-    );
-    runTimedStep('bundle plugins', () =>
-      runStep(['run', 'plugin:setup'], rootDir, buildEnv)
-    );
-    runTimedStep('generate frontend environment', () =>
-      runStep(['run', 'headlamp:frontend-env'], rootDir)
-    );
-    runTimedStep('build frontend', () =>
-      runStep(['run', 'frontend:build'], sourceDir, buildEnv)
-    );
+    if (!options.reusePreparedAssets) {
+      runTimedStep('install release plugins', () =>
+        runStep(['run', 'plugin:install-releases'], rootDir, buildEnv)
+      );
+      runTimedStep('distribute translations', () =>
+        runStep(['run', 'headlamp:translations'], rootDir)
+      );
+      runTimedStep('bundle plugins', () =>
+        runStep(['run', 'plugin:setup'], rootDir, buildEnv)
+      );
+      runTimedStep('generate frontend environment', () =>
+        runStep(['run', 'headlamp:frontend-env'], rootDir)
+      );
+      runTimedStep('build frontend', () =>
+        runStep(['run', 'frontend:build'], sourceDir, buildEnv)
+      );
+    }
     runTimedStep(options.unpacked ? 'assemble unpacked application' : 'package application', () =>
       runStep(
         [
           'run',
-          options.unpacked ? 'build' : 'package',
+          options.unpacked ? 'build' : options.reusePreparedAssets ? 'package:prepared' : 'package',
           '--',
           ...(options.unpacked
             ? unpackedArguments(target.platform, target.arch)
@@ -224,5 +244,6 @@ if (require.main === module) {
   }
   packageTarget({ platform, arch }, ROOT_DIR, runNpm, {
     unpacked: process.argv.includes('--unpacked'),
+    reusePreparedAssets: process.argv.includes('--reuse-prepared-assets'),
   });
 }

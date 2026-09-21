@@ -26,6 +26,9 @@ const rootManifest = JSON.parse(
 const sourceManifest = JSON.parse(
   fs.readFileSync(path.join(HEADLAMP_SOURCE_DIR, 'package.json'), 'utf8')
 );
+const appManifest = JSON.parse(
+  fs.readFileSync(path.join(HEADLAMP_SOURCE_DIR, 'app', 'package.json'), 'utf8')
+);
 const aksDesktopManifest = JSON.parse(
   fs.readFileSync(path.join(ROOT_DIR, 'plugins', 'aks-desktop', 'package.json'), 'utf8')
 );
@@ -120,6 +123,11 @@ test('the source package exports app and container build scripts', () => {
   ]) {
     assert.equal(typeof packageManifest.scripts[script], 'string');
   }
+  assert.match(appManifest.scripts.package, /copy-icons.+copy-plugins.+compile-electron/);
+  assert.equal(
+    appManifest.scripts['package:prepared'],
+    'electron-builder build --config electron-builder.config.ts --publish never'
+  );
   assert.match(
     rootManifest.scripts['test:distribution'],
     /npm run headlamp:smoke --$/
@@ -317,6 +325,8 @@ test('one Intel-hosted macOS job packages x64 and native ARM64 tools', () => {
   assert.match(buildStage, /task: UsePythonVersion@0/);
   assert.match(buildStage, /versionSpec: '3\.13'/);
   assert.match(buildStage, /for arch in x64 arm64/);
+  assert.match(buildStage, /HEADLAMP_SKIP_INSTALL_BACKEND_BUILD/);
+  assert.match(buildStage, /build:mac:\$arch" -- --reuse-prepared-assets/);
   assert.match(buildStage, /verification_command='test:distribution'/);
   assert.match(buildStage, /verification_command='test:post-build'/);
   assert.match(buildStage, /targetPath: \$\(Build\.ArtifactStagingDirectory\)\/arm64/);
@@ -418,7 +428,7 @@ test('package targets have verified external tool runtimes', () => {
     connectedk8s: '1.11.3',
   });
   assert.equal(rootManifest.config.externalTools.python.version, '3.14');
-  for (const [extension, version] of Object.entries(azureCli.extensionVersions)) {
+  for (const [extension, version] of Object.entries(azureCli.extensionVersions) as [string, string][]) {
     const extensionPackage = azureCli.extensionPackages[extension];
     assert.match(extensionPackage.url, /^https:\/\/azcliprod\.blob\.core\.windows\.net\//);
     assert.match(extensionPackage.url, new RegExp(`${version.replaceAll('.', '\\.')}.*\\.whl$`));
