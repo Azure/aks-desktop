@@ -27,6 +27,7 @@ import {
   macAppBundleName,
   pluginIdentitiesMatch,
   productIdentityMatches,
+  readPackagedPluginIdentities,
 } from './product-manifest-verification';
 
 const SCRIPT_DIR = __dirname;
@@ -50,10 +51,19 @@ const PYTHON_RUNTIME_ARCH = AZURE_CLI_TARGET.python?.runtimeArch ?? TARGET_ARCH;
 const PRODUCT_MANIFEST = path.join(ROOT_DIR, 'package.json');
 let PRODUCT_NAME = 'AKS desktop'; // Default fallback
 let PRODUCT_CONFIG: Record<string, any> = {};
+let CONFIGURED_PLUGINS: Array<{ name: string; packageName: string }> = [];
 
 try {
   const project = JSON.parse(fs.readFileSync(PRODUCT_MANIFEST, 'utf-8'));
   PRODUCT_CONFIG = createProductTemplate(project, CURRENT_PLATFORM);
+  CONFIGURED_PLUGINS = Array.isArray(project.headlamp?.plugins)
+    ? project.headlamp.plugins.map(
+      (plugin: { name: string; packageName: string }) => ({
+        name: plugin.name,
+        packageName: plugin.packageName,
+      })
+    )
+    : [];
   PRODUCT_NAME = macAppBundleName(PRODUCT_CONFIG) || PRODUCT_NAME;
 } catch (error) {
   console.warn(`Warning: Could not read product name from ${PRODUCT_MANIFEST}, using default: ${PRODUCT_NAME}`);
@@ -189,25 +199,24 @@ function testProductAssembly(): void {
     identityMatches ? `Packaged ${manifest.product.productName}` : 'Packaged identity does not match'
   );
 
-  const plugins = Array.isArray(manifest.plugins) ? manifest.plugins : [];
-  const expectedPlugins = Array.isArray(PRODUCT_CONFIG.plugins) ? PRODUCT_CONFIG.plugins : [];
-  const invalidPlugins = plugins.filter((plugin: { name: string; packageName: string }) => {
-    const pluginPackage = path.join(RESOURCES_DIR, '.plugins', plugin.name, 'package.json');
-    return (
-      !fs.existsSync(pluginPackage) ||
-      JSON.parse(fs.readFileSync(pluginPackage, 'utf8')).name !== plugin.packageName
-    );
-  });
-  const pluginsMatch =
-    invalidPlugins.length === 0 && pluginIdentitiesMatch(plugins, expectedPlugins);
+  const runtimePlugins = Array.isArray(manifest.plugins) ? manifest.plugins : [];
+  const expectedRuntimePlugins = Array.isArray(PRODUCT_CONFIG.plugins)
+    ? PRODUCT_CONFIG.plugins
+    : [];
+  addResult(
+    'Product release plugins',
+    pluginIdentitiesMatch(runtimePlugins, expectedRuntimePlugins),
+    `Expected ${expectedRuntimePlugins.length}, found ${runtimePlugins.length}`
+  );
+
+  const packagedPlugins = readPackagedPluginIdentities(RESOURCES_DIR);
+  const pluginsMatch = pluginIdentitiesMatch(packagedPlugins, CONFIGURED_PLUGINS);
   addResult(
     'Product plugins',
     pluginsMatch,
     pluginsMatch
-      ? `Found all ${plugins.length} declared plugins`
-      : `Expected ${expectedPlugins.length}, found ${plugins.length}; identity mismatch or invalid: ${
-          invalidPlugins.map((plugin: { name: string }) => plugin.name).join(', ') || 'none'
-        }`
+      ? `Found all ${packagedPlugins?.length ?? 0} configured plugins`
+      : `Expected ${CONFIGURED_PLUGINS.length}, found ${packagedPlugins?.length ?? 0}; identity mismatch or invalid bundle`
   );
 
   const legalDocuments = Array.isArray(manifest.legalDocuments) ? manifest.legalDocuments : [];

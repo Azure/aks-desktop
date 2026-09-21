@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
@@ -11,6 +12,7 @@ import {
   legalDocumentIdentitiesMatch,
   macAppBundleName,
   pluginIdentitiesMatch,
+  readPackagedPluginIdentities,
   productIdentityMatches,
 } from './product-manifest-verification';
 
@@ -124,6 +126,26 @@ test('compares configured plugin identities without depending on order', () => {
     false
   );
   assert.equal(pluginIdentitiesMatch(undefined, undefined), false);
+});
+
+test('reads every packaged plugin identity and rejects malformed bundles', t => {
+  const resourcesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'packaged-plugins-'));
+  t.after(() => fs.rmSync(resourcesDir, { recursive: true, force: true }));
+  const pluginsDir = path.join(resourcesDir, '.plugins');
+  for (const [name, packageName] of [
+    ['aks-desktop', 'aks-desktop'],
+    ['plugin-catalog', '@headlamp-k8s/plugin-catalog'],
+  ]) {
+    const pluginDir = path.join(pluginsDir, name);
+    fs.mkdirSync(pluginDir, { recursive: true });
+    fs.writeFileSync(path.join(pluginDir, 'package.json'), JSON.stringify({ name: packageName }));
+  }
+  assert.deepEqual(readPackagedPluginIdentities(resourcesDir), [
+    { name: 'aks-desktop', packageName: 'aks-desktop' },
+    { name: 'plugin-catalog', packageName: '@headlamp-k8s/plugin-catalog' },
+  ]);
+  fs.rmSync(path.join(pluginsDir, 'aks-desktop', 'package.json'));
+  assert.equal(readPackagedPluginIdentities(resourcesDir), undefined);
 });
 
 test('compares configured legal document IDs and files', () => {
