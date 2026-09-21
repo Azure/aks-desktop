@@ -497,8 +497,8 @@ test('shipped plugins use verified workspace and release sources', () => {
     name: 'ai-assistant',
     packageName: '@headlamp-k8s/ai-assistant',
     archive:
-      'https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.0-alpha/headlamp-k8s-ai-assistant-0.4.0-alpha.tar.gz',
-    sha256: '3c969569432e7374975b6993ed7865087669dddaa54777106e0af32d8209068f',
+      'https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.1-alpha/headlamp-k8s-ai-assistant-0.4.1-alpha.tar.gz',
+    sha256: 'a91984fa15682a4109088803a6265d5caf49fe1f0931870716169b14d99e98ef',
     enabledByDefault: true,
   });
   const catalog = (rootManifest.headlamp.plugins as any[]).find(
@@ -520,13 +520,6 @@ test('shipped plugins use verified workspace and release sources', () => {
   assert.equal(rootManifest.scripts['ai-assistant:build'], undefined);
   assert.match(rootManifest.scripts['i18n:collect'], /plugin:install-releases/);
   assert.match(rootManifest.scripts['headlamp:translations'], /distribute-packaged/);
-  const aiAssistantBundle = fs.readFileSync(
-    path.join(HEADLAMP_SOURCE_DIR, '.plugins', 'ai-assistant', 'main.js'),
-    'utf8'
-  );
-  const disabledSeed = aiAssistantBundle.match(/async function rqe\(\)\{\}/g) ?? [];
-  assert.equal(disabledSeed.length, 1);
-  assert.doesNotMatch(aiAssistantBundle, /Error preconfiguring built-in MCP servers/);
 });
 
 test('aks-mcp remains retired from AKS Desktop product policy and tools', () => {

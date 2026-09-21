@@ -1059,8 +1059,8 @@
       {
         "name": "ai-assistant",
         "packageName": "@headlamp-k8s/ai-assistant",
-        "archive": "https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.0-alpha/headlamp-k8s-ai-assistant-0.4.0-alpha.tar.gz",
-        "sha256": "3c969569432e7374975b6993ed7865087669dddaa54777106e0af32d8209068f",
+        "archive": "https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.1-alpha/headlamp-k8s-ai-assistant-0.4.1-alpha.tar.gz",
+        "sha256": "a91984fa15682a4109088803a6265d5caf49fe1f0931870716169b14d99e98ef",
         "enabledByDefault": true
       },
       {

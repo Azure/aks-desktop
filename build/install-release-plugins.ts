@@ -13,24 +13,6 @@ const { resolveInstalledHeadlampPaths } = require(
 );
 
 const ROOT_DIR = path.dirname(__dirname);
-const AI_ASSISTANT_SEED_START = 'async function rqe(){';
-const AI_ASSISTANT_SEED_END =
-  'console.error("Error preconfiguring built-in MCP servers:",o)}}';
-const AI_ASSISTANT_SEED_DISABLED = 'async function rqe(){}';
-
-/** Disables the pinned release's unreleased AKS MCP startup seed. */
-export function disableBundledAksMcpSeed(bundle: string): string {
-  const start = bundle.indexOf(AI_ASSISTANT_SEED_START);
-  const end = bundle.indexOf(AI_ASSISTANT_SEED_END, start);
-  if (start === -1 || end === -1) {
-    throw new Error('Pinned AI Assistant release does not contain the reviewed aks-mcp seed');
-  }
-  if (bundle.indexOf(AI_ASSISTANT_SEED_START, start + 1) !== -1) {
-    throw new Error('Pinned AI Assistant release contains multiple aks-mcp seed functions');
-  }
-  return bundle.slice(0, start) + AI_ASSISTANT_SEED_DISABLED +
-    bundle.slice(end + AI_ASSISTANT_SEED_END.length);
-}
 
 /** Returns the app-manifest subset that installs pinned release plugins. */
 export function releasePluginManifest(project: any): { plugins: any[] } {
@@ -51,7 +33,7 @@ export function installReleasePlugins(rootDir: string = ROOT_DIR): void {
   const manifestPath = path.join(temporaryDirectory, 'manifest.json');
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-  const { appDir, sourceDir } = resolveInstalledHeadlampPaths(rootDir);
+  const { appDir } = resolveInstalledHeadlampPaths(rootDir);
   const installer = path.join(appDir, 'scripts', 'setup-plugins.ts');
   try {
     const result = spawnSync(process.execPath, ['--import', 'tsx', installer], {
@@ -62,11 +44,6 @@ export function installReleasePlugins(rootDir: string = ROOT_DIR): void {
     if (result.error) throw result.error;
     if (result.status !== 0) {
       throw new Error(`Release plugin installation failed with exit code ${result.status}`);
-    }
-    const aiAssistantBundle = path.join(sourceDir, '.plugins', 'ai-assistant', 'main.js');
-    if (manifest.plugins.some(plugin => plugin.name === 'ai-assistant')) {
-      const bundle = fs.readFileSync(aiAssistantBundle, 'utf8');
-      fs.writeFileSync(aiAssistantBundle, disableBundledAksMcpSeed(bundle));
     }
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
