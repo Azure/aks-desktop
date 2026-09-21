@@ -144,6 +144,71 @@ Do not split the build job unless both an ARM64 macOS runner and at least two
 concurrent macOS jobs are available. After changing this flow, validate both
 unsigned artifacts and their signing and notarization stages.
 
+#### Azure CLI extension wheel lock
+
+Every Azure CLI extension archive is pinned by URL and SHA-256 in
+`package.json#config.externalTools.azureCli.extensionPackages`. Native builds
+download those exact archives, verify their checksums, and pass the local wheel
+to `az extension add --source`; do not replace this with name-based installation
+from the live extension index.
+
+macOS x64 and ARM64 builds additionally pin their complete target-specific
+Python dependency closures in `build/azure-cli-darwin-x64-requirements.txt` and
+`build/azure-cli-darwin-arm64-requirements.txt`. Each `# roots` header records
+which extension owns the locked transitive closure. pip downloads the selected
+lock with `--require-hashes`, then installs the reviewed extension wheels with
+`--no-index` from the completed local wheelhouse. Cache identity includes the
+architecture-specific lock checksum and the verified-wheel policy version.
+Cache reuse rehashes every wheel and compares every installed file against
+authenticated wheel `RECORD` data; any mismatch rebuilds the cache.
+
+Regenerate the lock only when changing an extension or one of its reviewed
+dependencies. Start from a staged macOS Python runtime and the three verified
+extension wheels, then resolve each architecture under its package target
+constraints:
+
+```bash
+mac_python=node_modules/@headlamp-k8s/headlamp-source/source/app/resources/external-tools/az-cli/darwin/python/bin/python3
+arch=arm64 # Repeat with x64.
+platform=macosx_11_0_arm64 # Use macosx_11_0_x86_64 for x64.
+wheel_dir=$(mktemp -d)
+report=$(mktemp)
+
+jq -r '.config.externalTools.azureCli.extensionPackages
+  | to_entries[] | [.value.url, .value.checksum] | @tsv' package.json |
+while IFS=$'\t' read -r url checksum; do
+  wheel="$wheel_dir/${url##*/}"
+  curl -fsSL "$url" -o "$wheel"
+  test "$(shasum -a 256 "$wheel" | awk '{print $1}')" = "$checksum"
+done
+
+"$mac_python" -m pip install --dry-run --ignore-installed \
+  --report "$report" \
+  --platform "$platform" \
+  --python-version 3.14 \
+  --implementation cp \
+  --only-binary=:all: \
+  "$wheel_dir"/*.whl
+
+{
+  echo "# Transitive wheel lock for macOS $arch Azure CLI extension builds."
+  echo '# Direct extension wheels and hashes are pinned in package.json.'
+  echo '# roots: connectedk8s'
+  jq -r '.install[]
+    | select((.metadata.name | ascii_downcase)
+        | IN("resource-graph", "alertsmanagement", "connectedk8s") | not)
+    | "\(.metadata.name)==\(.metadata.version) --hash=\(.download_info.archive_info.hash | sub("="; ":"))"' \
+    "$report" | LC_ALL=C sort -f
+} > "build/azure-cli-darwin-$arch-requirements.txt"
+```
+
+Review every version and hash change. Confirm the report contains only wheels,
+remove each architecture's extension cache, and run cold x64 and ARM64 tool
+staging passes followed by warm reuse passes. Tamper with one cached module and
+confirm staging rebuilds that cache. Finish with `npm run test:build` and
+packaged-tool verification. Never regenerate locks implicitly during a release
+build.
+
 ### Ship static plugins
 
 Static plugins are declared in `package.json#headlamp.plugins`. Keep package

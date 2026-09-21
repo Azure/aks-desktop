@@ -12,10 +12,12 @@ import {
   canInvokePackagedRuntime,
   getExtensionTimeoutResult,
   invalidInstalledAzureCliExtensions,
+  missingInstalledWheelDistributions,
   missingInstalledWheelFiles,
   readInstalledAzureCliExtensionVersion,
   readRequiredAzureCliExtensionVersions,
   readRequiredAzureCliExtensions,
+  unexpectedInstalledWheelFiles,
 } from "./azure-cli-verification";
 
 const tempDirs: string[] = [];
@@ -171,6 +173,22 @@ test("validates exact installed extension names and versions from wheel metadata
     ),
     ["resource_graph/__init__.py (checksum mismatch)"]
   );
+  fs.writeFileSync(
+    path.join(extensionRoot, "resource-graph", "resource_graph", "injected.py"),
+    "injected"
+  );
+  assert.deepEqual(
+    unexpectedInstalledWheelFiles(
+      path.join(extensionRoot, "resource-graph"),
+      [authenticatedRecord]
+    ),
+    [
+      "resource_graph-2.1.1.dist-info/METADATA",
+      "resource_graph-2.1.1.dist-info/RECORD",
+      "resource_graph/injected.py",
+    ]
+  );
+  fs.rmSync(path.join(extensionRoot, "resource-graph", "resource_graph", "injected.py"));
   fs.rmSync(path.join(extensionRoot, "resource-graph", "resource_graph", "__init__.py"));
   assert.deepEqual(
     missingInstalledWheelFiles(path.join(extensionRoot, "resource-graph")),
@@ -193,13 +211,39 @@ test("invokes packaged runtimes only on a matching host", () => {
   assert.equal(canInvokePackagedRuntime("linux", "x64", "darwin", "x64"), false);
 });
 
-test("authenticates retained extension wheels before ARM cache reuse", () => {
+test("rejects a wholly missing locked wheel distribution", () => {
+  assert.deepEqual(
+    missingInstalledWheelDistributions(
+      ["connectedk8s", "kubernetes"],
+      ["connectedk8s", "kubernetes", "oras"]
+    ),
+    ["oras"]
+  );
+});
+
+test("authenticates locked wheelhouses before macOS cache reuse", () => {
   const installer = fs.readFileSync(
     path.join(__dirname, "download-az-cli.ts"),
     "utf8"
   );
-  assert.match(installer, /const wheelPath = path\.join\(extensionDir, wheelName\)/);
-  assert.match(installer, /wheelChecksum !== extensionPackage\.checksum/);
+  assert.match(installer, /downloadVerifiedExtensionWheels/);
+  assert.match(installer, /macOSCrossExtensionDownloadArguments/);
+  assert.match(installer, /authenticatedWheelRecords\(wheelhouseDir\)/);
+  assert.match(installer, /verifyDarwinExtensions\(extensionDir, extensionDir, target\.arch === 'arm64'\)/);
+  assert.match(installer, /cache payload verification failed; rebuilding/);
+  assert.match(installer, /downloadVerifiedExtensionWheels\(\s*AZ_CLI_EXTENSIONS,/);
+  assert.match(installer, /PIP_NO_INDEX: '1'/);
+  assert.match(installer, /PIP_FIND_LINKS: extensionDir/);
+  assert.match(installer, /checksum !== locked\.checksum/);
   assert.match(installer, /missingInstalledWheelFiles\([\s\S]+authenticatedRecord/);
+  assert.equal(
+    installer.match(/'--source', extensionWheels\.get\(extension\)!/g)?.length,
+    2
+  );
+  assert.doesNotMatch(installer, /'extension', 'add', '-n'/);
+});
+
+test("loads Azure CLI staging without executing the installer", async () => {
+  await import("./download-az-cli");
 });
 

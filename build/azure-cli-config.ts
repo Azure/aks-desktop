@@ -41,6 +41,8 @@ export interface AzureCliTarget {
   extensions: string[];
   extensionVersions: Record<string, string>;
   extensionPackages: Record<string, RuntimeConfig>;
+  extensionLockPath?: string;
+  extensionLockChecksum?: string;
   pythonVersion?: string;
   python?: RuntimeConfig;
   cliPackage?: RuntimeConfig;
@@ -61,16 +63,44 @@ export function azureCliCacheIdentity(target: AzureCliTarget) {
         .sort()
         .map(extension => [extension, target.extensionPackages[extension]])
     ),
+    extensionInstallPolicy: 'verified-local-wheel-v1',
+    extensionLockChecksum: target.extensionLockChecksum,
     pythonChecksum: target.python?.checksum,
     packageChecksum: target.cliPackage?.checksum,
   };
+}
+
+/** Builds pip arguments that download every locked macOS dependency wheel. */
+export function macOSCrossExtensionDownloadArguments(
+  target: AzureCliTarget,
+  requirementsPath: string,
+  wheelhouseDir: string
+): string[] {
+  if (target.platform !== 'darwin' || !SUPPORTED_ARCHES.has(target.arch) || !target.pythonVersion) {
+    throw new Error(`Unsupported cross-extension target: ${target.platform}/${target.arch}`);
+  }
+  const platformTag = target.arch === 'arm64'
+    ? 'macosx_11_0_arm64'
+    : 'macosx_11_0_x86_64';
+  return [
+    '-m', 'pip', 'download',
+    '--disable-pip-version-check',
+    '--dest', wheelhouseDir,
+    '--platform', platformTag,
+    '--python-version', target.pythonVersion,
+    '--implementation', 'cp',
+    '--only-binary=:all:',
+    '--require-hashes',
+    '--requirement', requirementsPath,
+  ];
 }
 
 /** Builds pip arguments that resolve dependencies for the packaged macOS runtime. */
 export function macOSCrossExtensionInstallArguments(
   target: AzureCliTarget,
   wheelPath: string,
-  extensionDir: string
+  extensionDir: string,
+  wheelhouseDir: string
 ): string[] {
   if (target.platform !== 'darwin' || target.arch !== 'arm64' || !target.pythonVersion) {
     throw new Error(`Unsupported cross-extension target: ${target.platform}/${target.arch}`);
@@ -80,6 +110,8 @@ export function macOSCrossExtensionInstallArguments(
     '--disable-pip-version-check',
     '--no-compile',
     '--target', extensionDir,
+    '--no-index',
+    '--find-links', wheelhouseDir,
     '--platform', 'macosx_11_0_arm64',
     '--python-version', target.pythonVersion,
     '--implementation', 'cp',
@@ -207,6 +239,20 @@ export function resolveAzureCliTarget(
     if (!extensionPackage?.url || !extensionPackage.checksum) {
       throw new Error(`No verified package configured for Azure CLI extension ${extension}`);
     }
+  }
+
+  if (platform === 'darwin') {
+    target.extensionLockPath = path.join(
+      rootDir,
+      'build',
+      `azure-cli-darwin-${targetArch}-requirements.txt`
+    );
+    if (!fs.existsSync(target.extensionLockPath)) {
+      throw new Error(`Azure CLI macOS extension lock not found: ${target.extensionLockPath}`);
+    }
+    target.extensionLockChecksum = createHash('sha256')
+      .update(fs.readFileSync(target.extensionLockPath))
+      .digest('hex');
   }
 
   if (platform === 'win32') {

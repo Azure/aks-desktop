@@ -60,6 +60,22 @@ export function invalidInstalledAzureCliExtensions(
   return [...invalidConfigured, ...unexpected].sort();
 }
 
+function installedWheelPath(relativePath: string): string {
+  const dataPath = relativePath.match(/^[^/]+\.data\/(?:purelib|platlib)\/(.+)$/);
+  if (dataPath) return dataPath[1];
+  const scriptPath = relativePath.match(/^[^/]+\.data\/scripts\/(.+)$/);
+  if (scriptPath) return `bin/${scriptPath[1]}`;
+  return relativePath;
+}
+
+function recordRelativePaths(recordContents: string): string[] {
+  return recordContents.split('\n').flatMap(line => {
+    if (!line) return [];
+    const record = line.match(/^"?([^",]+)"?,([^,]*),/);
+    return record?.[1] ? [installedWheelPath(record[1])] : [];
+  });
+}
+
 /** Returns absent or modified files listed by wheel RECORD metadata. */
 export function missingInstalledWheelFiles(
   extensionDir: string,
@@ -85,7 +101,7 @@ export function missingInstalledWheelFiles(
     for (const line of recordContents.split('\n')) {
       if (!line) continue;
       const record = line.match(/^"?([^",]+)"?,([^,]*),/);
-      const relativePath = record?.[1];
+      const relativePath = record?.[1] ? installedWheelPath(record[1]) : undefined;
       const hash = record?.[2];
       if (!relativePath || !hash?.startsWith('sha256=')) continue;
       const installedPath = path.resolve(extensionDir, relativePath);
@@ -107,6 +123,46 @@ export function missingInstalledWheelFiles(
     }
   }
   return missing.sort();
+}
+
+/** Returns installed files not covered by authenticated wheel RECORD metadata. */
+export function unexpectedInstalledWheelFiles(
+  extensionDir: string,
+  authenticatedRecords: string[]
+): string[] {
+  const expected = new Set(authenticatedRecords.flatMap(recordRelativePaths));
+  const unexpected: string[] = [];
+  const pending = [extensionDir];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(entryPath);
+        continue;
+      }
+      const relativePath = path.relative(extensionDir, entryPath);
+      const pipReceipt = /\.dist-info\/(?:INSTALLER|REQUESTED|direct_url\.json)$/.test(
+        relativePath
+      );
+      if (!expected.has(relativePath) && !pipReceipt) {
+        unexpected.push(relativePath);
+      }
+    }
+  }
+  return unexpected.sort();
+}
+
+/** Returns locked wheel distributions absent from an installed extension. */
+export function missingInstalledWheelDistributions(
+  installed: Iterable<string>,
+  expected: Iterable<string>
+): string[] {
+  const installedNames = new Set([...installed].map(name => normalizedDistributionName(name)));
+  return [...expected]
+    .map(name => normalizedDistributionName(name))
+    .filter(name => !installedNames.has(name))
+    .sort();
 }
 
 /** Returns whether a packaged native runtime can execute on the current host. */

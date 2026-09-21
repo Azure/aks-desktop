@@ -18,7 +18,9 @@ import { createWriteStream, createReadStream } from 'fs';
 import {
   canInvokePackagedRuntime,
   invalidInstalledAzureCliExtensions,
+  missingInstalledWheelDistributions,
   missingInstalledWheelFiles,
+  unexpectedInstalledWheelFiles,
 } from './azure-cli-verification';
 import {
   generateUnixAzWrapperScript,
@@ -43,6 +45,7 @@ const {
   azureCliExtensionsToRemove,
   azureCliVersionDataMatchesTarget,
   installRequiredExtensions,
+  macOSCrossExtensionDownloadArguments,
   macOSCrossExtensionInstallArguments,
   resolveAzureCliTarget,
   verifyRequiredArtifact,
@@ -124,8 +127,12 @@ if (
       if (target.platform !== 'darwin' || target.arch !== 'arm64' || !pythonPath) {
         throw new Error(`Cannot structurally verify ${target.platform}/${runtimeArch}`);
       }
-      verifyDarwinArm64Extensions(
-        path.join(TARGET_DIR, UNIX_AZ_CLI_EXTENSIONS_DIRNAME)
+      verifyDarwinExtensions(
+        path.join(TARGET_DIR, UNIX_AZ_CLI_EXTENSIONS_DIRNAME),
+        AZ_CLI_EXTENSION_CACHE_DIR
+          ? path.resolve(AZ_CLI_EXTENSION_CACHE_DIR)
+          : path.join(TARGET_DIR, UNIX_AZ_CLI_EXTENSIONS_DIRNAME),
+        true
       );
       execFileSync('lipo', [pythonPath, '-verify_arch', 'arm64']);
       verifyDarwinArm64Libraries(TARGET_DIR);
@@ -141,6 +148,15 @@ if (
       })
     );
     if (azureCliVersionDataMatchesTarget(target, versionData)) {
+      if (target.platform === 'darwin') {
+        verifyDarwinExtensions(
+          path.join(TARGET_DIR, UNIX_AZ_CLI_EXTENSIONS_DIRNAME),
+          AZ_CLI_EXTENSION_CACHE_DIR
+            ? path.resolve(AZ_CLI_EXTENSION_CACHE_DIR)
+            : path.join(TARGET_DIR, UNIX_AZ_CLI_EXTENSIONS_DIRNAME),
+          target.arch === 'arm64'
+        );
+      }
       console.log(`✅ Azure CLI cache verified for ${target.platform}/${target.arch}`);
       console.log(`   Location: ${TARGET_DIR}`);
       process.exit(0);
@@ -250,6 +266,28 @@ async function verifyChecksum(filePath: string, expectedChecksum: string, typeNa
   }
 }
 
+async function downloadVerifiedExtensionWheels(
+  extensions: string[],
+  outputDir: string
+): Promise<Map<string, string>> {
+  fs.mkdirSync(outputDir, { recursive: true });
+  const wheels = new Map<string, string>();
+  for (const extension of extensions) {
+    const extensionPackage = AZ_CLI_EXTENSION_PACKAGES[extension];
+    const wheelPath = path.join(
+      outputDir,
+      path.basename(new URL(extensionPackage.url).pathname)
+    );
+    await downloadFile(extensionPackage.url, wheelPath);
+    await verifyRequiredArtifact(
+      verifyChecksum(wheelPath, extensionPackage.checksum, `${extension} extension`),
+      `${extension} extension`
+    );
+    wheels.set(extension, wheelPath);
+  }
+  return wheels;
+}
+
 /**
  * Extract tar.gz file
  */
@@ -304,7 +342,130 @@ function verifyDarwinArm64Libraries(rootDir: string): void {
   }
 }
 
-function verifyDarwinArm64Extensions(extensionDir: string): void {
+interface LockedWheel {
+  version: string;
+  checksum: string;
+  extensions: string[];
+}
+
+function expectedConfiguredExtensionWheels(): Map<string, LockedWheel> {
+  return new Map(
+    AZ_CLI_EXTENSIONS.map(extension => [
+      normalizedPackageName(extension),
+      {
+        version: AZ_CLI_EXTENSION_VERSIONS[extension],
+        checksum: AZ_CLI_EXTENSION_PACKAGES[extension].checksum,
+        extensions: [extension],
+      },
+    ])
+  );
+}
+
+function normalizedPackageName(name: string): string {
+  return name.toLowerCase().replaceAll('_', '-');
+}
+
+function expectedDarwinWheels(): Map<string, LockedWheel> {
+  if (!target.extensionLockPath) {
+    throw new Error('Azure CLI macOS extension lock is not configured');
+  }
+  const expected = new Map<string, LockedWheel>();
+  let lockRoots: string[] = [];
+  for (const line of fs.readFileSync(target.extensionLockPath, 'utf8').split('\n')) {
+    if (line.startsWith('# roots: ')) {
+      lockRoots = line.slice('# roots: '.length).split(',').map(root => root.trim());
+      continue;
+    }
+    if (!line || line.startsWith('#')) continue;
+    if (lockRoots.length === 0) {
+      throw new Error('Azure CLI ARM64 extension lock must declare its roots');
+    }
+    const match = line.match(/^([^=]+)==([^ ]+) --hash=sha256:([0-9a-f]{64})$/);
+    if (!match) {
+      throw new Error(`Invalid Azure CLI ARM64 extension lock entry: ${line}`);
+    }
+    expected.set(normalizedPackageName(match[1]), {
+      version: match[2],
+      checksum: match[3],
+      extensions: lockRoots,
+    });
+  }
+  for (const [name, wheel] of expectedConfiguredExtensionWheels()) {
+    expected.set(name, wheel);
+  }
+  return expected;
+}
+
+function readWheelFile(wheelPath: string, memberPath: string): string {
+  return execFileSync('unzip', ['-p', wheelPath, memberPath], { encoding: 'utf8' });
+}
+
+function removeGeneratedExtensionBytecode(extensionDir: string): void {
+  if (!fs.existsSync(extensionDir)) return;
+  const pending = [extensionDir];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory() && entry.name === '__pycache__') {
+        fs.rmSync(entryPath, { recursive: true, force: true });
+      } else if (entry.isDirectory()) {
+        pending.push(entryPath);
+      } else if (entry.name.endsWith('.pyc')) {
+        fs.rmSync(entryPath, { force: true });
+      }
+    }
+  }
+}
+
+function authenticatedWheelRecords(
+  wheelhouseDir: string,
+  expected: Map<string, LockedWheel> = expectedDarwinWheels()
+): Map<string, string> {
+  const records = new Map<string, string>();
+  for (const entry of fs.readdirSync(wheelhouseDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.whl')) continue;
+    const wheelPath = path.join(wheelhouseDir, entry.name);
+    const members = execFileSync('unzip', ['-Z1', wheelPath], { encoding: 'utf8' })
+      .split('\n');
+    const metadataPath = members.find(member => /^[^/]+\.dist-info\/METADATA$/.test(member));
+    const recordPath = members.find(member => /^[^/]+\.dist-info\/RECORD$/.test(member));
+    if (!metadataPath || !recordPath) {
+      throw new Error(`Wheel metadata is incomplete: ${entry.name}`);
+    }
+    const metadata = readWheelFile(wheelPath, metadataPath);
+    const name = metadata.match(/^Name:\s*(.+)$/m)?.[1]?.trim();
+    const version = metadata.match(/^Version:\s*(.+)$/m)?.[1]?.trim();
+    if (!name || !version) {
+      throw new Error(`Wheel identity is missing: ${entry.name}`);
+    }
+    const normalizedName = normalizedPackageName(name);
+    const locked = expected.get(normalizedName);
+    if (!locked || locked.version !== version) {
+      throw new Error(`Unexpected wheel identity: ${name}==${version}`);
+    }
+    const checksum = createHash('sha256').update(fs.readFileSync(wheelPath)).digest('hex');
+    if (checksum !== locked.checksum) {
+      throw new Error(`Pinned wheel checksum mismatch: ${entry.name}`);
+    }
+    if (records.has(normalizedName)) {
+      throw new Error(`Duplicate wheel distribution: ${name}`);
+    }
+    records.set(normalizedName, readWheelFile(wheelPath, recordPath));
+  }
+  const missingWheels = [...expected.keys()].filter(name => !records.has(name));
+  if (missingWheels.length > 0) {
+    throw new Error(`Pinned wheels not found: ${missingWheels.join(', ')}`);
+  }
+  return records;
+}
+
+function verifyDarwinExtensions(
+  extensionDir: string,
+  wheelhouseDir: string = extensionDir,
+  verifyArm64Libraries: boolean = false
+): void {
+  removeGeneratedExtensionBytecode(extensionDir);
   const invalidExtensions = invalidInstalledAzureCliExtensions(
     extensionDir,
     AZ_CLI_EXTENSION_VERSIONS
@@ -314,43 +475,68 @@ function verifyDarwinArm64Extensions(extensionDir: string): void {
       `Missing or stale Azure CLI extension metadata: ${invalidExtensions.join(', ')}`
     );
   }
+  const wheelRecords = authenticatedWheelRecords(wheelhouseDir);
+  const expectedWheels = expectedDarwinWheels();
   for (const extension of AZ_CLI_EXTENSIONS) {
-    const extensionPackage = AZ_CLI_EXTENSION_PACKAGES[extension];
-    const wheelName = path.basename(new URL(extensionPackage.url).pathname);
-    const wheelPath = path.join(extensionDir, wheelName);
-    if (!fs.existsSync(wheelPath)) {
-      throw new Error(`Pinned Azure CLI extension wheel not found: ${wheelName}`);
-    }
-    const wheelChecksum = createHash('sha256')
-      .update(fs.readFileSync(wheelPath))
-      .digest('hex');
-    if (wheelChecksum !== extensionPackage.checksum) {
-      throw new Error(`Pinned Azure CLI extension wheel checksum mismatch: ${wheelName}`);
-    }
-    const distributionName = extension.replaceAll('-', '_');
-    const recordPath =
-      `${distributionName}-${AZ_CLI_EXTENSION_VERSIONS[extension]}.dist-info/RECORD`;
-    const authenticatedRecord = execFileSync(
-      'unzip', ['-p', wheelPath, recordPath], { encoding: 'utf8' }
+    const installDir = path.join(extensionDir, extension);
+    fs.rmSync(path.join(installDir, 'bin'), { recursive: true, force: true });
+    const wheelName = path.basename(
+      new URL(AZ_CLI_EXTENSION_PACKAGES[extension].url).pathname
     );
-    const missingFiles = missingInstalledWheelFiles(
-      path.join(extensionDir, extension),
-      authenticatedRecord
+    fs.rmSync(path.join(installDir, wheelName), { force: true });
+    const installedRecords: string[] = [];
+    const installedDistributions: string[] = [];
+    for (const entry of fs.readdirSync(installDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !entry.name.endsWith('.dist-info')) continue;
+      const metadataPath = path.join(installDir, entry.name, 'METADATA');
+      const metadata = fs.readFileSync(metadataPath, 'utf8');
+      const name = metadata.match(/^Name:\s*(.+)$/m)?.[1]?.trim();
+      const version = metadata.match(/^Version:\s*(.+)$/m)?.[1]?.trim();
+      const locked = name ? expectedWheels.get(normalizedPackageName(name)) : undefined;
+      if (!name || !version || !locked || locked.version !== version) {
+        throw new Error(`Unexpected installed wheel metadata: ${entry.name}`);
+      }
+      installedDistributions.push(name);
+      const authenticatedRecord = wheelRecords.get(normalizedPackageName(name));
+      if (authenticatedRecord) installedRecords.push(authenticatedRecord);
+      const invalidFiles = authenticatedRecord
+        ? missingInstalledWheelFiles(installDir, authenticatedRecord)
+        : [`${name} wheel RECORD`];
+      if (invalidFiles.length > 0) {
+        throw new Error(
+          `Incomplete or modified Azure CLI extension ${extension}: ${invalidFiles.slice(0, 5).join(', ')}`
+        );
+      }
+    }
+    const expectedDistributions = [...expectedWheels.entries()]
+      .filter(([, wheel]) => wheel.extensions.includes(extension))
+      .map(([name]) => name);
+    const missingDistributions = missingInstalledWheelDistributions(
+      installedDistributions,
+      expectedDistributions
     );
-    if (missingFiles.length > 0) {
+    if (missingDistributions.length > 0) {
       throw new Error(
-        `Incomplete or modified Azure CLI extension ${extension}: ${missingFiles.slice(0, 5).join(', ')}`
+        `Missing Azure CLI extension distributions in ${extension}: ${missingDistributions.join(', ')}`
+      );
+    }
+    const unexpectedFiles = unexpectedInstalledWheelFiles(installDir, installedRecords);
+    if (unexpectedFiles.length > 0) {
+      throw new Error(
+        `Unexpected Azure CLI extension files in ${extension}: ${unexpectedFiles.slice(0, 5).join(', ')}`
       );
     }
   }
-  verifyDarwinArm64Libraries(extensionDir);
+  if (verifyArm64Libraries) {
+    verifyDarwinArm64Libraries(extensionDir);
+  }
 }
 
 async function installDarwinArm64Extensions(extensionDir: string): Promise<void> {
   const markerPath = path.join(extensionDir, '.target.json');
   if (targetMarkerMatches(markerPath)) {
     try {
-      verifyDarwinArm64Extensions(extensionDir);
+      verifyDarwinExtensions(extensionDir, extensionDir, true);
       console.log('✅ Reusing verified macOS ARM64 Azure CLI extensions');
       return;
     } catch (error) {
@@ -361,21 +547,31 @@ async function installDarwinArm64Extensions(extensionDir: string): Promise<void>
   fs.rmSync(extensionDir, { recursive: true, force: true });
   fs.mkdirSync(extensionDir, { recursive: true });
   const hostPython = process.env.AZ_CLI_EXTENSION_INSTALL_PYTHON || 'python3';
+  if (!target.extensionLockPath) {
+    throw new Error('Azure CLI ARM64 extension lock is not configured');
+  }
+  execFileSync(
+    hostPython,
+    macOSCrossExtensionDownloadArguments(
+      target,
+      target.extensionLockPath,
+      extensionDir
+    ),
+    { stdio: 'inherit' }
+  );
+  const extensionWheels = await downloadVerifiedExtensionWheels(
+    AZ_CLI_EXTENSIONS,
+    extensionDir
+  );
   for (const extension of AZ_CLI_EXTENSIONS) {
-    const extensionPackage = AZ_CLI_EXTENSION_PACKAGES[extension];
-    const wheelName = path.basename(new URL(extensionPackage.url).pathname);
-    const wheelPath = path.join(extensionDir, wheelName);
+    const wheelPath = extensionWheels.get(extension)!;
     const installDir = path.join(extensionDir, extension);
-    await downloadFile(extensionPackage.url, wheelPath);
-    await verifyRequiredArtifact(
-      verifyChecksum(wheelPath, extensionPackage.checksum, `${extension} extension`),
-      `${extension} extension`
-    );
     execFileSync(
       hostPython,
-      macOSCrossExtensionInstallArguments(target, wheelPath, installDir),
+      macOSCrossExtensionInstallArguments(target, wheelPath, installDir, extensionDir),
       { stdio: 'inherit' }
     );
+    fs.rmSync(path.join(installDir, 'bin'), { recursive: true, force: true });
     const distributionName = extension.replaceAll('-', '_');
     const metadataPath = path.join(
       installDir,
@@ -386,7 +582,7 @@ async function installDarwinArm64Extensions(extensionDir: string): Promise<void>
       throw new Error(`Cross-installed extension metadata not found: ${metadataPath}`);
     }
   }
-  verifyDarwinArm64Extensions(extensionDir);
+  verifyDarwinExtensions(extensionDir, extensionDir, true);
   fs.writeFileSync(markerPath, `${JSON.stringify(stagedTarget, null, 2)}\n`);
 }
 
@@ -448,6 +644,42 @@ async function installPrebuiltAzCliWithPython(platform: string): Promise<string[
       fs.rmSync(extensionDir, { recursive: true, force: true });
       fs.mkdirSync(extensionDir, { recursive: true });
     }
+    const prepareExtensionWheelhouse = async () => {
+      if (platform === 'darwin') {
+        if (!target.extensionLockPath) {
+          throw new Error('Azure CLI macOS extension lock is not configured');
+        }
+        execFileSync(
+          bundledPython,
+          macOSCrossExtensionDownloadArguments(
+            target,
+            target.extensionLockPath,
+            extensionDir
+          ),
+          { stdio: 'inherit' }
+        );
+      }
+      return downloadVerifiedExtensionWheels(AZ_CLI_EXTENSIONS, extensionDir);
+    };
+    let extensionWheels = await prepareExtensionWheelhouse();
+    if (platform === 'darwin' && azureCliVersionDataMatchesTarget(target, versionData)) {
+      try {
+        verifyDarwinExtensions(extensionDir, extensionDir, target.arch === 'arm64');
+      } catch (error) {
+        console.log(`Azure CLI extension cache payload verification failed; rebuilding: ${error}`);
+        fs.rmSync(extensionDir, { recursive: true, force: true });
+        fs.mkdirSync(extensionDir, { recursive: true });
+        extensionWheels = await prepareExtensionWheelhouse();
+        versionData = { extensions: {} };
+      }
+    }
+    const installEnvironment = platform === 'darwin'
+      ? {
+          ...extensionEnvironment,
+          PIP_NO_INDEX: '1',
+          PIP_FIND_LINKS: extensionDir,
+        }
+      : extensionEnvironment;
     const extensionsToInstall = azureCliExtensionsToInstall(target, versionData.extensions);
     for (const extension of azureCliExtensionsToRemove(target, versionData.extensions)) {
       execFileSync(stockAz, ['extension', 'remove', '-n', extension], {
@@ -463,12 +695,10 @@ async function installPrebuiltAzCliWithPython(platform: string): Promise<string[
         });
       }
       execFileSync(stockAz, [
-        'extension', 'add', '-n', extension,
-        '--version', AZ_CLI_EXTENSION_VERSIONS[extension],
-        '--yes', '--allow-preview', 'true',
+        'extension', 'add', '--source', extensionWheels.get(extension)!, '--yes',
       ], {
         stdio: 'inherit',
-        env: extensionEnvironment,
+        env: installEnvironment,
       });
     });
     const finalVersionData = JSON.parse(
@@ -480,10 +710,18 @@ async function installPrebuiltAzCliWithPython(platform: string): Promise<string[
     if (!azureCliVersionDataMatchesTarget(target, finalVersionData)) {
       throw new Error('Azure CLI or extension versions do not match the pinned target');
     }
+    if (platform === 'darwin') {
+      verifyDarwinExtensions(extensionDir, extensionDir, target.arch === 'arm64');
+    }
   }
   if (extensionDir !== targetExtensionDir) {
     fs.rmSync(targetExtensionDir, { recursive: true, force: true });
     copyDirectoryContents(extensionDir, targetExtensionDir, true);
+    for (const entry of fs.readdirSync(targetExtensionDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.whl')) {
+        fs.rmSync(path.join(targetExtensionDir, entry.name));
+      }
+    }
   }
 
   const binDir = path.join(TARGET_DIR, 'bin');
@@ -569,6 +807,10 @@ async function installAzCliWindows(): Promise<string[]> {
       fs.mkdirSync(extensionDir, { recursive: true });
     }
     const extensionsToInstall = azureCliExtensionsToInstall(target, versionData.extensions);
+    const extensionWheels = await downloadVerifiedExtensionWheels(
+      extensionsToInstall,
+      TEMP_DIR
+    );
     for (const extension of azureCliExtensionsToRemove(target, versionData.extensions)) {
       execFileSync(winPython, ['-m', 'azure.cli', 'extension', 'remove', '-n', extension], {
         stdio: 'inherit',
@@ -586,9 +828,8 @@ async function installAzCliWindows(): Promise<string[]> {
           });
         }
         execFileSync(winPython, [
-          '-m', 'azure.cli', 'extension', 'add', '-n', extension,
-          '--version', AZ_CLI_EXTENSION_VERSIONS[extension],
-          '--yes', '--allow-preview', 'true',
+          '-m', 'azure.cli', 'extension', 'add',
+          '--source', extensionWheels.get(extension)!, '--yes',
         ], {
           stdio: 'inherit',
           env: extensionEnvironment,
@@ -693,4 +934,6 @@ npm run build
   }
 }
 
-main().then(() => process.exit(0));
+if (require.main === module) {
+  main().then(() => process.exit(0));
+}

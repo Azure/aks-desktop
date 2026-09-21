@@ -352,7 +352,7 @@ test('cross-built ARM tools use structural verification on the Intel host', () =
     path.join(ROOT_DIR, 'build', 'download-az-cli.ts'),
     'utf8'
   );
-  assert.match(installer, /verifyDarwinArm64Extensions\(extensionDir\)/);
+  assert.match(installer, /verifyDarwinExtensions\(extensionDir, extensionDir, true\)/);
   assert.match(installer, /cache verification failed; rebuilding/);
   assert.match(installer, /cache structurally verified for \$\{target\.platform\}\/\$\{target\.arch\}/);
   assert.ok(

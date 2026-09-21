@@ -15,6 +15,7 @@ import {
   azureCliExtensionsToRemove,
   azureCliVersionDataMatchesTarget,
   installRequiredExtensions,
+  macOSCrossExtensionDownloadArguments,
   macOSCrossExtensionInstallArguments,
   resolveAzureCliTarget,
   verifyRequiredArtifact,
@@ -60,6 +61,15 @@ test('extracts Windows ZIPs under paths containing quotes and wildcards', {
 
 function createRoot(): string {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azure-cli-config-'));
+  fs.mkdirSync(path.join(rootDir, 'build'));
+  fs.writeFileSync(
+    path.join(rootDir, 'build', 'azure-cli-darwin-arm64-requirements.txt'),
+    'locked==1.0 --hash=sha256:abc\n'
+  );
+  fs.writeFileSync(
+    path.join(rootDir, 'build', 'azure-cli-darwin-x64-requirements.txt'),
+    'locked==1.0 --hash=sha256:def\n'
+  );
   fs.writeFileSync(
     path.join(rootDir, 'package.json'),
     JSON.stringify({
@@ -127,18 +137,65 @@ test('builds an Intel-hosted pip invocation for macOS ARM64 extensions', () => {
   const rootDir = createRoot();
   try {
     const target = resolveAzureCliTarget(rootDir, 'darwin', 'arm64');
+    assert.match(target.extensionLockChecksum!, /^[0-9a-f]{64}$/);
     assert.deepEqual(
-      macOSCrossExtensionInstallArguments(target, '/tmp/connectedk8s.whl', '/tmp/connectedk8s'),
+      macOSCrossExtensionDownloadArguments(target, '/tmp/requirements.txt', '/tmp/wheels'),
+      [
+        '-m', 'pip', 'download',
+        '--disable-pip-version-check',
+        '--dest', '/tmp/wheels',
+        '--platform', 'macosx_11_0_arm64',
+        '--python-version', '3.14',
+        '--implementation', 'cp',
+        '--only-binary=:all:',
+        '--require-hashes',
+        '--requirement', '/tmp/requirements.txt',
+      ]
+    );
+    assert.deepEqual(
+      macOSCrossExtensionInstallArguments(
+        target,
+        '/tmp/connectedk8s.whl',
+        '/tmp/connectedk8s',
+        '/tmp/wheels'
+      ),
       [
         '-m', 'pip', 'install',
         '--disable-pip-version-check',
         '--no-compile',
         '--target', '/tmp/connectedk8s',
+        '--no-index',
+        '--find-links', '/tmp/wheels',
         '--platform', 'macosx_11_0_arm64',
         '--python-version', '3.14',
         '--implementation', 'cp',
         '--only-binary=:all:',
         '/tmp/connectedk8s.whl',
+      ]
+    );
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('builds a locked pip download for native macOS x64 extensions', () => {
+  const rootDir = createRoot();
+  try {
+    const target = resolveAzureCliTarget(rootDir, 'darwin', 'x64');
+    assert.match(target.extensionLockPath!, /azure-cli-darwin-x64-requirements\.txt$/);
+    assert.match(target.extensionLockChecksum!, /^[0-9a-f]{64}$/);
+    assert.deepEqual(
+      macOSCrossExtensionDownloadArguments(target, '/tmp/requirements.txt', '/tmp/wheels'),
+      [
+        '-m', 'pip', 'download',
+        '--disable-pip-version-check',
+        '--dest', '/tmp/wheels',
+        '--platform', 'macosx_11_0_x86_64',
+        '--python-version', '3.14',
+        '--implementation', 'cp',
+        '--only-binary=:all:',
+        '--require-hashes',
+        '--requirement', '/tmp/requirements.txt',
       ]
     );
   } finally {
@@ -198,6 +255,7 @@ test('includes sorted extensions in the staged cache identity', () => {
     connectedk8s: { url: 'connectedk8s.whl', checksum: 'connectedk8s-sum' },
     'resource-graph': { url: 'resource-graph.whl', checksum: 'resource-graph-sum' },
   });
+  assert.equal(identity.extensionInstallPolicy, 'verified-local-wheel-v1');
   assert.match(azureCliCacheKey(target), /^[0-9a-f]{64}$/);
   assert.notEqual(
     azureCliCacheKey(target),
