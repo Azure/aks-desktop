@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  applyBundledAksMcpRetirementCleanup,
+  disableBundledAksMcpSeed,
   releasePluginManifest,
 } from './install-release-plugins';
 
@@ -41,17 +41,17 @@ test('requires plugin configuration for release installation', () => {
   assert.throws(() => releasePluginManifest({}), /headlamp\.plugins/);
 });
 
-test('replaces the pinned aks-mcp seed with retirement cleanup', () => {
+test('disables the pinned aks-mcp startup seed without migration behavior', () => {
   const seed =
     'async function rqe(){const e=[];console.error("Error preconfiguring built-in MCP servers:",o)}}';
-  const transformed = applyBundledAksMcpRetirementCleanup(`before;${seed};after`);
+  const transformed = disableBundledAksMcpSeed(`before;${seed};after`);
 
-  assert.match(transformed, /Error retiring built-in AKS MCP server/);
-  assert.match(transformed, /gb\(a\.name\)===GUe&&RA\(yb\(a\),yb\(JUe\(\)\)\)/);
+  assert.equal(transformed, 'before;async function rqe(){};after');
+  assert.doesNotMatch(transformed, /getConfig|updateConfig|seededBuiltinMCPServers/);
   assert.doesNotMatch(transformed, /Error preconfiguring built-in MCP servers/);
-  assert.throws(() => applyBundledAksMcpRetirementCleanup('missing'), /does not contain/);
+  assert.throws(() => disableBundledAksMcpSeed('missing'), /does not contain/);
   assert.throws(
-    () => applyBundledAksMcpRetirementCleanup(`${seed}${seed}`),
+    () => disableBundledAksMcpSeed(`${seed}${seed}`),
     /multiple aks-mcp seed functions/
   );
 });

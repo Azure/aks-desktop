@@ -16,21 +16,10 @@ const ROOT_DIR = path.dirname(__dirname);
 const AI_ASSISTANT_SEED_START = 'async function rqe(){';
 const AI_ASSISTANT_SEED_END =
   'console.error("Error preconfiguring built-in MCP servers:",o)}}';
-const AI_ASSISTANT_RETIREMENT = [
-  'async function rqe(){var e,n;',
-  'const t=typeof window>"u"||(e=window.desktopApi)==null?void 0:e.mcp;',
-  'if(!t)return;try{const r=await t.getConfig();',
-  'if(!(r!=null&&r.success)||!Array.isArray((n=r.config)==null?void 0:n.servers))return;',
-  'const s={...tqe,...r.config},',
-  'o=s.servers.filter(a=>!(gb(a.name)===GUe&&RA(yb(a),yb(JUe()))));',
-  'if(o.length===s.servers.length)return;',
-  'const i={...s,servers:o},u=await t.updateConfig(i);',
-  'u!=null&&u.success&&cn.update({mcpConfig:i,seededBuiltinMCPServers:{}})',
-  '}catch(r){console.error("Error retiring built-in AKS MCP server:",r)}}',
-].join('');
+const AI_ASSISTANT_SEED_DISABLED = 'async function rqe(){}';
 
-/** Replaces the pinned release's AKS MCP seeding startup with retirement cleanup. */
-export function applyBundledAksMcpRetirementCleanup(bundle: string): string {
+/** Disables the pinned release's unreleased AKS MCP startup seed. */
+export function disableBundledAksMcpSeed(bundle: string): string {
   const start = bundle.indexOf(AI_ASSISTANT_SEED_START);
   const end = bundle.indexOf(AI_ASSISTANT_SEED_END, start);
   if (start === -1 || end === -1) {
@@ -39,7 +28,7 @@ export function applyBundledAksMcpRetirementCleanup(bundle: string): string {
   if (bundle.indexOf(AI_ASSISTANT_SEED_START, start + 1) !== -1) {
     throw new Error('Pinned AI Assistant release contains multiple aks-mcp seed functions');
   }
-  return bundle.slice(0, start) + AI_ASSISTANT_RETIREMENT +
+  return bundle.slice(0, start) + AI_ASSISTANT_SEED_DISABLED +
     bundle.slice(end + AI_ASSISTANT_SEED_END.length);
 }
 
@@ -77,7 +66,7 @@ export function installReleasePlugins(rootDir: string = ROOT_DIR): void {
     const aiAssistantBundle = path.join(sourceDir, '.plugins', 'ai-assistant', 'main.js');
     if (manifest.plugins.some(plugin => plugin.name === 'ai-assistant')) {
       const bundle = fs.readFileSync(aiAssistantBundle, 'utf8');
-      fs.writeFileSync(aiAssistantBundle, applyBundledAksMcpRetirementCleanup(bundle));
+      fs.writeFileSync(aiAssistantBundle, disableBundledAksMcpSeed(bundle));
     }
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });

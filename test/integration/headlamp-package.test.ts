@@ -524,7 +524,8 @@ test('shipped plugins use verified workspace and release sources', () => {
     path.join(HEADLAMP_SOURCE_DIR, '.plugins', 'ai-assistant', 'main.js'),
     'utf8'
   );
-  assert.match(aiAssistantBundle, /Error retiring built-in AKS MCP server/);
+  const disabledSeed = aiAssistantBundle.match(/async function rqe\(\)\{\}/g) ?? [];
+  assert.equal(disabledSeed.length, 1);
   assert.doesNotMatch(aiAssistantBundle, /Error preconfiguring built-in MCP servers/);
 });
 
