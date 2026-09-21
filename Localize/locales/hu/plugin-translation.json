@@ -28,7 +28,6 @@
   "~3-5 min": "~3-5 perc",
   "~3-5 min deploy + async suggestions": "~3-5 perc üzembe helyezés + aszinkron javaslatok",
   "A cluster must be selected": "Ki kell választani egy fürtöt",
-  "A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.": "Egy másik vagy ismeretlen Azure-fürthatókör már regisztrálva van ezzel a névvel. A folytatás előtt távolítsa el.",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "Új névtér jön létre a fürtön, amelyen projektcímkék lesznek alkalmazva. Azonnal megjelenik a projektlistában.",
   "Absolute usage": "Abszolút használat",
   "Access": "Hozzáférés",
@@ -123,7 +122,6 @@
   "Cluster '{{cluster}}' was added, but it did not become reachable. Details: {{message}}": "A(z) {{cluster}} fürt hozzá lett adva, de nem vált elérhetővé. Részletek: {{message}}",
   "Cluster \"{{cluster}}\" is not accessible — its Kubernetes API did not respond. It may be stopped or offline. Start it or check its health in the Azure portal, then retry.": "A(z) „{{cluster}}” fürt nem érhető el – a Kubernetes API-ja nem válaszolt. Lehet, hogy le van állítva vagy offline állapotban van. Indítsa el, vagy ellenőrizze az állapotát az Azure Portalon, majd próbálkozzon újra.",
   "Cluster \"{{cluster}}\" is not accessible: {{message}}": "A(z) „{{cluster}}” fürt nem érhető el: {{message}}",
-  "Cluster {{clusterName}} is already registered from a different or unknown Azure scope. Remove and register it again before importing these projects.": "A(z) {{clusterName}} fürt már regisztrálva van egy másik vagy ismeretlen Azure-hatókörből. Távolítsa el, majd regisztrálja újra a projektek importálása előtt.",
   "Cluster {{clusterName}} must be registered before importing regular namespaces. Import a managed namespace from this cluster first.": "A(z) {{clusterName}} fürtöt regisztrálni kell a normál névterek importálása előtt. Először importáljon egy felügyelt névteret ebből a fürtből.",
   "Cluster Configuration": "Fürtkonfiguráció",
   "Cluster is being deleted. Cannot deploy to this cluster.": "Fürt törlése folyamatban. Nem telepíthet erre a fürtre.",
@@ -757,5 +755,8 @@
   "Object ID entered": "",
   "User search failed": "",
   "Try searching again. If the problem continues, check your Azure sign-in.": "",
-  "User search is not available": ""
+  "User search is not available": "",
+  "Failed to save the selected cluster scope: {{message}}": "",
+  "A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.": "",
+  "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": ""
 }

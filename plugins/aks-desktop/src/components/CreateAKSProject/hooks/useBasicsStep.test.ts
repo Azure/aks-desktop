@@ -507,7 +507,7 @@ describe('useBasicsStep', () => {
     expect(result.current.clusterScopeConflict).toBe(true);
   });
 
-  test('isClusterMissing is true when a same-name active cluster has unknown Azure scope', () => {
+  test('isClusterMissing is false when a same-name active cluster has unknown Azure scope', () => {
     mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'aks-prod' } });
     mockGetClusterSettings.mockReturnValue({});
     const props = makeProps({
@@ -516,6 +516,48 @@ describe('useBasicsStep', () => {
         subscription: 'sub-123',
         cluster: 'aks-prod',
         resourceGroup: 'rg-prod',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(result.current.isClusterMissing).toBe(false);
+    expect(result.current.clusterScopeConflict).toBe(false);
+  });
+
+  test('isClusterMissing is true when a same-name active Arc cluster has unknown scope', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'arc-online' } });
+    mockGetClusterSettings.mockReturnValue({ clusterType: 'aksarc' });
+    const props = makeProps({
+      clusters: [ARC_ONLINE],
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'arc-online',
+        resourceGroup: 'rg-prod',
+        clusterType: 'aksarc',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(result.current.isClusterMissing).toBe(true);
+    expect(result.current.clusterScopeConflict).toBe(false);
+  });
+
+  test('isClusterMissing is true when a same-name active cluster is a different kind', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'arc-online' } });
+    // The above is registered as a regular managed cluster (no aksarc marker),
+    // and below we mock selection of a same-named Arc cluster.
+    mockGetClusterSettings.mockReturnValue({});
+    const props = makeProps({
+      clusters: [ARC_ONLINE],
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'arc-online',
+        resourceGroup: 'rg-prod',
+        clusterType: 'aksarc',
       },
     });
 

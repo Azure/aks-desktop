@@ -101,6 +101,23 @@ function scopeMatches(
 }
 
 /**
+ * Whether scope metadata has a usable Azure identity (both fields are non-empty).
+ *
+ * @param scope - Scope metadata to inspect.
+ * @returns `true` when both scope fields are non-empty strings.
+ */
+function scopeIsKnown(
+  scope: { subscriptionId?: unknown; resourceGroup?: unknown } | undefined
+): boolean {
+  return (
+    typeof scope?.subscriptionId === 'string' &&
+    scope.subscriptionId !== '' &&
+    typeof scope.resourceGroup === 'string' &&
+    scope.resourceGroup !== ''
+  );
+}
+
+/**
  * Saves the Azure scope required to validate later same-name registrations.
  *
  * @param clusterName - Kubeconfig cluster name whose settings are updated.
@@ -113,7 +130,11 @@ function persistRegistrationScope(
   subscriptionId: string,
   resourceGroup: string
 ): void {
+  // This is a managed registration, so delete any stale Arc-only markers left under this name.
   const settings = getClusterSettings(clusterName);
+  delete settings.clusterType;
+  delete settings.subscriptionId;
+  delete settings.resourceGroup;
   setClusterSettings(clusterName, {
     ...settings,
     azureRegistration: { subscriptionId, resourceGroup },
@@ -277,7 +298,7 @@ export async function registerAKSCluster(
   if (existingReservation && !scopeMatches(existingReservation, subscriptionId, resourceGroup)) {
     return {
       success: false,
-      message: `Cluster '${clusterName}' is already registered from a different or unknown Azure scope.`,
+      message: `Cluster '${clusterName}' is already registered with a different cluster kind or Azure scope.`,
     };
   }
   if (existingReservation?.indeterminate) {
@@ -286,12 +307,17 @@ export async function registerAKSCluster(
       message: `Cluster '${clusterName}' registration has an unknown outcome. Wait for cluster configuration to refresh before retrying.`,
     };
   }
-  if (clusterAlreadyRegistered && !existingReservation?.registered) {
-    const registeredScope = getClusterSettings(clusterName).azureRegistration;
-    if (!scopeMatches(registeredScope, subscriptionId, resourceGroup)) {
+  if (clusterAlreadyRegistered) {
+    const settings = getClusterSettings(clusterName);
+    // Re-check even for a completed reservation, in case an Arc cluster replaced this name.
+    const conflictsWithRegistered =
+      settings.clusterType === 'aksarc' ||
+      (scopeIsKnown(settings.azureRegistration) &&
+        !scopeMatches(settings.azureRegistration, subscriptionId, resourceGroup));
+    if (conflictsWithRegistered) {
       return {
         success: false,
-        message: `Cluster '${clusterName}' is already registered from a different or unknown Azure scope.`,
+        message: `Cluster '${clusterName}' is already registered with a different cluster kind or Azure scope.`,
       };
     }
   }

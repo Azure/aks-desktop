@@ -28,7 +28,6 @@
   "~3-5 min": "cca 3–5 min",
   "~3-5 min deploy + async suggestions": "cca 3–5 minut: nasazení a asynchronní návrhy",
   "A cluster must be selected": "Je nutné vybrat cluster",
-  "A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.": "Pod tímto názvem je už zaregistrovaný jiný nebo neznámý obor clusteru Azure. Než budete pokračovat, odeberte ho.",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "V clusteru se vytvoří nový obor názvů s použitými popisky projektu. Zobrazí se okamžitě v seznamu projektů.",
   "Absolute usage": "Absolutní využití",
   "Access": "Přístup",
@@ -123,7 +122,6 @@
   "Cluster '{{cluster}}' was added, but it did not become reachable. Details: {{message}}": "Cluster {{cluster}} byl přidán, ale nestal se dostupným. Podrobnosti: {{message}}",
   "Cluster \"{{cluster}}\" is not accessible — its Kubernetes API did not respond. It may be stopped or offline. Start it or check its health in the Azure portal, then retry.": "Cluster {{cluster}} není dostupný. Jeho rozhraní Kubernetes API neodpovědělo. Může být zastavený nebo offline. Spusťte ho nebo zkontrolujte jeho stav na webu Azure Portal a zkuste to znovu.",
   "Cluster \"{{cluster}}\" is not accessible: {{message}}": "Cluster {{cluster}} není přístupný: {{message}}",
-  "Cluster {{clusterName}} is already registered from a different or unknown Azure scope. Remove and register it again before importing these projects.": "Cluster {{clusterName}} je už zaregistrovaný z jiného nebo neznámého oboru Azure. Před importem těchto projektů ho odeberte a znovu zaregistrujte.",
   "Cluster {{clusterName}} must be registered before importing regular namespaces. Import a managed namespace from this cluster first.": "Před importem běžných oborů názvů musí být cluster {{clusterName}} zaregistrován. Nejprve importujte spravovaný obor názvů z tohoto clusteru.",
   "Cluster Configuration": "Konfigurace clusteru",
   "Cluster is being deleted. Cannot deploy to this cluster.": "Cluster se odstraňuje. Do tohoto clusteru nelze provést nasazení.",
@@ -757,5 +755,8 @@
   "Object ID entered": "",
   "User search failed": "",
   "Try searching again. If the problem continues, check your Azure sign-in.": "",
-  "User search is not available": ""
+  "User search is not available": "",
+  "Failed to save the selected cluster scope: {{message}}": "",
+  "A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.": "",
+  "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": ""
 }

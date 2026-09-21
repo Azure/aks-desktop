@@ -250,6 +250,7 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
     error = null,
     loadingClusters,
     clusterError,
+    scopeAdoptionError,
     arcDiscoveryUnavailable,
     namespaceStatus,
     clusterAccessStatus,
@@ -386,10 +387,12 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
           <ValidationAlert
             type="error"
             message={t(
-              'A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.'
+              'A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.'
             )}
           />
         )}
+
+        {scopeAdoptionError && <ValidationAlert type="error" message={scopeAdoptionError} />}
 
         {arcDiscoveryUnavailable && (
           <ValidationAlert

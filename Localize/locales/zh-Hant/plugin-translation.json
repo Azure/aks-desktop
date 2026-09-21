@@ -28,7 +28,6 @@
   "~3-5 min": "~3-5 分鐘",
   "~3-5 min deploy + async suggestions": "~3-5 分鐘部署 + 非同步建議",
   "A cluster must be selected": "必須選取一個叢集",
-  "A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.": "已使用此名稱註冊不同或未知的 Azure 叢集範圍。請先將其移除再繼續。",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "將在已套用專案標籤的叢集上建立新的命名空間。該命名空間會立即出現在您的專案清單中。",
   "Absolute usage": "絕對使用量",
   "Access": "存取",
@@ -123,7 +122,6 @@
   "Cluster '{{cluster}}' was added, but it did not become reachable. Details: {{message}}": "已新增叢集 \"{{cluster}}\"，但無法連線。詳細資料: {{message}}",
   "Cluster \"{{cluster}}\" is not accessible — its Kubernetes API did not respond. It may be stopped or offline. Start it or check its health in the Azure portal, then retry.": "無法存取叢集 \"{{cluster}}\" - 其 Kubernetes API 未回應。它可能已停止或離線。請先將它啟動，或在 Azure 入口網站中檢查其健康情況，然後重試。",
   "Cluster \"{{cluster}}\" is not accessible: {{message}}": "無法存取叢集 \"{{cluster}}\": {{message}}",
-  "Cluster {{clusterName}} is already registered from a different or unknown Azure scope. Remove and register it again before importing these projects.": "叢集 {{clusterName}} 是從不同或未知的 Azure 範圍註冊。請先移除它然後重新註冊，再匯入這些專案。",
   "Cluster {{clusterName}} must be registered before importing regular namespaces. Import a managed namespace from this cluster first.": "必須先註冊叢集 {{clusterName}}，才能匯入一般命名空間。請先從此叢集匯入一個受控命名空間。",
   "Cluster Configuration": "叢集設定",
   "Cluster is being deleted. Cannot deploy to this cluster.": "正在刪除叢集。無法部署到此叢集。",
@@ -757,5 +755,8 @@
   "Object ID entered": "",
   "User search failed": "",
   "Try searching again. If the problem continues, check your Azure sign-in.": "",
-  "User search is not available": ""
+  "User search is not available": "",
+  "Failed to save the selected cluster scope: {{message}}": "",
+  "A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.": "",
+  "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": ""
 }
