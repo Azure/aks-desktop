@@ -35,15 +35,15 @@ extends:
 
     stages:
       # ===================================================================
-      # ARM64 PIPELINE - Build, Sign, and Notarize for Apple Silicon
+      # SHARED MACOS BUILD - Package Intel and Apple Silicon on one worker
       # ===================================================================
-      - stage: Build_arm64
-        displayName: 'Build (arm64)'
-        dependsOn: []  # Explicitly no dependencies - run in parallel with x64
+      - stage: Build_macOS
+        displayName: 'Build (x64 + arm64)'
+        dependsOn: []
         jobs:
-          - job: BuildJob_arm64
-            displayName: 'Build macOS Application (Apple Silicon)'
-            timeoutInMinutes: 120
+          - job: BuildJob_macOS
+            displayName: 'Build macOS Applications (x64 + arm64)'
+            timeoutInMinutes: 240
             variables:
               - group: AKS Desktop
               - name: NPM_CONFIG_REGISTRY
@@ -58,18 +58,18 @@ extends:
                 value: $(Pipeline.Workspace)/.go/pkg/mod
               - name: GOCACHE
                 value: $(Pipeline.Workspace)/.go/build
-              - name: AZ_CLI_EXTENSION_CACHE_DIR
-                value: $(Pipeline.Workspace)/.azure-cli-extensions/$(ARCH)
-              - name: ARCH
-                value: arm64
-              - name: ARCH_DISPLAY
-                value: 'Apple Silicon (arm64)'
+              - name: AZ_CLI_EXTENSION_CACHE_ROOT
+                value: $(Pipeline.Workspace)/.azure-cli-extensions
             templateContext:
               outputs:
                 - output: pipelineArtifact
-                  targetPath: $(Build.ArtifactStagingDirectory)/build-output
+                  targetPath: $(Build.ArtifactStagingDirectory)/arm64
                   artifactName: unsigned-dmg-arm64
                   displayName: 'Publish Unsigned DMG (arm64)'
+                - output: pipelineArtifact
+                  targetPath: $(Build.ArtifactStagingDirectory)/x64
+                  artifactName: unsigned-dmg-x64
+                  displayName: 'Publish Unsigned DMG (x64)'
             steps:
               # Install tools
               - checkout: self
@@ -105,9 +105,9 @@ extends:
               - task: Cache@2
                 displayName: 'Cache npm downloads'
                 inputs:
-                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/plugin-catalog/package-lock.json'
+                  key: 'npm-download-v2 | "$(Agent.OS)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/plugin-catalog/package-lock.json'
                   restoreKeys: |
-                    npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
+                    npm-download-v2 | "$(Agent.OS)" |
                   path: '$(Pipeline.Workspace)/.npm'
 
               - bash: |
@@ -130,9 +130,9 @@ extends:
               - task: Cache@2
                 displayName: 'Cache Go build outputs'
                 inputs:
-                  key: 'go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
+                  key: 'go-build-v3 | "$(Agent.OS)" | "macos-all" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
                   restoreKeys: |
-                    go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" |
+                    go-build-v3 | "$(Agent.OS)" | "macos-all" | "$(HEADLAMP_GO_VERSION)" |
                   path: '$(GOCACHE)'
                   cacheHitVar: GO_BUILD_CACHE_HIT
 
@@ -196,7 +196,6 @@ extends:
                   echo "✅ Keychain setup complete"
                 displayName: "Setup keychain and import certificates"
 
-              # Update package.json to set correct architecture
               - bash: |
                   set -e
                   step_started=$SECONDS
@@ -212,138 +211,100 @@ extends:
                   echo "[build-timing] root npm ci started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                   npm ci --prefer-offline --no-audit --no-fund
                   echo "[build-timing] root npm ci completed in $((SECONDS - step_started))s"
-
-                  step_started=$SECONDS
-                  echo "[build-timing] architecture configuration started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                  cd node_modules/@headlamp-k8s/headlamp-source/source/app
-
-                  # Use Node.js to safely modify the JSON
-                  node -e "
-                  const fs = require('fs');
-                  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-
-                  // Update the architecture in mac.target
-                  if (pkg.build && pkg.build.mac && pkg.build.mac.target && pkg.build.mac.target[0]) {
-                    pkg.build.mac.target[0].arch = ['$(ARCH)'];
-                  }
-
-                  fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-                  console.log('✅ Updated package.json to build for $(ARCH)');
-                  "
-
-                  # Verify the change
-                  echo "Verifying package.json mac.target configuration:"
-                  grep -A 5 '"mac"' package.json | grep -A 3 '"arch"' || echo "Configuration updated"
-                  echo "[build-timing] architecture configuration completed in $((SECONDS - step_started))s"
-
-                displayName: "Configure Architecture in package.json ($(ARCH))"
+                displayName: 'Install dependencies'
 
               - bash: |
                   set -e
-                  cache_key="$(node --import tsx build/azure-cli-cache-key.ts --platform=darwin --arch=$(ARCH))"
-                  echo "Azure CLI cache identity: $cache_key"
-                  echo "##vso[task.setvariable variable=AZ_CLI_CACHE_KEY]$cache_key"
-                  mkdir -p "$(AZ_CLI_EXTENSION_CACHE_DIR)"
-                displayName: 'Resolve Azure CLI extension cache'
+                  arm64_key="$(node --import tsx build/azure-cli-cache-key.ts --platform=darwin --arch=arm64)"
+                  x64_key="$(node --import tsx build/azure-cli-cache-key.ts --platform=darwin --arch=x64)"
+                  echo "Azure CLI ARM64 cache identity: $arm64_key"
+                  echo "Azure CLI x64 cache identity: $x64_key"
+                  echo "##vso[task.setvariable variable=AZ_CLI_CACHE_KEY]$arm64_key-$x64_key"
+                  mkdir -p "$(AZ_CLI_EXTENSION_CACHE_ROOT)/arm64" "$(AZ_CLI_EXTENSION_CACHE_ROOT)/x64"
+                displayName: 'Resolve Azure CLI extension caches'
 
               - task: Cache@2
                 displayName: 'Cache Azure CLI extensions'
                 inputs:
-                  key: 'azure-cli-extensions-v1 | "$(Agent.OS)" | "$(ARCH)" | "$(AZ_CLI_CACHE_KEY)"'
-                  path: '$(AZ_CLI_EXTENSION_CACHE_DIR)'
+                  key: 'azure-cli-extensions-v2 | "$(Agent.OS)" | "macos-all" | "$(AZ_CLI_CACHE_KEY)"'
+                  path: '$(AZ_CLI_EXTENSION_CACHE_ROOT)'
                   cacheHitVar: AZ_CLI_EXTENSION_CACHE_HIT
 
               - bash: |
                   echo "[build-timing] Azure CLI extension cache result: $(AZ_CLI_EXTENSION_CACHE_HIT)"
-                  du -sh "$(AZ_CLI_EXTENSION_CACHE_DIR)" 2>/dev/null || true
+                  du -sh "$(AZ_CLI_EXTENSION_CACHE_ROOT)"/* 2>/dev/null || true
                 displayName: 'Report Azure CLI cache result'
 
-              # Build application
               - bash: |
-                  set -e
-                  echo "Building AKS desktop application for $(ARCH_DISPLAY)..."
-
+                  set -euo pipefail
                   cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
-
                   export NODE_OPTIONS="--max-old-space-size=2048"
                   export GONOPROXY=""
                   export GOPRIVATE=""
                   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
-
                   export CI=true
                   export CSC_KEYCHAIN="$(agent.tempdirectory)/buildagent.keychain"
 
-                  # Set architecture for electron-builder via environment variables
-                  export npm_config_arch="$(ARCH)"
-                  export npm_config_target_arch="$(ARCH)"
-
-                  MAX_RETRIES=3
-                  RETRY_COUNT=0
-                  SUCCESS=false
-
-                  while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
-                    echo "[build-timing] build attempt $((RETRY_COUNT + 1)) started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-
-                    if npm run "build:mac:$(ARCH)"; then
-                      SUCCESS=true
-                    fi
-
-                    if [ "$SUCCESS" = false ]; then
-                      echo "[build-timing] build attempt $((RETRY_COUNT + 1)) failed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                      RETRY_COUNT=$((RETRY_COUNT + 1))
-                      if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                        echo "⚠️ Build failed, retrying in 30 seconds..."
-                        sleep 30
-                      else
-                        echo "❌ Build failed after $MAX_RETRIES attempts"
-                        exit 1
-                      fi
+                  for arch in x64 arm64; do
+                    if [ "$arch" = x64 ]; then
+                      arch_display='Intel (x64)'
+                      verification_command='test:distribution'
                     else
-                      echo "[build-timing] build attempt $((RETRY_COUNT + 1)) completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                      arch_display='Apple Silicon (arm64)'
+                      verification_command='test:post-build'
                     fi
+                    export AZ_CLI_EXTENSION_CACHE_DIR="$(AZ_CLI_EXTENSION_CACHE_ROOT)/$arch"
+                    export npm_config_arch="$arch"
+                    export npm_config_target_arch="$arch"
+                    echo "Building AKS desktop application for $arch_display..."
+
+                    retry_count=0
+                    success=false
+                    while [ $retry_count -lt 3 ] && [ "$success" = false ]; do
+                      echo "[build-timing] build attempt $arch $((retry_count + 1)) started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                      if npm run "build:mac:$arch"; then
+                        success=true
+                      fi
+                      if [ "$success" = false ]; then
+                        retry_count=$((retry_count + 1))
+                        echo "[build-timing] build attempt $arch $retry_count failed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                        if [ $retry_count -lt 3 ]; then
+                          echo "Build failed, retrying in 30 seconds..."
+                          sleep 30
+                        else
+                          echo "Build failed after 3 attempts"
+                          exit 1
+                        fi
+                      else
+                        echo "[build-timing] build attempt $arch $((retry_count + 1)) completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                      fi
+                    done
+
+                    verification_started=$SECONDS
+                    echo "[build-timing] distribution verification $arch started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                    npm run "$verification_command"
+                    echo "[build-timing] distribution verification $arch completed in $((SECONDS - verification_started))s"
+
+                    artifact_started=$SECONDS
+                    echo "[build-timing] artifact collection $arch started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                    dmg_file="$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*-$arch.dmg" -print -quit)"
+                    if [ -z "$dmg_file" ]; then
+                      echo "No $arch DMG found in the Headlamp app dist"
+                      find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -maxdepth 2 -type f -print || true
+                      exit 1
+                    fi
+                    output_dir="$(Build.ArtifactStagingDirectory)/$arch"
+                    mkdir -p "$output_dir"
+                    cp "$dmg_file" "$output_dir/"
+                    ls -la "$output_dir"
+                    echo "[build-timing] artifact collection $arch completed in $((SECONDS - artifact_started))s"
                   done
-
-                  verification_started=$SECONDS
-                  echo "[build-timing] distribution verification started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                  # The ARM64 app cannot be launched on the Intel build host.
-                  npm run test:post-build
-                  echo "[build-timing] distribution verification completed in $((SECONDS - verification_started))s"
-                  echo "✅ Build complete for $(ARCH_DISPLAY) at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                displayName: "Build AKS desktop ($(ARCH_DISPLAY))"
-
-              # Copy DMGs to staging directory
-              - bash: |
-                  set -e
-                  step_started=$SECONDS
-                  echo "[build-timing] artifact collection started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-
-                  DMG_FILES=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*.dmg")
-
-                  if [ -z "$DMG_FILES" ]; then
-                    echo "❌ No DMG found in the Headlamp app dist!"
-                    ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ || echo "Headlamp app dist not found"
-                    exit 1
-                  fi
-
-                  echo "✅ Found DMG files:"
-                  echo "$DMG_FILES"
-
-                  mkdir -p "$(Build.ArtifactStagingDirectory)/build-output"
-
-                  echo "$DMG_FILES" | while read -r DMG_PATH; do
-                    echo "Copying: $DMG_PATH"
-                    cp "$DMG_PATH" "$(Build.ArtifactStagingDirectory)/build-output/"
-                  done
-
-                  echo "Copied DMGs:"
-                  ls -la "$(Build.ArtifactStagingDirectory)/build-output/"
-                  echo "[build-timing] artifact collection completed in $((SECONDS - step_started))s"
-                displayName: "Copy DMGs to Staging"
+                displayName: 'Build AKS desktop (x64 + arm64)'
 
       - stage: Sign_arm64
         displayName: 'Sign (arm64)'
-        dependsOn: Build_arm64
-        condition: succeeded('Build_arm64')
+        dependsOn: Build_macOS
+        condition: succeeded('Build_macOS')
         jobs:
           - job: SignJob_arm64
             displayName: 'ESRP Developer Sign (arm64)'
@@ -602,308 +563,10 @@ extends:
                   echo "=== NOTARIZATION VERIFICATION COMPLETE ==="
                 displayName: "Verify Notarized DMGs"
 
-      # ===================================================================
-      # X64 PIPELINE - Build, Sign, and Notarize for Intel
-      # ===================================================================
-      - stage: Build_x64
-        displayName: 'Build (x64)'
-        dependsOn: []  # Explicitly no dependencies - run in parallel with arm64
-        jobs:
-          - job: BuildJob_x64
-            displayName: 'Build macOS Application (Intel)'
-            timeoutInMinutes: 120
-            variables:
-              - group: AKS Desktop
-              - name: NPM_CONFIG_REGISTRY
-                value: https://packagefeedproxy.microsoft.io/npm/
-              - name: NPM_CONFIG_REPLACE_REGISTRY_HOST
-                value: npmjs
-              - name: PIP_INDEX_URL
-                value: https://packagefeedproxy.microsoft.io/pypi/simple/
-              - name: NPM_CONFIG_CACHE
-                value: $(Pipeline.Workspace)/.npm
-              - name: GOMODCACHE
-                value: $(Pipeline.Workspace)/.go/pkg/mod
-              - name: GOCACHE
-                value: $(Pipeline.Workspace)/.go/build
-              - name: AZ_CLI_EXTENSION_CACHE_DIR
-                value: $(Pipeline.Workspace)/.azure-cli-extensions/$(ARCH)
-              - name: ARCH
-                value: x64
-              - name: ARCH_DISPLAY
-                value: 'Intel (x64)'
-            templateContext:
-              outputs:
-                - output: pipelineArtifact
-                  targetPath: $(Build.ArtifactStagingDirectory)/build-output
-                  artifactName: unsigned-dmg-x64
-                  displayName: 'Publish Unsigned DMG (x64)'
-            steps:
-              # Install tools
-              - checkout: self
-                submodules: false
-
-              - task: NodeTool@0
-                displayName: Install Node.js
-                retryCountOnTaskFailure: 3
-                inputs:
-                  versionSpec: ${{ parameters.nodeVersion }}
-
-              - bash: |
-                  set -e
-                  go_version="$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build/go-version.ts)"
-                  echo "Headlamp Go toolchain: $go_version"
-                  echo "##vso[task.setvariable variable=HEADLAMP_GO_VERSION]$go_version"
-                displayName: Resolve Headlamp Go version
-
-              - task: GoTool@0
-                displayName: Install Go
-                retryCountOnTaskFailure: 3
-                inputs:
-                  version: $(HEADLAMP_GO_VERSION)
-
-              # Cache downloads, not node_modules that npm ci replaces.
-              - task: Cache@2
-                displayName: 'Cache npm downloads'
-                inputs:
-                  key: 'npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/plugin-catalog/package-lock.json'
-                  restoreKeys: |
-                    npm-download-v2 | "$(Agent.OS)" | "$(ARCH)" |
-                  path: '$(Pipeline.Workspace)/.npm'
-
-              - bash: |
-                  set -e
-                  mkdir -p "$(GOMODCACHE)" "$(GOCACHE)"
-                  echo "GOMODCACHE=$(go env GOMODCACHE)"
-                  echo "GOCACHE=$(go env GOCACHE)"
-                  echo "GOTOOLCHAIN=$(go env GOTOOLCHAIN)"
-                displayName: 'Configure Go caches'
-
-              - task: Cache@2
-                displayName: 'Cache Go module downloads'
-                inputs:
-                  key: 'go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
-                  restoreKeys: |
-                    go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" |
-                  path: '$(GOMODCACHE)'
-                  cacheHitVar: GO_MODULE_CACHE_HIT
-
-              - task: Cache@2
-                displayName: 'Cache Go build outputs'
-                inputs:
-                  key: 'go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
-                  restoreKeys: |
-                    go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" |
-                  path: '$(GOCACHE)'
-                  cacheHitVar: GO_BUILD_CACHE_HIT
-
-              - bash: |
-                  echo "[build-timing] Go module cache result: $(GO_MODULE_CACHE_HIT)"
-                  echo "[build-timing] Go build cache result: $(GO_BUILD_CACHE_HIT)"
-                displayName: 'Report Go cache results'
-
-              # Download certificates (needed for local signing during build)
-              - task: DownloadSecureFile@1
-                name: CertJoaquim
-                displayName: 'Download CertJoaquim.p12'
-                inputs:
-                  secureFile: CertJoaquim.p12
-
-              - task: DownloadSecureFile@1
-                name: AKSDesktopProvisionProfile
-                displayName: 'Download Provisioning Profile'
-                inputs:
-                  secureFile: AKS_Desktop_Distribution.provisionprofile
-
-              # Setup keychain
-              - script: |
-                  set -e
-                  echo "Setting up keychain and importing certificates..."
-
-                  KEYCHAIN_PATH="$(agent.tempdirectory)/buildagent.keychain"
-                  KEYCHAIN_PASSWORD="pwd"
-
-                  security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-                  security default-keychain -s "$KEYCHAIN_PATH"
-                  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-                  security set-keychain-settings "$KEYCHAIN_PATH"
-
-                  CERT_FILE="$(CertJoaquim.secureFilePath)"
-                  CERT_PASSWORD="$(CertPassword)"
-
-                  if [ -z "$CERT_PASSWORD" ]; then
-                    CERT_PASSWORD="$(aks-desktop-mac-developer-certificate-key)"
-                  fi
-
-                  if [ -z "$CERT_PASSWORD" ]; then
-                    security import "$CERT_FILE" -k "$KEYCHAIN_PATH" -T /usr/bin/codesign -T /usr/bin/productbuild || {
-                      echo "❌ Failed to import certificate."
-                      exit 1
-                    }
-                  else
-                    security import "$CERT_FILE" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
-                  fi
-
-                  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-                  security list-keychains -d user -s "$KEYCHAIN_PATH"
-
-                  PROVISION_PROFILE="$(AKSDesktopProvisionProfile.secureFilePath)"
-                  if [ -f "$PROVISION_PROFILE" ]; then
-                    mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-                    cp "$PROVISION_PROFILE" ~/Library/MobileDevice/Provisioning\ Profiles/
-                  fi
-
-                  security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-                  echo "✅ Keychain setup complete"
-                displayName: "Setup keychain and import certificates"
-
-              # Update package.json to set correct architecture
-              - bash: |
-                  set -e
-                  step_started=$SECONDS
-                  echo "[build-timing] npm bootstrap started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-
-                  npm_root="$(mktemp -d "${AGENT_TEMPDIRECTORY:-${TMPDIR:-/tmp}}/npm.XXXXXX")"
-                  npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
-                  echo "##vso[task.prependpath]$npm_root/node_modules/.bin"
-                  export PATH="$npm_root/node_modules/.bin:$PATH"
-                  echo "[build-timing] npm bootstrap completed in $((SECONDS - step_started))s"
-
-                  step_started=$SECONDS
-                  echo "[build-timing] root npm ci started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                  npm ci --prefer-offline --no-audit --no-fund
-                  echo "[build-timing] root npm ci completed in $((SECONDS - step_started))s"
-
-                  step_started=$SECONDS
-                  echo "[build-timing] architecture configuration started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                  cd node_modules/@headlamp-k8s/headlamp-source/source/app
-
-                  # Use Node.js to safely modify the JSON
-                  node -e "
-                  const fs = require('fs');
-                  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-
-                  // Update the architecture in mac.target
-                  if (pkg.build && pkg.build.mac && pkg.build.mac.target && pkg.build.mac.target[0]) {
-                    pkg.build.mac.target[0].arch = ['$(ARCH)'];
-                  }
-
-                  fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-                  console.log('✅ Updated package.json to build for $(ARCH)');
-                  "
-
-                  # Verify the change
-                  echo "Verifying package.json mac.target configuration:"
-                  grep -A 5 '"mac"' package.json | grep -A 3 '"arch"' || echo "Configuration updated"
-                  echo "[build-timing] architecture configuration completed in $((SECONDS - step_started))s"
-
-                displayName: "Configure Architecture in package.json ($(ARCH))"
-
-              - bash: |
-                  set -e
-                  cache_key="$(node --import tsx build/azure-cli-cache-key.ts --platform=darwin --arch=$(ARCH))"
-                  echo "Azure CLI cache identity: $cache_key"
-                  echo "##vso[task.setvariable variable=AZ_CLI_CACHE_KEY]$cache_key"
-                  mkdir -p "$(AZ_CLI_EXTENSION_CACHE_DIR)"
-                displayName: 'Resolve Azure CLI extension cache'
-
-              - task: Cache@2
-                displayName: 'Cache Azure CLI extensions'
-                inputs:
-                  key: 'azure-cli-extensions-v1 | "$(Agent.OS)" | "$(ARCH)" | "$(AZ_CLI_CACHE_KEY)"'
-                  path: '$(AZ_CLI_EXTENSION_CACHE_DIR)'
-                  cacheHitVar: AZ_CLI_EXTENSION_CACHE_HIT
-
-              - bash: |
-                  echo "[build-timing] Azure CLI extension cache result: $(AZ_CLI_EXTENSION_CACHE_HIT)"
-                  du -sh "$(AZ_CLI_EXTENSION_CACHE_DIR)" 2>/dev/null || true
-                displayName: 'Report Azure CLI cache result'
-
-              # Build application
-              - bash: |
-                  set -e
-                  echo "Building AKS desktop application for $(ARCH_DISPLAY)..."
-
-                  cp $(AKSDesktopProvisionProfile.secureFilePath) ./node_modules/@headlamp-k8s/headlamp-source/source/app/mac/aks-desktop.provisionprofile
-
-                  export NODE_OPTIONS="--max-old-space-size=2048"
-                  export GONOPROXY=""
-                  export GOPRIVATE=""
-                  unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
-
-                  export CI=true
-                  export CSC_KEYCHAIN="$(agent.tempdirectory)/buildagent.keychain"
-
-                  # Set architecture for electron-builder via environment variables
-                  export npm_config_arch="$(ARCH)"
-                  export npm_config_target_arch="$(ARCH)"
-
-                  MAX_RETRIES=3
-                  RETRY_COUNT=0
-                  SUCCESS=false
-
-                  while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$SUCCESS" = false ]; do
-                    echo "[build-timing] build attempt $((RETRY_COUNT + 1)) started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-
-                    if npm run "build:mac:$(ARCH)"; then
-                      SUCCESS=true
-                    fi
-
-                    if [ "$SUCCESS" = false ]; then
-                      echo "[build-timing] build attempt $((RETRY_COUNT + 1)) failed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                      RETRY_COUNT=$((RETRY_COUNT + 1))
-                      if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                        echo "⚠️ Build failed, retrying in 30 seconds..."
-                        sleep 30
-                      else
-                        echo "❌ Build failed after $MAX_RETRIES attempts"
-                        exit 1
-                      fi
-                    else
-                      echo "[build-timing] build attempt $((RETRY_COUNT + 1)) completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                    fi
-                  done
-
-                  verification_started=$SECONDS
-                  echo "[build-timing] distribution verification started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                  npm run test:distribution
-                  echo "[build-timing] distribution verification completed in $((SECONDS - verification_started))s"
-                  echo "✅ Build complete for $(ARCH_DISPLAY) at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                displayName: "Build AKS desktop ($(ARCH_DISPLAY))"
-
-              # Copy DMGs to staging directory
-              - bash: |
-                  set -e
-                  step_started=$SECONDS
-                  echo "[build-timing] artifact collection started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-
-                  DMG_FILES=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*.dmg")
-
-                  if [ -z "$DMG_FILES" ]; then
-                    echo "❌ No DMG found in the Headlamp app dist!"
-                    ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ || echo "Headlamp app dist not found"
-                    exit 1
-                  fi
-
-                  echo "✅ Found DMG files:"
-                  echo "$DMG_FILES"
-
-                  mkdir -p "$(Build.ArtifactStagingDirectory)/build-output"
-
-                  echo "$DMG_FILES" | while read -r DMG_PATH; do
-                    echo "Copying: $DMG_PATH"
-                    cp "$DMG_PATH" "$(Build.ArtifactStagingDirectory)/build-output/"
-                  done
-
-                  echo "Copied DMGs:"
-                  ls -la "$(Build.ArtifactStagingDirectory)/build-output/"
-                  echo "[build-timing] artifact collection completed in $((SECONDS - step_started))s"
-                displayName: "Copy DMGs to Staging"
-
       - stage: Sign_x64
         displayName: 'Sign (x64)'
-        dependsOn: Build_x64
-        condition: succeeded('Build_x64')
+        dependsOn: Build_macOS
+        condition: succeeded('Build_macOS')
         jobs:
           - job: SignJob_x64
             displayName: 'ESRP Developer Sign (x64)'

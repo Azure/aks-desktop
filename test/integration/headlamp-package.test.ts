@@ -281,61 +281,51 @@ test('root builds package supported host targets independently', () => {
   assert.match(rootManifest.scripts['headlamp:assemble'], /headlamp:translations/);
 });
 
-test('macOS builds report UTC timestamps for each outer build phase', () => {
+test('the combined macOS build reports shared and per-target timings', () => {
   const workflow = fs.readFileSync(
     path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
     'utf8'
   );
-  for (const phase of [
-    'npm bootstrap',
-    'root npm ci',
-    'architecture configuration',
-    'build attempt',
-    'distribution verification',
-    'artifact collection',
-  ]) {
+  for (const phase of ['npm bootstrap', 'root npm ci']) {
     assert.equal(
-      workflow.match(new RegExp(`\\[build-timing\\] ${phase}(?: .+)? started at`, 'g'))?.length,
-      2
+      workflow.match(new RegExp(`\\[build-timing\\] ${phase} started at`, 'g'))?.length,
+      1
     );
-  }
-  for (const phase of [
-    'npm bootstrap',
-    'root npm ci',
-    'architecture configuration',
-    'artifact collection',
-  ]) {
     assert.equal(
       workflow.match(new RegExp(`\\[build-timing\\] ${phase} completed in`, 'g'))?.length,
-      2
+      1
     );
   }
-  assert.equal(
-    workflow.match(
-      /done\n\s+verification_started=\$SECONDS\n\s+echo "\[build-timing\] distribution verification started/g
-    )?.length,
-    2
-  );
+  for (const phase of ['build attempt', 'distribution verification', 'artifact collection']) {
+    assert.match(workflow, new RegExp(`\\[build-timing\\] ${phase} \\$arch`));
+  }
 });
 
-test('macOS ARM64 packages native tools on the shared Intel worker', () => {
+test('one Intel-hosted macOS job packages x64 and native ARM64 tools', () => {
   const workflow = fs.readFileSync(
     path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
     'utf8'
   );
-  const armStage = workflow.slice(
-    workflow.indexOf('- stage: Build_arm64'),
+  const buildStage = workflow.slice(
+    workflow.indexOf('- stage: Build_macOS'),
     workflow.indexOf('- stage: Sign_arm64')
   );
 
-  assert.doesNotMatch(armStage, /condition: eq\(1, 0\)/);
-  assert.doesNotMatch(armStage, /macos-15-arm64/);
-  assert.doesNotMatch(armStage, /hostArchitecture: arm64/);
-  assert.match(armStage, /task: UsePythonVersion@0/);
-  assert.match(armStage, /displayName: Install extension builder Python/);
-  assert.match(armStage, /versionSpec: '3\.13'/);
-  assert.match(armStage, /npm run test:post-build/);
-  assert.doesNotMatch(armStage, /npm run test:distribution/);
+  assert.doesNotMatch(workflow, /stage: Build_(?:arm64|x64)/);
+  assert.equal(workflow.match(/job: BuildJob_macOS/g)?.length, 1);
+  assert.doesNotMatch(buildStage, /macos-15-arm64|hostArchitecture: arm64/);
+  assert.match(buildStage, /task: UsePythonVersion@0/);
+  assert.match(buildStage, /versionSpec: '3\.13'/);
+  assert.match(buildStage, /for arch in x64 arm64/);
+  assert.match(buildStage, /verification_command='test:distribution'/);
+  assert.match(buildStage, /verification_command='test:post-build'/);
+  assert.match(buildStage, /targetPath: \$\(Build\.ArtifactStagingDirectory\)\/arm64/);
+  assert.match(buildStage, /targetPath: \$\(Build\.ArtifactStagingDirectory\)\/x64/);
+  assert.match(buildStage, /artifactName: unsigned-dmg-arm64/);
+  assert.match(buildStage, /artifactName: unsigned-dmg-x64/);
+  assert.match(buildStage, /-name "aks-desktop\*-\$arch\.dmg"/);
+  assert.match(workflow, /dependsOn: Build_macOS/g);
+  assert.equal(workflow.match(/dependsOn: Build_macOS/g)?.length, 2);
 });
 
 test('macOS builds cache verified Azure CLI extensions after npm ci', () => {
@@ -343,29 +333,23 @@ test('macOS builds cache verified Azure CLI extensions after npm ci', () => {
     path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
     'utf8'
   );
-  assert.equal(workflow.match(/Resolve Azure CLI extension cache/g)?.length, 2);
-  assert.equal(workflow.match(/Cache Azure CLI extensions/g)?.length, 2);
-  assert.equal(workflow.match(/Report Azure CLI cache result/g)?.length, 2);
-  assert.equal(workflow.match(/azure-cli-cache-key\.ts --platform=darwin --arch=\$\(ARCH\)/g)?.length, 2);
-  assert.equal(workflow.match(/cacheHitVar: AZ_CLI_EXTENSION_CACHE_HIT/g)?.length, 2);
-  assert.equal(workflow.match(/azure-cli-extensions-v1/g)?.length, 2);
-  assert.equal(workflow.match(/path: '\$\(AZ_CLI_EXTENSION_CACHE_DIR\)'/g)?.length, 2);
-  assert.doesNotMatch(workflow, /azure-cli-extensions-v1[^\n]+restoreKeys/);
-
-  for (const stageName of ['Build_arm64', 'Build_x64']) {
-    const start = workflow.indexOf(`- stage: ${stageName}`);
-    const end = workflow.indexOf('\n      - stage:', start + 1);
-    const stage = workflow.slice(start, end === -1 ? undefined : end);
-    assert.ok(stage.indexOf('npm ci --prefer-offline') < stage.indexOf('Cache Azure CLI extensions'));
-    assert.ok(stage.indexOf('Cache Azure CLI extensions') < stage.indexOf('Build AKS desktop'));
-  }
+  assert.equal(workflow.match(/Resolve Azure CLI extension caches/g)?.length, 1);
+  assert.equal(workflow.match(/Cache Azure CLI extensions/g)?.length, 1);
+  assert.equal(workflow.match(/Report Azure CLI cache result/g)?.length, 1);
+  assert.equal(workflow.match(/azure-cli-cache-key\.ts --platform=darwin --arch=(?:arm64|x64)/g)?.length, 2);
+  assert.equal(workflow.match(/cacheHitVar: AZ_CLI_EXTENSION_CACHE_HIT/g)?.length, 1);
+  assert.equal(workflow.match(/azure-cli-extensions-v2/g)?.length, 1);
+  assert.equal(workflow.match(/path: '\$\(AZ_CLI_EXTENSION_CACHE_ROOT\)'/g)?.length, 1);
+  assert.doesNotMatch(workflow, /azure-cli-extensions-v2[^\n]+restoreKeys/);
+  assert.ok(workflow.indexOf('npm ci --prefer-offline') < workflow.indexOf('Cache Azure CLI extensions'));
+  assert.ok(workflow.indexOf('Cache Azure CLI extensions') < workflow.indexOf('Build AKS desktop'));
 });
 
 test('build workflows derive Go and cache modules plus compiled outputs', () => {
   for (const [file, expectedCacheCount] of [
     ['1es-pipeline.yml', 1],
     ['1es-pipeline-linux.yml', 1],
-    ['1es-pipeline-mac.yml', 2],
+    ['1es-pipeline-mac.yml', 1],
   ] as const) {
     const workflow = fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', file), 'utf8');
     assert.doesNotMatch(workflow, /parameters\.goVersion|default: 1\.26\./);
@@ -388,7 +372,12 @@ test('build workflows derive Go and cache modules plus compiled outputs', () => 
         assert.doesNotMatch(key, /\$\(ARCH\)/);
       }
       if (key.includes('go-build-v3')) {
-        assert.match(key, /\$\(ARCH\)/);
+        if (file === '1es-pipeline-mac.yml') {
+          assert.match(key, /macos-all/);
+          assert.doesNotMatch(key, /\$\(ARCH\)/);
+        } else {
+          assert.match(key, /\$\(ARCH\)/);
+        }
       }
     }
   }
