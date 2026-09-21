@@ -152,25 +152,44 @@ download those exact archives, verify their checksums, and pass the local wheel
 to `az extension add --source`; do not replace this with name-based installation
 from the live extension index.
 
-macOS x64 and ARM64 builds additionally pin their complete target-specific
-Python dependency closures in `build/azure-cli-darwin-x64-requirements.txt` and
-`build/azure-cli-darwin-arm64-requirements.txt`. Each `# roots` header records
-which extension owns the locked transitive closure. pip downloads the selected
-lock with `--require-hashes`, then installs the reviewed extension wheels with
-`--no-index` from the completed local wheelhouse. Cache identity includes the
-architecture-specific lock checksum and the verified-wheel policy version.
-Cache reuse rehashes every wheel and compares every installed file against
-authenticated wheel `RECORD` data; any mismatch rebuilds the cache.
+Every packaged runtime additionally pins its complete target-specific Python
+dependency closure in `build/azure-cli-<platform>-<runtime-arch>-requirements.txt`.
+Tracked locks cover macOS x64/ARM64, Linux x64/ARM64, and Windows x64. Windows
+ARM64 packages intentionally use the x64 runtime and therefore the Windows x64
+lock. Each `# roots` header records which extension owns the locked transitive
+closure.
+
+pip downloads the selected lock with `--require-hashes`, then installs the
+reviewed extension wheels with `--no-index` from the completed local wheelhouse.
+Cache identity includes the target lock checksum and verified-wheel policy
+version. Before any version-based reuse decision, cache verification rehashes
+every wheel and compares every installed file against authenticated wheel
+`RECORD` data. Every platform reads wheels with the packaged or host Python
+standard-library `zipfile` module, so minimal build images need no `unzip`
+executable. Any mismatch rebuilds the cache.
+
+Wheelhouses always live outside packaged resources. CI may set
+`AZ_CLI_EXTENSION_CACHE_DIR`; otherwise staging uses a cache-keyed directory
+under the user cache root (`~/.cache/aks-desktop` on Unix or `%LOCALAPPDATA%` on
+Windows). Only installed extension directories are copied into app resources.
 
 Regenerate the lock only when changing an extension or one of its reviewed
-dependencies. Start from a staged macOS Python runtime and the three verified
-extension wheels, then resolve each architecture under its package target
-constraints:
+dependencies. Resolve each runtime independently because native wheel hashes
+differ by OS and architecture. Use these target tags:
+
+- `darwin-x64`: `macosx_11_0_x86_64`
+- `darwin-arm64`: `macosx_11_0_arm64`
+- `linux-x64`: `manylinux_2_17_x86_64`
+- `linux-arm64`: `manylinux_2_17_aarch64`
+- `win32-x64`: `win_amd64`
 
 ```bash
-mac_python=node_modules/@headlamp-k8s/headlamp-source/source/app/resources/external-tools/az-cli/darwin/python/bin/python3
-arch=arm64 # Repeat with x64.
-platform=macosx_11_0_arm64 # Use macosx_11_0_x86_64 for x64.
+python3 -m venv /tmp/aks-extension-lock
+resolver=/tmp/aks-extension-lock/bin/python
+"$resolver" -m pip install pip==25.2
+
+target=linux-x64
+platform=manylinux_2_17_x86_64
 wheel_dir=$(mktemp -d)
 report=$(mktemp)
 
@@ -182,7 +201,7 @@ while IFS=$'\t' read -r url checksum; do
   test "$(shasum -a 256 "$wheel" | awk '{print $1}')" = "$checksum"
 done
 
-"$mac_python" -m pip install --dry-run --ignore-installed \
+"$resolver" -m pip install --dry-run --ignore-installed \
   --report "$report" \
   --platform "$platform" \
   --python-version 3.14 \
@@ -191,7 +210,7 @@ done
   "$wheel_dir"/*.whl
 
 {
-  echo "# Transitive wheel lock for macOS $arch Azure CLI extension builds."
+  echo "# Transitive wheel lock for $target Azure CLI extension builds."
   echo '# Direct extension wheels and hashes are pinned in package.json.'
   echo '# roots: connectedk8s'
   jq -r '.install[]
@@ -199,15 +218,14 @@ done
         | IN("resource-graph", "alertsmanagement", "connectedk8s") | not)
     | "\(.metadata.name)==\(.metadata.version) --hash=\(.download_info.archive_info.hash | sub("="; ":"))"' \
     "$report" | LC_ALL=C sort -f
-} > "build/azure-cli-darwin-$arch-requirements.txt"
+} > "build/azure-cli-$target-requirements.txt"
 ```
 
 Review every version and hash change. Confirm the report contains only wheels,
-remove each architecture's extension cache, and run cold x64 and ARM64 tool
-staging passes followed by warm reuse passes. Tamper with one cached module and
-confirm staging rebuilds that cache. Finish with `npm run test:build` and
-packaged-tool verification. Never regenerate locks implicitly during a release
-build.
+remove each target's extension cache, and run cold and warm staging passes.
+Tamper with one cached module on each platform and confirm staging rebuilds that
+cache. Finish with `npm run test:build` and packaged-tool verification. Never
+regenerate locks implicitly during a release build.
 
 ### Ship static plugins
 

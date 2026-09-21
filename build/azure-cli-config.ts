@@ -63,30 +63,41 @@ export function azureCliCacheIdentity(target: AzureCliTarget) {
         .sort()
         .map(extension => [extension, target.extensionPackages[extension]])
     ),
-    extensionInstallPolicy: 'verified-local-wheel-v1',
+    extensionInstallPolicy: 'verified-local-wheel-v3',
     extensionLockChecksum: target.extensionLockChecksum,
     pythonChecksum: target.python?.checksum,
     packageChecksum: target.cliPackage?.checksum,
   };
 }
 
-/** Builds pip arguments that download every locked macOS dependency wheel. */
-export function macOSCrossExtensionDownloadArguments(
+function extensionWheelPlatformTag(target: AzureCliTarget): string {
+  const runtimeArch = target.cliPackage?.runtimeArch || target.arch;
+  if (target.platform === 'darwin') {
+    return runtimeArch === 'arm64' ? 'macosx_11_0_arm64' : 'macosx_11_0_x86_64';
+  }
+  if (target.platform === 'linux') {
+    return runtimeArch === 'arm64' ? 'manylinux_2_17_aarch64' : 'manylinux_2_17_x86_64';
+  }
+  if (target.platform === 'win32' && runtimeArch === 'x64') {
+    return 'win_amd64';
+  }
+  throw new Error(`Unsupported extension wheel target: ${target.platform}/${runtimeArch}`);
+}
+
+/** Builds pip arguments that download every locked target dependency wheel. */
+export function extensionWheelDownloadArguments(
   target: AzureCliTarget,
   requirementsPath: string,
   wheelhouseDir: string
 ): string[] {
-  if (target.platform !== 'darwin' || !SUPPORTED_ARCHES.has(target.arch) || !target.pythonVersion) {
+  if (!target.pythonVersion) {
     throw new Error(`Unsupported cross-extension target: ${target.platform}/${target.arch}`);
   }
-  const platformTag = target.arch === 'arm64'
-    ? 'macosx_11_0_arm64'
-    : 'macosx_11_0_x86_64';
   return [
     '-m', 'pip', 'download',
     '--disable-pip-version-check',
     '--dest', wheelhouseDir,
-    '--platform', platformTag,
+    '--platform', extensionWheelPlatformTag(target),
     '--python-version', target.pythonVersion,
     '--implementation', 'cp',
     '--only-binary=:all:',
@@ -115,6 +126,28 @@ export function macOSCrossExtensionInstallArguments(
     '--platform', 'macosx_11_0_arm64',
     '--python-version', target.pythonVersion,
     '--implementation', 'cp',
+    '--only-binary=:all:',
+    wheelPath,
+  ];
+}
+
+/** Builds pip arguments that install an extension with the packaged Windows runtime. */
+export function windowsExtensionInstallArguments(
+  target: AzureCliTarget,
+  wheelPath: string,
+  extensionDir: string,
+  wheelhouseDir: string
+): string[] {
+  if (target.platform !== 'win32') {
+    throw new Error(`Unsupported Windows extension target: ${target.platform}/${target.arch}`);
+  }
+  return [
+    '-m', 'pip', 'install',
+    '--disable-pip-version-check',
+    '--no-compile',
+    '--target', extensionDir,
+    '--no-index',
+    '--find-links', wheelhouseDir,
     '--only-binary=:all:',
     wheelPath,
   ];
@@ -241,18 +274,10 @@ export function resolveAzureCliTarget(
     }
   }
 
-  if (platform === 'darwin') {
-    target.extensionLockPath = path.join(
-      rootDir,
-      'build',
-      `azure-cli-darwin-${targetArch}-requirements.txt`
-    );
-    if (!fs.existsSync(target.extensionLockPath)) {
-      throw new Error(`Azure CLI macOS extension lock not found: ${target.extensionLockPath}`);
-    }
-    target.extensionLockChecksum = createHash('sha256')
-      .update(fs.readFileSync(target.extensionLockPath))
-      .digest('hex');
+  const python = externalTools.python as PythonConfig | undefined;
+  target.pythonVersion = python?.version;
+  if (!target.pythonVersion) {
+    throw new Error('config.externalTools.python.version must be configured');
   }
 
   if (platform === 'win32') {
@@ -262,24 +287,31 @@ export function resolveAzureCliTarget(
         `No verified Azure CLI package configured for ${platform}/${targetArch}`
       );
     }
-    return target;
+  } else {
+    const unixPlatform = platform as 'darwin' | 'linux';
+    target.python = python?.[unixPlatform]?.[targetArch];
+    if (!target.python?.url || !target.python.checksum) {
+      throw new Error(`No verified Python runtime configured for ${platform}/${targetArch}`);
+    }
+    target.cliPackage = azureCli[unixPlatform]?.[targetArch];
+    if (!target.cliPackage?.url || !target.cliPackage.checksum) {
+      throw new Error(
+        `No verified Azure CLI package configured for ${platform}/${targetArch}`
+      );
+    }
   }
 
-  const python = externalTools.python as PythonConfig | undefined;
-  const unixPlatform = platform as 'darwin' | 'linux';
-  target.pythonVersion = python?.version;
-  if (!target.pythonVersion) {
-    throw new Error('config.externalTools.python.version must be configured');
+  const runtimeArch = target.cliPackage.runtimeArch || targetArch;
+  target.extensionLockPath = path.join(
+    rootDir,
+    'build',
+    `azure-cli-${platform}-${runtimeArch}-requirements.txt`
+  );
+  if (!fs.existsSync(target.extensionLockPath)) {
+    throw new Error(`Azure CLI extension lock not found: ${target.extensionLockPath}`);
   }
-  target.python = python?.[unixPlatform]?.[targetArch];
-  if (!target.python?.url || !target.python.checksum) {
-    throw new Error(`No verified Python runtime configured for ${platform}/${targetArch}`);
-  }
-  target.cliPackage = azureCli[unixPlatform]?.[targetArch];
-  if (!target.cliPackage?.url || !target.cliPackage.checksum) {
-    throw new Error(
-      `No verified Azure CLI package configured for ${platform}/${targetArch}`
-    );
-  }
+  target.extensionLockChecksum = createHash('sha256')
+    .update(fs.readFileSync(target.extensionLockPath))
+    .digest('hex');
   return target;
 }

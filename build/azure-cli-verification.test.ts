@@ -14,6 +14,8 @@ import {
   invalidInstalledAzureCliExtensions,
   missingInstalledWheelDistributions,
   missingInstalledWheelFiles,
+  normalizedWheelPath,
+  normalizedRequirementLines,
   readInstalledAzureCliExtensionVersion,
   readRequiredAzureCliExtensionVersions,
   readRequiredAzureCliExtensions,
@@ -211,6 +213,20 @@ test("invokes packaged runtimes only on a matching host", () => {
   assert.equal(canInvokePackagedRuntime("linux", "x64", "darwin", "x64"), false);
 });
 
+test("normalizes Windows paths for wheel RECORD matching", () => {
+  assert.equal(
+    normalizedWheelPath("package\\module-1.0.dist-info\\METADATA"),
+    "package/module-1.0.dist-info/METADATA"
+  );
+});
+
+test("normalizes CRLF extension lock lines", () => {
+  assert.deepEqual(
+    normalizedRequirementLines("# roots: connectedk8s\r\nattrs==1 --hash=sha256:abc\r\n"),
+    ["# roots: connectedk8s", "attrs==1 --hash=sha256:abc", ""]
+  );
+});
+
 test("rejects a wholly missing locked wheel distribution", () => {
   assert.deepEqual(
     missingInstalledWheelDistributions(
@@ -221,25 +237,35 @@ test("rejects a wholly missing locked wheel distribution", () => {
   );
 });
 
-test("authenticates locked wheelhouses before macOS cache reuse", () => {
+test("authenticates locked wheelhouses before cache reuse", () => {
   const installer = fs.readFileSync(
     path.join(__dirname, "download-az-cli.ts"),
     "utf8"
   );
   assert.match(installer, /downloadVerifiedExtensionWheels/);
-  assert.match(installer, /macOSCrossExtensionDownloadArguments/);
-  assert.match(installer, /authenticatedWheelRecords\(wheelhouseDir\)/);
-  assert.match(installer, /verifyDarwinExtensions\(extensionDir, extensionDir, target\.arch === 'arm64'\)/);
+  assert.match(installer, /extensionWheelDownloadArguments/);
+  assert.match(installer, /authenticatedWheelRecords/);
+  assert.match(installer, /\.split\(\/\\r\?\\n\/\)\.filter\(Boolean\)/);
+  assert.match(installer, /verifyExtensionCache/);
   assert.match(installer, /cache payload verification failed; rebuilding/);
   assert.match(installer, /downloadVerifiedExtensionWheels\(\s*AZ_CLI_EXTENSIONS,/);
-  assert.match(installer, /PIP_NO_INDEX: '1'/);
-  assert.match(installer, /PIP_FIND_LINKS: extensionDir/);
+  assert.equal(installer.match(/PIP_NO_INDEX: '1'/g)?.length, 1);
+  assert.equal(installer.match(/PIP_FIND_LINKS: extensionDir/g)?.length, 1);
+  assert.match(installer, /zipfile\.ZipFile/);
+  assert.match(installer, /DEFAULT_EXTENSION_CACHE_ROOT/);
+  assert.match(installer, /azureCliCacheKey\(target\)/);
+  assert.equal(installer.match(/const extensionDir = EXTENSION_CACHE_DIR/g)?.length, 2);
+  assert.doesNotMatch(
+    installer,
+    /const extensionDir = AZ_CLI_EXTENSION_CACHE_DIR[\s\S]*?: targetExtensionDir/
+  );
   assert.match(installer, /checksum !== locked\.checksum/);
   assert.match(installer, /missingInstalledWheelFiles\([\s\S]+authenticatedRecord/);
   assert.equal(
     installer.match(/'--source', extensionWheels\.get\(extension\)!/g)?.length,
-    2
+    1
   );
+  assert.match(installer, /windowsExtensionInstallArguments/);
   assert.doesNotMatch(installer, /'extension', 'add', '-n'/);
 });
 

@@ -76,6 +76,16 @@ function recordRelativePaths(recordContents: string): string[] {
   });
 }
 
+/** Normalizes installed paths to the forward slashes used by wheel RECORDs. */
+export function normalizedWheelPath(relativePath: string): string {
+  return relativePath.replaceAll('\\', '/');
+}
+
+/** Returns trimmed lockfile lines independent of platform line endings. */
+export function normalizedRequirementLines(contents: string): string[] {
+  return contents.split('\n').map(line => line.trim());
+}
+
 /** Returns absent or modified files listed by wheel RECORD metadata. */
 export function missingInstalledWheelFiles(
   extensionDir: string,
@@ -141,7 +151,7 @@ export function unexpectedInstalledWheelFiles(
         pending.push(entryPath);
         continue;
       }
-      const relativePath = path.relative(extensionDir, entryPath);
+      const relativePath = normalizedWheelPath(path.relative(extensionDir, entryPath));
       const pipReceipt = /\.dist-info\/(?:INSTALLER|REQUESTED|direct_url\.json)$/.test(
         relativePath
       );
