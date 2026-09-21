@@ -16,6 +16,7 @@ import { execFileSync, execSync } from 'child_process';
 import { createHash } from 'crypto';
 import { createWriteStream, createReadStream } from 'fs';
 import {
+  canInvokePackagedRuntime,
   invalidInstalledAzureCliExtensions,
   missingInstalledWheelFiles,
 } from './azure-cli-verification';
@@ -75,7 +76,7 @@ const AZ_CLI_EXTENSION_PACKAGES = target.extensionPackages;
 const AZ_CLI_EXTENSION_CACHE_DIR = process.env.AZ_CLI_EXTENSION_CACHE_DIR;
 
 console.log('==========================================');
-console.log(`Downloading Azure CLI v${AZ_CLI_VERSION}`);
+console.log(`Preparing Azure CLI v${AZ_CLI_VERSION}`);
 console.log(`Target: ${target.platform}/${target.arch}`);
 if (PYTHON_URL) {
   const pythonFilename = path.basename(PYTHON_URL);
@@ -118,6 +119,21 @@ if (
   JSON.stringify(existingTarget) === JSON.stringify(stagedTarget)
 ) {
   try {
+    const runtimeArch = target.cliPackage?.runtimeArch ?? target.arch;
+    if (!canInvokePackagedRuntime(target.platform, runtimeArch)) {
+      if (target.platform !== 'darwin' || target.arch !== 'arm64' || !pythonPath) {
+        throw new Error(`Cannot structurally verify ${target.platform}/${runtimeArch}`);
+      }
+      verifyDarwinArm64Extensions(
+        path.join(TARGET_DIR, UNIX_AZ_CLI_EXTENSIONS_DIRNAME)
+      );
+      execFileSync('lipo', [pythonPath, '-verify_arch', 'arm64']);
+      verifyDarwinArm64Libraries(TARGET_DIR);
+      console.log(`✅ Azure CLI cache structurally verified for ${target.platform}/${target.arch}`);
+      console.log(`   Location: ${TARGET_DIR}`);
+      process.exit(0);
+    }
+
     const versionData = JSON.parse(
       execFileSync(azWrapperPath, ['version', '--output', 'json'], {
         encoding: 'utf8',

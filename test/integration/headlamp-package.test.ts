@@ -354,6 +354,11 @@ test('cross-built ARM tools use structural verification on the Intel host', () =
   );
   assert.match(installer, /verifyDarwinArm64Extensions\(extensionDir\)/);
   assert.match(installer, /cache verification failed; rebuilding/);
+  assert.match(installer, /cache structurally verified for \$\{target\.platform\}\/\$\{target\.arch\}/);
+  assert.ok(
+    installer.indexOf('canInvokePackagedRuntime(target.platform, runtimeArch)') <
+      installer.indexOf('fs.rmSync(TARGET_DIR')
+  );
 });
 
 test('macOS builds cache verified Azure CLI extensions after npm ci', () => {
