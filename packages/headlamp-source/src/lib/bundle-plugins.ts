@@ -3,12 +3,53 @@
  * directory. Workspace, package, archive, and file-backed plugins share one identity contract.
  */
 const { npmInvocation, spawnSync } = require('./npm-command.ts');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const VALID_PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i;
 const VALID_SHA256 = /^[a-f0-9]{64}$/i;
 const REUSE_PLUGIN_DEPENDENCIES_ENV = 'HEADLAMP_REUSE_PLUGIN_DEPENDENCIES';
+const DEPENDENCY_MARKER = '.headlamp-dependency-identity';
+
+/**
+ * Returns a content identity for the requested and installed dependency trees.
+ *
+ * @param pluginDir - Plugin workspace containing manifests and installed dependencies.
+ * @returns The dependency identity, or undefined when required files are absent.
+ */
+function pluginDependencyIdentity(pluginDir) {
+  const files = [
+    path.join(pluginDir, 'package.json'),
+    path.join(pluginDir, 'package-lock.json'),
+    path.join(pluginDir, 'node_modules', '.package-lock.json'),
+  ];
+  if (files.some(file => !fs.existsSync(file))) return undefined;
+  const hash = crypto.createHash('sha256');
+  for (const file of files) {
+    const contents = fs.readFileSync(file);
+    hash.update(path.relative(pluginDir, file));
+    hash.update('\0');
+    hash.update(String(contents.length));
+    hash.update('\0');
+    hash.update(contents);
+  }
+  return hash.digest('hex');
+}
+
+/**
+ * Records the exact dependency state produced by a successful clean install.
+ *
+ * @param pluginDir - Plugin workspace whose installed dependency state is recorded.
+ * @returns Nothing.
+ */
+function writePluginDependencyMarker(pluginDir) {
+  const identity = pluginDependencyIdentity(pluginDir);
+  if (!identity) {
+    throw new Error(`Cannot record incomplete plugin dependencies in ${pluginDir}`);
+  }
+  fs.writeFileSync(path.join(pluginDir, 'node_modules', DEPENDENCY_MARKER), `${identity}\n`);
+}
 
 /**
  * Resolves the consumer project root for plugin bundling.
@@ -101,10 +142,16 @@ function reusePluginDependencies(pluginDir, pluginName, env = process.env) {
   if (!reusablePlugins.has(pluginName)) {
     return false;
   }
-  if (!fs.existsSync(path.join(pluginDir, 'node_modules', '.package-lock.json'))) {
-    throw new Error(`Cannot reuse missing plugin dependencies in ${pluginDir}`);
+  const identity = pluginDependencyIdentity(pluginDir);
+  if (!identity) return false;
+  try {
+    return fs.readFileSync(
+      path.join(pluginDir, 'node_modules', DEPENDENCY_MARKER),
+      'utf8'
+    ).trim() === identity;
+  } catch {
+    return false;
   }
-  return true;
 }
 
 /**
@@ -211,6 +258,7 @@ function bundlePlugin(projectDir, pluginsDir, plugin) {
   validatePlugin(pluginDir, plugin);
   if (!reusePluginDependencies(pluginDir, plugin.name)) {
     runNpm(['ci', '--prefer-offline', '--no-audit', '--no-fund'], pluginDir);
+    writePluginDependencyMarker(pluginDir);
   }
   runNpm(['run', 'build'], pluginDir);
   return copyPlugin(pluginDir, pluginsDir, plugin, false);
@@ -324,7 +372,9 @@ module.exports = {
   bundlePlugin,
   copyPlugin,
   npmInvocation,
+  pluginDependencyIdentity,
   reusePluginDependencies,
   resolvePluginDir,
   validatePluginConfiguration,
+  writePluginDependencyMarker,
 };

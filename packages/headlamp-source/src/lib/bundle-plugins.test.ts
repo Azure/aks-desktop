@@ -11,8 +11,10 @@ const {
   bundlePlugin,
   copyPlugin,
   npmInvocation,
+  pluginDependencyIdentity,
   reusePluginDependencies,
   validatePluginConfiguration,
+  writePluginDependencyMarker,
 } = require('./bundle-plugins.ts');
 const { spawn, spawnSync } = require('./npm-command.ts');
 
@@ -90,19 +92,44 @@ test('reuses only a verified plugin dependency tree during packaging', () => {
     false
   );
   assert.throws(
-    () =>
-      reusePluginDependencies(pluginDir, 'example', {
-        HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
-      }),
-    /missing plugin dependencies/
+    () => writePluginDependencyMarker(pluginDir),
+    /incomplete plugin dependencies/
+  );
+  assert.equal(
+    reusePluginDependencies(pluginDir, 'example', {
+      HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
+    }),
+    false
   );
   fs.mkdirSync(path.join(pluginDir, 'node_modules'), { recursive: true });
-  fs.writeFileSync(path.join(pluginDir, 'node_modules', '.package-lock.json'), '{}');
+  fs.writeFileSync(path.join(pluginDir, 'package-lock.json'), '{"lockfileVersion":3}');
+  fs.writeFileSync(
+    path.join(pluginDir, 'node_modules', '.package-lock.json'),
+    '{"lockfileVersion":3}'
+  );
+  assert.match(pluginDependencyIdentity(pluginDir), /^[0-9a-f]{64}$/);
+  writePluginDependencyMarker(pluginDir);
   assert.equal(
     reusePluginDependencies(pluginDir, 'example', {
       HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
     }),
     true
+  );
+  fs.writeFileSync(path.join(pluginDir, 'package-lock.json'), '{"lockfileVersion":2}');
+  assert.equal(
+    reusePluginDependencies(pluginDir, 'example', {
+      HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
+    }),
+    false
+  );
+  fs.writeFileSync(path.join(pluginDir, 'package-lock.json'), '{"lockfileVersion":3}');
+  writePluginDependencyMarker(pluginDir);
+  fs.writeFileSync(path.join(pluginDir, 'node_modules', '.package-lock.json'), '{}');
+  assert.equal(
+    reusePluginDependencies(pluginDir, 'example', {
+      HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
+    }),
+    false
   );
 });
 
