@@ -318,7 +318,7 @@ test('macOS builds report UTC timestamps for each outer build phase', () => {
   );
 });
 
-test('macOS ARM64 packages cross-build on the shared Intel worker', () => {
+test('macOS ARM64 packages native tools on the shared Intel worker', () => {
   const workflow = fs.readFileSync(
     path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
     'utf8'
@@ -331,6 +331,9 @@ test('macOS ARM64 packages cross-build on the shared Intel worker', () => {
   assert.doesNotMatch(armStage, /condition: eq\(1, 0\)/);
   assert.doesNotMatch(armStage, /macos-15-arm64/);
   assert.doesNotMatch(armStage, /hostArchitecture: arm64/);
+  assert.match(armStage, /task: UsePythonVersion@0/);
+  assert.match(armStage, /displayName: Install extension builder Python/);
+  assert.match(armStage, /versionSpec: '3\.13'/);
   assert.match(armStage, /npm run test:post-build/);
   assert.doesNotMatch(armStage, /npm run test:distribution/);
 });
@@ -425,6 +428,13 @@ test('package targets have verified external tool runtimes', () => {
     alertsmanagement: '1.0.0b2',
     connectedk8s: '1.11.3',
   });
+  assert.equal(rootManifest.config.externalTools.python.version, '3.14');
+  for (const [extension, version] of Object.entries(azureCli.extensionVersions)) {
+    const extensionPackage = azureCli.extensionPackages[extension];
+    assert.match(extensionPackage.url, /^https:\/\/azcliprod\.blob\.core\.windows\.net\//);
+    assert.match(extensionPackage.url, new RegExp(`${version.replaceAll('.', '\\.')}.*\\.whl$`));
+    assert.match(extensionPackage.checksum, /^[0-9a-f]{64}$/);
+  }
   for (const platform of ['linux', 'darwin']) {
     for (const arch of ['x64', 'arm64']) {
       const python = rootManifest.config.externalTools.python[platform][arch];
@@ -439,9 +449,14 @@ test('package targets have verified external tool runtimes', () => {
   }
   const windowsArm = azureCli.win32.arm64;
   const darwinArm = azureCli.darwin.arm64;
-  assert.equal(darwinArm.url, azureCli.darwin.x64.url);
-  assert.equal(darwinArm.checksum, azureCli.darwin.x64.checksum);
-  assert.equal(darwinArm.runtimeArch, 'x64');
+  const darwinPythonArm = rootManifest.config.externalTools.python.darwin.arm64;
+  assert.equal(
+    new URL(darwinArm.url).pathname.split('/').at(-1),
+    `azure-cli-${azureCli.version}-macos-arm64.tar.gz`
+  );
+  assert.match(new URL(darwinPythonArm.url).pathname.split('/').at(-1)!, /aarch64-apple-darwin/);
+  assert.equal(darwinArm.runtimeArch, undefined);
+  assert.equal(darwinPythonArm.runtimeArch, undefined);
   assert.equal(
     new URL(windowsArm.url).pathname.split('/').at(-1),
     `azure-cli-${azureCli.version}-x64.zip`

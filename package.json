@@ -76,6 +76,7 @@
   "config": {
     "externalTools": {
       "python": {
+        "version": "3.14",
         "linux": {
           "x64": {
             "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
@@ -92,9 +93,8 @@
             "checksum": "25bd3a638d4820ee027317888c5057bddf5b304521f59d776ae3bea6830d0c7f"
           },
           "arm64": {
-            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-x86_64-apple-darwin-install_only_stripped.tar.gz",
-            "checksum": "25bd3a638d4820ee027317888c5057bddf5b304521f59d776ae3bea6830d0c7f",
-            "runtimeArch": "x64"
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-aarch64-apple-darwin-install_only_stripped.tar.gz",
+            "checksum": "c3223d5924a0ed0ef5958a750377c362d0957587f896c0f6c635ae4b39e0f337"
           }
         }
       },
@@ -109,6 +109,20 @@
           "resource-graph": "2.1.1",
           "alertsmanagement": "1.0.0b2",
           "connectedk8s": "1.11.3"
+        },
+        "extensionPackages": {
+          "resource-graph": {
+            "url": "https://azcliprod.blob.core.windows.net/cli-extensions/resource_graph-2.1.1-py2.py3-none-any.whl",
+            "checksum": "436b2e865d7f3fb6beea2cdc017c74dd48a66991209a5ab8dc092443ec93140f"
+          },
+          "alertsmanagement": {
+            "url": "https://azcliprod.blob.core.windows.net/cli-extensions/alertsmanagement-1.0.0b2-py3-none-any.whl",
+            "checksum": "37f376234f8047df93d7c5355cc864f35ec195f6c7babe148f57349303af6696"
+          },
+          "connectedk8s": {
+            "url": "https://azcliprod.blob.core.windows.net/cli-extensions/connectedk8s-1.11.3-py2.py3-none-any.whl",
+            "checksum": "18b2087ed7f70d621a6259ad2ce14836a57b215ab71c03aed52296a05a609c1f"
+          }
         },
         "linux": {
           "x64": {
@@ -126,9 +140,8 @@
             "checksum": "4617d8d16350dbee34f8024059ac768e0cfbdb7ec8f637abdfdaab1e5c9ba0ce"
           },
           "arm64": {
-            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-macos-x86_64.tar.gz",
-            "checksum": "4617d8d16350dbee34f8024059ac768e0cfbdb7ec8f637abdfdaab1e5c9ba0ce",
-            "runtimeArch": "x64"
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-macos-arm64.tar.gz",
+            "checksum": "1cdcf8dc99ece8c10d198d9451d7ac0905a4d63aea5fac5fcf903bdf2aba93b3"
           }
         },
         "win32": {

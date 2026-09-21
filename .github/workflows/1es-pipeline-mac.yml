@@ -81,6 +81,13 @@ extends:
                 inputs:
                   versionSpec: ${{ parameters.nodeVersion }}
 
+              - task: UsePythonVersion@0
+                displayName: Install extension builder Python
+                retryCountOnTaskFailure: 3
+                inputs:
+                  versionSpec: '3.13'
+                  architecture: 'x64'
+
               - bash: |
                   set -e
                   go_version="$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build/go-version.ts)"

@@ -22,12 +22,14 @@ interface AzureCliConfig {
   version?: string;
   extensions?: string[];
   extensionVersions?: Record<string, string>;
+  extensionPackages?: Record<string, RuntimeConfig>;
   linux?: Record<string, RuntimeConfig>;
   darwin?: Record<string, RuntimeConfig>;
   win32?: Record<string, RuntimeConfig>;
 }
 
 interface PythonConfig {
+  version?: string;
   linux?: Record<string, RuntimeConfig>;
   darwin?: Record<string, RuntimeConfig>;
 }
@@ -38,6 +40,8 @@ export interface AzureCliTarget {
   version: string;
   extensions: string[];
   extensionVersions: Record<string, string>;
+  extensionPackages: Record<string, RuntimeConfig>;
+  pythonVersion?: string;
   python?: RuntimeConfig;
   cliPackage?: RuntimeConfig;
 }
@@ -52,9 +56,36 @@ export function azureCliCacheIdentity(target: AzureCliTarget) {
     extensionVersions: Object.fromEntries(
       Object.entries(target.extensionVersions).sort(([left], [right]) => left.localeCompare(right))
     ),
+    extensionPackages: Object.fromEntries(
+      [...target.extensions]
+        .sort()
+        .map(extension => [extension, target.extensionPackages[extension]])
+    ),
     pythonChecksum: target.python?.checksum,
     packageChecksum: target.cliPackage?.checksum,
   };
+}
+
+/** Builds pip arguments that resolve dependencies for the packaged macOS runtime. */
+export function macOSCrossExtensionInstallArguments(
+  target: AzureCliTarget,
+  wheelPath: string,
+  extensionDir: string
+): string[] {
+  if (target.platform !== 'darwin' || target.arch !== 'arm64' || !target.pythonVersion) {
+    throw new Error(`Unsupported cross-extension target: ${target.platform}/${target.arch}`);
+  }
+  return [
+    '-m', 'pip', 'install',
+    '--disable-pip-version-check',
+    '--no-compile',
+    '--target', extensionDir,
+    '--platform', 'macosx_11_0_arm64',
+    '--python-version', target.pythonVersion,
+    '--implementation', 'cp',
+    '--only-binary=:all:',
+    wheelPath,
+  ];
 }
 
 /** Returns a filesystem-safe digest for a fully staged Azure CLI bundle. */
@@ -166,10 +197,15 @@ export function resolveAzureCliTarget(
     version,
     extensions: azureCli.extensions ?? [],
     extensionVersions: azureCli.extensionVersions ?? {},
+    extensionPackages: azureCli.extensionPackages ?? {},
   };
   for (const extension of target.extensions) {
     if (!target.extensionVersions[extension]) {
       throw new Error(`No pinned version configured for Azure CLI extension ${extension}`);
+    }
+    const extensionPackage = target.extensionPackages[extension];
+    if (!extensionPackage?.url || !extensionPackage.checksum) {
+      throw new Error(`No verified package configured for Azure CLI extension ${extension}`);
     }
   }
 
@@ -185,6 +221,10 @@ export function resolveAzureCliTarget(
 
   const python = externalTools.python as PythonConfig | undefined;
   const unixPlatform = platform as 'darwin' | 'linux';
+  target.pythonVersion = python?.version;
+  if (!target.pythonVersion) {
+    throw new Error('config.externalTools.python.version must be configured');
+  }
   target.python = python?.[unixPlatform]?.[targetArch];
   if (!target.python?.url || !target.python.checksum) {
     throw new Error(`No verified Python runtime configured for ${platform}/${targetArch}`);

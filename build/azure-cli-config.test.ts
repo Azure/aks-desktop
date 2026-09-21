@@ -15,6 +15,7 @@ import {
   azureCliExtensionsToRemove,
   azureCliVersionDataMatchesTarget,
   installRequiredExtensions,
+  macOSCrossExtensionInstallArguments,
   resolveAzureCliTarget,
   verifyRequiredArtifact,
   windowsZipExtraction,
@@ -65,13 +66,10 @@ function createRoot(): string {
       config: {
         externalTools: {
           python: {
+            version: '3.14',
             darwin: {
               x64: { url: 'darwin-x64', checksum: 'darwin-x64-sum' },
-              arm64: {
-                url: 'darwin-x64',
-                checksum: 'darwin-x64-sum',
-                runtimeArch: 'x64',
-              },
+              arm64: { url: 'darwin-arm64', checksum: 'darwin-arm64-sum' },
             },
             linux: {
               x64: { url: 'linux-x64', checksum: 'linux-x64-sum' },
@@ -85,9 +83,13 @@ function createRoot(): string {
               'resource-graph': '2.1.1',
               connectedk8s: '1.11.3',
             },
+            extensionPackages: {
+              'resource-graph': { url: 'resource-graph.whl', checksum: 'resource-graph-sum' },
+              connectedk8s: { url: 'connectedk8s.whl', checksum: 'connectedk8s-sum' },
+            },
             darwin: {
               x64: { url: 'mac-x64', checksum: 'mac-x64-sum' },
-              arm64: { url: 'mac-x64', checksum: 'mac-x64-sum', runtimeArch: 'x64' },
+              arm64: { url: 'mac-arm64', checksum: 'mac-arm64-sum' },
             },
             linux: {
               x64: { url: 'linux-cli-x64', checksum: 'linux-cli-x64-sum' },
@@ -105,18 +107,40 @@ function createRoot(): string {
   return rootDir;
 }
 
-test('selects native Linux tools and x64 tools for macOS ARM64 cross-packaging', () => {
+test('selects native tools for Linux and macOS ARM64 packages', () => {
   const rootDir = createRoot();
   try {
     const darwin = resolveAzureCliTarget(rootDir, 'darwin', 'arm64');
-    assert.equal(darwin.python?.url, 'darwin-x64');
-    assert.equal(darwin.python?.runtimeArch, 'x64');
-    assert.equal(darwin.cliPackage?.url, 'mac-x64');
-    assert.equal(darwin.cliPackage?.runtimeArch, 'x64');
+    assert.equal(darwin.pythonVersion, '3.14');
+    assert.equal(darwin.python?.url, 'darwin-arm64');
+    assert.equal(darwin.cliPackage?.url, 'mac-arm64');
     const linuxArm = resolveAzureCliTarget(rootDir, 'linux', 'arm64');
     assert.equal(linuxArm.python?.url, 'linux-arm64');
     assert.equal(linuxArm.cliPackage?.url, 'linux-cli-arm64');
     assert.equal(resolveAzureCliTarget(rootDir, 'linux', 'x64').python?.url, 'linux-x64');
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('builds an Intel-hosted pip invocation for macOS ARM64 extensions', () => {
+  const rootDir = createRoot();
+  try {
+    const target = resolveAzureCliTarget(rootDir, 'darwin', 'arm64');
+    assert.deepEqual(
+      macOSCrossExtensionInstallArguments(target, '/tmp/connectedk8s.whl', '/tmp/connectedk8s'),
+      [
+        '-m', 'pip', 'install',
+        '--disable-pip-version-check',
+        '--no-compile',
+        '--target', '/tmp/connectedk8s',
+        '--platform', 'macosx_11_0_arm64',
+        '--python-version', '3.14',
+        '--implementation', 'cp',
+        '--only-binary=:all:',
+        '/tmp/connectedk8s.whl',
+      ]
+    );
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
@@ -154,6 +178,11 @@ test('includes sorted extensions in the staged cache identity', () => {
       'resource-graph': '2.1.1',
       connectedk8s: '1.11.3',
     },
+    extensionPackages: {
+      'resource-graph': { url: 'resource-graph.whl', checksum: 'resource-graph-sum' },
+      connectedk8s: { url: 'connectedk8s.whl', checksum: 'connectedk8s-sum' },
+    },
+    pythonVersion: '3.14',
     python: { url: 'python', checksum: 'python-sum' },
     cliPackage: { url: 'cli', checksum: 'cli-sum' },
   };
@@ -165,12 +194,26 @@ test('includes sorted extensions in the staged cache identity', () => {
     connectedk8s: '1.11.3',
     'resource-graph': '2.1.1',
   });
+  assert.deepEqual(identity.extensionPackages, {
+    connectedk8s: { url: 'connectedk8s.whl', checksum: 'connectedk8s-sum' },
+    'resource-graph': { url: 'resource-graph.whl', checksum: 'resource-graph-sum' },
+  });
   assert.match(azureCliCacheKey(target), /^[0-9a-f]{64}$/);
   assert.notEqual(
     azureCliCacheKey(target),
     azureCliCacheKey({
       ...target,
       extensionVersions: { ...target.extensionVersions, connectedk8s: '1.11.4' },
+    })
+  );
+  assert.notEqual(
+    azureCliCacheKey(target),
+    azureCliCacheKey({
+      ...target,
+      extensionPackages: {
+        ...target.extensionPackages,
+        connectedk8s: { url: 'connectedk8s-v2.whl', checksum: 'connectedk8s-sum' },
+      },
     })
   );
   assert.equal(
