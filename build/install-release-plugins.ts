@@ -29,8 +29,8 @@ const AI_ASSISTANT_RETIREMENT = [
   '}catch(r){console.error("Error retiring built-in AKS MCP server:",r)}}',
 ].join('');
 
-/** Replaces the pinned release's AKS MCP seeding startup with a retirement migration. */
-export function retireBundledAksMcp(bundle: string): string {
+/** Replaces the pinned release's AKS MCP seeding startup with retirement cleanup. */
+export function applyBundledAksMcpRetirementCleanup(bundle: string): string {
   const start = bundle.indexOf(AI_ASSISTANT_SEED_START);
   const end = bundle.indexOf(AI_ASSISTANT_SEED_END, start);
   if (start === -1 || end === -1) {
@@ -77,7 +77,7 @@ export function installReleasePlugins(rootDir: string = ROOT_DIR): void {
     const aiAssistantBundle = path.join(sourceDir, '.plugins', 'ai-assistant', 'main.js');
     if (manifest.plugins.some(plugin => plugin.name === 'ai-assistant')) {
       const bundle = fs.readFileSync(aiAssistantBundle, 'utf8');
-      fs.writeFileSync(aiAssistantBundle, retireBundledAksMcp(bundle));
+      fs.writeFileSync(aiAssistantBundle, applyBundledAksMcpRetirementCleanup(bundle));
     }
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });

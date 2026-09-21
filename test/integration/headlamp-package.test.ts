@@ -523,6 +523,12 @@ test('shipped plugins use verified workspace and release sources', () => {
   assert.doesNotMatch(aiAssistantBundle, /Error preconfiguring built-in MCP servers/);
 });
 
+test('aks-mcp remains retired from AKS Desktop product policy and tools', () => {
+  assert.doesNotMatch(JSON.stringify(rootManifest.config.externalTools), /aks-mcp/i);
+  assert.doesNotMatch(JSON.stringify(rootManifest.headlamp.runCommands), /aks-mcp/i);
+  assert.doesNotMatch(JSON.stringify(rootManifest.headlamp.plugins), /aks-mcp/i);
+});
+
 test('AKS product policy owns development and production command grants', () => {
   const aksDesktop = (rootManifest.headlamp.plugins as any[]).find(
     plugin => plugin.name === 'aks-desktop'
