@@ -318,6 +318,25 @@ test('macOS builds report UTC timestamps for each outer build phase', () => {
   );
 });
 
+test('macOS ARM64 builds require the hosted Apple Silicon image', () => {
+  const workflow = fs.readFileSync(
+    path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
+    'utf8'
+  );
+  const armStage = workflow.slice(
+    workflow.indexOf('- stage: Build_arm64'),
+    workflow.indexOf('- stage: Sign_arm64')
+  );
+
+  assert.doesNotMatch(armStage, /condition: eq\(1, 0\)/);
+  assert.match(armStage, /name: Azure Pipelines/);
+  assert.match(armStage, /vmImage: macos-15-arm64/);
+  assert.doesNotMatch(armStage, /hostArchitecture:/);
+  assert.match(armStage, /test "\$\(uname -m\)" = arm64/);
+  assert.match(armStage, /test "\$\(node -p process\.arch\)" = arm64/);
+  assert.match(armStage, /test "\$\(go env GOARCH\)" = arm64/);
+});
+
 test('macOS builds cache verified Azure CLI extensions after npm ci', () => {
   const workflow = fs.readFileSync(
     path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),

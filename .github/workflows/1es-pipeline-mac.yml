@@ -40,11 +40,13 @@ extends:
       - stage: Build_arm64
         displayName: 'Build (arm64)'
         dependsOn: []  # Explicitly no dependencies - run in parallel with x64
-        # Keep disabled until the pool provides the native ARM64 host required by package-target.
-        condition: eq(1, 0)
         jobs:
           - job: BuildJob_arm64
             displayName: 'Build macOS Application (Apple Silicon)'
+            pool:
+              name: Azure Pipelines
+              vmImage: macos-15-arm64
+              os: macOS
             timeoutInMinutes: 120
             variables:
               - group: AKS Desktop
@@ -210,6 +212,12 @@ extends:
 
                   step_started=$SECONDS
                   echo "[build-timing] architecture configuration started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+                  echo "Native host architecture: $(uname -m)"
+                  echo "Node architecture: $(node -p process.arch)"
+                  echo "Go architecture: $(go env GOARCH)"
+                  test "$(uname -m)" = arm64
+                  test "$(node -p process.arch)" = arm64
+                  test "$(go env GOARCH)" = arm64
                   cd node_modules/@headlamp-k8s/headlamp-source/source/app
 
                   # Use Node.js to safely modify the JSON
