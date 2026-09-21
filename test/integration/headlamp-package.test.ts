@@ -338,6 +338,24 @@ test('one Intel-hosted macOS job packages x64 and native ARM64 tools', () => {
   assert.equal(workflow.match(/dependsOn: Build_macOS/g)?.length, 2);
 });
 
+test('cross-built ARM tools use structural verification on the Intel host', () => {
+  const verifier = fs.readFileSync(
+    path.join(ROOT_DIR, 'build', 'verify-bundled-tools.ts'),
+    'utf8'
+  );
+  assert.match(verifier, /canInvokePackagedRuntime/);
+  assert.match(verifier, /Skipped \$\{AZURE_CLI_RUNTIME_ARCH\} runtime invocation/);
+  assert.match(verifier, /Cross-built runtime architecture/);
+  assert.match(verifier, /invalidInstalledAzureCliExtensions/);
+
+  const installer = fs.readFileSync(
+    path.join(ROOT_DIR, 'build', 'download-az-cli.ts'),
+    'utf8'
+  );
+  assert.match(installer, /verifyDarwinArm64Extensions\(extensionDir\)/);
+  assert.match(installer, /cache verification failed; rebuilding/);
+});
+
 test('macOS builds cache verified Azure CLI extensions after npm ci', () => {
   const workflow = fs.readFileSync(
     path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
@@ -497,6 +515,12 @@ test('shipped plugins use verified workspace and release sources', () => {
   assert.equal(rootManifest.scripts['ai-assistant:build'], undefined);
   assert.match(rootManifest.scripts['i18n:collect'], /plugin:install-releases/);
   assert.match(rootManifest.scripts['headlamp:translations'], /distribute-packaged/);
+  const aiAssistantBundle = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, '.plugins', 'ai-assistant', 'main.js'),
+    'utf8'
+  );
+  assert.match(aiAssistantBundle, /Error retiring built-in AKS MCP server/);
+  assert.doesNotMatch(aiAssistantBundle, /Error preconfiguring built-in MCP servers/);
 });
 
 test('AKS product policy owns development and production command grants', () => {
