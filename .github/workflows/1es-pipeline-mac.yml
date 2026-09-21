@@ -65,8 +65,6 @@ extends:
                 value: $(Pipeline.Workspace)/.go/build
               - name: AZ_CLI_EXTENSION_CACHE_ROOT
                 value: $(Pipeline.Workspace)/.azure-cli-extensions
-              - name: HEADLAMP_SKIP_INSTALL_BACKEND_BUILD
-                value: 'true'
             templateContext:
               outputs:
                 - output: pipelineArtifact

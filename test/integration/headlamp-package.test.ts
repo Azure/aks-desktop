@@ -325,7 +325,7 @@ test('one Intel-hosted macOS job packages x64 and native ARM64 tools', () => {
   assert.match(buildStage, /task: UsePythonVersion@0/);
   assert.match(buildStage, /versionSpec: '3\.13'/);
   assert.match(buildStage, /for arch in x64 arm64/);
-  assert.match(buildStage, /HEADLAMP_SKIP_INSTALL_BACKEND_BUILD/);
+  assert.doesNotMatch(buildStage, /HEADLAMP_SKIP_INSTALL_BACKEND_BUILD/);
   assert.match(buildStage, /build:mac:\$arch" -- --reuse-prepared-assets/);
   assert.match(buildStage, /verification_command='test:distribution'/);
   assert.match(buildStage, /verification_command='test:post-build'/);
