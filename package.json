@@ -92,8 +92,9 @@
             "checksum": "25bd3a638d4820ee027317888c5057bddf5b304521f59d776ae3bea6830d0c7f"
           },
           "arm64": {
-            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-aarch64-apple-darwin-install_only_stripped.tar.gz",
-            "checksum": "c3223d5924a0ed0ef5958a750377c362d0957587f896c0f6c635ae4b39e0f337"
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-x86_64-apple-darwin-install_only_stripped.tar.gz",
+            "checksum": "25bd3a638d4820ee027317888c5057bddf5b304521f59d776ae3bea6830d0c7f",
+            "runtimeArch": "x64"
           }
         }
       },
@@ -125,8 +126,9 @@
             "checksum": "4617d8d16350dbee34f8024059ac768e0cfbdb7ec8f637abdfdaab1e5c9ba0ce"
           },
           "arm64": {
-            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-macos-arm64.tar.gz",
-            "checksum": "1cdcf8dc99ece8c10d198d9451d7ac0905a4d63aea5fac5fcf903bdf2aba93b3"
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-macos-x86_64.tar.gz",
+            "checksum": "4617d8d16350dbee34f8024059ac768e0cfbdb7ec8f637abdfdaab1e5c9ba0ce",
+            "runtimeArch": "x64"
           }
         },
         "win32": {

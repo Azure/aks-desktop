@@ -67,7 +67,11 @@ function createRoot(): string {
           python: {
             darwin: {
               x64: { url: 'darwin-x64', checksum: 'darwin-x64-sum' },
-              arm64: { url: 'darwin-arm64', checksum: 'darwin-arm64-sum' },
+              arm64: {
+                url: 'darwin-x64',
+                checksum: 'darwin-x64-sum',
+                runtimeArch: 'x64',
+              },
             },
             linux: {
               x64: { url: 'linux-x64', checksum: 'linux-x64-sum' },
@@ -83,7 +87,7 @@ function createRoot(): string {
             },
             darwin: {
               x64: { url: 'mac-x64', checksum: 'mac-x64-sum' },
-              arm64: { url: 'mac-arm64', checksum: 'mac-arm64-sum' },
+              arm64: { url: 'mac-x64', checksum: 'mac-x64-sum', runtimeArch: 'x64' },
             },
             linux: {
               x64: { url: 'linux-cli-x64', checksum: 'linux-cli-x64-sum' },
@@ -101,12 +105,14 @@ function createRoot(): string {
   return rootDir;
 }
 
-test('selects native Python for Linux and macOS package targets', () => {
+test('selects native Linux tools and x64 tools for macOS ARM64 cross-packaging', () => {
   const rootDir = createRoot();
   try {
     const darwin = resolveAzureCliTarget(rootDir, 'darwin', 'arm64');
-    assert.equal(darwin.python?.url, 'darwin-arm64');
-    assert.equal(darwin.cliPackage?.url, 'mac-arm64');
+    assert.equal(darwin.python?.url, 'darwin-x64');
+    assert.equal(darwin.python?.runtimeArch, 'x64');
+    assert.equal(darwin.cliPackage?.url, 'mac-x64');
+    assert.equal(darwin.cliPackage?.runtimeArch, 'x64');
     const linuxArm = resolveAzureCliTarget(rootDir, 'linux', 'arm64');
     assert.equal(linuxArm.python?.url, 'linux-arm64');
     assert.equal(linuxArm.cliPackage?.url, 'linux-cli-arm64');

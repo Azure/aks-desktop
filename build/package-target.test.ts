@@ -203,7 +203,7 @@ test('rejects unsupported platform and architecture pairs', () => {
   assert.throws(() => packageArguments('aix', 'x64'), /Unsupported package target/);
 });
 
-test('requires a native architecture on Linux and macOS hosts', () => {
+test('requires native Linux builds but supports macOS ARM64 cross-packaging', () => {
   assert.doesNotThrow(() => validatePackageHost({ platform: 'linux', arch: 'arm64' }, 'linux', 'arm64'));
   assert.throws(
     () => validatePackageHost({ platform: 'linux', arch: 'arm64' }, 'linux', 'x64'),
@@ -212,9 +212,8 @@ test('requires a native architecture on Linux and macOS hosts', () => {
   assert.doesNotThrow(() =>
     validatePackageHost({ platform: 'darwin', arch: 'arm64' }, 'darwin', 'arm64')
   );
-  assert.throws(
-    () => validatePackageHost({ platform: 'darwin', arch: 'arm64' }, 'darwin', 'x64'),
-    /native arm64 build host/
+  assert.doesNotThrow(() =>
+    validatePackageHost({ platform: 'darwin', arch: 'arm64' }, 'darwin', 'x64')
   );
   assert.throws(
     () => validatePackageHost({ platform: 'darwin', arch: 'x64' }, 'darwin', 'arm64'),

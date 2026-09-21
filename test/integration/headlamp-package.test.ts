@@ -318,6 +318,23 @@ test('macOS builds report UTC timestamps for each outer build phase', () => {
   );
 });
 
+test('macOS ARM64 packages cross-build on the shared Intel worker', () => {
+  const workflow = fs.readFileSync(
+    path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
+    'utf8'
+  );
+  const armStage = workflow.slice(
+    workflow.indexOf('- stage: Build_arm64'),
+    workflow.indexOf('- stage: Sign_arm64')
+  );
+
+  assert.doesNotMatch(armStage, /condition: eq\(1, 0\)/);
+  assert.doesNotMatch(armStage, /macos-15-arm64/);
+  assert.doesNotMatch(armStage, /hostArchitecture: arm64/);
+  assert.match(armStage, /npm run test:post-build/);
+  assert.doesNotMatch(armStage, /npm run test:distribution/);
+});
+
 test('macOS builds cache verified Azure CLI extensions after npm ci', () => {
   const workflow = fs.readFileSync(
     path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
@@ -421,6 +438,10 @@ test('package targets have verified external tool runtimes', () => {
     }
   }
   const windowsArm = azureCli.win32.arm64;
+  const darwinArm = azureCli.darwin.arm64;
+  assert.equal(darwinArm.url, azureCli.darwin.x64.url);
+  assert.equal(darwinArm.checksum, azureCli.darwin.x64.checksum);
+  assert.equal(darwinArm.runtimeArch, 'x64');
   assert.equal(
     new URL(windowsArm.url).pathname.split('/').at(-1),
     `azure-cli-${azureCli.version}-x64.zip`

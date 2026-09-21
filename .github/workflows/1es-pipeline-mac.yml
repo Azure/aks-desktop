@@ -40,8 +40,6 @@ extends:
       - stage: Build_arm64
         displayName: 'Build (arm64)'
         dependsOn: []  # Explicitly no dependencies - run in parallel with x64
-        # Keep disabled until the pool provides the native ARM64 host required by package-target.
-        condition: eq(1, 0)
         jobs:
           - job: BuildJob_arm64
             displayName: 'Build macOS Application (Apple Silicon)'
@@ -300,7 +298,8 @@ extends:
 
                   verification_started=$SECONDS
                   echo "[build-timing] distribution verification started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-                  npm run test:distribution
+                  # The ARM64 app cannot be launched on the Intel build host.
+                  npm run test:post-build
                   echo "[build-timing] distribution verification completed in $((SECONDS - verification_started))s"
                   echo "✅ Build complete for $(ARCH_DISPLAY) at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                 displayName: "Build AKS desktop ($(ARCH_DISPLAY))"

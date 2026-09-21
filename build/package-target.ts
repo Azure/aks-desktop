@@ -65,7 +65,10 @@ export function validatePackageHost(
   if (target.platform !== hostPlatform) {
     throw new Error(`Cannot package ${target.platform}/${target.arch} from ${hostPlatform}/${hostArch}`);
   }
-  if (target.platform !== 'win32' && target.arch !== hostArch) {
+  const canCrossPackage =
+    target.platform === 'win32' ||
+    (target.platform === 'darwin' && hostArch === 'x64' && target.arch === 'arm64');
+  if (target.arch !== hostArch && !canCrossPackage) {
     throw new Error(
       `${target.platform} ${target.arch} packages require a native ${target.arch} build host`
     );
