@@ -440,6 +440,10 @@ test('build workflows derive Go and cache modules plus compiled outputs', () => 
   assert.match(ciWorkflow, /go-version: \$\{\{ steps\.go-version\.outputs\.version \}\}/);
   assert.match(ciWorkflow, /cache-dependency-path:[\s\S]+packages\/headlamp-source\/package\.json/);
   assert.match(ciWorkflow, /cache-dependency-path:[\s\S]+patches\/\*\.patch/);
+  assert.ok(
+    ciWorkflow.indexOf('run frontend:install:ci') <
+      ciWorkflow.indexOf('run frontend:test')
+  );
 });
 
 test('package targets have verified external tool runtimes', () => {

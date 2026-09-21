@@ -74,6 +74,7 @@ jobs:
       - name: Test Headlamp source
         run: |
           npm --prefix node_modules/@headlamp-k8s/headlamp-source/source run backend:test
+          npm --prefix node_modules/@headlamp-k8s/headlamp-source/source run frontend:install:ci
           npm --prefix node_modules/@headlamp-k8s/headlamp-source/source run frontend:test -- \
             --run \
             --exclude src/make-env.test.js \
