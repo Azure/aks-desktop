@@ -1,0 +1,59 @@
+From 54dd81c96cbb59d13018a9e5080ef4a582d4184a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Mon, 21 Sep 2026 12:23:28 +0300
+Subject: [PATCH] app: package: Avoid repeated package preparation
+
+The package script currently creates an unpacked application before invoking
+Electron Builder again for distributable artifacts. This repeats backend and
+application packaging work and increases memory pressure.
+
+Prepare icons, plugins, and Electron JavaScript directly before the final
+Builder pass. Expose package:prepared for callers that already produced those
+architecture-independent assets and only need another target package.
+---
+ app/electron/package.test.ts | 10 ++++++++++
+ app/package.json             |  3 ++-
+ 2 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/app/electron/package.test.ts b/app/electron/package.test.ts
+index 50980afbc..caae9309d 100644
+--- a/app/electron/package.test.ts
++++ b/app/electron/package.test.ts
+@@ -32,6 +32,7 @@ const packageJson = JSON.parse(
+   };
+   /** Dependency lifecycle scripts explicitly approved by npm. */
+   allowScripts?: Record<string, boolean>;
++  scripts: Record<string, string>;
+   /** Desktop build dependencies keyed by package name. */
+   devDependencies: Record<string, string>;
+   optionalDependencies: Record<string, string>;
+@@ -73,6 +74,15 @@ describe('desktop package configuration', () => {
+     expect(packageJson.build.artifactName).toBe('${productName}-${version}-${os}-${arch}.${ext}');
+   });
+ 
++  it('packages prepared assets without an intermediate Electron Builder pass', () => {
++    expect(packageJson.scripts.package).toBe(
++      'npm run copy-icons && npm run copy-plugins && npm run compile-electron && electron-builder build --config electron-builder.config.ts --publish never'
++    );
++    expect(packageJson.scripts['package:prepared']).toBe(
++      'electron-builder build --config electron-builder.config.ts --publish never'
++    );
++  });
++
+   it('expands the product name in Windows MSI filenames', () => {
+     expect(
+       expandMsiArtifactName(packageJson.build.artifactName, {
+diff --git a/app/package.json b/app/package.json
+index e3ee370b1..938f5b1b5 100644
+--- a/app/package.json
++++ b/app/package.json
+@@ -26,7 +26,8 @@
+     "i18n-check": "npm run i18n -- --fail-on-update",
+     "lint": "cd .. && npm run frontend:lint",
+     "lint-fix": "cd .. && npm run frontend:lint:fix",
+-    "package": "npm run build && electron-builder build --config electron-builder.config.ts --publish never",
++    "package": "npm run copy-icons && npm run copy-plugins && npm run compile-electron && electron-builder build --config electron-builder.config.ts --publish never",
++    "package:prepared": "electron-builder build --config electron-builder.config.ts --publish never",
+     "package-msi": "npm run build && node windows/msi/build.js",
+     "start": "node scripts/start.js",
+     "star": "node scripts/start.js --star",

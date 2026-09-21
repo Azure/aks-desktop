@@ -1,7 +1,7 @@
-From e79a412204643fa33c91f180903eb3e0a66d6269 Mon Sep 17 00:00:00 2001
+From 4007c2d1a07fbc9ed8eb20a1828c595880a04c75 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Sat, 19 Sep 2026 09:00:34 +0300
-Subject: [PATCH 1/5] app: e2e-tests: Cover production frontend runtime
+Subject: [PATCH 1/6] app: e2e-tests: Cover production frontend runtime
 
 Establish a builder-neutral browser contract before changing the default
 frontend toolchain. Build the production frontend and real backend, then
@@ -170,10 +170,10 @@ index 8752536ad..8689bf098 100644
      "app:i18n-check": "cd app && npm run i18n-check",
      "app:format": "cd app && npm run format",
 
-From 79616dacebc5f927d166f361387e4dd03b8a6c00 Mon Sep 17 00:00:00 2001
+From 53054188ae4cd2004cb1aa56b960cf9d6c09fe56 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Sat, 19 Sep 2026 09:04:22 +0300
-Subject: [PATCH 2/5] backend: cmd: Cover runtime base rewriting
+Subject: [PATCH 2/6] backend: cmd: Cover runtime base rewriting
 
 Extend the existing on-disk SPA rewrite fixture before changing frontend
 builders. Verify that a relative runtime base marker becomes `/` at the
@@ -214,10 +214,10 @@ index 15a4f4af2..89f4c4af4 100644
      <script>var headlampBaseUrl = '/custom';</script>
      <link rel="stylesheet" href="/custom/styles.css">
 
-From 897c9f587b483a778ac9d92f53be2fa816450e13 Mon Sep 17 00:00:00 2001
+From 7bcac93e9e2d4a43bb40bdd5b961e3991add7b64 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Sat, 19 Sep 2026 09:04:41 +0300
-Subject: [PATCH 3/5] frontend: backend: Use Rsbuild by default
+Subject: [PATCH 3/6] frontend: backend: Use Rsbuild by default
 
 Vite production builds exceed constrained CI memory and can exhaust the
 JavaScript heap or destabilize Intel macOS agents. Use Rsbuild for frontend
@@ -1093,10 +1093,10 @@ index 8689bf098..fde3fc154 100644
    "scripts": {
      "install:all": "npm install && npm run frontend:install && npm run backend:build && npm run app:install && npm run tools:install",
 
-From 0e97837fa5fca4549e718b35be3fdfc817868055 Mon Sep 17 00:00:00 2001
+From 572fcb0387ee4d8ed47e6898767419145f2217da Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Sat, 19 Sep 2026 09:06:10 +0300
-Subject: [PATCH 4/5] e2e-tests: workflows: Verify nested non-root routes
+Subject: [PATCH 4/6] e2e-tests: workflows: Verify nested non-root routes
 
 Exercise direct navigation and reload at `/headlamp/project/create-yaml`
 through the real production frontend and Go backend. Reject failed scripts
@@ -1382,10 +1382,10 @@ index 000000000..edbbfe400
 +  expect(frontendAssets.every(url => new URL(url).pathname.startsWith('/headlamp/'))).toBe(true);
 +});
 
-From eaddaec24e24a04a90a84300af90160e17ad8493 Mon Sep 17 00:00:00 2001
+From dbd196a7de56460a17ffad9148fb440a3851ec10 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Sat, 19 Sep 2026 11:16:34 +0300
-Subject: [PATCH 5/5] frontend: test: Cover default dev WebSocket proxy
+Subject: [PATCH 5/6] frontend: test: Cover default dev WebSocket proxy
 
 Exercise the configured default development server with a real WebSocket
 upgrade through `/headlamp/wsMultiplexer`. Verify the backend receives the
@@ -1529,4 +1529,98 @@ index 000000000..75eeb5e2d
 +      await new Promise(resolve => backend.close(resolve));
 +    }
 +  }
++);
+
+From 93b48812f149f4a311fa1750cba188abe8294cff Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Mon, 21 Sep 2026 17:00:34 +0300
+Subject: [PATCH 6/6] frontend: rsbuild: Normalize development proxy base
+
+PUBLIC_URL and BASE_URL may include a trailing slash. Appending proxy routes
+directly produced paths such as /headlamp//api that did not match normal
+nested-base requests.
+
+Preserve the configured base for Rsbuild and HTML while trimming trailing
+slashes from only the proxy route prefix. Cover both supported base forms.
+---
+ frontend/rsbuild.config.ts          |  5 ++-
+ frontend/src/packageScripts.test.js | 47 +++++++++++++++++------------
+ 2 files changed, 29 insertions(+), 23 deletions(-)
+
+diff --git a/frontend/rsbuild.config.ts b/frontend/rsbuild.config.ts
+index edec30718..5b6bcf44a 100644
+--- a/frontend/rsbuild.config.ts
++++ b/frontend/rsbuild.config.ts
+@@ -32,11 +32,10 @@ const backendPort = process.env.HEADLAMP_PORT || '4466';
+ const backendTarget = `http://localhost:${backendPort}`;
+ const frontendBaseUrl = process.env.PUBLIC_URL || process.env.BASE_URL || './';
+ const serverBase = frontendBaseUrl.startsWith('/') ? frontendBaseUrl : undefined;
++const serverRouteBase = serverBase?.replace(/\/+$/, '');
+ 
+ const withServerBase = (paths: string[]) =>
+-  serverBase && serverBase !== '/'
+-    ? [...paths, ...paths.map(path => `${serverBase}${path}`)]
+-    : paths;
++  serverRouteBase ? [...paths, ...paths.map(path => `${serverRouteBase}${path}`)] : paths;
+ 
+ const removeViteEntryPlugin = (): RsbuildPlugin => ({
+   name: 'remove-vite-entry',
+diff --git a/frontend/src/packageScripts.test.js b/frontend/src/packageScripts.test.js
+index 16bd661e3..36b485be4 100644
+--- a/frontend/src/packageScripts.test.js
++++ b/frontend/src/packageScripts.test.js
+@@ -59,27 +59,34 @@ test('packaged-source scripts use package-owned tsx', () => {
+   expect(dependencySync).toMatch(/dependenciesToNotCopy = \[[\s\S]*?'tsx'/);
+ });
+ 
+-test('Rsbuild development honors PUBLIC_URL', async () => {
+-  const previousPublicUrl = process.env.PUBLIC_URL;
+-  process.env.PUBLIC_URL = '/headlamp';
++test.each(['/headlamp', '/headlamp/'])(
++  'Rsbuild development honors PUBLIC_URL %s',
++  async publicUrl => {
++    const previousPublicUrl = process.env.PUBLIC_URL;
++    process.env.PUBLIC_URL = publicUrl;
+ 
+-  try {
+-    vi.resetModules();
+-    const { default: rsbuildConfig } = await import('../rsbuild.config');
+-    const [httpProxy, webSocketProxy] = rsbuildConfig.server.proxy;
++    try {
++      vi.resetModules();
++      const { default: rsbuildConfig } = await import('../rsbuild.config');
++      const [httpProxy, webSocketProxy] = rsbuildConfig.server.proxy;
+ 
+-    expect(rsbuildConfig.source.define['import.meta.env.BASE_URL']).toBe('"/headlamp"');
+-    expect(rsbuildConfig.html.templateParameters.BASE_URL).toBe('/headlamp');
+-    expect(rsbuildConfig.server.base).toBe('/headlamp');
+-    expect(rsbuildConfig.source.define).not.toHaveProperty('import.meta.env');
+-    expect(httpProxy.pathFilter).toContain('/headlamp/api');
+-    expect(webSocketProxy.pathFilter).toContain('/headlamp/wsMultiplexer');
+-  } finally {
+-    if (previousPublicUrl === undefined) {
+-      delete process.env.PUBLIC_URL;
+-    } else {
+-      process.env.PUBLIC_URL = previousPublicUrl;
++      expect(rsbuildConfig.source.define['import.meta.env.BASE_URL']).toBe(
++        JSON.stringify(publicUrl)
++      );
++      expect(rsbuildConfig.html.templateParameters.BASE_URL).toBe(publicUrl);
++      expect(rsbuildConfig.server.base).toBe(publicUrl);
++      expect(rsbuildConfig.source.define).not.toHaveProperty('import.meta.env');
++      expect(httpProxy.pathFilter).toContain('/headlamp/api');
++      expect(httpProxy.pathFilter).not.toContain('/headlamp//api');
++      expect(webSocketProxy.pathFilter).toContain('/headlamp/wsMultiplexer');
++      expect(webSocketProxy.pathFilter).not.toContain('/headlamp//wsMultiplexer');
++    } finally {
++      if (previousPublicUrl === undefined) {
++        delete process.env.PUBLIC_URL;
++      } else {
++        process.env.PUBLIC_URL = previousPublicUrl;
++      }
++      vi.resetModules();
+     }
+-    vi.resetModules();
+   }
+-});
 +);

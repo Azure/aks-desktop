@@ -450,14 +450,16 @@ index 2aad97fd95086a3bf5d208679f6217198f76c31b..bd9e45e029db03d5c65b05a49da30b5d
            receive
          );
 diff --git a/source/app/electron-builder.config.ts b/source/app/electron-builder.config.ts
-index b6ba6a59d5d3fb7bef663a11899c65dfde6abc7c..23fd8e7eb3605c8fbe5fdc32254328ea0bd646c3 100644
+index b6ba6a59d5d3fb7bef663a11899c65dfde6abc7c..63279a8d1c0c598f24ee3c7a5b0ff8bb6e323179 100644
 --- a/source/app/electron-builder.config.ts
 +++ b/source/app/electron-builder.config.ts
-@@ -57,6 +57,41 @@ const manifestFile = resolveBuildManifestPath();
+@@ -57,6 +57,51 @@ const manifestFile = resolveBuildManifestPath();
  const manifest = loadBuildManifest(manifestFile);
  const defaultManifest = path.resolve(DEFAULT_MANIFEST_FILE);
  const packageBuild = packageJson.build as ElectronBuilderConfiguration;
-+const existingAfterPack = require('./scripts/after-pack.js').default as (context: unknown) => Promise<void>;
++const existingAfterPack = require('./scripts/after-pack.js').default as (
++  context: unknown
++) => Promise<void>;
 +
 +let assemblyStartedAt: number | undefined;
 +let signingStartedAt: number | undefined;
@@ -468,14 +470,20 @@ index b6ba6a59d5d3fb7bef663a11899c65dfde6abc7c..23fd8e7eb3605c8fbe5fdc32254328ea
 +const afterPack = async (context: unknown) => {
 +  await existingAfterPack(context);
 +  console.log(
-+    `[build-timing] Electron app assembly completed${assemblyStartedAt ? ` in ${((Date.now() - assemblyStartedAt) / 1000).toFixed(3)}s` : ''}`
++    `[build-timing] Electron app assembly completed${
++      assemblyStartedAt ? ` in ${((Date.now() - assemblyStartedAt) / 1000).toFixed(3)}s` : ''
++    }`
 +  );
 +  signingStartedAt = Date.now();
-+  console.log(`[build-timing] Electron signing started at ${new Date(signingStartedAt).toISOString()}`);
++  console.log(
++    `[build-timing] Electron signing started at ${new Date(signingStartedAt).toISOString()}`
++  );
 +};
 +const afterSign = () => {
 +  console.log(
-+    `[build-timing] Electron signing completed${signingStartedAt ? ` in ${((Date.now() - signingStartedAt) / 1000).toFixed(3)}s` : ''}`
++    `[build-timing] Electron signing completed${
++      signingStartedAt ? ` in ${((Date.now() - signingStartedAt) / 1000).toFixed(3)}s` : ''
++    }`
 +  );
 +};
 +
@@ -489,13 +497,15 @@ index b6ba6a59d5d3fb7bef663a11899c65dfde6abc7c..23fd8e7eb3605c8fbe5fdc32254328ea
 +  const timing = artifactStarts.get(context.file);
 +  const name = timing?.name || context.target?.name || path.basename(context.file);
 +  console.log(
-+    `[build-timing] Electron artifact ${name} completed${timing ? ` in ${((Date.now() - timing.startedAt) / 1000).toFixed(3)}s` : ''}`
++    `[build-timing] Electron artifact ${name} completed${
++      timing ? ` in ${((Date.now() - timing.startedAt) / 1000).toFixed(3)}s` : ''
++    }`
 +  );
 +};
  
  const config: Configuration = applyBuildResources(
    applyBuildTargets(
-@@ -64,6 +99,11 @@ const config: Configuration = applyBuildResources(
+@@ -64,6 +109,11 @@ const config: Configuration = applyBuildResources(
        applyProductMetadata(
          {
            ...packageBuild,
@@ -508,10 +518,24 @@ index b6ba6a59d5d3fb7bef663a11899c65dfde6abc7c..23fd8e7eb3605c8fbe5fdc32254328ea
              // Preserve every resource except the default manifest entry.
              if (
 diff --git a/source/app/electron/build-manifest.test.ts b/source/app/electron/build-manifest.test.ts
-index 11b5f6cae639b95a840bfd82f1809c6271951e51..642c452e7dba9dcb1b00c9510811959d4cade5c3 100644
+index 11b5f6cae639b95a840bfd82f1809c6271951e51..862fea607873e492c2e6fc8756abf5b06ede020f 100644
 --- a/source/app/electron/build-manifest.test.ts
 +++ b/source/app/electron/build-manifest.test.ts
-@@ -851,6 +851,39 @@ describe('build manifest selection', () => {
+@@ -412,6 +412,13 @@ describe('platform metadata', () => {
+     });
+     expect(config.mac).toMatchObject({ appId: 'io.example.headlamp' });
+     expect(config.win).toMatchObject({ icon: 'build/icons/example.ico' });
++    expect(config).toMatchObject({
++      beforePack: expect.any(Function),
++      afterPack: expect.any(Function),
++      afterSign: expect.any(Function),
++      artifactBuildStarted: expect.any(Function),
++      artifactBuildCompleted: expect.any(Function),
++    });
+   });
+ });
+ 
+@@ -851,6 +858,39 @@ describe('build manifest selection', () => {
      );
    });
  
@@ -551,7 +575,7 @@ index 11b5f6cae639b95a840bfd82f1809c6271951e51..642c452e7dba9dcb1b00c9510811959d
    it('requires schema command arguments to contain a non-whitespace character', () => {
      const schema = JSON.parse(
        fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
-@@ -864,6 +897,49 @@ describe('build manifest selection', () => {
+@@ -864,6 +904,49 @@ describe('build manifest selection', () => {
      expect(argumentPattern.test('list\0all')).toBe(false);
    });
  
@@ -699,6 +723,34 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..0675a46bebd5f587fd89ccb7c9bdc1b4
  }
  
  if (!isRunningScript) {
+diff --git a/source/app/electron/package.test.ts b/source/app/electron/package.test.ts
+index 50980afbca683e9a0925de5270884a5c758d316a..caae9309d2c0b3326c259a4337a1fb6f0c16c0b6 100644
+--- a/source/app/electron/package.test.ts
++++ b/source/app/electron/package.test.ts
+@@ -32,6 +32,7 @@ const packageJson = JSON.parse(
+   };
+   /** Dependency lifecycle scripts explicitly approved by npm. */
+   allowScripts?: Record<string, boolean>;
++  scripts: Record<string, string>;
+   /** Desktop build dependencies keyed by package name. */
+   devDependencies: Record<string, string>;
+   optionalDependencies: Record<string, string>;
+@@ -73,6 +74,15 @@ describe('desktop package configuration', () => {
+     expect(packageJson.build.artifactName).toBe('${productName}-${version}-${os}-${arch}.${ext}');
+   });
+ 
++  it('packages prepared assets without an intermediate Electron Builder pass', () => {
++    expect(packageJson.scripts.package).toBe(
++      'npm run copy-icons && npm run copy-plugins && npm run compile-electron && electron-builder build --config electron-builder.config.ts --publish never'
++    );
++    expect(packageJson.scripts['package:prepared']).toBe(
++      'electron-builder build --config electron-builder.config.ts --publish never'
++    );
++  });
++
+   it('expands the product name in Windows MSI filenames', () => {
+     expect(
+       expandMsiArtifactName(packageJson.build.artifactName, {
 diff --git a/source/app/electron/plugin-management.test.ts b/source/app/electron/plugin-management.test.ts
 index 0c235601cc97ce5970fddb96fbc2371d5b28ca3f..85f49250db8ff26a0b3c1efd198ddf7435ded48c 100644
 --- a/source/app/electron/plugin-management.test.ts
@@ -3712,20 +3764,21 @@ index 7a6ce832755838335ed56c52dcad7909cfae047b..52a524da572e1c340768114adc3b850f
        return { success: true };
      } catch {
 diff --git a/source/app/package.json b/source/app/package.json
-index e3ee370b17f66c9d7b3f11f89d796860d717d1e2..f8b936731308cd4f4dca307c8a440bd9de143133 100644
+index e3ee370b17f66c9d7b3f11f89d796860d717d1e2..938f5b1b51b83c4d182601c8b2c9e39a7c87e3b8 100644
 --- a/source/app/package.json
 +++ b/source/app/package.json
-@@ -26,7 +26,7 @@
+@@ -26,7 +26,8 @@
      "i18n-check": "npm run i18n -- --fail-on-update",
      "lint": "cd .. && npm run frontend:lint",
      "lint-fix": "cd .. && npm run frontend:lint:fix",
 -    "package": "npm run build && electron-builder build --config electron-builder.config.ts --publish never",
 +    "package": "npm run copy-icons && npm run copy-plugins && npm run compile-electron && electron-builder build --config electron-builder.config.ts --publish never",
++    "package:prepared": "electron-builder build --config electron-builder.config.ts --publish never",
      "package-msi": "npm run build && node windows/msi/build.js",
      "start": "node scripts/start.js",
      "star": "node scripts/start.js --star",
 diff --git a/source/app/scripts/after-pack.js b/source/app/scripts/after-pack.js
-index af2b9417da6d92ed10fecdb1e0265561c1672141..a245f421134adbe337980ea3cd371ccdd12036df 100644
+index af2b9417da6d92ed10fecdb1e0265561c1672141..83799e1d30108217f86a575eec14e8374354f7e8 100644
 --- a/source/app/scripts/after-pack.js
 +++ b/source/app/scripts/after-pack.js
 @@ -4,6 +4,8 @@ const fs = require('node:fs');
@@ -3737,33 +3790,39 @@ index af2b9417da6d92ed10fecdb1e0265561c1672141..a245f421134adbe337980ea3cd371ccd
    const { loadBuildManifest, verifyPackagedResources } = await import(
      '../build/build-manifest.mjs'
    );
-@@ -21,4 +23,7 @@ exports.default = async context => {
+@@ -21,4 +23,9 @@ exports.default = async context => {
    }
  
    verifyPackagedResources(resourcesDirectory, loadBuildManifest(), context.electronPlatformName);
 +  console.log(
-+    `[build-timing] Electron afterPack completed in ${((Date.now() - startedAt) / 1000).toFixed(3)}s`
++    `[build-timing] Electron afterPack completed in ${((Date.now() - startedAt) / 1000).toFixed(
++      3
++    )}s`
 +  );
  };
 diff --git a/source/app/scripts/build-backend.js b/source/app/scripts/build-backend.js
-index 9db1d9ea38fe826e26113c644a5d1cd82bb9faae..c2b53be14b11149ea471c83107355e1df5921004 100644
+index 9db1d9ea38fe826e26113c644a5d1cd82bb9faae..860ed4dab423b6c290a2fda006961205f450b2b3 100644
 --- a/source/app/scripts/build-backend.js
 +++ b/source/app/scripts/build-backend.js
-@@ -35,6 +35,8 @@ function mapElectronArchToGoArch(electronArch) {
+@@ -35,6 +35,10 @@ function mapElectronArchToGoArch(electronArch) {
  exports.mapElectronArchToGoArch = mapElectronArchToGoArch;
  
  exports.default = async context => {
 +  const startedAt = Date.now();
-+  console.log(`[build-timing] Electron backend hook started at ${new Date(startedAt).toISOString()}`);
++  console.log(
++    `[build-timing] Electron backend hook started at ${new Date(startedAt).toISOString()}`
++  );
    const arch = mapElectronArchToGoArch(context.arch);
  
    let osName = '';
-@@ -57,4 +59,7 @@ exports.default = async context => {
+@@ -57,4 +61,9 @@ exports.default = async context => {
      },
      cwd: '..',
    });
 +  console.log(
-+    `[build-timing] Electron backend hook completed in ${((Date.now() - startedAt) / 1000).toFixed(3)}s`
++    `[build-timing] Electron backend hook completed in ${((Date.now() - startedAt) / 1000).toFixed(
++      3
++    )}s`
 +  );
  };
 diff --git a/source/app/scripts/build-manifest.ts b/source/app/scripts/build-manifest.ts
@@ -4900,7 +4959,7 @@ index b33e7f7e4f8024aa8548f13e73ded89bcc36ba80..be783b4f7daaef09ec2859e3529cc788
      "@storybook/addon-links": "^9.1.19",
      "@storybook/react-vite": "^9.1.19",
 diff --git a/source/frontend/rsbuild.config.ts b/source/frontend/rsbuild.config.ts
-index b208535edf8fd0cbbbdab4f2cb19bd4a3ae8585d..edec30718ac30c032a5c8a10fcc768f242f2dfdf 100644
+index b208535edf8fd0cbbbdab4f2cb19bd4a3ae8585d..5b6bcf44a38207cc54c55c0e56428c16d4bae521 100644
 --- a/source/frontend/rsbuild.config.ts
 +++ b/source/frontend/rsbuild.config.ts
 @@ -14,7 +14,7 @@
@@ -4912,7 +4971,7 @@ index b208535edf8fd0cbbbdab4f2cb19bd4a3ae8585d..edec30718ac30c032a5c8a10fcc768f2
  import { pluginNodePolyfill } from '@rsbuild/plugin-node-polyfill';
  import { pluginReact } from '@rsbuild/plugin-react';
  import { pluginSvgr } from '@rsbuild/plugin-svgr';
-@@ -22,17 +22,54 @@ import { pluginSvgr } from '@rsbuild/plugin-svgr';
+@@ -22,17 +22,53 @@ import { pluginSvgr } from '@rsbuild/plugin-svgr';
  // Dynamically inject REACT_APP_ environment variables
  const reactAppEnvVars = Object.entries(process.env)
    .filter(([key, value]) => key.startsWith('REACT_APP_') && value !== undefined)
@@ -4933,11 +4992,10 @@ index b208535edf8fd0cbbbdab4f2cb19bd4a3ae8585d..edec30718ac30c032a5c8a10fcc768f2
  const backendTarget = `http://localhost:${backendPort}`;
 +const frontendBaseUrl = process.env.PUBLIC_URL || process.env.BASE_URL || './';
 +const serverBase = frontendBaseUrl.startsWith('/') ? frontendBaseUrl : undefined;
++const serverRouteBase = serverBase?.replace(/\/+$/, '');
 +
 +const withServerBase = (paths: string[]) =>
-+  serverBase && serverBase !== '/'
-+    ? [...paths, ...paths.map(path => `${serverBase}${path}`)]
-+    : paths;
++  serverRouteBase ? [...paths, ...paths.map(path => `${serverRouteBase}${path}`)] : paths;
 +
 +const removeViteEntryPlugin = (): RsbuildPlugin => ({
 +  name: 'remove-vite-entry',
@@ -4974,7 +5032,7 @@ index b208535edf8fd0cbbbdab4f2cb19bd4a3ae8585d..edec30718ac30c032a5c8a10fcc768f2
  
  export default defineConfig({
    source: {
-@@ -41,7 +78,7 @@ export default defineConfig({
+@@ -41,7 +77,7 @@ export default defineConfig({
      },
      define: {
        global: 'globalThis',
@@ -4983,7 +5041,7 @@ index b208535edf8fd0cbbbdab4f2cb19bd4a3ae8585d..edec30718ac30c032a5c8a10fcc768f2
        'import.meta.env.UNDER_TEST': JSON.stringify(process.env.UNDER_TEST === 'true'), // Define UNDER_TEST as a boolean literal
        ...reactAppEnvVars, // Inject REACT_APP_ environment variables
      },
-@@ -49,16 +86,17 @@ export default defineConfig({
+@@ -49,16 +85,17 @@ export default defineConfig({
    html: {
      template: './index.html',
      templateParameters: {
@@ -5003,7 +5061,7 @@ index b208535edf8fd0cbbbdab4f2cb19bd4a3ae8585d..edec30718ac30c032a5c8a10fcc768f2
            '/api',
            '/clusters',
            '/plugins',
-@@ -72,12 +110,12 @@ export default defineConfig({
+@@ -72,12 +109,12 @@ export default defineConfig({
            '/parseKubeConfig',
            '/cluster',
            '/metrics',
@@ -5018,7 +5076,7 @@ index b208535edf8fd0cbbbdab4f2cb19bd4a3ae8585d..edec30718ac30c032a5c8a10fcc768f2
          target: backendTarget,
          changeOrigin: true,
          ws: true,
-@@ -88,6 +126,7 @@ export default defineConfig({
+@@ -88,6 +125,7 @@ export default defineConfig({
    //   hmr: false,
    // },
    output: {
@@ -5026,7 +5084,7 @@ index b208535edf8fd0cbbbdab4f2cb19bd4a3ae8585d..edec30718ac30c032a5c8a10fcc768f2
      distPath: {
        root: 'build',
      },
-@@ -154,6 +193,9 @@ export default defineConfig({
+@@ -154,6 +192,9 @@ export default defineConfig({
    },
  
    plugins: [
@@ -7387,10 +7445,10 @@ index d2a95c15bfccd3867823701e468c11e0f3bbbb2f..4fe2bd7063bb07ed71bda9306a9acaf2
  
  export { useCluster, useConnectApi, useSelectedClusters } from './api/v1/hooks';
 diff --git a/source/frontend/src/packageScripts.test.js b/source/frontend/src/packageScripts.test.js
-index 5f915775601cc823796e48ad140648a5a3618da9..16bd661e3ee9337b94ccafcdf5c515795d9ef865 100644
+index 5f915775601cc823796e48ad140648a5a3618da9..36b485be444be0f21265878962be471e921457d2 100644
 --- a/source/frontend/src/packageScripts.test.js
 +++ b/source/frontend/src/packageScripts.test.js
-@@ -39,13 +39,47 @@ test('packaged-source scripts use package-owned tsx', () => {
+@@ -39,13 +39,54 @@ test('packaged-source scripts use package-owned tsx', () => {
    );
  
    expect(rootPackage.devDependencies).toHaveProperty('tsx');
@@ -7417,30 +7475,37 @@ index 5f915775601cc823796e48ad140648a5a3618da9..16bd661e3ee9337b94ccafcdf5c51579
    expect(dependencySync).toMatch(/dependenciesToNotCopy = \[[\s\S]*?'tsx'/);
  });
 +
-+test('Rsbuild development honors PUBLIC_URL', async () => {
-+  const previousPublicUrl = process.env.PUBLIC_URL;
-+  process.env.PUBLIC_URL = '/headlamp';
++test.each(['/headlamp', '/headlamp/'])(
++  'Rsbuild development honors PUBLIC_URL %s',
++  async publicUrl => {
++    const previousPublicUrl = process.env.PUBLIC_URL;
++    process.env.PUBLIC_URL = publicUrl;
 +
-+  try {
-+    vi.resetModules();
-+    const { default: rsbuildConfig } = await import('../rsbuild.config');
-+    const [httpProxy, webSocketProxy] = rsbuildConfig.server.proxy;
++    try {
++      vi.resetModules();
++      const { default: rsbuildConfig } = await import('../rsbuild.config');
++      const [httpProxy, webSocketProxy] = rsbuildConfig.server.proxy;
 +
-+    expect(rsbuildConfig.source.define['import.meta.env.BASE_URL']).toBe('"/headlamp"');
-+    expect(rsbuildConfig.html.templateParameters.BASE_URL).toBe('/headlamp');
-+    expect(rsbuildConfig.server.base).toBe('/headlamp');
-+    expect(rsbuildConfig.source.define).not.toHaveProperty('import.meta.env');
-+    expect(httpProxy.pathFilter).toContain('/headlamp/api');
-+    expect(webSocketProxy.pathFilter).toContain('/headlamp/wsMultiplexer');
-+  } finally {
-+    if (previousPublicUrl === undefined) {
-+      delete process.env.PUBLIC_URL;
-+    } else {
-+      process.env.PUBLIC_URL = previousPublicUrl;
++      expect(rsbuildConfig.source.define['import.meta.env.BASE_URL']).toBe(
++        JSON.stringify(publicUrl)
++      );
++      expect(rsbuildConfig.html.templateParameters.BASE_URL).toBe(publicUrl);
++      expect(rsbuildConfig.server.base).toBe(publicUrl);
++      expect(rsbuildConfig.source.define).not.toHaveProperty('import.meta.env');
++      expect(httpProxy.pathFilter).toContain('/headlamp/api');
++      expect(httpProxy.pathFilter).not.toContain('/headlamp//api');
++      expect(webSocketProxy.pathFilter).toContain('/headlamp/wsMultiplexer');
++      expect(webSocketProxy.pathFilter).not.toContain('/headlamp//wsMultiplexer');
++    } finally {
++      if (previousPublicUrl === undefined) {
++        delete process.env.PUBLIC_URL;
++      } else {
++        process.env.PUBLIC_URL = previousPublicUrl;
++      }
++      vi.resetModules();
 +    }
-+    vi.resetModules();
 +  }
-+});
++);
 diff --git a/source/frontend/src/plugin/__snapshots__/pluginLib.snapshot b/source/frontend/src/plugin/__snapshots__/pluginLib.snapshot
 index 077fb19d3b592fb409ed341a736bd5c947eca4de..54e4901ab35e302aa94662c12f68951891d8fd20 100644
 --- a/source/frontend/src/plugin/__snapshots__/pluginLib.snapshot
