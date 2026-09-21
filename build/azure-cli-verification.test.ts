@@ -11,6 +11,7 @@ import {
   canInvokePackagedRuntime,
   getExtensionTimeoutResult,
   invalidInstalledAzureCliExtensions,
+  missingInstalledWheelFiles,
   readInstalledAzureCliExtensionVersion,
   readRequiredAzureCliExtensionVersions,
   readRequiredAzureCliExtensions,
@@ -104,6 +105,15 @@ test("validates exact installed extension names and versions from wheel metadata
     path.join(resourceGraph, "METADATA"),
     "Name: resource-graph\nVersion: 2.1.1\n"
   );
+  fs.writeFileSync(
+    path.join(resourceGraph, "RECORD"),
+    "resource_graph/__init__.py,sha256=test,0\n../../bin/tool,sha256=test,0\nresource_graph/__pycache__/optional.pyc,,\n"
+  );
+  fs.mkdirSync(path.join(extensionRoot, "resource-graph", "resource_graph"));
+  fs.writeFileSync(
+    path.join(extensionRoot, "resource-graph", "resource_graph", "__init__.py"),
+    ""
+  );
 
   assert.equal(
     readInstalledAzureCliExtensionVersion(
@@ -122,6 +132,29 @@ test("validates exact installed extension names and versions from wheel metadata
   assert.deepEqual(
     invalidInstalledAzureCliExtensions(extensionRoot, { "resource-graph": "2.1.0" }),
     ["resource-graph"]
+  );
+  fs.mkdirSync(path.join(extensionRoot, "aks-preview"));
+  assert.deepEqual(
+    invalidInstalledAzureCliExtensions(extensionRoot, { "resource-graph": "2.1.1" }),
+    ["aks-preview"]
+  );
+  assert.deepEqual(
+    missingInstalledWheelFiles(path.join(extensionRoot, "resource-graph")),
+    []
+  );
+  fs.rmSync(path.join(extensionRoot, "resource-graph", "resource_graph", "__init__.py"));
+  assert.deepEqual(
+    missingInstalledWheelFiles(path.join(extensionRoot, "resource-graph")),
+    ["resource_graph/__init__.py"]
+  );
+  fs.writeFileSync(
+    path.join(extensionRoot, "resource-graph", "resource_graph", "__init__.py"),
+    ""
+  );
+  fs.rmSync(path.join(resourceGraph, "RECORD"));
+  assert.deepEqual(
+    missingInstalledWheelFiles(path.join(extensionRoot, "resource-graph")),
+    ["resource_graph-2.1.1.dist-info/RECORD"]
   );
 });
 

@@ -15,7 +15,10 @@ import * as http from 'http';
 import { execFileSync, execSync } from 'child_process';
 import { createHash } from 'crypto';
 import { createWriteStream, createReadStream } from 'fs';
-import { invalidInstalledAzureCliExtensions } from './azure-cli-verification';
+import {
+  invalidInstalledAzureCliExtensions,
+  missingInstalledWheelFiles,
+} from './azure-cli-verification';
 import {
   generateUnixAzWrapperScript,
   UNIX_AZ_CLI_EXTENSIONS_DIRNAME,
@@ -294,6 +297,14 @@ function verifyDarwinArm64Extensions(extensionDir: string): void {
     throw new Error(
       `Missing or stale Azure CLI extension metadata: ${invalidExtensions.join(', ')}`
     );
+  }
+  for (const extension of AZ_CLI_EXTENSIONS) {
+    const missingFiles = missingInstalledWheelFiles(path.join(extensionDir, extension));
+    if (missingFiles.length > 0) {
+      throw new Error(
+        `Incomplete Azure CLI extension ${extension}: ${missingFiles.slice(0, 5).join(', ')}`
+      );
+    }
   }
   verifyDarwinArm64Libraries(extensionDir);
 }

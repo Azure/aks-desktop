@@ -43,7 +43,7 @@ export function invalidInstalledAzureCliExtensions(
   extensionRoot: string,
   extensionVersions: Record<string, string>
 ): string[] {
-  return Object.entries(extensionVersions)
+  const invalidConfigured = Object.entries(extensionVersions)
     .filter(([extension, version]) =>
       readInstalledAzureCliExtensionVersion(
         path.join(extensionRoot, extension),
@@ -51,6 +51,46 @@ export function invalidInstalledAzureCliExtensions(
       ) !== version
     )
     .map(([extension]) => extension);
+  if (!fs.existsSync(extensionRoot)) return invalidConfigured;
+  const configured = new Set(Object.keys(extensionVersions));
+  const unexpected = fs.readdirSync(extensionRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && !configured.has(entry.name))
+    .map(entry => entry.name);
+  return [...invalidConfigured, ...unexpected].sort();
+}
+
+/** Returns files listed by installed wheel RECORD metadata that are absent. */
+export function missingInstalledWheelFiles(extensionDir: string): string[] {
+  if (!fs.existsSync(extensionDir)) return [extensionDir];
+  const missing: string[] = [];
+  const recordPaths: string[] = [];
+  for (const entry of fs.readdirSync(extensionDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.endsWith('.dist-info')) continue;
+    const recordPath = path.join(extensionDir, entry.name, 'RECORD');
+    if (!fs.existsSync(recordPath)) {
+      missing.push(`${entry.name}/RECORD`);
+    } else {
+      recordPaths.push(recordPath);
+    }
+  }
+  for (const recordPath of recordPaths) {
+    for (const line of fs.readFileSync(recordPath, 'utf8').split('\n')) {
+      if (!line) continue;
+      const record = line.match(/^"?([^",]+)"?,([^,]*),/);
+      const relativePath = record?.[1];
+      const hash = record?.[2];
+      if (!relativePath || !hash?.startsWith('sha256=')) continue;
+      const installedPath = path.resolve(extensionDir, relativePath);
+      const relativeInstalledPath = path.relative(extensionDir, installedPath);
+      if (relativeInstalledPath.startsWith('..') || path.isAbsolute(relativeInstalledPath)) {
+        continue;
+      }
+      if (!fs.existsSync(installedPath)) {
+        missing.push(relativePath);
+      }
+    }
+  }
+  return missing.sort();
 }
 
 /** Returns whether a packaged native runtime can execute on the current host. */

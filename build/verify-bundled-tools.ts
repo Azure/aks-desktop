@@ -18,6 +18,7 @@ import {
   canInvokePackagedRuntime,
   getExtensionTimeoutResult,
   invalidInstalledAzureCliExtensions,
+  missingInstalledWheelFiles,
   readRequiredAzureCliExtensionVersions,
   readRequiredAzureCliExtensions,
 } from './azure-cli-verification';
@@ -463,6 +464,9 @@ function testAzureCliInvocation(): void {
       extensionDir,
       requiredExtensionVersions
     );
+    const incompleteExtensions = requiredExtensions.filter(
+      extension => missingInstalledWheelFiles(path.join(extensionDir, extension)).length > 0
+    );
     const aksPreviewPath = path.join(extensionDir, 'aks-preview');
     addResult(
       'Azure CLI invocation',
@@ -471,10 +475,12 @@ function testAzureCliInvocation(): void {
     );
     addResult(
       'Azure CLI extensions',
-      invalidExtensions.length === 0,
-      invalidExtensions.length === 0
-        ? `All required extensions have pinned wheel metadata: ${requiredExtensions.join(', ')}`
-        : `Missing or stale extension metadata: ${invalidExtensions.join(', ')}`
+      invalidExtensions.length === 0 && incompleteExtensions.length === 0,
+      invalidExtensions.length > 0
+        ? `Missing, stale, or unexpected extension metadata: ${invalidExtensions.join(', ')}`
+        : incompleteExtensions.length > 0
+          ? `Incomplete extension payloads: ${incompleteExtensions.join(', ')}`
+          : `All required extensions have pinned wheel metadata: ${requiredExtensions.join(', ')}`
     );
     addResult(
       'aks-preview extension absent',
@@ -656,9 +662,8 @@ function testCrossBuiltRuntimeArchitecture(): void {
 
   const azCliDir = path.join(EXTERNAL_TOOLS_DIR, 'az-cli', CURRENT_PLATFORM);
   const { executable: pythonExecutable } = resolveBundledPythonPaths(azCliDir);
-  const extensionDir = path.join(azCliDir, UNIX_AZ_CLI_EXTENSIONS_DIRNAME);
   const nativeLibraries: string[] = [];
-  const pending = [extensionDir];
+  const pending = [azCliDir];
   while (pending.length > 0) {
     const current = pending.pop()!;
     if (!fs.existsSync(current)) continue;
@@ -678,7 +683,7 @@ function testCrossBuiltRuntimeArchitecture(): void {
     addResult(
       'Cross-built runtime architecture',
       true,
-      `Python and ${nativeLibraries.length} native extension libraries include ${PYTHON_RUNTIME_ARCH}`
+      `Python and ${nativeLibraries.length} native runtime libraries include ${PYTHON_RUNTIME_ARCH}`
     );
   } catch (error) {
     addResult(
