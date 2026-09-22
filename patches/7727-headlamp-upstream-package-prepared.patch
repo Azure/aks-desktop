@@ -1,25 +1,70 @@
-From 54dd81c96cbb59d13018a9e5080ef4a582d4184a Mon Sep 17 00:00:00 2001
-From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
-Date: Mon, 21 Sep 2026 12:23:28 +0300
-Subject: [PATCH] app: package: Avoid repeated package preparation
-
-The package script currently creates an unpacked application before invoking
-Electron Builder again for distributable artifacts. This repeats backend and
-application packaging work and increases memory pressure.
-
-Prepare icons, plugins, and Electron JavaScript directly before the final
-Builder pass. Expose package:prepared for callers that already produced those
-architecture-independent assets and only need another target package.
----
- app/electron/package.test.ts | 10 ++++++++++
- app/package.json             |  3 ++-
- 2 files changed, 12 insertions(+), 1 deletion(-)
-
+diff --git a/.github/workflows/app.yml b/.github/workflows/app.yml
+index bff255472..95826c17f 100644
+--- a/.github/workflows/app.yml
++++ b/.github/workflows/app.yml
+@@ -122,13 +122,7 @@ jobs:
+     - name: Run tsc type checker
+       run: make app-tsc
+     - name: App Windows ${{ matrix.arch }}
+-      run: |
+-        cd app
+-        npm ci --force
+-        cd ..
+-        make app-build
+-        cd app
+-        npm run package -- --win --${{ matrix.arch }}
++      run: make app-win-${{ matrix.arch }}
+     - name: Verify Windows build
+       shell: pwsh
+       run: npm run app:verify-build-windows
+diff --git a/Makefile b/Makefile
+index 4e2aa5078..8e972a74d 100644
+--- a/Makefile
++++ b/Makefile
+@@ -83,26 +83,28 @@ frontend/build:
+ 	make frontend
+ 
+ .PHONY: app
+-app-build: frontend/build
+-	cd app && npm ci && node --experimental-strip-types ./scripts/setup-plugins.ts && npm run build
+-app: app-build
++app-prepare: frontend/build
++	cd app && npm ci && node --experimental-strip-types ./scripts/setup-plugins.ts
++app-build: app-prepare
++	cd app && npm run build
++app: app-prepare
+ 	cd app && npm run package -- --win --linux --mac
+-app-win: app-build
++app-win: app-prepare
+ 	cd app && npm run package -- --win --x64 --arm64
+-app-win-x64: app-build
++app-win-x64: app-prepare
+ 	cd app && npm run package -- --win --x64
+-app-win-arm64: app-build
++app-win-arm64: app-prepare
+ 	cd app && npm run package -- --win --arm64
+ app-win-msi: app-win-msi-x64
+-app-win-msi-x64: app-build
++app-win-msi-x64: app-prepare
+ 	cd app && npm run package -- --win --x64
+ 	cd app && MSI_ARCH="x64" node windows/msi/build.js
+-app-win-msi-arm64: app-build
++app-win-msi-arm64: app-prepare
+ 	cd app && npm run package -- --win --arm64
+ 	cd app && MSI_ARCH="arm64" node windows/msi/build.js
+-app-linux: app-build
++app-linux: app-prepare
+ 	cd app && npm run package -- --linux
+-app-mac: app-build
++app-mac: app-prepare
+ 	cd app && npm run package -- --mac
+ app-test:
+ 	cd app && npm install
 diff --git a/app/electron/package.test.ts b/app/electron/package.test.ts
-index 50980afbc..caae9309d 100644
+index 50980afbc..5491d1f40 100644
 --- a/app/electron/package.test.ts
 +++ b/app/electron/package.test.ts
-@@ -32,6 +32,7 @@ const packageJson = JSON.parse(
+@@ -32,10 +32,19 @@ const packageJson = JSON.parse(
    };
    /** Dependency lifecycle scripts explicitly approved by npm. */
    allowScripts?: Record<string, boolean>;
@@ -27,7 +72,19 @@ index 50980afbc..caae9309d 100644
    /** Desktop build dependencies keyed by package name. */
    devDependencies: Record<string, string>;
    optionalDependencies: Record<string, string>;
-@@ -73,6 +74,15 @@ describe('desktop package configuration', () => {
+ };
++const rootPackageJson = JSON.parse(
++  fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')
++) as { scripts: Record<string, string> };
++const makefile = fs.readFileSync(new URL('../../Makefile', import.meta.url), 'utf8');
++const appWorkflow = fs.readFileSync(
++  new URL('../../.github/workflows/app.yml', import.meta.url),
++  'utf8'
++);
+ const packageLock = JSON.parse(
+   fs.readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8')
+ ) as {
+@@ -73,6 +82,49 @@ describe('desktop package configuration', () => {
      expect(packageJson.build.artifactName).toBe('${productName}-${version}-${os}-${arch}.${ext}');
    });
  
@@ -40,11 +97,45 @@ index 50980afbc..caae9309d 100644
 +    );
 +  });
 +
++  it('prepares standard package entry points without an intermediate Builder pass', () => {
++    expect(rootPackageJson.scripts['app:prepare']).toBe(
++      'npm run frontend:build && cd app && tsx ./scripts/setup-plugins.ts'
++    );
++    for (const script of [
++      'app:package',
++      'app:package:win',
++      'app:package:win:msi',
++      'app:package:linux',
++      'app:package:mac',
++    ]) {
++      expect(rootPackageJson.scripts[script]).toMatch(/^npm run app:prepare &&/);
++      expect(rootPackageJson.scripts[script]).not.toContain('npm run app:build');
++    }
++
++    expect(makefile).toMatch(/^app-prepare: frontend\/build$/m);
++    expect(makefile).toMatch(/^app-build: app-prepare$/m);
++    for (const target of [
++      'app',
++      'app-win',
++      'app-win-x64',
++      'app-win-arm64',
++      'app-win-msi-x64',
++      'app-win-msi-arm64',
++      'app-linux',
++      'app-mac',
++    ]) {
++      expect(makefile).toMatch(new RegExp(`^${target}: app-prepare$`, 'm'));
++    }
++
++    expect(appWorkflow).toContain('run: make app-win-${{ matrix.arch }}');
++    expect(appWorkflow).not.toContain('make app-build');
++  });
++
    it('expands the product name in Windows MSI filenames', () => {
      expect(
        expandMsiArtifactName(packageJson.build.artifactName, {
 diff --git a/app/package.json b/app/package.json
-index e3ee370b1..938f5b1b5 100644
+index eb8f36425..cc40455df 100644
 --- a/app/package.json
 +++ b/app/package.json
 @@ -26,7 +26,8 @@
@@ -57,3 +148,45 @@ index e3ee370b1..938f5b1b5 100644
      "package-msi": "npm run build && node windows/msi/build.js",
      "start": "node scripts/start.js",
      "star": "node scripts/start.js --star",
+diff --git a/frontend/src/packageScripts.test.js b/frontend/src/packageScripts.test.js
+index 36b485be4..eaf1fe2a9 100644
+--- a/frontend/src/packageScripts.test.js
++++ b/frontend/src/packageScripts.test.js
+@@ -40,8 +40,9 @@ test('packaged-source scripts use package-owned tsx', () => {
+ 
+   expect(rootPackage.devDependencies).toHaveProperty('tsx');
+   expect(rootPackage.engines.node).toBe('>=22.12.0');
+-  expect(rootPackage.scripts['app:build']).toContain('tsx ./scripts/setup-plugins.ts');
+-  expect(rootPackage.scripts['app:build:dir']).toContain('tsx ./scripts/setup-plugins.ts');
++  expect(rootPackage.scripts['app:prepare']).toContain('tsx ./scripts/setup-plugins.ts');
++  expect(rootPackage.scripts['app:build']).toContain('npm run app:prepare');
++  expect(rootPackage.scripts['app:build:dir']).toContain('npm run app:prepare');
+   expect(rootPackage.scripts['app:start']).toContain('tsx ./scripts/setup-plugins.ts');
+   expect(frontendPackage.dependencies).toHaveProperty('tsx');
+   expect(frontendPackage.engines.node).toBe('>=22.12.0');
+diff --git a/package.json b/package.json
+index fde3fc154..ee867baf5 100644
+--- a/package.json
++++ b/package.json
+@@ -57,13 +57,14 @@
+     "i18n:extract": "cd tools/i18n && npm run extract --",
+     "i18n:copy": "cd tools/i18n && npm run copy --",
+     "app:install": "cd app && npm install",
+-    "app:build": "npm run frontend:build && cd app && tsx ./scripts/setup-plugins.ts && npm run build",
+-    "app:build:dir": "npm run frontend:build && cd app && tsx ./scripts/setup-plugins.ts && npm run build -- --dir",
+-    "app:package": "npm run app:build && cd app && npm run package -- --win --linux --mac",
+-    "app:package:win": "npm run app:build && cd app && npm run package -- --win",
+-    "app:package:win:msi": "npm run app:build && cd app && npm run package-msi",
+-    "app:package:linux": "npm run app:build && cd app && npm run package -- --linux",
+-    "app:package:mac": "npm run app:build && cd app && npm run package -- --mac",
++    "app:prepare": "npm run frontend:build && cd app && tsx ./scripts/setup-plugins.ts",
++    "app:build": "npm run app:prepare && cd app && npm run build",
++    "app:build:dir": "npm run app:prepare && cd app && npm run build -- --dir",
++    "app:package": "npm run app:prepare && cd app && npm run package -- --win --linux --mac",
++    "app:package:win": "npm run app:prepare && cd app && npm run package -- --win",
++    "app:package:win:msi": "npm run app:prepare && cd app && npm run package-msi",
++    "app:package:linux": "npm run app:prepare && cd app && npm run package -- --linux",
++    "app:package:mac": "npm run app:prepare && cd app && npm run package -- --mac",
+     "app:test": "npm run app:test:unit && npm run app:test:e2e",
+     "app:test:unit": "cd app && npm run test",
+     "app:test:e2e": "cd app/e2e-tests && npm run test-app --",

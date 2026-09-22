@@ -201,8 +201,9 @@ test('source builds use explicit, reviewed install scripts', () => {
   assert.equal(frontendManifest.scripts['build:rsbuild'], undefined);
   assert.equal(frontendManifest.scripts['postbuild:rsbuild'], undefined);
   assert.equal(sourceManifest.devDependencies.tsx, '4.23.1');
-  assert.match(sourceManifest.scripts['app:build'], /tsx \.\/scripts\/setup-plugins\.ts/);
-  assert.match(sourceManifest.scripts['app:build:dir'], /tsx \.\/scripts\/setup-plugins\.ts/);
+  assert.match(sourceManifest.scripts['app:prepare'], /tsx \.\/scripts\/setup-plugins\.ts/);
+  assert.match(sourceManifest.scripts['app:build'], /npm run app:prepare/);
+  assert.match(sourceManifest.scripts['app:build:dir'], /npm run app:prepare/);
   assert.match(sourceManifest.scripts['app:start'], /tsx \.\/scripts\/setup-plugins\.ts/);
   assert.match(
     fs.readFileSync(
