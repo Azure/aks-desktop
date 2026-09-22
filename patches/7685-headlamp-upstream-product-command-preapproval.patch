@@ -411,3 +411,91 @@ index bea2e680fad209c4c40b168bd62922fac6238395..5fc6386967645fc9cf97cfc9c676503c
  For a managed plugin installation, Electron writes an app-owned installation
  receipt outside plugin-controlled inventory. It records the canonical inventory
  path and bundle directory, the Artifact Hub repository and package names, their
+diff --git a/app/electron/cross-spawn.d.ts b/app/electron/cross-spawn.d.ts
+new file mode 100644
+index 000000000..d37d1df46
+--- /dev/null
++++ b/app/electron/cross-spawn.d.ts
+@@ -0,0 +1,20 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++declare module 'cross-spawn' {
++  const spawn: typeof import('child_process').spawn;
++  export default spawn;
++}
+diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
+index b2c613495..3645256f9 100644
+--- a/app/electron/runCmd.test.ts
++++ b/app/electron/runCmd.test.ts
+@@ -50,8 +50,8 @@ vi.mock('electron', () => ({
+   dialog: { showMessageBoxSync: showMessageBoxSyncMock },
+ }));
+ 
+-vi.mock('child_process', () => ({
+-  spawn: spawnMock,
++vi.mock('cross-spawn', () => ({
++  default: spawnMock,
+ }));
+ 
+ vi.mock('./plugin-management', () => ({
+diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
+index 535520321..d046d05b8 100644
+--- a/app/electron/runCmd.ts
++++ b/app/electron/runCmd.ts
+@@ -14,7 +14,8 @@
+  * limitations under the License.
+  */
+ 
+-import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
++import { ChildProcessWithoutNullStreams } from 'child_process';
++import spawn from 'cross-spawn';
+ import { BrowserWindow, dialog } from 'electron';
+ import { IpcMainEvent } from 'electron/main';
+ import crypto from 'node:crypto';
+@@ -1103,7 +1104,7 @@ export async function handleRunCommand(
+           : shellEnvironment),
+         ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
+       },
+-    });
++    }) as ChildProcessWithoutNullStreams;
+   } catch (error) {
+     removePreparedFiles();
+     const message = error instanceof Error ? error.message : String(error);
+diff --git a/app/package-lock.json b/app/package-lock.json
+index 237934f4e..db74a6bad 100644
+--- a/app/package-lock.json
++++ b/app/package-lock.json
+@@ -13,6 +13,7 @@
+         "@langchain/mcp-adapters": "^1.0.0",
+         "copyfiles": "^2.4.1",
+         "cross-env": "^7.0.3",
++        "cross-spawn": "^7.0.6",
+         "dotenv": "^16.4.5",
+         "electron-wix-msi": "^5.1.3",
+         "find-process": "^1.4.10",
+diff --git a/app/package.json b/app/package.json
+index e3ee370b1..eb8f36425 100644
+--- a/app/package.json
++++ b/app/package.json
+@@ -221,6 +221,7 @@
+     "@langchain/langgraph": "1.4.9",
+     "copyfiles": "^2.4.1",
+     "cross-env": "^7.0.3",
++    "cross-spawn": "^7.0.6",
+     "dotenv": "^16.4.5",
+     "electron-wix-msi": "^5.1.3",
+     "find-process": "^1.4.10",

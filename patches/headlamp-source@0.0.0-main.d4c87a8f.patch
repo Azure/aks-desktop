@@ -625,6 +625,32 @@ index 11b5f6cae639b95a840bfd82f1809c6271951e51..862fea607873e492c2e6fc8756abf5b0
    it('rejects duplicate command grants in the schema', () => {
      const schema = JSON.parse(
        fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
+diff --git a/source/app/electron/cross-spawn.d.ts b/source/app/electron/cross-spawn.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d37d1df46fa4232609ea3f4a6885dba7e2c2f44a
+--- /dev/null
++++ b/source/app/electron/cross-spawn.d.ts
+@@ -0,0 +1,20 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++declare module 'cross-spawn' {
++  const spawn: typeof import('child_process').spawn;
++  export default spawn;
++}
 diff --git a/source/app/electron/main.ts b/source/app/electron/main.ts
 index f1a61e976f05ee502ecb42eb140be1c58871bbb7..0675a46bebd5f587fd89ccb7c9bdc1b4d9e0afb4 100644
 --- a/source/app/electron/main.ts
@@ -2821,9 +2847,20 @@ index 0000000000000000000000000000000000000000..170a7cf7f7736117f3c2a29133086e55
 +  };
 +}
 diff --git a/source/app/electron/runCmd.test.ts b/source/app/electron/runCmd.test.ts
-index fd313b5bafc57b7c50de4aecb790204bd4d136e5..b2d6a93be07af14c3033dbc7343c84d8dacefe5a 100644
+index fd313b5bafc57b7c50de4aecb790204bd4d136e5..dcc1441750e5c50e925380e74990fbae9894e50d 100644
 --- a/source/app/electron/runCmd.test.ts
 +++ b/source/app/electron/runCmd.test.ts
+@@ -50,8 +50,8 @@ vi.mock('electron', () => ({
+   dialog: { showMessageBoxSync: showMessageBoxSyncMock },
+ }));
+ 
+-vi.mock('child_process', () => ({
+-  spawn: spawnMock,
++vi.mock('cross-spawn', () => ({
++  default: spawnMock,
+ }));
+ 
+ vi.mock('./plugin-management', () => ({
 @@ -85,6 +85,7 @@ vi.mock('./main', () => ({
  
  import {
@@ -3170,10 +3207,20 @@ index fd313b5bafc57b7c50de4aecb790204bd4d136e5..b2d6a93be07af14c3033dbc7343c84d8
    const fakeMainWindow = { id: 1 } as any;
    const permissionSecrets = { 'runCmd-gh': 99 };
 diff --git a/source/app/electron/runCmd.ts b/source/app/electron/runCmd.ts
-index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e022b4aa899 100644
+index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..50d5a9f1eb09f577e88f4c833f7dd46900264239 100644
 --- a/source/app/electron/runCmd.ts
 +++ b/source/app/electron/runCmd.ts
-@@ -32,6 +32,7 @@ import {
+@@ -14,7 +14,8 @@
+  * limitations under the License.
+  */
+ 
+-import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
++import { ChildProcessWithoutNullStreams } from 'child_process';
++import spawn from 'cross-spawn';
+ import { BrowserWindow, dialog } from 'electron';
+ import { IpcMainEvent } from 'electron/main';
+ import crypto from 'node:crypto';
+@@ -32,6 +33,7 @@ import {
    removePreparedPluginScript,
    verifyPluginInstallationIntegrity,
  } from './plugin-management';
@@ -3181,7 +3228,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  import { isRunCommandAllowed, RunCommandGrant } from './runCommandPolicy';
  import { isTrustedDocumentUrl } from './secureStorage';
  import { loadSettings, saveSettings, SETTINGS_PATH } from './settings';
-@@ -77,6 +78,8 @@ export interface ProductPluginCommandPolicy {
+@@ -77,6 +79,8 @@ export interface ProductPluginCommandPolicy {
    packageName: string;
    /** Inventory containing the authorized plugin. */
    source: 'development' | 'user' | 'shipped';
@@ -3190,7 +3237,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
    /** App-owned installation provenance required for managed plugin inventories. */
    artifactHub?: {
      repository: string;
-@@ -300,6 +303,60 @@ export async function verifyPluginCommandPolicies(
+@@ -300,6 +304,60 @@ export async function verifyPluginCommandPolicies(
    return verifiedPolicies;
  }
  
@@ -3251,7 +3298,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  /** Returns only values changed by shell initialization. */
  export function environmentOverrides(
    environment: NodeJS.ProcessEnv,
-@@ -347,7 +404,8 @@ function checkCommandConsent(
+@@ -347,7 +405,8 @@ function checkCommandConsent(
    args: string[],
    mainWindow: BrowserWindow,
    pluginIdentity?: PluginConsentIdentity,
@@ -3261,7 +3308,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  ): boolean {
    const settings = loadSettings(SETTINGS_PATH);
    const confirmedCommands = settings?.confirmedCommands;
-@@ -393,10 +451,17 @@ function checkCommandConsent(
+@@ -393,10 +452,17 @@ function checkCommandConsent(
        (mayUseSourceLessLegacyConsent ? confirmedCommands[legacyConsentKey] : undefined)
      : undefined;
  
@@ -3280,7 +3327,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
      const commandChoice = confirmCommandDialog(displayCommand, mainWindow);
      if (settings?.confirmedCommands === undefined) {
        settings.confirmedCommands = {};
-@@ -543,12 +608,10 @@ const COMMANDS_WITH_CONSENT = {
+@@ -543,12 +609,10 @@ const COMMANDS_WITH_CONSENT = {
      'scriptjs minikube/manage-minikube.js',
    ],
    headlamp_ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
@@ -3293,7 +3340,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
    ['development\0@headlamp-k8s/minikube\0minikube', LEGACY_MINIKUBE_COMMANDS],
    ['development\0@headlamp-k8s/minikube\0headlamp_minikube', LEGACY_MINIKUBE_COMMANDS],
-@@ -571,7 +634,6 @@ const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
+@@ -571,7 +635,6 @@ const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
      'development\0@headlamp-k8s/ai-assistantprerelease\0headlamp_ai_assistantprerelease',
      LEGACY_AI_ASSISTANT_COMMANDS,
    ],
@@ -3301,7 +3348,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  ]);
  
  /**
-@@ -610,10 +672,6 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
+@@ -610,10 +673,6 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
      commands = COMMANDS_WITH_CONSENT.headlamp_ai_assistant;
    }
  
@@ -3312,7 +3359,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
    for (const command of commands) {
      if (!settings.confirmedCommands[command]) {
        settings.confirmedCommands[command] = true;
-@@ -927,7 +985,14 @@ export async function handleRunCommand(
+@@ -927,7 +986,14 @@ export async function handleRunCommand(
        commandData.args,
        mainWindow,
        registeredCapability ? registeredCapability : undefined,
@@ -3328,7 +3375,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
      )
    ) {
      sendRejectedExit(-3);
-@@ -939,7 +1004,12 @@ export async function handleRunCommand(
+@@ -939,7 +1005,12 @@ export async function handleRunCommand(
      const { getShellEnvironment } = await import('./main');
      shellEnvironment = await getShellEnvironment();
    } catch (error) {
@@ -3342,7 +3389,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
    }
  
    // Get the command and args to run. With the correct paths for "scriptjs" commands.
-@@ -1081,7 +1151,7 @@ export async function handleRunCommand(
+@@ -1081,12 +1152,12 @@ export async function handleRunCommand(
        ...commandData.options,
        shell: false,
        env: {
@@ -3351,7 +3398,13 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
            ? systemCommandEnvironment(shellEnvironment, pluginRoots)
            : shellEnvironment),
          ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
-@@ -1169,6 +1239,11 @@ function cryptoRandom() {
+       },
+-    });
++    }) as ChildProcessWithoutNullStreams;
+   } catch (error) {
+     removePreparedFiles();
+     const message = error instanceof Error ? error.message : String(error);
+@@ -1169,6 +1240,11 @@ function cryptoRandom() {
    return array[0] / (0xffffffff + 1);
  }
  
@@ -3363,7 +3416,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  /**
   * Sets up the IPC handlers for running commands.
   * Called in the main process to handle 'run-command' events.
-@@ -1218,8 +1293,9 @@ export function setupRunCmdHandlers(
+@@ -1218,8 +1294,9 @@ export function setupRunCmdHandlers(
      'runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js': cryptoRandom(),
      'runCmd-gh': cryptoRandom(),
      'runCmd-az': cryptoRandom(),
@@ -3374,7 +3427,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  
    const requestPermissionSecrets = () => {
      if (!pluginPermissionSecretsSent) {
-@@ -1279,13 +1355,18 @@ export function setupRunCmdHandlers(
+@@ -1279,13 +1356,18 @@ export function setupRunCmdHandlers(
        event,
        eventData,
        mainWindow,
@@ -3763,8 +3816,20 @@ index 7a6ce832755838335ed56c52dcad7909cfae047b..52a524da572e1c340768114adc3b850f
        writeSecureStorageFile(this.storagePath, data);
        return { success: true };
      } catch {
+diff --git a/source/app/package-lock.json b/source/app/package-lock.json
+index 1e9ba34e598fcba4911b90835d9a21384b860e58..40c2d2774e51df3801b0475c124aa2fe7a3a7f99 100644
+--- a/source/app/package-lock.json
++++ b/source/app/package-lock.json
+@@ -13,6 +13,7 @@
+         "@langchain/mcp-adapters": "^1.0.0",
+         "copyfiles": "^2.4.1",
+         "cross-env": "^7.0.3",
++        "cross-spawn": "^7.0.6",
+         "dotenv": "^16.4.5",
+         "electron-wix-msi": "^5.1.3",
+         "find-process": "^1.4.10",
 diff --git a/source/app/package.json b/source/app/package.json
-index e3ee370b17f66c9d7b3f11f89d796860d717d1e2..938f5b1b51b83c4d182601c8b2c9e39a7c87e3b8 100644
+index e3ee370b17f66c9d7b3f11f89d796860d717d1e2..cc40455dfcc61ee426dfb46a296f36431ea231d5 100644
 --- a/source/app/package.json
 +++ b/source/app/package.json
 @@ -26,7 +26,8 @@
@@ -3777,6 +3842,14 @@ index e3ee370b17f66c9d7b3f11f89d796860d717d1e2..938f5b1b51b83c4d182601c8b2c9e39a
      "package-msi": "npm run build && node windows/msi/build.js",
      "start": "node scripts/start.js",
      "star": "node scripts/start.js --star",
+@@ -221,6 +222,7 @@
+     "@langchain/langgraph": "1.4.9",
+     "copyfiles": "^2.4.1",
+     "cross-env": "^7.0.3",
++    "cross-spawn": "^7.0.6",
+     "dotenv": "^16.4.5",
+     "electron-wix-msi": "^5.1.3",
+     "find-process": "^1.4.10",
 diff --git a/source/app/scripts/after-pack.js b/source/app/scripts/after-pack.js
 index af2b9417da6d92ed10fecdb1e0265561c1672141..83799e1d30108217f86a575eec14e8374354f7e8 100644
 --- a/source/app/scripts/after-pack.js
