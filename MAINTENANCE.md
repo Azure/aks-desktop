@@ -118,6 +118,115 @@ root's `dist/`. See [build output](README.md#build-output) for each platform's
 installer formats and unpacked paths. Copy artifacts out of this generated
 package before reinstalling dependencies or deleting `node_modules`.
 
+### macOS release architecture
+
+The AzureContainerUpstream organization currently has no available hosted
+ARM64 macOS runner, and the AKS Desktop project can run only one hosted macOS
+job concurrently. Separate x64 and ARM64 build jobs would therefore run one
+after the other while repeating checkout, dependency installation, cache
+restore, certificate import, and keychain setup.
+
+`.github/workflows/1es-pipeline-mac.yml` intentionally builds both packages in
+one Intel-hosted job. It builds x64 first, then cross-packages ARM64. The ARM64
+package contains native ARM64 Electron, Go, Azure CLI, Python, and extension
+dependencies; host Python is used only to resolve those extension dependencies
+without executing target code.
+
+The second package reuses architecture-independent frontend, translation,
+plugin, icon, and compiled Electron assets. It must still reinstall native app
+dependencies, stage target-specific external tools, regenerate the product
+manifest, build the Go backend, run Electron Builder, and verify the package.
+The Intel worker cannot launch the ARM64 app, so ARM64 runs packaged-tool checks
+instead of the Electron launch smoke. Signing and notarization remain separate
+per architecture after the shared build job.
+
+Do not split the build job unless both an ARM64 macOS runner and at least two
+concurrent macOS jobs are available. After changing this flow, validate both
+unsigned artifacts and their signing and notarization stages.
+
+#### Azure CLI extension wheel lock
+
+Every Azure CLI extension archive is pinned by URL and SHA-256 in
+`package.json#config.externalTools.azureCli.extensionPackages`. Native builds
+download those exact archives, verify their checksums, and pass the local wheel
+to `az extension add --source`; do not replace this with name-based installation
+from the live extension index.
+
+Every packaged runtime additionally pins its complete target-specific Python
+dependency closure in `build/azure-cli-<platform>-<runtime-arch>-requirements.txt`.
+Tracked locks cover macOS x64/ARM64, Linux x64/ARM64, and Windows x64. Windows
+ARM64 packages intentionally use the x64 runtime and therefore the Windows x64
+lock. Each `# roots` header records which extension owns the locked transitive
+closure.
+
+pip downloads the selected lock with `--require-hashes`, then installs the
+reviewed extension wheels with `--no-index` from the completed local wheelhouse.
+Cache identity includes the target lock checksum and verified-wheel policy
+version. Before any version-based reuse decision, cache verification rehashes
+every wheel and compares every installed file against authenticated wheel
+`RECORD` data. Every platform reads wheels with the packaged or host Python
+standard-library `zipfile` module, so minimal build images need no `unzip`
+executable. Any mismatch rebuilds the cache.
+
+Wheelhouses always live outside packaged resources. CI may set
+`AZ_CLI_EXTENSION_CACHE_DIR`; otherwise staging uses a cache-keyed directory
+under the user cache root (`~/.cache/aks-desktop` on Unix or `%LOCALAPPDATA%` on
+Windows). Only installed extension directories are copied into app resources.
+
+Regenerate the lock only when changing an extension or one of its reviewed
+dependencies. Resolve each runtime independently because native wheel hashes
+differ by OS and architecture. Use these target tags:
+
+- `darwin-x64`: `macosx_11_0_x86_64`
+- `darwin-arm64`: `macosx_11_0_arm64`
+- `linux-x64`: `manylinux_2_17_x86_64`
+- `linux-arm64`: `manylinux_2_17_aarch64`
+- `win32-x64`: `win_amd64`
+
+```bash
+python3 -m venv /tmp/aks-extension-lock
+resolver=/tmp/aks-extension-lock/bin/python
+"$resolver" -m pip install pip==25.2
+
+target=linux-x64
+platform=manylinux_2_17_x86_64
+wheel_dir=$(mktemp -d)
+report=$(mktemp)
+
+jq -r '.config.externalTools.azureCli.extensionPackages
+  | to_entries[] | [.value.url, .value.checksum] | @tsv' package.json |
+while IFS=$'\t' read -r url checksum; do
+  wheel="$wheel_dir/${url##*/}"
+  curl -fsSL "$url" -o "$wheel"
+  test "$(shasum -a 256 "$wheel" | awk '{print $1}')" = "$checksum"
+done
+
+"$resolver" -m pip install --dry-run --ignore-installed \
+  --report "$report" \
+  --platform "$platform" \
+  --python-version 3.14 \
+  --implementation cp \
+  --only-binary=:all: \
+  "$wheel_dir"/*.whl
+
+{
+  echo "# Transitive wheel lock for $target Azure CLI extension builds."
+  echo '# Direct extension wheels and hashes are pinned in package.json.'
+  echo '# roots: connectedk8s'
+  jq -r '.install[]
+    | select((.metadata.name | ascii_downcase)
+        | IN("resource-graph", "alertsmanagement", "connectedk8s") | not)
+    | "\(.metadata.name)==\(.metadata.version) --hash=\(.download_info.archive_info.hash | sub("="; ":"))"' \
+    "$report" | LC_ALL=C sort -f
+} > "build/azure-cli-$target-requirements.txt"
+```
+
+Review every version and hash change. Confirm the report contains only wheels,
+remove each target's extension cache, and run cold and warm staging passes.
+Tamper with one cached module on each platform and confirm staging rebuilds that
+cache. Finish with `npm run test:build` and packaged-tool verification. Never
+regenerate locks implicitly during a release build.
+
 ### Ship static plugins
 
 Static plugins are declared in `package.json#headlamp.plugins`. Keep package
@@ -136,10 +245,15 @@ produces translated files into `Localize/locales/{lang}/`. The
 `Localize/LocProject.json` file configures this pipeline.
 
 The covered sources are the installed Headlamp frontend,
-`plugins/aks-desktop/`, `plugins/ai-assistant/`, `plugins/plugin-catalog/`, and
-the external `keda`, `cert-manager`, and `prometheus` plugins.
+`plugins/aks-desktop/`, `plugins/plugin-catalog/`, the staged `ai-assistant`
+release, and the external `keda`, `cert-manager`, and `prometheus` plugins.
 
-External plugins live in the separate Headlamp plugins repository, expected as a sibling checkout at `../plugins`. Override the location with the `HEADLAMP_PLUGINS_DIR` environment variable. If the repository is not present, those sources are skipped, so CI only verifies the in-repo sources.
+AI Assistant is staged from the pinned GitHub release before collection, and
+AKS-managed translations are overlaid onto that release before packaging.
+Other external plugins live in the separate Headlamp plugins repository,
+expected as a sibling checkout at `../plugins`. Override the location with the
+`HEADLAMP_PLUGINS_DIR` environment variable. Missing external sources are
+skipped.
 
 ### Workflow
 

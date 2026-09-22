@@ -98,9 +98,10 @@ export async function getLoginStatus(): Promise<AzureLoginStatus> {
     const errorOutput = stderr.trim();
 
     if (errorOutput && isCliNotFoundError(errorOutput)) {
+      const instructions = getInstallationInstructions();
       return {
         isLoggedIn: false,
-        error: 'Azure CLI not found. Please install Azure CLI first.',
+        error: `Azure CLI could not be started.\n\n${instructions}`,
       };
     }
 
@@ -225,7 +226,7 @@ export async function initiateLogin(): Promise<AzureLoginResult> {
       const instructions = getInstallationInstructions();
       return {
         success: false,
-        message: `Azure CLI not found. Please install Azure CLI first.\n\n${instructions}`,
+        message: `Azure CLI could not be started.\n\n${instructions}`,
       };
     }
 
@@ -252,7 +253,7 @@ export async function initiateLogin(): Promise<AzureLoginResult> {
       const instructions = getInstallationInstructions();
       return {
         success: false,
-        message: `Azure CLI not found. Please install Azure CLI first.\n\n${instructions}`,
+        message: `Azure CLI could not be started.\n\n${instructions}`,
       };
     }
 

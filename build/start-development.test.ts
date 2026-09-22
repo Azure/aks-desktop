@@ -3,10 +3,53 @@
 
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs';
 import { createServer } from 'node:net';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import test from 'node:test';
 
+import { developmentPreparationIdentity, prepareDevelopment } from './prepare-development';
 import { developmentEnvironment, findAvailablePort, startDevelopment } from './start-development';
+
+test('skips development preparation when dependencies and assets are current', () => {
+  const scripts: string[] = [];
+  prepareDevelopment('/workspace', {
+    dependenciesCurrent: () => true,
+    assemblyCurrent: () => true,
+    runScript: script => scripts.push(script),
+  });
+  assert.deepEqual(scripts, []);
+});
+
+test('refreshes only stale development preparation', () => {
+  const scripts: string[] = [];
+  let markerWrites = 0;
+  prepareDevelopment('/workspace', {
+    dependenciesCurrent: () => false,
+    assemblyCurrent: () => false,
+    runScript: script => scripts.push(script),
+    writeMarker: () => markerWrites++,
+  });
+  assert.deepEqual(scripts, ['headlamp:install', 'headlamp:assemble']);
+  assert.equal(markerWrites, 1);
+});
+
+test('invalidates development preparation when a configured plugin changes', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'development preparation-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(rootDir, 'plugins', 'example', 'src'), { recursive: true });
+  fs.writeFileSync(
+    path.join(rootDir, 'package.json'),
+    JSON.stringify({ headlamp: { plugins: [{ source: 'plugins/example' }] } })
+  );
+  const source = path.join(rootDir, 'plugins', 'example', 'src', 'index.ts');
+  fs.writeFileSync(source, 'export const value = 1;\n');
+  const firstIdentity = developmentPreparationIdentity(rootDir);
+
+  fs.writeFileSync(source, 'export const value = 2;\n');
+  assert.notEqual(developmentPreparationIdentity(rootDir), firstIdentity);
+});
 
 test('starts development through the npm lifecycle CLI and preserves its environment', async t => {
   const previous = process.env.npm_execpath;
@@ -39,7 +82,7 @@ test('selects the next port when the preferred frontend port is occupied', async
     assert.equal(await findAvailablePort(occupiedPort), occupiedPort + 1);
   } finally {
     await new Promise<void>((resolve, reject) => {
-      server.close(error => error ? reject(error) : resolve());
+      server.close(error => (error ? reject(error) : resolve()));
     });
   }
 });

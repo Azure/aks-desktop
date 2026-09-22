@@ -1,3 +1,246 @@
+diff --git a/source/.github/workflows/app.yml b/source/.github/workflows/app.yml
+index bff255472985f12bae8e9341e9cb7f757e03cc49..95826c17f27afaf6c5aecc9db79f9701c70af0b9 100644
+--- a/source/.github/workflows/app.yml
++++ b/source/.github/workflows/app.yml
+@@ -122,13 +122,7 @@ jobs:
+     - name: Run tsc type checker
+       run: make app-tsc
+     - name: App Windows ${{ matrix.arch }}
+-      run: |
+-        cd app
+-        npm ci --force
+-        cd ..
+-        make app-build
+-        cd app
+-        npm run package -- --win --${{ matrix.arch }}
++      run: make app-win-${{ matrix.arch }}
+     - name: Verify Windows build
+       shell: pwsh
+       run: npm run app:verify-build-windows
+diff --git a/source/.github/workflows/backend-embed-test.yml b/source/.github/workflows/backend-embed-test.yml
+index 0da3f4c1d455732afb0ce25019741451985f8e7a..fca32dec7cd3b78f98426c0def279f49f293429d 100644
+--- a/source/.github/workflows/backend-embed-test.yml
++++ b/source/.github/workflows/backend-embed-test.yml
+@@ -3,19 +3,23 @@ name: Backend Embed Test
+ on:
+   pull_request:
+     paths:
+-    - 'backend/**'
+-    - 'Makefile'
+-    - '.github/workflows/backend-embed-test.yml'
++      - "backend/**"
++      - "frontend/**"
++      - "e2e-tests/**"
++      - "Makefile"
++      - ".github/workflows/backend-embed-test.yml"
+   push:
+     branches:
+       - main
+       - rc-*
+       - testing-rc-*
+     paths:
+-    - 'backend/**'
+-    - 'Makefile'
+-    - '.github/workflows/backend-embed-test.yml'
+-    
++      - "backend/**"
++      - "frontend/**"
++      - "e2e-tests/**"
++      - "Makefile"
++      - ".github/workflows/backend-embed-test.yml"
++
+ permissions:
+   contents: read
+ 
+@@ -26,56 +30,63 @@ jobs:
+       matrix:
+         node-version: [22.x]
+     steps:
+-    - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+-    
+-    - name: Use Node.js ${{ matrix.node-version }}
+-      uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
+-      with:
+-        node-version: ${{ matrix.node-version }}
+-    
+-    - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
+-      with:
+-        go-version: '1.26.*'
+-    
+-    - name: Install frontend dependencies
+-      run: |
+-        cd frontend && npm ci
+-    
+-    - name: Build embeded backend binary
+-      run: |
+-        make backend-embed
++      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
++
++      - name: Use Node.js ${{ matrix.node-version }}
++        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
++        with:
++          node-version: ${{ matrix.node-version }}
++
++      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
++        with:
++          go-version: "1.26.*"
++
++      - name: Install frontend dependencies
++        run: |
++          cd frontend && npm ci
++
++      - name: Install browser test dependencies
++        run: |
++          npm --prefix e2e-tests ci
++          npm --prefix e2e-tests exec -- playwright install --with-deps chromium
++
++      - name: Build embeded backend binary
++        run: |
++          make backend-embed
++
++      - name: Test embedded binary
++        run: |
++          cd backend
++          # Start the server in background
++          ./headlamp-server --base-url /headlamp --port 4466 --listen-addr 127.0.0.1 &
++          SERVER_PID=$!
++
++          # Wait for server to start
++          sleep 10
++
++          # Test if server is responding with 200 and the response has headlampBaseUrl set to /headlamp
++          response_code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4466/headlamp/index.html || echo "000")
++          if [ "$response_code" = "200" ]; then
++            echo "✅ Server is responding correctly with HTTP 200"
++            echo "Response: $response_code"
++          else
++            echo "❌ Server not responding correctly. HTTP status: $response_code"
++            exit 1
++          fi
++
++          # Test if the response is a valid HTML file
++          response_body=$(curl -s http://127.0.0.1:4466/headlamp/)
++          if echo "$response_body" | grep -q "DOCTYPE html" || echo "$response_body" | grep -q "<html"; then
++            echo "✅ Response is a valid HTML file"
++          else
++            echo "❌ Response is not a valid HTML file"
++            exit 1
++          fi
++
++          HEADLAMP_TEST_URL=http://127.0.0.1:4466/headlamp npm --prefix ../e2e-tests run test:base-url
+ 
+-    - name: Test embedded binary
+-      run: |
+-        cd backend
+-        # Start the server in background
+-        ./headlamp-server --base-url /headlamp --port 4466 --listen-addr 127.0.0.1 &
+-        SERVER_PID=$!
+-        
+-        # Wait for server to start
+-        sleep 10
+-        
+-        # Test if server is responding with 200 and the response has headlampBaseUrl set to /headlamp
+-        response_code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4466/headlamp/index.html || echo "000")
+-        if [ "$response_code" = "200" ]; then
+-          echo "✅ Server is responding correctly with HTTP 200"
+-          echo "Response: $response_code"
+-        else
+-          echo "❌ Server not responding correctly. HTTP status: $response_code"
+-          exit 1
+-        fi
++          # Clean up
++          kill $SERVER_PID || true
++          wait $SERVER_PID 2>/dev/null || true
+ 
+-        # Test if the response is a valid HTML file
+-        response_body=$(curl -s http://127.0.0.1:4466/headlamp/)
+-        if echo "$response_body" | grep -q "DOCTYPE html" || echo "$response_body" | grep -q "<html"; then
+-          echo "✅ Response is a valid HTML file"
+-        else
+-          echo "❌ Response is not a valid HTML file"
+-          exit 1
+-        fi
+-        
+-        # Clean up
+-        kill $SERVER_PID || true
+-        wait $SERVER_PID 2>/dev/null || true
+-        
+-        echo "✅ Embedded binary test completed successfully"
++          echo "✅ Embedded binary test completed successfully"
+diff --git a/source/.github/workflows/frontend.yml b/source/.github/workflows/frontend.yml
+index 24d076ca6c3b5bc472c25454065399dc42242c3f..016f261e4e9c274b26f41814cdebc0fa0ff5ec68 100644
+--- a/source/.github/workflows/frontend.yml
++++ b/source/.github/workflows/frontend.yml
+@@ -108,10 +108,10 @@ jobs:
+         run: |
+           make frontend-build
+ 
+-      # This is to check the rsbuild setup is still working, so "npm run star" still works.
+-      - name: Build Frontend (rsbuild)
++      # Keep the supported Vite fallback covered after Rsbuild becomes the default.
++      - name: Build Frontend (Vite)
+         run: |
+-          make frontend-build-rsbuild
++          make frontend-build-vite
+ 
+   test-headlamp-plugin:
+     name: test headlamp-plugin
+diff --git a/source/Makefile b/source/Makefile
+index 6befd1bc7d3bfa5301d07a3aebe188ab7805fac3..8e972a74da1e8dec38e63d4fcc5f88b0eaa3e047 100644
+--- a/source/Makefile
++++ b/source/Makefile
+@@ -83,26 +83,28 @@ frontend/build:
+ 	make frontend
+ 
+ .PHONY: app
+-app-build: frontend/build
+-	cd app && npm ci && node --experimental-strip-types ./scripts/setup-plugins.ts && npm run build
+-app: app-build
++app-prepare: frontend/build
++	cd app && npm ci && node --experimental-strip-types ./scripts/setup-plugins.ts
++app-build: app-prepare
++	cd app && npm run build
++app: app-prepare
+ 	cd app && npm run package -- --win --linux --mac
+-app-win: app-build
++app-win: app-prepare
+ 	cd app && npm run package -- --win --x64 --arm64
+-app-win-x64: app-build
++app-win-x64: app-prepare
+ 	cd app && npm run package -- --win --x64
+-app-win-arm64: app-build
++app-win-arm64: app-prepare
+ 	cd app && npm run package -- --win --arm64
+ app-win-msi: app-win-msi-x64
+-app-win-msi-x64: app-build
++app-win-msi-x64: app-prepare
+ 	cd app && npm run package -- --win --x64
+ 	cd app && MSI_ARCH="x64" node windows/msi/build.js
+-app-win-msi-arm64: app-build
++app-win-msi-arm64: app-prepare
+ 	cd app && npm run package -- --win --arm64
+ 	cd app && MSI_ARCH="arm64" node windows/msi/build.js
+-app-linux: app-build
++app-linux: app-prepare
+ 	cd app && npm run package -- --linux
+-app-mac: app-build
++app-mac: app-prepare
+ 	cd app && npm run package -- --mac
+ app-test:
+ 	cd app && npm install
+@@ -275,9 +277,9 @@ frontend: frontend-install
+ frontend-build:
+ 	cd frontend && npm run build
+ 
+-.PHONY: frontend-build-rsbuild
+-frontend-build-rsbuild:
+-	cd frontend && npm run build:rsbuild
++.PHONY: frontend-build-vite
++frontend-build-vite:
++	cd frontend && npm run build:vite
+ 
+ .PHONY: frontend-build-storybook
+ frontend-build-storybook:
 diff --git a/source/app/app-build-manifest.json b/source/app/app-build-manifest.json
 index f08c19eb4af4e87cda5f0439d7903772c0da3dfa..1ef923d8d2de2e25547d2dcfcee05d2b44bacdc3 100644
 --- a/source/app/app-build-manifest.json
@@ -93,6 +336,146 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..cdb6aa9a4cab07033e83c6f63946125d
      "pluginExecutable": {
        "type": "object",
        "description": "A plugin-owned native executable at the derived path bin/<tool>, confined to the verified bundle and integrity-checked before production execution.",
+diff --git a/source/app/e2e-tests/README.md b/source/app/e2e-tests/README.md
+index 115b0347e820a4f9c49ca9160200fab4c6d9a156..570b4e9795d88c8739c4629759e6b796fac0fa4a 100644
+--- a/source/app/e2e-tests/README.md
++++ b/source/app/e2e-tests/README.md
+@@ -55,6 +55,13 @@ Or from the repository root:
+ npm run app:test:e2e
+ ```
+ 
++To build the frontend with the default production builder and verify that output
++in the real Electron app without requiring minikube:
++
++```bash
++npm run app:test:e2e:frontend-build
++```
++
+ Optional flags can be passed from either directory:
+ 
+ ```bash
+diff --git a/source/app/e2e-tests/playwright.electron.config.ts b/source/app/e2e-tests/playwright.electron.config.ts
+index 08afaa199692b507c697bf02caef122feeee1702..dfbd7872430d6f79eb7e0bcfd9cda0e32ca0d50d 100644
+--- a/source/app/e2e-tests/playwright.electron.config.ts
++++ b/source/app/e2e-tests/playwright.electron.config.ts
+@@ -40,6 +40,7 @@ export default defineConfig({
+     'updateChecks.spec.ts',
+     'oauthProvider.spec.ts',
+     'protocolScheme.spec.ts',
++    'frontendBuild.spec.ts',
+     'runtimeProductIdentity.spec.ts',
+   ],
+   timeout: 60 * 1000,
+diff --git a/source/app/e2e-tests/tests/frontendBuild.spec.ts b/source/app/e2e-tests/tests/frontendBuild.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..de3f44b6d3ad6db30db0d17a2597d07c97a523d4
+--- /dev/null
++++ b/source/app/e2e-tests/tests/frontendBuild.spec.ts
+@@ -0,0 +1,104 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { expect, test } from '@playwright/test';
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import { _electron } from 'playwright';
++
++const appPath = path.resolve(__dirname, '../..');
++const frontendBuild = path.resolve(appPath, '../frontend/build');
++const electronExecutable = process.platform === 'win32' ? 'electron.cmd' : 'electron';
++const electronPath = path.resolve(appPath, `node_modules/.bin/${electronExecutable}`);
++
++test('loads the default frontend production build in Electron', async () => {
++  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-frontend-build-e2e-'));
++  const indexFile = path.join(frontendBuild, 'index.html');
++  expect(fs.existsSync(indexFile)).toBe(true);
++  const index = fs.readFileSync(indexFile, 'utf8');
++  expect(index).not.toMatch(/(?:src|href)="\//);
++  expect(index).toContain('<base href="./">');
++
++  const electronApp = await _electron.launch({
++    cwd: appPath,
++    executablePath: electronPath,
++    args: ['.'],
++    env: {
++      ...process.env,
++      APPDATA: configHome,
++      ELECTRON_DEV: 'true',
++      HOME: configHome,
++      LOCALAPPDATA: configHome,
++      NODE_ENV: 'development',
++      XDG_CONFIG_HOME: configHome,
++    },
++  });
++
++  try {
++    const page = await electronApp.firstWindow();
++    const rendererErrors: string[] = [];
++    const loadedScripts: string[] = [];
++    page.on('pageerror', error => rendererErrors.push(error.message));
++    page.on('requestfailed', request => {
++      const error = request.failure()?.errorText;
++      if (error !== 'net::ERR_ABORTED') {
++        rendererErrors.push(`${error}: ${request.url()}`);
++      }
++    });
++    page.on('console', message => {
++      if (message.type() === 'error' && !message.text().startsWith('Failed to load resource:')) {
++        rendererErrors.push(message.text());
++      }
++    });
++    page.on('response', response => {
++      const resourceType = response.request().resourceType();
++      if (['script', 'stylesheet', 'font', 'image'].includes(resourceType) && !response.ok()) {
++        rendererErrors.push(`${response.status()}: ${response.url()}`);
++      }
++      if (resourceType === 'script') {
++        loadedScripts.push(response.url());
++      }
++    });
++    await page.reload();
++    await expect(page.locator('#root .splash')).toHaveCount(0);
++    await expect(page.locator('#root')).not.toBeEmpty();
++    await page.waitForTimeout(1000);
++    expect(rendererErrors).toEqual([]);
++
++    expect(
++      await page.evaluate(() => {
++        const pluginLib = (window as Window & { pluginLib?: Record<string, unknown> }).pluginLib;
++        return (
++          pluginLib &&
++          ['Headlamp', 'K8s', 'MuiMaterial', 'React', 'Router'].every(key => key in pluginLib)
++        );
++      })
++    ).toBe(true);
++
++    const initialScriptCount = loadedScripts.length;
++    rendererErrors.length = 0;
++    await page.evaluate(() => {
++      window.location.hash = '/project/create-yaml';
++    });
++    await expect(page.getByRole('heading', { name: 'Create new Project from YAML' })).toBeVisible();
++    await expect.poll(() => loadedScripts.length).toBeGreaterThan(initialScriptCount);
++    expect(rendererErrors).toEqual([]);
++  } finally {
++    await electronApp.close();
++    fs.rmSync(configHome, { force: true, recursive: true });
++  }
++});
 diff --git a/source/app/e2e-tests/tests/listenerCleanup.spec.ts b/source/app/e2e-tests/tests/listenerCleanup.spec.ts
 index 2aad97fd95086a3bf5d208679f6217198f76c31b..bd9e45e029db03d5c65b05a49da30b5dacd2e3c2 100644
 --- a/source/app/e2e-tests/tests/listenerCleanup.spec.ts
@@ -124,11 +507,93 @@ index 2aad97fd95086a3bf5d208679f6217198f76c31b..bd9e45e029db03d5c65b05a49da30b5d
            desktopApi.send,
            receive
          );
+diff --git a/source/app/electron-builder.config.ts b/source/app/electron-builder.config.ts
+index b6ba6a59d5d3fb7bef663a11899c65dfde6abc7c..63279a8d1c0c598f24ee3c7a5b0ff8bb6e323179 100644
+--- a/source/app/electron-builder.config.ts
++++ b/source/app/electron-builder.config.ts
+@@ -57,6 +57,51 @@ const manifestFile = resolveBuildManifestPath();
+ const manifest = loadBuildManifest(manifestFile);
+ const defaultManifest = path.resolve(DEFAULT_MANIFEST_FILE);
+ const packageBuild = packageJson.build as ElectronBuilderConfiguration;
++const existingAfterPack = require('./scripts/after-pack.js').default as (
++  context: unknown
++) => Promise<void>;
++
++let assemblyStartedAt: number | undefined;
++let signingStartedAt: number | undefined;
++const beforePack = () => {
++  assemblyStartedAt = Date.now();
++  console.log(`[build-timing] Electron app assembly started at ${new Date().toISOString()}`);
++};
++const afterPack = async (context: unknown) => {
++  await existingAfterPack(context);
++  console.log(
++    `[build-timing] Electron app assembly completed${
++      assemblyStartedAt ? ` in ${((Date.now() - assemblyStartedAt) / 1000).toFixed(3)}s` : ''
++    }`
++  );
++  signingStartedAt = Date.now();
++  console.log(
++    `[build-timing] Electron signing started at ${new Date(signingStartedAt).toISOString()}`
++  );
++};
++const afterSign = () => {
++  console.log(
++    `[build-timing] Electron signing completed${
++      signingStartedAt ? ` in ${((Date.now() - signingStartedAt) / 1000).toFixed(3)}s` : ''
++    }`
++  );
++};
++
++const artifactStarts = new Map<string, { name: string; startedAt: number }>();
++const artifactBuildStarted = (context: { targetPresentableName: string; file: string }) => {
++  const name = context.targetPresentableName || path.basename(context.file);
++  artifactStarts.set(context.file, { name, startedAt: Date.now() });
++  console.log(`[build-timing] Electron artifact ${name} started at ${new Date().toISOString()}`);
++};
++const artifactBuildCompleted = (context: { file: string; target: { name: string } | null }) => {
++  const timing = artifactStarts.get(context.file);
++  const name = timing?.name || context.target?.name || path.basename(context.file);
++  console.log(
++    `[build-timing] Electron artifact ${name} completed${
++      timing ? ` in ${((Date.now() - timing.startedAt) / 1000).toFixed(3)}s` : ''
++    }`
++  );
++};
+ 
+ const config: Configuration = applyBuildResources(
+   applyBuildTargets(
+@@ -64,6 +109,11 @@ const config: Configuration = applyBuildResources(
+       applyProductMetadata(
+         {
+           ...packageBuild,
++          beforePack,
++          afterPack,
++          afterSign,
++          artifactBuildStarted,
++          artifactBuildCompleted,
+           extraResources: packageBuild.extraResources.map(resource => {
+             // Preserve every resource except the default manifest entry.
+             if (
 diff --git a/source/app/electron/build-manifest.test.ts b/source/app/electron/build-manifest.test.ts
-index 11b5f6cae639b95a840bfd82f1809c6271951e51..642c452e7dba9dcb1b00c9510811959d4cade5c3 100644
+index 11b5f6cae639b95a840bfd82f1809c6271951e51..862fea607873e492c2e6fc8756abf5b06ede020f 100644
 --- a/source/app/electron/build-manifest.test.ts
 +++ b/source/app/electron/build-manifest.test.ts
-@@ -851,6 +851,39 @@ describe('build manifest selection', () => {
+@@ -412,6 +412,13 @@ describe('platform metadata', () => {
+     });
+     expect(config.mac).toMatchObject({ appId: 'io.example.headlamp' });
+     expect(config.win).toMatchObject({ icon: 'build/icons/example.ico' });
++    expect(config).toMatchObject({
++      beforePack: expect.any(Function),
++      afterPack: expect.any(Function),
++      afterSign: expect.any(Function),
++      artifactBuildStarted: expect.any(Function),
++      artifactBuildCompleted: expect.any(Function),
++    });
+   });
+ });
+ 
+@@ -851,6 +858,39 @@ describe('build manifest selection', () => {
      );
    });
  
@@ -168,7 +633,7 @@ index 11b5f6cae639b95a840bfd82f1809c6271951e51..642c452e7dba9dcb1b00c9510811959d
    it('requires schema command arguments to contain a non-whitespace character', () => {
      const schema = JSON.parse(
        fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
-@@ -864,6 +897,49 @@ describe('build manifest selection', () => {
+@@ -864,6 +904,49 @@ describe('build manifest selection', () => {
      expect(argumentPattern.test('list\0all')).toBe(false);
    });
  
@@ -218,6 +683,32 @@ index 11b5f6cae639b95a840bfd82f1809c6271951e51..642c452e7dba9dcb1b00c9510811959d
    it('rejects duplicate command grants in the schema', () => {
      const schema = JSON.parse(
        fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
+diff --git a/source/app/electron/cross-spawn.d.ts b/source/app/electron/cross-spawn.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d37d1df46fa4232609ea3f4a6885dba7e2c2f44a
+--- /dev/null
++++ b/source/app/electron/cross-spawn.d.ts
+@@ -0,0 +1,20 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++declare module 'cross-spawn' {
++  const spawn: typeof import('child_process').spawn;
++  export default spawn;
++}
 diff --git a/source/app/electron/main.ts b/source/app/electron/main.ts
 index f1a61e976f05ee502ecb42eb140be1c58871bbb7..0675a46bebd5f587fd89ccb7c9bdc1b4d9e0afb4 100644
 --- a/source/app/electron/main.ts
@@ -316,6 +807,80 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..0675a46bebd5f587fd89ccb7c9bdc1b4
  }
  
  if (!isRunningScript) {
+diff --git a/source/app/electron/package.test.ts b/source/app/electron/package.test.ts
+index 50980afbca683e9a0925de5270884a5c758d316a..5491d1f4012b1478626d3f3cb0f7c75e3c376732 100644
+--- a/source/app/electron/package.test.ts
++++ b/source/app/electron/package.test.ts
+@@ -32,10 +32,19 @@ const packageJson = JSON.parse(
+   };
+   /** Dependency lifecycle scripts explicitly approved by npm. */
+   allowScripts?: Record<string, boolean>;
++  scripts: Record<string, string>;
+   /** Desktop build dependencies keyed by package name. */
+   devDependencies: Record<string, string>;
+   optionalDependencies: Record<string, string>;
+ };
++const rootPackageJson = JSON.parse(
++  fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')
++) as { scripts: Record<string, string> };
++const makefile = fs.readFileSync(new URL('../../Makefile', import.meta.url), 'utf8');
++const appWorkflow = fs.readFileSync(
++  new URL('../../.github/workflows/app.yml', import.meta.url),
++  'utf8'
++);
+ const packageLock = JSON.parse(
+   fs.readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8')
+ ) as {
+@@ -73,6 +82,49 @@ describe('desktop package configuration', () => {
+     expect(packageJson.build.artifactName).toBe('${productName}-${version}-${os}-${arch}.${ext}');
+   });
+ 
++  it('packages prepared assets without an intermediate Electron Builder pass', () => {
++    expect(packageJson.scripts.package).toBe(
++      'npm run copy-icons && npm run copy-plugins && npm run compile-electron && electron-builder build --config electron-builder.config.ts --publish never'
++    );
++    expect(packageJson.scripts['package:prepared']).toBe(
++      'electron-builder build --config electron-builder.config.ts --publish never'
++    );
++  });
++
++  it('prepares standard package entry points without an intermediate Builder pass', () => {
++    expect(rootPackageJson.scripts['app:prepare']).toBe(
++      'npm run frontend:build && cd app && tsx ./scripts/setup-plugins.ts'
++    );
++    for (const script of [
++      'app:package',
++      'app:package:win',
++      'app:package:win:msi',
++      'app:package:linux',
++      'app:package:mac',
++    ]) {
++      expect(rootPackageJson.scripts[script]).toMatch(/^npm run app:prepare &&/);
++      expect(rootPackageJson.scripts[script]).not.toContain('npm run app:build');
++    }
++
++    expect(makefile).toMatch(/^app-prepare: frontend\/build$/m);
++    expect(makefile).toMatch(/^app-build: app-prepare$/m);
++    for (const target of [
++      'app',
++      'app-win',
++      'app-win-x64',
++      'app-win-arm64',
++      'app-win-msi-x64',
++      'app-win-msi-arm64',
++      'app-linux',
++      'app-mac',
++    ]) {
++      expect(makefile).toMatch(new RegExp(`^${target}: app-prepare$`, 'm'));
++    }
++
++    expect(appWorkflow).toContain('run: make app-win-${{ matrix.arch }}');
++    expect(appWorkflow).not.toContain('make app-build');
++  });
++
+   it('expands the product name in Windows MSI filenames', () => {
+     expect(
+       expandMsiArtifactName(packageJson.build.artifactName, {
 diff --git a/source/app/electron/plugin-management.test.ts b/source/app/electron/plugin-management.test.ts
 index 0c235601cc97ce5970fddb96fbc2371d5b28ca3f..85f49250db8ff26a0b3c1efd198ddf7435ded48c 100644
 --- a/source/app/electron/plugin-management.test.ts
@@ -2386,9 +2951,20 @@ index 0000000000000000000000000000000000000000..170a7cf7f7736117f3c2a29133086e55
 +  };
 +}
 diff --git a/source/app/electron/runCmd.test.ts b/source/app/electron/runCmd.test.ts
-index fd313b5bafc57b7c50de4aecb790204bd4d136e5..b2d6a93be07af14c3033dbc7343c84d8dacefe5a 100644
+index fd313b5bafc57b7c50de4aecb790204bd4d136e5..dcc1441750e5c50e925380e74990fbae9894e50d 100644
 --- a/source/app/electron/runCmd.test.ts
 +++ b/source/app/electron/runCmd.test.ts
+@@ -50,8 +50,8 @@ vi.mock('electron', () => ({
+   dialog: { showMessageBoxSync: showMessageBoxSyncMock },
+ }));
+ 
+-vi.mock('child_process', () => ({
+-  spawn: spawnMock,
++vi.mock('cross-spawn', () => ({
++  default: spawnMock,
+ }));
+ 
+ vi.mock('./plugin-management', () => ({
 @@ -85,6 +85,7 @@ vi.mock('./main', () => ({
  
  import {
@@ -2735,10 +3311,20 @@ index fd313b5bafc57b7c50de4aecb790204bd4d136e5..b2d6a93be07af14c3033dbc7343c84d8
    const fakeMainWindow = { id: 1 } as any;
    const permissionSecrets = { 'runCmd-gh': 99 };
 diff --git a/source/app/electron/runCmd.ts b/source/app/electron/runCmd.ts
-index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e022b4aa899 100644
+index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..50d5a9f1eb09f577e88f4c833f7dd46900264239 100644
 --- a/source/app/electron/runCmd.ts
 +++ b/source/app/electron/runCmd.ts
-@@ -32,6 +32,7 @@ import {
+@@ -14,7 +14,8 @@
+  * limitations under the License.
+  */
+ 
+-import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
++import { ChildProcessWithoutNullStreams } from 'child_process';
++import spawn from 'cross-spawn';
+ import { BrowserWindow, dialog } from 'electron';
+ import { IpcMainEvent } from 'electron/main';
+ import crypto from 'node:crypto';
+@@ -32,6 +33,7 @@ import {
    removePreparedPluginScript,
    verifyPluginInstallationIntegrity,
  } from './plugin-management';
@@ -2746,7 +3332,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  import { isRunCommandAllowed, RunCommandGrant } from './runCommandPolicy';
  import { isTrustedDocumentUrl } from './secureStorage';
  import { loadSettings, saveSettings, SETTINGS_PATH } from './settings';
-@@ -77,6 +78,8 @@ export interface ProductPluginCommandPolicy {
+@@ -77,6 +79,8 @@ export interface ProductPluginCommandPolicy {
    packageName: string;
    /** Inventory containing the authorized plugin. */
    source: 'development' | 'user' | 'shipped';
@@ -2755,7 +3341,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
    /** App-owned installation provenance required for managed plugin inventories. */
    artifactHub?: {
      repository: string;
-@@ -300,6 +303,60 @@ export async function verifyPluginCommandPolicies(
+@@ -300,6 +304,60 @@ export async function verifyPluginCommandPolicies(
    return verifiedPolicies;
  }
  
@@ -2816,7 +3402,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  /** Returns only values changed by shell initialization. */
  export function environmentOverrides(
    environment: NodeJS.ProcessEnv,
-@@ -347,7 +404,8 @@ function checkCommandConsent(
+@@ -347,7 +405,8 @@ function checkCommandConsent(
    args: string[],
    mainWindow: BrowserWindow,
    pluginIdentity?: PluginConsentIdentity,
@@ -2826,7 +3412,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  ): boolean {
    const settings = loadSettings(SETTINGS_PATH);
    const confirmedCommands = settings?.confirmedCommands;
-@@ -393,10 +451,17 @@ function checkCommandConsent(
+@@ -393,10 +452,17 @@ function checkCommandConsent(
        (mayUseSourceLessLegacyConsent ? confirmedCommands[legacyConsentKey] : undefined)
      : undefined;
  
@@ -2845,7 +3431,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
      const commandChoice = confirmCommandDialog(displayCommand, mainWindow);
      if (settings?.confirmedCommands === undefined) {
        settings.confirmedCommands = {};
-@@ -543,12 +608,10 @@ const COMMANDS_WITH_CONSENT = {
+@@ -543,12 +609,10 @@ const COMMANDS_WITH_CONSENT = {
      'scriptjs minikube/manage-minikube.js',
    ],
    headlamp_ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
@@ -2858,7 +3444,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
    ['development\0@headlamp-k8s/minikube\0minikube', LEGACY_MINIKUBE_COMMANDS],
    ['development\0@headlamp-k8s/minikube\0headlamp_minikube', LEGACY_MINIKUBE_COMMANDS],
-@@ -571,7 +634,6 @@ const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
+@@ -571,7 +635,6 @@ const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
      'development\0@headlamp-k8s/ai-assistantprerelease\0headlamp_ai_assistantprerelease',
      LEGACY_AI_ASSISTANT_COMMANDS,
    ],
@@ -2866,7 +3452,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  ]);
  
  /**
-@@ -610,10 +672,6 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
+@@ -610,10 +673,6 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
      commands = COMMANDS_WITH_CONSENT.headlamp_ai_assistant;
    }
  
@@ -2877,7 +3463,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
    for (const command of commands) {
      if (!settings.confirmedCommands[command]) {
        settings.confirmedCommands[command] = true;
-@@ -927,7 +985,14 @@ export async function handleRunCommand(
+@@ -927,7 +986,14 @@ export async function handleRunCommand(
        commandData.args,
        mainWindow,
        registeredCapability ? registeredCapability : undefined,
@@ -2893,7 +3479,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
      )
    ) {
      sendRejectedExit(-3);
-@@ -939,7 +1004,12 @@ export async function handleRunCommand(
+@@ -939,7 +1005,12 @@ export async function handleRunCommand(
      const { getShellEnvironment } = await import('./main');
      shellEnvironment = await getShellEnvironment();
    } catch (error) {
@@ -2907,7 +3493,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
    }
  
    // Get the command and args to run. With the correct paths for "scriptjs" commands.
-@@ -1081,7 +1151,7 @@ export async function handleRunCommand(
+@@ -1081,12 +1152,12 @@ export async function handleRunCommand(
        ...commandData.options,
        shell: false,
        env: {
@@ -2916,7 +3502,13 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
            ? systemCommandEnvironment(shellEnvironment, pluginRoots)
            : shellEnvironment),
          ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
-@@ -1169,6 +1239,11 @@ function cryptoRandom() {
+       },
+-    });
++    }) as ChildProcessWithoutNullStreams;
+   } catch (error) {
+     removePreparedFiles();
+     const message = error instanceof Error ? error.message : String(error);
+@@ -1169,6 +1240,11 @@ function cryptoRandom() {
    return array[0] / (0xffffffff + 1);
  }
  
@@ -2928,7 +3520,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  /**
   * Sets up the IPC handlers for running commands.
   * Called in the main process to handle 'run-command' events.
-@@ -1218,8 +1293,9 @@ export function setupRunCmdHandlers(
+@@ -1218,8 +1294,9 @@ export function setupRunCmdHandlers(
      'runCmd-scriptjs-headlamp_minikubeprerelease/manage-minikube.js': cryptoRandom(),
      'runCmd-gh': cryptoRandom(),
      'runCmd-az': cryptoRandom(),
@@ -2939,7 +3531,7 @@ index 0d6d46e1a236f5ae7ae15afbe2479922aed098ef..5500d3808a25a8cd3581e290b0a06e02
  
    const requestPermissionSecrets = () => {
      if (!pluginPermissionSecretsSent) {
-@@ -1279,13 +1355,18 @@ export function setupRunCmdHandlers(
+@@ -1279,13 +1356,18 @@ export function setupRunCmdHandlers(
        event,
        eventData,
        mainWindow,
@@ -3328,6 +3920,88 @@ index 7a6ce832755838335ed56c52dcad7909cfae047b..52a524da572e1c340768114adc3b850f
        writeSecureStorageFile(this.storagePath, data);
        return { success: true };
      } catch {
+diff --git a/source/app/package-lock.json b/source/app/package-lock.json
+index 1e9ba34e598fcba4911b90835d9a21384b860e58..40c2d2774e51df3801b0475c124aa2fe7a3a7f99 100644
+--- a/source/app/package-lock.json
++++ b/source/app/package-lock.json
+@@ -13,6 +13,7 @@
+         "@langchain/mcp-adapters": "^1.0.0",
+         "copyfiles": "^2.4.1",
+         "cross-env": "^7.0.3",
++        "cross-spawn": "^7.0.6",
+         "dotenv": "^16.4.5",
+         "electron-wix-msi": "^5.1.3",
+         "find-process": "^1.4.10",
+diff --git a/source/app/package.json b/source/app/package.json
+index e3ee370b17f66c9d7b3f11f89d796860d717d1e2..cc40455dfcc61ee426dfb46a296f36431ea231d5 100644
+--- a/source/app/package.json
++++ b/source/app/package.json
+@@ -26,7 +26,8 @@
+     "i18n-check": "npm run i18n -- --fail-on-update",
+     "lint": "cd .. && npm run frontend:lint",
+     "lint-fix": "cd .. && npm run frontend:lint:fix",
+-    "package": "npm run build && electron-builder build --config electron-builder.config.ts --publish never",
++    "package": "npm run copy-icons && npm run copy-plugins && npm run compile-electron && electron-builder build --config electron-builder.config.ts --publish never",
++    "package:prepared": "electron-builder build --config electron-builder.config.ts --publish never",
+     "package-msi": "npm run build && node windows/msi/build.js",
+     "start": "node scripts/start.js",
+     "star": "node scripts/start.js --star",
+@@ -221,6 +222,7 @@
+     "@langchain/langgraph": "1.4.9",
+     "copyfiles": "^2.4.1",
+     "cross-env": "^7.0.3",
++    "cross-spawn": "^7.0.6",
+     "dotenv": "^16.4.5",
+     "electron-wix-msi": "^5.1.3",
+     "find-process": "^1.4.10",
+diff --git a/source/app/scripts/after-pack.js b/source/app/scripts/after-pack.js
+index af2b9417da6d92ed10fecdb1e0265561c1672141..83799e1d30108217f86a575eec14e8374354f7e8 100644
+--- a/source/app/scripts/after-pack.js
++++ b/source/app/scripts/after-pack.js
+@@ -4,6 +4,8 @@ const fs = require('node:fs');
+ const path = require('node:path');
+ 
+ exports.default = async context => {
++  const startedAt = Date.now();
++  console.log(`[build-timing] Electron afterPack started at ${new Date(startedAt).toISOString()}`);
+   const { loadBuildManifest, verifyPackagedResources } = await import(
+     '../build/build-manifest.mjs'
+   );
+@@ -21,4 +23,9 @@ exports.default = async context => {
+   }
+ 
+   verifyPackagedResources(resourcesDirectory, loadBuildManifest(), context.electronPlatformName);
++  console.log(
++    `[build-timing] Electron afterPack completed in ${((Date.now() - startedAt) / 1000).toFixed(
++      3
++    )}s`
++  );
+ };
+diff --git a/source/app/scripts/build-backend.js b/source/app/scripts/build-backend.js
+index 9db1d9ea38fe826e26113c644a5d1cd82bb9faae..860ed4dab423b6c290a2fda006961205f450b2b3 100644
+--- a/source/app/scripts/build-backend.js
++++ b/source/app/scripts/build-backend.js
+@@ -35,6 +35,10 @@ function mapElectronArchToGoArch(electronArch) {
+ exports.mapElectronArchToGoArch = mapElectronArchToGoArch;
+ 
+ exports.default = async context => {
++  const startedAt = Date.now();
++  console.log(
++    `[build-timing] Electron backend hook started at ${new Date(startedAt).toISOString()}`
++  );
+   const arch = mapElectronArchToGoArch(context.arch);
+ 
+   let osName = '';
+@@ -57,4 +61,9 @@ exports.default = async context => {
+     },
+     cwd: '..',
+   });
++  console.log(
++    `[build-timing] Electron backend hook completed in ${((Date.now() - startedAt) / 1000).toFixed(
++      3
++    )}s`
++  );
+ };
 diff --git a/source/app/scripts/build-manifest.ts b/source/app/scripts/build-manifest.ts
 index 4e9e40f6c791a92cb9679b0abf4550c2d5e1c020..c3dfac25ef35a0f86e79f291cb921ffc66e66710 100644
 --- a/source/app/scripts/build-manifest.ts
@@ -3408,6 +4082,121 @@ index 4e9e40f6c791a92cb9679b0abf4550c2d5e1c020..c3dfac25ef35a0f86e79f291cb921ffc
            ...(artifactHubPackage && {
              artifactHub: {
                repository: artifactHubPackage[1],
+diff --git a/source/backend/cmd/headlamp_test.go b/source/backend/cmd/headlamp_test.go
+index 15a4f4af271aab02328b05d837de2bb854525fbb..89f4c4af492f9a88c31e515b6790a54de2927b3f 100644
+--- a/source/backend/cmd/headlamp_test.go
++++ b/source/backend/cmd/headlamp_test.go
+@@ -2330,6 +2330,7 @@ func TestRewriteIndexHTML(t *testing.T) {
+ 	indexContent := []byte(`<!DOCTYPE html>
+ <html>
+ <head>
++	<base href="./">
+     <title data-headlamp-product-name></title>
+     <script>var headlampBaseUrl = __baseUrl__;</script>
+     <link rel="stylesheet" href="./styles.css">
+@@ -2359,6 +2360,7 @@ func TestRewriteIndexHTML(t *testing.T) {
+ 			expectedOutput: `<!DOCTYPE html>
+ <html>
+ <head>
++	<base href="/">
+     <title>Branded &amp; Headlamp</title>
+     <script>var headlampBaseUrl = '/';</script>
+     <link rel="stylesheet" href="/styles.css">
+@@ -2374,6 +2376,7 @@ func TestRewriteIndexHTML(t *testing.T) {
+ 			expectedOutput: `<!DOCTYPE html>
+ <html>
+ <head>
++	<base href="/custom/">
+     <title>Branded &amp; Headlamp</title>
+     <script>var headlampBaseUrl = '/custom';</script>
+     <link rel="stylesheet" href="/custom/styles.css">
+diff --git a/source/backend/pkg/spa/embeddedSPAHandler.go b/source/backend/pkg/spa/embeddedSPAHandler.go
+index 1ffbea862783526a19c3b54ca519799f3c3e29d4..19dde02625164e244fd78a5d8d55a343dda4acc2 100644
+--- a/source/backend/pkg/spa/embeddedSPAHandler.go
++++ b/source/backend/pkg/spa/embeddedSPAHandler.go
+@@ -122,14 +122,31 @@ func (h embeddedSpaHandler) rewriteIndexContent(content []byte, isServingIndex b
+ 
+ 	content = ReplaceProductName(content, h.productName)
+ 
++	runtimeBaseURL := h.baseURL + "/"
++	if h.baseURL == "" || h.baseURL == "/" {
++		runtimeBaseURL = "/"
++	}
++
++	content = bytes.ReplaceAll(
++		content,
++		[]byte(`<base href="./">`),
++		[]byte(`<base href="`+runtimeBaseURL+`">`),
++	)
++
+ 	if h.baseURL == "" {
+ 		return content
+ 	}
+ 
+-	// Replace the __baseUrl__ assignment to use the baseURL instead of './'.
+-	oldPattern := "__baseUrl__ = './<%= BASE_URL %>'.replace('%BASE_' + 'URL%', '').replace('<' + '%= BASE_URL %>', '');"
++	// Replace the __baseUrl__ assignment emitted by either frontend builder.
++	oldPatterns := []string{
++		"__baseUrl__ = './<%= BASE_URL %>'.replace('%BASE_' + 'URL%', '').replace('<' + '%= BASE_URL %>', '');",
++		"__baseUrl__ = '%BASE_URL%./'.replace('%BASE_' + 'URL%', '').replace('<' + '%= BASE_URL %>', '');",
++	}
++
+ 	newPattern := "__baseUrl__ = '" + h.baseURL + "';"
+-	content = bytes.ReplaceAll(content, []byte(oldPattern), []byte(newPattern))
++	for _, oldPattern := range oldPatterns {
++		content = bytes.ReplaceAll(content, []byte(oldPattern), []byte(newPattern))
++	}
+ 
+ 	// Replace any remaining './' patterns in the content.
+ 	content = bytes.ReplaceAll(content, []byte("'./'"), []byte(h.baseURL+"/"))
+diff --git a/source/backend/pkg/spa/embeddedSPAHandler_test.go b/source/backend/pkg/spa/embeddedSPAHandler_test.go
+index 349cc9e615ddc13a23ea96592ee6b59368832265..7fcc72e00b025997cd821ddbc4f1b778b11408fc 100644
+--- a/source/backend/pkg/spa/embeddedSPAHandler_test.go
++++ b/source/backend/pkg/spa/embeddedSPAHandler_test.go
+@@ -5,6 +5,7 @@ import (
+ 	"io/fs"
+ 	"net/http"
+ 	"net/http/httptest"
++	"strings"
+ 	"testing"
+ 	"testing/fstest"
+ 
+@@ -23,6 +24,7 @@ func getTestHTML() string {
+ 	return `<!DOCTYPE html>
+ <html lang="en">
+   <head>
++		<base href="./">
+ 		<title data-headlamp-product-name></title>
+     <script>
+         // handles both webpack and rspack build systems
+@@ -45,6 +47,11 @@ func TestEmbeddedSpaHandler(t *testing.T) {
+ 		testHeadlampBaseURLWithBaseURL(t, testHTML)
+ 	})
+ 
++	t.Run("check_rsbuild_headlampBaseUrl_is_set_to_baseURL", func(t *testing.T) {
++		rsbuildHTML := strings.Replace(testHTML, "./<%= BASE_URL %>", "%BASE_URL%./", 1)
++		testHeadlampBaseURLWithBaseURL(t, rsbuildHTML)
++	})
++
+ 	t.Run("check_product_name_is_escaped_in_title", func(t *testing.T) {
+ 		testProductNameInTitle(t, testHTML)
+ 	})
+@@ -93,6 +100,7 @@ func testHeadlampBaseURLWithBaseURL(t *testing.T, testHTML string) {
+ 	// Check that the __baseUrl__ assignment was replaced
+ 	assert.Contains(t, rr.Body.String(), "__baseUrl__ = '/headlamp';")
+ 	assert.Contains(t, rr.Body.String(), "headlampBaseUrl = __baseUrl__;")
++	assert.Contains(t, rr.Body.String(), `<base href="/headlamp/">`)
+ }
+ 
+ func testEmptyPathReturnsIndex(t *testing.T, testHTML string) {
+@@ -127,6 +135,7 @@ func testFileNotFound(t *testing.T, testHTML string) {
+ 	// Check that the __baseUrl__ assignment was replaced in fallback case
+ 	assert.Contains(t, rr.Body.String(), "__baseUrl__ = '/headlamp';")
+ 	assert.Contains(t, rr.Body.String(), "headlampBaseUrl = __baseUrl__;")
++	assert.Contains(t, rr.Body.String(), `<base href="/headlamp/">`)
+ }
+ 
+ func testFileNotFoundUsesIndexContentType(t *testing.T, testHTML string) {
 diff --git a/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md b/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b065f6620f
@@ -3608,6 +4397,22 @@ index e8dce28b8f3cd77de057fee958921830325dec40..c19699db9682ea3b1ef0f06c38b0e729
  ## Development workflow
  
  The typical development workflow for the desktop app:
+diff --git a/source/docs/development/frontend.md b/source/docs/development/frontend.md
+index 79c3d5021157a075d4fc7c8ae5290eefab2cecec..ce2fe0c0ee688762898d0821d508313913a6c4f9 100644
+--- a/source/docs/development/frontend.md
++++ b/source/docs/development/frontend.md
+@@ -30,8 +30,9 @@ Once built, it can be run in development mode (auto-refresh) using:
+ npm run frontend:start
+ ```
+ 
+-This command starts the Vite development server for the frontend
+-(by default at `localhost:3000`).
++This command starts the Rsbuild development server for the frontend
++(by default at `localhost:3000`). To use the Vite fallback, run
++`npm --prefix frontend run start:vite`.
+ 
+ We use [react-query](https://tanstack.com/query/latest/docs/framework/react/overview)
+ for network requests. If you need the devtools for react-query, you can simply set `REACT_APP_ENABLE_REACT_QUERY_DEVTOOLS=true` in the `.env` file.
 diff --git a/source/docs/development/plugins/command-capabilities.md b/source/docs/development/plugins/command-capabilities.md
 index bea2e680fad209c4c40b168bd62922fac6238395..5fc6386967645fc9cf97cfc9c676503c554b598c 100644
 --- a/source/docs/development/plugins/command-capabilities.md
@@ -3668,6 +4473,119 @@ index a9f9ce75021825b683f7a7e7dc9751b7af322c2e..33f73657373aeab8e6165868ac76a497
  ### Route
  
  Show a component in the main area at a given URL with
+diff --git a/source/e2e-tests/package.json b/source/e2e-tests/package.json
+index a7277cf383a0caa5aa813cc9d3213199da28b64f..dc99b10fdb54f3f870540898f321ebbc76c5d55e 100644
+--- a/source/e2e-tests/package.json
++++ b/source/e2e-tests/package.json
+@@ -4,6 +4,7 @@
+   "description": "",
+   "main": "index.js",
+   "scripts": {
++    "test:base-url": "playwright test --config playwright.base-url.config.ts --project=chromium",
+     "test:unit": "vitest run",
+     "test:unit:coverage": "vitest run --coverage",
+     "test:storybook": "playwright test --config playwright.storybook.config.ts"
+diff --git a/source/e2e-tests/playwright.base-url.config.ts b/source/e2e-tests/playwright.base-url.config.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0614b00ec7d1078c820bb3596320c9823338933b
+--- /dev/null
++++ b/source/e2e-tests/playwright.base-url.config.ts
+@@ -0,0 +1,24 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { defineConfig } from '@playwright/test';
++import config from './playwright.config';
++
++export default defineConfig({
++  ...config,
++  testIgnore: '**/*.test.*',
++  testMatch: 'baseURL.spec.ts',
++});
+diff --git a/source/e2e-tests/playwright.config.ts b/source/e2e-tests/playwright.config.ts
+index 00d9513a57835bc184654532f71c2365075ade69..bd23f4b3e615266a0ccbf3aa67db2e725923fbdd 100644
+--- a/source/e2e-tests/playwright.config.ts
++++ b/source/e2e-tests/playwright.config.ts
+@@ -30,7 +30,7 @@ const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.
+  */
+ const config: PlaywrightTestConfig = {
+   testDir: './tests',
+-  testIgnore: '**/*.test.*',
++  testIgnore: ['**/*.test.*', '**/baseURL.spec.ts'],
+   /* Maximum time one test can run for. */
+   timeout: 30 * 1000,
+   expect: {
+diff --git a/source/e2e-tests/tests/baseURL.spec.ts b/source/e2e-tests/tests/baseURL.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..edbbfe400f31e45179a98256413f6c33e213d04d
+--- /dev/null
++++ b/source/e2e-tests/tests/baseURL.spec.ts
+@@ -0,0 +1,52 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { expect, test } from '@playwright/test';
++
++test('loads the frontend from a non-root base URL', async ({ page }) => {
++  const testURL = process.env.HEADLAMP_TEST_URL;
++  expect(testURL).toBeTruthy();
++
++  const failedRequests: string[] = [];
++  const frontendAssets: string[] = [];
++  page.on('requestfailed', request => {
++    const error = request.failure()?.errorText;
++    if (error !== 'net::ERR_ABORTED') {
++      failedRequests.push(`${error}: ${request.url()}`);
++    }
++  });
++  page.on('response', response => {
++    if (['script', 'stylesheet'].includes(response.request().resourceType())) {
++      frontendAssets.push(response.url());
++      if (response.status() >= 400) {
++        failedRequests.push(`${response.status()}: ${response.url()}`);
++      }
++    }
++  });
++
++  await page.goto(`${testURL}/project/create-yaml`);
++  await expect(page.locator('#root .splash')).toHaveCount(0);
++  await expect(page.getByRole('heading', { name: 'Create new Project from YAML' })).toBeVisible();
++  await page.reload();
++  await expect(page.getByRole('heading', { name: 'Create new Project from YAML' })).toBeVisible();
++  await expect.poll(() => frontendAssets.length).toBeGreaterThan(0);
++
++  expect(
++    await page.evaluate(() => (window as Window & { headlampBaseUrl?: string }).headlampBaseUrl)
++  ).toBe('/headlamp');
++  expect(failedRequests).toEqual([]);
++  expect(frontendAssets.every(url => new URL(url).pathname.startsWith('/headlamp/'))).toBe(true);
++});
 diff --git a/source/e2e-tests/tests/clusterPreOpen.spec.ts b/source/e2e-tests/tests/clusterPreOpen.spec.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..67fe3f25d8499025ef6a31ef9f85abe899dbfe7c
@@ -3741,6 +4659,618 @@ index 0000000000000000000000000000000000000000..67fe3f25d8499025ef6a31ef9f85abe8
 +  ).toHaveCount(0);
 +  await expect(page.locator("main > *").first()).toBeVisible();
 +});
+diff --git a/source/frontend/package-lock.json b/source/frontend/package-lock.json
+index 9dbb56f42e4aa9c6c841066114fc304d3c0cfec4..88327956d3987b5acdba94dbe6c40b3cd13c77d4 100644
+--- a/source/frontend/package-lock.json
++++ b/source/frontend/package-lock.json
+@@ -22,6 +22,10 @@
+         "@mui/x-date-pickers": "^7.15.0",
+         "@mui/x-tree-view": "^6.17.0",
+         "@reduxjs/toolkit": "^2.2.7",
++        "@rsbuild/core": "^2.0.1",
++        "@rsbuild/plugin-node-polyfill": "^1.4.4",
++        "@rsbuild/plugin-react": "^2.0.0",
++        "@rsbuild/plugin-svgr": "^2.0.1",
+         "@tanstack/react-query": "^5.51.24",
+         "@tanstack/react-query-devtools": "^5.51.24",
+         "@testing-library/dom": "^10.1.0",
+@@ -96,10 +100,6 @@
+       },
+       "devDependencies": {
+         "@chanzuckerberg/axe-storybook-testing": "^9.0.0",
+-        "@rsbuild/core": "^2.0.1",
+-        "@rsbuild/plugin-node-polyfill": "^1.4.4",
+-        "@rsbuild/plugin-react": "^2.0.0",
+-        "@rsbuild/plugin-svgr": "^2.0.1",
+         "@storybook/addon-docs": "^9.1.19",
+         "@storybook/addon-links": "^9.1.19",
+         "@storybook/react-vite": "^9.1.19",
+@@ -126,7 +126,7 @@
+         "vitest-websocket-mock": "^0.4.0"
+       },
+       "engines": {
+-        "node": ">=22.0.0",
++        "node": ">=22.12.0",
+         "npm": ">=11.0.0"
+       },
+       "optionalDependencies": {
+@@ -699,7 +699,6 @@
+       "version": "1.10.0",
+       "resolved": "https://registry.npmjs.org/@emnapi/core/-/core-1.10.0.tgz",
+       "integrity": "sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==",
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "dependencies": {
+@@ -711,7 +710,6 @@
+       "version": "1.10.0",
+       "resolved": "https://registry.npmjs.org/@emnapi/runtime/-/runtime-1.10.0.tgz",
+       "integrity": "sha512-ewvYlk86xUoGI0zQRNq/mC+16R1QeDlKQy21Ki3oSYXNgLb45GV1P6A0M+/s6nyCuNDqe5VpaY84BzXGwVbwFA==",
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "dependencies": {
+@@ -722,7 +720,6 @@
+       "version": "1.2.1",
+       "resolved": "https://registry.npmjs.org/@emnapi/wasi-threads/-/wasi-threads-1.2.1.tgz",
+       "integrity": "sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w==",
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "dependencies": {
+@@ -2338,7 +2335,6 @@
+       "version": "1.1.4",
+       "resolved": "https://registry.npmjs.org/@napi-rs/wasm-runtime/-/wasm-runtime-1.1.4.tgz",
+       "integrity": "sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow==",
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "dependencies": {
+@@ -2853,7 +2849,6 @@
+       "version": "2.0.1",
+       "resolved": "https://registry.npmjs.org/@rsbuild/core/-/core-2.0.1.tgz",
+       "integrity": "sha512-5TwUpb10Y+VYaYH8oLL/rfJGrhxrk16BiGzv101kzaMPT60MtOXgjEUTxztbjRuq0ifbtRJ/w7rsIZQ4VziWYg==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "@rspack/core": "^2.0.0",
+@@ -2878,7 +2873,6 @@
+       "version": "1.4.6",
+       "resolved": "https://registry.npmjs.org/@rsbuild/plugin-node-polyfill/-/plugin-node-polyfill-1.4.6.tgz",
+       "integrity": "sha512-uJHDmfinJe00h9JvZfzOeiYYpIkAOorMsX2nv9c6n+YQBFgQalJZ3O2q2CLoqtwspQl5Pa8WU1hsUvzRi1Ro3g==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "assert": "^2.1.0",
+@@ -2918,7 +2912,6 @@
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/@rsbuild/plugin-react/-/plugin-react-2.0.0.tgz",
+       "integrity": "sha512-/1gzt39EGUSFEqB83g46QoOwsgv172HI18i6au1b6lgIaX4sv9stuX4ijdHbHCp8PqYEq+MyQ99jIQMO6I+etg==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "@rspack/plugin-react-refresh": "2.0.0",
+@@ -2937,7 +2930,6 @@
+       "version": "2.0.1",
+       "resolved": "https://registry.npmjs.org/@rsbuild/plugin-svgr/-/plugin-svgr-2.0.1.tgz",
+       "integrity": "sha512-cnBGmwtuhj1ltPBScsQVAvsF29m9xmtKXM3sjWWpDfPISkSTxR/jIRvFOf5qYVY37bJIs41Rxfd+PgrGazIgag==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "@rsbuild/plugin-react": "^2.0.0",
+@@ -2960,7 +2952,6 @@
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/@rspack/binding/-/binding-2.0.0.tgz",
+       "integrity": "sha512-WA2f9eQpejkvf5Vrnf6wNCn1m8RT1p08NjgOZpKhsCzr0uBjWeRvGduawlrFFHZh/jPnWZTVaVdQ08FEAWbwGw==",
+-      "dev": true,
+       "license": "MIT",
+       "optionalDependencies": {
+         "@rspack/binding-darwin-arm64": "2.0.0",
+@@ -2982,7 +2973,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -2996,7 +2986,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3010,7 +2999,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3024,7 +3012,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3038,7 +3025,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3052,7 +3038,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3066,7 +3051,6 @@
+       "cpu": [
+         "wasm32"
+       ],
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "dependencies": {
+@@ -3082,7 +3066,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3096,7 +3079,6 @@
+       "cpu": [
+         "ia32"
+       ],
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3110,7 +3092,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3121,7 +3102,6 @@
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/@rspack/core/-/core-2.0.0.tgz",
+       "integrity": "sha512-WD1mJM9LbZ7Z399Rbv9dE3BNEV0+3sE5OzDdzV8hOxUb3mX++ynK5n9kil8w60B6nGdcKeV9ly5aN4PgqiwWUg==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "@rspack/binding": "2.0.0"
+@@ -3146,7 +3126,6 @@
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/@rspack/plugin-react-refresh/-/plugin-react-refresh-2.0.0.tgz",
+       "integrity": "sha512-Cf6CxBStNDJbiXMc/GmsvG1G8PRlUpa0MSfWsMTI+e8npzuTN/p8nwLs3shriBZOLciqgkSZpBtPTd10BLpj1g==",
+-      "dev": true,
+       "license": "MIT",
+       "peerDependencies": {
+         "@rspack/core": "^2.0.0-0",
+@@ -3621,7 +3600,6 @@
+       "version": "8.1.0",
+       "resolved": "https://registry.npmjs.org/@svgr/plugin-svgo/-/plugin-svgo-8.1.0.tgz",
+       "integrity": "sha512-Ywtl837OGO9pTLIN/onoWLmDQ4zFUycI1g76vuKGEz6evR/ZTJlJuz3G/fIkb6OVBJ2g0o6CGJzaEjfmEo3AHA==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "cosmiconfig": "^8.1.3",
+@@ -3643,7 +3621,6 @@
+       "version": "0.5.21",
+       "resolved": "https://registry.npmjs.org/@swc/helpers/-/helpers-0.5.21.tgz",
+       "integrity": "sha512-jI/VAmtdjB/RnI8GTnokyX7Ug8c+g+ffD6QRLa6XQewtnGyukKkKSk3wLTM3b5cjt1jNh9x0jfVlagdN2gDKQg==",
+-      "dev": true,
+       "license": "Apache-2.0",
+       "dependencies": {
+         "tslib": "^2.8.0"
+@@ -3869,7 +3846,6 @@
+       "version": "0.10.1",
+       "resolved": "https://registry.npmjs.org/@tybys/wasm-util/-/wasm-util-0.10.1.tgz",
+       "integrity": "sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==",
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "dependencies": {
+@@ -4966,7 +4942,6 @@
+       "version": "3.0.0",
+       "resolved": "https://registry.npmjs.org/abort-controller/-/abort-controller-3.0.0.tgz",
+       "integrity": "sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "event-target-shim": "^5.0.0"
+@@ -5651,7 +5626,6 @@
+       "version": "1.0.0",
+       "resolved": "https://registry.npmjs.org/boolbase/-/boolbase-1.0.0.tgz",
+       "integrity": "sha512-JZOSA7Mo9sNGB8+UjSgzdLtokWAky1zbztM3WRLCbZ70/3cTANmQmOdR7y2g+J0e2WXywy1yS468tY+IruqEww==",
+-      "dev": true,
+       "license": "ISC"
+     },
+     "node_modules/brace-expansion": {
+@@ -6690,7 +6664,6 @@
+       "version": "5.2.2",
+       "resolved": "https://registry.npmjs.org/css-select/-/css-select-5.2.2.tgz",
+       "integrity": "sha512-TizTzUddG/xYLA3NXodFM0fSbNizXjOKhqiQQwvhlspadZokn1KDy0NZFS0wuEubIYAV5/c1/lAr0TaaFXEXzw==",
+-      "dev": true,
+       "license": "BSD-2-Clause",
+       "dependencies": {
+         "boolbase": "^1.0.0",
+@@ -6707,7 +6680,6 @@
+       "version": "2.3.1",
+       "resolved": "https://registry.npmjs.org/css-tree/-/css-tree-2.3.1.tgz",
+       "integrity": "sha512-6Fv1DV/TYw//QF5IzQdqsNDjx/wc8TrMBZsqjL9eW01tWb7R7k/mq+/VXfJCl7SoD5emsJop9cOByJZfs8hYIw==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "mdn-data": "2.0.30",
+@@ -6721,7 +6693,6 @@
+       "version": "6.2.2",
+       "resolved": "https://registry.npmjs.org/css-what/-/css-what-6.2.2.tgz",
+       "integrity": "sha512-u/O3vwbptzhMs3L1fQE82ZSLHQQfto5gyZzwteVIEyeaY5Fc7R4dapF/BvRoSYFeqfBk4m0V1Vafq5Pjv25wvA==",
+-      "dev": true,
+       "license": "BSD-2-Clause",
+       "engines": {
+         "node": ">= 6"
+@@ -6748,7 +6719,6 @@
+       "version": "5.0.5",
+       "resolved": "https://registry.npmjs.org/csso/-/csso-5.0.5.tgz",
+       "integrity": "sha512-0LrrStPOdJj+SPCCrGhzryycLjwcgUSHBtxNA8aIDxf0GLsRh1cKYhB00Gd1lDOS4yGH69+SNn13+TWbVHETFQ==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "css-tree": "~2.2.0"
+@@ -6762,7 +6732,6 @@
+       "version": "2.2.1",
+       "resolved": "https://registry.npmjs.org/css-tree/-/css-tree-2.2.1.tgz",
+       "integrity": "sha512-OA0mILzGc1kCOCSJerOeqDxDQ4HOh+G8NbOJFOTgOCzpw7fCBubk0fEyxp8AgOL/jvLgYA/uV0cMbe43ElF1JA==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "mdn-data": "2.0.28",
+@@ -6777,7 +6746,6 @@
+       "version": "2.0.28",
+       "resolved": "https://registry.npmjs.org/mdn-data/-/mdn-data-2.0.28.tgz",
+       "integrity": "sha512-aylIc7Z9y4yzHYAJNuESG3hfhC+0Ibp/MAMiaOZgNv4pmEdFyfZhhhny4MNiAfWdBQ1RQ2mfDWmM1x8SvGyp8g==",
+-      "dev": true,
+       "license": "CC0-1.0"
+     },
+     "node_modules/cssstyle": {
+@@ -7148,7 +7116,6 @@
+       "version": "4.3.1",
+       "resolved": "https://registry.npmjs.org/deepmerge/-/deepmerge-4.3.1.tgz",
+       "integrity": "sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A==",
+-      "dev": true,
+       "license": "MIT",
+       "engines": {
+         "node": ">=0.10.0"
+@@ -7298,7 +7265,6 @@
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/dom-serializer/-/dom-serializer-2.0.0.tgz",
+       "integrity": "sha512-wIkAryiqt/nV5EQKqQpo3SToSOV9J0DnbJqwK7Wv/Trc92zIAYZ4FlMu+JPFW1DfGFt81ZTCGgDEabffXeLyJg==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "domelementtype": "^2.3.0",
+@@ -7320,7 +7286,6 @@
+       "version": "2.3.0",
+       "resolved": "https://registry.npmjs.org/domelementtype/-/domelementtype-2.3.0.tgz",
+       "integrity": "sha512-OLETBj6w0OsagBwdXnPdN0cnMfF9opN69co+7ZrbfPGrdpPVNBUj02spi6B1N7wChLQiPn4CSH/zJvXw56gmHw==",
+-      "dev": true,
+       "funding": [
+         {
+           "type": "github",
+@@ -7333,7 +7298,6 @@
+       "version": "5.0.3",
+       "resolved": "https://registry.npmjs.org/domhandler/-/domhandler-5.0.3.tgz",
+       "integrity": "sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==",
+-      "dev": true,
+       "license": "BSD-2-Clause",
+       "dependencies": {
+         "domelementtype": "^2.3.0"
+@@ -7349,7 +7313,6 @@
+       "version": "3.2.2",
+       "resolved": "https://registry.npmjs.org/domutils/-/domutils-3.2.2.tgz",
+       "integrity": "sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==",
+-      "dev": true,
+       "license": "BSD-2-Clause",
+       "dependencies": {
+         "dom-serializer": "^2.0.0",
+@@ -8453,7 +8416,6 @@
+       "version": "5.0.1",
+       "resolved": "https://registry.npmjs.org/event-target-shim/-/event-target-shim-5.0.1.tgz",
+       "integrity": "sha512-i/2XbnSz/uxRCU6+NdVJgKWDTM427+MqYbkQzD321DuCQJUqOuJKIA0IM2+W2xtYHdKOmZ4dR6fExsd4SXL+WQ==",
+-      "dev": true,
+       "license": "MIT",
+       "engines": {
+         "node": ">=6"
+@@ -11172,7 +11134,6 @@
+       "version": "3.3.1",
+       "resolved": "https://registry.npmjs.org/loader-utils/-/loader-utils-3.3.1.tgz",
+       "integrity": "sha512-FMJTLMXfCLMLfJxcX9PFqX5qD88Z5MRGaZCVzfuqeZSPsyiBzs+pahDQjbIWz2QIzPZz0NX9Zy4FX3lmK6YHIg==",
+-      "dev": true,
+       "license": "MIT",
+       "engines": {
+         "node": ">= 12.13.0"
+@@ -11820,7 +11781,6 @@
+       "version": "2.0.30",
+       "resolved": "https://registry.npmjs.org/mdn-data/-/mdn-data-2.0.30.tgz",
+       "integrity": "sha512-GaqWWShW4kv/G9IEucWScBx9G1/vsFZZJUO+tD26M8J8z3Kw5RDQjaoZe03YAClgeS/SWPOcb4nkFBTEi5DUEA==",
+-      "dev": true,
+       "license": "CC0-1.0"
+     },
+     "node_modules/mdurl": {
+@@ -13121,7 +13081,6 @@
+       "version": "2.1.1",
+       "resolved": "https://registry.npmjs.org/nth-check/-/nth-check-2.1.1.tgz",
+       "integrity": "sha512-lqjrjmaOoAnWfMmBPL+XNnynZh2+swxiX3WUE0s4yEHI6m+AwrK2UZOimIRl3X/4QctVqS8AiZjFqyOGrMXb/w==",
+-      "dev": true,
+       "license": "BSD-2-Clause",
+       "dependencies": {
+         "boolbase": "^1.0.0"
+@@ -14381,7 +14340,6 @@
+       "version": "0.18.0",
+       "resolved": "https://registry.npmjs.org/react-refresh/-/react-refresh-0.18.0.tgz",
+       "integrity": "sha512-QgT5//D3jfjJb6Gsjxv0Slpj23ip+HtOpnNgnb2S5zU3CB26G/IDPGoy4RJB42wzFE46DRsstbW6tKHoKbhAxw==",
+-      "dev": true,
+       "license": "MIT",
+       "engines": {
+         "node": ">=0.10.0"
+@@ -14498,7 +14456,6 @@
+       "version": "4.7.0",
+       "resolved": "https://registry.npmjs.org/readable-stream/-/readable-stream-4.7.0.tgz",
+       "integrity": "sha512-oIGGmcpTLwPga8Bn6/Z75SVaH1z5dUut2ibSyAMVhmUggWpmDn2dapB0n7f8nwaSiRtepAsfJyfXIO5DCVAODg==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "abort-controller": "^3.0.0",
+@@ -14515,7 +14472,6 @@
+       "version": "6.0.3",
+       "resolved": "https://registry.npmjs.org/buffer/-/buffer-6.0.3.tgz",
+       "integrity": "sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==",
+-      "dev": true,
+       "funding": [
+         {
+           "type": "github",
+@@ -15256,7 +15212,6 @@
+       "version": "1.6.0",
+       "resolved": "https://registry.npmjs.org/sax/-/sax-1.6.0.tgz",
+       "integrity": "sha512-6R3J5M4AcbtLUdZmRv2SygeVaM7IhrLXu9BmnOGmmACak8fiUtOsYNWUS4uK7upbmHIBbLBeFeI//477BKLBzA==",
+-      "dev": true,
+       "license": "BlueOak-1.0.0",
+       "engines": {
+         "node": ">=11.0.0"
+@@ -16318,7 +16273,6 @@
+       "version": "3.3.4",
+       "resolved": "https://registry.npmjs.org/svgo/-/svgo-3.3.4.tgz",
+       "integrity": "sha512-GsNRis4e8jxn2Y9ENz/8lbJ93CstG8svtMnuRaHbiF2LTJ5tK0/q3t/URPq9Zc7zVWBJnNnJMIp6bevK7bSmNg==",
+-      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "commander": "^7.2.0",
+@@ -16344,7 +16298,6 @@
+       "version": "7.2.0",
+       "resolved": "https://registry.npmjs.org/commander/-/commander-7.2.0.tgz",
+       "integrity": "sha512-QrWXB+ZQSVPmIWIhtEO9H+gwHaMGYiF5ChvoJ+K9ZGHG/sVsa6yiesAD1GC/x46sET00Xlwo1u49RVVVzvcSkw==",
+-      "dev": true,
+       "license": "MIT",
+       "engines": {
+         "node": ">= 10"
+diff --git a/source/frontend/package.json b/source/frontend/package.json
+index b33e7f7e4f8024aa8548f13e73ded89bcc36ba80..be783b4f7daaef09ec2859e3529cc78867aa50fa 100644
+--- a/source/frontend/package.json
++++ b/source/frontend/package.json
+@@ -5,7 +5,7 @@
+   "productName": "Headlamp",
+   "engines": {
+     "npm": ">=11.0.0",
+-    "node": ">=22.0.0"
++    "node": ">=22.12.0"
+   },
+   "type": "module",
+   "dependencies": {
+@@ -23,6 +23,10 @@
+     "@mui/x-date-pickers": "^7.15.0",
+     "@mui/x-tree-view": "^6.17.0",
+     "@reduxjs/toolkit": "^2.2.7",
++    "@rsbuild/core": "^2.0.1",
++    "@rsbuild/plugin-node-polyfill": "^1.4.4",
++    "@rsbuild/plugin-react": "^2.0.0",
++    "@rsbuild/plugin-svgr": "^2.0.1",
+     "@tanstack/react-query": "^5.51.24",
+     "@tanstack/react-query-devtools": "^5.51.24",
+     "@testing-library/dom": "^10.1.0",
+@@ -113,11 +117,16 @@
+   },
+   "scripts": {
+     "prestart": "npm run make-version",
+-    "start": "cross-env REACT_APP_HEADLAMP_BACKEND_TOKEN=headlamp vite",
++    "start": "cross-env REACT_APP_HEADLAMP_BACKEND_TOKEN=headlamp rsbuild dev",
++    "prestart:vite": "npm run make-version",
++    "start:vite": "cross-env REACT_APP_HEADLAMP_BACKEND_TOKEN=headlamp vite",
+     "preview": "vite preview",
+     "prebuild": "npm run make-version",
+-    "build": "cross-env PUBLIC_URL=./ NODE_OPTIONS=--max-old-space-size=8096 vite build && npx shx rm -f build/frontend/index.baseUrl.html",
++    "build": "cross-env NODE_OPTIONS=--max-old-space-size=768 rsbuild build",
+     "postbuild": "tsx ./scripts/precompress-build.ts build",
++    "prebuild:vite": "npm run make-version",
++    "build:vite": "cross-env PUBLIC_URL=./ NODE_OPTIONS=--max-old-space-size=8096 vite build && npx shx rm -f build/frontend/index.baseUrl.html",
++    "postbuild:vite": "tsx ./scripts/precompress-build.ts build",
+     "pretest": "npm run make-version",
+     "test": "vitest",
+     "test:a11y": "npm run build-storybook && node test-a11y-with-baseline.mjs",
+@@ -132,9 +141,7 @@
+     "i18n": "i18next 'src/**/*.{ts,tsx}' '!src/**/*.test.{ts,tsx}' -c ./src/i18n/i18next-parser.config.js",
+     "tsc": "tsgo && tsgo -p scripts/tsconfig.json",
+     "make-version": "node ./make-env.js",
+-    "star": "cross-env REACT_APP_HEADLAMP_BACKEND_TOKEN=headlamp rsbuild dev",
+-    "build:rsbuild": "rsbuild build",
+-    "postbuild:rsbuild": "tsx ./scripts/precompress-build.ts build"
++    "star": "npm start"
+   },
+   "browserslist": {
+     "production": [
+@@ -232,10 +239,6 @@
+   },
+   "prettier": "@headlamp-k8s/eslint-config/prettier-config",
+   "devDependencies": {
+-    "@rsbuild/core": "^2.0.1",
+-    "@rsbuild/plugin-node-polyfill": "^1.4.4",
+-    "@rsbuild/plugin-react": "^2.0.0",
+-    "@rsbuild/plugin-svgr": "^2.0.1",
+     "@storybook/addon-docs": "^9.1.19",
+     "@storybook/addon-links": "^9.1.19",
+     "@storybook/react-vite": "^9.1.19",
+diff --git a/source/frontend/rsbuild.config.ts b/source/frontend/rsbuild.config.ts
+index b208535edf8fd0cbbbdab4f2cb19bd4a3ae8585d..5b6bcf44a38207cc54c55c0e56428c16d4bae521 100644
+--- a/source/frontend/rsbuild.config.ts
++++ b/source/frontend/rsbuild.config.ts
+@@ -14,7 +14,7 @@
+  * limitations under the License.
+  */
+ 
+-import { defineConfig } from '@rsbuild/core';
++import { defineConfig, type RsbuildPlugin } from '@rsbuild/core';
+ import { pluginNodePolyfill } from '@rsbuild/plugin-node-polyfill';
+ import { pluginReact } from '@rsbuild/plugin-react';
+ import { pluginSvgr } from '@rsbuild/plugin-svgr';
+@@ -22,17 +22,53 @@ import { pluginSvgr } from '@rsbuild/plugin-svgr';
+ // Dynamically inject REACT_APP_ environment variables
+ const reactAppEnvVars = Object.entries(process.env)
+   .filter(([key, value]) => key.startsWith('REACT_APP_') && value !== undefined)
+-  .reduce(
+-    (env, [key, value]) => {
+-      env[`import.meta.env.${key}`] = JSON.stringify(value);
+-      return env;
+-    },
+-    { 'import.meta.env': '{}' }
+-  );
++  .reduce<Record<string, string>>((env, [key, value]) => {
++    env[`import.meta.env.${key}`] = JSON.stringify(value);
++    return env;
++  }, {});
+ 
+ // Use environment variable for backend port, defaulting to 4466
+ const backendPort = process.env.HEADLAMP_PORT || '4466';
+ const backendTarget = `http://localhost:${backendPort}`;
++const frontendBaseUrl = process.env.PUBLIC_URL || process.env.BASE_URL || './';
++const serverBase = frontendBaseUrl.startsWith('/') ? frontendBaseUrl : undefined;
++const serverRouteBase = serverBase?.replace(/\/+$/, '');
++
++const withServerBase = (paths: string[]) =>
++  serverRouteBase ? [...paths, ...paths.map(path => `${serverRouteBase}${path}`)] : paths;
++
++const removeViteEntryPlugin = (): RsbuildPlugin => ({
++  name: 'remove-vite-entry',
++  setup(api) {
++    api.modifyHTML(html => {
++      const viteEntry = '<script type="module" src="/src/index.tsx"></script>';
++      if (!html.includes(viteEntry)) {
++        throw new Error('Expected the Vite source entry in the HTML template');
++      }
++      return html.replace(viteEntry, '');
++    });
++  },
++});
++
++const useRelativeStaticAssetsPlugin = (): RsbuildPlugin => ({
++  name: 'use-relative-static-assets',
++  setup(api) {
++    api.modifyHTML(html =>
++      html.replace(
++        /((?:src|href)=")\/(favicon\.ico|apple-touch-icon\.png|favicon-32x32\.png|favicon-16x16\.png|safari-pinned-tab\.svg|manifest\.json)(")/g,
++        '$1./$2$3'
++      )
++    );
++  },
++});
++
++const useRuntimeBasePlugin = (): RsbuildPlugin => ({
++  name: 'use-runtime-base',
++  apply: 'build',
++  setup(api) {
++    api.modifyHTML(html => html.replace('<head>', '<head>\n    <base href="./">'));
++  },
++});
+ 
+ export default defineConfig({
+   source: {
+@@ -41,7 +77,7 @@ export default defineConfig({
+     },
+     define: {
+       global: 'globalThis',
+-      'import.meta.env.BASE_URL': JSON.stringify(process.env.BASE_URL || './'), // Define BASE_URL with a default value
++      'import.meta.env.BASE_URL': JSON.stringify(frontendBaseUrl),
+       'import.meta.env.UNDER_TEST': JSON.stringify(process.env.UNDER_TEST === 'true'), // Define UNDER_TEST as a boolean literal
+       ...reactAppEnvVars, // Inject REACT_APP_ environment variables
+     },
+@@ -49,16 +85,17 @@ export default defineConfig({
+   html: {
+     template: './index.html',
+     templateParameters: {
+-      BASE_URL: process.env.BASE_URL || '/',
++      BASE_URL: frontendBaseUrl,
+     },
+   },
+   server: {
++    base: serverBase,
+     port: 3000,
+     cors: true,
+     // Combine routes into one proxy instance to avoid Node's MaxListeners warning (>10 routes)
+     proxy: [
+       {
+-        pathFilter: [
++        pathFilter: withServerBase([
+           '/api',
+           '/clusters',
+           '/plugins',
+@@ -72,12 +109,12 @@ export default defineConfig({
+           '/parseKubeConfig',
+           '/cluster',
+           '/metrics',
+-        ],
++        ]),
+         target: backendTarget,
+         changeOrigin: true,
+       },
+       {
+-        pathFilter: ['/wsMultiplexer'],
++        pathFilter: withServerBase(['/wsMultiplexer']),
+         target: backendTarget,
+         changeOrigin: true,
+         ws: true,
+@@ -88,6 +125,7 @@ export default defineConfig({
+   //   hmr: false,
+   // },
+   output: {
++    assetPrefix: 'auto',
+     distPath: {
+       root: 'build',
+     },
+@@ -154,6 +192,9 @@ export default defineConfig({
+   },
+ 
+   plugins: [
++    removeViteEntryPlugin(),
++    useRelativeStaticAssetsPlugin(),
++    useRuntimeBasePlugin(),
+     pluginReact({
+       swcReactOptions: {
+         throwIfNamespace: false,
 diff --git a/source/frontend/src/components/App/ClusterLayout.tsx b/source/frontend/src/components/App/ClusterLayout.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..2cdd719a74ad7f2416cefc3aa898b11975a96fc7
@@ -5298,6 +6828,137 @@ index 0c2d85927ef0ac1d9723025baa1894bff7fe424c..f983ce30e65a1e8a62d1bbf0d7a70b15
        } catch (error) {
          console.error('Error in getRelatedPods:', error);
          throw new Error(
+diff --git a/source/frontend/src/frontendDevServer.test.js b/source/frontend/src/frontendDevServer.test.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..75eeb5e2d240221d7fbc78ee92ee5e785b6e7221
+--- /dev/null
++++ b/source/frontend/src/frontendDevServer.test.js
+@@ -0,0 +1,125 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { spawn } from 'node:child_process';
++import { createHash } from 'node:crypto';
++import http from 'node:http';
++import net from 'node:net';
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++import { expect, test } from 'vitest';
++
++const frontendDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
++
++async function reservePort() {
++  const server = net.createServer();
++  await new Promise((resolve, reject) => {
++    server.once('error', reject);
++    server.listen(0, '127.0.0.1', resolve);
++  });
++  const address = server.address();
++  const port = typeof address === 'object' && address ? address.port : undefined;
++  await new Promise((resolve, reject) =>
++    server.close(error => (error ? reject(error) : resolve()))
++  );
++  if (!port) {
++    throw new Error('Failed to reserve a local port');
++  }
++  return port;
++}
++
++async function waitForServer(url) {
++  for (let attempt = 0; attempt < 60; attempt++) {
++    try {
++      const response = await fetch(url);
++      if (response.ok) {
++        return;
++      }
++    } catch {
++      // The development server is still starting.
++    }
++    await new Promise(resolve => setTimeout(resolve, 100));
++  }
++  throw new Error(`Timed out waiting for ${url}`);
++}
++
++test(
++  'the default development server proxies base-prefixed WebSockets',
++  { timeout: 30000 },
++  async () => {
++    const frontendPort = await reservePort();
++    let upgradedPath;
++    let upgradedSocket;
++    const backend = http.createServer();
++    backend.on('upgrade', (request, socket) => {
++      upgradedPath = request.url;
++      upgradedSocket = socket;
++      const key = request.headers['sec-websocket-key'];
++      const accept = createHash('sha1')
++        .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
++        .digest('base64');
++      socket.write(
++        `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`
++      );
++    });
++    await new Promise((resolve, reject) => {
++      backend.once('error', reject);
++      backend.listen(0, '127.0.0.1', resolve);
++    });
++    const address = backend.address();
++    const backendPort = typeof address === 'object' && address ? address.port : undefined;
++    const npmCli = process.env.npm_execpath;
++    if (!backendPort || !npmCli) {
++      throw new Error('Failed to prepare the development server test');
++    }
++
++    const frontend = spawn(
++      process.execPath,
++      [npmCli, 'start', '--', '--host', '127.0.0.1', '--port', `${frontendPort}`],
++      {
++        cwd: frontendDirectory,
++        env: {
++          ...process.env,
++          HEADLAMP_PORT: `${backendPort}`,
++          PUBLIC_URL: '/headlamp',
++        },
++        stdio: 'ignore',
++      }
++    );
++
++    try {
++      await waitForServer(`http://127.0.0.1:${frontendPort}/headlamp/`);
++      await new Promise((resolve, reject) => {
++        const socket = new WebSocket(`ws://127.0.0.1:${frontendPort}/headlamp/wsMultiplexer`);
++        const timeout = setTimeout(() => reject(new Error('WebSocket proxy timed out')), 5000);
++        socket.addEventListener('open', () => {
++          clearTimeout(timeout);
++          socket.close();
++          resolve();
++        });
++        socket.addEventListener('error', () => {
++          clearTimeout(timeout);
++          reject(new Error('WebSocket proxy failed'));
++        });
++      });
++      expect(upgradedPath).toBe('/headlamp/wsMultiplexer');
++    } finally {
++      frontend.kill('SIGTERM');
++      upgradedSocket?.destroy();
++      await new Promise(resolve => backend.close(resolve));
++    }
++  }
++);
 diff --git a/source/frontend/src/i18n/locales/ar/translation.json b/source/frontend/src/i18n/locales/ar/translation.json
 index 85f362d129e707b8be091c79b19f5f8b12fc1214..4f31e321d8cb4e51ec493778455e3370579feb9e 100644
 --- a/source/frontend/src/i18n/locales/ar/translation.json
@@ -5960,6 +7621,71 @@ index d2a95c15bfccd3867823701e468c11e0f3bbbb2f..4fe2bd7063bb07ed71bda9306a9acaf2
  }
  
  export { useCluster, useConnectApi, useSelectedClusters } from './api/v1/hooks';
+diff --git a/source/frontend/src/packageScripts.test.js b/source/frontend/src/packageScripts.test.js
+index 5f915775601cc823796e48ad140648a5a3618da9..eaf1fe2a9bae600ed32481d300e06d1d0292e7ce 100644
+--- a/source/frontend/src/packageScripts.test.js
++++ b/source/frontend/src/packageScripts.test.js
+@@ -39,13 +39,55 @@ test('packaged-source scripts use package-owned tsx', () => {
+   );
+ 
+   expect(rootPackage.devDependencies).toHaveProperty('tsx');
+-  expect(rootPackage.scripts['app:build']).toContain('tsx ./scripts/setup-plugins.ts');
+-  expect(rootPackage.scripts['app:build:dir']).toContain('tsx ./scripts/setup-plugins.ts');
++  expect(rootPackage.engines.node).toBe('>=22.12.0');
++  expect(rootPackage.scripts['app:prepare']).toContain('tsx ./scripts/setup-plugins.ts');
++  expect(rootPackage.scripts['app:build']).toContain('npm run app:prepare');
++  expect(rootPackage.scripts['app:build:dir']).toContain('npm run app:prepare');
+   expect(rootPackage.scripts['app:start']).toContain('tsx ./scripts/setup-plugins.ts');
+   expect(frontendPackage.dependencies).toHaveProperty('tsx');
+-  expect(frontendPackage.scripts.postbuild).toBe('tsx ./scripts/precompress-build.ts build');
+-  expect(frontendPackage.scripts['postbuild:rsbuild']).toBe(
+-    'tsx ./scripts/precompress-build.ts build'
++  expect(frontendPackage.engines.node).toBe('>=22.12.0');
++  expect(frontendPackage.scripts.start).toBe(
++    'cross-env REACT_APP_HEADLAMP_BACKEND_TOKEN=headlamp rsbuild dev'
++  );
++  expect(frontendPackage.scripts['prestart:vite']).toBe('npm run make-version');
++  expect(frontendPackage.scripts['start:vite']).toContain('vite');
++  expect(frontendPackage.scripts.star).toBe('npm start');
++  expect(frontendPackage.scripts.build).toBe(
++    'cross-env NODE_OPTIONS=--max-old-space-size=768 rsbuild build'
+   );
++  expect(frontendPackage.scripts['build:vite']).toContain('vite build');
++  expect(frontendPackage.scripts.postbuild).toBe('tsx ./scripts/precompress-build.ts build');
+   expect(dependencySync).toMatch(/dependenciesToNotCopy = \[[\s\S]*?'tsx'/);
+ });
++
++test.each(['/headlamp', '/headlamp/'])(
++  'Rsbuild development honors PUBLIC_URL %s',
++  async publicUrl => {
++    const previousPublicUrl = process.env.PUBLIC_URL;
++    process.env.PUBLIC_URL = publicUrl;
++
++    try {
++      vi.resetModules();
++      const { default: rsbuildConfig } = await import('../rsbuild.config');
++      const [httpProxy, webSocketProxy] = rsbuildConfig.server.proxy;
++
++      expect(rsbuildConfig.source.define['import.meta.env.BASE_URL']).toBe(
++        JSON.stringify(publicUrl)
++      );
++      expect(rsbuildConfig.html.templateParameters.BASE_URL).toBe(publicUrl);
++      expect(rsbuildConfig.server.base).toBe(publicUrl);
++      expect(rsbuildConfig.source.define).not.toHaveProperty('import.meta.env');
++      expect(httpProxy.pathFilter).toContain('/headlamp/api');
++      expect(httpProxy.pathFilter).not.toContain('/headlamp//api');
++      expect(webSocketProxy.pathFilter).toContain('/headlamp/wsMultiplexer');
++      expect(webSocketProxy.pathFilter).not.toContain('/headlamp//wsMultiplexer');
++    } finally {
++      if (previousPublicUrl === undefined) {
++        delete process.env.PUBLIC_URL;
++      } else {
++        process.env.PUBLIC_URL = previousPublicUrl;
++      }
++      vi.resetModules();
++    }
++  }
++);
 diff --git a/source/frontend/src/plugin/__snapshots__/pluginLib.snapshot b/source/frontend/src/plugin/__snapshots__/pluginLib.snapshot
 index 077fb19d3b592fb409ed341a736bd5c947eca4de..54e4901ab35e302aa94662c12f68951891d8fd20 100644
 --- a/source/frontend/src/plugin/__snapshots__/pluginLib.snapshot
@@ -7288,6 +9014,58 @@ index c5cd96e3efc4d5e993d11f3165f2d9074b5e1208..2bc775d938581273debecad3e7922e31
  }
  
  const exportFunctions = {
+diff --git a/source/package-lock.json b/source/package-lock.json
+index e7afa1ecb0f26a2248b02d8b791302d014b402b6..f97ed3c902b08d0f193fa8c5f05129e2307a30bf 100644
+--- a/source/package-lock.json
++++ b/source/package-lock.json
+@@ -13,7 +13,7 @@
+         "tsx": "4.23.1"
+       },
+       "engines": {
+-        "node": ">=22.6.0",
++        "node": ">=22.12.0",
+         "npm": ">=11.0.0"
+       }
+     },
+diff --git a/source/package.json b/source/package.json
+index 8752536ad16c5d53f2b729a275f044e50659a56c..ee867baf5a2eef55020ccae9e1fa6fcb6380c238 100644
+--- a/source/package.json
++++ b/source/package.json
+@@ -10,7 +10,7 @@
+   "license": "Apache-2.0",
+   "engines": {
+     "npm": ">=11.0.0",
+-    "node": ">=22.6.0"
++    "node": ">=22.12.0"
+   },
+   "scripts": {
+     "install:all": "npm install && npm run frontend:install && npm run backend:build && npm run app:install && npm run tools:install",
+@@ -57,16 +57,18 @@
+     "i18n:extract": "cd tools/i18n && npm run extract --",
+     "i18n:copy": "cd tools/i18n && npm run copy --",
+     "app:install": "cd app && npm install",
+-    "app:build": "npm run frontend:build && cd app && tsx ./scripts/setup-plugins.ts && npm run build",
+-    "app:build:dir": "npm run frontend:build && cd app && tsx ./scripts/setup-plugins.ts && npm run build -- --dir",
+-    "app:package": "npm run app:build && cd app && npm run package -- --win --linux --mac",
+-    "app:package:win": "npm run app:build && cd app && npm run package -- --win",
+-    "app:package:win:msi": "npm run app:build && cd app && npm run package-msi",
+-    "app:package:linux": "npm run app:build && cd app && npm run package -- --linux",
+-    "app:package:mac": "npm run app:build && cd app && npm run package -- --mac",
++    "app:prepare": "npm run frontend:build && cd app && tsx ./scripts/setup-plugins.ts",
++    "app:build": "npm run app:prepare && cd app && npm run build",
++    "app:build:dir": "npm run app:prepare && cd app && npm run build -- --dir",
++    "app:package": "npm run app:prepare && cd app && npm run package -- --win --linux --mac",
++    "app:package:win": "npm run app:prepare && cd app && npm run package -- --win",
++    "app:package:win:msi": "npm run app:prepare && cd app && npm run package-msi",
++    "app:package:linux": "npm run app:prepare && cd app && npm run package -- --linux",
++    "app:package:mac": "npm run app:prepare && cd app && npm run package -- --mac",
+     "app:test": "npm run app:test:unit && npm run app:test:e2e",
+     "app:test:unit": "cd app && npm run test",
+     "app:test:e2e": "cd app/e2e-tests && npm run test-app --",
++    "app:test:e2e:frontend-build": "npm run frontend:build && npm run backend:build && cd app/e2e-tests && npm run test-app -- frontendBuild.spec.ts",
+     "app:tsc": "cd app && npm run tsc",
+     "app:i18n-check": "cd app && npm run i18n-check",
+     "app:format": "cd app && npm run format",
 diff --git a/source/plugins/headlamp-plugin/src/index.ts b/source/plugins/headlamp-plugin/src/index.ts
 index 20333b97619e68864172c40495b9cf310b6a3560..6a864f5d313a957b1719a023f1217cc811245579 100644
 --- a/source/plugins/headlamp-plugin/src/index.ts

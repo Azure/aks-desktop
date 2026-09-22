@@ -10,6 +10,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { runTimedStep } from './build-timing';
+import { dependencyTargetMatches } from './dependency-target';
 
 const { resolveInstalledHeadlampPaths } = require(
   '../packages/headlamp-source/src/lib/paths.ts'
@@ -24,6 +26,11 @@ const BUILD_MANIFEST = '.aks-desktop/product-manifest.json';
 interface PackageTarget {
   platform: NodeJS.Platform;
   arch: string;
+}
+
+interface PackageOptions {
+  unpacked?: boolean;
+  reusePreparedAssets?: boolean;
 }
 
 const PACKAGE_ARGS: Record<string, string[]> = {
@@ -44,6 +51,13 @@ export function packageArguments(platform: NodeJS.Platform, arch: string): strin
   return [...args];
 }
 
+/** Maps a supported target to Electron Builder arguments for directory-only output. */
+export function unpackedArguments(platform: NodeJS.Platform, arch: string): string[] {
+  packageArguments(platform, arch);
+  const platformFlag = platform === 'darwin' ? '--mac' : platform === 'win32' ? '--win' : '--linux';
+  return [platformFlag, `--${arch}`];
+}
+
 /** Rejects package targets that cannot execute their required tools on the current host. */
 export function validatePackageHost(
   target: PackageTarget,
@@ -53,7 +67,10 @@ export function validatePackageHost(
   if (target.platform !== hostPlatform) {
     throw new Error(`Cannot package ${target.platform}/${target.arch} from ${hostPlatform}/${hostArch}`);
   }
-  if (target.platform !== 'win32' && target.arch !== hostArch) {
+  const canCrossPackage =
+    target.platform === 'win32' ||
+    (target.platform === 'darwin' && hostArch === 'x64' && target.arch === 'arm64');
+  if (target.arch !== hostArch && !canCrossPackage) {
     throw new Error(
       `${target.platform} ${target.arch} packages require a native ${target.arch} build host`
     );
@@ -85,6 +102,7 @@ export function packageEnvironment(
     ...env,
     GOARCH: target.arch === 'x64' ? 'amd64' : target.arch,
     HEADLAMP_BUILD_MANIFEST: BUILD_MANIFEST,
+    HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'aks-desktop,plugin-catalog',
     npm_config_arch: target.arch,
     npm_config_platform: target.platform,
     npm_config_target_arch: target.arch,
@@ -92,6 +110,16 @@ export function packageEnvironment(
       ? { CUSTOM_DMGBUILD_PATH: path.join(rootDir, 'build', 'dmgbuild-managed-mac.cjs') }
       : {}),
   };
+}
+
+/** Skips frontend installation when a later package target reuses its prepared output. */
+export function targetDependencyEnvironment(
+  buildEnv: NodeJS.ProcessEnv,
+  reusePreparedAssets = false
+): NodeJS.ProcessEnv {
+  return reusePreparedAssets
+    ? { ...buildEnv, HEADLAMP_SKIP_INSTALL_FRONTEND: 'true' }
+    : buildEnv;
 }
 
 /** Runs one npm build step and surfaces spawn or non-zero exit failures. */
@@ -123,9 +151,13 @@ export function stageBackendExecutable(sourceDir: string, platform: NodeJS.Platf
 export function packageTarget(
   target: PackageTarget,
   rootDir = ROOT_DIR,
-  runStep = runNpm
+  runStep = runNpm,
+  options: PackageOptions = {}
 ): void {
   validatePackageHost(target);
+  if (options.unpacked && options.reusePreparedAssets) {
+    throw new Error('Prepared assets can only be reused for distributable packaging');
+  }
 
   const { sourceDir, appDir, distDir } = resolveInstalledHeadlampPaths(rootDir);
   const targetArgs = [
@@ -136,17 +168,59 @@ export function packageTarget(
   const targetRecord = path.join(distDir, '.package-target.json');
   fs.rmSync(targetRecord, { force: true });
 
-  runStep(['run', 'headlamp:install'], rootDir, buildEnv);
-  stageBackendExecutable(sourceDir, target.platform);
-  runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir);
-  runStep(['run', 'headlamp:translations'], rootDir);
-  runStep(['run', 'plugin:setup'], rootDir);
-  runStep(['run', 'headlamp:manifest'], rootDir);
-  runStep(['run', 'headlamp:frontend-env'], rootDir);
-  runStep(['run', 'frontend:build'], sourceDir, buildEnv);
-  runStep(['run', 'package', '--', ...packageArguments(target.platform, target.arch)], appDir, buildEnv);
-  fs.writeFileSync(targetRecord, `${JSON.stringify(target)}\n`);
-  console.log(`\nBuild complete (${target.platform}/${target.arch}).\nOutput directory: ${path.resolve(distDir)}`);
+  runTimedStep(`package ${target.platform}/${target.arch}`, () => {
+    if (!dependencyTargetMatches(rootDir, target)) {
+      runTimedStep('install target dependencies', () =>
+        runStep(
+          ['run', 'headlamp:install'],
+          rootDir,
+          targetDependencyEnvironment(buildEnv, options.reusePreparedAssets)
+        )
+      );
+    }
+    runTimedStep('stage backend executable', () => stageBackendExecutable(sourceDir, target.platform));
+    runTimedStep('stage external tools', () =>
+      runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir)
+    );
+    runTimedStep('generate product manifest', () =>
+      runStep(['run', 'headlamp:manifest'], rootDir)
+    );
+    if (!options.reusePreparedAssets) {
+      runTimedStep('install release plugins', () =>
+        runStep(['run', 'plugin:install-releases'], rootDir, buildEnv)
+      );
+      runTimedStep('distribute translations', () =>
+        runStep(['run', 'headlamp:translations'], rootDir)
+      );
+      runTimedStep('bundle plugins', () =>
+        runStep(['run', 'plugin:setup'], rootDir, buildEnv)
+      );
+      runTimedStep('generate frontend environment', () =>
+        runStep(['run', 'headlamp:frontend-env'], rootDir)
+      );
+      runTimedStep('build frontend', () =>
+        runStep(['run', 'frontend:build'], sourceDir, buildEnv)
+      );
+    }
+    runTimedStep(options.unpacked ? 'assemble unpacked application' : 'package application', () =>
+      runStep(
+        [
+          'run',
+          options.unpacked ? 'build' : options.reusePreparedAssets ? 'package:prepared' : 'package',
+          '--',
+          ...(options.unpacked
+            ? unpackedArguments(target.platform, target.arch)
+            : packageArguments(target.platform, target.arch)),
+        ],
+        appDir,
+        buildEnv
+      )
+    );
+    fs.writeFileSync(targetRecord, `${JSON.stringify(target)}\n`);
+    console.log(
+      `\nBuild complete (${target.platform}/${target.arch}).\nOutput directory: ${path.resolve(distDir)}`
+    );
+  });
 }
 
 /** Reads a `--name=value` option from the package-target command line. */
@@ -161,5 +235,8 @@ if (require.main === module) {
   if (!platform || !arch) {
     throw new Error('Usage: package-target.ts --platform=<platform> --arch=<arch>');
   }
-  packageTarget({ platform, arch });
+  packageTarget({ platform, arch }, ROOT_DIR, runNpm, {
+    unpacked: process.argv.includes('--unpacked'),
+    reusePreparedAssets: process.argv.includes('--reuse-prepared-assets'),
+  });
 }

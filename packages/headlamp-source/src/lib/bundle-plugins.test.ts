@@ -11,7 +11,10 @@ const {
   bundlePlugin,
   copyPlugin,
   npmInvocation,
+  pluginDependencyIdentity,
+  reusePluginDependencies,
   validatePluginConfiguration,
+  writePluginDependencyMarker,
 } = require('./bundle-plugins.ts');
 const { spawn, spawnSync } = require('./npm-command.ts');
 
@@ -77,6 +80,57 @@ test('runs the npm JavaScript CLI through Node when available', () => {
     command: 'npm.cmd',
     args: ['ci'],
   });
+});
+
+test('reuses only a verified plugin dependency tree during packaging', () => {
+  const { pluginDir } = createPlugin('example-plugin');
+  assert.equal(reusePluginDependencies(pluginDir, 'example', {}), false);
+  assert.equal(
+    reusePluginDependencies(pluginDir, 'other', {
+      HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
+    }),
+    false
+  );
+  assert.throws(
+    () => writePluginDependencyMarker(pluginDir),
+    /incomplete plugin dependencies/
+  );
+  assert.equal(
+    reusePluginDependencies(pluginDir, 'example', {
+      HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
+    }),
+    false
+  );
+  fs.mkdirSync(path.join(pluginDir, 'node_modules'), { recursive: true });
+  fs.writeFileSync(path.join(pluginDir, 'package-lock.json'), '{"lockfileVersion":3}');
+  fs.writeFileSync(
+    path.join(pluginDir, 'node_modules', '.package-lock.json'),
+    '{"lockfileVersion":3}'
+  );
+  assert.match(pluginDependencyIdentity(pluginDir), /^[0-9a-f]{64}$/);
+  writePluginDependencyMarker(pluginDir);
+  assert.equal(
+    reusePluginDependencies(pluginDir, 'example', {
+      HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
+    }),
+    true
+  );
+  fs.writeFileSync(path.join(pluginDir, 'package-lock.json'), '{"lockfileVersion":2}');
+  assert.equal(
+    reusePluginDependencies(pluginDir, 'example', {
+      HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
+    }),
+    false
+  );
+  fs.writeFileSync(path.join(pluginDir, 'package-lock.json'), '{"lockfileVersion":3}');
+  writePluginDependencyMarker(pluginDir);
+  fs.writeFileSync(path.join(pluginDir, 'node_modules', '.package-lock.json'), '{}');
+  assert.equal(
+    reusePluginDependencies(pluginDir, 'example', {
+      HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'example',
+    }),
+    false
+  );
 });
 
 test('copies a scoped plugin to a direct shipped-plugin directory', () => {
@@ -270,7 +324,7 @@ test('copies a prebuilt npm dependency as a shipped plugin', () => {
   );
 });
 
-test('leaves pinned archives for the Headlamp shipped-plugin installer', () => {
+test('preserves installed release plugins while bundling workspaces', () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'example-archive-'));
   tempDirs.push(rootDir);
   const pluginsDir = path.join(rootDir, '.plugins');
@@ -289,10 +343,15 @@ test('leaves pinned archives for the Headlamp shipped-plugin installer', () => {
       },
     })
   );
+  const releaseDir = path.join(pluginsDir, 'archive-plugin');
+  fs.mkdirSync(releaseDir, { recursive: true });
+  fs.writeFileSync(path.join(releaseDir, 'main.js'), 'release bundle');
+  fs.mkdirSync(path.join(pluginsDir, 'retired-plugin'));
 
   bundleConfiguredPlugins(rootDir, pluginsDir);
 
-  assert.deepEqual(fs.readdirSync(pluginsDir), []);
+  assert.deepEqual(fs.readdirSync(pluginsDir), ['archive-plugin']);
+  assert.equal(fs.readFileSync(path.join(releaseDir, 'main.js'), 'utf8'), 'release bundle');
 });
 
 test('rejects ambiguous or unverified shipped-plugin sources', () => {

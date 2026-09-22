@@ -26,6 +26,9 @@ const rootManifest = JSON.parse(
 const sourceManifest = JSON.parse(
   fs.readFileSync(path.join(HEADLAMP_SOURCE_DIR, 'package.json'), 'utf8')
 );
+const appManifest = JSON.parse(
+  fs.readFileSync(path.join(HEADLAMP_SOURCE_DIR, 'app', 'package.json'), 'utf8')
+);
 const aksDesktopManifest = JSON.parse(
   fs.readFileSync(path.join(ROOT_DIR, 'plugins', 'aks-desktop', 'package.json'), 'utf8')
 );
@@ -46,7 +49,10 @@ test('the installed package is a complete pinned source distribution', () => {
   assert.deepEqual(rootManifest.headlampSource, {
     revision: 'd4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0',
   });
-  assert.deepEqual(packageManifest.headlampSource, rootManifest.headlampSource);
+  assert.deepEqual(packageManifest.headlampSource, {
+    ...rootManifest.headlampSource,
+    goVersion: '1.26.8',
+  });
   for (const file of [
     'package.json',
     'Dockerfile',
@@ -117,6 +123,11 @@ test('the source package exports app and container build scripts', () => {
   ]) {
     assert.equal(typeof packageManifest.scripts[script], 'string');
   }
+  assert.match(appManifest.scripts.package, /copy-icons.+copy-plugins.+compile-electron/);
+  assert.equal(
+    appManifest.scripts['package:prepared'],
+    'electron-builder build --config electron-builder.config.ts --publish never'
+  );
   assert.match(
     rootManifest.scripts['test:distribution'],
     /npm run headlamp:smoke --$/
@@ -167,6 +178,14 @@ test('source builds use explicit, reviewed install scripts', () => {
   for (const script of ['dev-only-app', 'dev-only-app:debug']) {
     assert.match(appManifest.scripts[script], /HEADLAMP_BACKEND_TOKEN=headlamp/);
   }
+  assert.doesNotMatch(appManifest.scripts.package, /npm run build/);
+  assert.match(appManifest.scripts.package, /npm run copy-icons/);
+  assert.match(appManifest.scripts.package, /npm run copy-plugins/);
+  assert.match(appManifest.scripts.package, /npm run compile-electron/);
+  assert.equal(
+    (appManifest.scripts.package.match(/(?:^|&& )electron-builder build/g) ?? []).length,
+    1
+  );
 
   const frontendManifest = JSON.parse(
     fs.readFileSync(
@@ -179,13 +198,12 @@ test('source builds use explicit, reviewed install scripts', () => {
   assert.match(frontendManifest.scripts.start, /REACT_APP_HEADLAMP_BACKEND_TOKEN=headlamp/);
   assert.match(sourceManifest.scripts['backend:start'], /HEADLAMP_BACKEND_TOKEN=headlamp/);
   assert.equal(frontendManifest.scripts.postbuild, 'tsx ./scripts/precompress-build.ts build');
-  assert.equal(
-    frontendManifest.scripts['postbuild:rsbuild'],
-    'tsx ./scripts/precompress-build.ts build'
-  );
+  assert.equal(frontendManifest.scripts['build:rsbuild'], undefined);
+  assert.equal(frontendManifest.scripts['postbuild:rsbuild'], undefined);
   assert.equal(sourceManifest.devDependencies.tsx, '4.23.1');
-  assert.match(sourceManifest.scripts['app:build'], /tsx \.\/scripts\/setup-plugins\.ts/);
-  assert.match(sourceManifest.scripts['app:build:dir'], /tsx \.\/scripts\/setup-plugins\.ts/);
+  assert.match(sourceManifest.scripts['app:prepare'], /tsx \.\/scripts\/setup-plugins\.ts/);
+  assert.match(sourceManifest.scripts['app:build'], /npm run app:prepare/);
+  assert.match(sourceManifest.scripts['app:build:dir'], /npm run app:prepare/);
   assert.match(sourceManifest.scripts['app:start'], /tsx \.\/scripts\/setup-plugins\.ts/);
   assert.match(
     fs.readFileSync(
@@ -267,22 +285,205 @@ test('root builds package supported host targets independently', () => {
   assert.equal(rootManifest.scripts['build:linux:armv7l'], undefined);
   assert.equal(
     rootManifest.scripts['headlamp:translations'],
-    'node Localize/translation-manager.mjs distribute-headlamp'
+    'node Localize/translation-manager.mjs distribute-packaged'
   );
   assert.match(rootManifest.scripts['headlamp:assemble'], /headlamp:translations/);
 });
 
-test('ARM64 package targets have verified external tool runtimes', () => {
-  for (const platform of ['linux', 'darwin']) {
-    assert.match(rootManifest.config.externalTools.python[platform].arm64.url, /aarch64/);
-    assert.match(
-      rootManifest.config.externalTools.python[platform].arm64.checksum,
-      /^[0-9a-f]{64}$/
+test('the combined macOS build reports shared and per-target timings', () => {
+  const workflow = fs.readFileSync(
+    path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
+    'utf8'
+  );
+  for (const phase of ['npm bootstrap', 'root npm ci']) {
+    assert.equal(
+      workflow.match(new RegExp(`\\[build-timing\\] ${phase} started at`, 'g'))?.length,
+      1
+    );
+    assert.equal(
+      workflow.match(new RegExp(`\\[build-timing\\] ${phase} completed in`, 'g'))?.length,
+      1
     );
   }
+  for (const phase of ['build attempt', 'distribution verification', 'artifact collection']) {
+    assert.match(workflow, new RegExp(`\\[build-timing\\] ${phase} \\$arch`));
+  }
+});
+
+test('one Intel-hosted macOS job packages x64 and native ARM64 tools', () => {
+  const workflow = fs.readFileSync(
+    path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
+    'utf8'
+  );
+  const buildStage = workflow.slice(
+    workflow.indexOf('- stage: Build_macOS'),
+    workflow.indexOf('- stage: Sign_arm64')
+  );
+
+  assert.doesNotMatch(workflow, /stage: Build_(?:arm64|x64)/);
+  assert.equal(workflow.match(/job: BuildJob_macOS/g)?.length, 1);
+  assert.doesNotMatch(buildStage, /macos-15-arm64|hostArchitecture: arm64/);
+  assert.match(buildStage, /task: UsePythonVersion@0/);
+  assert.match(buildStage, /versionSpec: '3\.13'/);
+  assert.match(buildStage, /for arch in x64 arm64/);
+  assert.doesNotMatch(buildStage, /HEADLAMP_SKIP_INSTALL_BACKEND_BUILD/);
+  assert.match(buildStage, /build:mac:\$arch" -- --reuse-prepared-assets/);
+  assert.match(buildStage, /verification_command='test:distribution'/);
+  assert.match(buildStage, /verification_command='test:post-build'/);
+  assert.match(buildStage, /targetPath: \$\(Build\.ArtifactStagingDirectory\)\/arm64/);
+  assert.match(buildStage, /targetPath: \$\(Build\.ArtifactStagingDirectory\)\/x64/);
+  assert.match(buildStage, /artifactName: unsigned-dmg-arm64/);
+  assert.match(buildStage, /artifactName: unsigned-dmg-x64/);
+  assert.match(buildStage, /-name "aks-desktop\*-\$arch\.dmg"/);
+  assert.match(workflow, /dependsOn: Build_macOS/g);
+  assert.equal(workflow.match(/dependsOn: Build_macOS/g)?.length, 2);
+});
+
+test('cross-built ARM tools use structural verification on the Intel host', () => {
+  const verifier = fs.readFileSync(
+    path.join(ROOT_DIR, 'build', 'verify-bundled-tools.ts'),
+    'utf8'
+  );
+  assert.match(verifier, /canInvokePackagedRuntime/);
+  assert.match(verifier, /Skipped \$\{AZURE_CLI_RUNTIME_ARCH\} runtime invocation/);
+  assert.match(verifier, /Cross-built runtime architecture/);
+  assert.match(verifier, /invalidInstalledAzureCliExtensions/);
+
+  const installer = fs.readFileSync(
+    path.join(ROOT_DIR, 'build', 'download-az-cli.ts'),
+    'utf8'
+  );
+  assert.match(installer, /verifyExtensionCache\(extensionDir, extensionDir, hostPython, true\)/);
+  assert.match(installer, /cache verification failed; rebuilding/);
+  assert.match(installer, /cache structurally verified for \$\{target\.platform\}\/\$\{target\.arch\}/);
+  assert.ok(
+    installer.indexOf('canInvokePackagedRuntime(target.platform, runtimeArch)') <
+      installer.indexOf('fs.rmSync(TARGET_DIR')
+  );
+});
+
+test('macOS builds cache verified Azure CLI extensions after npm ci', () => {
+  const workflow = fs.readFileSync(
+    path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
+    'utf8'
+  );
+  assert.equal(workflow.match(/Resolve Azure CLI extension caches/g)?.length, 1);
+  assert.equal(workflow.match(/Cache Azure CLI extensions/g)?.length, 1);
+  assert.equal(workflow.match(/Report Azure CLI cache result/g)?.length, 1);
+  assert.equal(workflow.match(/azure-cli-cache-key\.ts --platform=darwin --arch=(?:arm64|x64)/g)?.length, 2);
+  assert.equal(workflow.match(/cacheHitVar: AZ_CLI_EXTENSION_CACHE_HIT/g)?.length, 1);
+  assert.equal(workflow.match(/azure-cli-extensions-v2/g)?.length, 1);
+  assert.equal(workflow.match(/path: '\$\(AZ_CLI_EXTENSION_CACHE_ROOT\)'/g)?.length, 1);
+  assert.doesNotMatch(workflow, /azure-cli-extensions-v2[^\n]+restoreKeys/);
+  assert.ok(workflow.indexOf('npm ci --prefer-offline') < workflow.indexOf('Cache Azure CLI extensions'));
+  assert.ok(workflow.indexOf('Cache Azure CLI extensions') < workflow.indexOf('Build AKS desktop'));
+});
+
+test('build workflows derive Go and cache modules plus compiled outputs', () => {
+  for (const [file, expectedCacheCount] of [
+    ['1es-pipeline.yml', 1],
+    ['1es-pipeline-linux.yml', 1],
+    ['1es-pipeline-mac.yml', 1],
+  ] as const) {
+    const workflow = fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', file), 'utf8');
+    assert.doesNotMatch(workflow, /parameters\.goVersion|default: 1\.26\./);
+    assert.match(
+      workflow,
+      /node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build\/go-version\.ts/
+    );
+    assert.equal(workflow.match(/Resolve Headlamp Go version/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/Cache Go module downloads/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/Cache Go build outputs/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/cacheHitVar: GO_MODULE_CACHE_HIT/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/cacheHitVar: GO_BUILD_CACHE_HIT/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/Report Go cache results/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/path: '\$\(GOMODCACHE\)'/g)?.length, expectedCacheCount);
+    assert.equal(workflow.match(/path: '\$\(GOCACHE\)'/g)?.length, expectedCacheCount);
+    for (const key of workflow.match(/^\s+key: 'go-.+$/gm) ?? []) {
+      assert.match(key, /\$\(Build\.SourceVersion\)/);
+      assert.doesNotMatch(key, /backend\/go\.(?:mod|sum)/);
+      if (key.includes('go-mod-v3')) {
+        assert.doesNotMatch(key, /\$\(ARCH\)/);
+      }
+      if (key.includes('go-build-v3')) {
+        if (file === '1es-pipeline-mac.yml') {
+          assert.match(key, /macos-all/);
+          assert.doesNotMatch(key, /\$\(ARCH\)/);
+        } else {
+          assert.match(key, /\$\(ARCH\)/);
+        }
+      }
+    }
+  }
+
+  for (const file of ['build-app-linux.yml', 'build-app-mac.yml', 'build-app-win.yml']) {
+    const workflow = fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', file), 'utf8');
+    assert.match(
+      workflow,
+      /node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build\/go-version\.ts/
+    );
+    assert.ok(workflow.indexOf('Checkout this repository') < workflow.indexOf('Install golang'));
+    assert.ok(workflow.indexOf('Setup nodejs') < workflow.indexOf('Resolve Headlamp Go version'));
+    assert.ok(workflow.indexOf('Resolve Headlamp Go version') < workflow.indexOf('Install golang'));
+    assert.match(workflow, /go-version: \$\{\{ steps\.go-version\.outputs\.version \}\}/);
+    assert.match(workflow, /cache-dependency-path:[\s\S]+packages\/headlamp-source\/package\.json/);
+    assert.match(workflow, /cache-dependency-path:[\s\S]+patches\/\*\.patch/);
+    assert.doesNotMatch(workflow, /go-version: '1\.26\./);
+  }
+
+  const ciWorkflow = fs.readFileSync(
+    path.join(ROOT_DIR, '.github', 'workflows', 'ci.yml'),
+    'utf8'
+  );
+  assert.ok(ciWorkflow.indexOf('Checkout code') < ciWorkflow.indexOf('Setup Node.js'));
+  assert.ok(ciWorkflow.indexOf('Setup Node.js') < ciWorkflow.indexOf('Resolve Headlamp Go version'));
+  assert.ok(ciWorkflow.indexOf('Resolve Headlamp Go version') < ciWorkflow.indexOf('Setup Go'));
+  assert.match(ciWorkflow, /go-version: \$\{\{ steps\.go-version\.outputs\.version \}\}/);
+  assert.match(ciWorkflow, /cache-dependency-path:[\s\S]+packages\/headlamp-source\/package\.json/);
+  assert.match(ciWorkflow, /cache-dependency-path:[\s\S]+patches\/\*\.patch/);
+  assert.ok(
+    ciWorkflow.indexOf('run frontend:install:ci') <
+      ciWorkflow.indexOf('run frontend:test')
+  );
+});
+
+test('package targets have verified external tool runtimes', () => {
   const azureCli = rootManifest.config.externalTools.azureCli;
-  assert.equal(azureCli.version, '2.89.0');
+  assert.equal(azureCli.version, '2.90.0');
+  assert.deepEqual(azureCli.extensionVersions, {
+    'resource-graph': '2.1.1',
+    alertsmanagement: '1.0.0b2',
+    connectedk8s: '1.11.3',
+  });
+  assert.equal(rootManifest.config.externalTools.python.version, '3.14');
+  for (const [extension, version] of Object.entries(azureCli.extensionVersions) as [string, string][]) {
+    const extensionPackage = azureCli.extensionPackages[extension];
+    assert.match(extensionPackage.url, /^https:\/\/azcliprod\.blob\.core\.windows\.net\//);
+    assert.match(extensionPackage.url, new RegExp(`${version.replaceAll('.', '\\.')}.*\\.whl$`));
+    assert.match(extensionPackage.checksum, /^[0-9a-f]{64}$/);
+  }
+  for (const platform of ['linux', 'darwin']) {
+    for (const arch of ['x64', 'arm64']) {
+      const python = rootManifest.config.externalTools.python[platform][arch];
+      assert.match(python.url, /^https:\/\//);
+      assert.match(python.checksum, /^[0-9a-f]{64}$/);
+
+      const cliPackage = azureCli[platform][arch];
+      assert.match(cliPackage.url, new RegExp(`/azure-cli-${azureCli.version}/`));
+      assert.match(cliPackage.url, /\.tar\.gz$/);
+      assert.match(cliPackage.checksum, /^[0-9a-f]{64}$/);
+    }
+  }
   const windowsArm = azureCli.win32.arm64;
+  const darwinArm = azureCli.darwin.arm64;
+  const darwinPythonArm = rootManifest.config.externalTools.python.darwin.arm64;
+  assert.equal(
+    new URL(darwinArm.url).pathname.split('/').at(-1),
+    `azure-cli-${azureCli.version}-macos-arm64.tar.gz`
+  );
+  assert.match(new URL(darwinPythonArm.url).pathname.split('/').at(-1)!, /aarch64-apple-darwin/);
+  assert.equal(darwinArm.runtimeArch, undefined);
+  assert.equal(darwinPythonArm.runtimeArch, undefined);
   assert.equal(
     new URL(windowsArm.url).pathname.split('/').at(-1),
     `azure-cli-${azureCli.version}-x64.zip`
@@ -293,7 +494,18 @@ test('ARM64 package targets have verified external tool runtimes', () => {
   assert.equal(windowsArm.runtimeArch, 'x64');
 });
 
-test('all shipped plugin workspaces are packaged and installed', () => {
+test('shipped plugins use verified workspace and release sources', () => {
+  const aiAssistant = (rootManifest.headlamp.plugins as any[]).find(
+    plugin => plugin.name === 'ai-assistant'
+  );
+  assert.deepEqual(aiAssistant, {
+    name: 'ai-assistant',
+    packageName: '@headlamp-k8s/ai-assistant',
+    archive:
+      'https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.1-alpha/headlamp-k8s-ai-assistant-0.4.1-alpha.tar.gz',
+    sha256: 'a91984fa15682a4109088803a6265d5caf49fe1f0931870716169b14d99e98ef',
+    enabledByDefault: true,
+  });
   const catalog = (rootManifest.headlamp.plugins as any[]).find(
     plugin => plugin.name === 'plugin-catalog'
   );
@@ -303,7 +515,22 @@ test('all shipped plugin workspaces are packaged and installed', () => {
     source: 'plugins/plugin-catalog',
     enabledByDefault: true,
   });
-  assert.match(rootManifest.scripts['install:all'], /plugin-catalog:install/);
+  assert.equal(rootManifest.scripts['install:all'], 'tsx ./build/install-dependencies.ts');
+  assert.equal(rootManifest.scripts['headlamp:install'], 'tsx ./build/install-headlamp-desktop.ts');
+  for (const script of ['plugin:install', 'plugin-catalog:install']) {
+    assert.match(rootManifest.scripts[script], /^npm ci --prefix /);
+    assert.match(rootManifest.scripts[script], /--prefer-offline --no-audit --no-fund$/);
+  }
+  assert.equal(rootManifest.scripts['ai-assistant:install'], undefined);
+  assert.equal(rootManifest.scripts['ai-assistant:build'], undefined);
+  assert.match(rootManifest.scripts['i18n:collect'], /plugin:install-releases/);
+  assert.match(rootManifest.scripts['headlamp:translations'], /distribute-packaged/);
+});
+
+test('aks-mcp remains retired from AKS Desktop product policy and tools', () => {
+  assert.doesNotMatch(JSON.stringify(rootManifest.config.externalTools), /aks-mcp/i);
+  assert.doesNotMatch(JSON.stringify(rootManifest.headlamp.runCommands), /aks-mcp/i);
+  assert.doesNotMatch(JSON.stringify(rootManifest.headlamp.plugins), /aks-mcp/i);
 });
 
 test('AKS product policy owns development and production command grants', () => {

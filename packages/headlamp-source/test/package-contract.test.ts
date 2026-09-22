@@ -13,6 +13,10 @@ test('the source package declares a consistent source revision', () => {
   assert.equal(packageManifest.repository.commit, revision);
   assert.equal(packageManifest.version, `0.0.0-main.${revision.slice(0, 8)}`);
   assert.deepEqual(packageManifest.files, ['source', 'src']);
+  const goMod = fs.readFileSync(path.resolve(__dirname, '..', 'source', 'backend', 'go.mod'), 'utf8');
+  const goVersion =
+    goMod.match(/^toolchain\s+go([^\s]+)$/m)?.[1] ?? goMod.match(/^go\s+([^\s]+)$/m)?.[1];
+  assert.equal(packageManifest.headlampSource.goVersion, goVersion);
 });
 
 test('the source package exports reusable build and assembly commands', () => {

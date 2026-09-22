@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
@@ -11,6 +12,7 @@ import {
   legalDocumentIdentitiesMatch,
   macAppBundleName,
   pluginIdentitiesMatch,
+  readPackagedPluginIdentities,
   productIdentityMatches,
 } from './product-manifest-verification';
 
@@ -59,6 +61,27 @@ for (const platform of ['linux', 'darwin', 'win32']) {
   });
 }
 
+test('bundled-tool verification uses the relocatable Unix Python layout', () => {
+  const filename = path.join(__dirname, 'verify-bundled-tools.ts');
+  const sourceFile = ts.createSourceFile(
+    filename, fs.readFileSync(filename, 'utf8'), ts.ScriptTarget.Latest, true
+  );
+  const declarations = ts.factory.updateSourceFile(sourceFile, sourceFile.statements.filter(statement =>
+    !(ts.isExpressionStatement(statement) && ts.isCallExpression(statement.expression) &&
+      ts.isIdentifier(statement.expression.expression) && statement.expression.expression.text === 'main')
+  ));
+  const code = ts.transpileModule(ts.createPrinter().printFile(declarations), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const paths = runInNewContext(`${code}\nresolveBundledPythonPaths('/az-cli');`, {
+    exports: {}, __dirname, process: { platform: 'darwin' }, console: { log() {}, warn() {} },
+    require,
+  });
+
+  assert.equal(paths.executable, path.join('/az-cli', 'python', 'bin', 'python3'));
+  assert.equal(paths.libDir, path.join('/az-cli', 'python', 'lib'));
+});
+
 test('accepts the configured packaged product identity', () => {
   assert.equal(productIdentityMatches(expected, expected), true);
 });
@@ -103,6 +126,26 @@ test('compares configured plugin identities without depending on order', () => {
     false
   );
   assert.equal(pluginIdentitiesMatch(undefined, undefined), false);
+});
+
+test('reads every packaged plugin identity and rejects malformed bundles', t => {
+  const resourcesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'packaged-plugins-'));
+  t.after(() => fs.rmSync(resourcesDir, { recursive: true, force: true }));
+  const pluginsDir = path.join(resourcesDir, '.plugins');
+  for (const [name, packageName] of [
+    ['aks-desktop', 'aks-desktop'],
+    ['plugin-catalog', '@headlamp-k8s/plugin-catalog'],
+  ]) {
+    const pluginDir = path.join(pluginsDir, name);
+    fs.mkdirSync(pluginDir, { recursive: true });
+    fs.writeFileSync(path.join(pluginDir, 'package.json'), JSON.stringify({ name: packageName }));
+  }
+  assert.deepEqual(readPackagedPluginIdentities(resourcesDir), [
+    { name: 'aks-desktop', packageName: 'aks-desktop' },
+    { name: 'plugin-catalog', packageName: '@headlamp-k8s/plugin-catalog' },
+  ]);
+  fs.rmSync(path.join(pluginsDir, 'aks-desktop', 'package.json'));
+  assert.equal(readPackagedPluginIdentities(resourcesDir), undefined);
 });
 
 test('compares configured legal document IDs and files', () => {

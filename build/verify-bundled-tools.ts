@@ -10,11 +10,16 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { readBuildTarget, resolveTargetArch } from './build-target';
-import { readAzureCliConfig, resolveAzCliVersion } from './az-cli-config';
+import { readAzureCliConfig, resolveAzCliVersion, UNIX_AZ_CLI_EXTENSIONS_DIRNAME } from './az-cli-config';
+import { resolveAzureCliTarget } from './azure-cli-config';
 import {
+  canInvokePackagedRuntime,
   getExtensionTimeoutResult,
+  invalidInstalledAzureCliExtensions,
+  missingInstalledWheelFiles,
+  readRequiredAzureCliExtensionVersions,
   readRequiredAzureCliExtensions,
 } from './azure-cli-verification';
 import {
@@ -22,6 +27,7 @@ import {
   macAppBundleName,
   pluginIdentitiesMatch,
   productIdentityMatches,
+  readPackagedPluginIdentities,
 } from './product-manifest-verification';
 
 const SCRIPT_DIR = __dirname;
@@ -37,15 +43,27 @@ const CURRENT_PLATFORM = process.platform;
 // recorded during setup over this verifier process's host architecture.
 const STAGED_TARGET = readBuildTarget(ROOT_DIR);
 const TARGET_ARCH = STAGED_TARGET?.arch ?? resolveTargetArch();
+const AZURE_CLI_TARGET = resolveAzureCliTarget(ROOT_DIR, CURRENT_PLATFORM, TARGET_ARCH);
+const AZURE_CLI_RUNTIME_ARCH = AZURE_CLI_TARGET.cliPackage?.runtimeArch ?? TARGET_ARCH;
+const PYTHON_RUNTIME_ARCH = AZURE_CLI_TARGET.python?.runtimeArch ?? TARGET_ARCH;
 
 // Read the assembled application name from the product manifest.
 const PRODUCT_MANIFEST = path.join(ROOT_DIR, 'package.json');
 let PRODUCT_NAME = 'AKS desktop'; // Default fallback
 let PRODUCT_CONFIG: Record<string, any> = {};
+let CONFIGURED_PLUGINS: Array<{ name: string; packageName: string }> = [];
 
 try {
   const project = JSON.parse(fs.readFileSync(PRODUCT_MANIFEST, 'utf-8'));
   PRODUCT_CONFIG = createProductTemplate(project, CURRENT_PLATFORM);
+  CONFIGURED_PLUGINS = Array.isArray(project.headlamp?.plugins)
+    ? project.headlamp.plugins.map(
+      (plugin: { name: string; packageName: string }) => ({
+        name: plugin.name,
+        packageName: plugin.packageName,
+      })
+    )
+    : [];
   PRODUCT_NAME = macAppBundleName(PRODUCT_CONFIG) || PRODUCT_NAME;
 } catch (error) {
   console.warn(`Warning: Could not read product name from ${PRODUCT_MANIFEST}, using default: ${PRODUCT_NAME}`);
@@ -99,6 +117,18 @@ interface TestResult {
   name: string;
   passed: boolean;
   message: string;
+}
+
+/** Resolve the Python runtime bundled beside the Unix Azure CLI payload. */
+export function resolveBundledPythonPaths(azCliDir: string): {
+  executable: string;
+  libDir: string;
+} {
+  const pythonDir = path.join(azCliDir, 'python');
+  return {
+    executable: path.join(pythonDir, 'bin', 'python3'),
+    libDir: path.join(pythonDir, 'lib'),
+  };
 }
 
 const results: TestResult[] = [];
@@ -169,25 +199,24 @@ function testProductAssembly(): void {
     identityMatches ? `Packaged ${manifest.product.productName}` : 'Packaged identity does not match'
   );
 
-  const plugins = Array.isArray(manifest.plugins) ? manifest.plugins : [];
-  const expectedPlugins = Array.isArray(PRODUCT_CONFIG.plugins) ? PRODUCT_CONFIG.plugins : [];
-  const invalidPlugins = plugins.filter((plugin: { name: string; packageName: string }) => {
-    const pluginPackage = path.join(RESOURCES_DIR, '.plugins', plugin.name, 'package.json');
-    return (
-      !fs.existsSync(pluginPackage) ||
-      JSON.parse(fs.readFileSync(pluginPackage, 'utf8')).name !== plugin.packageName
-    );
-  });
-  const pluginsMatch =
-    invalidPlugins.length === 0 && pluginIdentitiesMatch(plugins, expectedPlugins);
+  const runtimePlugins = Array.isArray(manifest.plugins) ? manifest.plugins : [];
+  const expectedRuntimePlugins = Array.isArray(PRODUCT_CONFIG.plugins)
+    ? PRODUCT_CONFIG.plugins
+    : [];
+  addResult(
+    'Product release plugins',
+    pluginIdentitiesMatch(runtimePlugins, expectedRuntimePlugins),
+    `Expected ${expectedRuntimePlugins.length}, found ${runtimePlugins.length}`
+  );
+
+  const packagedPlugins = readPackagedPluginIdentities(RESOURCES_DIR);
+  const pluginsMatch = pluginIdentitiesMatch(packagedPlugins, CONFIGURED_PLUGINS);
   addResult(
     'Product plugins',
     pluginsMatch,
     pluginsMatch
-      ? `Found all ${plugins.length} declared plugins`
-      : `Expected ${expectedPlugins.length}, found ${plugins.length}; identity mismatch or invalid: ${
-          invalidPlugins.map((plugin: { name: string }) => plugin.name).join(', ') || 'none'
-        }`
+      ? `Found all ${packagedPlugins?.length ?? 0} configured plugins`
+      : `Expected ${CONFIGURED_PLUGINS.length}, found ${packagedPlugins?.length ?? 0}; identity mismatch or invalid bundle`
   );
 
   const legalDocuments = Array.isArray(manifest.legalDocuments) ? manifest.legalDocuments : [];
@@ -320,8 +349,7 @@ function testPythonBundled(): void {
   }
 
   const azCliDir = path.join(EXTERNAL_TOOLS_DIR, 'az-cli', CURRENT_PLATFORM);
-  const binDir = path.join(azCliDir, 'bin');
-  const pythonExecutable = path.join(binDir, 'python3');
+  const { executable: pythonExecutable } = resolveBundledPythonPaths(azCliDir);
 
   const exists = fs.existsSync(pythonExecutable);
   if (!exists) {
@@ -370,7 +398,7 @@ function testPythonLibDirectory(): void {
   }
 
   const azCliDir = path.join(EXTERNAL_TOOLS_DIR, 'az-cli', CURRENT_PLATFORM);
-  const libDir = path.join(azCliDir, 'lib');
+  const { libDir } = resolveBundledPythonPaths(azCliDir);
 
   const exists = fs.existsSync(libDir);
   if (!exists) {
@@ -432,6 +460,46 @@ function testAzureCliInvocation(): void {
   }
 
   const requiredExtensions = readRequiredAzureCliExtensions(ROOT_DIR);
+  const requiredExtensionVersions = readRequiredAzureCliExtensionVersions(ROOT_DIR);
+  const extensionDir = path.join(azCliDir, UNIX_AZ_CLI_EXTENSIONS_DIRNAME);
+
+  if (!canInvokePackagedRuntime(
+    CURRENT_PLATFORM,
+    AZURE_CLI_RUNTIME_ARCH,
+    process.platform,
+    process.arch
+  )) {
+    const invalidExtensions = invalidInstalledAzureCliExtensions(
+      extensionDir,
+      requiredExtensionVersions
+    );
+    const incompleteExtensions = requiredExtensions.filter(
+      extension => missingInstalledWheelFiles(path.join(extensionDir, extension)).length > 0
+    );
+    const aksPreviewPath = path.join(extensionDir, 'aks-preview');
+    addResult(
+      'Azure CLI invocation',
+      true,
+      `Skipped ${AZURE_CLI_RUNTIME_ARCH} runtime invocation on ${process.arch} host`
+    );
+    addResult(
+      'Azure CLI extensions',
+      invalidExtensions.length === 0 && incompleteExtensions.length === 0,
+      invalidExtensions.length > 0
+        ? `Missing, stale, or unexpected extension metadata: ${invalidExtensions.join(', ')}`
+        : incompleteExtensions.length > 0
+          ? `Incomplete extension payloads: ${incompleteExtensions.join(', ')}`
+          : `All required extensions have pinned wheel metadata: ${requiredExtensions.join(', ')}`
+    );
+    addResult(
+      'aks-preview extension absent',
+      !fs.existsSync(aksPreviewPath),
+      fs.existsSync(aksPreviewPath)
+        ? 'aks-preview extension is bundled and shadows the core "az aks namespace" command'
+        : 'aks-preview extension is not bundled, as expected'
+    );
+    return;
+  }
 
   try {
     // Try to get version with increased timeout for CI environments
@@ -462,13 +530,22 @@ function testAzureCliInvocation(): void {
     // points AZURE_EXTENSION_DIR at — so every platform is verified.
     const bundledExtensions = versionData.extensions ?? {};
     const missingExtensions = requiredExtensions.filter(name => !bundledExtensions[name]);
+    const mismatchedExtensions = requiredExtensions.filter(
+      name =>
+        requiredExtensionVersions[name] &&
+        bundledExtensions[name] !== requiredExtensionVersions[name]
+    );
 
     addResult(
       'Azure CLI extensions',
-      missingExtensions.length === 0,
-      missingExtensions.length === 0
-        ? `All required extensions bundled: ${requiredExtensions.join(', ')}`
-        : `Missing required extension(s): ${missingExtensions.join(', ')}`
+      missingExtensions.length === 0 && mismatchedExtensions.length === 0,
+      missingExtensions.length > 0
+        ? `Missing required extension(s): ${missingExtensions.join(', ')}`
+        : mismatchedExtensions.length > 0
+          ? `Extension version mismatch: ${mismatchedExtensions
+              .map(name => `${name}=${bundledExtensions[name]} (expected ${requiredExtensionVersions[name]})`)
+              .join(', ')}`
+          : `All required extensions bundled at pinned versions: ${requiredExtensions.join(', ')}`
     );
 
     // aks-preview shadows the core `az aks namespace` implementation the
@@ -527,14 +604,27 @@ function testPythonInvocation(): void {
   }
 
   const azCliDir = path.join(EXTERNAL_TOOLS_DIR, 'az-cli', CURRENT_PLATFORM);
-  const binDir = path.join(azCliDir, 'bin');
-  const pythonExecutable = path.join(binDir, 'python3');
+  const { executable: pythonExecutable } = resolveBundledPythonPaths(azCliDir);
 
   if (!fs.existsSync(pythonExecutable)) {
     addResult(
       'Python invocation',
       false,
       'Executable not found, skipping invocation test'
+    );
+    return;
+  }
+
+  if (!canInvokePackagedRuntime(
+    CURRENT_PLATFORM,
+    PYTHON_RUNTIME_ARCH,
+    process.platform,
+    process.arch
+  )) {
+    addResult(
+      'Python invocation',
+      true,
+      `Skipped ${PYTHON_RUNTIME_ARCH} runtime invocation on ${process.arch} host`
     );
     return;
   }
@@ -568,6 +658,48 @@ function testPythonInvocation(): void {
         `Failed to invoke: ${errorMessage}`
       );
     }
+  }
+}
+
+function testCrossBuiltRuntimeArchitecture(): void {
+  if (
+    CURRENT_PLATFORM !== 'darwin' ||
+    canInvokePackagedRuntime(CURRENT_PLATFORM, PYTHON_RUNTIME_ARCH)
+  ) {
+    return;
+  }
+
+  const azCliDir = path.join(EXTERNAL_TOOLS_DIR, 'az-cli', CURRENT_PLATFORM);
+  const { executable: pythonExecutable } = resolveBundledPythonPaths(azCliDir);
+  const nativeLibraries: string[] = [];
+  const pending = [azCliDir];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    if (!fs.existsSync(current)) continue;
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory()) pending.push(entryPath);
+      else if (entry.name.endsWith('.so') || entry.name.endsWith('.dylib')) {
+        nativeLibraries.push(entryPath);
+      }
+    }
+  }
+
+  try {
+    for (const binary of [pythonExecutable, ...nativeLibraries]) {
+      execFileSync('lipo', [binary, '-verify_arch', PYTHON_RUNTIME_ARCH]);
+    }
+    addResult(
+      'Cross-built runtime architecture',
+      true,
+      `Python and ${nativeLibraries.length} native runtime libraries include ${PYTHON_RUNTIME_ARCH}`
+    );
+  } catch (error) {
+    addResult(
+      'Cross-built runtime architecture',
+      false,
+      `Architecture verification failed: ${error}`
+    );
   }
 }
 
@@ -701,6 +833,7 @@ function main(): void {
   testPythonLibDirectory();
   testKubeloginScript();
   testReadmeExists();
+  testCrossBuiltRuntimeArchitecture();
 
   console.log('');
   log('Running invocation tests...', 'yellow');

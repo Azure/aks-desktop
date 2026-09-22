@@ -89,7 +89,7 @@ describe('getLoginStatus', () => {
     });
 
     await expect(getLoginStatus()).resolves.toEqual({
-      error: 'Azure CLI not found. Please install Azure CLI first.',
+      error: 'Azure CLI could not be started.\n\nInstall Azure CLI.',
       isLoggedIn: false,
     });
   });
@@ -291,7 +291,7 @@ describe('initiateLogin', () => {
     const result = await initiateLogin();
 
     expect(result.success).toBe(false);
-    expect(result.message).toContain('Azure CLI not found.');
+    expect(result.message).toContain('Azure CLI could not be started.');
     expect(result.message).toContain('Install Azure CLI.');
   });
 
@@ -301,7 +301,7 @@ describe('initiateLogin', () => {
     const result = await initiateLogin();
 
     expect(result.success).toBe(false);
-    expect(result.message).toContain('Azure CLI not found.');
+    expect(result.message).toContain('Azure CLI could not be started.');
     expect(result.message).toContain('Install Azure CLI.');
   });
 

@@ -7,6 +7,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
+import { dependencyTargetMatches, writeDependencyTarget } from './dependency-target';
 
 const { withAksToolPaths, stageAksToolEnvironment } = require('./aks-tool-environment.cjs');
 
@@ -60,6 +61,8 @@ import {
   packageEnvironment,
   packageTarget,
   stageBackendExecutable,
+  targetDependencyEnvironment,
+  unpackedArguments,
   validatePackageHost,
 } from './package-target';
 
@@ -73,12 +76,15 @@ for (const failPackaging of [false, true]) {
     const target = { platform: process.platform, arch: process.arch };
     fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
     fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+    writeDependencyTarget(rootDir, target);
     let packaged = false;
     const messages: string[] = [];
     t.mock.method(console, 'log', (message: string) => {
-      assert.ok(packaged);
-      assert.deepEqual(JSON.parse(fs.readFileSync(targetRecord, 'utf8')), target);
-      messages.push(message);
+      if (message.startsWith('\nBuild complete')) {
+        assert.ok(packaged);
+        assert.deepEqual(JSON.parse(fs.readFileSync(targetRecord, 'utf8')), target);
+        messages.push(message);
+      }
     });
     const runStep = (args: string[], cwd: string) => {
       assert.equal(messages.length, 0);
@@ -116,6 +122,108 @@ test('stages the newly built backend under the Windows packaging filename', t =>
   assert.doesNotThrow(() => stageBackendExecutable(sourceDir, 'linux'));
 });
 
+test('packages installed dependencies once and reports timestamped phase timings', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'package timing-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
+  const appDir = path.join(sourceDir, 'app');
+  fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+  writeDependencyTarget(rootDir, { platform: process.platform, arch: process.arch });
+
+  const commands: string[] = [];
+  const messages: string[] = [];
+  t.mock.method(console, 'log', (message: string) => messages.push(message));
+  packageTarget({ platform: process.platform, arch: process.arch }, rootDir, (args, cwd) => {
+    commands.push(`${cwd === rootDir ? 'root' : cwd === sourceDir ? 'source' : 'app'}:${args.join(' ')}`);
+    if (cwd === appDir && args[1] === 'package') {
+      fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
+    }
+  });
+
+  assert.equal(commands.includes('root:run headlamp:install'), false);
+  assert.deepEqual(commands, [
+    'root:run headlamp:tools -- --platform=' + process.platform + ' --arch=' + process.arch,
+    'root:run headlamp:manifest',
+    'root:run plugin:install-releases',
+    'root:run headlamp:translations',
+    'root:run plugin:setup',
+    'root:run headlamp:frontend-env',
+    'source:run frontend:build',
+    `app:run package -- ${packageArguments(process.platform, process.arch).join(' ')}`,
+  ]);
+  assert.match(messages.join('\n'), /\[build-timing\].+started at \d{4}-\d{2}-\d{2}T/);
+  assert.match(messages.join('\n'), /\[build-timing\].+completed in \d+\.\d{3}s/);
+});
+
+test('reuses architecture-independent assets for a second package target', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prepared package-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
+  const appDir = path.join(sourceDir, 'app');
+  fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+  writeDependencyTarget(rootDir, { platform: process.platform, arch: process.arch });
+  const commands: string[] = [];
+  t.mock.method(console, 'log', () => undefined);
+
+  packageTarget(
+    { platform: process.platform, arch: process.arch },
+    rootDir,
+    (args, cwd) => {
+      commands.push(`${cwd === rootDir ? 'root' : cwd === sourceDir ? 'source' : 'app'}:${args.join(' ')}`);
+      if (cwd === appDir && args[1] === 'package:prepared') {
+        fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
+      }
+    },
+    { reusePreparedAssets: true }
+  );
+
+  assert.deepEqual(commands, [
+    'root:run headlamp:tools -- --platform=' + process.platform + ' --arch=' + process.arch,
+    'root:run headlamp:manifest',
+    `app:run package:prepared -- ${packageArguments(process.platform, process.arch).join(' ')}`,
+  ]);
+});
+
+test('marks prepared target installs to reuse frontend dependencies', () => {
+  const environment = { PATH: '/tools' };
+  assert.equal(targetDependencyEnvironment(environment), environment);
+  assert.deepEqual(targetDependencyEnvironment(environment, true), {
+    PATH: '/tools',
+    HEADLAMP_SKIP_INSTALL_FRONTEND: 'true',
+  });
+});
+
+test('assembles an unpacked app without running distributable packaging', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'unpacked app-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
+  const appDir = path.join(sourceDir, 'app');
+  fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+  writeDependencyTarget(rootDir, { platform: process.platform, arch: process.arch });
+  const commands: string[] = [];
+  t.mock.method(console, 'log', () => undefined);
+
+  packageTarget(
+    { platform: process.platform, arch: process.arch },
+    rootDir,
+    (args, cwd) => {
+      commands.push(`${cwd === appDir ? 'app' : 'other'}:${args.join(' ')}`);
+      if (cwd === appDir && args[1] === 'build') {
+        fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
+      }
+    },
+    { unpacked: true }
+  );
+
+  assert.ok(commands.includes(
+    `app:run build -- ${unpackedArguments(process.platform, process.arch).join(' ')}`
+  ));
+  assert.equal(commands.some(command => command.startsWith('app:run package')), false);
+});
+
 test('maps each supported target to one Electron Builder architecture', () => {
   assert.deepEqual(packageArguments('linux', 'x64'), ['--linux', '--x64']);
   assert.deepEqual(packageArguments('linux', 'arm64'), [
@@ -128,6 +236,9 @@ test('maps each supported target to one Electron Builder architecture', () => {
   assert.deepEqual(packageArguments('darwin', 'arm64'), ['--mac', 'dmg', '--arm64']);
   assert.deepEqual(packageArguments('win32', 'x64'), ['--win', '--x64']);
   assert.deepEqual(packageArguments('win32', 'arm64'), ['--win', '--arm64']);
+  assert.deepEqual(unpackedArguments('darwin', 'arm64'), ['--mac', '--arm64']);
+  assert.deepEqual(unpackedArguments('linux', 'arm64'), ['--linux', '--arm64']);
+  assert.deepEqual(unpackedArguments('win32', 'x64'), ['--win', '--x64']);
 });
 
 test('rejects unsupported platform and architecture pairs', () => {
@@ -135,7 +246,7 @@ test('rejects unsupported platform and architecture pairs', () => {
   assert.throws(() => packageArguments('aix', 'x64'), /Unsupported package target/);
 });
 
-test('requires a native architecture on Linux and macOS hosts', () => {
+test('requires native Linux builds but supports macOS ARM64 cross-packaging', () => {
   assert.doesNotThrow(() => validatePackageHost({ platform: 'linux', arch: 'arm64' }, 'linux', 'arm64'));
   assert.throws(
     () => validatePackageHost({ platform: 'linux', arch: 'arm64' }, 'linux', 'x64'),
@@ -144,15 +255,29 @@ test('requires a native architecture on Linux and macOS hosts', () => {
   assert.doesNotThrow(() =>
     validatePackageHost({ platform: 'darwin', arch: 'arm64' }, 'darwin', 'arm64')
   );
-  assert.throws(
-    () => validatePackageHost({ platform: 'darwin', arch: 'arm64' }, 'darwin', 'x64'),
-    /native arm64 build host/
+  assert.doesNotThrow(() =>
+    validatePackageHost({ platform: 'darwin', arch: 'arm64' }, 'darwin', 'x64')
   );
   assert.throws(
     () => validatePackageHost({ platform: 'darwin', arch: 'x64' }, 'darwin', 'arm64'),
     /native x64 build host/
   );
   assert.doesNotThrow(() => validatePackageHost({ platform: 'win32', arch: 'arm64' }, 'win32', 'x64'));
+});
+
+test('reinstalls dependencies whenever the recorded package target changes', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dependency target-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const x64 = { platform: 'win32' as const, arch: 'x64' };
+  const arm64 = { platform: 'win32' as const, arch: 'arm64' };
+
+  assert.equal(dependencyTargetMatches(rootDir, x64), false);
+  writeDependencyTarget(rootDir, x64);
+  assert.equal(dependencyTargetMatches(rootDir, x64), true);
+  assert.equal(dependencyTargetMatches(rootDir, arm64), false);
+  writeDependencyTarget(rootDir, arm64);
+  assert.equal(dependencyTargetMatches(rootDir, x64), false);
+  assert.equal(dependencyTargetMatches(rootDir, arm64), true);
 });
 
 test('uses the Windows npm command shim', () => {
@@ -184,6 +309,10 @@ test('uses the managed Mac dmgbuild launcher unless the caller overrides it', ()
   assert.equal(
     generated.CUSTOM_DMGBUILD_PATH,
     path.join('/workspace', 'build', 'dmgbuild-managed-mac.cjs')
+  );
+  assert.equal(
+    generated.HEADLAMP_REUSE_PLUGIN_DEPENDENCIES,
+    'aks-desktop,plugin-catalog'
   );
 
   const overridden = packageEnvironment(

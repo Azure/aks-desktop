@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
 interface ProductIdentity {
   /** Stable product identifier. */
   name?: string;
@@ -95,6 +98,26 @@ export function pluginIdentitiesMatch(
     expectedIdentities !== undefined &&
     JSON.stringify(actualIdentities) === JSON.stringify(expectedIdentities)
   );
+}
+
+/** Reads every direct shipped-plugin bundle identity from packaged resources. */
+export function readPackagedPluginIdentities(
+  resourcesDir: string
+): PluginIdentity[] | undefined {
+  const pluginsDir = path.join(resourcesDir, '.plugins');
+  if (!fs.existsSync(pluginsDir)) return undefined;
+  try {
+    return fs.readdirSync(pluginsDir, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => {
+        const manifest = JSON.parse(
+          fs.readFileSync(path.join(pluginsDir, entry.name, 'package.json'), 'utf8')
+        );
+        return { name: entry.name, packageName: manifest.name };
+      });
+  } catch {
+    return undefined;
+  }
 }
 
 /**

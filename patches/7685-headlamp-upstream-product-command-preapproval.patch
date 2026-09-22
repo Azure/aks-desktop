@@ -1,0 +1,501 @@
+diff --git a/app/app-build-manifest.schema.json b/app/app-build-manifest.schema.json
+index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..c714133d8324a4e09ff325e29d253bc59d947929 100644
+--- a/app/app-build-manifest.schema.json
++++ b/app/app-build-manifest.schema.json
+@@ -159,6 +159,13 @@
+           "maxItems": 64,
+           "items": { "$ref": "#/definitions/pluginIdentity" }
+         },
++        "approvedCommands": {
++          "description": "Explicit default approvals for verified development or shipped plugins. Requests must also match commands, and saved denials still apply. Omitted or empty means no default approvals.",
++          "type": "array",
++          "maxItems": 64,
++          "uniqueItems": true,
++          "items": { "$ref": "#/definitions/approvedCommand" }
++        },
+         "pluginExecutables": {
+           "type": "array",
+           "description": "Tools supplied by these plugin bundles at the derived path bin/<tool> instead of resolved on the sanitized system PATH.",
+@@ -185,6 +192,14 @@
+       "required": ["environment", "pluginLocation", "plugins"],
+       "oneOf": [{ "required": ["commands"] }, { "required": ["commandSets"] }],
+       "allOf": [
++        {
++          "if": {
++            "required": ["approvedCommands"]
++          },
++          "then": {
++            "properties": { "pluginLocation": { "enum": ["development", "shipped"] } }
++          }
++        },
+         {
+           "if": {
+             "properties": {
+@@ -206,6 +221,26 @@
+       ],
+       "additionalProperties": false
+     },
++    "approvedCommand": {
++      "type": "object",
++      "properties": {
++        "tool": { "$ref": "#/definitions/commandGrant/properties/tool" },
++        "args": {
++          "type": "array",
++          "maxItems": 16,
++          "items": { "$ref": "#/definitions/commandGrant/properties/args/items" }
++        },
++        "allowTrailingArgs": { "type": "boolean", "default": false }
++      },
++      "required": ["tool", "args"],
++      "additionalProperties": false,
++      "allOf": [
++        {
++          "if": { "properties": { "args": { "type": "array", "maxItems": 0 } } },
++          "then": { "properties": { "allowTrailingArgs": { "const": false } } }
++        }
++      ]
++    },
+     "pluginExecutable": {
+       "type": "object",
+       "description": "A plugin-owned native executable at the derived path bin/<tool>, confined to the verified bundle and integrity-checked before production execution.",
+diff --git a/app/electron/build-manifest.test.ts b/app/electron/build-manifest.test.ts
+index bddf7167ad368f955bf5647967b178dd690120b3..4a2194d5b8276e6a8ef148d21388ef909ebc4db9 100644
+--- a/app/electron/build-manifest.test.ts
++++ b/app/electron/build-manifest.test.ts
+@@ -875,6 +875,49 @@ describe('build manifest selection', () => {
+     expect(argumentPattern.test('list\0all')).toBe(false);
+   });
+ 
++  it('validates explicit approval lists consistently in the schema and runtime', () => {
++    const schema = JSON.parse(
++      fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
++    );
++    const validate = addFormats(new Ajv()).compile(schema);
++    for (const pluginLocation of ['development', 'shipped', 'user']) {
++      const approval = { tool: 'examplectl', args: ['project', 'list'], allowTrailingArgs: true };
++      for (const [approvedCommands, valid] of [
++        [undefined, true],
++        [[], true],
++        [[approval], true],
++        [[{ tool: 'examplectl', args: [] }], true],
++        [[{ tool: 'examplectl', args: [], allowTrailingArgs: true }], false],
++        [[approval, approval], false],
++        [Array(65).fill(approval), false],
++        [[{ ...approval, executable: { source: 'plugin', path: 'bin/examplectl' } }], false],
++        [[{ ...approval, args: [' '] }], false],
++        [[{ ...approval, tool: '/bin/sh' }], false],
++        [null, false],
++        [true, false],
++        ['all', false],
++      ] as const) {
++        const policy = {
++          environment: 'development',
++          pluginLocation,
++          ...(approvedCommands !== undefined && { approvedCommands }),
++          plugins: [{ bundleName: 'example-plugin', packageName: '@example/plugin' }],
++          commands: [{ tool: 'examplectl', args: ['project', 'list'] }],
++        };
++        const allowed = valid && (approvedCommands === undefined || pluginLocation !== 'user');
++        const manifest = { runCommands: [policy] } as unknown as BuildManifest;
++        expect(validate(manifest)).toBe(allowed);
++        if (allowed) {
++          const [parsed] = productPluginCommandPolicies(manifest, 'development');
++          expect(parsed.approvedCommands).toEqual(approvedCommands);
++          expect(parsed.source).toBe(pluginLocation);
++        } else {
++          expect(() => productPluginCommandPolicies(manifest, 'development')).toThrow();
++        }
++      }
++    }
++  });
++
+   it('rejects duplicate command grants in the schema', () => {
+     const schema = JSON.parse(
+       fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
+diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
+index ca6f058310fd832d5a44f3ea595e2e1d51e7bf56..94e0f1b2cbe2872af25ab8e644f6341f87cff1da 100644
+--- a/app/electron/runCmd.test.ts
++++ b/app/electron/runCmd.test.ts
+@@ -1499,6 +1499,125 @@ describe('handleRunCommand', () => {
+     fs.rmSync(externalRoot, { recursive: true, force: true });
+   });
+ 
++  it.each([
++    {
++      source: 'shipped',
++      denied: false,
++      authorized: true,
++      approved: true,
++      prompt: false,
++      exit: undefined,
++    },
++    {
++      source: 'development',
++      denied: false,
++      authorized: true,
++      approved: true,
++      prompt: false,
++      exit: undefined,
++    },
++    { source: 'shipped', denied: true, authorized: true, approved: true, prompt: false, exit: -3 },
++    {
++      source: 'shipped',
++      denied: 'legacy',
++      authorized: true,
++      approved: true,
++      prompt: false,
++      exit: -3,
++    },
++    { source: 'shipped', denied: 'v1', authorized: true, approved: true, prompt: false, exit: -3 },
++    {
++      source: 'shipped',
++      denied: 'display',
++      authorized: true,
++      approved: true,
++      prompt: false,
++      exit: -3,
++    },
++    {
++      source: 'shipped',
++      denied: false,
++      authorized: false,
++      approved: true,
++      prompt: false,
++      exit: -2,
++    },
++    { source: 'shipped', denied: false, authorized: true, approved: false, prompt: true, exit: -3 },
++    {
++      source: 'development',
++      denied: false,
++      authorized: true,
++      approved: false,
++      prompt: true,
++      exit: -3,
++    },
++    { source: 'user', denied: false, authorized: true, approved: true, prompt: true, exit: -3 },
++  ] as const)(
++    'limits command-list approval ($source, denied=$denied, authorized=$authorized, approved=$approved)',
++    async ({ source, denied, authorized, approved, prompt, exit }) => {
++      const capability = 'a'.repeat(64);
++      fakeEvent.sender.id = 7;
++      showMessageBoxSyncMock.mockClear();
++      if (prompt) showMessageBoxSyncMock.mockReturnValueOnce(1);
++      const { loadSettings, saveSettings } = await import('./settings');
++      if (authorized) {
++        const denialKey =
++          denied === 'legacy'
++            ? 'examplectl project'
++            : denied === 'v1'
++            ? `run-command-consent:v1:${JSON.stringify([
++                '@example/plugin@example-plugin',
++                'examplectl',
++                ['project'],
++              ])}`
++            : denied === 'display'
++            ? '@example/plugin@example-plugin: examplectl project'
++            : productConsentKey(source, 'examplectl', ['project']);
++        vi.mocked(loadSettings).mockReturnValueOnce({
++          confirmedCommands: denied ? { [denialKey]: false } : {},
++        });
++      }
++      vi.mocked(saveSettings).mockClear();
++
++      await handleRunCommand(
++        fakeEvent,
++        {
++          id: 'preapproved-id',
++          command: 'examplectl',
++          args: [authorized ? 'project' : 'admin', approved ? 'list' : 'delete'],
++          options: {},
++          permissionSecrets: {},
++          capability,
++        },
++        { id: 1 } as any,
++        {},
++        new Map([
++          [
++            capability,
++            {
++              bundleName: 'example-plugin',
++              packageName: '@example/plugin',
++              source,
++              approvedCommands: [{ tool: 'examplectl', args: ['project', 'list'] }],
++              grants: [{ tool: 'examplectl', args: ['project'], allowTrailingArgs: true }],
++              webContentsId: 7,
++            },
++          ],
++        ])
++      );
++
++      expect(showMessageBoxSyncMock).toHaveBeenCalledTimes(prompt ? 1 : 0);
++      if (exit === undefined) {
++        expect(spawnMock).toHaveBeenCalledOnce();
++        expect(saveSettings).not.toHaveBeenCalled();
++        childEmitter.emit('close', 0);
++      } else {
++        expect(spawnMock).not.toHaveBeenCalled();
++        expect(sentMessages).toEqual([['command-exit', 'preapproved-id', exit]]);
++      }
++    }
++  );
++
+   it('stores product consent with an unambiguous argument-vector key', async () => {
+     const capability = 'a'.repeat(64);
+     fakeEvent.sender.id = 7;
+diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
+index e61a43725409aeda07806e9e4daf2301e2fab57e..bf830d3260aeb2211a67afa9022735a52e1a69eb 100644
+--- a/app/electron/runCmd.ts
++++ b/app/electron/runCmd.ts
+@@ -78,6 +78,8 @@ export interface ProductPluginCommandPolicy {
+   packageName: string;
+   /** Inventory containing the authorized plugin. */
+   source: 'development' | 'user' | 'shipped';
++  /** Commands approved by the product in addition to, not instead of, authorization grants. */
++  approvedCommands?: RunCommandGrant[];
+   /** App-owned installation provenance required for managed plugin inventories. */
+   artifactHub?: {
+     repository: string;
+@@ -348,7 +350,8 @@ function checkCommandConsent(
+   args: string[],
+   mainWindow: BrowserWindow,
+   pluginIdentity?: PluginConsentIdentity,
+-  consentArgs: string[] = args.slice(0, 1)
++  consentArgs: string[] = args.slice(0, 1),
++  preapproved = false
+ ): boolean {
+   const settings = loadSettings(SETTINGS_PATH);
+   const confirmedCommands = settings?.confirmedCommands;
+@@ -394,10 +397,17 @@ function checkCommandConsent(
+       (mayUseSourceLessLegacyConsent ? confirmedCommands[legacyConsentKey] : undefined)
+     : undefined;
+ 
+-  if (savedCommand === false) {
++  const deniedDefaultApproval =
++    savedCommand === undefined &&
++    preapproved &&
++    [previousPluginConsentKey, displayCommand, legacyConsentKey].some(
++      key => key !== undefined && confirmedCommands?.[key] === false
++    );
++  if (savedCommand === false || deniedDefaultApproval) {
+     console.error(`Invalid command: ${consentKey}, command not allowed by users choice`);
+     return false;
+   } else if (savedCommand === undefined) {
++    if (preapproved) return true;
+     const commandChoice = confirmCommandDialog(displayCommand, mainWindow);
+     if (settings?.confirmedCommands === undefined) {
+       settings.confirmedCommands = {};
+@@ -921,7 +931,14 @@ export async function handleRunCommand(
+       commandData.args,
+       mainWindow,
+       registeredCapability ? registeredCapability : undefined,
+-      capabilityGrant?.args
++      capabilityGrant?.args,
++      (registeredCapability?.source === 'shipped' ||
++        registeredCapability?.source === 'development') &&
++        isRunCommandAllowed(
++          registeredCapability.approvedCommands ?? [],
++          commandData.command,
++          commandData.args
++        )
+     )
+   ) {
+     sendRejectedExit(-3);
+diff --git a/app/electron/runCommandPolicy.ts b/app/electron/runCommandPolicy.ts
+index e12622644ac90663ddb92a7b14e91a88ed5202ff..3d1726895782ef52132ea0cdbe3730244a33d090 100644
+--- a/app/electron/runCommandPolicy.ts
++++ b/app/electron/runCommandPolicy.ts
+@@ -64,10 +64,11 @@ export interface RunCommandGrant {
+  * Parses command grants from untrusted product manifest data.
+  *
+  * @param value - Candidate `commands` grant array from a top-level `runCommands` policy entry.
++ * @param allowEmptyArgs - Allows exact no-argument entries for approval lists, never unrestricted prefixes.
+  * @returns A validated, normalized copy of the grants.
+  * @throws When any grant is malformed, duplicated, or too broad.
+  */
+-export function parseRunCommandGrants(value: unknown): RunCommandGrant[] {
++export function parseRunCommandGrants(value: unknown, allowEmptyArgs = false): RunCommandGrant[] {
+   if (!Array.isArray(value) || value.length > MAX_GRANTS) {
+     throw new Error(`runCommands must be an array with at most ${MAX_GRANTS} grants`);
+   }
+@@ -92,7 +93,7 @@ export function parseRunCommandGrants(value: unknown): RunCommandGrant[] {
+     }
+     if (
+       !Array.isArray(record.args) ||
+-      record.args.length === 0 ||
++      (record.args.length === 0 && (!allowEmptyArgs || record.allowTrailingArgs === true)) ||
+       record.args.length > MAX_ARGUMENTS ||
+       record.args.some(
+         argument =>
+diff --git a/app/scripts/build-manifest.ts b/app/scripts/build-manifest.ts
+index 4e9e40f6c791a92cb9679b0abf4550c2d5e1c020..ea350d7c6b1e30941c63d044e4226d923b95a092 100644
+--- a/app/scripts/build-manifest.ts
++++ b/app/scripts/build-manifest.ts
+@@ -77,6 +77,8 @@ export interface ProductPluginRunCommands {
+   environment: 'development' | 'production';
+   /** Inventory containing the plugin bundle. */
+   pluginLocation: 'development' | 'user' | 'shipped';
++  /** Explicit default approvals, still restricted by command grants and saved user denials. */
++  approvedCommands?: RunCommandGrant[];
+   /** Exact bundle and package identities sharing these grants. */
+   plugins: Array<{
+     /** Bundle directory name reported by plugin discovery. */
+@@ -106,6 +108,8 @@ export interface ProductPluginCommandPolicy {
+   packageName: string;
+   /** Inventory containing the authorized plugin. */
+   source: 'development' | 'user' | 'shipped';
++  /** Explicit approvals carried only in the trusted main-process policy. */
++  approvedCommands?: RunCommandGrant[];
+   /** App-owned installation provenance required for managed plugin inventories. */
+   artifactHub?: {
+     /** Artifact Hub repository name recorded by the installer. */
+@@ -467,6 +471,7 @@ export function productPluginCommandPolicies(
+           ![
+             'environment',
+             'pluginLocation',
++            'approvedCommands',
+             'plugins',
+             'pluginExecutables',
+             'commands',
+@@ -482,6 +487,13 @@ export function productPluginCommandPolicies(
+     if (!['development', 'user', 'shipped'].includes(policy.pluginLocation)) {
+       throw new Error(`Invalid build manifest runCommands[${index}].pluginLocation`);
+     }
++    if (policy.approvedCommands !== undefined && policy.pluginLocation === 'user') {
++      throw new Error(`User plugins cannot declare runCommands[${index}].approvedCommands`);
++    }
++    const approvedCommands =
++      policy.approvedCommands === undefined
++        ? undefined
++        : parseRunCommandGrants(policy.approvedCommands, true);
+     if (
+       !Array.isArray(policy.plugins) ||
+       policy.plugins.length === 0 ||
+@@ -633,6 +645,7 @@ export function productPluginCommandPolicies(
+           bundleName: plugin.bundleName,
+           packageName: plugin.packageName,
+           source: policy.pluginLocation,
++          ...(approvedCommands !== undefined && { approvedCommands }),
+           ...(artifactHubPackage && {
+             artifactHub: {
+               repository: artifactHubPackage[1],
+diff --git a/docs/development/plugins/command-capabilities.md b/docs/development/plugins/command-capabilities.md
+index bea2e680fad209c4c40b168bd62922fac6238395..5fc6386967645fc9cf97cfc9c676503c554b598c 100644
+--- a/docs/development/plugins/command-capabilities.md
++++ b/docs/development/plugins/command-capabilities.md
+@@ -201,6 +201,28 @@ after product authorization succeeds and is scoped to the plugin identity,
+ canonical tool, and reviewed argument prefix. Commands are executed directly
+ with `shell: false`.
+ 
++For verified `shipped` or operator-controlled `development` plugins, a product
++policy may declare a separate `approvedCommands` list using `tool`, `args`, and
++optional `allowTrailingArgs`, for example:
++
++```json
++"approvedCommands": [
++  { "tool": "examplectl", "args": ["project", "list"], "allowTrailingArgs": true }
++]
++```
++
++A request must match both an authorization grant and an approval entry to skip
++the first-use prompt. Authorized requests outside the approval list still ask
++for consent; an approval never grants permission to execute a command. Omitted
++or empty lists retain normal consent behavior. Empty `args` approves only the
++no-argument invocation and cannot use `allowTrailingArgs: true`.
++
++Existing saved denials, including legacy denials when no newer applicable
++decision exists, still block execution. Product defaults are not written as user
++consent. The `user` inventory cannot declare approval lists, and renderer requests
++or plugin metadata cannot supply them. Approval entries remain scoped to the
++policy's environment, exact plugin identity, and inventory.
++
+ For a managed plugin installation, Electron writes an app-owned installation
+ receipt outside plugin-controlled inventory. It records the canonical inventory
+ path and bundle directory, the Artifact Hub repository and package names, their
+diff --git a/app/electron/cross-spawn.d.ts b/app/electron/cross-spawn.d.ts
+new file mode 100644
+index 000000000..d37d1df46
+--- /dev/null
++++ b/app/electron/cross-spawn.d.ts
+@@ -0,0 +1,20 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++declare module 'cross-spawn' {
++  const spawn: typeof import('child_process').spawn;
++  export default spawn;
++}
+diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
+index b2c613495..3645256f9 100644
+--- a/app/electron/runCmd.test.ts
++++ b/app/electron/runCmd.test.ts
+@@ -50,8 +50,8 @@ vi.mock('electron', () => ({
+   dialog: { showMessageBoxSync: showMessageBoxSyncMock },
+ }));
+ 
+-vi.mock('child_process', () => ({
+-  spawn: spawnMock,
++vi.mock('cross-spawn', () => ({
++  default: spawnMock,
+ }));
+ 
+ vi.mock('./plugin-management', () => ({
+diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
+index 535520321..d046d05b8 100644
+--- a/app/electron/runCmd.ts
++++ b/app/electron/runCmd.ts
+@@ -14,7 +14,8 @@
+  * limitations under the License.
+  */
+ 
+-import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
++import { ChildProcessWithoutNullStreams } from 'child_process';
++import spawn from 'cross-spawn';
+ import { BrowserWindow, dialog } from 'electron';
+ import { IpcMainEvent } from 'electron/main';
+ import crypto from 'node:crypto';
+@@ -1103,7 +1104,7 @@ export async function handleRunCommand(
+           : shellEnvironment),
+         ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
+       },
+-    });
++    }) as ChildProcessWithoutNullStreams;
+   } catch (error) {
+     removePreparedFiles();
+     const message = error instanceof Error ? error.message : String(error);
+diff --git a/app/package-lock.json b/app/package-lock.json
+index 237934f4e..db74a6bad 100644
+--- a/app/package-lock.json
++++ b/app/package-lock.json
+@@ -13,6 +13,7 @@
+         "@langchain/mcp-adapters": "^1.0.0",
+         "copyfiles": "^2.4.1",
+         "cross-env": "^7.0.3",
++        "cross-spawn": "^7.0.6",
+         "dotenv": "^16.4.5",
+         "electron-wix-msi": "^5.1.3",
+         "find-process": "^1.4.10",
+diff --git a/app/package.json b/app/package.json
+index e3ee370b1..eb8f36425 100644
+--- a/app/package.json
++++ b/app/package.json
+@@ -221,6 +221,7 @@
+     "@langchain/langgraph": "1.4.9",
+     "copyfiles": "^2.4.1",
+     "cross-env": "^7.0.3",
++    "cross-spawn": "^7.0.6",
+     "dotenv": "^16.4.5",
+     "electron-wix-msi": "^5.1.3",
+     "find-process": "^1.4.10",

@@ -113,9 +113,10 @@ export function isAzError(stderr: string): boolean {
 
 export function isCliNotFoundError(output: string): boolean {
   return (
-    output.includes('command not found') ||
-    output.includes('not found') ||
-    output.includes('Azure CLI (az) command not found')
+    /(?:^|\s)(?:spawn\s+)?az(?:\.cmd)?\s+ENOENT\b/i.test(output) ||
+    /(?:^|\s)az:\s*(?:command\s+)?not found\b/i.test(output) ||
+    /'az(?:\.cmd)?' is not recognized as an internal or external command/i.test(output) ||
+    /Azure CLI \(az\) command not found/i.test(output)
   );
 }
 

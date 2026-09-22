@@ -324,3 +324,27 @@ test("distribute-headlamp writes mapped Headlamp locale directories", (t) => {
     greeting: "Ola",
   });
 });
+
+test("distribute-packaged overlays AI Assistant release translations", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(managerPath, fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url)));
+  writeFile(
+    path.join(root, "Localize/locales/fr/ai-assistant-translation.json"),
+    JSON.stringify({ greeting: "Bonjour" })
+  );
+  const packagedLocale = path.join(
+    root,
+    "node_modules/@headlamp-k8s/headlamp-source/source/.plugins/ai-assistant/locales/fr/translation.json"
+  );
+  writeFile(packagedLocale, JSON.stringify({ greeting: "Release translation" }));
+
+  const result = spawnSync(process.execPath, [managerPath, "distribute-packaged"], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(packagedLocale, "utf8")), {
+    greeting: "Bonjour",
+  });
+});
