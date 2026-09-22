@@ -678,12 +678,16 @@ test('frontend identity comes from package and product metadata', () => {
   }
 });
 
+test('AKS desktop packages identify Microsoft as the product company', () => {
+  assert.equal(rootManifest.headlamp.product.companyName, 'Microsoft');
+});
+
 for (const [platform, platformKey] of [
   ['win32', 'win'],
   ['darwin', 'mac'],
   ['linux', 'linux'],
 ]) {
-  test(`${platform} packaging preserves the AKS app name and release version`, context => {
+  test(`${platform} packaging preserves AKS product metadata`, context => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'aks package version-'));
     context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const { createManifest } = require(
@@ -721,9 +725,13 @@ for (const [platform, platformKey] of [
             const options = config[process.argv[1]];
             const appInfo = new AppInfo({ metadata, config }, undefined, options);
             console.log(JSON.stringify({
+              companyName: appInfo.companyName,
+              copyright: appInfo.copyright,
               productName: appInfo.productName,
               productFilename: appInfo.productFilename,
               executableName: options.executableName,
+              maintainer: options.maintainer,
+              vendor: options.vendor,
               version: appInfo.version,
               buildVersion: appInfo.buildVersion,
               fileVersion: appInfo.shortVersion || appInfo.buildVersion,
@@ -743,12 +751,19 @@ for (const [platform, platformKey] of [
       );
       assert.equal(result.status, 0, result.stderr || result.error?.message || 'Version probe failed');
       const effective = JSON.parse(result.stdout);
+      assert.equal(effective.companyName, 'Microsoft');
+      assert.match(effective.copyright, /Microsoft/);
+      assert.doesNotMatch(effective.copyright, /Kinvolk/i);
       assert.equal(effective.version, version);
       assert.equal(effective.buildVersion, version);
       const executableName = platformKey === 'linux' ? 'aks-desktop' : 'AKS desktop';
       assert.equal(effective.executableName, executableName);
       assert.equal(effective.productName, platformKey === 'linux' ? 'AKS-Desktop' : 'AKS desktop');
       assert.equal(effective.productFilename, executableName);
+      if (platformKey === 'linux') {
+        assert.equal(effective.maintainer, 'Microsoft <opencode@microsoft.com>');
+        assert.equal(effective.vendor, 'Microsoft');
+      }
       for (const arch of ['x64', 'arm64']) {
         const executable = platformKey === 'mac'
           ? path.join('AKS desktop.app', 'Contents', 'MacOS', 'AKS desktop')

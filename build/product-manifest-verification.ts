@@ -9,6 +9,8 @@ interface ProductIdentity {
   name?: string;
   /** User-visible product name. */
   productName?: string;
+  /** Company attributed in packaged platform metadata. */
+  companyName?: string;
   /** Product release version. */
   version?: string;
 }
@@ -71,6 +73,7 @@ export function productIdentityMatches(
   return (
     actual?.name === expected?.name &&
     actual?.productName === expected?.productName &&
+    actual?.companyName === expected?.companyName &&
     actual?.version === expected?.version
   );
 }

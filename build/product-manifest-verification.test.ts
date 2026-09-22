@@ -19,6 +19,7 @@ import {
 const expected = {
   name: 'aks-desktop',
   productName: 'AKS Desktop',
+  companyName: 'Microsoft',
   version: '0.9.0',
 };
 
@@ -38,25 +39,42 @@ for (const platform of ['linux', 'darwin', 'win32']) {
     const project = {
       version: '9.8.7',
       headlamp: {
-        product: { name: 'aks-desktop', productName: 'AKS desktop', version: '0.45.0' },
+        product: {
+          name: 'aks-desktop',
+          productName: 'AKS desktop',
+          companyName: 'Microsoft',
+          version: '0.45.0',
+        },
         build: { productNames: { linux: 'AKS-Desktop' } },
         plugins: [],
       },
     };
-    const product = { name: 'aks-desktop', productName: platform === 'linux' ? 'AKS-Desktop' : 'AKS desktop', version: '9.8.7' };
-    for (const version of ['9.8.7', '0.45.0']) {
+    const product = {
+      name: 'aks-desktop',
+      productName: platform === 'linux' ? 'AKS-Desktop' : 'AKS desktop',
+      companyName: 'Microsoft',
+      version: '9.8.7',
+    };
+    for (const [version, companyName, matches] of [
+      ['9.8.7', 'Microsoft', true],
+      ['0.45.0', 'Microsoft', false],
+      ['9.8.7', 'Kinvolk', false],
+    ] as const) {
       const results = runInNewContext(`${code}\ntestProductAssembly(); results;`, {
         exports: {}, __dirname, process: { platform }, console: { log() {}, warn() {} },
         require: (name: string) => name === 'fs' ? {
           existsSync: () => true,
           readFileSync: (file: string) => JSON.stringify(
             path.basename(file) === 'app-build-manifest.json'
-              ? { product: { ...product, version }, plugins: [], legalDocuments: [] }
+              ? { product: { ...product, version, companyName }, plugins: [], legalDocuments: [] }
               : project
           ),
         } : require(name),
       });
-      assert.equal(results.find((result: { name: string }) => result.name === 'Product manifest').passed, version === project.version);
+      assert.equal(
+        results.find((result: { name: string }) => result.name === 'Product manifest').passed,
+        matches
+      );
     }
   });
 }
@@ -99,6 +117,15 @@ test('rejects mismatched product names and missing identities', () => {
     false
   );
   assert.equal(productIdentityMatches(undefined, expected), false);
+});
+
+test('rejects mismatched or missing product companies', () => {
+  assert.equal(
+    productIdentityMatches({ ...expected, companyName: 'Kinvolk' }, expected),
+    false
+  );
+  const { companyName: _companyName, ...withoutCompany } = expected;
+  assert.equal(productIdentityMatches(withoutCompany, expected), false);
 });
 
 test('uses the configured macOS executable name for the app bundle', () => {
