@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { runTimedStep } from './build-timing';
+import { dependencyTargetMatches } from './dependency-target';
 
 const { resolveInstalledHeadlampPaths } = require(
   '../packages/headlamp-source/src/lib/paths.ts'
@@ -74,14 +75,6 @@ export function validatePackageHost(
       `${target.platform} ${target.arch} packages require a native ${target.arch} build host`
     );
   }
-}
-
-/** Returns whether packaging needs dependencies reinstalled for another CPU architecture. */
-export function requiresTargetDependencyInstall(
-  target: PackageTarget,
-  hostArch: string = process.arch
-): boolean {
-  return target.arch !== hostArch;
 }
 
 /** Returns the platform-specific npm executable used by child build steps. */
@@ -176,7 +169,7 @@ export function packageTarget(
   fs.rmSync(targetRecord, { force: true });
 
   runTimedStep(`package ${target.platform}/${target.arch}`, () => {
-    if (requiresTargetDependencyInstall(target)) {
+    if (!dependencyTargetMatches(rootDir, target)) {
       runTimedStep('install target dependencies', () =>
         runStep(
           ['run', 'headlamp:install'],

@@ -65,7 +65,7 @@
     "headlamp:build": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run build",
     "install:all": "tsx ./build/install-dependencies.ts",
     "build:all": "npm run headlamp:build && npm run plugin:build",
-    "predev": "npm run headlamp:install && npm run headlamp:assemble",
+    "predev": "tsx ./build/prepare-development.ts",
     "dev": "tsx ./build/start-development.ts",
     "dev:services": "cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json concurrently --kill-others --names \"PLUGIN,BACKEND,FRONTEND,APP\" -c \"cyan,green,yellow,magenta\" \"npm run plugin:start\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:backend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:frontend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:app\"",
     "prepare": "husky",

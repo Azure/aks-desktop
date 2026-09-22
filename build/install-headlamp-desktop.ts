@@ -5,6 +5,7 @@
 
 import * as path from 'path';
 import { runTimedStep } from './build-timing';
+import { writeDependencyTarget } from './dependency-target';
 
 const { npmInvocation, spawnSync } = require(
   '../packages/headlamp-source/src/lib/npm-command.ts'
@@ -20,6 +21,7 @@ const PRODUCTION_INSTALL_ARGS = [...CLEAN_INSTALL_ARGS, '--omit=dev'] as const;
 interface InstallHeadlampDesktopOptions {
   skipBackendBuild?: boolean;
   skipFrontendInstall?: boolean;
+  rootDir?: string;
 }
 
 export const HEADLAMP_DESKTOP_INSTALL_STEPS = [
@@ -79,9 +81,12 @@ export function installHeadlampDesktopDependencies(
       );
     }
   });
+  if (options.rootDir) {
+    writeDependencyTarget(options.rootDir);
+  }
 }
 
 if (require.main === module) {
   const { sourceDir } = resolveInstalledHeadlampPaths(ROOT_DIR);
-  installHeadlampDesktopDependencies(sourceDir);
+  installHeadlampDesktopDependencies(sourceDir, runNpm, { rootDir: ROOT_DIR });
 }

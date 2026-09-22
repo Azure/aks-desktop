@@ -7,6 +7,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
+import { dependencyTargetMatches, writeDependencyTarget } from './dependency-target';
 
 const { withAksToolPaths, stageAksToolEnvironment } = require('./aks-tool-environment.cjs');
 
@@ -59,7 +60,6 @@ import {
   packageArguments,
   packageEnvironment,
   packageTarget,
-  requiresTargetDependencyInstall,
   stageBackendExecutable,
   targetDependencyEnvironment,
   unpackedArguments,
@@ -76,6 +76,7 @@ for (const failPackaging of [false, true]) {
     const target = { platform: process.platform, arch: process.arch };
     fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
     fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+    writeDependencyTarget(rootDir, target);
     let packaged = false;
     const messages: string[] = [];
     t.mock.method(console, 'log', (message: string) => {
@@ -128,6 +129,7 @@ test('packages installed dependencies once and reports timestamped phase timings
   const appDir = path.join(sourceDir, 'app');
   fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
   fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+  writeDependencyTarget(rootDir, { platform: process.platform, arch: process.arch });
 
   const commands: string[] = [];
   const messages: string[] = [];
@@ -161,6 +163,7 @@ test('reuses architecture-independent assets for a second package target', t => 
   const appDir = path.join(sourceDir, 'app');
   fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
   fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+  writeDependencyTarget(rootDir, { platform: process.platform, arch: process.arch });
   const commands: string[] = [];
   t.mock.method(console, 'log', () => undefined);
 
@@ -199,6 +202,7 @@ test('assembles an unpacked app without running distributable packaging', t => {
   const appDir = path.join(sourceDir, 'app');
   fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
   fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+  writeDependencyTarget(rootDir, { platform: process.platform, arch: process.arch });
   const commands: string[] = [];
   t.mock.method(console, 'log', () => undefined);
 
@@ -261,23 +265,19 @@ test('requires native Linux builds but supports macOS ARM64 cross-packaging', ()
   assert.doesNotThrow(() => validatePackageHost({ platform: 'win32', arch: 'arm64' }, 'win32', 'x64'));
 });
 
-test('reinstalls target dependencies only for cross-architecture packages', () => {
-  assert.equal(
-    requiresTargetDependencyInstall({ platform: 'darwin', arch: 'arm64' }, 'arm64'),
-    false
-  );
-  assert.equal(
-    requiresTargetDependencyInstall({ platform: 'linux', arch: 'x64' }, 'x64'),
-    false
-  );
-  assert.equal(
-    requiresTargetDependencyInstall({ platform: 'win32', arch: 'x64' }, 'x64'),
-    false
-  );
-  assert.equal(
-    requiresTargetDependencyInstall({ platform: 'win32', arch: 'arm64' }, 'x64'),
-    true
-  );
+test('reinstalls dependencies whenever the recorded package target changes', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dependency target-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const x64 = { platform: 'win32' as const, arch: 'x64' };
+  const arm64 = { platform: 'win32' as const, arch: 'arm64' };
+
+  assert.equal(dependencyTargetMatches(rootDir, x64), false);
+  writeDependencyTarget(rootDir, x64);
+  assert.equal(dependencyTargetMatches(rootDir, x64), true);
+  assert.equal(dependencyTargetMatches(rootDir, arm64), false);
+  writeDependencyTarget(rootDir, arm64);
+  assert.equal(dependencyTargetMatches(rootDir, x64), false);
+  assert.equal(dependencyTargetMatches(rootDir, arm64), true);
 });
 
 test('uses the Windows npm command shim', () => {
