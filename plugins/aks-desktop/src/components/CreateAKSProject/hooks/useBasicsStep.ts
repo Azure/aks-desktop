@@ -175,7 +175,7 @@ export interface UseBasicsStepResult {
    * kubeconfig — the user must register it before proceeding.
    */
   isClusterMissing: boolean;
-  /** `true` when the active same-name cluster belongs to another or unknown Azure scope. */
+  /** `true` when the active same-name cluster has a different kind or known Azure scope. */
   clusterScopeConflict: boolean;
   /**
    * When the selected cluster is in a non-ready state, contains the cluster
@@ -194,7 +194,11 @@ export interface UseBasicsStepResult {
   handleClusterChange: (clusterName: string) => void;
 }
 
-export type ClusterRegistrationState = 'missing' | 'registered' | 'scope-conflict';
+export type ClusterRegistrationState =
+  | 'missing'
+  | 'registered'
+  | 'scope-adoption-required'
+  | 'scope-conflict';
 
 /**
  * Resolves whether a selected Azure cluster matches the active kubeconfig entry.
@@ -203,13 +207,15 @@ export type ClusterRegistrationState = 'missing' | 'registered' | 'scope-conflic
  * @param clusterName - Selected Azure cluster name.
  * @param subscriptionId - Selected Azure subscription ID.
  * @param resourceGroup - Selected Azure resource group.
- * @returns Whether the cluster is missing, registered in scope, or conflicts by scope.
+ * @param clusterType - Selected cluster kind, when known.
+ * @returns Whether the cluster is missing, registered, needs scope adoption, or conflicts.
  */
 export function getClusterRegistrationState(
   headlampClusters: Record<string, unknown> | null | undefined,
   clusterName: string,
   subscriptionId: string,
-  resourceGroup: string
+  resourceGroup: string,
+  clusterType?: 'aks' | 'aksarc'
 ): ClusterRegistrationState {
   const activeCluster = Object.values(headlampClusters || {}).find(
     (cluster: any) =>
@@ -219,15 +225,25 @@ export function getClusterRegistrationState(
   if (!activeCluster) return 'missing';
 
   const settings = getClusterSettings(clusterName);
-  const registeredScope =
-    settings.clusterType === 'aksarc'
-      ? { subscriptionId: settings.subscriptionId, resourceGroup: settings.resourceGroup }
-      : settings.azureRegistration;
-  const scopeMatches =
+  // A same-name registered cluster of a different kind is a different resource, so importing
+  // or creating against it would target the wrong kubeconfig context.
+  const registeredIsArc = settings.clusterType === 'aksarc';
+  if (clusterType !== undefined && registeredIsArc !== (clusterType === 'aksarc')) {
+    return 'scope-conflict';
+  }
+  const registeredScope = registeredIsArc
+    ? { subscriptionId: settings.subscriptionId, resourceGroup: settings.resourceGroup }
+    : settings.azureRegistration;
+  const scopeIsKnown =
     typeof registeredScope?.subscriptionId === 'string' &&
+    registeredScope.subscriptionId !== '' &&
     typeof registeredScope.resourceGroup === 'string' &&
-    registeredScope.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
-    registeredScope.resourceGroup.toLowerCase() === resourceGroup.toLowerCase();
+    registeredScope.resourceGroup !== '';
+  // Arc requires scope metadata for reconnecting; managed clusters can adopt unknown scope.
+  if (!scopeIsKnown) return registeredIsArc ? 'missing' : 'scope-adoption-required';
+  const scopeMatches =
+    registeredScope!.subscriptionId!.toLowerCase() === subscriptionId.toLowerCase() &&
+    registeredScope!.resourceGroup!.toLowerCase() === resourceGroup.toLowerCase();
   return scopeMatches ? 'registered' : 'scope-conflict';
 }
 
@@ -365,7 +381,8 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
         headlampClusters,
         selectedCluster.name,
         formData.subscription,
-        selectedCluster.resourceGroup
+        selectedCluster.resourceGroup,
+        selectedCluster.clusterType
       )
     : undefined;
   const isClusterMissing =

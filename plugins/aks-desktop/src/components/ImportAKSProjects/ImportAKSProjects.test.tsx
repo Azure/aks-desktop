@@ -431,12 +431,40 @@ describe('ImportAKSProjects', () => {
       ).toBeInTheDocument()
     );
     expect(
-      screen.getByText(/already registered from a different or unknown Azure scope/)
+      screen.getByText(/already registered with a different cluster kind or Azure scope/)
     ).toBeInTheDocument();
     expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
   });
 
-  test('rejects an already registered cluster with unknown Azure scope', async () => {
+  test('rejects an already registered same-name Arc cluster', async () => {
+    mockUseRegisteredClusters.mockReturnValue(new Set(['shared-name']));
+    mockGetClusterSettings.mockReturnValue({ clusterType: 'aksarc' });
+    const namespaces = ['first-ns', 'second-ns'].map(name =>
+      makeDiscoveredNamespace({
+        name,
+        clusterName: 'shared-name',
+        subscriptionId: 'managed-sub',
+        resourceGroup: 'managed-rg',
+        isAksProject: true,
+        category: 'needs-import',
+      })
+    );
+    mockUseNamespaceDiscovery.mockReturnValue(defaultDiscoveryReturn(namespaces));
+
+    render(<ImportAKSProjects />);
+    fireEvent.click(screen.getByText('Select All'));
+    fireEvent.click(screen.getByText('Import Selected Projects'));
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByText(/already registered with a different cluster kind or Azure scope/)
+      ).toHaveLength(2)
+    );
+    expect(mockSetClusterSettings).not.toHaveBeenCalled();
+    expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
+  });
+
+  test('adopts an already registered cluster with unknown Azure scope', async () => {
     mockUseRegisteredClusters.mockReturnValue(new Set(['legacy-cluster']));
     mockGetClusterSettings.mockReturnValue({});
     const namespace = makeDiscoveredNamespace({
@@ -457,15 +485,42 @@ describe('ImportAKSProjects', () => {
     );
     fireEvent.click(screen.getByText('Import Selected Projects'));
 
+    await waitFor(() => expect(screen.getByText(/successfully imported/)).toBeInTheDocument());
+    expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
+    expect(mockSetClusterSettings).toHaveBeenCalledWith(
+      'legacy-cluster',
+      expect.objectContaining({
+        azureRegistration: { subscriptionId: 'managed-sub', resourceGroup: 'managed-rg' },
+      })
+    );
+  });
+
+  test('fails import when adopting the Azure scope cannot be persisted', async () => {
+    mockUseRegisteredClusters.mockReturnValue(new Set(['legacy-cluster']));
+    mockGetClusterSettings.mockReturnValue({});
+    mockSetClusterSettings.mockImplementation(() => {
+      throw new Error('localStorage full');
+    });
+    const namespace = makeDiscoveredNamespace({
+      name: 'managed-ns',
+      clusterName: 'legacy-cluster',
+      subscriptionId: 'managed-sub',
+      resourceGroup: 'managed-rg',
+      isAksProject: true,
+      category: 'needs-import',
+    });
+    mockUseNamespaceDiscovery.mockReturnValue(defaultDiscoveryReturn([namespace]));
+
+    render(<ImportAKSProjects />);
+    fireEvent.click(screen.getByTestId('row-managed-ns').querySelector('input')!);
+    fireEvent.click(screen.getByText('Import Selected Projects'));
+
     await waitFor(() =>
       expect(
         screen.getByText('Failed to import any projects. See details below.')
       ).toBeInTheDocument()
     );
-    expect(
-      screen.getByText(/already registered from a different or unknown Azure scope/)
-    ).toBeInTheDocument();
-    expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
+    expect(mockApplyProjectLabels).not.toHaveBeenCalled();
   });
 
   test.each([
@@ -473,7 +528,7 @@ describe('ImportAKSProjects', () => {
     { azureRegistration: { subscriptionId: 'managed-sub' } },
     { azureRegistration: { subscriptionId: { id: 'managed-sub' }, resourceGroup: 'managed-rg' } },
     { azureRegistration: { subscriptionId: 'managed-sub', resourceGroup: 42 } },
-  ])('rejects malformed registered Azure scope metadata: %s', async settings => {
+  ])('adopts malformed registered Azure scope metadata: %s', async settings => {
     mockUseRegisteredClusters.mockReturnValue(new Set(['legacy-cluster']));
     mockGetClusterSettings.mockReturnValue(settings);
     const namespace = makeDiscoveredNamespace({
@@ -494,15 +549,14 @@ describe('ImportAKSProjects', () => {
     );
     fireEvent.click(screen.getByText('Import Selected Projects'));
 
-    await waitFor(() =>
-      expect(
-        screen.getByText('Failed to import any projects. See details below.')
-      ).toBeInTheDocument()
-    );
-    expect(
-      screen.getByText(/already registered from a different or unknown Azure scope/)
-    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/successfully imported/)).toBeInTheDocument());
     expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
+    expect(mockSetClusterSettings).toHaveBeenCalledWith(
+      'legacy-cluster',
+      expect.objectContaining({
+        azureRegistration: { subscriptionId: 'managed-sub', resourceGroup: 'managed-rg' },
+      })
+    );
   });
 
   test('rejects same-name clusters when their Azure scopes differ', async () => {

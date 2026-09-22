@@ -28,7 +28,6 @@
   "~3-5 min": "最大 3 から 5 分",
   "~3-5 min deploy + async suggestions": "最大 3 から 5 分のデプロイ + 非同期提案",
   "A cluster must be selected": "クラスターを選択する必要があります",
-  "A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.": "別の、または不明な Azure クラスター スコープが、この名前で既に登録されています。続行する前に削除してください。",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "プロジェクト ラベルが適用された新しい名前空間がクラスターに作成されます。それはプロジェクト リストにすぐに表示されます。",
   "Absolute usage": "絶対使用量",
   "Access": "アクセス",
@@ -123,7 +122,6 @@
   "Cluster '{{cluster}}' was added, but it did not become reachable. Details: {{message}}": "クラスター '{{cluster}}' は追加されましたが、到達可能になりませんでした。詳細: {{message}}",
   "Cluster \"{{cluster}}\" is not accessible — its Kubernetes API did not respond. It may be stopped or offline. Start it or check its health in the Azure portal, then retry.": "クラスター \"{{cluster}}\" にアクセスできません — Kubernetes API が応答しませんでした。停止しているか、オフラインになっている可能性があります。Azure portal で起動するか、正常性を確認してから、もう一度お試しください。",
   "Cluster \"{{cluster}}\" is not accessible: {{message}}": "クラスター \"{{cluster}}\" にアクセスできません: {{message}}",
-  "Cluster {{clusterName}} is already registered from a different or unknown Azure scope. Remove and register it again before importing these projects.": "クラスター {{clusterName}} は、別の、または不明な Azure スコープから既に登録されています。これらのプロジェクトをインポートする前に、削除して再度登録してください。",
   "Cluster {{clusterName}} must be registered before importing regular namespaces. Import a managed namespace from this cluster first.": "通常の名前空間をインポートする前に、クラスター {{clusterName}} を登録する必要があります。まず、このクラスターからマネージド名前空間をインポートしてください。",
   "Cluster Configuration": "クラスターの構成",
   "Cluster is being deleted. Cannot deploy to this cluster.": "クラスターは削除中です。このクラスターにはデプロイできません。",
@@ -757,5 +755,8 @@
   "Object ID entered": "",
   "User search failed": "",
   "Try searching again. If the problem continues, check your Azure sign-in.": "",
-  "User search is not available": ""
+  "User search is not available": "",
+  "Failed to save the selected cluster scope: {{message}}": "",
+  "A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.": "",
+  "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": ""
 }

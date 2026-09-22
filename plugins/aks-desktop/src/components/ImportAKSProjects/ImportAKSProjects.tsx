@@ -270,25 +270,39 @@ function ImportAKSProjectsContent() {
         // previously imported namespaces on this cluster.
         const clusterIsRegistered = registeredClusters.has(normalizeClusterName(clusterName));
         if (clusterIsRegistered && subscriptionId && resourceGroup) {
-          const registeredScope = getClusterSettings(clusterName).azureRegistration;
-          const scopeMatches =
+          const settings = getClusterSettings(clusterName);
+          const registeredScope = settings.azureRegistration;
+          const scopeIsKnown =
             typeof registeredScope?.subscriptionId === 'string' &&
+            registeredScope.subscriptionId !== '' &&
             typeof registeredScope.resourceGroup === 'string' &&
-            registeredScope.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
-            registeredScope.resourceGroup.toLowerCase() === resourceGroup.toLowerCase();
-          if (!scopeMatches) {
+            registeredScope.resourceGroup !== '';
+          // Conflict if the same-name registered cluster is Arc (a different resource) or has a
+          // known scope that differs. A missing scope is fine, we adopt it below.
+          const scopeConflicts =
+            settings.clusterType === 'aksarc' ||
+            (scopeIsKnown &&
+              (registeredScope!.subscriptionId!.toLowerCase() !== subscriptionId.toLowerCase() ||
+                registeredScope!.resourceGroup!.toLowerCase() !== resourceGroup.toLowerCase()));
+          if (scopeConflicts) {
             for (const ns of namespacesInCluster) {
               results.push({
                 namespace: `${ns.name} (${clusterName})`,
                 clusterName,
                 success: false,
                 message: t(
-                  'Cluster {{clusterName}} is already registered from a different or unknown Azure scope. Remove and register it again before importing these projects.',
+                  'Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.',
                   { clusterName }
                 ),
               });
             }
             continue;
+          }
+          if (!scopeIsKnown) {
+            setClusterSettings(clusterName, {
+              ...settings,
+              azureRegistration: { subscriptionId, resourceGroup },
+            });
           }
         } else if (!clusterIsRegistered) {
           // Non-managed namespaces lack Azure metadata, so we can't register the cluster

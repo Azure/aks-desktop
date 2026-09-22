@@ -26,6 +26,7 @@ import {
 } from '../../../utils/constants/projectLabels';
 import { reviewNamespaceAccess } from '../../../utils/kubernetes/accessReview';
 import { applyNamespaceManifest } from '../../../utils/kubernetes/namespaceUtils';
+import { getClusterSettings, setClusterSettings } from '../../../utils/shared/clusterSettings';
 import { isEntraObjectId } from '../../../utils/shared/entraIdentifiers';
 import { STEPS } from '../types';
 import { useAzureResources } from './useAzureResources';
@@ -121,6 +122,8 @@ export interface UseCreateAKSProjectWizardResult {
   clusterCapabilities: ReturnType<typeof useClusterCapabilities>;
   /** Per-step validation result used to gate the "Next" / "Create Project" button. */
   validation: ReturnType<typeof useValidation>;
+  /** Error raised while persisting an adopted managed-cluster scope on the Basics step. */
+  scopeAdoptionError: string | null;
   /**
    * `true` when the cluster name in the form is not found in the local Headlamp
    * cluster registry, `undefined` when no cluster is selected.
@@ -165,6 +168,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   const [isCreating, setIsCreating] = useState(false);
   const [creationProgress, setCreationProgress] = useState('');
   const [creationError, setCreationError] = useState<string | null>(null);
+  const [scopeAdoptionError, setScopeAdoptionError] = useState<string | null>(null);
   // Non-fatal problems from a project that was still created — e.g. a grant that
   // could not be made or could not be verified.
   const [creationWarnings, setCreationWarnings] = useState<string[]>([]);
@@ -200,16 +204,19 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   const namespaceCheck = useNamespaceCheck();
 
   const clustersConf = K8s.useClustersConf();
-  const isClusterMissing = formData.cluster
+  const clusterRegistrationState = formData.cluster
     ? getClusterRegistrationState(
         clustersConf,
         formData.cluster,
         formData.subscription,
-        formData.resourceGroup
-      ) !== 'registered'
-      ? true
-      : undefined
+        formData.resourceGroup,
+        formData.clusterType
+      )
     : undefined;
+  const isClusterMissing =
+    clusterRegistrationState === 'missing' || clusterRegistrationState === 'scope-conflict'
+      ? true
+      : undefined;
 
   // Whether the selected cluster is an Arc-connected (AKS Hybrid & Edge) cluster.
   // Arc clusters have no `az aks namespace` surface, so the wizard applies a native
@@ -374,9 +381,43 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     };
   }, []);
 
+  useEffect(() => {
+    setScopeAdoptionError(null);
+  }, [formData.cluster, formData.clusterType, formData.resourceGroup, formData.subscription]);
+
+  const adoptManagedClusterScope = (): boolean => {
+    if (clusterRegistrationState === 'scope-adoption-required' && formData.cluster) {
+      if (!formData.subscription || !formData.resourceGroup) {
+        setActiveStep(0);
+        return false;
+      }
+      try {
+        const settings = getClusterSettings(formData.cluster);
+        setClusterSettings(formData.cluster, {
+          ...settings,
+          azureRegistration: {
+            subscriptionId: formData.subscription,
+            resourceGroup: formData.resourceGroup,
+          },
+        });
+        setScopeAdoptionError(null);
+      } catch (error) {
+        setScopeAdoptionError(
+          t('Failed to save the selected cluster scope: {{message}}', {
+            message: error instanceof Error ? error.message : t('Unknown error'),
+          })
+        );
+        setActiveStep(0);
+        return false;
+      }
+    }
+    return true;
+  };
+
   const handleNext = () => {
     azureResources.clearError();
     azureResources.clearClusterError();
+    if (!adoptManagedClusterScope()) return;
     setActiveStep(prevStep => prevStep + 1);
   };
 
@@ -388,6 +429,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     // Block breadcrumb navigation while a creation request is in-flight to prevent
     // navigating away mid-creation which could corrupt the wizard state.
     if (isCreating) return;
+    if (step > activeStep && !adoptManagedClusterScope()) return;
     setActiveStep(step);
   };
 
@@ -410,6 +452,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   }, [activeStep]);
 
   const handleSubmit = async () => {
+    if (!adoptManagedClusterScope()) return;
     let creationTimeoutId: number | undefined;
     let didTimeout = false;
     terminalTrackedRef.current = false;
@@ -926,6 +969,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     namespaceCheck,
     clusterCapabilities,
     validation,
+    scopeAdoptionError,
     isClusterMissing,
     isArcCluster,
     requiresUpn,

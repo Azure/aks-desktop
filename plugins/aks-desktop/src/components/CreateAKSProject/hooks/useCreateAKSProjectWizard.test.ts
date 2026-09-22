@@ -12,6 +12,7 @@ const mockAssignAzureRoles = vi.hoisted(() => vi.fn());
 const mockReviewNamespaceAccess = vi.hoisted(() => vi.fn());
 const mockApplyNamespaceManifest = vi.hoisted(() => vi.fn());
 const mockGetClusterSettings = vi.hoisted(() => vi.fn());
+const mockSetClusterSettings = vi.hoisted(() => vi.fn());
 const mockAzureResourcesState = vi.hoisted(() => ({ clusters: [] as any[] }));
 const mockClustersConf = vi.hoisted(() => ({
   current: null as Record<string, { name: string }> | null,
@@ -62,6 +63,7 @@ vi.mock('../../../utils/kubernetes/namespaceUtils', () => ({
 
 vi.mock('../../../utils/shared/clusterSettings', () => ({
   getClusterSettings: mockGetClusterSettings,
+  setClusterSettings: mockSetClusterSettings,
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -166,6 +168,7 @@ describe('useCreateAKSProjectWizard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetClusterSettings.mockReturnValue({});
+    mockSetClusterSettings.mockImplementation(() => {});
     mockCheckClusterAccessible.mockResolvedValue({ accessible: true });
     mockAssignAzureRoles.mockResolvedValue({ success: true, results: [] });
     mockReviewNamespaceAccess.mockResolvedValue({ allowed: true });
@@ -259,6 +262,198 @@ describe('useCreateAKSProjectWizard', () => {
       result.current.handleNext();
     });
     expect(result.current.activeStep).toBe(1);
+  });
+
+  it('handleNext adopts an active managed cluster with unknown scope', () => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'aks-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+    };
+    mockAzureResourcesState.clusters = [
+      { name: 'aks-a', resourceGroup: 'rg-a', clusterType: 'aks' },
+    ];
+    mockClustersConf.current = { 'aks-a': { name: 'aks-a' } };
+    mockGetClusterSettings.mockReturnValue({ appearance: { icon: 'mdi:test' } });
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleNext());
+
+    expect(mockSetClusterSettings).toHaveBeenCalledWith('aks-a', {
+      appearance: { icon: 'mdi:test' },
+      azureRegistration: { subscriptionId: 'sub-a', resourceGroup: 'rg-a' },
+    });
+    expect(result.current.activeStep).toBe(1);
+    expect(result.current.scopeAdoptionError).toBeNull();
+  });
+
+  it('handleStepClick adopts managed scope before jumping forward', () => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'aks-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+    };
+    mockClustersConf.current = { 'aks-a': { name: 'aks-a' } };
+    mockGetClusterSettings.mockReturnValue({});
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleStepClick(4));
+
+    expect(mockSetClusterSettings).toHaveBeenCalledWith('aks-a', {
+      azureRegistration: { subscriptionId: 'sub-a', resourceGroup: 'rg-a' },
+    });
+    expect(result.current.activeStep).toBe(4);
+  });
+
+  it.each([
+    ['subscription', { subscription: '' }],
+    ['resource group', { resourceGroup: '' }],
+  ])('handleStepClick stays on Basics when the managed %s is missing', (_label, missingScope) => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'aks-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+      ...missingScope,
+    };
+    mockClustersConf.current = { 'aks-a': { name: 'aks-a' } };
+    mockGetClusterSettings.mockReturnValue({});
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleStepClick(4));
+
+    expect(mockSetClusterSettings).not.toHaveBeenCalled();
+    expect(result.current.activeStep).toBe(0);
+  });
+
+  it('handleNext stays on Basics when managed scope adoption fails', () => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'aks-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+    };
+    mockAzureResourcesState.clusters = [
+      { name: 'aks-a', resourceGroup: 'rg-a', clusterType: 'aks' },
+    ];
+    mockClustersConf.current = { 'aks-a': { name: 'aks-a' } };
+    mockGetClusterSettings.mockReturnValue({});
+    mockSetClusterSettings.mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleNext());
+
+    expect(result.current.activeStep).toBe(0);
+    expect(result.current.scopeAdoptionError).toBe(
+      'Failed to save the selected cluster scope: storage unavailable'
+    );
+  });
+
+  it('clears a scope adoption error when only the selected cluster kind changes', () => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'shared-name',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+    };
+    mockClustersConf.current = { 'shared-name': { name: 'shared-name' } };
+    mockGetClusterSettings.mockReturnValue({});
+    mockSetClusterSettings.mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result, rerender } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleNext());
+    expect(result.current.scopeAdoptionError).not.toBeNull();
+
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...formData, clusterType: 'aksarc' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+    rerender();
+
+    expect(result.current.scopeAdoptionError).toBeNull();
+  });
+
+  it('handleSubmit returns to Basics when managed scope adoption fails', async () => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'aks-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+    };
+    mockClustersConf.current = { 'aks-a': { name: 'aks-a' } };
+    mockGetClusterSettings.mockReturnValue({
+      azureRegistration: { subscriptionId: 'sub-a', resourceGroup: 'rg-a' },
+    });
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result, rerender } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleStepClick(4));
+    expect(result.current.activeStep).toBe(4);
+
+    mockGetClusterSettings.mockReturnValue({});
+    mockSetClusterSettings.mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+    rerender();
+    await act(() => result.current.handleSubmit());
+
+    expect(result.current.activeStep).toBe(0);
+    expect(result.current.scopeAdoptionError).toBe(
+      'Failed to save the selected cluster scope: storage unavailable'
+    );
+    expect(mockTrackFeature).not.toHaveBeenCalledWith({
+      feature: 'aksd.project-create',
+      status: 'started',
+    });
   });
 
   it('handleBack decrements activeStep', () => {

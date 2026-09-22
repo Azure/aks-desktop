@@ -28,7 +28,6 @@
   "~3-5 min": "~3–5 Minuten",
   "~3-5 min deploy + async suggestions": "~3–5 Min. Bereitstellung und asynchrone Vorschläge",
   "A cluster must be selected": "Es muss ein Cluster ausgewählt werden.",
-  "A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.": "Ein anderer oder unbekannter Azure-Clusterbereich ist bereits unter diesem Namen registriert. Entfernen Sie ihn, bevor Sie fortfahren.",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "Auf dem Cluster wird ein neuer Namespace mit angewendeten Projektlabels erstellt. Er erscheint sofort in Ihrer Projektliste.",
   "Absolute usage": "Absoluter Verbrauch",
   "Access": "Zugriff",
@@ -123,7 +122,6 @@
   "Cluster '{{cluster}}' was added, but it did not become reachable. Details: {{message}}": "Der Cluster „{{cluster}}“ wurde hinzugefügt, ist jedoch nicht erreichbar geworden. Details: {{message}}",
   "Cluster \"{{cluster}}\" is not accessible — its Kubernetes API did not respond. It may be stopped or offline. Start it or check its health in the Azure portal, then retry.": "Auf den Cluster „{{cluster}}“ kann nicht zugegriffen werden – die Kubernetes-API hat nicht reagiert. Möglicherweise wurde sie beendet oder ist offline. Starten Sie sie, oder überprüfen Sie den Zustand im Azure-Portal, und versuchen Sie es dann erneut.",
   "Cluster \"{{cluster}}\" is not accessible: {{message}}": "Auf den Cluster „{{cluster}}“ kann nicht zugegriffen werden: {{message}}",
-  "Cluster {{clusterName}} is already registered from a different or unknown Azure scope. Remove and register it again before importing these projects.": "Cluster „{{clusterName}}“ ist bereits in einem anderen oder unbekannten Azure Bereich registriert. Entfernen Sie es und registrieren Sie es erneut, bevor Sie diese Projekte importieren.",
   "Cluster {{clusterName}} must be registered before importing regular namespaces. Import a managed namespace from this cluster first.": "Der Cluster {{clusterName}} muss vor dem Import regulärer Namespaces registriert sein. Importieren Sie zuerst einen verwalteten Namespace aus diesem Cluster.",
   "Cluster Configuration": "Clusterkonfiguration",
   "Cluster is being deleted. Cannot deploy to this cluster.": "Der Cluster wird gelöscht. Die Bereitstellung kann in diesem Cluster nicht erfolgen.",
@@ -757,5 +755,8 @@
   "Object ID entered": "",
   "User search failed": "",
   "Try searching again. If the problem continues, check your Azure sign-in.": "",
-  "User search is not available": ""
+  "User search is not available": "",
+  "Failed to save the selected cluster scope: {{message}}": "",
+  "A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.": "",
+  "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": ""
 }

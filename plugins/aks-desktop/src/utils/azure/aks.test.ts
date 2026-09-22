@@ -277,6 +277,23 @@ describe('Azure AKS utilities', () => {
     });
   });
 
+  test('drops stale Arc metadata when persisting a managed registration', async () => {
+    desktopRegisterAKSCluster.mockResolvedValue(successResult);
+    mocks.getClusterSettings.mockReturnValue({
+      clusterType: 'aksarc',
+      subscriptionId: 'arc-sub',
+      resourceGroup: 'arc-rg',
+      allowedNamespaces: ['keep'],
+    });
+
+    await registerAKSCluster('sub-1', 'rg-1', 'cluster-1');
+
+    expect(mocks.setClusterSettings).toHaveBeenCalledWith('cluster-1', {
+      allowedNamespaces: ['keep'],
+      azureRegistration: { subscriptionId: 'sub-1', resourceGroup: 'rg-1' },
+    });
+  });
+
   test('reports scope persistence failure and retries without native registration', async () => {
     desktopRegisterAKSCluster.mockResolvedValue(successResult);
     mocks.setClusterSettings
@@ -320,9 +337,54 @@ describe('Azure AKS utilities', () => {
     ).resolves.toEqual({
       success: false,
       message:
-        "Cluster 'shared-name' is already registered from a different or unknown Azure scope.",
+        "Cluster 'shared-name' is already registered with a different cluster kind or Azure scope.",
     });
     expect(desktopRegisterAKSCluster).not.toHaveBeenCalled();
+  });
+
+  test('rejects an active same-name Arc cluster', async () => {
+    mocks.getClusterSettings.mockReturnValue({
+      clusterType: 'aksarc',
+      subscriptionId: 'sub-1',
+      resourceGroup: 'rg-1',
+    });
+
+    await expect(
+      registerAKSCluster('sub-1', 'rg-1', 'shared-name', undefined, true)
+    ).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'shared-name' is already registered with a different cluster kind or Azure scope.",
+    });
+    expect(desktopRegisterAKSCluster).not.toHaveBeenCalled();
+  });
+
+  test('rejects a same-name Arc replacement after a completed managed reservation', async () => {
+    desktopRegisterAKSCluster.mockResolvedValue(successResult);
+    mocks.getClusterSettings.mockReturnValue({
+      azureRegistration: { subscriptionId: 'sub-1', resourceGroup: 'rg-1' },
+    });
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'shared-name')).resolves.toEqual(
+      successResult
+    );
+
+    mocks.setClusterSettings.mockClear();
+    mocks.getClusterSettings.mockReturnValue({
+      clusterType: 'aksarc',
+      subscriptionId: 'sub-1',
+      resourceGroup: 'rg-1',
+    });
+
+    await expect(
+      registerAKSCluster('sub-1', 'rg-1', 'shared-name', undefined, true)
+    ).resolves.toEqual({
+      success: false,
+      message:
+        "Cluster 'shared-name' is already registered with a different cluster kind or Azure scope.",
+    });
+    expect(mocks.setClusterSettings).not.toHaveBeenCalled();
+    expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(1);
   });
 
   test.each([
@@ -330,17 +392,22 @@ describe('Azure AKS utilities', () => {
     { azureRegistration: { subscriptionId: 'sub-1' } },
     { azureRegistration: { subscriptionId: { id: 'sub-1' }, resourceGroup: 'rg-1' } },
     { azureRegistration: { subscriptionId: 'sub-1', resourceGroup: 42 } },
-  ])('treats malformed active scope metadata as unknown: %s', async settings => {
+  ])('adopts an active same-name cluster with unknown scope metadata: %s', async settings => {
     mocks.getClusterSettings.mockReturnValue(settings);
 
     await expect(
       registerAKSCluster('sub-1', 'rg-1', 'shared-name', undefined, true)
     ).resolves.toEqual({
-      success: false,
-      message:
-        "Cluster 'shared-name' is already registered from a different or unknown Azure scope.",
+      success: true,
+      message: "Cluster 'shared-name' is already registered from this Azure scope.",
     });
     expect(desktopRegisterAKSCluster).not.toHaveBeenCalled();
+    expect(mocks.setClusterSettings).toHaveBeenCalledWith(
+      'shared-name',
+      expect.objectContaining({
+        azureRegistration: { subscriptionId: 'sub-1', resourceGroup: 'rg-1' },
+      })
+    );
   });
 
   test('allows stale scope metadata when the cluster name is not active', async () => {
@@ -402,7 +469,7 @@ describe('Azure AKS utilities', () => {
     await expect(second).resolves.toEqual({
       success: false,
       message:
-        "Cluster 'shared-queued-name' is already registered from a different or unknown Azure scope.",
+        "Cluster 'shared-queued-name' is already registered with a different cluster kind or Azure scope.",
     });
     expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(1);
 
@@ -422,7 +489,7 @@ describe('Azure AKS utilities', () => {
     ).resolves.toEqual({
       success: false,
       message:
-        "Cluster 'removed-cluster-name' is already registered from a different or unknown Azure scope.",
+        "Cluster 'removed-cluster-name' is already registered with a different cluster kind or Azure scope.",
     });
 
     reconcileRegisteredClusterNames(['removed-cluster-name']);
@@ -477,7 +544,8 @@ describe('Azure AKS utilities', () => {
     });
     await expect(registerAKSCluster('sub-2', 'rg-2', 'cluster-1')).resolves.toEqual({
       success: false,
-      message: "Cluster 'cluster-1' is already registered from a different or unknown Azure scope.",
+      message:
+        "Cluster 'cluster-1' is already registered with a different cluster kind or Azure scope.",
     });
     await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
       success: false,

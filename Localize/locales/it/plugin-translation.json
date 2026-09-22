@@ -28,7 +28,6 @@
   "~3-5 min": "~3-5 min",
   "~3-5 min deploy + async suggestions": "~3-5 min di distribuzione + suggerimenti asincroni",
   "A cluster must be selected": "È necessario selezionare un cluster",
-  "A different or unknown Azure cluster scope is already registered with this name. Remove it before continuing.": "Un ambito di cluster di Azure diverso o sconosciuto è già registrato con questo nome. Rimuoverlo prima di continuare.",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "Verrà creato un nuovo spazio dei nomi nel cluster con le etichette di progetto applicate. Verrà visualizzato immediatamente nell'elenco di progetti.",
   "Absolute usage": "Utilizzo assoluto",
   "Access": "Accesso",
@@ -123,7 +122,6 @@
   "Cluster '{{cluster}}' was added, but it did not become reachable. Details: {{message}}": "Il cluster '{{cluster}}' è stato aggiunto, ma non è diventato raggiungibile. Dettagli: {{message}}",
   "Cluster \"{{cluster}}\" is not accessible — its Kubernetes API did not respond. It may be stopped or offline. Start it or check its health in the Azure portal, then retry.": "Il cluster \"{{cluster}}\" non è accessibile. L'API Kubernetes non ha risposto. Potrebbe essere arrestato o offline. Avviarlo o controllare lo stato nel portale di Azure, quindi riprovare.",
   "Cluster \"{{cluster}}\" is not accessible: {{message}}": "Il cluster \"{{cluster}}\" non è accessibile: {{message}}",
-  "Cluster {{clusterName}} is already registered from a different or unknown Azure scope. Remove and register it again before importing these projects.": "Il cluster {{clusterName}} è già registrato da un ambito di Azure diverso o sconosciuto. Rimuoverlo e registrarlo di nuovo prima di importare questi progetti.",
   "Cluster {{clusterName}} must be registered before importing regular namespaces. Import a managed namespace from this cluster first.": "È necessario registrare il cluster {{clusterName}} prima di importare gli spazi dei nomi normali. Importare prima uno spazio dei nomi gestito da questo cluster.",
   "Cluster Configuration": "Configurazione del cluster",
   "Cluster is being deleted. Cannot deploy to this cluster.": "Eliminazione del cluster in corso. Non è possibile eseguire la distribuzione in questo cluster.",
@@ -757,5 +755,8 @@
   "Object ID entered": "",
   "User search failed": "",
   "Try searching again. If the problem continues, check your Azure sign-in.": "",
-  "User search is not available": ""
+  "User search is not available": "",
+  "Failed to save the selected cluster scope: {{message}}": "",
+  "A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.": "",
+  "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": ""
 }

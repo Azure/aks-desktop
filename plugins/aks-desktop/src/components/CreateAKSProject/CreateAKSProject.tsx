@@ -44,6 +44,7 @@ function CreateAKSProject() {
             totalClusterCount={wizard.azureResources.totalClusterCount}
             loadingClusters={wizard.azureResources.loadingClusters}
             clusterError={wizard.azureResources.clusterError}
+            scopeAdoptionError={wizard.scopeAdoptionError}
             arcDiscoveryUnavailable={wizard.azureResources.arcDiscoveryUnavailable}
             namespaceStatus={wizard.namespaceCheck}
             clusterAccessStatus={wizard.clusterAccess}
