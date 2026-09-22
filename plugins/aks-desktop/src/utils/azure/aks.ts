@@ -2,6 +2,7 @@ import { getClusterSettings, setClusterSettings } from '../shared/clusterSetting
 import { getClusters, getConnectedClusters } from './az-clusters';
 import { isExtensionInstalled } from './az-extensions';
 import { getSubscriptions as getAzSubscriptions } from './az-subscriptions';
+import { getClusterRegistrationCapability } from './clusterRegistrationCapability';
 
 export interface Subscription {
   id: string;
@@ -359,25 +360,23 @@ export async function registerAKSCluster(
       managedNamespace ? `with managed namespace: ${managedNamespace}` : ''
     );
 
-    // Call the Electron IPC handler
-    const desktopApi = (window as any).desktopApi;
-
-    if (!desktopApi || !desktopApi.registerAKSCluster) {
-      console.error('[AKS] Desktop API not available - running in non-desktop mode?');
+    const registerCluster = getClusterRegistrationCapability();
+    if (!registerCluster) {
+      console.error('[AKS] Desktop cluster registration capability is not available');
       return {
         success: false,
         message: 'Desktop API not available. This feature is only available in desktop mode.',
       };
     }
 
-    const result: unknown = await desktopApi.registerAKSCluster(
+    const result: unknown = await registerCluster('azure', {
       subscriptionId,
       resourceGroup,
       clusterName,
-      false, // isAzureRBACEnabled
+      isAzureRBACEnabled: false,
       managedNamespace,
-      'aks'
-    );
+      clusterType: 'aks',
+    });
 
     if (
       typeof result !== 'object' ||

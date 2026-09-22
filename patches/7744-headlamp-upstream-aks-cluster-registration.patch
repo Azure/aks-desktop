@@ -1,0 +1,4287 @@
+From 5c2c40bf54bb23a57ab2ad42743b1fb16d492cc3 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Tue, 22 Sep 2026 21:47:24 +0300
+Subject: [PATCH] app: frontend: docs: Add cluster registration providers
+
+Desktop products need a capability-protected way to retrieve and persist
+cluster credentials without exposing native command execution to every plugin.
+
+Add a provider-neutral registration dispatcher and bind product-configured
+provider grants to attested plugin capabilities. Resolve consumer-owned tool
+paths through integrity-checked manifest records, serialize kubeconfig updates,
+and preserve destination symlinks during atomic replacement.
+
+Document and test how Azure, EKS, GKE, and Cluster API integrations can extend
+the framework without hard-coding product identities or package layouts.
+---
+ .github/workflows/app.yml                     |    9 +-
+ app/app-build-manifest.schema.json            |   88 ++
+ app/e2e-tests/playwright.electron.config.ts   |    1 +
+ .../tests/clusterRegistration.spec.ts         |  265 ++++
+ app/e2e-tests/tests/listenerCleanup.spec.ts   |   10 +
+ app/electron/build-manifest.test.ts           |  125 ++
+ app/electron/cluster-registration.test.ts     | 1245 +++++++++++++++++
+ app/electron/cluster-registration.ts          | 1175 ++++++++++++++++
+ app/electron/main.ts                          |   19 +-
+ app/electron/preload.test.ts                  |   27 +
+ app/electron/preload.ts                       |   11 +
+ app/electron/runCmd.test.ts                   |   43 +
+ app/electron/runCmd.ts                        |   49 +-
+ app/package-lock.json                         |   25 +
+ app/package.json                              |    2 +
+ app/scripts/build-manifest.ts                 |  114 ++
+ .../plugins/cluster-registration-providers.md |  194 +++
+ docs/development/plugins/index.md             |    4 +
+ .../src/plugin/clusterRegistration.test.ts    |   51 +
+ frontend/src/plugin/clusterRegistration.ts    |   83 ++
+ .../src/plugin/commandCapabilities.test.ts    |   30 +-
+ frontend/src/plugin/commandCapabilities.ts    |   59 +-
+ frontend/src/plugin/index.ts                  |   11 +-
+ frontend/src/plugin/runPlugin.test.ts         |   16 +
+ frontend/src/plugin/runPlugin.ts              |    2 +
+ 25 files changed, 3638 insertions(+), 20 deletions(-)
+ create mode 100644 app/e2e-tests/tests/clusterRegistration.spec.ts
+ create mode 100644 app/electron/cluster-registration.test.ts
+ create mode 100644 app/electron/cluster-registration.ts
+ create mode 100644 docs/development/plugins/cluster-registration-providers.md
+ create mode 100644 frontend/src/plugin/clusterRegistration.test.ts
+ create mode 100644 frontend/src/plugin/clusterRegistration.ts
+
+diff --git a/.github/workflows/app.yml b/.github/workflows/app.yml
+index 95826c17f..5ae6fdf9c 100644
+--- a/.github/workflows/app.yml
++++ b/.github/workflows/app.yml
+@@ -64,8 +64,8 @@ jobs:
+         cd app/e2e-tests
+         npm ci
+         npx playwright install --with-deps chromium
+-    - name: Test desktop listener cleanup
+-      run: xvfb-run --auto-servernum npm run app:test:e2e -- tests/listenerCleanup.spec.ts
++    - name: Test desktop privileged bridges
++      run: xvfb-run --auto-servernum npm run app:test:e2e -- tests/listenerCleanup.spec.ts tests/clusterRegistration.spec.ts
+     - name: Test desktop OAuth callbacks
+       run: xvfb-run --auto-servernum npm run app:test:e2e -- tests/oauthProvider.spec.ts tests/protocolScheme.spec.ts
+     - name: Test external backend token
+@@ -123,6 +123,11 @@ jobs:
+       run: make app-tsc
+     - name: App Windows ${{ matrix.arch }}
+       run: make app-win-${{ matrix.arch }}
++    - name: Install desktop e2e dependencies
++      run: npm --prefix app/e2e-tests ci
++    - name: Test desktop cluster registration
++      if: matrix.arch == 'x64'
++      run: npm run app:test:e2e -- tests/clusterRegistration.spec.ts
+     - name: Verify Windows build
+       shell: pwsh
+       run: npm run app:verify-build-windows
+diff --git a/app/app-build-manifest.schema.json b/app/app-build-manifest.schema.json
+index cdb6aa9a4..0a3aaa4f9 100644
+--- a/app/app-build-manifest.schema.json
++++ b/app/app-build-manifest.schema.json
+@@ -38,6 +38,12 @@
+       "propertyNames": { "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+       "additionalProperties": { "$ref": "#/definitions/commandGrantList" }
+     },
++    "external-tools": {
++      "type": "array",
++      "description": "Verified external tools available to native product integrations.",
++      "maxItems": 128,
++      "items": { "$ref": "#/definitions/externalTool" }
++    },
+     "product": {
+       "type": "object",
+       "description": "Product identity applied to Electron Builder and generated frontend metadata.",
+@@ -111,6 +117,40 @@
+   },
+   "additionalProperties": true,
+   "definitions": {
++    "externalTool": {
++      "type": "object",
++      "properties": {
++        "id": {
++          "type": "string",
++          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
++        },
++        "platforms": {
++          "type": "object",
++          "minProperties": 1,
++          "properties": {
++            "linux": { "$ref": "#/definitions/externalToolPlatform" },
++            "darwin": { "$ref": "#/definitions/externalToolPlatform" },
++            "win32": { "$ref": "#/definitions/externalToolPlatform" }
++          },
++          "additionalProperties": false
++        }
++      },
++      "required": ["id", "platforms"],
++      "additionalProperties": false
++    },
++    "externalToolPlatform": {
++      "type": "object",
++      "properties": {
++        "path": {
++          "type": "string",
++          "minLength": 1,
++          "pattern": "^(?![\\\\/])(?![A-Za-z]:[\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$))[^\\u0000]+$"
++        },
++        "sha256": { "$ref": "#/definitions/lowercaseSha256" }
++      },
++      "required": ["path", "sha256"],
++      "additionalProperties": false
++    },
+     "plugin": {
+       "type": "object",
+       "properties": {
+@@ -192,6 +232,13 @@
+             "type": "string",
+             "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+           }
++        },
++        "clusterRegistrationProviders": {
++          "type": "array",
++          "description": "Native cluster registration providers granted to these exact plugin identities.",
++          "maxItems": 16,
++          "uniqueItems": true,
++          "items": { "$ref": "#/definitions/clusterRegistrationProvider" }
+         }
+       },
+       "required": ["environment", "pluginLocation", "plugins"],
+@@ -222,6 +269,19 @@
+               }
+             }
+           }
++        },
++        {
++          "if": {
++            "properties": {
++              "pluginLocation": { "const": "user" }
++            },
++            "required": ["pluginLocation"]
++          },
++          "then": {
++            "properties": {
++              "clusterRegistrationProviders": { "maxItems": 0 }
++            }
++          }
+         }
+       ],
+       "additionalProperties": false
+@@ -246,6 +306,29 @@
+         }
+       ]
+     },
++    "clusterRegistrationProvider": {
++      "type": "object",
++      "properties": {
++        "id": {
++          "type": "string",
++          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
++        },
++        "type": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
++        "tools": {
++          "type": "object",
++          "maxProperties": 16,
++          "propertyNames": {
++            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
++          },
++          "additionalProperties": {
++            "type": "string",
++            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
++          }
++        }
++      },
++      "required": ["id", "type", "tools"],
++      "additionalProperties": false
++    },
+     "pluginExecutable": {
+       "type": "object",
+       "description": "A plugin-owned native executable at the derived path bin/<tool>, confined to the verified bundle and integrity-checked before production execution.",
+@@ -442,6 +525,11 @@
+       "description": "Hexadecimal SHA-256 digest.",
+       "pattern": "^[A-Fa-f0-9]{64}$"
+     },
++    "lowercaseSha256": {
++      "type": "string",
++      "description": "Lowercase hexadecimal SHA-256 digest.",
++      "pattern": "^[a-f0-9]{64}$"
++    },
+     "legalDocument": {
+       "type": "object",
+       "properties": {
+diff --git a/app/e2e-tests/playwright.electron.config.ts b/app/e2e-tests/playwright.electron.config.ts
+index dfbd78724..fcf4cfdc1 100644
+--- a/app/e2e-tests/playwright.electron.config.ts
++++ b/app/e2e-tests/playwright.electron.config.ts
+@@ -33,6 +33,7 @@ export default defineConfig({
+     'configDirectories.spec.ts',
+     'namespaces.spec.ts',
+     'clusterAutoConnect.spec.ts',
++    'clusterRegistration.spec.ts',
+     'externalBackendToken.spec.ts',
+     'pluginSecureStorage.spec.ts',
+     'listenerCleanup.spec.ts',
+diff --git a/app/e2e-tests/tests/clusterRegistration.spec.ts b/app/e2e-tests/tests/clusterRegistration.spec.ts
+new file mode 100644
+index 000000000..ca081b1e8
+--- /dev/null
++++ b/app/e2e-tests/tests/clusterRegistration.spec.ts
+@@ -0,0 +1,265 @@
++/*
++ * Copyright 2026 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { expect, test } from '@playwright/test';
++import { createHash } from 'node:crypto';
++import fs from 'node:fs';
++import { createServer, Server } from 'node:http';
++import type { AddressInfo } from 'node:net';
++import os from 'node:os';
++import path from 'node:path';
++import { _electron, ElectronApplication, Page } from 'playwright';
++
++const electronExecutable = process.platform === 'win32' ? 'electron.cmd' : 'electron';
++const appPath = path.resolve(__dirname, '../..');
++const electronPath = path.join(appPath, 'node_modules', '.bin', electronExecutable);
++const bundleName = 'cluster-registration-e2e';
++const packageName = '@headlamp-k8s/cluster-registration-e2e';
++const generatedKubeconfig = JSON.stringify({
++  apiVersion: 'v1',
++  clusters: [{ name: 'e2e-cluster', cluster: { server: 'https://e2e.example' } }],
++  contexts: [{ name: 'e2e-cluster', context: { cluster: 'e2e-cluster', user: 'e2e-user' } }],
++  users: [{ name: 'e2e-user', user: { token: 'e2e-token' } }],
++  'current-context': 'e2e-cluster',
++});
++
++let backend: Server;
++let electronApp: ElectronApplication;
++let electronPage: Page;
++let manifestDirectory: string;
++let pluginDirectory: string;
++let cliPath: string;
++let resourceDirectory: string;
++let resourcesDirectoryExisted: boolean;
++let capability: string;
++let kubeconfigPath: string;
++
++function sha256(filePath: string): string {
++  return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
++}
++
++function writeFakeAzureCli(filePath: string): void {
++  if (process.platform === 'win32') {
++    const escapedKubeconfig = generatedKubeconfig.replaceAll('%', '%%');
++    fs.writeFileSync(
++      filePath,
++      `@echo off\r\nset "output="\r\n:args\r\nif "%~1"=="" goto write\r\nif "%~1"=="--file" (\r\n  set "output=%~2"\r\n  shift\r\n)\r\nshift\r\ngoto args\r\n:write\r\n>"%output%" echo ${escapedKubeconfig}\r\n`
++    );
++    return;
++  }
++  fs.writeFileSync(
++    filePath,
++    `#!/bin/sh\nset -eu\noutput=''\nwhile [ "$#" -gt 0 ]; do\n  if [ "$1" = '--file' ]; then\n    output="$2"\n    shift 2\n  else\n    shift\n  fi\ndone\ntest -n "$output"\nprintf '%s\\n' '${generatedKubeconfig}' > "$output"\n`,
++    { mode: 0o755 }
++  );
++}
++
++test.describe('desktop cluster registration', () => {
++  test.beforeAll(async () => {
++    manifestDirectory = fs.realpathSync(
++      fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-cluster-registration-e2e-'))
++    );
++    kubeconfigPath = path.join(manifestDirectory, 'kubeconfig');
++    const resourcesPath = path.join(appPath, 'resources');
++    resourcesDirectoryExisted = fs.existsSync(resourcesPath);
++    fs.mkdirSync(resourcesPath, { recursive: true });
++    resourceDirectory = fs.mkdtempSync(path.join(resourcesPath, 'cluster-registration-e2e-'));
++
++    const cliName = process.platform === 'win32' ? 'fake-az.cmd' : 'fake-az';
++    cliPath = path.join(resourceDirectory, cliName);
++    const pythonPath = path.join(resourceDirectory, 'python');
++    const kubeloginPath = path.join(resourceDirectory, 'kubelogin.py');
++    writeFakeAzureCli(cliPath);
++    fs.writeFileSync(pythonPath, 'python fixture\n');
++    fs.writeFileSync(kubeloginPath, 'kubelogin fixture\n');
++
++    const platformTools = (filePath: string) => ({
++      [process.platform]: {
++        path: path.relative(resourcesPath, filePath).split(path.sep).join('/'),
++        sha256: sha256(filePath),
++      },
++    });
++    const manifestFile = path.join(manifestDirectory, 'app-build-manifest.json');
++    fs.writeFileSync(
++      manifestFile,
++      JSON.stringify({
++        'external-tools': [
++          { id: 'e2e-az', platforms: platformTools(cliPath) },
++          { id: 'e2e-python', platforms: platformTools(pythonPath) },
++          { id: 'e2e-kubelogin', platforms: platformTools(kubeloginPath) },
++        ],
++        runCommands: [
++          {
++            environment: 'development',
++            pluginLocation: 'shipped',
++            plugins: [{ bundleName, packageName }],
++            commands: [{ tool: 'gh', args: ['--version'] }],
++            clusterRegistrationProviders: [
++              {
++                id: 'azure',
++                type: 'azure',
++                tools: {
++                  cli: 'e2e-az',
++                  python: 'e2e-python',
++                  kubelogin: 'e2e-kubelogin',
++                },
++              },
++            ],
++          },
++        ],
++      })
++    );
++
++    backend = createServer((request, response) => {
++      if (request.url === '/config') {
++        response.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
++        return;
++      }
++      response.writeHead(404).end();
++    });
++    await new Promise<void>(resolve => backend.listen(0, resolve));
++    const port = (backend.address() as AddressInfo).port;
++    electronApp = await _electron.launch({
++      cwd: appPath,
++      executablePath: electronPath,
++      args: ['.', `--port=${port}`, `--user-data-dir=${path.join(manifestDirectory, 'profile')}`],
++      env: {
++        ...process.env,
++        ELECTRON_DEV: 'true',
++        ELECTRON_START_URL: 'data:text/html,<html></html>',
++        EXTERNAL_SERVER: 'true',
++        HEADLAMP_BUILD_MANIFEST: manifestFile,
++        HEADLAMP_CHECK_FOR_UPDATES: 'false',
++        HEADLAMP_MCP_ENABLE: 'false',
++        KUBECONFIG: kubeconfigPath,
++        NODE_ENV: 'development',
++      },
++    });
++    electronPage = await electronApp.firstWindow();
++    await electronPage.waitForLoadState('load');
++
++    const pluginResourcesPath = await electronApp.evaluate(() => process.resourcesPath);
++    pluginDirectory = path.join(pluginResourcesPath, '.plugins', bundleName);
++    fs.mkdirSync(pluginDirectory, { recursive: true });
++    const source = 'globalThis.clusterRegistrationE2E = true;\n';
++    fs.writeFileSync(path.join(pluginDirectory, 'main.js'), source);
++    fs.writeFileSync(
++      path.join(pluginDirectory, 'package.json'),
++      JSON.stringify({ name: packageName })
++    );
++    const sourceDigest = createHash('sha256').update(source).digest('hex');
++
++    const capabilities = await electronPage.evaluate(
++      async ({ bundleName, packageName, sourceDigest }) =>
++        window.desktopApi.commandCapabilities.register([
++          {
++            bundleName,
++            packageName,
++            path: `static-plugins/${bundleName}`,
++            source: 'shipped',
++            type: 'shipped',
++            sourceDigest,
++          },
++          {
++            bundleName,
++            packageName: '@example/spoofed',
++            path: `static-plugins/${bundleName}`,
++            source: 'shipped',
++            type: 'shipped',
++            sourceDigest,
++          },
++        ]),
++      { bundleName, packageName, sourceDigest }
++    );
++    expect(capabilities).toHaveLength(1);
++    expect(capabilities[0]).toMatchObject({
++      bundleName,
++      packageName,
++      clusterRegistrationProviders: ['azure'],
++    });
++    capability = capabilities[0].capability;
++    expect(capability).toMatch(/^[a-f0-9]{64}$/);
++  });
++
++  test.afterAll(async () => {
++    await electronApp?.close();
++    if (backend) {
++      await new Promise<void>((resolve, reject) =>
++        backend.close(error => (error ? reject(error) : resolve()))
++      );
++    }
++    if (pluginDirectory) fs.rmSync(pluginDirectory, { recursive: true, force: true });
++    if (resourceDirectory) fs.rmSync(resourceDirectory, { recursive: true, force: true });
++    const resourcesPath = path.join(appPath, 'resources');
++    if (!resourcesDirectoryExisted) fs.rmSync(resourcesPath, { recursive: true, force: true });
++    if (manifestDirectory) fs.rmSync(manifestDirectory, { recursive: true, force: true });
++  });
++
++  test('authorizes an attested plugin and persists provider credentials', async () => {
++    const invoke = (provider: string, options: unknown, token: string) =>
++      electronPage.evaluate(
++        ({ provider, options, token }) =>
++          window.desktopApi.registerCluster(provider, options, token),
++        { provider, options, token }
++      );
++
++    await expect(invoke('gke', {}, capability)).resolves.toEqual({
++      success: false,
++      message: 'Cluster registration request was rejected.',
++    });
++    await expect(invoke('azure', {}, 'f'.repeat(64))).resolves.toEqual({
++      success: false,
++      message: 'Cluster registration request was rejected.',
++    });
++    await expect(invoke('azure', {}, capability)).resolves.toEqual({
++      success: false,
++      message: "Invalid options for cluster registration provider 'azure'.",
++    });
++    fs.appendFileSync(cliPath, 'tampered');
++    await expect(
++      invoke(
++        'azure',
++        {
++          subscriptionId: 'subscription',
++          resourceGroup: 'resource-group',
++          clusterName: 'e2e-cluster',
++          isAzureRBACEnabled: false,
++        },
++        capability
++      )
++    ).resolves.toEqual({
++      success: false,
++      message: "External tool 'e2e-az' failed integrity verification",
++    });
++    writeFakeAzureCli(cliPath);
++    await expect(
++      invoke(
++        'azure',
++        {
++          subscriptionId: 'subscription',
++          resourceGroup: 'resource-group',
++          clusterName: 'e2e-cluster',
++          isAzureRBACEnabled: false,
++        },
++        capability
++      )
++    ).resolves.toMatchObject({ success: true });
++
++    const kubeconfig = fs.readFileSync(kubeconfigPath, 'utf8');
++    expect(kubeconfig).toContain('"current-context": "e2e-cluster"');
++    expect(kubeconfig).toContain('"server": "https://e2e.example"');
++  });
++});
+diff --git a/app/e2e-tests/tests/listenerCleanup.spec.ts b/app/e2e-tests/tests/listenerCleanup.spec.ts
+index bd9e45e02..d5ed4574d 100644
+--- a/app/e2e-tests/tests/listenerCleanup.spec.ts
++++ b/app/e2e-tests/tests/listenerCleanup.spec.ts
+@@ -32,6 +32,7 @@ const runCommandPath = path.resolve(
+ let electronApp: ElectronApplication;
+ let electronPage: Page;
+ let userDataDirectory: string;
++let commandDirectory: string;
+ 
+ /**
+  * Persists consent for the command used by the Electron test.
+@@ -58,12 +59,20 @@ test.describe('desktop listener cleanup', () => {
+       write: false,
+     });
+     userDataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-listener-e2e-'));
++    commandDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-listener-command-'));
++    if (process.platform === 'win32') {
++      fs.writeFileSync(path.join(commandDirectory, 'gh.cmd'), '@echo gh version fixture\r\n');
++    } else {
++      const commandPath = path.join(commandDirectory, 'gh');
++      fs.writeFileSync(commandPath, '#!/bin/sh\nprintf "gh version fixture\\n"\n', { mode: 0o755 });
++    }
+     electronApp = await _electron.launch({
+       cwd: appPath,
+       executablePath: electronPath,
+       args: ['.', `--user-data-dir=${userDataDirectory}`],
+       env: {
+         ...process.env,
++        PATH: `${commandDirectory}${path.delimiter}${process.env.PATH || ''}`,
+         NODE_ENV: 'development',
+         ELECTRON_DEV: 'true',
+       },
+@@ -132,6 +141,7 @@ test.describe('desktop listener cleanup', () => {
+   test.afterAll(async () => {
+     await electronApp?.close();
+     fs.rmSync(userDataDirectory, { force: true, recursive: true });
++    fs.rmSync(commandDirectory, { force: true, recursive: true });
+   });
+ 
+   test('delivers complete command output before cleaning up listeners', async () => {
+diff --git a/app/electron/build-manifest.test.ts b/app/electron/build-manifest.test.ts
+index 862fea607..f89814b2f 100644
+--- a/app/electron/build-manifest.test.ts
++++ b/app/electron/build-manifest.test.ts
+@@ -1235,6 +1235,7 @@ describe('build manifest selection', () => {
+         packageName: '@example/plugin',
+         source: 'development',
+         grants: commands,
++        clusterRegistrationProviders: [],
+       },
+     ]);
+     expect(productPluginCommandPolicies(manifest, 'production')).toEqual([
+@@ -1247,10 +1248,134 @@ describe('build manifest selection', () => {
+           package: 'example-plugin',
+         },
+         grants: [{ tool: 'examplectl', args: ['production'] }],
++        clusterRegistrationProviders: [],
+       },
+     ]);
+   });
+ 
++  it('loads consumer-owned cluster registration providers', () => {
++    const provider = {
++      id: 'azure',
++      type: 'azure',
++      tools: { cli: 'az', python: 'az-python', kubelogin: 'az-kubelogin' },
++    };
++    const manifest = validateBuildManifest({
++      runCommands: [
++        {
++          environment: 'production',
++          pluginLocation: 'shipped',
++          plugins: [{ bundleName: 'example-plugin', packageName: '@example/plugin' }],
++          commands: [{ tool: 'examplectl', args: ['list'] }],
++          clusterRegistrationProviders: [provider],
++        },
++      ],
++    });
++
++    expect(productPluginCommandPolicies(manifest, 'production')).toEqual([
++      expect.objectContaining({ clusterRegistrationProviders: [provider] }),
++    ]);
++  });
++
++  it('allows cluster registration providers without external tools', () => {
++    const provider = { id: 'cluster-api', type: 'cluster-api', tools: {} };
++    const manifest = validateBuildManifest({
++      runCommands: [
++        {
++          environment: 'production',
++          pluginLocation: 'shipped',
++          plugins: [{ bundleName: 'example-plugin', packageName: '@example/plugin' }],
++          commands: [{ tool: 'examplectl', args: ['list'] }],
++          clusterRegistrationProviders: [provider],
++        },
++      ],
++    });
++
++    expect(productPluginCommandPolicies(manifest, 'production')).toEqual([
++      expect.objectContaining({ clusterRegistrationProviders: [provider] }),
++    ]);
++  });
++
++  it('rejects cluster registration grants for user-installed plugins', () => {
++    const manifest = {
++      runCommands: [
++        {
++          environment: 'development',
++          pluginLocation: 'user',
++          plugins: [{ bundleName: 'example-plugin', packageName: '@example/plugin' }],
++          commands: [{ tool: 'examplectl', args: ['list'] }],
++          clusterRegistrationProviders: [{ id: 'example', type: 'example', tools: {} }],
++        },
++      ],
++    };
++    const schema = JSON.parse(
++      fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
++    );
++
++    expect(addFormats(new Ajv()).compile(schema)(manifest)).toBe(false);
++    expect(() => validateBuildManifest(manifest)).toThrow(
++      'cannot grant cluster registration to user plugins'
++    );
++  });
++
++  it('validates external-tool platform paths and digests', () => {
++    const tool = {
++      id: 'examplectl',
++      platforms: {
++        linux: { path: 'external-tools/examplectl', sha256: 'a'.repeat(64) },
++        darwin: { path: 'external-tools/examplectl', sha256: 'b'.repeat(64) },
++        win32: { path: 'external-tools/examplectl.exe', sha256: 'c'.repeat(64) },
++      },
++    };
++    const schema = JSON.parse(
++      fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
++    );
++    const validateSchema = addFormats(new Ajv()).compile(schema);
++
++    expect(validateBuildManifest({ 'external-tools': [tool] })['external-tools']).toEqual([tool]);
++    expect(validateSchema({ 'external-tools': [tool] })).toBe(true);
++    for (const invalid of [
++      { ...tool, id: '../examplectl' },
++      { ...tool, platforms: {} },
++      { ...tool, platforms: { linux: { path: '../examplectl', sha256: 'a'.repeat(64) } } },
++      { ...tool, platforms: { win32: { path: '\\examplectl.exe', sha256: 'a'.repeat(64) } } },
++      {
++        ...tool,
++        platforms: { win32: { path: '\\\\server\\share\\examplectl.exe', sha256: 'a'.repeat(64) } },
++      },
++      { ...tool, platforms: { linux: { path: 'examplectl', sha256: 'A'.repeat(64) } } },
++      { ...tool, platforms: { linux: { path: 'examplectl', sha256: 'invalid' } } },
++    ]) {
++      expect(() => validateBuildManifest({ 'external-tools': [invalid] })).toThrow(
++        'Invalid build manifest external-tools'
++      );
++    }
++    expect(() => validateBuildManifest({ 'external-tools': [tool, tool] })).toThrow(
++      'Invalid build manifest external-tools'
++    );
++  });
++
++  it('rejects malformed cluster registration providers', () => {
++    expect(() =>
++      validateBuildManifest({
++        runCommands: [
++          {
++            environment: 'production',
++            pluginLocation: 'shipped',
++            plugins: [{ bundleName: 'example-plugin', packageName: '@example/plugin' }],
++            commands: [{ tool: 'examplectl', args: ['list'] }],
++            clusterRegistrationProviders: [
++              {
++                id: '../azure',
++                type: 'azure',
++                tools: { cli: 'az', python: 'az-python', kubelogin: 'az-kubelogin' },
++              },
++            ],
++          },
++        ],
++      })
++    ).toThrow('runCommands[0].clusterRegistrationProviders');
++  });
++
+   it('composes reusable command sets in declaration order', () => {
+     const commands = [
+       { tool: 'examplectl', args: ['list'], allowTrailingArgs: true },
+diff --git a/app/electron/cluster-registration.test.ts b/app/electron/cluster-registration.test.ts
+new file mode 100644
+index 000000000..4e19ab074
+--- /dev/null
++++ b/app/electron/cluster-registration.test.ts
+@@ -0,0 +1,1245 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { createHash } from 'node:crypto';
++import { EventEmitter } from 'node:events';
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import yaml from 'yaml';
++
++const mocks = vi.hoisted(() => ({
++  getShellEnvironment: vi.fn(),
++  spawn: vi.fn(),
++}));
++
++vi.mock('cross-spawn', () => ({ default: mocks.spawn }));
++vi.mock('./main', () => ({ getShellEnvironment: mocks.getShellEnvironment }));
++
++import {
++  ClusterRegistrationProvider,
++  ClusterRegistrationResult,
++  ClusterRegistrationRuntime,
++  enforcePrivateDirectoryPermissions,
++  enforcePrivateFilePermissions,
++  getExecutablePaths,
++  isAzureClusterRegistrationOptions,
++  isClusterRegistrationRequest,
++  mergeKubeconfig,
++  mergeKubeconfigTransaction,
++  registerAzureCluster,
++  registerCluster,
++  replaceFileAtomically,
++  resolveClusterRegistrationRuntime,
++  resolveKubeconfigPaths,
++  setupClusterRegistrationHandler,
++  validateGeneratedKubeconfig,
++  writeKubeconfigAtomically,
++} from './cluster-registration';
++
++const azureRuntime: ClusterRegistrationRuntime = {
++  resourcesPath: '/resources',
++  tools: {
++    cli: '/resources/product-tools/az',
++    python: '/resources/product-tools/python',
++    kubelogin: '/resources/product-tools/az-kubelogin.py',
++  },
++};
++
++function kubeconfig(server: string, token = 'token'): string {
++  return yaml.stringify({
++    apiVersion: 'v1',
++    clusters: [{ name: 'shared', cluster: { server } }],
++    contexts: [{ name: 'shared', context: { cluster: 'shared', user: 'shared' } }],
++    users: [{ name: 'shared', user: { token } }],
++    'current-context': 'shared',
++  });
++}
++
++function mockCommand(
++  code: number,
++  options: {
++    stderr?: string;
++    writeConfig?: (filename: string) => void;
++    observeArgs?: (args: string[]) => void;
++  } = {}
++): void {
++  mocks.spawn.mockImplementation((_command: string, args: string[]) => {
++    const child = Object.assign(new EventEmitter(), {
++      stdout: new EventEmitter(),
++      stderr: new EventEmitter(),
++    });
++    queueMicrotask(() => {
++      options.observeArgs?.(args);
++      const outputFile = args[args.indexOf('--file') + 1];
++      options.writeConfig?.(outputFile);
++      if (options.stderr) {
++        child.stderr.emit('data', Buffer.from(options.stderr));
++      }
++      child.emit('close', code);
++    });
++    return child;
++  });
++}
++
++describe('cluster registration providers', () => {
++  let directory: string;
++  let originalKubeconfig: string | undefined;
++
++  beforeEach(() => {
++    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-aks-cluster-test-'));
++    originalKubeconfig = process.env.KUBECONFIG;
++    process.env.KUBECONFIG = path.join(directory, 'config');
++    mocks.getShellEnvironment.mockReset();
++    mocks.getShellEnvironment.mockResolvedValue({ PATH: '/usr/bin' });
++    mocks.spawn.mockReset();
++  });
++
++  afterEach(() => {
++    if (originalKubeconfig === undefined) {
++      delete process.env.KUBECONFIG;
++    } else {
++      process.env.KUBECONFIG = originalKubeconfig;
++    }
++    fs.rmSync(directory, { recursive: true, force: true });
++    vi.restoreAllMocks();
++  });
++
++  it('uses product-resolved Azure executable paths', () => {
++    expect(getExecutablePaths(azureRuntime)).toEqual({
++      pythonCmd: '/resources/product-tools/python',
++      azKubeloginPath: '/resources/product-tools/az-kubelogin.py',
++      azCliBinPath: '/resources/product-tools',
++      azCliCmd: '/resources/product-tools/az',
++    });
++  });
++
++  it('resolves provider roles through platform-specific external-tool records', () => {
++    const resourcesPath = path.join(directory, 'resources');
++    const toolPath = path.join(resourcesPath, 'tools', 'examplectl');
++    fs.mkdirSync(path.dirname(toolPath), { recursive: true });
++    fs.writeFileSync(toolPath, 'example tool');
++    const sha256 = createHash('sha256').update('example tool').digest('hex');
++    expect(
++      resolveClusterRegistrationRuntime(
++        {
++          'external-tools': [
++            {
++              id: 'cli',
++              platforms: { [process.platform]: { path: 'tools/examplectl', sha256 } },
++            },
++          ],
++        },
++        { id: 'example', type: 'example', tools: { cli: 'cli' } },
++        resourcesPath
++      )
++    ).toEqual({ resourcesPath, tools: { cli: fs.realpathSync(toolPath) } });
++  });
++
++  it('hashes external tools in bounded chunks', () => {
++    const resourcesPath = path.join(directory, 'resources');
++    const toolPath = path.join(resourcesPath, 'tools', 'large-examplectl');
++    fs.mkdirSync(path.dirname(toolPath), { recursive: true });
++    const contents = Buffer.alloc(256 * 1024, 7);
++    fs.writeFileSync(toolPath, contents);
++    const sha256 = createHash('sha256').update(contents).digest('hex');
++    const read = vi.spyOn(fs, 'readSync');
++
++    expect(
++      resolveClusterRegistrationRuntime(
++        {
++          'external-tools': [
++            {
++              id: 'cli',
++              platforms: { [process.platform]: { path: 'tools/large-examplectl', sha256 } },
++            },
++          ],
++        },
++        { id: 'example', type: 'example', tools: { cli: 'cli' } },
++        resourcesPath
++      )
++    ).toEqual({ resourcesPath, tools: { cli: fs.realpathSync(toolPath) } });
++    const readCalls = read.mock.calls as unknown as Array<
++      [number, NodeJS.ArrayBufferView, number, number, number | null]
++    >;
++    expect(readCalls.filter(call => call[3] === 64 * 1024).length).toBeGreaterThan(1);
++  });
++
++  it('resolves tool-free providers without external-tool metadata', () => {
++    expect(
++      resolveClusterRegistrationRuntime(
++        {},
++        { id: 'cluster-api', type: 'cluster-api', tools: {} },
++        '/resources'
++      )
++    ).toEqual({ resourcesPath: path.resolve('/resources'), tools: {} });
++  });
++
++  it('rejects external-tool paths outside packaged resources', () => {
++    const resourcesPath = path.join(directory, 'resources');
++    fs.mkdirSync(resourcesPath);
++    expect(() =>
++      resolveClusterRegistrationRuntime(
++        {
++          'external-tools': [
++            {
++              id: 'cli',
++              platforms: {
++                [process.platform]: { path: '../examplectl', sha256: 'a'.repeat(64) },
++              },
++            },
++          ],
++        },
++        { id: 'example', type: 'example', tools: { cli: 'cli' } },
++        resourcesPath
++      )
++    ).toThrow("External tool 'cli' escapes packaged resources");
++  });
++
++  it('updates credentials when a same-name cluster still targets the same API server', () => {
++    const merged = mergeKubeconfig(
++      kubeconfig('https://shared.example', 'old-token'),
++      kubeconfig('https://shared.example', 'new-token')
++    );
++
++    expect(merged.clusters).toHaveLength(1);
++    expect(merged.contexts).toHaveLength(1);
++    expect(merged.users).toEqual([{ name: 'shared', user: { token: 'new-token' } }]);
++  });
++
++  it('rejects a same-name cluster that targets another API server', () => {
++    expect(() =>
++      mergeKubeconfig(kubeconfig('https://managed.example'), kubeconfig('https://arc.example'))
++    ).toThrow("Cluster 'shared' already uses a different API server");
++  });
++
++  it('rejects changing security fields used by a preserved context', () => {
++    const existing = yaml.stringify({
++      clusters: [
++        {
++          name: 'shared',
++          cluster: { server: 'https://shared.example', 'certificate-authority-data': 'old' },
++        },
++      ],
++      contexts: [
++        { name: 'shared', context: { cluster: 'shared', user: 'shared' } },
++        { name: 'preserved', context: { cluster: 'shared', user: 'shared' } },
++      ],
++      users: [{ name: 'shared', user: { token: 'token' } }],
++    });
++    const generated = yaml.stringify({
++      clusters: [
++        {
++          name: 'shared',
++          cluster: { server: 'https://shared.example', 'certificate-authority-data': 'new' },
++        },
++      ],
++      contexts: [{ name: 'shared', context: { cluster: 'shared', user: 'shared' } }],
++      users: [{ name: 'shared', user: { token: 'token' } }],
++    });
++
++    expect(() => mergeKubeconfig(existing, generated)).toThrow(
++      "Cluster 'shared' is already referenced by another context"
++    );
++  });
++
++  it('rejects a same-name context with changed identity fields', () => {
++    const existing = yaml.parse(kubeconfig('https://shared.example'));
++    existing.contexts[0].context.namespace = 'preserved';
++    const generated = yaml.parse(kubeconfig('https://shared.example'));
++    generated.contexts[0].context.namespace = 'replacement';
++
++    expect(() => mergeKubeconfig(yaml.stringify(existing), yaml.stringify(generated))).toThrow(
++      "Context 'shared' already has different configuration"
++    );
++  });
++
++  it('rejects replacing credentials used by a preserved context', () => {
++    const existing = yaml.stringify({
++      clusters: [{ name: 'existing', cluster: { server: 'https://existing.example' } }],
++      contexts: [{ name: 'existing', context: { cluster: 'existing', user: 'shared' } }],
++      users: [{ name: 'shared', user: { token: 'old-token' } }],
++    });
++    const generated = yaml.stringify({
++      clusters: [{ name: 'new', cluster: { server: 'https://new.example' } }],
++      contexts: [{ name: 'new', context: { cluster: 'new', user: 'shared' } }],
++      users: [{ name: 'shared', user: { token: 'new-token' } }],
++    });
++
++    expect(() => mergeKubeconfig(existing, generated)).toThrow(
++      "User 'shared' is already referenced by another context"
++    );
++  });
++
++  it.each(['clusters', 'contexts', 'users'] as const)(
++    'rejects duplicate %s names in existing and generated kubeconfigs',
++    key => {
++      const duplicateEntries = yaml.stringify({
++        clusters: [],
++        contexts: [],
++        users: [],
++        [key]: [{ name: 'duplicate' }, { name: 'duplicate' }],
++      });
++
++      expect(() => mergeKubeconfig(duplicateEntries, '')).toThrow(
++        `Duplicate ${key} name in kubeconfig`
++      );
++      expect(() => mergeKubeconfig('', duplicateEntries)).toThrow(
++        `Duplicate ${key} name in kubeconfig`
++      );
++    }
++  );
++
++  it('atomically replaces an existing kubeconfig and enforces private permissions', () => {
++    const destination = process.env.KUBECONFIG as string;
++    fs.writeFileSync(destination, 'old', { mode: 0o644 });
++    const fsync = vi.spyOn(fs, 'fsyncSync');
++
++    writeKubeconfigAtomically(destination, 'new');
++
++    expect(fs.readFileSync(destination, 'utf8')).toBe('new');
++    expect(fsync).toHaveBeenCalledTimes(process.platform === 'win32' ? 1 : 2);
++    if (process.platform !== 'win32') {
++      expect(fs.statSync(destination).mode & 0o777).toBe(0o600);
++    }
++    expect(fs.readdirSync(directory)).toEqual(['config']);
++  });
++
++  it.runIf(process.platform !== 'win32')(
++    'keeps a visible replacement successful when directory fsync fails',
++    () => {
++      const destination = process.env.KUBECONFIG as string;
++      fs.writeFileSync(destination, 'old');
++      const fsync = vi.spyOn(fs, 'fsyncSync');
++      fsync
++        .mockImplementationOnce(() => {})
++        .mockImplementationOnce(() => {
++          throw new Error('directory sync failed');
++        });
++      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
++
++      expect(() => writeKubeconfigAtomically(destination, 'new')).not.toThrow();
++
++      expect(fs.readFileSync(destination, 'utf8')).toBe('new');
++      expect(consoleError).toHaveBeenCalledWith(
++        '[AKS] Kubeconfig replaced but parent directory sync failed'
++      );
++    }
++  );
++
++  it('preserves the existing kubeconfig when atomic replacement fails', () => {
++    const destination = process.env.KUBECONFIG as string;
++    fs.writeFileSync(destination, 'old');
++    const failReplacement = () => {
++      throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
++    };
++
++    expect(() => writeKubeconfigAtomically(destination, 'new', failReplacement)).toThrow(
++      'disk full'
++    );
++    expect(fs.readFileSync(destination, 'utf8')).toBe('old');
++    expect(fs.readdirSync(directory)).toEqual(['config']);
++  });
++
++  it('uses MoveFileExW to replace an existing Windows destination', () => {
++    const runUtility = vi.fn((command: string, args: readonly string[]) => {
++      void command;
++      void args;
++      return '';
++    });
++    const source = "C:\\shared path\\config's.tmp";
++    const destination = "C:\\shared path\\config's";
++
++    replaceFileAtomically(source, destination, 'win32', runUtility);
++
++    expect(runUtility).toHaveBeenCalledWith('powershell.exe', [
++      '-NoLogo',
++      '-NoProfile',
++      '-NonInteractive',
++      '-EncodedCommand',
++      expect.any(String),
++    ]);
++    const encodedScript = runUtility.mock.calls[0]?.[1][4] ?? '';
++    const script = Buffer.from(encodedScript, 'base64').toString('utf16le');
++    expect(script).toMatch(/MoveFileExW[\s\S]*MoveFileEx\(\$sourcePath, \$destinationPath, 9\)/);
++    expect(script).toContain(Buffer.from(source).toString('base64'));
++    expect(script).toContain(Buffer.from(destination).toString('base64'));
++    expect(script).not.toContain(source);
++    expect(script).not.toContain(destination);
++  });
++
++  it.runIf(process.platform === 'win32')('replaces an existing Windows kubeconfig', () => {
++    const destination = process.env.KUBECONFIG as string;
++    fs.writeFileSync(destination, 'old');
++
++    writeKubeconfigAtomically(destination, 'new');
++
++    expect(fs.readFileSync(destination, 'utf8')).toBe('new');
++  });
++
++  it.runIf(process.platform !== 'win32')('preserves a kubeconfig symlink', () => {
++    const destination = process.env.KUBECONFIG as string;
++    const target = path.join(directory, 'target-config');
++    fs.writeFileSync(target, 'old');
++    fs.symlinkSync(target, destination);
++
++    writeKubeconfigAtomically(destination, 'new');
++
++    expect(fs.lstatSync(destination).isSymbolicLink()).toBe(true);
++    expect(fs.readlinkSync(destination)).toBe(target);
++    expect(fs.readFileSync(target, 'utf8')).toBe('new');
++  });
++
++  it.runIf(process.platform !== 'win32')('rejects a dangling kubeconfig symlink', () => {
++    const destination = process.env.KUBECONFIG as string;
++    fs.symlinkSync(path.join(directory, 'missing-config'), destination);
++
++    expect(() => writeKubeconfigAtomically(destination, 'new')).toThrow();
++    expect(fs.lstatSync(destination).isSymbolicLink()).toBe(true);
++  });
++
++  it('applies an owner-only Windows ACL before replacement', () => {
++    const runUtility = vi.fn((command: string) =>
++      command === 'whoami' ? 'example\\developer\r\n' : ''
++    );
++
++    enforcePrivateFilePermissions('C:\\shared\\config.tmp', 'win32', runUtility);
++
++    expect(runUtility).toHaveBeenNthCalledWith(1, 'whoami', []);
++    expect(runUtility).toHaveBeenNthCalledWith(2, 'icacls', [
++      'C:\\shared\\config.tmp',
++      '/inheritance:r',
++      '/grant:r',
++      'example\\developer:(F)',
++    ]);
++  });
++
++  it('hardens an empty credential file before writing contents', () => {
++    const destination = process.env.KUBECONFIG as string;
++    const hardenFile = vi.fn((temporaryPath: string) => {
++      expect(fs.statSync(temporaryPath).size).toBe(0);
++    });
++    const replaceFile = (sourcePath: string, destinationPath: string) => {
++      fs.renameSync(sourcePath, destinationPath);
++    };
++
++    writeKubeconfigAtomically(destination, 'secret contents', replaceFile, 'win32', hardenFile);
++
++    expect(hardenFile).toHaveBeenCalledOnce();
++    expect(fs.readFileSync(destination, 'utf8')).toBe('secret contents');
++  });
++
++  it('applies an inheritable owner-only Windows ACL before credential generation', () => {
++    const runUtility = vi.fn((command: string) =>
++      command === 'whoami' ? 'example\\developer\r\n' : ''
++    );
++
++    enforcePrivateDirectoryPermissions('C:\\shared\\credentials', 'win32', runUtility);
++
++    expect(runUtility).toHaveBeenNthCalledWith(1, 'whoami', []);
++    expect(runUtility).toHaveBeenNthCalledWith(2, 'icacls', [
++      'C:\\shared\\credentials',
++      '/inheritance:r',
++      '/grant:r',
++      'example\\developer:(OI)(CI)F',
++    ]);
++  });
++
++  it('returns a failure and removes the temporary directory when hardening fails', async () => {
++    const createTemporaryDirectory = fs.mkdtempSync.bind(fs);
++    let temporaryDirectory = '';
++    vi.spyOn(fs, 'mkdtempSync').mockImplementationOnce(prefix => {
++      temporaryDirectory = createTemporaryDirectory(prefix);
++      return temporaryDirectory;
++    });
++    const hardenCredentialDirectory = vi.fn(() => {
++      throw new Error('permission hardening failed');
++    });
++
++    await expect(
++      registerAzureCluster(
++        {
++          subscriptionId: 'subscription',
++          resourceGroup: 'resource-group',
++          clusterName: 'cluster',
++          isAzureRBACEnabled: false,
++        },
++        azureRuntime,
++        hardenCredentialDirectory
++      )
++    ).resolves.toEqual({ success: false, message: 'permission hardening failed' });
++    expect(hardenCredentialDirectory).toHaveBeenCalledWith(temporaryDirectory);
++    expect(fs.existsSync(temporaryDirectory)).toBe(false);
++    expect(mocks.spawn).not.toHaveBeenCalled();
++  });
++
++  it('keeps a committed registration successful when temporary cleanup fails', async () => {
++    mockCommand(0, {
++      writeConfig(filename) {
++        fs.writeFileSync(filename, kubeconfig('https://shared.example'));
++      },
++    });
++    let temporaryDirectory = '';
++    const cleanup = vi.fn((directoryPath: string) => {
++      temporaryDirectory = directoryPath;
++      throw new Error('cleanup failed');
++    });
++    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
++
++    await expect(
++      registerAzureCluster(
++        {
++          subscriptionId: 'subscription',
++          resourceGroup: 'resource-group',
++          clusterName: 'shared',
++          isAzureRBACEnabled: false,
++        },
++        azureRuntime,
++        enforcePrivateDirectoryPermissions,
++        cleanup
++      )
++    ).resolves.toMatchObject({ success: true });
++    expect(cleanup).toHaveBeenCalledOnce();
++    expect(consoleError).toHaveBeenCalledWith(
++      '[AKS] Temporary credential cleanup failed after registration committed'
++    );
++    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
++  });
++
++  it.each([
++    ['', 'Generated kubeconfig has no current context'],
++    ['{}', 'Generated kubeconfig has no current context'],
++    [
++      yaml.stringify({
++        clusters: [{ name: 'cluster', cluster: { server: 'https://cluster.example' } }],
++        contexts: [{ name: 'cluster', context: { cluster: 'cluster', user: 'missing' } }],
++        users: [],
++        'current-context': 'cluster',
++      }),
++      "Generated kubeconfig user 'missing' is missing",
++    ],
++  ])('rejects incoherent generated credentials', (generated, message) => {
++    expect(() => validateGeneratedKubeconfig(generated)).toThrow(message);
++  });
++
++  it('rejects a generated user whose auth data is not an object', () => {
++    const config = yaml.parse(kubeconfig('https://shared.example'));
++    config.users[0].user = 'invalid';
++    expect(() => validateGeneratedKubeconfig(yaml.stringify(config))).toThrow(
++      "Generated kubeconfig user 'shared' is missing"
++    );
++  });
++
++  it.each([
++    [
++      'clusters',
++      {
++        clusters: [
++          { name: 'cluster', cluster: { server: 'https://cluster.example' } },
++          { name: 'extra', cluster: { server: 'https://extra.example' } },
++        ],
++      },
++    ],
++    [
++      'contexts',
++      {
++        contexts: [
++          { name: 'cluster', context: { cluster: 'cluster', user: 'cluster' } },
++          { name: 'extra', context: { cluster: 'cluster', user: 'cluster' } },
++        ],
++      },
++    ],
++    [
++      'users',
++      {
++        users: [
++          { name: 'cluster', user: { token: 'token' } },
++          { name: 'extra', user: { token: 'extra' } },
++        ],
++      },
++    ],
++  ])('rejects unrelated generated %s', (collection, override) => {
++    const config = yaml.parse(kubeconfig('https://cluster.example'));
++    config.clusters[0].name = 'cluster';
++    config.contexts[0] = { name: 'cluster', context: { cluster: 'cluster', user: 'cluster' } };
++    config.users[0].name = 'cluster';
++    config['current-context'] = 'cluster';
++
++    expect(() => validateGeneratedKubeconfig(yaml.stringify({ ...config, ...override }))).toThrow(
++      `Generated kubeconfig contains unrelated ${collection}`
++    );
++  });
++
++  it('rejects empty generated authentication data', () => {
++    const config = yaml.parse(kubeconfig('https://shared.example'));
++    config.users[0].user = {};
++    expect(() => validateGeneratedKubeconfig(yaml.stringify(config))).toThrow(
++      "Generated kubeconfig user 'shared' is missing"
++    );
++  });
++
++  it.each([' https://shared.example ', 'https://user:password@shared.example'])(
++    'rejects unsafe generated API server %s',
++    server => {
++      expect(() => validateGeneratedKubeconfig(kubeconfig(server))).toThrow(
++        "Generated kubeconfig cluster 'shared' has invalid API server"
++      );
++    }
++  );
++
++  it('rejects a collision found only in a later KUBECONFIG entry', async () => {
++    const destination = path.join(directory, 'new-config');
++    const preserved = path.join(directory, 'preserved-config');
++    process.env.KUBECONFIG = [destination, preserved].join(path.delimiter);
++    fs.writeFileSync(preserved, kubeconfig('https://preserved.example'));
++    mockCommand(0, {
++      writeConfig(filename) {
++        fs.writeFileSync(filename, kubeconfig('https://generated.example'));
++      },
++    });
++
++    await expect(
++      registerCluster(
++        'azure',
++        {
++          subscriptionId: 'subscription',
++          resourceGroup: 'resource-group',
++          clusterName: 'shared',
++          isAzureRBACEnabled: false,
++        },
++        azureRuntime
++      )
++    ).resolves.toEqual({
++      success: false,
++      message: "Cluster 'shared' already uses a different API server",
++    });
++    expect(fs.existsSync(destination)).toBe(false);
++    expect(fs.readFileSync(preserved, 'utf8')).toBe(kubeconfig('https://preserved.example'));
++  });
++
++  it('rejects a collision whose cluster and preserved context are split across files', async () => {
++    const destination = path.join(directory, 'new-config');
++    const clusterPath = path.join(directory, 'cluster-config');
++    const contextPath = path.join(directory, 'context-config');
++    process.env.KUBECONFIG = [destination, clusterPath, contextPath].join(path.delimiter);
++    fs.writeFileSync(
++      clusterPath,
++      yaml.stringify({
++        clusters: [
++          {
++            name: 'shared',
++            cluster: { server: 'https://shared.example', 'certificate-authority-data': 'old' },
++          },
++        ],
++      })
++    );
++    fs.writeFileSync(
++      contextPath,
++      yaml.stringify({
++        contexts: [{ name: 'preserved', context: { cluster: 'shared', user: 'preserved' } }],
++        users: [{ name: 'preserved', user: { token: 'preserved' } }],
++      })
++    );
++    const generated = yaml.parse(kubeconfig('https://shared.example'));
++    generated.clusters[0].cluster['certificate-authority-data'] = 'new';
++    mockCommand(0, {
++      writeConfig(filename) {
++        fs.writeFileSync(filename, yaml.stringify(generated));
++      },
++    });
++
++    await expect(
++      registerCluster(
++        'azure',
++        {
++          subscriptionId: 'subscription',
++          resourceGroup: 'resource-group',
++          clusterName: 'shared',
++          isAzureRBACEnabled: false,
++        },
++        azureRuntime
++      )
++    ).resolves.toEqual({
++      success: false,
++      message: "Cluster 'shared' is already referenced by another context",
++    });
++    expect(fs.existsSync(destination)).toBe(false);
++  });
++
++  it('rejects a user collision whose credentials and preserved context are split across files', async () => {
++    const destination = path.join(directory, 'new-config');
++    const contextPath = path.join(directory, 'context-config');
++    const userPath = path.join(directory, 'user-config');
++    process.env.KUBECONFIG = [destination, contextPath, userPath].join(path.delimiter);
++    fs.writeFileSync(
++      contextPath,
++      yaml.stringify({
++        clusters: [{ name: 'preserved-cluster', cluster: { server: 'https://preserved.example' } }],
++        contexts: [
++          {
++            name: 'preserved',
++            context: { cluster: 'preserved-cluster', user: 'shared' },
++          },
++        ],
++      })
++    );
++    fs.writeFileSync(
++      userPath,
++      yaml.stringify({ users: [{ name: 'shared', user: { token: 'old-token' } }] })
++    );
++    mockCommand(0, {
++      writeConfig(filename) {
++        fs.writeFileSync(filename, kubeconfig('https://shared.example', 'new-token'));
++      },
++    });
++
++    await expect(
++      registerCluster(
++        'azure',
++        {
++          subscriptionId: 'subscription',
++          resourceGroup: 'resource-group',
++          clusterName: 'shared',
++          isAzureRBACEnabled: false,
++        },
++        azureRuntime
++      )
++    ).resolves.toEqual({
++      success: false,
++      message: "User 'shared' is already referenced by another context",
++    });
++    expect(fs.existsSync(destination)).toBe(false);
++  });
++
++  it.each([
++    {
++      name: 'managed AKS',
++      managedNamespace: undefined,
++      clusterType: 'aks' as const,
++      expectedArgs: [
++        'aks',
++        'get-credentials',
++        '--subscription',
++        'subscription',
++        '--resource-group',
++        'resource-group',
++        '--name',
++        'cluster',
++      ],
++    },
++    {
++      name: 'Arc-connected',
++      managedNamespace: undefined,
++      clusterType: 'aksarc' as const,
++      expectedArgs: [
++        'aksarc',
++        'get-credentials',
++        '--subscription',
++        'subscription',
++        '--resource-group',
++        'resource-group',
++        '--name',
++        'cluster',
++      ],
++    },
++    {
++      name: 'managed namespace',
++      managedNamespace: 'namespace',
++      clusterType: 'aks' as const,
++      expectedArgs: [
++        'aks',
++        'namespace',
++        'get-credentials',
++        '--cluster-name',
++        'cluster',
++        '--resource-group',
++        'resource-group',
++        '--name',
++        'namespace',
++        '--subscription',
++        'subscription',
++      ],
++    },
++  ])('registers $name credentials successfully', async testCase => {
++    let observedArgs: string[] = [];
++    const generated = yaml
++      .stringify({
++        clusters: [{ name: 'cluster', cluster: { server: 'https://cluster.example' } }],
++        contexts: [{ name: 'cluster', context: { cluster: 'cluster', user: 'cluster' } }],
++        users: [{ name: 'cluster', user: { exec: { command: 'kubelogin' } } }],
++        'current-context': 'cluster',
++      })
++      .replace('command: kubelogin', 'command: "kubelogin"');
++    mockCommand(0, {
++      observeArgs(args) {
++        observedArgs = args;
++      },
++      writeConfig(filename) {
++        fs.writeFileSync(filename, generated);
++      },
++    });
++
++    await expect(
++      registerCluster(
++        'azure',
++        {
++          subscriptionId: 'subscription',
++          resourceGroup: 'resource-group',
++          clusterName: 'cluster',
++          isAzureRBACEnabled: false,
++          managedNamespace: testCase.managedNamespace,
++          clusterType: testCase.clusterType,
++        },
++        azureRuntime
++      )
++    ).resolves.toMatchObject({ success: true });
++
++    expect(observedArgs.slice(0, -2)).toEqual(testCase.expectedArgs);
++    expect(mocks.spawn).toHaveBeenCalledWith(
++      azureRuntime.tools.cli,
++      expect.any(Array),
++      expect.any(Object)
++    );
++    expect(observedArgs.at(-2)).toBe('--file');
++    expect(observedArgs.at(-1)).toContain('headlamp-kubeconfig-');
++    const destination = process.env.KUBECONFIG as string;
++    const result = yaml.parse(fs.readFileSync(destination, 'utf8'));
++    expect(result['current-context']).toBe('cluster');
++    expect(result.users[0].user.exec.command).toBe(getExecutablePaths(azureRuntime).pythonCmd);
++    if (process.platform !== 'win32') {
++      expect(fs.statSync(destination).mode & 0o777).toBe(0o600);
++    }
++  });
++
++  it('serializes concurrent registrations for the same destination', async () => {
++    const generated = (clusterName: string) =>
++      yaml.stringify({
++        clusters: [{ name: clusterName, cluster: { server: `https://${clusterName}.example` } }],
++        contexts: [{ name: clusterName, context: { cluster: clusterName, user: clusterName } }],
++        users: [{ name: clusterName, user: { token: `${clusterName}-token` } }],
++        'current-context': clusterName,
++      });
++    const destination = process.env.KUBECONFIG as string;
++
++    await Promise.all([
++      mergeKubeconfigTransaction(generated('first'), [destination]),
++      mergeKubeconfigTransaction(generated('second'), [destination]),
++    ]);
++    const result = yaml.parse(fs.readFileSync(destination, 'utf8'));
++    expect(result.clusters.map((cluster: { name: string }) => cluster.name).sort()).toEqual([
++      'first',
++      'second',
++    ]);
++  });
++
++  it('preserves a malformed destination and removes the temporary kubeconfig', async () => {
++    const destination = process.env.KUBECONFIG as string;
++    const secret = 'SUPER_SECRET_KUBECONFIG_TOKEN';
++    const malformed = `users:\n- name: leaked\n  user:\n    token: ${secret}\nclusters: [`;
++    fs.writeFileSync(destination, malformed);
++    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
++    let temporaryFile = '';
++    mockCommand(0, {
++      writeConfig(filename) {
++        temporaryFile = filename;
++        fs.writeFileSync(filename, kubeconfig('https://new.example'));
++      },
++    });
++
++    const result = await registerCluster(
++      'azure',
++      {
++        subscriptionId: 'subscription',
++        resourceGroup: 'resource-group',
++        clusterName: 'shared',
++        isAzureRBACEnabled: false,
++      },
++      azureRuntime
++    );
++    expect(result).toEqual({
++      success: false,
++      message: 'Failed to parse KUBECONFIG entry 1 kubeconfig',
++    });
++    expect(JSON.stringify(result)).not.toContain(secret);
++    expect(JSON.stringify(consoleError.mock.calls)).not.toContain(secret);
++    expect(fs.readFileSync(destination, 'utf8')).toBe(malformed);
++    expect(fs.existsSync(temporaryFile)).toBe(false);
++  });
++
++  it('removes a partial temporary kubeconfig when Azure CLI fails', async () => {
++    let temporaryFile = '';
++    let temporaryDirectoryMode = 0;
++    const secret = 'SUPER_SECRET_AZURE_DIAGNOSTIC';
++    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
++    mockCommand(1, {
++      stderr: secret,
++      writeConfig(filename) {
++        temporaryFile = filename;
++        temporaryDirectoryMode = fs.statSync(path.dirname(filename)).mode & 0o777;
++        fs.writeFileSync(filename, 'partial');
++      },
++    });
++
++    await expect(
++      registerCluster(
++        'azure',
++        {
++          subscriptionId: 'subscription',
++          resourceGroup: 'resource-group',
++          clusterName: 'shared',
++          isAzureRBACEnabled: false,
++        },
++        azureRuntime
++      )
++    ).resolves.toEqual({
++      success: false,
++      message: 'Failed to get cluster credentials.',
++    });
++    expect(consoleError).toHaveBeenCalledWith(
++      '[AKS] Azure CLI credential retrieval failed with exit code 1'
++    );
++    expect(JSON.stringify(consoleError.mock.calls)).not.toContain(secret);
++    if (process.platform !== 'win32') {
++      expect(temporaryDirectoryMode).toBe(0o700);
++    }
++    expect(fs.existsSync(temporaryFile)).toBe(false);
++    expect(fs.existsSync(path.dirname(temporaryFile))).toBe(false);
++    expect(fs.existsSync(process.env.KUBECONFIG as string)).toBe(false);
++  });
++
++  it('accepts only complete cluster registration IPC requests', () => {
++    expect(
++      isClusterRegistrationRequest({
++        provider: 'azure',
++        options: {
++          subscriptionId: 'subscription',
++          resourceGroup: 'resource-group',
++          clusterName: 'cluster',
++          isAzureRBACEnabled: false,
++          clusterType: 'aksarc',
++        },
++        capabilitySecret: 'a'.repeat(64),
++      })
++    ).toBe(true);
++
++    for (const request of [
++      null,
++      [],
++      {},
++      {
++        provider: 'azure',
++        options: {},
++        capabilitySecret: 'guessable',
++      },
++      {
++        provider: ' azure ',
++        options: {},
++        capabilitySecret: 'a'.repeat(64),
++      },
++    ]) {
++      expect(isClusterRegistrationRequest(request)).toBe(false);
++    }
++  });
++
++  it.each([
++    {
++      subscriptionId: '',
++      resourceGroup: 'group',
++      clusterName: 'cluster',
++      isAzureRBACEnabled: false,
++    },
++    {
++      subscriptionId: 'subscription',
++      resourceGroup: 'group',
++      clusterName: 'cluster',
++      isAzureRBACEnabled: false,
++      managedNamespace: '',
++    },
++    {
++      subscriptionId: 'subscription',
++      resourceGroup: 'group',
++      clusterName: 'cluster',
++      isAzureRBACEnabled: false,
++      clusterType: 'other',
++    },
++    {
++      subscriptionId: 'subscription',
++      resourceGroup: 'group',
++      clusterName: 'cluster',
++      isAzureRBACEnabled: false,
++      clusterType: 'aksarc',
++      managedNamespace: 'namespace',
++    },
++    {
++      subscriptionId: 'subscription',
++      resourceGroup: 'group',
++      clusterName: 'cluster',
++      isAzureRBACEnabled: false,
++      unexpected: true,
++    },
++    {
++      subscriptionId: ' subscription ',
++      resourceGroup: 'group',
++      clusterName: 'cluster',
++      isAzureRBACEnabled: false,
++    },
++    {
++      subscriptionId: 'subscription',
++      resourceGroup: 'group\nforged',
++      clusterName: 'cluster',
++      isAzureRBACEnabled: false,
++    },
++  ])('rejects invalid Azure provider options: %j', options => {
++    expect(isAzureClusterRegistrationOptions(options)).toBe(false);
++  });
++
++  it('dispatches validated options to an additional registration provider', async () => {
++    interface ExampleOptions {
++      endpoint: string;
++    }
++    const provider: ClusterRegistrationProvider<ExampleOptions> = {
++      id: 'example',
++      validateOptions(options): options is ExampleOptions {
++        return (
++          typeof options === 'object' &&
++          options !== null &&
++          !Array.isArray(options) &&
++          typeof (options as Record<string, unknown>).endpoint === 'string'
++        );
++      },
++      register: vi.fn().mockResolvedValue({ success: true, message: 'registered' }),
++    };
++    const runtime = { resourcesPath: '/resources', tools: {} };
++
++    await expect(
++      registerCluster('example', { endpoint: 'https://cluster.example' }, runtime, [provider])
++    ).resolves.toEqual({ success: true, message: 'registered' });
++    expect(provider.register).toHaveBeenCalledWith(
++      { endpoint: 'https://cluster.example' },
++      runtime
++    );
++    await expect(registerCluster('example', {}, runtime, [provider])).resolves.toEqual({
++      success: false,
++      message: "Invalid options for cluster registration provider 'example'.",
++    });
++    await expect(registerCluster('missing', {}, runtime, [provider])).resolves.toEqual({
++      success: false,
++      message: "Cluster registration provider 'missing' is unavailable.",
++    });
++  });
++
++  it('contains malformed, duplicate, and throwing provider implementations', async () => {
++    const runtime = { resourcesPath: '/resources', tools: {} };
++    const throwingValidator: ClusterRegistrationProvider<Record<string, never>> = {
++      id: 'validator',
++      validateOptions(options: unknown): options is Record<string, never> {
++        throw new Error('validator secret');
++      },
++      register: async () => ({ success: true, message: 'registered' }),
++    };
++    const throwingProvider: ClusterRegistrationProvider<Record<string, never>> = {
++      id: 'register',
++      validateOptions: (options): options is Record<string, never> =>
++        typeof options === 'object' && options !== null,
++      register: async () => {
++        throw new Error('provider secret');
++      },
++    };
++    const malformedProvider: ClusterRegistrationProvider<Record<string, never>> = {
++      id: 'malformed',
++      validateOptions: (options): options is Record<string, never> =>
++        typeof options === 'object' && options !== null,
++      register: async () => undefined as never,
++    };
++
++    await expect(registerCluster('validator', {}, runtime, [throwingValidator])).resolves.toEqual({
++      success: false,
++      message: "Invalid options for cluster registration provider 'validator'.",
++    });
++    await expect(registerCluster('register', {}, runtime, [throwingProvider])).resolves.toEqual({
++      success: false,
++      message: "Cluster registration provider 'register' failed.",
++    });
++    await expect(registerCluster('malformed', {}, runtime, [malformedProvider])).resolves.toEqual({
++      success: false,
++      message: "Cluster registration provider 'malformed' returned an invalid result.",
++    });
++    await expect(
++      registerCluster('register', {}, runtime, [throwingProvider, throwingProvider])
++    ).resolves.toEqual({
++      success: false,
++      message: "Cluster registration provider 'register' is ambiguously configured.",
++    });
++  });
++
++  it('returns only approved fields from a provider result', async () => {
++    const provider: ClusterRegistrationProvider<Record<string, never>> = {
++      id: 'extra-fields',
++      validateOptions: (options): options is Record<string, never> =>
++        typeof options === 'object' && options !== null,
++      register: async () =>
++        ({
++          success: true,
++          message: 'registered',
++          credential: 'secret',
++        } as ClusterRegistrationResult),
++    };
++
++    await expect(
++      registerCluster('extra-fields', {}, { resourcesPath: '/resources', tools: {} }, [provider])
++    ).resolves.toEqual({ success: true, message: 'registered' });
++  });
++
++  it('preserves nonempty KUBECONFIG components verbatim', () => {
++    const first = `${path.sep}tmp${path.sep} leading`;
++    const second = `${path.sep}tmp${path.sep}trailing `;
++    expect(resolveKubeconfigPaths([first, '', second].join(path.delimiter))).toEqual([
++      first,
++      second,
++    ]);
++  });
++
++  describe('registration IPC handler', () => {
++    const startUrl = 'http://localhost:3000';
++    const capabilitySecret = 'a'.repeat(64);
++    const mainFrame = { url: startUrl };
++    const webContents = { mainFrame };
++    const mainWindow = { webContents } as any;
++    const handlers = new Map<string, (...args: any[]) => unknown>();
++    const ipcMain = {
++      handle: vi.fn((channel: string, handler: (...args: any[]) => unknown) => {
++        handlers.set(channel, handler);
++      }),
++      removeHandler: vi.fn((channel: string) => handlers.delete(channel)),
++    } as any;
++    const provider: ClusterRegistrationProvider<{ endpoint: string }> = {
++      id: 'example',
++      validateOptions(options): options is { endpoint: string } {
++        return (
++          typeof options === 'object' &&
++          options !== null &&
++          typeof (options as Record<string, unknown>).endpoint === 'string'
++        );
++      },
++      register: vi.fn().mockResolvedValue({ success: true, message: 'registered' }),
++    };
++    const validRequest = {
++      provider: 'example',
++      options: { endpoint: 'https://cluster.example' },
++      capabilitySecret,
++    };
++    const authorize = vi.fn((_event, providerId, capability) =>
++      providerId === 'example' && capability === capabilitySecret
++        ? { id: 'example', type: 'example', tools: {} }
++        : undefined
++    );
++
++    beforeEach(() => {
++      handlers.clear();
++      mainFrame.url = startUrl;
++      vi.mocked(provider.register).mockReset();
++      vi.mocked(provider.register).mockResolvedValue({ success: true, message: 'registered' });
++      setupClusterRegistrationHandler(
++        mainWindow,
++        ipcMain,
++        authorize,
++        { 'external-tools': [] },
++        '/resources',
++        startUrl,
++        [provider]
++      );
++    });
++
++    it.each([
++      ['another sender', { sender: {}, senderFrame: mainFrame }],
++      ['a subframe', { sender: webContents, senderFrame: { url: startUrl } }],
++    ])('rejects %s', async (_description, event) => {
++      await expect(handlers.get('register-cluster')!(event, validRequest)).resolves.toEqual({
++        success: false,
++        message: 'Cluster registration request was rejected.',
++      });
++      expect(provider.register).not.toHaveBeenCalled();
++    });
++
++    it('rejects the main frame after it navigates away', async () => {
++      mainFrame.url = 'https://untrusted.example/';
++
++      await expect(
++        handlers.get('register-cluster')!(
++          { sender: webContents, senderFrame: mainFrame },
++          validRequest
++        )
++      ).resolves.toEqual({
++        success: false,
++        message: 'Cluster registration request was rejected.',
++      });
++    });
++
++    it('rejects a malformed request', async () => {
++      await expect(
++        handlers.get('register-cluster')!({ sender: webContents, senderFrame: mainFrame }, {})
++      ).resolves.toEqual({
++        success: false,
++        message: 'Invalid cluster registration request.',
++      });
++      expect(provider.register).not.toHaveBeenCalled();
++    });
++
++    it('rejects an incorrect capability', async () => {
++      await expect(
++        handlers.get('register-cluster')!(
++          { sender: webContents, senderFrame: mainFrame },
++          {
++            ...validRequest,
++            capabilitySecret: 'f'.repeat(64),
++          }
++        )
++      ).resolves.toEqual({
++        success: false,
++        message: 'Cluster registration request was rejected.',
++      });
++      expect(provider.register).not.toHaveBeenCalled();
++    });
++
++    it('dispatches a valid trusted request', async () => {
++      await expect(
++        handlers.get('register-cluster')!(
++          { sender: webContents, senderFrame: mainFrame },
++          validRequest
++        )
++      ).resolves.toEqual({ success: true, message: 'registered' });
++      expect(provider.register).toHaveBeenCalledWith(validRequest.options, {
++        resourcesPath: path.resolve('/resources'),
++        tools: {},
++      });
++    });
++  });
++});
++
++describe('cluster registration startup wiring', () => {
++  it('installs the handler before loading the renderer', () => {
++    const mainSource = fs.readFileSync(path.join(__dirname, 'main.ts'), 'utf8');
++    expect(mainSource).toMatch(
++      /import \{ setupClusterRegistrationHandler \} from '\.\/cluster-registration';/
++    );
++    const handlerSetup = mainSource.indexOf('    setupClusterRegistrationHandler(');
++    const rendererLoad = mainSource.indexOf('    mainWindow.loadURL(startUrl)');
++    expect(handlerSetup).toBeGreaterThan(-1);
++    expect(handlerSetup).toBeLessThan(rendererLoad);
++    expect(mainSource).not.toContain("await import('./cluster-registration')");
++  });
++});
+diff --git a/app/electron/cluster-registration.ts b/app/electron/cluster-registration.ts
+new file mode 100644
+index 000000000..14c25f0b9
+--- /dev/null
++++ b/app/electron/cluster-registration.ts
+@@ -0,0 +1,1175 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++// Portions (c) Microsoft Corp.
++
++import { execFileSync } from 'child_process';
++import spawn from 'cross-spawn';
++import type { BrowserWindow } from 'electron';
++import fs from 'fs';
++import { createHash, randomUUID } from 'node:crypto';
++import { isDeepStrictEqual } from 'node:util';
++import os from 'os';
++import path from 'path';
++import yaml from 'yaml';
++import type { BuildManifest, ProductClusterRegistrationProvider } from '../scripts/build-manifest';
++import { isTrustedDocumentUrl } from './secureStorage';
++
++/** Executes one local utility and returns its UTF-8 standard output. */
++type RunLocalUtility = (command: string, args: readonly string[]) => string;
++
++/** Protects a temporary directory before a provider writes credentials. */
++type HardenCredentialDirectory = (directoryPath: string) => void;
++
++/** Removes a provider's temporary credential directory. */
++type CleanupCredentialDirectory = (directoryPath: string) => void;
++
++/** Protects an empty credential file before secret bytes are written. */
++type HardenCredentialFile = (filePath: string) => void;
++
++/** Atomically replaces a credential destination with a completed sibling file. */
++type ReplaceCredentialFile = (sourcePath: string, destinationPath: string) => void;
++
++/** Default shell-free local utility runner. */
++const runLocalUtility: RunLocalUtility = (command, args) =>
++  execFileSync(command, [...args], { encoding: 'utf8', windowsHide: true });
++
++/** Calculates a lowercase SHA-256 digest while bounding memory usage. */
++function calculateFileSha256(filePath: string): string {
++  const hash = createHash('sha256');
++  const buffer = Buffer.allocUnsafe(64 * 1024);
++  const descriptor = fs.openSync(filePath, 'r');
++  try {
++    let bytesRead: number;
++    do {
++      bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null);
++      if (bytesRead > 0) hash.update(buffer.subarray(0, bytesRead));
++    } while (bytesRead > 0);
++  } finally {
++    fs.closeSync(descriptor);
++  }
++  return hash.digest('hex');
++}
++
++/** Result returned to a plugin after a native registration attempt. */
++export interface ClusterRegistrationResult {
++  /** Whether the provider updated the destination kubeconfig. */
++  success: boolean;
++  /** User-facing success or failure detail. */
++  message: string;
++}
++
++interface NamedKubeConfigEntry {
++  name: string;
++  [key: string]: unknown;
++}
++
++interface KubeCluster extends NamedKubeConfigEntry {
++  cluster?: { server?: string; [key: string]: unknown };
++}
++
++interface KubeContext extends NamedKubeConfigEntry {
++  context?: { cluster?: string; [key: string]: unknown };
++}
++
++interface KubeUser extends NamedKubeConfigEntry {
++  user?: Record<string, unknown>;
++}
++
++interface KubeConfig {
++  clusters?: KubeCluster[];
++  contexts?: KubeContext[];
++  users?: KubeUser[];
++  'current-context'?: string;
++  [key: string]: unknown;
++}
++
++/** Provider-neutral IPC request accepted by the registration dispatcher. */
++export interface ClusterRegistrationRequest {
++  /** Stable provider ID selecting a native registration implementation. */
++  provider: string;
++  /** Provider-defined options validated by the selected implementation. */
++  options: unknown;
++  /** Opaque capability injected only into an attested plugin. */
++  capabilitySecret: string;
++}
++
++/** Azure provider options for AKS and Arc-connected clusters. */
++export interface AzureClusterRegistrationOptions {
++  /** Azure subscription containing the cluster. */
++  subscriptionId: string;
++  /** Azure resource group containing the cluster. */
++  resourceGroup: string;
++  /** AKS or Arc-connected cluster name. */
++  clusterName: string;
++  /** Whether credentials require Azure RBAC kubelogin conversion. */
++  isAzureRBACEnabled: boolean;
++  /** Optional managed namespace whose scoped credentials should be retrieved. */
++  managedNamespace?: string;
++  /** Azure CLI resource type used to retrieve credentials. */
++  clusterType?: 'aks' | 'aksarc';
++}
++
++/** Native implementation for one cluster registration provider. */
++export interface ClusterRegistrationProvider<TOptions = unknown> {
++  /** Stable provider ID supplied in plugin requests. */
++  id: string;
++  /** Validates untrusted options before provider code receives them. */
++  validateOptions(options: unknown): options is TOptions;
++  /** Retrieves and persists credentials using validated options. */
++  register(
++    options: TOptions,
++    runtime: ClusterRegistrationRuntime
++  ): Promise<ClusterRegistrationResult>;
++}
++
++/** Product-resolved runtime available to one provider invocation. */
++export interface ClusterRegistrationRuntime {
++  /** Root of the packaged application resources. */
++  resourcesPath: string;
++  /** Absolute paths keyed by provider-defined tool role. */
++  tools: Record<string, string>;
++}
++
++/** Authorizes a provider for the exact renderer and plugin capability. */
++export type AuthorizeClusterRegistration = (
++  event: Electron.IpcMainInvokeEvent,
++  providerId: string,
++  capability: string
++) => ProductClusterRegistrationProvider | undefined;
++
++function isNonEmptyString(value: unknown): value is string {
++  return typeof value === 'string' && value.trim().length > 0;
++}
++
++/** Returns whether an identifier is nonempty, trimmed, and free of control characters. */
++function isCanonicalIdentifier(value: unknown): value is string {
++  return isNonEmptyString(value) && value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value);
++}
++
++/**
++ * Validates a provider-neutral registration IPC request.
++ *
++ * @param data - Untrusted renderer payload.
++ * @returns Whether the provider, options, and capability fields are structurally valid.
++ */
++export function isClusterRegistrationRequest(data: unknown): data is ClusterRegistrationRequest {
++  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
++    return false;
++  }
++  const request = data as Record<string, unknown>;
++  return (
++    typeof request.provider === 'string' &&
++    /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(request.provider) &&
++    request.options !== undefined &&
++    typeof request.capabilitySecret === 'string' &&
++    /^[0-9a-f]{64}$/.test(request.capabilitySecret)
++  );
++}
++
++/**
++ * Validates options accepted by the built-in Azure provider.
++ *
++ * @param options - Untrusted provider options.
++ * @returns Whether the options identify a valid AKS or Arc registration request.
++ */
++export function isAzureClusterRegistrationOptions(
++  options: unknown
++): options is AzureClusterRegistrationOptions {
++  if (typeof options !== 'object' || options === null || Array.isArray(options)) {
++    return false;
++  }
++  const request = options as Record<string, unknown>;
++  return (
++    Object.keys(request).every(key =>
++      [
++        'subscriptionId',
++        'resourceGroup',
++        'clusterName',
++        'isAzureRBACEnabled',
++        'managedNamespace',
++        'clusterType',
++      ].includes(key)
++    ) &&
++    isCanonicalIdentifier(request.subscriptionId) &&
++    isCanonicalIdentifier(request.resourceGroup) &&
++    isCanonicalIdentifier(request.clusterName) &&
++    typeof request.isAzureRBACEnabled === 'boolean' &&
++    (request.managedNamespace === undefined || isCanonicalIdentifier(request.managedNamespace)) &&
++    (request.clusterType === undefined ||
++      request.clusterType === 'aks' ||
++      request.clusterType === 'aksarc') &&
++    !(request.clusterType === 'aksarc' && request.managedNamespace !== undefined)
++  );
++}
++
++async function executeCommandWithShellEnvironment(
++  command: string,
++  args: string[]
++): Promise<{ code: number | null }> {
++  const { getShellEnvironment } = await import('./main');
++  const environment = await getShellEnvironment();
++
++  return new Promise((resolve, reject) => {
++    const child = spawn(command, args, {
++      env: environment,
++      shell: false,
++    });
++    child.stdout?.on('data', () => {});
++    child.stderr?.on('data', () => {});
++    child.once('error', reject);
++    child.once('close', code => resolve({ code }));
++  });
++}
++
++/**
++ * Get paths for Python and az-kubelogin script based on the current platform.
++ */
++export function getExecutablePaths(runtime: ClusterRegistrationRuntime): {
++  pythonCmd: string;
++  azKubeloginPath: string;
++  azCliBinPath: string;
++  azCliCmd: string;
++} {
++  const { cli: azCliCmd, python: pythonCmd, kubelogin: azKubeloginPath } = runtime.tools;
++  if (![azCliCmd, pythonCmd, azKubeloginPath].every(isNonEmptyString)) {
++    throw new Error('Azure cluster registration tools are not configured');
++  }
++  return {
++    pythonCmd,
++    azKubeloginPath,
++    azCliBinPath: path.dirname(azCliCmd),
++    azCliCmd,
++  };
++}
++
++/**
++ * Resolves product-declared provider tools through verified external-tool records.
++ *
++ * @param manifest - Runtime product manifest generated by the consumer build.
++ * @param provider - Provider configuration granted to the invoking plugin.
++ * @param resourcesPath - Root of packaged application resources.
++ * @param platform - Runtime platform key, overridable for tests.
++ * @returns Provider runtime containing confined absolute tool paths.
++ */
++export function resolveClusterRegistrationRuntime(
++  manifest: BuildManifest,
++  provider: ProductClusterRegistrationProvider,
++  resourcesPath: string,
++  platform: NodeJS.Platform = process.platform
++): ClusterRegistrationRuntime {
++  const targetPath = platform === 'win32' ? path.win32 : path.posix;
++  const root = targetPath.resolve(resourcesPath);
++  const toolEntries = Object.entries(provider.tools);
++  if (toolEntries.length === 0) {
++    return { resourcesPath: root, tools: {} };
++  }
++  const records = manifest['external-tools'];
++  if (!Array.isArray(records)) {
++    throw new Error('Product manifest has no external tools');
++  }
++  const canonicalRoot = fs.realpathSync(root);
++  const tools = Object.fromEntries(
++    toolEntries.map(([role, toolId]) => {
++      const matches = records.filter(record => record.id === toolId);
++      if (matches.length !== 1) {
++        throw new Error(`External tool '${toolId}' is not uniquely configured`);
++      }
++      const platformRecord = matches[0].platforms[platform as 'linux' | 'darwin' | 'win32'];
++      const configuredPath = platformRecord?.path;
++      const configuredDigest = platformRecord?.sha256;
++      if (
++        !isNonEmptyString(configuredPath) ||
++        targetPath.isAbsolute(configuredPath) ||
++        typeof configuredDigest !== 'string' ||
++        !/^[a-f0-9]{64}$/.test(configuredDigest)
++      ) {
++        throw new Error(`External tool '${toolId}' has no valid ${platform} path`);
++      }
++      const resolved = targetPath.resolve(root, configuredPath);
++      const relative = targetPath.relative(root, resolved);
++      if (
++        relative === '..' ||
++        relative.startsWith(`..${targetPath.sep}`) ||
++        targetPath.isAbsolute(relative)
++      ) {
++        throw new Error(`External tool '${toolId}' escapes packaged resources`);
++      }
++      const canonical = fs.realpathSync(resolved);
++      const canonicalRelative = path.relative(canonicalRoot, canonical);
++      if (
++        canonicalRelative === '..' ||
++        canonicalRelative.startsWith(`..${path.sep}`) ||
++        path.isAbsolute(canonicalRelative) ||
++        !fs.statSync(canonical).isFile()
++      ) {
++        throw new Error(`External tool '${toolId}' escapes packaged resources`);
++      }
++      const actualDigest = calculateFileSha256(canonical);
++      if (actualDigest !== configuredDigest) {
++        throw new Error(`External tool '${toolId}' failed integrity verification`);
++      }
++      return [role, canonical];
++    })
++  );
++  return { resourcesPath: root, tools };
++}
++
++/**
++ * Add az-kubelogin.py exec configuration to kubeconfig.
++ */
++function addAzKubeloginToKubeconfig(
++  kubeconfigYaml: string,
++  runtime: ClusterRegistrationRuntime
++): string {
++  const kubeconfig = parseKubeconfig(kubeconfigYaml, 'generated');
++  if (!kubeconfig.users) {
++    return kubeconfigYaml;
++  }
++
++  const users = getNamedEntries<KubeUser>(kubeconfig, 'users');
++  const { pythonCmd, azKubeloginPath, azCliBinPath, azCliCmd } = getExecutablePaths(runtime);
++  const serverId = '6dae42f8-4368-4678-94ff-3960e28e3630'; // Azure Kubernetes Service AAD Server
++
++  // Add exec configuration to each user
++  for (const user of users) {
++    if (user.user) {
++      console.log('[AKS] Configuring authentication for user:', user.name);
++
++      // IMPORTANT: Remove ALL old Azure authentication methods
++      // These conflict with our exec configuration
++      if (user.user['auth-provider']) {
++        console.log('[AKS] Removing old auth-provider configuration');
++        delete user.user['auth-provider'];
++      }
++
++      // Remove any other auth fields that might conflict
++      delete user.user.token;
++      delete user.user['client-certificate'];
++      delete user.user['client-certificate-data'];
++      delete user.user['client-key'];
++      delete user.user['client-key-data'];
++
++      // Set up exec authentication with our bundled Python script
++      // Include PATH and AZ_CLI_PATH in env
++      const pathSeparator = process.platform === 'win32' ? ';' : ':';
++      const currentPath = process.env.PATH || '';
++      const newPath = `${azCliBinPath}${pathSeparator}${currentPath}`;
++
++      user.user.exec = {
++        apiVersion: 'client.authentication.k8s.io/v1beta1',
++        command: pythonCmd,
++        args: [azKubeloginPath, '--server-id', serverId],
++        env: [
++          {
++            name: 'PATH',
++            value: newPath,
++          },
++          {
++            name: 'AZ_CLI_PATH',
++            value: azCliCmd,
++          },
++        ],
++        provideClusterInfo: false,
++      };
++
++      console.log('[AKS] Added exec configuration using Python script:', azKubeloginPath);
++      console.log('[AKS] Azure CLI path set to:', azCliCmd);
++    }
++  }
++
++  // Use yaml.stringify with options to preserve strings and prevent line wrapping
++  // This ensures paths with spaces are properly quoted and not split across lines
++  return yaml.stringify(kubeconfig, {
++    lineWidth: 0, // Disable line wrapping
++    defaultStringType: 'QUOTE_DOUBLE', // Quote strings to handle spaces properly
++  });
++}
++
++/**
++ * Detects whether generated credentials invoke the external kubelogin executable.
++ *
++ * @param kubeconfigYaml - Generated kubeconfig YAML to inspect.
++ * @returns Whether any user exec configuration launches kubelogin.
++ * @throws When the generated kubeconfig or user collection is malformed.
++ */
++export function kubeconfigUsesKubelogin(kubeconfigYaml: string): boolean {
++  const kubeconfig = parseKubeconfig(kubeconfigYaml, 'generated');
++  const users = getNamedEntries<KubeUser>(kubeconfig, 'users');
++  return users.some(user => {
++    const exec = user.user?.exec;
++    if (typeof exec !== 'object' || exec === null || Array.isArray(exec)) {
++      return false;
++    }
++    const command = (exec as Record<string, unknown>).command;
++    if (!isNonEmptyString(command)) {
++      return false;
++    }
++    const executable = path.posix.basename(command.replaceAll('\\', '/')).toLowerCase();
++    return executable === 'kubelogin' || executable === 'kubelogin.exe';
++  });
++}
++
++function parseKubeconfig(config: string, source: string): KubeConfig {
++  if (!config.trim()) {
++    return {};
++  }
++  let parsed: unknown;
++  try {
++    parsed = yaml.parse(config);
++  } catch {
++    throw new Error(`Failed to parse ${source} kubeconfig`);
++  }
++  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
++    throw new Error(`Failed to parse ${source} kubeconfig`);
++  }
++  return parsed as KubeConfig;
++}
++
++function getNamedEntries<T extends NamedKubeConfigEntry>(
++  config: KubeConfig,
++  key: 'clusters' | 'contexts' | 'users'
++): T[] {
++  const entries = config[key];
++  if (entries === undefined) {
++    const empty: T[] = [];
++    config[key] = empty;
++    return empty;
++  }
++  if (
++    !Array.isArray(entries) ||
++    entries.some(
++      entry => typeof entry !== 'object' || entry === null || !isNonEmptyString(entry.name)
++    )
++  ) {
++    throw new Error(`Invalid ${key} in kubeconfig`);
++  }
++  const names = new Set<string>();
++  for (const entry of entries) {
++    if (names.has(entry.name)) {
++      throw new Error(`Duplicate ${key} name in kubeconfig`);
++    }
++    names.add(entry.name);
++  }
++  return entries as T[];
++}
++
++/**
++ * Merge a new cluster config into the existing kubeconfig.
++ */
++export function mergeKubeconfig(existingConfig: string, newConfig: string): KubeConfig {
++  const existing = parseKubeconfig(existingConfig, 'existing');
++  const newCfg = parseKubeconfig(newConfig, 'generated');
++  const existingClusters = getNamedEntries<KubeCluster>(existing, 'clusters');
++  const newClusters = getNamedEntries<KubeCluster>(newCfg, 'clusters');
++  const existingContexts = getNamedEntries<KubeContext>(existing, 'contexts');
++  const newContexts = getNamedEntries<KubeContext>(newCfg, 'contexts');
++  const existingUsers = getNamedEntries<KubeUser>(existing, 'users');
++  const newUsers = getNamedEntries<KubeUser>(newCfg, 'users');
++  const replacedContextNames = new Set(newContexts.map(context => context.name));
++
++  // Merge clusters
++  for (const cluster of newClusters) {
++    const idx = existingClusters.findIndex(candidate => candidate.name === cluster.name);
++    if (idx >= 0) {
++      const existingServer = existingClusters[idx].cluster?.server;
++      const newServer = cluster.cluster?.server;
++      if (!isNonEmptyString(existingServer) || existingServer !== newServer) {
++        throw new Error(`Cluster '${cluster.name}' already uses a different API server`);
++      }
++      const preservedContextUsesCluster = existingContexts.some(
++        context =>
++          context.context?.cluster === cluster.name && !replacedContextNames.has(context.name)
++      );
++      if (
++        preservedContextUsesCluster &&
++        !isDeepStrictEqual(existingClusters[idx].cluster, cluster.cluster)
++      ) {
++        throw new Error(`Cluster '${cluster.name}' is already referenced by another context`);
++      }
++      existingClusters[idx] = cluster;
++    } else {
++      existingClusters.push(cluster);
++    }
++  }
++
++  // Merge contexts
++  for (const context of newContexts) {
++    const idx = existingContexts.findIndex(candidate => candidate.name === context.name);
++    if (idx >= 0) {
++      if (!isDeepStrictEqual(existingContexts[idx].context, context.context)) {
++        throw new Error(`Context '${context.name}' already has different configuration`);
++      }
++      existingContexts[idx] = context;
++    } else {
++      existingContexts.push(context);
++    }
++  }
++
++  // Merge users
++  for (const user of newUsers) {
++    const idx = existingUsers.findIndex(candidate => candidate.name === user.name);
++    if (idx >= 0) {
++      const replacedContexts = new Set(
++        newContexts
++          .filter(context => context.context?.user === user.name)
++          .map(context => context.name)
++      );
++      const preservedContextUsesUser = existingContexts.some(
++        context => context.context?.user === user.name && !replacedContexts.has(context.name)
++      );
++      if (preservedContextUsesUser && !isDeepStrictEqual(existingUsers[idx].user, user.user)) {
++        throw new Error(`User '${user.name}' is already referenced by another context`);
++      }
++      existingUsers[idx] = user;
++    } else {
++      existingUsers.push(user);
++    }
++  }
++
++  // Set current context to the new cluster
++  if (newCfg['current-context']) {
++    existing['current-context'] = newCfg['current-context'];
++  }
++
++  return existing;
++}
++
++/**
++ * Builds the effective named-entry view of a kubeconfig search path.
++ *
++ * Earlier files win when multiple files define the same named entry, matching
++ * kubeconfig loading precedence while retaining references split across files.
++ *
++ * @param configs - Existing kubeconfig files in search-path order.
++ * @returns Effective clusters, contexts, users, and current context.
++ */
++function effectiveKubeconfig(configs: string[]): KubeConfig {
++  const effective: KubeConfig = { clusters: [], contexts: [], users: [] };
++  for (const [index, contents] of configs.entries()) {
++    const config = parseKubeconfig(contents, `KUBECONFIG entry ${index + 1}`);
++    for (const key of ['clusters', 'contexts', 'users'] as const) {
++      const destination = getNamedEntries<NamedKubeConfigEntry>(effective, key);
++      for (const entry of getNamedEntries<NamedKubeConfigEntry>(config, key)) {
++        if (!destination.some(candidate => candidate.name === entry.name)) {
++          destination.push(entry);
++        }
++      }
++    }
++    if (
++      !isNonEmptyString(effective['current-context']) &&
++      isNonEmptyString(config['current-context'])
++    ) {
++      effective['current-context'] = config['current-context'];
++    }
++  }
++  return effective;
++}
++
++/**
++ * Validates that generated credentials contain one coherent selected identity.
++ *
++ * @param kubeconfigYaml - Generated provider kubeconfig YAML.
++ * @returns Nothing.
++ * @throws When current context, references, API server, or user data is missing.
++ */
++export function validateGeneratedKubeconfig(kubeconfigYaml: string): void {
++  const config = parseKubeconfig(kubeconfigYaml, 'generated');
++  const clusters = getNamedEntries<KubeCluster>(config, 'clusters');
++  const contexts = getNamedEntries<KubeContext>(config, 'contexts');
++  const users = getNamedEntries<KubeUser>(config, 'users');
++  const currentContext = config['current-context'];
++  if (!isNonEmptyString(currentContext)) {
++    throw new Error('Generated kubeconfig has no current context');
++  }
++  const context = contexts.find(candidate => candidate.name === currentContext);
++  if (!context || !isNonEmptyString(context.context?.cluster)) {
++    throw new Error(`Generated kubeconfig context '${currentContext}' has no cluster`);
++  }
++  if (!isNonEmptyString(context.context?.user)) {
++    throw new Error(`Generated kubeconfig context '${currentContext}' has no user`);
++  }
++  const cluster = clusters.find(candidate => candidate.name === context.context?.cluster);
++  if (!cluster || !isNonEmptyString(cluster.cluster?.server)) {
++    throw new Error(`Generated kubeconfig cluster '${context.context.cluster}' has no API server`);
++  }
++  let server: URL;
++  try {
++    if (cluster.cluster.server !== cluster.cluster.server.trim()) throw new Error();
++    server = new URL(cluster.cluster.server);
++  } catch {
++    throw new Error(
++      `Generated kubeconfig cluster '${context.context.cluster}' has invalid API server`
++    );
++  }
++  if (
++    !['http:', 'https:'].includes(server.protocol) ||
++    server.username !== '' ||
++    server.password !== '' ||
++    server.search !== '' ||
++    server.hash !== ''
++  ) {
++    throw new Error(
++      `Generated kubeconfig cluster '${context.context.cluster}' has invalid API server`
++    );
++  }
++  const user = users.find(candidate => candidate.name === context.context?.user);
++  if (
++    typeof user?.user !== 'object' ||
++    user.user === null ||
++    Array.isArray(user.user) ||
++    Object.keys(user.user).length === 0
++  ) {
++    throw new Error(`Generated kubeconfig user '${context.context.user}' is missing`);
++  }
++  if (clusters.length !== 1) {
++    throw new Error('Generated kubeconfig contains unrelated clusters');
++  }
++  if (contexts.length !== 1) {
++    throw new Error('Generated kubeconfig contains unrelated contexts');
++  }
++  if (users.length !== 1) {
++    throw new Error('Generated kubeconfig contains unrelated users');
++  }
++}
++
++/**
++ * Resolves the complete kubeconfig search path and writable destination.
++ *
++ * @param kubeconfigEnvironment - Raw KUBECONFIG value.
++ * @param homeDirectory - User home used for the default path.
++ * @returns Ordered non-empty paths; the first path is the destination.
++ */
++export function resolveKubeconfigPaths(
++  kubeconfigEnvironment: string | undefined = process.env.KUBECONFIG,
++  homeDirectory: string = os.homedir()
++): string[] {
++  const configured = kubeconfigEnvironment
++    ?.split(path.delimiter)
++    .filter(candidate => candidate !== '');
++  return configured?.length ? configured : [path.join(homeDirectory, '.kube', 'config')];
++}
++
++/**
++ * Enforces owner-only access on a completed temporary credential file.
++ *
++ * @param filePath - Credential file to protect before atomic replacement.
++ * @param platform - Host platform, overridable for tests.
++ * @param runUtility - Shell-free local utility runner, overridable for tests.
++ * @returns Nothing.
++ * @throws When the Windows identity cannot be resolved or ACL application fails.
++ */
++export function enforcePrivateFilePermissions(
++  filePath: string,
++  platform: NodeJS.Platform = process.platform,
++  runUtility: RunLocalUtility = runLocalUtility
++): void {
++  if (platform !== 'win32') {
++    fs.chmodSync(filePath, 0o600);
++    return;
++  }
++  const identity = runUtility('whoami', []).trim();
++  if (!identity) {
++    throw new Error('Unable to determine the current Windows identity');
++  }
++  runUtility('icacls', [filePath, '/inheritance:r', '/grant:r', `${identity}:(F)`]);
++}
++
++/**
++ * Enforces owner-only access on a credential directory and newly created children.
++ *
++ * @param directoryPath - Directory to protect before a provider writes credentials.
++ * @param platform - Host platform, overridable for tests.
++ * @param runUtility - Shell-free local utility runner, overridable for tests.
++ * @returns Nothing.
++ * @throws When the Windows identity cannot be resolved or ACL application fails.
++ */
++export function enforcePrivateDirectoryPermissions(
++  directoryPath: string,
++  platform: NodeJS.Platform = process.platform,
++  runUtility: RunLocalUtility = runLocalUtility
++): void {
++  if (platform !== 'win32') {
++    fs.chmodSync(directoryPath, 0o700);
++    return;
++  }
++  const identity = runUtility('whoami', []).trim();
++  if (!identity) {
++    throw new Error('Unable to determine the current Windows identity');
++  }
++  runUtility('icacls', [directoryPath, '/inheritance:r', '/grant:r', `${identity}:(OI)(CI)F`]);
++}
++
++/**
++ * Atomically replaces a completed credential file on the current platform.
++ *
++ * @param sourcePath - Completed private sibling file.
++ * @param destinationPath - Credential file to create or replace.
++ * @param platform - Host platform, overridable for tests.
++ * @param runUtility - Shell-free local utility runner, overridable for tests.
++ * @returns Nothing.
++ * @throws When the operating system cannot atomically replace the destination.
++ */
++export function replaceFileAtomically(
++  sourcePath: string,
++  destinationPath: string,
++  platform: NodeJS.Platform = process.platform,
++  runUtility: RunLocalUtility = runLocalUtility
++): void {
++  if (platform !== 'win32') {
++    fs.renameSync(sourcePath, destinationPath);
++    return;
++  }
++  const encodedSource = Buffer.from(sourcePath, 'utf8').toString('base64');
++  const encodedDestination = Buffer.from(destinationPath, 'utf8').toString('base64');
++  const script = [
++    `$sourcePath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encodedSource}'))`,
++    `$destinationPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encodedDestination}'))`,
++    '$native = Add-Type -Name NativeMethods -Namespace Headlamp -MemberDefinition \'[System.Runtime.InteropServices.DllImport("kernel32.dll", EntryPoint = "MoveFileExW", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)] public static extern bool MoveFileEx(string existingFileName, string newFileName, int flags);\' -PassThru',
++    'if (-not $native::MoveFileEx($sourcePath, $destinationPath, 9)) {',
++    '  $code = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()',
++    '  throw "MoveFileExW failed with Win32 error $code"',
++    '}',
++  ].join('; ');
++  const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
++  runUtility('powershell.exe', [
++    '-NoLogo',
++    '-NoProfile',
++    '-NonInteractive',
++    '-EncodedCommand',
++    encodedScript,
++  ]);
++}
++
++/** In-process queues protecting each destination's complete read-merge-write transaction. */
++const kubeconfigWriteQueues = new Map<string, Promise<void>>();
++
++/**
++ * Resolves a writable kubeconfig path while preserving an existing symbolic link.
++ *
++ * @param kubeconfigPath - Configured writable path.
++ * @returns Original path for a regular or absent file, or canonical symlink target.
++ * @throws When an existing symbolic link has no resolvable target.
++ */
++function resolveKubeconfigDestination(kubeconfigPath: string): string {
++  let fileType: fs.Stats;
++  try {
++    fileType = fs.lstatSync(kubeconfigPath);
++  } catch (error) {
++    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
++      return kubeconfigPath;
++    }
++    throw error;
++  }
++  return fileType.isSymbolicLink() ? fs.realpathSync(kubeconfigPath) : kubeconfigPath;
++}
++
++/**
++ * Runs one complete destination update after prior updates for that target finish.
++ *
++ * @param kubeconfigPath - Configured destination, which may be a symbolic link.
++ * @param operation - Read-merge-write transaction to run with the canonical destination.
++ * @returns The operation result.
++ */
++async function withKubeconfigWriteLock<T>(
++  kubeconfigPath: string,
++  operation: (destination: string) => Promise<T> | T
++): Promise<T> {
++  const destination = resolveKubeconfigDestination(kubeconfigPath);
++  const previous = kubeconfigWriteQueues.get(destination) ?? Promise.resolve();
++  let release = () => {};
++  const current = new Promise<void>(resolve => {
++    release = resolve;
++  });
++  const queued = previous.then(() => current);
++  kubeconfigWriteQueues.set(destination, queued);
++  await previous;
++  try {
++    return await operation(destination);
++  } finally {
++    release();
++    if (kubeconfigWriteQueues.get(destination) === queued) {
++      kubeconfigWriteQueues.delete(destination);
++    }
++  }
++}
++
++export function writeKubeconfigAtomically(
++  kubeconfigPath: string,
++  contents: string,
++  replaceFile: ReplaceCredentialFile = replaceFileAtomically,
++  platform: NodeJS.Platform = process.platform,
++  hardenFile: HardenCredentialFile = filePath => enforcePrivateFilePermissions(filePath, platform)
++): void {
++  const destination = resolveKubeconfigDestination(kubeconfigPath);
++  const temporaryPath = path.join(
++    path.dirname(destination),
++    `.${path.basename(destination)}.${randomUUID()}.tmp`
++  );
++  let descriptor: number | undefined;
++  try {
++    descriptor = fs.openSync(temporaryPath, 'wx', 0o600);
++    hardenFile(temporaryPath);
++    fs.writeFileSync(descriptor, contents, 'utf8');
++    if (platform !== 'win32') {
++      fs.fchmodSync(descriptor, 0o600);
++    }
++    fs.fsyncSync(descriptor);
++    fs.closeSync(descriptor);
++    descriptor = undefined;
++    replaceFile(temporaryPath, destination);
++    if (platform !== 'win32') {
++      try {
++        const directoryDescriptor = fs.openSync(path.dirname(destination), 'r');
++        try {
++          fs.fsyncSync(directoryDescriptor);
++        } finally {
++          fs.closeSync(directoryDescriptor);
++        }
++      } catch {
++        console.error('[AKS] Kubeconfig replaced but parent directory sync failed');
++      }
++    }
++  } finally {
++    if (descriptor !== undefined) {
++      fs.closeSync(descriptor);
++    }
++    fs.rmSync(temporaryPath, { force: true });
++  }
++}
++
++/**
++ * Collision-checks and atomically merges generated credentials under a destination lock.
++ *
++ * @param modifiedKubeconfig - Validated provider-generated kubeconfig YAML.
++ * @param kubeconfigPaths - Ordered KUBECONFIG search path; the first entry is writable.
++ * @returns Canonical destination that was updated.
++ */
++export async function mergeKubeconfigTransaction(
++  modifiedKubeconfig: string,
++  kubeconfigPaths: string[]
++): Promise<string> {
++  return withKubeconfigWriteLock(kubeconfigPaths[0], kubeconfigPath => {
++    const kubeconfigDir = path.dirname(kubeconfigPath);
++    if (!fs.existsSync(kubeconfigDir)) {
++      fs.mkdirSync(kubeconfigDir, { recursive: true, mode: 0o700 });
++    }
++    const existingKubeconfig = fs.existsSync(kubeconfigPath)
++      ? fs.readFileSync(kubeconfigPath, 'utf8')
++      : '';
++    const existingSearchPath = kubeconfigPaths
++      .filter(collisionPath => fs.existsSync(collisionPath))
++      .map(collisionPath => fs.readFileSync(collisionPath, 'utf8'));
++    if (existingSearchPath.length > 0) {
++      mergeKubeconfig(yaml.stringify(effectiveKubeconfig(existingSearchPath)), modifiedKubeconfig);
++    }
++    const finalKubeconfig = yaml.stringify(
++      mergeKubeconfig(existingKubeconfig, modifiedKubeconfig),
++      { lineWidth: 0, defaultStringType: 'QUOTE_DOUBLE' }
++    );
++    writeKubeconfigAtomically(kubeconfigPath, finalKubeconfig);
++    return kubeconfigPath;
++  });
++}
++
++/**
++ * Registers an AKS or Arc cluster through the built-in Azure provider.
++ *
++ * @param options - Validated Azure provider options.
++ * @param runtime - Product-resolved paths for the provider's external tools.
++ * @param hardenCredentialDirectory - Protects temporary credentials before provider execution.
++ * @param cleanupCredentialDirectory - Removes temporary credentials after provider execution.
++ * @returns Registration result with user-facing detail.
++ */
++export async function registerAzureCluster(
++  options: AzureClusterRegistrationOptions,
++  runtime: ClusterRegistrationRuntime,
++  hardenCredentialDirectory: HardenCredentialDirectory = enforcePrivateDirectoryPermissions,
++  cleanupCredentialDirectory: CleanupCredentialDirectory = directoryPath =>
++    fs.rmSync(directoryPath, { recursive: true, force: true })
++): Promise<ClusterRegistrationResult> {
++  const {
++    subscriptionId,
++    resourceGroup,
++    clusterName,
++    isAzureRBACEnabled,
++    managedNamespace,
++    clusterType = 'aks',
++  } = options;
++  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-kubeconfig-'));
++  const tempKubeconfigPath = path.join(temporaryDirectory, 'config');
++  let persistenceCommitted = false;
++
++  try {
++    hardenCredentialDirectory(temporaryDirectory);
++
++    // Step 1: Get the kubeconfig to a temporary file
++    const args: string[] = [];
++
++    if (clusterType === 'aksarc') {
++      console.log('[AKS ARC] Getting credentials for cluster:', clusterName);
++      args.push(
++        'aksarc',
++        'get-credentials',
++        '--subscription',
++        subscriptionId,
++        '--resource-group',
++        resourceGroup,
++        '--name',
++        clusterName
++      );
++    } else if (managedNamespace) {
++      // Use namespace get-credentials if a managed namespace is provided
++      args.push('aks');
++      console.log(
++        '[AKS] Getting namespace credentials for cluster:',
++        clusterName,
++        'namespace:',
++        managedNamespace
++      );
++      args.push(
++        'namespace',
++        'get-credentials',
++        '--cluster-name',
++        clusterName,
++        '--resource-group',
++        resourceGroup,
++        '--name',
++        managedNamespace,
++        '--subscription',
++        subscriptionId
++      );
++    } else {
++      console.log('[AKS] Getting credentials for cluster:', clusterName);
++      args.push('aks');
++      args.push(
++        'get-credentials',
++        '--subscription',
++        subscriptionId,
++        '--resource-group',
++        resourceGroup,
++        '--name',
++        clusterName
++      );
++    }
++
++    args.push('--file', tempKubeconfigPath);
++
++    try {
++      const { azCliCmd } = getExecutablePaths(runtime);
++      const result = await executeCommandWithShellEnvironment(azCliCmd, args);
++
++      if (result.code !== 0) {
++        console.error(`[AKS] Azure CLI credential retrieval failed with exit code ${result.code}`);
++        return {
++          success: false,
++          message: 'Failed to get cluster credentials.',
++        };
++      }
++    } catch {
++      console.error('[AKS] Azure CLI credential retrieval failed to start');
++      return {
++        success: false,
++        message: 'Failed to get cluster credentials.',
++      };
++    }
++
++    if (!fs.existsSync(tempKubeconfigPath)) {
++      return {
++        success: false,
++        message: 'Failed to create temporary kubeconfig file',
++      };
++    }
++
++    console.log('[AKS] Temporary kubeconfig created:', tempKubeconfigPath);
++
++    // Step 2: Read and modify the temporary kubeconfig
++    const tempKubeconfig = fs.readFileSync(tempKubeconfigPath, 'utf8');
++    let modifiedKubeconfig: string;
++    if (isAzureRBACEnabled || kubeconfigUsesKubelogin(tempKubeconfig)) {
++      console.log('[AKS] Adding az-kubelogin to kubeconfig since Azure RBAC is enabled');
++      modifiedKubeconfig = addAzKubeloginToKubeconfig(tempKubeconfig, runtime);
++    } else {
++      console.log('[AKS] Skipping az-kubelogin since Azure RBAC is disabled');
++      modifiedKubeconfig = tempKubeconfig;
++    }
++    validateGeneratedKubeconfig(modifiedKubeconfig);
++
++    // Step 3: Merge into main kubeconfig
++    // Use the first non-empty path from $KUBECONFIG if set,
++    // otherwise default to ~/.kube/config
++    const kubeconfigPaths = resolveKubeconfigPaths();
++    const kubeconfigPath = await mergeKubeconfigTransaction(modifiedKubeconfig, kubeconfigPaths);
++    persistenceCommitted = true;
++    console.log('[AKS] Cluster registered successfully');
++    return {
++      success: true,
++      message: `Cluster '${clusterName}' registered successfully. Kubeconfig written to ${kubeconfigPath}`,
++    };
++  } catch (error: unknown) {
++    const message = error instanceof Error ? error.message : 'Unknown error occurred';
++    console.error('[AKS] Error registering cluster:', message);
++
++    return {
++      success: false,
++      message,
++    };
++  } finally {
++    try {
++      cleanupCredentialDirectory(temporaryDirectory);
++    } catch {
++      console.error(
++        persistenceCommitted
++          ? '[AKS] Temporary credential cleanup failed after registration committed'
++          : '[AKS] Temporary credential cleanup failed'
++      );
++    }
++  }
++}
++
++/** Built-in provider for AKS and Arc-connected credentials retrieved through Azure CLI. */
++export const azureClusterRegistrationProvider: ClusterRegistrationProvider<AzureClusterRegistrationOptions> =
++  {
++    id: 'azure',
++    validateOptions: isAzureClusterRegistrationOptions,
++    register: registerAzureCluster,
++  };
++
++/** Native providers enabled by the default Headlamp desktop application. */
++export const clusterRegistrationProviders: readonly ClusterRegistrationProvider[] = [
++  azureClusterRegistrationProvider,
++];
++
++/**
++ * Dispatches a provider-neutral registration request to a native provider.
++ *
++ * New providers implement {@link ClusterRegistrationProvider}, validate their opaque options,
++ * and are added to the provider list supplied by the application entry point.
++ *
++ * @param providerId - Stable provider ID supplied by the plugin.
++ * @param options - Untrusted provider-defined options.
++ * @param runtime - Product-resolved provider runtime.
++ * @param providers - Native providers available to this application.
++ * @returns Registration result with user-facing detail.
++ */
++export async function registerCluster(
++  providerId: string,
++  options: unknown,
++  runtime: ClusterRegistrationRuntime,
++  providers: readonly ClusterRegistrationProvider[] = clusterRegistrationProviders
++): Promise<ClusterRegistrationResult> {
++  const matchingProviders = providers.filter(candidate => candidate.id === providerId);
++  if (matchingProviders.length === 0) {
++    return {
++      success: false,
++      message: `Cluster registration provider '${providerId}' is unavailable.`,
++    };
++  }
++  if (matchingProviders.length > 1) {
++    return {
++      success: false,
++      message: `Cluster registration provider '${providerId}' is ambiguously configured.`,
++    };
++  }
++  const provider = matchingProviders[0];
++  let validOptions = false;
++  try {
++    validOptions = provider.validateOptions(options);
++  } catch {
++    validOptions = false;
++  }
++  if (!validOptions) {
++    return {
++      success: false,
++      message: `Invalid options for cluster registration provider '${providerId}'.`,
++    };
++  }
++  let result: unknown;
++  try {
++    result = await provider.register(options, runtime);
++  } catch {
++    return {
++      success: false,
++      message: `Cluster registration provider '${providerId}' failed.`,
++    };
++  }
++  if (
++    typeof result !== 'object' ||
++    result === null ||
++    Array.isArray(result) ||
++    typeof (result as Record<string, unknown>).success !== 'boolean' ||
++    typeof (result as Record<string, unknown>).message !== 'string'
++  ) {
++    return {
++      success: false,
++      message: `Cluster registration provider '${providerId}' returned an invalid result.`,
++    };
++  }
++  return {
++    success: (result as ClusterRegistrationResult).success,
++    message: (result as ClusterRegistrationResult).message,
++  };
++}
++
++/**
++ * Registers the capability-protected cluster registration IPC handler.
++ *
++ * @param mainWindow - Desktop window owning the trusted renderer.
++ * @param ipcMain - Electron IPC registrar.
++ * @param authorize - Main-process authorization for an attested plugin capability.
++ * @param manifest - Runtime product manifest containing external-tool records.
++ * @param resourcesPath - Root of the packaged application resources.
++ * @param trustedStartUrl - Renderer document URL allowed to invoke registration.
++ * @param providers - Native providers available to this application.
++ * @returns Nothing.
++ */
++export function setupClusterRegistrationHandler(
++  mainWindow: BrowserWindow,
++  ipcMain: Electron.IpcMain,
++  authorize: AuthorizeClusterRegistration | undefined,
++  manifest: BuildManifest,
++  resourcesPath: string,
++  trustedStartUrl: string,
++  providers: readonly ClusterRegistrationProvider[] = clusterRegistrationProviders
++): void {
++  ipcMain.removeHandler('register-cluster');
++  ipcMain.handle('register-cluster', async (event, data: unknown) => {
++    if (
++      event.sender !== mainWindow.webContents ||
++      event.senderFrame !== mainWindow.webContents.mainFrame ||
++      !isTrustedDocumentUrl(event.senderFrame.url, trustedStartUrl)
++    ) {
++      return { success: false, message: 'Cluster registration request was rejected.' };
++    }
++    if (!isClusterRegistrationRequest(data) || !authorize) {
++      return { success: false, message: 'Invalid cluster registration request.' };
++    }
++    const configuration = authorize(event, data.provider, data.capabilitySecret);
++    if (!configuration) {
++      return { success: false, message: 'Cluster registration request was rejected.' };
++    }
++    let runtime: ClusterRegistrationRuntime;
++    try {
++      runtime = resolveClusterRegistrationRuntime(manifest, configuration, resourcesPath);
++    } catch (error) {
++      return {
++        success: false,
++        message: error instanceof Error ? error.message : 'Invalid cluster registration provider',
++      };
++    }
++    return registerCluster(configuration.type, data.options, runtime, providers);
++  });
++}
+diff --git a/app/electron/main.ts b/app/electron/main.ts
+index 0675a46be..08ef65b6f 100644
+--- a/app/electron/main.ts
++++ b/app/electron/main.ts
+@@ -43,6 +43,7 @@ import {
+ import { withBackendMemoryDefaults } from './backendMemory';
+ import { resolveBackendToken, waitForExternalBackend } from './backendToken';
+ import { createCertificateSetup } from './certificates';
++import { setupClusterRegistrationHandler } from './cluster-registration';
+ import { setupDevelopmentPluginsHandlers } from './developmentPlugins';
+ import { startWindowsVMDetection, waitForWindowsVMDetection } from './hardwareAcceleration';
+ import i18n from './i18next.config';
+@@ -227,15 +228,19 @@ const appBuildManifestPath = isDev
+ const legalDocuments = loadLegalDocuments(appBuildManifestPath);
+ const protocolScheme = readProtocolScheme(appBuildManifestPath);
+ const shouldCheckForUpdates = shouldCheckForAppUpdates(appBuildManifestPath);
++const appBuildManifest = loadBuildManifest(appBuildManifestPath);
+ const productPluginCommandPolicy = productPluginCommandPolicies(
+-  loadBuildManifest(appBuildManifestPath),
++  appBuildManifest,
+   isDev ? 'development' : 'production'
+ );
+ 
+ // make it global so that it doesn't get garbage collected
+ let mainWindow: BrowserWindow | null;
+ 
+-function isFromMainWindowFrame(event: IpcMainEvent, window = mainWindow): boolean {
++function isFromMainWindowFrame(
++  event: Pick<IpcMainEvent, 'sender' | 'senderFrame'>,
++  window = mainWindow
++): boolean {
+   return (
+     !!window &&
+     event.sender === window.webContents &&
+@@ -1609,7 +1614,7 @@ function startElectron() {
+       },
+     });
+     protocolHandler.attachToWebContents(mainWindow.webContents);
+-    setupRunCmdHandlers(
++    const privatePluginCapabilities = setupRunCmdHandlers(
+       mainWindow,
+       ipcMain,
+       productPluginCommandPolicy,
+@@ -1618,6 +1623,14 @@ function startElectron() {
+       isDev,
+       areDevelopmentPluginsEnabled
+     );
++    setupClusterRegistrationHandler(
++      mainWindow,
++      ipcMain,
++      privatePluginCapabilities?.authorizeClusterRegistration,
++      appBuildManifest,
++      isDev ? path.join(__dirname, '..', 'resources') : process.resourcesPath,
++      startUrl
++    );
+ 
+     applyZoom();
+ 
+diff --git a/app/electron/preload.test.ts b/app/electron/preload.test.ts
+index d967e12cf..f9d724c48 100644
+--- a/app/electron/preload.test.ts
++++ b/app/electron/preload.test.ts
+@@ -76,6 +76,33 @@ describe('desktop preload API', () => {
+     });
+   });
+ 
++  it('registers an AKS cluster through a dedicated IPC request', async () => {
++    electronMocks.invoke.mockResolvedValue({ success: true, message: 'registered' });
++
++    await expect(
++      desktopApi.registerCluster(
++        'azure',
++        {
++          subscriptionId: 'subscription',
++          resourceGroup: 'resource-group',
++          clusterName: 'cluster',
++          isAzureRBACEnabled: false,
++        },
++        'a'.repeat(64)
++      )
++    ).resolves.toEqual({ success: true, message: 'registered' });
++    expect(electronMocks.invoke).toHaveBeenCalledWith('register-cluster', {
++      provider: 'azure',
++      options: {
++        subscriptionId: 'subscription',
++        resourceGroup: 'resource-group',
++        clusterName: 'cluster',
++        isAzureRBACEnabled: false,
++      },
++      capabilitySecret: 'a'.repeat(64),
++    });
++  });
++
+   it('exposes Electron development mode to a built renderer', () => {
+     expect(desktopApi.isDevelopment).toBe(true);
+   });
+diff --git a/app/electron/preload.ts b/app/electron/preload.ts
+index c9db07662..237939fbd 100644
+--- a/app/electron/preload.ts
++++ b/app/electron/preload.ts
+@@ -177,6 +177,17 @@ contextBridge.exposeInMainWorld('desktopApi', {
+     ipcRenderer.send('cluster-changed', cluster);
+   },
+ 
++  registerCluster: (
++    provider: string,
++    options: unknown,
++    capabilitySecret?: string
++  ): Promise<{ success: boolean; message: string }> =>
++    ipcRenderer.invoke('register-cluster', {
++      provider,
++      options,
++      capabilitySecret,
++    }),
++
+   platform: process.platform,
+ 
+   /** @returns Legal documents declared by the packaged application manifest. */
+diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
+index dcc144175..c9f153bfe 100644
+--- a/app/electron/runCmd.test.ts
++++ b/app/electron/runCmd.test.ts
+@@ -284,7 +284,9 @@ describe('createProductCommandCapabilities', () => {
+       {
+         bundleName: 'example-plugin',
+         packageName: '@example/plugin',
++        source: 'shipped',
+         capability: expect.stringMatching(/^[a-f0-9]{64}$/),
++        clusterRegistrationProviders: [],
+       },
+     ]);
+     expect(result.capabilityRegistry.get(result.capabilities[0].capability)).toEqual({
+@@ -293,6 +295,45 @@ describe('createProductCommandCapabilities', () => {
+     });
+   });
+ 
++  it('publishes configured provider IDs without exposing provider tool paths', () => {
++    const providerPolicy = {
++      ...policies[0],
++      clusterRegistrationProviders: [
++        {
++          id: 'example',
++          type: 'example',
++          tools: { cli: 'examplectl' },
++        },
++      ],
++    };
++    const result = createProductCommandCapabilities(
++      [
++        {
++          bundleName: 'example-plugin',
++          packageName: '@example/plugin',
++          path: 'static-plugins/example-plugin',
++          source: 'shipped',
++          type: 'shipped',
++          sourceDigest,
++        },
++      ],
++      [providerPolicy],
++      7
++    );
++
++    expect(result.capabilities[0]).toEqual({
++      bundleName: 'example-plugin',
++      packageName: '@example/plugin',
++      source: 'shipped',
++      capability: expect.any(String),
++      clusterRegistrationProviders: ['example'],
++    });
++    expect(result.capabilities[0]).not.toHaveProperty('tools');
++    expect(
++      result.capabilityRegistry.get(result.capabilities[0].capability)?.clusterRegistrationProviders
++    ).toEqual(providerPolicy.clusterRegistrationProviders);
++  });
++
+   it('grants shipped AI Assistant system commands only to its exact identity', () => {
+     const aiPolicy = {
+       bundleName: 'headlamp_ai-assistant',
+@@ -327,7 +368,9 @@ describe('createProductCommandCapabilities', () => {
+       {
+         bundleName: 'headlamp_ai-assistant',
+         packageName: '@headlamp-k8s/ai-assistant',
++        source: 'shipped',
+         capability: expect.stringMatching(/^[a-f0-9]{64}$/),
++        clusterRegistrationProviders: [],
+       },
+     ]);
+     expect(result.capabilityRegistry.get(result.capabilities[0].capability)?.grants).toEqual([
+diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
+index 50d5a9f1e..bd4966b80 100644
+--- a/app/electron/runCmd.ts
++++ b/app/electron/runCmd.ts
+@@ -90,6 +90,15 @@ export interface ProductPluginCommandPolicy {
+   };
+   /** Reviewed command grants for the plugin. */
+   grants: RunCommandGrant[];
++  /** Product-configured native cluster registration providers for this plugin. */
++  clusterRegistrationProviders?: Array<{
++    /** Stable provider ID supplied by the plugin. */
++    id: string;
++    /** Built-in provider implementation selected by the product. */
++    type: string;
++    /** Verified external-tool IDs consumed by this provider. */
++    tools: Record<string, string>;
++  }>;
+ }
+ 
+ // Keep these IPC contract interfaces in sync with frontend/src/plugin/commandCapabilities.ts.
+@@ -140,7 +149,9 @@ export interface PluginCommandRegistration {
+  * const commandCapability: PluginCommandCapability = {
+  *   bundleName: 'example-plugin',
+  *   packageName: '@example/plugin',
++ *   source: 'shipped',
+  *   capability: '4f8c2a917bd03e65a1c94f286e5b70d39ac214ef53d8b607c1e49a728f306db5',
++ *   clusterRegistrationProviders: [],
+  * };
+  * ```
+  */
+@@ -149,8 +160,12 @@ export interface PluginCommandCapability {
+   bundleName: string;
+   /** Package identity bound to the capability. */
+   packageName: string;
++  /** Verified plugin inventory bound to the capability. */
++  source: ProductPluginCommandPolicy['source'];
+   /** Opaque authorization token. */
+   capability: string;
++  /** Provider IDs this exact plugin identity may invoke. */
++  clusterRegistrationProviders: string[];
+ }
+ 
+ /** Command capability state retained only by Electron's main process. */
+@@ -824,7 +839,11 @@ export function createProductCommandCapabilities(
+     capabilities.push({
+       bundleName: policy.bundleName,
+       packageName: policy.packageName,
++      source: policy.source,
+       capability,
++      clusterRegistrationProviders: (policy.clusterRegistrationProviders ?? []).map(
++        provider => provider.id
++      ),
+     });
+     capabilityRegistry.set(capability, { ...policy, webContentsId });
+   }
+@@ -1245,6 +1264,16 @@ function cryptoRandomToken(): string {
+   return crypto.randomBytes(16).toString('hex');
+ }
+ 
++/** Capability authorization retained by Electron and used by privileged handlers. */
++export interface PrivatePluginCapabilities {
++  /** Returns the configured provider granted to this verified renderer/plugin capability. */
++  authorizeClusterRegistration(
++    event: Electron.IpcMainInvokeEvent,
++    providerId: string,
++    capability: string
++  ): NonNullable<ProductPluginCommandPolicy['clusterRegistrationProviders']>[number] | undefined;
++}
++
+ /**
+  * Sets up the IPC handlers for running commands.
+  * Called in the main process to handle 'run-command' events.
+@@ -1255,6 +1284,8 @@ function cryptoRandomToken(): string {
+  * @param trustedStartUrl - Headlamp document URL allowed to register and use capabilities.
+  * @param pluginRoots - Optional inventory roots used to verify plugin files during registration.
+  * @param isDevelopment - Runtime mode selected by the Electron entry point.
++ * @param developmentPluginsEnabled - Reports whether development plugins may receive capabilities.
++ * @returns Private capability secrets, or undefined when no main window is available.
+  */
+ export function setupRunCmdHandlers(
+   mainWindow: BrowserWindow | null,
+@@ -1264,7 +1295,7 @@ export function setupRunCmdHandlers(
+   pluginRoots?: Record<ProductPluginCommandPolicy['source'], string>,
+   isDevelopment = false,
+   developmentPluginsEnabled: () => boolean = () => false
+-) {
++): PrivatePluginCapabilities | undefined {
+   if (mainWindow === null) {
+     console.error('Main window is null, cannot set up run command handlers');
+     return;
+@@ -1368,6 +1399,22 @@ export function setupRunCmdHandlers(
+     const { getShellEnvironment } = await import('./main');
+     return getShellEnvironment();
+   });
++  return {
++    authorizeClusterRegistration(event, providerId, capability) {
++      const registered = capabilityRegistry.get(capability);
++      if (
++        !registered ||
++        registered.webContentsId !== event.sender.id ||
++        event.sender !== mainWindow.webContents ||
++        event.senderFrame !== mainWindow.webContents.mainFrame ||
++        (trustedStartUrl !== undefined &&
++          !isTrustedDocumentUrl(event.senderFrame.url, trustedStartUrl))
++      ) {
++        return undefined;
++      }
++      return registered.clusterRegistrationProviders?.find(provider => provider.id === providerId);
++    },
++  };
+ }
+ 
+ /** Revokes every command capability issued by handlers registered on this IPC instance. */
+diff --git a/app/package-lock.json b/app/package-lock.json
+index 40c2d2774..881bce672 100644
+--- a/app/package-lock.json
++++ b/app/package-lock.json
+@@ -23,10 +23,12 @@
+         "nock": "^14.0.5",
+         "shx": "^0.4.0",
+         "tar": "^7.5.11",
++        "yaml": "^2.6.1",
+         "yargs": "^17.7.2"
+       },
+       "devDependencies": {
+         "@headlamp-k8s/eslint-config": "^0.6.0",
++        "@types/cross-spawn": "^6.0.6",
+         "@types/node": "^22.14.0",
+         "@types/semver": "^7.7.0",
+         "@types/yargs": "^17.0.35",
+@@ -2346,6 +2348,15 @@
+       "version": "1.1.1",
+       "license": "MIT"
+     },
++    "node_modules/@types/cross-spawn": {
++      "version": "6.0.6",
++      "integrity": "sha512-fXRhhUkG4H3TQk5dBhQ7m/JDdSNHKwR2BBia62lhwEIq9xGiQKLxd6LymNhn47SjXhsUEPmxi+PKw2OkW4LLjA==",
++      "dev": true,
++      "license": "MIT",
++      "dependencies": {
++        "@types/node": "*"
++      }
++    },
+     "node_modules/@types/debug": {
+       "version": "4.1.13",
+       "dev": true,
+@@ -12067,6 +12078,20 @@
+       "dev": true,
+       "license": "ISC"
+     },
++    "node_modules/yaml": {
++      "version": "2.9.1",
++      "integrity": "sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==",
++      "license": "ISC",
++      "bin": {
++        "yaml": "bin.mjs"
++      },
++      "engines": {
++        "node": ">= 14.6"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/eemeli"
++      }
++    },
+     "node_modules/yargs": {
+       "version": "17.7.2",
+       "license": "MIT",
+diff --git a/app/package.json b/app/package.json
+index cc40455df..db6739884 100644
+--- a/app/package.json
++++ b/app/package.json
+@@ -194,6 +194,7 @@
+   "prettier": "@headlamp-k8s/eslint-config/prettier-config",
+   "devDependencies": {
+     "@headlamp-k8s/eslint-config": "^0.6.0",
++    "@types/cross-spawn": "^6.0.6",
+     "@types/node": "^22.14.0",
+     "@types/semver": "^7.7.0",
+     "@types/yargs": "^17.0.35",
+@@ -232,6 +233,7 @@
+     "nock": "^14.0.5",
+     "shx": "^0.4.0",
+     "tar": "^7.5.11",
++    "yaml": "^2.6.1",
+     "yargs": "^17.7.2"
+   },
+   "optionalDependencies": {
+diff --git a/app/scripts/build-manifest.ts b/app/scripts/build-manifest.ts
+index c3dfac25e..656538635 100644
+--- a/app/scripts/build-manifest.ts
++++ b/app/scripts/build-manifest.ts
+@@ -38,6 +38,9 @@ export type BuildManifest = {
+   /** Reusable command grant arrays referenced by command policies. */
+   commandSets?: Record<string, RunCommandGrant[]>;
+ 
++  /** Verified external tools available to native product integrations. */
++  'external-tools'?: ProductExternalTool[];
++
+   /** Plugin declarations consumed by the app packaging scripts. */
+   plugins?: BuildPlugin[];
+ 
+@@ -73,6 +76,32 @@ export interface ProductPluginExecutable {
+   tool: string;
+ }
+ 
++/** Platform-specific path and digest for one packaged external tool. */
++export interface ProductExternalToolPlatform {
++  /** Path relative to the packaged resources directory. */
++  path: string;
++  /** Lowercase SHA-256 digest of the packaged file. */
++  sha256: string;
++}
++
++/** Product-owned external tool with one or more platform records. */
++export interface ProductExternalTool {
++  /** Stable identifier referenced by provider tool roles. */
++  id: string;
++  /** Packaged path and digest for each supported runtime platform. */
++  platforms: Partial<Record<'linux' | 'darwin' | 'win32', ProductExternalToolPlatform>>;
++}
++
++/** Product-owned native cluster registration provider configuration. */
++export interface ProductClusterRegistrationProvider {
++  /** Stable provider ID supplied by the authorized plugin. */
++  id: string;
++  /** Built-in provider implementation selected by the product. */
++  type: string;
++  /** Verified external-tool IDs used by this provider. */
++  tools: Record<string, string>;
++}
++
+ /** Product command grants for one exact plugin origin and runtime environment. */
+ export interface ProductPluginRunCommands {
+   /** Runtime in which this policy applies. */
+@@ -100,6 +129,8 @@ export interface ProductPluginRunCommands {
+   commands?: RunCommandGrant[];
+   /** Named command grant sets from the product manifest, combined in order. */
+   commandSets?: string[];
++  /** Native cluster registration providers granted to these exact plugin identities. */
++  clusterRegistrationProviders?: ProductClusterRegistrationProvider[];
+ }
+ 
+ /** Validated command policy for one plugin identity and inventory. */
+@@ -125,6 +156,8 @@ export interface ProductPluginCommandPolicy {
+   };
+   /** Reviewed command grants for the plugin. */
+   grants: RunCommandGrant[];
++  /** Native cluster registration providers granted to this verified plugin identity. */
++  clusterRegistrationProviders: ProductClusterRegistrationProvider[];
+ }
+ 
+ const COMMAND_POLICY_DOCS_FILE = 'docs/development/plugins/command-capabilities.md';
+@@ -360,6 +393,50 @@ export function validateBuildManifest(value: unknown): BuildManifest {
+       'Build manifest commandEnvironment must reference a resource-relative CommonJS module'
+     );
+   }
++  const externalTools = manifest['external-tools'];
++  if (externalTools !== undefined) {
++    if (
++      !Array.isArray(externalTools) ||
++      externalTools.length > 128 ||
++      new Set(externalTools.map(tool => tool?.id)).size !== externalTools.length ||
++      externalTools.some(tool => {
++        if (
++          typeof tool !== 'object' ||
++          tool === null ||
++          Array.isArray(tool) ||
++          Object.keys(tool).some(key => !['id', 'platforms'].includes(key)) ||
++          typeof tool.id !== 'string' ||
++          !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tool.id) ||
++          typeof tool.platforms !== 'object' ||
++          tool.platforms === null ||
++          Array.isArray(tool.platforms)
++        ) {
++          return true;
++        }
++        const platforms = Object.entries(tool.platforms);
++        return (
++          platforms.length === 0 ||
++          platforms.some(
++            ([platform, record]) =>
++              !['linux', 'darwin', 'win32'].includes(platform) ||
++              typeof record !== 'object' ||
++              record === null ||
++              Array.isArray(record) ||
++              Object.keys(record).some(key => !['path', 'sha256'].includes(key)) ||
++              typeof record.path !== 'string' ||
++              record.path.trim() === '' ||
++              path.posix.isAbsolute(record.path) ||
++              path.win32.isAbsolute(record.path) ||
++              record.path.replaceAll('\\', '/').split('/').includes('..') ||
++              typeof record.sha256 !== 'string' ||
++              !/^[a-f0-9]{64}$/.test(record.sha256)
++          )
++        );
++      })
++    ) {
++      throw new Error('Invalid build manifest external-tools');
++    }
++  }
+   const proxyUrls = manifest['proxy-urls'];
+   if (proxyUrls !== undefined) {
+     if (!Array.isArray(proxyUrls) || proxyUrls.some(pattern => typeof pattern !== 'string')) {
+@@ -490,6 +567,7 @@ export function productPluginCommandPolicies(
+             'pluginExecutables',
+             'commands',
+             'commandSets',
++            'clusterRegistrationProviders',
+           ].includes(key)
+       )
+     ) {
+@@ -578,6 +656,41 @@ export function productPluginCommandPolicies(
+       throw new Error(`Invalid build manifest runCommands[${index}].commands`);
+     }
+     const parsedGrants = parseRunCommandGrants(commands);
++    const clusterRegistrationProviders = policy.clusterRegistrationProviders ?? [];
++    if (
++      !Array.isArray(clusterRegistrationProviders) ||
++      clusterRegistrationProviders.length > 16 ||
++      new Set(clusterRegistrationProviders.map(provider => provider?.id)).size !==
++        clusterRegistrationProviders.length ||
++      clusterRegistrationProviders.some(
++        provider =>
++          typeof provider !== 'object' ||
++          provider === null ||
++          Array.isArray(provider) ||
++          Object.keys(provider).some(key => !['id', 'type', 'tools'].includes(key)) ||
++          typeof provider.id !== 'string' ||
++          !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(provider.id) ||
++          typeof provider.type !== 'string' ||
++          !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(provider.type) ||
++          typeof provider.tools !== 'object' ||
++          provider.tools === null ||
++          Array.isArray(provider.tools) ||
++          Object.keys(provider.tools).length > 16 ||
++          Object.entries(provider.tools).some(
++            ([role, tool]) =>
++              !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(role) ||
++              typeof tool !== 'string' ||
++              !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tool)
++          )
++      )
++    ) {
++      throw new Error(`Invalid build manifest runCommands[${index}].clusterRegistrationProviders`);
++    }
++    if (policy.pluginLocation === 'user' && clusterRegistrationProviders.length > 0) {
++      throw new Error(
++        `Build manifest runCommands[${index}] cannot grant cluster registration to user plugins`
++      );
++    }
+     for (const tool of pluginExecutables) {
+       if (!parsedGrants.some(grant => grant.tool === tool)) {
+         throw new Error(`Unused build manifest runCommands[${index}] plugin executable ${tool}`);
+@@ -671,6 +784,7 @@ export function productPluginCommandPolicies(
+             },
+           }),
+           grants,
++          clusterRegistrationProviders,
+         });
+       }
+     }
+diff --git a/docs/development/plugins/cluster-registration-providers.md b/docs/development/plugins/cluster-registration-providers.md
+new file mode 100644
+index 000000000..1d60176a7
+--- /dev/null
++++ b/docs/development/plugins/cluster-registration-providers.md
+@@ -0,0 +1,194 @@
++---
++title: Desktop Cluster Registration Providers
++---
++
++# Desktop Cluster Registration Providers
++
++Desktop cluster registration lets an authorized plugin ask Electron to obtain
++credentials and merge them into the user's kubeconfig. The bridge is
++provider-neutral: plugins call `registerCluster(provider, options)`, while the
++main process selects a `ClusterRegistrationProvider` by its stable `id` and
++validates the provider-defined options before executing native code.
++
++This is a desktop product integration point, not a general browser-plugin API.
++The plugin loader injects `registerCluster` as a private lexical function only
++into plugins whose package identity and installation source are explicitly
++trusted by the product. User-installed plugins must not receive it.
++
++## Provider contract
++
++Providers are defined in
++`app/electron/cluster-registration.ts`:
++
++```ts
++interface ClusterRegistrationProvider<TOptions> {
++  id: string;
++  validateOptions(options: unknown): options is TOptions;
++  register(
++    options: TOptions,
++    runtime: ClusterRegistrationRuntime
++  ): Promise<ClusterRegistrationResult>;
++}
++```
++
++The built-in `azure` provider demonstrates the complete flow for managed AKS,
++managed namespaces, and Arc-connected clusters. It validates all renderer
++input, launches Azure CLI without a shell, converts kubelogin authentication,
++rejects unsafe kubeconfig identity collisions, and replaces the destination
++through a private sibling file and atomic rename. POSIX directory sync is
++best-effort after the replacement becomes visible.
++
++## Adding a provider
++
++1. Define a narrow options interface containing only the values native code
++   requires.
++2. Implement a type guard for all untrusted option fields. Reject unknown enum
++   values, empty identifiers, and values containing shell metacharacters when a
++   native tool has stricter naming rules.
++3. Implement `ClusterRegistrationProvider`. Launch commands without a shell and
++   pass dynamic values as individual arguments. Alternatively, retrieve a
++   kubeconfig through a provider SDK or a trusted Kubernetes API client.
++4. Keep generated credentials in a `0700` temporary directory. Merge them with
++   `mergeKubeconfig`, persist with `writeKubeconfigAtomically`, and remove all
++   temporary credentials in `finally`. On Windows, apply an owner-only ACL with
++   `enforcePrivateDirectoryPermissions` or `enforcePrivateFilePermissions`;
++   POSIX mode arguments do not create a Windows ACL.
++5. Add the provider implementation to `clusterRegistrationProviders` in
++   `app/electron/cluster-registration.ts`.
++6. In the consumer product manifest, add `clusterRegistrationProviders` to the
++   exact `runCommands` policy that already identifies the provider plugin by
++   bundle, package, source inventory, and optional Artifact Hub provenance.
++   Set `id` to the public provider ID, `type` to the built-in implementation,
++   and map each provider tool role to an `external-tools` ID. The runtime
++   resolves only the current platform's verified external-tool paths. Never
++   hard-code a consumer package name, provider grant, or packaged tool layout
++   in Headlamp's plugin loader.
++
++```json
++{
++  "external-tools": [
++    {
++      "id": "cloudctl",
++      "platforms": {
++        "linux": {
++          "path": "external-tools/cloudctl/linux/cloudctl",
++          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
++        },
++        "darwin": {
++          "path": "external-tools/cloudctl/darwin/cloudctl",
++          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
++        },
++        "win32": {
++          "path": "external-tools/cloudctl/win32/cloudctl.exe",
++          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
++        }
++      }
++    }
++  ],
++  "runCommands": [
++    {
++      "environment": "production",
++      "pluginLocation": "shipped",
++      "plugins": [{ "bundleName": "cloud-plugin", "packageName": "@example/cloud-plugin" }],
++      "commands": [{ "tool": "cloudctl", "args": ["account"] }],
++      "clusterRegistrationProviders": [
++        {
++          "id": "example",
++          "type": "example",
++          "tools": { "cli": "cloudctl" }
++        }
++      ]
++    }
++  ]
++}
++```
++
++Product builds must declare the referenced IDs in `external-tools` with a
++relative path and SHA-256 digest for each supported platform. The product's
++build tooling should generate these records from staged files.
++
++7. In the trusted plugin, call the injected function with the provider ID and
++   validated provider options:
++
++```ts
++declare const registerCluster:
++  | ((
++      provider: string,
++      options: unknown
++    ) => Promise<{
++      success: boolean;
++      message: string;
++    }>)
++  | undefined;
++
++await registerCluster?.('example', {
++  clusterName: 'production',
++  location: 'region-1',
++});
++```
++
++8. Add tests for option validation, exact command arguments, successful
++   registration, authentication conversion, malformed destination preservation,
++   identity collisions, private permissions, temporary cleanup, atomic-write
++   failure, and trusted versus untrusted plugin injection.
++
++## Realistic provider examples
++
++These examples describe plausible extensions; they are not currently
++implemented by Headlamp.
++
++### Amazon EKS
++
++An `eks` provider could accept `clusterName`, `region`, and optional `profile` or
++`roleArn` fields. Its native implementation could invoke:
++
++```text
++aws eks update-kubeconfig --name <cluster> --region <region> --kubeconfig <temporary-file>
++```
++
++The provider should use an `aws` tool role mapped by the consumer to a verified
++external-tool ID, or an SDK, validate profile and
++role identifiers, keep `KUBECONFIG` isolated from the user's destination during
++retrieval, then use the shared collision checks and atomic writer.
++
++### Google Kubernetes Engine
++
++A `gke` provider could accept `project`, `location`, `clusterName`, and an
++`isRegional` discriminator. It could run `gcloud container clusters
++get-credentials` with an isolated temporary `KUBECONFIG`, then merge the
++resulting cluster, context, and auth-plugin user entries. The product maps
++`gcloud` and any required authentication helper roles to its own verified
++external-tool IDs.
++
++### Cluster API
++
++A `cluster-api` provider need not launch a cloud CLI. It could accept a
++management-cluster context, namespace, and workload-cluster name, then retrieve
++the `<cluster>-kubeconfig` Secret through a trusted backend or Kubernetes client.
++The provider would validate the Secret type and key, decode its kubeconfig, and
++use the same merge and atomic-write protections. Authorization must bind the
++injected capability to the product plugin that owns this workflow.
++
++Other viable providers include local development clusters such as kind or
++minikube, and vendor-managed Kubernetes products that expose kubeconfig through
++an authenticated SDK. Each should remain a separate provider with its own
++validated options and tests rather than adding provider-specific branches to the
++generic IPC handler.
++
++## Security requirements
++
++- Treat provider IDs and options as untrusted renderer input.
++- Bind the opaque capability to an attested product plugin; a main-frame check
++  alone is insufficient because plugins share the renderer global scope.
++- Keep plugin identities, provider grants, and packaged tool paths in the
++  consumer product manifest rather than Headlamp source.
++- Do not expose provider secrets or raw IPC functions through the plugin library.
++- Avoid shell interpolation and redact credentials from errors and logs.
++- Reject cluster, context, or user collisions that would redirect preserved
++  kubeconfig entries.
++- Collision-check every file in the `KUBECONFIG` search path, even when only
++  the first file is selected as the writable destination.
++- Preserve the existing kubeconfig on failures before atomic replacement. A
++  post-replacement POSIX directory-sync failure is logged as a durability
++  warning while the visible replacement remains successful.
++- Enforce owner-only permissions for temporary and destination credentials.
+diff --git a/docs/development/plugins/index.md b/docs/development/plugins/index.md
+index 928a33f31..b934819b9 100644
+--- a/docs/development/plugins/index.md
++++ b/docs/development/plugins/index.md
+@@ -38,6 +38,10 @@ Learn the development workflow, production builds, and deployment strategies.
+ 
+ Configure product-owned command grants for verified plugins.
+ 
++### [Desktop Cluster Registration Providers](./cluster-registration-providers.md)
++
++Add capability-protected native credential providers for desktop products.
++
+ ### 📖 [Common Patterns](./common-patterns.md)
+ 
+ Ready-to-use examples for typical plugin scenarios like dashboards, resource extensions, and external integrations.
+diff --git a/frontend/src/plugin/clusterRegistration.test.ts b/frontend/src/plugin/clusterRegistration.test.ts
+new file mode 100644
+index 000000000..b86c432d0
+--- /dev/null
++++ b/frontend/src/plugin/clusterRegistration.test.ts
+@@ -0,0 +1,51 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { describe, expect, it, vi } from 'vitest';
++import { getClusterRegistrationArgValues } from './clusterRegistration';
++
++describe('cluster registration capability', () => {
++  it('injects a capability-bound registration function only for the trusted plugin', async () => {
++    const invoke = vi.fn().mockResolvedValue({ success: true, message: 'registered' });
++    const [names, values] = getClusterRegistrationArgValues(['azure'], invoke, 'a'.repeat(64));
++
++    expect(names).toEqual(['registerCluster']);
++    await expect(
++      (values[0] as Function)('azure', {
++        subscriptionId: 'subscription',
++        resourceGroup: 'resource-group',
++        clusterName: 'cluster',
++        isAzureRBACEnabled: false,
++      })
++    ).resolves.toEqual({ success: true, message: 'registered' });
++    expect(invoke).toHaveBeenCalledWith(
++      'azure',
++      {
++        subscriptionId: 'subscription',
++        resourceGroup: 'resource-group',
++        clusterName: 'cluster',
++        isAzureRBACEnabled: false,
++      },
++      'a'.repeat(64)
++    );
++    await expect((values[0] as Function)('gke', {})).resolves.toEqual({
++      success: false,
++      message: "Cluster registration provider 'gke' is not authorized for this plugin.",
++    });
++    expect(invoke).toHaveBeenCalledTimes(1);
++    expect(getClusterRegistrationArgValues([], invoke, 'a'.repeat(64))).toEqual([[], []]);
++  });
++});
+diff --git a/frontend/src/plugin/clusterRegistration.ts b/frontend/src/plugin/clusterRegistration.ts
+new file mode 100644
+index 000000000..59c4c0bc5
+--- /dev/null
++++ b/frontend/src/plugin/clusterRegistration.ts
+@@ -0,0 +1,83 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++/** Result returned by native cluster registration. */
++export interface ClusterRegistrationResult {
++  /** Whether native registration updated the destination kubeconfig. */
++  success: boolean;
++  /** User-facing success or failure detail. */
++  message: string;
++}
++
++/**
++ * Native cluster-registration function injected into an authorized provider plugin.
++ *
++ * @param provider - Stable native provider ID.
++ * @param options - Provider-defined options validated by the native provider.
++ * @returns Native registration result.
++ */
++export type RegisterCluster = (
++  provider: string,
++  options: unknown
++) => Promise<ClusterRegistrationResult>;
++
++/**
++ * Preload bridge that additionally requires Electron's private capability secret.
++ *
++ * @param provider - Stable native provider ID.
++ * @param options - Provider-defined options validated by the native provider.
++ * @param capabilitySecret - Opaque Electron-issued registration capability.
++ * @returns Native registration result.
++ */
++export type DesktopRegisterCluster = (
++  provider: string,
++  options: unknown,
++  capabilitySecret: string
++) => Promise<ClusterRegistrationResult>;
++
++/**
++ * Builds lexical arguments for product-authorized provider plugin execution.
++ *
++ * @param allowedProviders - Provider IDs authorized for the current attested plugin.
++ * @param desktopRegisterCluster - Private preload bridge captured before plugins execute.
++ * @param capabilitySecret - Electron-generated bearer capability.
++ * @returns Matching argument names and values, or empty arrays when authorization is unavailable.
++ */
++export function getClusterRegistrationArgValues(
++  allowedProviders: readonly string[],
++  desktopRegisterCluster: DesktopRegisterCluster | undefined,
++  capabilitySecret: string | undefined
++): [string[], unknown[]] {
++  if (
++    allowedProviders.length === 0 ||
++    !desktopRegisterCluster ||
++    typeof capabilitySecret !== 'string' ||
++    !/^[0-9a-f]{64}$/.test(capabilitySecret)
++  ) {
++    return [[], []];
++  }
++
++  const registerCluster: RegisterCluster = (provider, options) => {
++    if (!allowedProviders.includes(provider)) {
++      return Promise.resolve({
++        success: false,
++        message: `Cluster registration provider '${provider}' is not authorized for this plugin.`,
++      });
++    }
++    return desktopRegisterCluster(provider, options, capabilitySecret);
++  };
++  return [['registerCluster'], [registerCluster]];
++}
+diff --git a/frontend/src/plugin/commandCapabilities.test.ts b/frontend/src/plugin/commandCapabilities.test.ts
+index 3b3ac2afc..7557eb4e0 100644
+--- a/frontend/src/plugin/commandCapabilities.test.ts
++++ b/frontend/src/plugin/commandCapabilities.test.ts
+@@ -20,6 +20,7 @@ import {
+   commandCapabilityRegistration,
+   createPluginRunCommand,
+   findCommandCapability,
++  getPluginClusterRegistrationArgValues,
+   pluginSourceDigest,
+   preparePluginCommandCapabilities,
+ } from './commandCapabilities';
+@@ -72,12 +73,14 @@ describe('findCommandCapability', () => {
+     {
+       bundleName: 'example-plugin',
+       packageName: '@example/plugin',
+-      capability: 'secret',
++      source: 'shipped' as const,
++      capability: 'a'.repeat(64),
++      clusterRegistrationProviders: ['example'],
+     },
+   ];
+ 
+   it('matches both package and bundle identity', () => {
+-    expect(findCommandCapability(capabilities, plugin)).toBe('secret');
++    expect(findCommandCapability(capabilities, plugin)).toBe('a'.repeat(64));
+   });
+ 
+   it('does not match a spoofed package or bundle', () => {
+@@ -88,6 +91,21 @@ describe('findCommandCapability', () => {
+       findCommandCapability(capabilities, { ...plugin, folderName: 'attacker' })
+     ).toBeUndefined();
+   });
++
++  it('withholds registration from a same-identity plugin in another inventory', () => {
++    const bridge = vi.fn();
++    expect(getPluginClusterRegistrationArgValues(capabilities, plugin, bridge)).toEqual([
++      ['registerCluster'],
++      [expect.any(Function)],
++    ]);
++    expect(
++      getPluginClusterRegistrationArgValues(
++        capabilities,
++        { ...plugin, source: 'user', type: 'user' },
++        bridge
++      )
++    ).toEqual([[], []]);
++  });
+ });
+ 
+ describe('preparePluginCommandCapabilities', () => {
+@@ -108,7 +126,13 @@ describe('preparePluginCommandCapabilities', () => {
+ 
+   it('registers source-bound claims through the Electron bridge', async () => {
+     const capabilities = [
+-      { bundleName: 'example-plugin', packageName: '@example/plugin', capability: 'secret' },
++      {
++        bundleName: 'example-plugin',
++        packageName: '@example/plugin',
++        source: 'shipped',
++        capability: 'secret',
++        clusterRegistrationProviders: ['example'],
++      },
+     ];
+     const bridge = { register: vi.fn().mockResolvedValue(capabilities) };
+ 
+diff --git a/frontend/src/plugin/commandCapabilities.ts b/frontend/src/plugin/commandCapabilities.ts
+index c7e080d79..2211247cc 100644
+--- a/frontend/src/plugin/commandCapabilities.ts
++++ b/frontend/src/plugin/commandCapabilities.ts
+@@ -15,6 +15,7 @@
+  */
+ 
+ import { PluginRunCommand, runCommand } from '../components/App/runCommand';
++import { DesktopRegisterCluster, getClusterRegistrationArgValues } from './clusterRegistration';
+ import { PluginInfo } from './pluginsSlice';
+ 
+ // Keep these IPC contract interfaces in sync with app/electron/runCmd.ts.
+@@ -65,7 +66,9 @@ export interface PluginCommandRegistration {
+  * const commandCapability: PluginCommandCapability = {
+  *   bundleName: 'example-plugin',
+  *   packageName: '@example/plugin',
++ *   source: 'shipped',
+  *   capability: '4f8c2a917bd03e65a1c94f286e5b70d39ac214ef53d8b607c1e49a728f306db5',
++ *   clusterRegistrationProviders: [],
+  * };
+  * ```
+  */
+@@ -74,8 +77,12 @@ export interface PluginCommandCapability {
+   bundleName: string;
+   /** Package identity bound to the capability. */
+   packageName: string;
++  /** Verified plugin inventory bound to the capability. */
++  source: NonNullable<PluginInfo['source']>;
+   /** Opaque authorization token. */
+   capability: string;
++  /** Provider IDs this exact plugin identity may invoke. */
++  clusterRegistrationProviders: string[];
+ }
+ 
+ interface PluginCommandCapabilitiesBridge {
+@@ -153,15 +160,49 @@ export function findCommandCapability(
+   capabilities: PluginCommandCapability[],
+   plugin: PluginInfo
+ ): string | undefined {
+-  if (!plugin.folderName) {
+-    return undefined;
+-  }
+-  for (const capability of capabilities) {
+-    if (capability.bundleName === plugin.folderName && capability.packageName === plugin.name) {
+-      return capability.capability;
+-    }
+-  }
+-  return undefined;
++  return findPluginCapability(capabilities, plugin)?.capability;
++}
++
++/**
++ * Finds provider grants and bearer capability for one exact plugin identity.
++ *
++ * @param capabilities - Capabilities returned by Electron's main process.
++ * @param plugin - Plugin package and inventory metadata.
++ * @returns Matching capability, or undefined when no product grant exists.
++ */
++export function findPluginCapability(
++  capabilities: PluginCommandCapability[],
++  plugin: PluginInfo
++): PluginCommandCapability | undefined {
++  if (!plugin.folderName) return undefined;
++  return capabilities.find(
++    capability =>
++      capability.bundleName === plugin.folderName &&
++      capability.packageName === plugin.name &&
++      capability.source === plugin.source
++  );
++}
++
++/**
++ * Builds registration arguments only for a capability matching the plugin's exact inventory.
++ *
++ * @param capabilities - Capabilities returned by Electron's main process.
++ * @param plugin - Plugin package and inventory metadata being executed.
++ * @param desktopRegisterCluster - Private preload bridge captured before plugin execution.
++ * @returns Registration argument names and values, or empty arrays without an exact grant.
++ */
++export function getPluginClusterRegistrationArgValues(
++  capabilities: PluginCommandCapability[],
++  plugin: PluginInfo,
++  desktopRegisterCluster: DesktopRegisterCluster | undefined
++): [string[], unknown[]] {
++  const capability = findPluginCapability(capabilities, plugin);
++  if (!capability) return [[], []];
++  return getClusterRegistrationArgValues(
++    capability.clusterRegistrationProviders,
++    desktopRegisterCluster,
++    capability.capability
++  );
+ }
+ 
+ /**
+diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
+index be44ef701..4fee35e32 100644
+--- a/frontend/src/plugin/index.ts
++++ b/frontend/src/plugin/index.ts
+@@ -57,6 +57,7 @@ import { getClusterProxyArgValues, isTrustedClusterProxyPlugin } from './cluster
+ import {
+   createPluginRunCommand,
+   findCommandCapability,
++  getPluginClusterRegistrationArgValues,
+   PluginCommandCapability,
+   preparePluginCommandCapabilities,
+ } from './commandCapabilities';
+@@ -568,7 +569,6 @@ export async function fetchAndExecutePlugins(
+     typeof permissionSecrets.startClusterProxy === 'string'
+       ? permissionSecrets.startClusterProxy
+       : undefined;
+-
+   // Update settings to include all plugin versions (by name + type)
+   let updatedSettingsPackages = updateSettingsPackages(packageInfos, settingsPackages);
+ 
+@@ -666,6 +666,7 @@ export async function fetchAndExecutePlugins(
+   const pluginDesktopApiSend = window?.desktopApi?.send;
+   const pluginDesktopApiReceive = window?.desktopApi?.receive;
+   const pluginStartClusterProxy = window?.desktopApi?.startClusterProxy;
++  const pluginRegisterCluster = window?.desktopApi?.registerCluster;
+   const internalRunCommand = runCommand;
+   const PrivateFunction = Function;
+   const internalRunPlugin = runPlugin;
+@@ -740,7 +741,6 @@ export async function fetchAndExecutePlugins(
+             argumentNames.push('pluginRunCommand', 'pluginPath');
+             argumentValues.push(productRunCommand, pluginPath);
+           }
+-
+           if (isPackage['aks-desktop']) {
+             const [proxyArgs, proxyValues] = getClusterProxyArgValues(
+               isTrustedAksDesktop,
+@@ -750,6 +750,13 @@ export async function fetchAndExecutePlugins(
+             argumentNames.push(...proxyArgs);
+             argumentValues.push(...proxyValues);
+           }
++          const [registrationArgs, registrationValues] = getPluginClusterRegistrationArgValues(
++            commandCapabilities,
++            packageInfosToExecute[index],
++            pluginRegisterCluster
++          );
++          argumentNames.push(...registrationArgs);
++          argumentValues.push(...registrationValues);
+           const storageNamespace = secureStorageNamespaces[index];
+           const storageCapability = storageNamespace
+             ? secureStorageCapabilities[storageNamespace]
+diff --git a/frontend/src/plugin/runPlugin.test.ts b/frontend/src/plugin/runPlugin.test.ts
+index 0fc11437a..208bc9572 100644
+--- a/frontend/src/plugin/runPlugin.test.ts
++++ b/frontend/src/plugin/runPlugin.test.ts
+@@ -935,6 +935,7 @@ describe('identifyPackages', () => {
+     expect(identifyPackages(pluginPath, 'aks-desktop', false)).toEqual({
+       '@headlamp-k8s/minikube': false,
+       '@headlamp-k8s/ai-assistant': false,
++      'azure-aks': false,
+       'aks-desktop': true,
+     });
+   });
+@@ -948,6 +949,21 @@ describe('identifyPackages', () => {
+   test('does not treat azure-aks as the AKS Desktop plugin identity', () => {
+     expect(identifyPackages('plugins/azure-aks', 'azure-aks', false)['aks-desktop']).toBe(false);
+   });
++
++  test.each([
++    'plugins/aks-desktop',
++    'static-plugins/aks-desktop',
++    'user-plugins/aks-desktop',
++    'plugins\\aks-desktop',
++  ])('should identify the AKS Desktop provider plugin at %s', pluginPath => {
++    expect(identifyPackages(pluginPath, 'aks-desktop', false)['aks-desktop']).toBe(true);
++  });
++
++  test('should not identify AKS Desktop when its package name does not match', () => {
++    expect(
++      identifyPackages('static-plugins/aks-desktop', 'other-plugin', false)['aks-desktop']
++    ).toBe(false);
++  });
+ });
+ 
+ describe('adjustSourceMapOffsetForFunction', () => {
+diff --git a/frontend/src/plugin/runPlugin.ts b/frontend/src/plugin/runPlugin.ts
+index 2ae1a7d5d..a0dd67a6d 100644
+--- a/frontend/src/plugin/runPlugin.ts
++++ b/frontend/src/plugin/runPlugin.ts
+@@ -296,6 +296,7 @@ export function identifyPackages(
+       'user-plugins/headlamp_ai_assistantprerelease',
+       'static-plugins/headlamp_ai_assistantprerelease',
+     ],
++    'azure-aks': ['plugins/azure-aks', 'static-plugins/azure-aks', 'user-plugins/azure-aks'],
+     'aks-desktop': [
+       'plugins/aks-desktop',
+       'static-plugins/aks-desktop',
+@@ -317,6 +318,7 @@ export function identifyPackages(
+       '@headlamp-k8s/ai-assistant',
+       '@headlamp-k8s/ai-assistantprerelease',
+     ],
++    'azure-aks': ['azure-aks'],
+     'aks-desktop': ['aks-desktop'],
+   };
+   const isPackage: Record<string, boolean> = {};
