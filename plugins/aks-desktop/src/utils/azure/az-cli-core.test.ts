@@ -78,7 +78,12 @@ describe('command helpers', () => {
     expect(isAzError('ERROR: command failed')).toBe(true);
     expect(isAzError('WARNING: retrying')).toBe(false);
     expect(isCliNotFoundError('az: command not found')).toBe(true);
+    expect(isCliNotFoundError('Command execution error: spawn az ENOENT')).toBe(true);
+    expect(
+      isCliNotFoundError("'az.cmd' is not recognized as an internal or external command")
+    ).toBe(true);
     expect(isCliNotFoundError('Azure CLI (az) command not found')).toBe(true);
+    expect(isCliNotFoundError("ERROR: Resource group 'missing' was not found.")).toBe(false);
     expect(isCliNotFoundError('bridge disconnected')).toBe(false);
   });
 
