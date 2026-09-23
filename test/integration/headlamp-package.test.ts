@@ -151,6 +151,62 @@ test('the Headlamp loader gates development plugins through the hardened preload
   );
 });
 
+test('the patched Headlamp source exposes provider-scoped cluster registration', () => {
+  const preload = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'app', 'electron', 'preload.ts'),
+    'utf8'
+  );
+  const main = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'app', 'electron', 'main.ts'),
+    'utf8'
+  );
+  const registration = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'app', 'electron', 'cluster-registration.ts'),
+    'utf8'
+  );
+  const pluginLoader = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'frontend', 'src', 'plugin', 'index.ts'),
+    'utf8'
+  );
+  const commandCapabilities = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'frontend', 'src', 'plugin', 'commandCapabilities.ts'),
+    'utf8'
+  );
+  const registrationE2E = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'app', 'e2e-tests', 'tests', 'clusterRegistration.spec.ts'),
+    'utf8'
+  );
+  const appWorkflow = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, '.github', 'workflows', 'app.yml'),
+    'utf8'
+  );
+
+  assert.match(preload, /registerCluster:[\s\S]*?ipcRenderer\.invoke\('register-cluster'/);
+  assert.match(main, /setupClusterRegistrationHandler\(/);
+  assert.match(registration, /ipcMain\.handle\([\s\S]*?'register-cluster'/);
+  assert.match(registration, /export interface ClusterRegistrationProvider/);
+  assert.match(registration, /export async function registerCluster\(/);
+  assert.match(pluginLoader, /getPluginClusterRegistrationArgValues\(/);
+  assert.match(commandCapabilities, /capability\.source === plugin\.source/);
+  assert.match(registrationE2E, /commandCapabilities\.register/);
+  assert.match(registrationE2E, /failed integrity verification/);
+  assert.match(registrationE2E, /persists provider credentials/);
+  assert.match(appWorkflow, /tests\/clusterRegistration\.spec\.ts/);
+  const policies = rootManifest.headlamp.runCommands.filter(
+    policy => policy.plugins?.some(plugin => plugin.packageName === 'aks-desktop')
+  );
+  assert.ok(policies.length >= 2);
+  assert.ok(
+    policies.every(policy =>
+      policy.clusterRegistrationProviders?.some(provider => provider.id === 'azure')
+    )
+  );
+  assert.deepEqual(
+    new Set(rootManifest.headlamp.build.externalTools.map(tool => tool.id)),
+    new Set(['az', 'az-kubelogin', 'az-python'])
+  );
+});
+
 test('source builds use explicit, reviewed install scripts', () => {
   for (const lifecycle of ['preinstall', 'install', 'postinstall']) {
     assert.equal(packageManifest.scripts[lifecycle], undefined);

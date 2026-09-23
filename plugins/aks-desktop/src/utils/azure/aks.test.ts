@@ -34,6 +34,31 @@ import {
 } from './aks';
 
 const desktopRegisterAKSCluster = vi.fn();
+const registerClusterCapability = vi.fn(
+  (
+    provider: string,
+    options: {
+      subscriptionId: string;
+      resourceGroup: string;
+      clusterName: string;
+      isAzureRBACEnabled: boolean;
+      managedNamespace?: string;
+      clusterType?: 'aks' | 'aksarc';
+    }
+  ) => {
+    if (provider !== 'azure') {
+      return Promise.resolve({ success: false, message: 'unsupported provider' });
+    }
+    return desktopRegisterAKSCluster(
+      options.subscriptionId,
+      options.resourceGroup,
+      options.clusterName,
+      options.isAzureRBACEnabled,
+      options.managedNamespace,
+      options.clusterType
+    );
+  }
+);
 const successResult = { success: true, message: 'registered' };
 
 describe('Azure AKS utilities', () => {
@@ -42,9 +67,7 @@ describe('Azure AKS utilities', () => {
     mocks.getClusterSettings.mockReturnValue({ allowedNamespaces: ['existing'] });
     mocks.getConnectedClusters.mockResolvedValue([]);
     mocks.isExtensionInstalled.mockResolvedValue({ installed: true });
-    (window as any).desktopApi = {
-      registerAKSCluster: desktopRegisterAKSCluster,
-    };
+    vi.stubGlobal('registerCluster', registerClusterCapability);
     vi.spyOn(console, 'debug').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -53,7 +76,7 @@ describe('Azure AKS utilities', () => {
   afterEach(() => {
     reconcileRegisteredClusterNames(desktopRegisterAKSCluster.mock.calls.map(call => call[2]));
     reconcileRegisteredClusterNames([]);
-    delete (window as any).desktopApi;
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -260,14 +283,14 @@ describe('Azure AKS utilities', () => {
 
     await registerAKSCluster('sub-1', 'rg-1', 'cluster-1', 'namespace-1');
 
-    expect(desktopRegisterAKSCluster).toHaveBeenCalledWith(
-      'sub-1',
-      'rg-1',
-      'cluster-1',
-      false,
-      'namespace-1',
-      'aks'
-    );
+    expect(registerClusterCapability).toHaveBeenCalledWith('azure', {
+      subscriptionId: 'sub-1',
+      resourceGroup: 'rg-1',
+      clusterName: 'cluster-1',
+      isAzureRBACEnabled: false,
+      managedNamespace: 'namespace-1',
+      clusterType: 'aks',
+    });
     expect(mocks.setClusterSettings).toHaveBeenCalledWith('cluster-1', {
       allowedNamespaces: ['existing'],
       azureRegistration: {
@@ -319,7 +342,7 @@ describe('Azure AKS utilities', () => {
   });
 
   test('reports when the desktop registration API is unavailable', async () => {
-    delete (window as any).desktopApi;
+    vi.stubGlobal('registerCluster', undefined);
 
     await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
       success: false,
