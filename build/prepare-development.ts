@@ -8,7 +8,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { dependencyTargetFromEnvironment, dependencyTargetMatches } from './dependency-target';
-import { azureCliCacheIdentity, resolveAzureCliTarget } from './azure-cli-config';
+import {
+  azureCliCacheIdentity,
+  azureCliRuntimeFilesExist,
+  resolveAzureCliTarget,
+} from './azure-cli-config';
 
 const { npmInvocation, spawnSync } = require('../packages/headlamp-source/src/lib/npm-command.ts');
 const { resolveInstalledHeadlampPaths } = require('../packages/headlamp-source/src/lib/paths.ts');
@@ -74,15 +78,6 @@ function requiredDevelopmentOutputsExist(rootDir: string): boolean {
 
   const target = resolveAzureCliTarget(rootDir, process.platform, process.arch);
   const azCliDir = path.join(appDir, 'resources', 'external-tools', 'az-cli', process.platform);
-  const azWrapper = path.join(
-    azCliDir,
-    'bin',
-    process.platform === 'win32' ? 'az.cmd' : 'az-wrapper'
-  );
-  const python =
-    process.platform === 'win32'
-      ? path.join(azCliDir, 'python.exe')
-      : path.join(azCliDir, 'python', 'bin', 'python3');
   let stagedTarget: unknown;
   try {
     stagedTarget = JSON.parse(fs.readFileSync(path.join(azCliDir, '.target.json'), 'utf8'));
@@ -93,8 +88,7 @@ function requiredDevelopmentOutputsExist(rootDir: string): boolean {
   return (
     fs.existsSync(path.join(appDir, manifest)) &&
     fs.existsSync(path.join(sourceDir, 'frontend', '.env.local')) &&
-    fs.existsSync(azWrapper) &&
-    fs.existsSync(python) &&
+    azureCliRuntimeFilesExist(azCliDir, process.platform) &&
     JSON.stringify(stagedTarget) === JSON.stringify(azureCliCacheIdentity(target)) &&
     plugins.every(
       (plugin: { name?: unknown }) =>
