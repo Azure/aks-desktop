@@ -160,6 +160,15 @@ export function azureCliCacheKey(target: AzureCliTarget): string {
     .digest('hex');
 }
 
+/** Checks that every executable entry point required by a staged Azure CLI exists. */
+export function azureCliRuntimeFilesExist(targetDir: string, platform: string): boolean {
+  const requiredPaths =
+    platform === 'win32'
+      ? ['bin/az.cmd', 'python.exe']
+      : ['bin/az-wrapper', 'bin/python-wrapper', 'python/bin/python3'];
+  return requiredPaths.every(relativePath => fs.existsSync(path.join(targetDir, relativePath)));
+}
+
 /** Checks the reported CLI and extension versions against the pinned target. */
 export function azureCliVersionDataMatchesTarget(
   target: AzureCliTarget,

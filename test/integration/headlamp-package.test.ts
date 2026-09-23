@@ -205,6 +205,17 @@ test('the patched Headlamp source exposes provider-scoped cluster registration',
     new Set(rootManifest.headlamp.build.externalTools.map(tool => tool.id)),
     new Set(['az', 'az-kubelogin', 'az-python'])
   );
+  const pythonTool = rootManifest.headlamp.build.externalTools.find(
+    tool => tool.id === 'az-python'
+  );
+  assert.equal(
+    pythonTool.platforms.darwin.path,
+    'external-tools/az-cli/darwin/bin/python-wrapper'
+  );
+  assert.equal(
+    pythonTool.platforms.linux.path,
+    'external-tools/az-cli/linux/python/bin/python3'
+  );
 });
 
 test('source builds use explicit, reviewed install scripts', () => {
