@@ -23,6 +23,14 @@ const expected = {
   version: '0.9.0',
 };
 
+test('allows the bundled plugin catalog to query Artifact Hub', () => {
+  const project = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+
+  assert.deepEqual(project.headlamp?.['proxy-urls'], [
+    'https://artifacthub.io/api/v1/packages/*',
+  ]);
+});
+
 for (const platform of ['linux', 'darwin', 'win32']) {
   test(`bundled-tool verification checks the generated ${platform} identity`, () => {
     const filename = path.join(__dirname, 'verify-bundled-tools.ts');

@@ -164,6 +164,9 @@
   },
   "headlamp": {
     "commandEnvironment": "external-tools/aks-tool-environment.cjs",
+    "proxy-urls": [
+      "https://artifacthub.io/api/v1/packages/*"
+    ],
     "product": {
       "name": "aks-desktop",
       "productName": "AKS desktop",
