@@ -265,7 +265,7 @@ index f08c19eb4af4e87cda5f0439d7903772c0da3dfa..1ef923d8d2de2e25547d2dcfcee05d2b
    ],
    "legalDocuments": [
 diff --git a/source/app/app-build-manifest.schema.json b/source/app/app-build-manifest.schema.json
-index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..cdb6aa9a4cab07033e83c6f63946125d12d390a5 100644
+index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..8bfb0ec973e5cc6f1aa32ed38515416fd780744a 100644
 --- a/source/app/app-build-manifest.schema.json
 +++ b/source/app/app-build-manifest.schema.json
 @@ -26,6 +26,11 @@
@@ -280,7 +280,27 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..cdb6aa9a4cab07033e83c6f63946125d
      "commandSets": {
        "type": "object",
        "description": "Reusable named command grant arrays. A runCommands policy composes one or more with commandSets instead of repeating commands.",
-@@ -159,6 +164,13 @@
+@@ -39,6 +44,10 @@
+       "properties": {
+         "name": { "type": "string" },
+         "productName": { "type": "string" },
++        "companyName": {
++          "type": "string",
++          "description": "Company attribution used for Windows and macOS metadata and the Linux vendor field."
++        },
+         "version": { "type": "string" },
+         "appId": { "type": "string" },
+         "artifactName": { "type": "string" },
+@@ -87,7 +96,7 @@
+       "type": "object",
+       "description": "Electron Builder metadata overrides selected per platform.",
+       "properties": {
+-        "linux": { "$ref": "#/definitions/platformMetadata" },
++        "linux": { "$ref": "#/definitions/linuxPlatformMetadata" },
+         "mac": { "$ref": "#/definitions/platformMetadata" },
+         "win": { "$ref": "#/definitions/platformMetadata" }
+       },
+@@ -159,6 +168,13 @@
            "maxItems": 64,
            "items": { "$ref": "#/definitions/pluginIdentity" }
          },
@@ -294,7 +314,7 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..cdb6aa9a4cab07033e83c6f63946125d
          "pluginExecutables": {
            "type": "array",
            "description": "Tools supplied by these plugin bundles at the derived path bin/<tool> instead of resolved on the sanitized system PATH.",
-@@ -185,6 +197,14 @@
+@@ -185,6 +201,14 @@
        "required": ["environment", "pluginLocation", "plugins"],
        "oneOf": [{ "required": ["commands"] }, { "required": ["commandSets"] }],
        "allOf": [
@@ -309,7 +329,7 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..cdb6aa9a4cab07033e83c6f63946125d
          {
            "if": {
              "properties": {
-@@ -206,6 +226,26 @@
+@@ -206,6 +230,26 @@
        ],
        "additionalProperties": false
      },
@@ -336,6 +356,29 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..cdb6aa9a4cab07033e83c6f63946125d
      "pluginExecutable": {
        "type": "object",
        "description": "A plugin-owned native executable at the derived path bin/<tool>, confined to the verified bundle and integrity-checked before production execution.",
+@@ -384,6 +428,22 @@
+       },
+       "additionalProperties": false
+     },
++    "linuxPlatformMetadata": {
++      "type": "object",
++      "properties": {
++        "appId": { "type": "string" },
++        "bundleShortVersion": { "type": "string" },
++        "bundleVersion": { "type": "string" },
++        "executableName": { "type": "string" },
++        "icon": { "type": "string" },
++        "artifactName": { "type": "string" },
++        "maintainer": {
++          "type": "string",
++          "description": "Linux package maintainer including a contact address, for example Example Company <support@example.com>."
++        }
++      },
++      "additionalProperties": false
++    },
+     "verification": {
+       "type": "object",
+       "properties": {
 diff --git a/source/app/e2e-tests/README.md b/source/app/e2e-tests/README.md
 index 115b0347e820a4f9c49ca9160200fab4c6d9a156..570b4e9795d88c8739c4629759e6b796fac0fa4a 100644
 --- a/source/app/e2e-tests/README.md
@@ -576,10 +619,44 @@ index b6ba6a59d5d3fb7bef663a11899c65dfde6abc7c..63279a8d1c0c598f24ee3c7a5b0ff8bb
              // Preserve every resource except the default manifest entry.
              if (
 diff --git a/source/app/electron/build-manifest.test.ts b/source/app/electron/build-manifest.test.ts
-index 11b5f6cae639b95a840bfd82f1809c6271951e51..862fea607873e492c2e6fc8756abf5b06ede020f 100644
+index 11b5f6cae639b95a840bfd82f1809c6271951e51..ba77dd87648686f26fb6e78ef05c5bd2cf597d40 100644
 --- a/source/app/electron/build-manifest.test.ts
 +++ b/source/app/electron/build-manifest.test.ts
-@@ -412,6 +412,13 @@ describe('platform metadata', () => {
+@@ -392,6 +392,33 @@ describe('platform metadata', () => {
+     ).toThrow('Unsupported build manifest platforms.mac.hardenedRuntime');
+   });
+ 
++  it('supports Linux maintainer metadata only on Linux', () => {
++    const schema = JSON.parse(
++      fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
++    );
++    const validate = addFormats(new Ajv()).compile(schema);
++    const maintainer = 'Example Company <support@example.com>';
++
++    expect(
++      applyPlatformMetadata(
++        {},
++        {
++          platforms: { linux: { maintainer } },
++        }
++      )
++    ).toEqual({ linux: { maintainer } });
++    expect(validate({ platforms: { linux: { maintainer } } })).toBe(true);
++    expect(() =>
++      applyPlatformMetadata(
++        {},
++        {
++          platforms: { mac: { maintainer } },
++        }
++      )
++    ).toThrow('Unsupported build manifest platforms.mac.maintainer');
++    expect(validate({ platforms: { mac: { maintainer } } })).toBe(false);
++  });
++
+   it('rejects non-string allowed settings', () => {
+     expect(() =>
+       applyPlatformMetadata({}, { platforms: { win: { artifactName: false } } })
+@@ -412,6 +439,13 @@ describe('platform metadata', () => {
      });
      expect(config.mac).toMatchObject({ appId: 'io.example.headlamp' });
      expect(config.win).toMatchObject({ icon: 'build/icons/example.ico' });
@@ -593,7 +670,84 @@ index 11b5f6cae639b95a840bfd82f1809c6271951e51..862fea607873e492c2e6fc8756abf5b0
    });
  });
  
-@@ -851,6 +858,39 @@ describe('build manifest selection', () => {
+@@ -437,6 +471,11 @@ describe('product metadata', () => {
+       appId: 'io.headlamp',
+       productName: 'Headlamp',
+       category: 'Network',
++      linux: {
++        category: 'Network',
++        maintainer: 'Kinvolk <hello@kinvolk.io>',
++        vendor: 'Kinvolk',
++      },
+       extraMetadata: { channel: 'stable' },
+     };
+ 
+@@ -444,6 +483,7 @@ describe('product metadata', () => {
+       applyProductMetadata(defaults, {
+         product: {
+           name: 'example-desktop',
++          companyName: 'Example Company',
+           productName: 'Example Desktop',
+           version: '1.2.3',
+           appId: 'io.example.desktop',
+@@ -455,12 +495,18 @@ describe('product metadata', () => {
+       appId: 'io.example.desktop',
+       productName: 'Example Desktop',
+       category: 'Network',
++      linux: {
++        category: 'Network',
++        maintainer: 'Kinvolk <hello@kinvolk.io>',
++        vendor: 'Example Company',
++      },
+       artifactName: '${name}-${version}.${ext}',
+       protocols: { name: 'example', schemes: ['example'] },
+       buildVersion: '1.2.3',
+       extraMetadata: {
+         channel: 'stable',
+         name: 'example-desktop',
++        author: { name: 'Example Company' },
+         productName: 'Example Desktop',
+         version: '1.2.3',
+       },
+@@ -469,11 +515,16 @@ describe('product metadata', () => {
+       appId: 'io.headlamp',
+       productName: 'Headlamp',
+       category: 'Network',
++      linux: {
++        category: 'Network',
++        maintainer: 'Kinvolk <hello@kinvolk.io>',
++        vendor: 'Kinvolk',
++      },
+       extraMetadata: { channel: 'stable' },
+     });
+   });
+ 
+-  it.each(['name', 'productName', 'version', 'appId', 'artifactName'])(
++  it.each(['name', 'companyName', 'productName', 'version', 'appId', 'artifactName'])(
+     'rejects a non-string product.%s',
+     field => {
+       expect(() => applyProductMetadata({}, { product: { [field]: 1 } })).toThrow(
+@@ -482,6 +533,19 @@ describe('product metadata', () => {
+     }
+   );
+ 
++  it('declares product company metadata in the build manifest schema', () => {
++    const schema = JSON.parse(
++      fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
++    );
++    const validate = addFormats(new Ajv()).compile(schema);
++
++    expect(schema.properties.product.properties.companyName).toMatchObject({
++      type: 'string',
++    });
++    expect(validate({ product: { companyName: 'Example Company' } })).toBe(true);
++    expect(validate({ product: { companyName: 1 } })).toBe(false);
++  });
++
+   it.each([null, [], 'example'])('rejects invalid product protocols: %j', protocols => {
+     expect(() => applyProductMetadata({}, { product: { protocols } })).toThrow(
+       'Build manifest product.protocols must be an object'
+@@ -851,6 +915,39 @@ describe('build manifest selection', () => {
      );
    });
  
@@ -633,7 +787,7 @@ index 11b5f6cae639b95a840bfd82f1809c6271951e51..862fea607873e492c2e6fc8756abf5b0
    it('requires schema command arguments to contain a non-whitespace character', () => {
      const schema = JSON.parse(
        fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
-@@ -864,6 +904,49 @@ describe('build manifest selection', () => {
+@@ -864,6 +961,49 @@ describe('build manifest selection', () => {
      expect(argumentPattern.test('list\0all')).toBe(false);
    });
  
@@ -4003,7 +4157,7 @@ index 9db1d9ea38fe826e26113c644a5d1cd82bb9faae..860ed4dab423b6c290a2fda006961205
 +  );
  };
 diff --git a/source/app/scripts/build-manifest.ts b/source/app/scripts/build-manifest.ts
-index 4e9e40f6c791a92cb9679b0abf4550c2d5e1c020..c3dfac25ef35a0f86e79f291cb921ffc66e66710 100644
+index 4e9e40f6c791a92cb9679b0abf4550c2d5e1c020..5b12b7ed8b11e2db878c7ae934968563aa918713 100644
 --- a/source/app/scripts/build-manifest.ts
 +++ b/source/app/scripts/build-manifest.ts
 @@ -30,6 +30,8 @@ type ManifestEnvironment = {
@@ -4082,6 +4236,99 @@ index 4e9e40f6c791a92cb9679b0abf4550c2d5e1c020..c3dfac25ef35a0f86e79f291cb921ffc
            ...(artifactHubPackage && {
              artifactHub: {
                repository: artifactHubPackage[1],
+@@ -672,6 +699,12 @@ export function applyProductMetadata<T extends object>(config: T, manifest: unkn
+     !Array.isArray(configRecord.extraMetadata)
+       ? configRecord.extraMetadata
+       : {};
++  const currentLinux =
++    configRecord.linux &&
++    typeof configRecord.linux === 'object' &&
++    !Array.isArray(configRecord.linux)
++      ? (configRecord.linux as Record<string, unknown>)
++      : {};
+ 
+   return {
+     ...config,
+@@ -680,9 +713,16 @@ export function applyProductMetadata<T extends object>(config: T, manifest: unkn
+     ...(metadata.artifactName && { artifactName: metadata.artifactName }),
+     ...(metadata.protocols && { protocols: metadata.protocols }),
+     ...(metadata.version && { buildVersion: metadata.version }),
++    ...(metadata.companyName && {
++      linux: {
++        ...currentLinux,
++        vendor: metadata.companyName,
++      },
++    }),
+     extraMetadata: {
+       ...currentExtraMetadata,
+       ...(metadata.name && { name: metadata.name }),
++      ...(metadata.companyName && { author: { name: metadata.companyName } }),
+       ...(metadata.productName && { productName: metadata.productName }),
+       ...(metadata.version && { version: metadata.version }),
+     },
+@@ -874,17 +914,22 @@ export function applyPlatformMetadata<T extends object>(config: T, manifest: unk
+     throw new Error('Build manifest platforms must be an object');
+   }
+ 
+-  const allowedFields = new Set([
++  const commonAllowedFields = [
+     'appId',
+     'bundleShortVersion',
+     'bundleVersion',
+     'executableName',
+     'icon',
+     'artifactName',
+-  ]);
++  ];
++  const allowedFields = {
++    linux: new Set([...commonAllowedFields, 'maintainer']),
++    mac: new Set(commonAllowedFields),
++    win: new Set(commonAllowedFields),
++  };
+   const configRecord = config as Record<string, unknown>;
+   const result: Record<string, unknown> = { ...configRecord };
+-  for (const platform of ['linux', 'mac', 'win']) {
++  for (const platform of ['linux', 'mac', 'win'] as const) {
+     const metadata = (platforms as Record<string, unknown>)[platform];
+     if (metadata === undefined) {
+       continue;
+@@ -893,7 +938,7 @@ export function applyPlatformMetadata<T extends object>(config: T, manifest: unk
+       throw new Error(`Build manifest platforms.${platform} must be an object`);
+     }
+     for (const [field, fieldValue] of Object.entries(metadata)) {
+-      if (!allowedFields.has(field)) {
++      if (!allowedFields[platform].has(field)) {
+         throw new Error(`Unsupported build manifest platforms.${platform}.${field}`);
+       }
+       if (typeof fieldValue !== 'string') {
+diff --git a/source/app/scripts/product-metadata.ts b/source/app/scripts/product-metadata.ts
+index 1674e3aa045bc9082e171ac788d52ba8dd035d24..3a7235a0b9e2803405daaa9bcc9f6ba7d51eea2e 100644
+--- a/source/app/scripts/product-metadata.ts
++++ b/source/app/scripts/product-metadata.ts
+@@ -17,6 +17,7 @@
+ /** Product identity fields consumed by Electron Builder and the app runtime. */
+ export type ProductMetadata = {
+   name?: string;
++  companyName?: string;
+   productName?: string;
+   version?: string;
+   appId?: string;
+@@ -45,7 +46,14 @@ export function readProductMetadata(manifest: unknown): ProductMetadata | undefi
+   }
+ 
+   const metadata = product as ProductMetadata;
+-  const scalarFields = ['name', 'productName', 'version', 'appId', 'artifactName'] as const;
++  const scalarFields = [
++    'name',
++    'companyName',
++    'productName',
++    'version',
++    'appId',
++    'artifactName',
++  ] as const;
+   for (const field of scalarFields) {
+     if (metadata[field] !== undefined && typeof metadata[field] !== 'string') {
+       throw new Error(`Build manifest product.${field} must be a string`);
 diff --git a/source/backend/cmd/headlamp_test.go b/source/backend/cmd/headlamp_test.go
 index 15a4f4af271aab02328b05d837de2bb854525fbb..89f4c4af492f9a88c31e515b6790a54de2927b3f 100644
 --- a/source/backend/cmd/headlamp_test.go
@@ -4372,10 +4619,48 @@ index 6fec43fd49dc7de94ec5091c780f19b50bf81e1b..47366b42925d015b57f529b7557c8b8f
  
  ▸ **registerCustomCreateProject**(`customCreateProject`): `void`
 diff --git a/source/docs/development/app.md b/source/docs/development/app.md
-index e8dce28b8f3cd77de057fee958921830325dec40..c19699db9682ea3b1ef0f06c38b0e7298c7223c1 100644
+index e8dce28b8f3cd77de057fee958921830325dec40..5e370511b28ca594e746973ee77bc26a141fdb4a 100644
 --- a/source/docs/development/app.md
 +++ b/source/docs/development/app.md
-@@ -245,6 +245,21 @@ The optional `platforms` array accepts `linux`, `mac`, and `win`. An entry witho
+@@ -144,8 +144,11 @@ source revision used to assemble the package:
+ | `HEADLAMP_SOURCE_COMMIT`  | Current Git revision or `unknown` | Source revision written to `REACT_APP_HEADLAMP_GIT_VERSION`. Set this when building from packaged source without its Git repository. |
+ 
+ The manifest's `product.productName` and `product.version` fields configure the
+-identity displayed by the frontend as well as the packaged desktop app. Missing
+-or empty fields retain the values from `app/package.json`.
++identity displayed by the frontend as well as the packaged desktop app.
++`product.companyName` configures the packaged app's Windows company metadata,
++macOS copyright attribution, and Linux vendor. Set `platforms.linux.maintainer`
++separately to a package contact in `Name <email>` form. Missing or empty fields
++retain the values from `app/package.json`.
+ 
+ For example:
+ 
+@@ -154,7 +157,13 @@ For example:
+   "product": {
+     "name": "example-desktop",
+     "productName": "Example Desktop",
++    "companyName": "Example Company",
+     "version": "1.2.3"
++  },
++  "platforms": {
++    "linux": {
++      "maintainer": "Example Company <support@example.com>"
++    }
+   }
+ }
+ ```
+@@ -188,7 +197,8 @@ docker buildx build \
+ The manifest must remain available throughout the frontend and app packaging
+ steps. An unreadable manifest, a non-object `product`, non-string
+ `productName`/`version` fields, or values containing newlines stop the frontend
+-build rather than silently using an inconsistent product identity. The frontend
++build rather than silently using an inconsistent product identity. Electron
++packaging additionally rejects a non-string `companyName`. The frontend
+ environment generator also rejects values containing both a single quote and a
+ backtick when they additionally contain either a double quote or a literal
+ backslash-`n`/backslash-`r` sequence, because no dotenv quote delimiter can
+@@ -245,6 +255,21 @@ The optional `platforms` array accepts `linux`, `mac`, and `win`. An entry witho
  is missing, escapes the resources directory, is a directory or symbolic link,
  or does not match its declared digest.
  

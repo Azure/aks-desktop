@@ -5,3 +5,4 @@
 7726 source 7726-headlamp-upstream-workload-log-cluster.patch
 7727 source 7727-headlamp-upstream-package-prepared.patch
 7731 source 7731-headlamp-upstream-electron-build-timings.patch
+7746 source 7746-headlamp-upstream-product-company-name.patch
