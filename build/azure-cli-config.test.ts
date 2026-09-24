@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import test from 'node:test';
 
 import {
+  azureCliRuntimeFilesExist,
   azureCliCacheIdentity,
   azureCliCacheKey,
   azureCliExtensionsToInstall,
@@ -22,7 +23,7 @@ import {
   windowsExtensionInstallArguments,
   windowsZipExtraction,
 } from './azure-cli-config';
-import { generateUnixAzWrapperScript } from './az-cli-config';
+import { generateUnixAzWrapperScript, generateUnixPythonWrapperScript } from './az-cli-config';
 
 test('passes Windows ZIP paths as literal environment values', () => {
   const archive = "C:\\O'Brien [build] & tools\\input.zip";
@@ -377,6 +378,53 @@ test('generates a relocatable self-contained Unix wrapper', () => {
   assert.match(wrapper, /AZURE_EXTENSION_DIR="\$CLI_DIR\/cliextensions"/);
   assert.match(wrapper, /exec "\$CLI_DIR\/libexec\/bin\/az" "\$@"/);
   assert.doesNotMatch(wrapper, /\/Users\//);
+});
+
+test('runs a relocatable Python wrapper through its sibling runtime', {
+  skip: process.platform === 'win32',
+}, t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aks python wrapper '));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const binDir = path.join(rootDir, 'bin');
+  const pythonDir = path.join(rootDir, 'python', 'bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.mkdirSync(pythonDir, { recursive: true });
+  const wrapperPath = path.join(binDir, 'python-wrapper');
+  fs.writeFileSync(wrapperPath, generateUnixPythonWrapperScript(), { mode: 0o755 });
+  fs.writeFileSync(path.join(pythonDir, 'python3'), '#!/bin/sh\nprintf "%s\\n" "$@"\n', {
+    mode: 0o755,
+  });
+
+  assert.equal(
+    execFileSync(wrapperPath, ['first value', 'second'], { encoding: 'utf8' }),
+    'first value\nsecond\n'
+  );
+});
+
+test('rejects a stale Unix cache without the Python wrapper', t => {
+  const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azure-cli-runtime-'));
+  t.after(() => fs.rmSync(targetDir, { recursive: true, force: true }));
+  for (const relativePath of ['bin/az-wrapper', 'python/bin/python3']) {
+    const filePath = path.join(targetDir, relativePath);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, 'fixture');
+  }
+
+  assert.equal(azureCliRuntimeFilesExist(targetDir, 'darwin'), false);
+  fs.writeFileSync(path.join(targetDir, 'bin', 'python-wrapper'), 'fixture');
+  assert.equal(azureCliRuntimeFilesExist(targetDir, 'darwin'), true);
+  assert.equal(azureCliRuntimeFilesExist(targetDir, 'linux'), true);
+});
+
+test('requires both Windows Azure CLI runtime entry points', t => {
+  const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azure-cli-runtime-'));
+  t.after(() => fs.rmSync(targetDir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(targetDir, 'bin'));
+  fs.writeFileSync(path.join(targetDir, 'bin', 'az.cmd'), 'fixture');
+
+  assert.equal(azureCliRuntimeFilesExist(targetDir, 'win32'), false);
+  fs.writeFileSync(path.join(targetDir, 'python.exe'), 'fixture');
+  assert.equal(azureCliRuntimeFilesExist(targetDir, 'win32'), true);
 });
 
 test('rejects an artifact whose checksum does not match', async () => {

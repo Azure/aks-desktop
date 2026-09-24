@@ -288,8 +288,8 @@
               "path": "external-tools/az-cli/linux/python/bin/python3"
             },
             "darwin": {
-              "file": "resources/external-tools/az-cli/darwin/python/bin/python3",
-              "path": "external-tools/az-cli/darwin/python/bin/python3"
+              "file": "resources/external-tools/az-cli/darwin/bin/python-wrapper",
+              "path": "external-tools/az-cli/darwin/bin/python-wrapper"
             },
             "win32": {
               "file": "resources/external-tools/az-cli/win32/python.exe",

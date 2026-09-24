@@ -25,6 +25,7 @@ import {
 } from './azure-cli-verification';
 import {
   generateUnixAzWrapperScript,
+  generateUnixPythonWrapperScript,
   UNIX_AZ_CLI_EXTENSIONS_DIRNAME,
   generateWindowsAzWrapperScript,
   WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME,
@@ -43,6 +44,7 @@ const { parseTargetArgs } = require('./build-target.ts');
 const {
   azureCliCacheIdentity,
   azureCliCacheKey,
+  azureCliRuntimeFilesExist,
   azureCliExtensionsToInstall,
   azureCliExtensionsToRemove,
   azureCliVersionDataMatchesTarget,
@@ -130,8 +132,7 @@ try {
   existingTarget = undefined;
 }
 if (
-  fs.existsSync(azWrapperPath) &&
-  (pythonPath === undefined || fs.existsSync(pythonPath)) &&
+  azureCliRuntimeFilesExist(TARGET_DIR, CURRENT_PLATFORM) &&
   JSON.stringify(existingTarget) === JSON.stringify(stagedTarget)
 ) {
   try {
@@ -792,7 +793,9 @@ async function installPrebuiltAzCliWithPython(platform: string): Promise<string[
 
   const binDir = path.join(TARGET_DIR, 'bin');
   const azWrapper = path.join(binDir, 'az-wrapper');
+  const pythonWrapper = path.join(binDir, 'python-wrapper');
   fs.writeFileSync(azWrapper, generateUnixAzWrapperScript(), { mode: 0o755 });
+  fs.writeFileSync(pythonWrapper, generateUnixPythonWrapperScript(), { mode: 0o755 });
   fs.rmSync(stockAz, { force: true });
   fs.symlinkSync('az-wrapper', stockAz);
   console.log(`✅ Prebuilt Azure CLI installed for ${platform}`);

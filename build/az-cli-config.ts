@@ -126,6 +126,16 @@ exec "$CLI_DIR/libexec/bin/az" "$@"
 `;
 }
 
+/** Generates a relocatable wrapper whose bytes remain stable when macOS signs Python. */
+export function generateUnixPythonWrapperScript(): string {
+  return `#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/../python/bin/python3" "$@"
+`;
+}
+
 /**
  * Generates the `bin/az.cmd` that replaces the zip's stock script. Microsoft's
  * prebuilt Windows CLI zip never sets AZURE_EXTENSION_DIR, so `az` falls back
