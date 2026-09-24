@@ -1,8 +1,14 @@
 diff --git a/source/.github/workflows/app.yml b/source/.github/workflows/app.yml
-index bff255472985f12bae8e9341e9cb7f757e03cc49..5ae6fdf9c7ab192a6b584249c0f8081165936c7b 100644
+index bff255472985f12bae8e9341e9cb7f757e03cc49..d01a827ecb4b0b62b3bb04d2fc207a9972102839 100644
 --- a/source/.github/workflows/app.yml
 +++ b/source/.github/workflows/app.yml
-@@ -64,8 +64,8 @@ jobs:
+@@ -59,13 +59,14 @@ jobs:
+     - name: App linux
+       run: |
+         make app-linux
++        make backend
+     - name: Install desktop e2e dependencies
+       run: |
          cd app/e2e-tests
          npm ci
          npx playwright install --with-deps chromium
@@ -13,7 +19,7 @@ index bff255472985f12bae8e9341e9cb7f757e03cc49..5ae6fdf9c7ab192a6b584249c0f80811
      - name: Test desktop OAuth callbacks
        run: xvfb-run --auto-servernum npm run app:test:e2e -- tests/oauthProvider.spec.ts tests/protocolScheme.spec.ts
      - name: Test external backend token
-@@ -122,13 +122,12 @@ jobs:
+@@ -122,13 +123,14 @@ jobs:
      - name: Run tsc type checker
        run: make app-tsc
      - name: App Windows ${{ matrix.arch }}
@@ -30,6 +36,8 @@ index bff255472985f12bae8e9341e9cb7f757e03cc49..5ae6fdf9c7ab192a6b584249c0f80811
 +    - name: Test desktop cluster registration
 +      if: matrix.arch == 'x64'
 +      run: npm run app:test:e2e -- tests/clusterRegistration.spec.ts
++    - name: Test external backend token
++      run: npm run app:test:e2e -- tests/externalBackendToken.spec.ts
      - name: Verify Windows build
        shell: pwsh
        run: npm run app:verify-build-windows
@@ -202,7 +210,7 @@ index 24d076ca6c3b5bc472c25454065399dc42242c3f..016f261e4e9c274b26f41814cdebc0fa
    test-headlamp-plugin:
      name: test headlamp-plugin
 diff --git a/source/Makefile b/source/Makefile
-index 6befd1bc7d3bfa5301d07a3aebe188ab7805fac3..8e972a74da1e8dec38e63d4fcc5f88b0eaa3e047 100644
+index 6befd1bc7d3bfa5301d07a3aebe188ab7805fac3..5f5f82fb2be2561f065042de778e12a73580ad41 100644
 --- a/source/Makefile
 +++ b/source/Makefile
 @@ -83,26 +83,28 @@ frontend/build:
@@ -257,6 +265,45 @@ index 6befd1bc7d3bfa5301d07a3aebe188ab7805fac3..8e972a74da1e8dec38e63d4fcc5f88b0
  
  .PHONY: frontend-build-storybook
  frontend-build-storybook:
+@@ -287,10 +289,10 @@ run-backend:
+ 	@echo "**** Warning: Running with Helm and dynamic-clusters endpoints enabled. ****"
+ 
+ ifeq ($(UNIXSHELL),true)
+-	HEADLAMP_BACKEND_TOKEN=headlamp HEADLAMP_CONFIG_ENABLE_HELM=true HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES=true ./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=localhost
++	HEADLAMP_BACKEND_TOKEN=headlamp HEADLAMP_CONFIG_ENABLE_HELM=true HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES=true ./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=127.0.0.1
+ else
+ 	@echo "**** Running on Windows without bash or zsh. ****"
+-	@cmd /c "set HEADLAMP_BACKEND_TOKEN=headlamp&& set HEADLAMP_CONFIG_ENABLE_HELM=true&& set HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true&& set HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES=true&& backend\headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=localhost"
++	@cmd /c "set HEADLAMP_BACKEND_TOKEN=headlamp&& set HEADLAMP_CONFIG_ENABLE_HELM=true&& set HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true&& set HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES=true&& backend\headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=127.0.0.1"
+ endif
+ 
+ run-dev:
+@@ -305,10 +307,10 @@ ifeq ($(UNIXSHELL),true)
+     HEADLAMP_CONFIG_ENABLE_HELM=true \
+     HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true \
+     HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES=true \
+-    ./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=localhost
++	./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=127.0.0.1
+ else
+ 	@echo "**** Running on Windows without bash or zsh. ****"
+-	@cmd /c "set HEADLAMP_BACKEND_TOKEN=headlamp&& set HEADLAMP_CONFIG_METRICS_ENABLED=true&& set HEADLAMP_CONFIG_ENABLE_HELM=true&& set HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true&& set HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES=true&& backend\headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=localhost"
++	@cmd /c "set HEADLAMP_BACKEND_TOKEN=headlamp&& set HEADLAMP_CONFIG_METRICS_ENABLED=true&& set HEADLAMP_CONFIG_ENABLE_HELM=true&& set HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true&& set HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES=true&& backend\headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=127.0.0.1"
+ endif
+ 
+ run-backend-with-traces:
+@@ -319,10 +321,10 @@ ifeq ($(UNIXSHELL),true)
+     HEADLAMP_CONFIG_ENABLE_HELM=true \
+     HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true \
+     HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES=true \
+-    ./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=localhost
++	./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=127.0.0.1
+ else
+ 	@echo "**** Running on Windows without bash or zsh. ****"
+-	@cmd /c "set HEADLAMP_BACKEND_TOKEN=headlamp&& set HEADLAMP_CONFIG_TRACING_ENABLED=true&& set HEADLAMP_CONFIG_ENABLE_HELM=true&& set HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true&& set HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES=true&& backend\headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=localhost"
++	@cmd /c "set HEADLAMP_BACKEND_TOKEN=headlamp&& set HEADLAMP_CONFIG_TRACING_ENABLED=true&& set HEADLAMP_CONFIG_ENABLE_HELM=true&& set HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true&& set HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES=true&& backend\headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=127.0.0.1"
+ endif
+ 
+ run-frontend:
 diff --git a/source/app/app-build-manifest.json b/source/app/app-build-manifest.json
 index f08c19eb4af4e87cda5f0439d7903772c0da3dfa..1ef923d8d2de2e25547d2dcfcee05d2b44bacdc3 100644
 --- a/source/app/app-build-manifest.json
@@ -538,6 +585,131 @@ index 115b0347e820a4f9c49ca9160200fab4c6d9a156..570b4e9795d88c8739c4629759e6b796
  Optional flags can be passed from either directory:
  
  ```bash
+diff --git a/source/app/e2e-tests/fixtures/backendBindRace.go b/source/app/e2e-tests/fixtures/backendBindRace.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..03c6b5d49400ef6f02de869f676d6deaa3abc235
+--- /dev/null
++++ b/source/app/e2e-tests/fixtures/backendBindRace.go
+@@ -0,0 +1,119 @@
++/*
++Copyright 2025 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++// backendBindRace is a cross-platform test fixture for Electron's backend retry path.
++package main
++
++import (
++	"errors"
++	"fmt"
++	"os"
++	"os/exec"
++	"strings"
++	"time"
++)
++
++const addressInUseExitCode = 98
++
++// requiredEnvironment returns a fixture setting or exits when it is absent.
++func requiredEnvironment(name string) string {
++	value := os.Getenv(name)
++	if value == "" {
++		fmt.Fprintf(os.Stderr, "missing required environment variable %s\n", name)
++		os.Exit(1)
++	}
++
++	return value
++}
++
++// selectedPort extracts Electron's selected backend port from its command arguments.
++func selectedPort(arguments []string) (string, error) {
++	for _, argument := range arguments {
++		if port, found := strings.CutPrefix(argument, "--port="); found && port != "" {
++			return port, nil
++		}
++	}
++
++	return "", errors.New("missing --port argument")
++}
++
++// runRaceServer starts an unrelated listener on the selected port, then exits with
++// the stable status that asks Electron to retry the backend on another port.
++func runRaceServer(arguments []string) {
++	port, err := selectedPort(arguments)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, err)
++		os.Exit(1)
++	}
++
++	readyPath := requiredEnvironment("HEADLAMP_E2E_RACE_SERVER_READY")
++	command := exec.Command(
++		requiredEnvironment("HEADLAMP_E2E_NODE"),
++		requiredEnvironment("HEADLAMP_E2E_RACE_SERVER"),
++		port,
++		readyPath,
++		requiredEnvironment("HEADLAMP_E2E_RECEIVED_TOKEN"),
++	)
++	if err := command.Start(); err != nil {
++		fmt.Fprintf(os.Stderr, "starting race server: %v\n", err)
++		os.Exit(1)
++	}
++
++	pidPath := requiredEnvironment("HEADLAMP_E2E_RACE_SERVER_PID")
++	if err := os.WriteFile(pidPath, []byte(fmt.Sprint(command.Process.Pid)), 0o600); err != nil {
++		fmt.Fprintf(os.Stderr, "writing race server PID: %v\n", err)
++		os.Exit(1)
++	}
++
++	serverExit := make(chan error, 1)
++	go func() {
++		serverExit <- command.Wait()
++	}()
++
++	deadline := time.NewTimer(10 * time.Second)
++	defer deadline.Stop()
++	ticker := time.NewTicker(10 * time.Millisecond)
++	defer ticker.Stop()
++
++	for {
++		select {
++		case err := <-serverExit:
++			fmt.Fprintf(os.Stderr, "race server exited before readiness: %v\n", err)
++			os.Exit(1)
++		case <-deadline.C:
++			_ = command.Process.Kill()
++			fmt.Fprintln(os.Stderr, "timed out waiting for race server readiness")
++			os.Exit(1)
++		case <-ticker.C:
++			if _, err := os.Stat(readyPath); err == nil {
++				if err := os.WriteFile(
++					requiredEnvironment("HEADLAMP_E2E_FIRST_ATTEMPT"),
++					[]byte("complete"),
++					0o600,
++				); err != nil {
++					fmt.Fprintf(os.Stderr, "writing first-attempt marker: %v\n", err)
++					os.Exit(1)
++				}
++				os.Exit(addressInUseExitCode)
++			}
++		}
++	}
++}
++
++// main races the first bind attempt; Electron launches the real backend for its retry.
++func main() {
++	runRaceServer(os.Args[1:])
++}
 diff --git a/source/app/e2e-tests/playwright.electron.config.ts b/source/app/e2e-tests/playwright.electron.config.ts
 index 08afaa199692b507c697bf02caef122feeee1702..fcf4cfdc16d107eddef933fa0c97b90b08e8b22e 100644
 --- a/source/app/e2e-tests/playwright.electron.config.ts
@@ -829,6 +1001,200 @@ index 0000000000000000000000000000000000000000..ca081b1e8a53398e413a081cabd87774
 +    expect(kubeconfig).toContain('"server": "https://e2e.example"');
 +  });
 +});
+diff --git a/source/app/e2e-tests/tests/externalBackendToken.spec.ts b/source/app/e2e-tests/tests/externalBackendToken.spec.ts
+index 29cae17bedfc8f4cdff06eacadfb2fd3b190ed93..e30c35b56d5523743ca81f90588490fdc0135cdd 100644
+--- a/source/app/e2e-tests/tests/externalBackendToken.spec.ts
++++ b/source/app/e2e-tests/tests/externalBackendToken.spec.ts
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright 2026 The Kubernetes Authors
++ * Copyright 2025 The Kubernetes Authors
+  *
+  * Licensed under the Apache License, Version 2.0 (the "License");
+  * you may not use this file except in compliance with the License.
+@@ -15,9 +15,10 @@
+  */
+ 
+ import { expect, test } from '@playwright/test';
++import { execFileSync, spawn } from 'child_process';
+ import fs from 'fs';
+-import { createServer } from 'http';
+ import type { ServerResponse } from 'http';
++import { createServer } from 'http';
+ import type { AddressInfo } from 'net';
+ import os from 'os';
+ import path from 'path';
+@@ -28,6 +29,25 @@ const electronExecutable = process.platform === 'win32' ? 'electron.cmd' : 'elec
+ const electronPath = path.resolve(__dirname, `../../node_modules/.bin/${electronExecutable}`);
+ const appPath = path.resolve(__dirname, '../../');
+ const userDataDir = path.join(os.tmpdir(), `headlamp-e2e-external-token-${process.pid}`);
++const internalBackendReadyMessage = 'HEADLAMP_BACKEND_READY';
++
++/** Waits briefly for a child exit event after test cleanup sends a termination signal. */
++async function waitForExit(child: ReturnType<typeof spawn>, timeoutMs = 5_000): Promise<boolean> {
++  if (child.exitCode !== null) {
++    return true;
++  }
++  return new Promise(resolve => {
++    const onExit = () => {
++      clearTimeout(timeout);
++      resolve(true);
++    };
++    const timeout = setTimeout(() => {
++      child.off('exit', onExit);
++      resolve(false);
++    }, timeoutMs);
++    child.once('exit', onExit);
++  });
++}
+ 
+ test('waits for the authenticated external backend before opening a window', async () => {
+   const receivedTokens: Array<string | undefined> = [];
+@@ -43,7 +63,8 @@ test('waits for the authenticated external backend before opening a window', asy
+       return;
+     }
+ 
+-    receivedTokens.push(request.headers['x-headlamp_backend-token']);
++    const receivedToken = request.headers['x-headlamp_backend-token'];
++    receivedTokens.push(Array.isArray(receivedToken) ? receivedToken[0] : receivedToken);
+     readinessResponses.push(response);
+     finishReadiness = () => {
+       for (const readinessResponse of readinessResponses) {
+@@ -54,7 +75,7 @@ test('waits for the authenticated external backend before opening a window', asy
+     };
+     releaseReadiness?.();
+   });
+-  await new Promise<void>(resolve => backend.listen(0, resolve));
++  await new Promise<void>(resolve => backend.listen(0, '127.0.0.1', resolve));
+   const port = (backend.address() as AddressInfo).port;
+ 
+   const electronApp = await _electron.launch({
+@@ -100,4 +121,123 @@ test('waits for the authenticated external backend before opening a window', asy
+     );
+     fs.rmSync(userDataDir, { force: true, recursive: true });
+   }
+-});
+\ No newline at end of file
++});
++
++test('does not send the internal backend token to an unrelated port owner', async () => {
++  const receivedTokens: Array<string | undefined> = [];
++  const unrelatedServer = createServer((request, response) => {
++    const receivedToken = request.headers['x-headlamp_backend-token'];
++    receivedTokens.push(Array.isArray(receivedToken) ? receivedToken[0] : receivedToken);
++    response.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
++  });
++  await new Promise<void>(resolve => unrelatedServer.listen(0, '127.0.0.1', resolve));
++  const occupiedPort = (unrelatedServer.address() as AddressInfo).port;
++  const internalUserDataDir = path.join(os.tmpdir(), `headlamp-e2e-internal-token-${process.pid}`);
++  const backendFixturePath = path.resolve(__dirname, '../fixtures/backendBindRace.go');
++  const backendFixtureExecutable = path.join(
++    internalUserDataDir,
++    process.platform === 'win32' ? 'backend-bind-race.exe' : 'backend-bind-race'
++  );
++  const firstAttemptPath = path.join(internalUserDataDir, 'first-attempt');
++  const raceServerPath = path.join(internalUserDataDir, 'race-server.js');
++  const raceServerReadyPath = path.join(internalUserDataDir, 'race-server-ready');
++  const raceServerPidPath = path.join(internalUserDataDir, 'race-server.pid');
++  const receivedTokenPath = path.join(internalUserDataDir, 'received-token');
++  let electronProcess: ReturnType<typeof spawn> | undefined;
++  let output = '';
++
++  try {
++    fs.mkdirSync(internalUserDataDir, { recursive: true });
++    fs.writeFileSync(
++      raceServerPath,
++      `const fs = require('fs');
++const http = require('http');
++const [port, readyPath, tokenPath] = process.argv.slice(2);
++http.createServer((request, response) => {
++  fs.appendFileSync(tokenPath, String(request.headers['x-headlamp_backend-token']) + '\\n');
++  response.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
++}).listen(Number(port), '127.0.0.1', () => fs.writeFileSync(readyPath, 'ready'));
++`
++    );
++    execFileSync('go', ['build', '-o', backendFixtureExecutable, backendFixturePath]);
++    const startedElectronProcess = spawn(
++      electronPath,
++      ['.', `--port=${occupiedPort}`, `--user-data-dir=${internalUserDataDir}`],
++      {
++        cwd: appPath,
++        detached: process.platform !== 'win32',
++        env: {
++          ...process.env,
++          ELECTRON_DEV: 'true',
++          ELECTRON_START_URL: 'data:text/html,<title>Internal backend readiness test</title>',
++          EXTERNAL_SERVER: 'false',
++          HEADLAMP_CHECK_FOR_UPDATES: 'false',
++          HEADLAMP_E2E_BACKEND_PATH: backendFixtureExecutable,
++          HEADLAMP_E2E_FIRST_ATTEMPT: firstAttemptPath,
++          HEADLAMP_E2E_NODE: process.execPath,
++          HEADLAMP_E2E_RACE_SERVER: raceServerPath,
++          HEADLAMP_E2E_RACE_SERVER_PID: raceServerPidPath,
++          HEADLAMP_E2E_RACE_SERVER_READY: raceServerReadyPath,
++          HEADLAMP_E2E_RECEIVED_TOKEN: receivedTokenPath,
++          HEADLAMP_MCP_ENABLE: 'false',
++        },
++        shell: process.platform === 'win32',
++        stdio: 'pipe',
++        windowsHide: true,
++      }
++    );
++    electronProcess = startedElectronProcess;
++    await new Promise<void>((resolve, reject) => {
++      const timeout = setTimeout(
++        () => reject(new Error(`Timed out waiting for backend readiness:\n${output.slice(-2000)}`)),
++        20_000
++      );
++      const handleOutput = (data: Buffer) => {
++        output += data.toString();
++        if (output.includes(internalBackendReadyMessage)) {
++          clearTimeout(timeout);
++          resolve();
++        }
++      };
++      startedElectronProcess.stdout.on('data', handleOutput);
++      startedElectronProcess.stderr.on('data', handleOutput);
++      startedElectronProcess.once('error', error => {
++        clearTimeout(timeout);
++        reject(error);
++      });
++      startedElectronProcess.once('exit', exitCode => {
++        clearTimeout(timeout);
++        reject(new Error(`Electron exited before backend readiness with code ${exitCode}`));
++      });
++    });
++
++    expect(output).toContain('selected port became occupied; retrying');
++    expect(receivedTokens).toEqual([]);
++    expect(fs.existsSync(receivedTokenPath) ? fs.readFileSync(receivedTokenPath, 'utf8') : '').toBe(
++      ''
++    );
++  } finally {
++    if (electronProcess?.pid && electronProcess.exitCode === null) {
++      if (process.platform === 'win32') {
++        execFileSync('taskkill', ['/pid', String(electronProcess.pid), '/T', '/F']);
++      } else {
++        process.kill(-electronProcess.pid, 'SIGTERM');
++      }
++      if (!(await waitForExit(electronProcess)) && process.platform !== 'win32') {
++        process.kill(-electronProcess.pid, 'SIGKILL');
++        await waitForExit(electronProcess);
++      }
++    }
++    if (fs.existsSync(raceServerPidPath)) {
++      try {
++        process.kill(Number(fs.readFileSync(raceServerPidPath, 'utf8')), 'SIGTERM');
++      } catch {
++        // The race server may already have exited during test cleanup.
++      }
++    }
++    await new Promise<void>((resolve, reject) =>
++      unrelatedServer.close(error => (error ? reject(error) : resolve()))
++    );
++    fs.rmSync(internalUserDataDir, { force: true, recursive: true });
++  }
++});
 diff --git a/source/app/e2e-tests/tests/frontendBuild.spec.ts b/source/app/e2e-tests/tests/frontendBuild.spec.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..de3f44b6d3ad6db30db0d17a2597d07c97a523d4
@@ -940,18 +1306,29 @@ index 0000000000000000000000000000000000000000..de3f44b6d3ad6db30db0d17a2597d07c
 +  }
 +});
 diff --git a/source/app/e2e-tests/tests/listenerCleanup.spec.ts b/source/app/e2e-tests/tests/listenerCleanup.spec.ts
-index 2aad97fd95086a3bf5d208679f6217198f76c31b..d5ed4574d47e78feb510ee8f787eb6d0043e7d2d 100644
+index 2aad97fd95086a3bf5d208679f6217198f76c31b..4aaa21c69f96a1c20cc45b1b3b3205a9c50f2ef0 100644
 --- a/source/app/e2e-tests/tests/listenerCleanup.spec.ts
 +++ b/source/app/e2e-tests/tests/listenerCleanup.spec.ts
-@@ -32,6 +32,7 @@ const runCommandPath = path.resolve(
+@@ -17,6 +17,8 @@
+ import { expect, test } from '@playwright/test';
+ import { build } from 'esbuild';
+ import fs from 'fs';
++import { createServer, Server } from 'http';
++import type { AddressInfo } from 'net';
+ import os from 'os';
+ import path from 'path';
+ import { _electron, ElectronApplication, Page } from 'playwright';
+@@ -31,7 +33,9 @@ const runCommandPath = path.resolve(
+ 
  let electronApp: ElectronApplication;
  let electronPage: Page;
++let backend: Server;
  let userDataDirectory: string;
 +let commandDirectory: string;
  
  /**
   * Persists consent for the command used by the Electron test.
-@@ -58,12 +59,20 @@ test.describe('desktop listener cleanup', () => {
+@@ -58,14 +62,36 @@ test.describe('desktop listener cleanup', () => {
        write: false,
      });
      userDataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-listener-e2e-'));
@@ -962,17 +1339,34 @@ index 2aad97fd95086a3bf5d208679f6217198f76c31b..d5ed4574d47e78feb510ee8f787eb6d0
 +      const commandPath = path.join(commandDirectory, 'gh');
 +      fs.writeFileSync(commandPath, '#!/bin/sh\nprintf "gh version fixture\\n"\n', { mode: 0o755 });
 +    }
++    backend = createServer((request, response) => {
++      if (request.url === '/config') {
++        response.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
++        return;
++      }
++
++      response.writeHead(404).end();
++    });
++    await new Promise<void>(resolve => backend.listen(0, resolve));
++    const port = (backend.address() as AddressInfo).port;
      electronApp = await _electron.launch({
        cwd: appPath,
        executablePath: electronPath,
-       args: ['.', `--user-data-dir=${userDataDirectory}`],
+-      args: ['.', `--user-data-dir=${userDataDirectory}`],
++      args: ['.', `--port=${port}`, `--user-data-dir=${userDataDirectory}`],
        env: {
          ...process.env,
 +        PATH: `${commandDirectory}${path.delimiter}${process.env.PATH || ''}`,
          NODE_ENV: 'development',
          ELECTRON_DEV: 'true',
++        ELECTRON_START_URL: 'data:text/html,<html></html>',
++        EXTERNAL_SERVER: 'true',
++        HEADLAMP_CHECK_FOR_UPDATES: 'false',
++        HEADLAMP_MCP_ENABLE: 'false',
        },
-@@ -73,7 +82,7 @@ test.describe('desktop listener cleanup', () => {
+     });
+     electronPage = await electronApp.firstWindow();
+@@ -73,12 +99,15 @@ test.describe('desktop listener cleanup', () => {
      await electronPage.addInitScript(() => {
        (window as any).desktopApi.receive(
          'plugin-permission-secrets',
@@ -981,7 +1375,15 @@ index 2aad97fd95086a3bf5d208679f6217198f76c31b..d5ed4574d47e78feb510ee8f787eb6d0
            (window as any).listenerCleanupPermissionSecrets = secrets;
          }
        );
-@@ -89,6 +98,8 @@ test.describe('desktop listener cleanup', () => {
+     });
+     await electronPage.reload({ waitUntil: 'load' });
++    await electronPage.evaluate(() => {
++      (window as any).desktopApi.send('request-plugin-permission-secrets');
++    });
+     await expect
+       .poll(() =>
+         electronPage.evaluate(() => Boolean((window as any).listenerCleanupPermissionSecrets))
+@@ -89,6 +118,8 @@ test.describe('desktop listener cleanup', () => {
        (window as any).runE2ECommand = async () => {
          const desktopApi = (window as any).desktopApi;
          const permissionSecrets = (window as any).listenerCleanupPermissionSecrets;
@@ -990,7 +1392,7 @@ index 2aad97fd95086a3bf5d208679f6217198f76c31b..d5ed4574d47e78feb510ee8f787eb6d0
          const removedChannels: string[] = [];
          const receive = (
            channel: string,
-@@ -104,7 +115,7 @@ test.describe('desktop listener cleanup', () => {
+@@ -104,7 +135,7 @@ test.describe('desktop listener cleanup', () => {
            'gh',
            ['--version'],
            {},
@@ -999,9 +1401,15 @@ index 2aad97fd95086a3bf5d208679f6217198f76c31b..d5ed4574d47e78feb510ee8f787eb6d0
            desktopApi.send,
            receive
          );
-@@ -130,6 +141,7 @@ test.describe('desktop listener cleanup', () => {
+@@ -129,7 +160,13 @@ test.describe('desktop listener cleanup', () => {
+ 
    test.afterAll(async () => {
      await electronApp?.close();
++    if (backend) {
++      await new Promise<void>((resolve, reject) =>
++        backend.close(error => (error ? reject(error) : resolve()))
++      );
++    }
      fs.rmSync(userDataDirectory, { force: true, recursive: true });
 +    fs.rmSync(commandDirectory, { force: true, recursive: true });
    });
@@ -1075,6 +1483,130 @@ index b6ba6a59d5d3fb7bef663a11899c65dfde6abc7c..63279a8d1c0c598f24ee3c7a5b0ff8bb
            extraResources: packageBuild.extraResources.map(resource => {
              // Preserve every resource except the default manifest entry.
              if (
+diff --git a/source/app/electron/backendToken.test.ts b/source/app/electron/backendToken.test.ts
+index 0837453c818afc6d01491219e03d6c776e04ac37..776124da54ae590c91cc4aed376bc930c5dd38ef 100644
+--- a/source/app/electron/backendToken.test.ts
++++ b/source/app/electron/backendToken.test.ts
+@@ -14,8 +14,56 @@
+  * limitations under the License.
+  */
+ 
++import { PassThrough } from 'node:stream';
+ import { describe, expect, it, vi } from 'vitest';
+-import { resolveBackendToken, waitForExternalBackend } from './backendToken';
++import {
++  INTERNAL_BACKEND_READY_MESSAGE,
++  observeInternalBackendReady,
++  resolveBackendToken,
++  waitForExternalBackend,
++} from './backendToken';
++
++describe('observeInternalBackendReady', () => {
++  it('reports a post-bind marker split across output chunks once', () => {
++    const output = new PassThrough();
++    const onReady = vi.fn();
++
++    observeInternalBackendReady(output, onReady);
++    output.write('startup output\nHEADLAMP_BACK');
++    output.write('END_READY\n');
++    output.write('HEADLAMP_BACKEND_READY\n');
++
++    expect(onReady).toHaveBeenCalledOnce();
++    expect(output.listenerCount('data')).toBe(0);
++  });
++
++  it('stops observing before readiness when requested', () => {
++    const output = new PassThrough();
++    const onReady = vi.fn();
++    const stopObserving = observeInternalBackendReady(output, onReady);
++
++    stopObserving();
++    output.write('HEADLAMP_BACKEND_READY\n');
++
++    expect(onReady).not.toHaveBeenCalled();
++    expect(output.listenerCount('data')).toBe(0);
++  });
++
++  it.each([
++    ['prefixed', `prefix${INTERNAL_BACKEND_READY_MESSAGE}\n`],
++    ['suffixed', `${INTERNAL_BACKEND_READY_MESSAGE}suffix\n`],
++    ['embedded', `prefix${INTERNAL_BACKEND_READY_MESSAGE}suffix\n`],
++    ['incomplete', INTERNAL_BACKEND_READY_MESSAGE],
++  ])('ignores a %s marker', (_name, data) => {
++    const output = new PassThrough();
++    const onReady = vi.fn();
++
++    observeInternalBackendReady(output, onReady);
++    output.write(data);
++
++    expect(onReady).not.toHaveBeenCalled();
++  });
++});
+ 
+ describe('resolveBackendToken', () => {
+   it('uses a configured token for an external development server', () => {
+@@ -60,7 +108,7 @@ describe('waitForExternalBackend', () => {
+       })
+     ).resolves.toBeUndefined();
+     expect(fetchFn).toHaveBeenCalledTimes(3);
+-    expect(fetchFn).toHaveBeenLastCalledWith('http://localhost:4466/config', {
++    expect(fetchFn).toHaveBeenLastCalledWith('http://127.0.0.1:4466/config', {
+       headers: { 'X-HEADLAMP_BACKEND-TOKEN': 'development-token' },
+       signal: expect.any(AbortSignal),
+     });
+diff --git a/source/app/electron/backendToken.ts b/source/app/electron/backendToken.ts
+index 2a7e2509875165d8ca53049d49ea26c94b59d781..1dbb00b5b2e99a52d2c0ed276f042a3d939bcc63 100644
+--- a/source/app/electron/backendToken.ts
++++ b/source/app/electron/backendToken.ts
+@@ -16,6 +16,39 @@
+ 
+ import { randomBytes } from 'node:crypto';
+ 
++/** Marker emitted by the spawned backend after it owns its listening socket. */
++export const INTERNAL_BACKEND_READY_MESSAGE = 'HEADLAMP_BACKEND_READY';
++
++/**
++ * Observes a spawned backend's output for its trusted post-bind readiness marker.
++ *
++ * @param output - Captured stdout stream belonging to the spawned backend child.
++ * @param onReady - Called once after the marker is observed.
++ * @returns A function that stops observing the child output.
++ */
++export function observeInternalBackendReady(
++  output: NodeJS.ReadableStream,
++  onReady: () => void
++): () => void {
++  let bufferedOutput = '';
++  const handleOutput = (data: Buffer | string) => {
++    bufferedOutput += data.toString();
++    const lines = bufferedOutput.split('\n');
++    bufferedOutput = lines.pop() ?? '';
++    for (const line of lines) {
++      if (line.replace(/\r$/, '') === INTERNAL_BACKEND_READY_MESSAGE) {
++        stopObserving();
++        onReady();
++        return;
++      }
++    }
++  };
++  const stopObserving = () => output.removeListener('data', handleOutput);
++  output.on('data', handleOutput);
++
++  return stopObserving;
++}
++
+ /**
+  * Resolves the token shared with Headlamp's backend.
+  *
+@@ -83,7 +116,7 @@ export async function waitForExternalBackend(
+     const timeout = setTimeout(() => controller.abort(), Math.max(1, requestTimeoutMs));
+     let response: Response;
+     try {
+-      response = await fetchFn(`http://localhost:${port}/config`, {
++      response = await fetchFn(`http://127.0.0.1:${port}/config`, {
+         headers: { 'X-HEADLAMP_BACKEND-TOKEN': token },
+         signal: controller.signal,
+       });
 diff --git a/source/app/electron/build-manifest.test.ts b/source/app/electron/build-manifest.test.ts
 index 11b5f6cae639b95a840bfd82f1809c6271951e51..61f6e3ef77affb1429ab8eccfd136e3c316f5db5 100644
 --- a/source/app/electron/build-manifest.test.ts
@@ -3896,10 +4428,10 @@ index 0000000000000000000000000000000000000000..d37d1df46fa4232609ea3f4a6885dba7
 +  export default spawn;
 +}
 diff --git a/source/app/electron/main.ts b/source/app/electron/main.ts
-index f1a61e976f05ee502ecb42eb140be1c58871bbb7..ce912ef1b36dcdbb136a7ba85342d75ce1c6e395 100644
+index f1a61e976f05ee502ecb42eb140be1c58871bbb7..94e575f8868973c4db7bba8216ce5c6dda97e210 100644
 --- a/source/app/electron/main.ts
 +++ b/source/app/electron/main.ts
-@@ -38,11 +38,13 @@ import { hideBin } from 'yargs/helpers';
+@@ -38,11 +38,17 @@ import { hideBin } from 'yargs/helpers';
  import {
    loadBuildManifest,
    productPluginCommandPolicies,
@@ -3907,13 +4439,18 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..ce912ef1b36dcdbb136a7ba85342d75c
    resolveBuildManifestPath,
  } from '../scripts/build-manifest';
  import { withBackendMemoryDefaults } from './backendMemory';
- import { resolveBackendToken, waitForExternalBackend } from './backendToken';
+-import { resolveBackendToken, waitForExternalBackend } from './backendToken';
++import {
++  observeInternalBackendReady,
++  resolveBackendToken,
++  waitForExternalBackend,
++} from './backendToken';
  import { createCertificateSetup } from './certificates';
 +import { setupClusterRegistrationHandler } from './cluster-registration';
  import { setupDevelopmentPluginsHandlers } from './developmentPlugins';
  import { startWindowsVMDetection, waitForWindowsVMDetection } from './hardwareAcceleration';
  import i18n from './i18next.config';
-@@ -68,8 +70,11 @@ import {
+@@ -68,8 +74,11 @@ import {
  } from './plugin-management';
  import { readProtocolScheme } from './protocol';
  import { createProtocolHandler } from './protocolHandler';
@@ -3925,7 +4462,53 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..ce912ef1b36dcdbb136a7ba85342d75c
    environmentOverrides,
    removeRunCmdConsent,
    runScript,
-@@ -224,15 +229,20 @@ const appBuildManifestPath = isDev
+@@ -215,6 +224,45 @@ if (disableGPU === true) {
+ }
+ const defaultPort = args.port || 4466;
+ let actualPort = defaultPort; // Will be updated when backend starts
++/** Explicit loopback address shared by the availability probe and bundled backend. */
++const INTERNAL_BACKEND_HOST = '127.0.0.1';
++/** Maximum time to wait for the bundled backend's trusted readiness marker. */
++const INTERNAL_BACKEND_READY_TIMEOUT_MS = 30_000;
++/** Releases backend-port IPC requests after the spawned child confirms a successful bind. */
++let resolveBackendReady = () => {};
++/** Rejects backend-port IPC requests when startup cannot establish a trusted endpoint. */
++let rejectBackendReady: (error: Error) => void = () => {};
++/** Resolves when it is safe for the renderer to connect to the selected backend port. */
++let backendReady = Promise.resolve();
++/** Settlement state for the current backend generation. */
++let backendReadyState: 'pending' | 'ready' | 'failed' = 'ready';
++
++/**
++ * Creates readiness state for a new internal backend generation.
++ *
++ * @returns Nothing.
++ */
++function resetBackendReady() {
++  if (useExternalServer) {
++    return;
++  }
++  backendReadyState = 'pending';
++  backendReady = new Promise<void>((resolve, reject) => {
++    resolveBackendReady = () => {
++      backendReadyState = 'ready';
++      resolve();
++    };
++    rejectBackendReady = error => {
++      backendReadyState = 'failed';
++      reject(error);
++    };
++  });
++  // A renderer normally observes this promise through sendBackendPort. Keep early startup
++  // failures handled even when no renderer request has arrived yet.
++  void backendReady.catch(() => {});
++}
++
++resetBackendReady();
+ const MAX_PORT_ATTEMPTS = Math.abs(Number(process.env.HEADLAMP_MAX_PORT_ATTEMPTS) || 100); // Maximum number of ports to try
+ 
+ const legalDocumentsResourcePath = getLegalDocumentsResourcePath(isDev, process.resourcesPath);
+@@ -224,15 +272,62 @@ const appBuildManifestPath = isDev
  const legalDocuments = loadLegalDocuments(appBuildManifestPath);
  const protocolScheme = readProtocolScheme(appBuildManifestPath);
  const shouldCheckForUpdates = shouldCheckForAppUpdates(appBuildManifestPath);
@@ -3936,11 +4519,53 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..ce912ef1b36dcdbb136a7ba85342d75c
    isDev ? 'development' : 'production'
  );
 +const productMetadata = readProductMetadata(appBuildManifest);
++
++/** Successful post-bind startup of an internal backend process. */
++interface InternalBackendReadyOutcome {
++  /** Identifies trusted child readiness as the first startup outcome. */
++  type: 'ready';
++}
++
++/** Internal backend exit observed before trusted post-bind readiness. */
++interface InternalBackendExitOutcome {
++  /** Identifies child-process exit as the first startup outcome. */
++  type: 'exit';
++  /** Exit status reported by the child, or null when terminated by a signal. */
++  exitCode: number | null;
++}
++
++/** Internal backend process error observed before trusted post-bind readiness. */
++interface InternalBackendErrorOutcome {
++  /** Identifies a process error as the first startup outcome. */
++  type: 'error';
++  /** Error emitted by the child process. */
++  error: Error;
++}
++
++/** Internal backend readiness marker was not observed within the startup deadline. */
++interface InternalBackendTimeoutOutcome {
++  /** Identifies expiration of the trusted readiness-marker deadline. */
++  type: 'timeout';
++}
++
++/** Indicates that none of the configured backend ports can be allocated. */
++class BackendPortAllocationError extends Error {}
++
++/** Stable backend process exit code indicating that the selected port became occupied. */
++const SERVER_ADDRESS_IN_USE_EXIT_CODE = 98;
  
  // make it global so that it doesn't get garbage collected
  let mainWindow: BrowserWindow | null;
++/** Whether backend connection details may still be delivered to the renderer. */
++let backendCredentialsAvailable = false;
  
 -function isFromMainWindowFrame(event: IpcMainEvent, window = mainWindow): boolean {
++/** Invalidates connection details and settles pending backend-port requests after startup fails. */
++function rejectBackendStartup(error: Error) {
++  backendCredentialsAvailable = false;
++  rejectBackendReady(error);
++}
++
 +function isFromMainWindowFrame(
 +  event: Pick<IpcMainEvent, 'sender' | 'senderFrame'>,
 +  window = mainWindow
@@ -3948,7 +4573,7 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..ce912ef1b36dcdbb136a7ba85342d75c
    return (
      !!window &&
      event.sender === window.webContents &&
-@@ -703,7 +713,14 @@ export async function getShellEnvironment(): Promise<NodeJS.ProcessEnv> {
+@@ -703,7 +798,14 @@ export async function getShellEnvironment(): Promise<NodeJS.ProcessEnv> {
          return {};
        });
    }
@@ -3964,7 +4589,415 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..ce912ef1b36dcdbb136a7ba85342d75c
  }
  
  /**
-@@ -1599,7 +1616,7 @@ function startElectron() {
+@@ -722,7 +824,7 @@ async function isPortAvailable(port: number): Promise<boolean> {
+     });
+ 
+     try {
+-      server.listen({ port, host: 'localhost', exclusive: true });
++      server.listen({ port, host: INTERNAL_BACKEND_HOST, exclusive: true });
+     } catch (err) {
+       server.emit('error', err as NodeJS.ErrnoException);
+     }
+@@ -732,11 +834,12 @@ async function isPortAvailable(port: number): Promise<boolean> {
+ /**
+  * Find an available port starting from the default port
+  * Tries to find a free port, skipping all occupied ports (including Headlamp)
++ * @param startPort - First port to probe within the configured range.
+  * @returns Available port number, or throws if no port found after MAX_PORT_ATTEMPTS
+  */
+ async function findAvailablePort(startPort: number): Promise<number> {
+-  for (let i = 0; i < MAX_PORT_ATTEMPTS; i++) {
+-    const port = startPort + i;
++  const endPort = defaultPort + MAX_PORT_ATTEMPTS - 1;
++  for (let port = startPort; port <= endPort; port++) {
+     // Probe the socket first so normal startup does not load and retain the
+     // process-inspection dependency when the preferred port is free.
+     const available = await isPortAvailable(port);
+@@ -748,34 +851,31 @@ async function findAvailablePort(startPort: number): Promise<number> {
+       return port;
+     }
+ 
+-    // Skip ports already used by another Headlamp instance.
+-    const headlampPIDs = await getHeadlampPIDsOnPort(port);
+-    if (headlampPIDs && headlampPIDs.length > 0) {
+-      console.info(
+-        `Port ${port} is occupied by Headlamp process(es) ${headlampPIDs.join(
+-          ', '
+-        )}, trying next port...`
+-      );
+-      continue;
+-    }
+-
+-    console.info(`Port ${port} is occupied by another process, trying next port...`);
++    console.info(`Port ${port} is occupied, trying next port...`);
+   }
+ 
+-  throw new Error(
++  throw new BackendPortAllocationError(
+     `Could not find an available port after ${MAX_PORT_ATTEMPTS} attempts starting from ${startPort}`
+   );
+ }
+ 
+-async function startServer(flags: string[] = []): Promise<ChildProcessWithoutNullStreams> {
+-  const serverFilePath = isDev
++async function startServer(
++  flags: string[] = [],
++  startPort = defaultPort
++): Promise<ChildProcessWithoutNullStreams> {
++  const defaultServerFilePath = isDev
+     ? path.resolve('../backend/headlamp-server')
+     : path.join(process.resourcesPath, './headlamp-server');
++  // The bind-race E2E uses a fixture for one child generation. Retries must launch
++  // the real backend so it remains Electron's direct child on every platform.
++  const testServerFilePath = isDev ? process.env.HEADLAMP_E2E_BACKEND_PATH : undefined;
++  const serverFilePath = testServerFilePath || defaultServerFilePath;
++  delete process.env.HEADLAMP_E2E_BACKEND_PATH;
+ 
+-  actualPort = await findAvailablePort(defaultPort);
++  actualPort = await findAvailablePort(startPort);
+ 
+   let serverArgs: string[] = [
+-    '--listen-addr=localhost',
++    `--listen-addr=${INTERNAL_BACKEND_HOST}`,
+     `--port=${actualPort}`,
+     '--app-name',
+     app.getName(),
+@@ -881,6 +981,8 @@ async function isWSL(): Promise<boolean> {
+ let serverProcess: ChildProcessWithoutNullStreams | null;
+ let intentionalQuit: boolean;
+ let serverProcessQuit: boolean;
++/** Child processes that emitted the trusted post-bind readiness marker. */
++const readyServerProcesses = new WeakSet<ChildProcessWithoutNullStreams>();
+ 
+ function quitServerProcess() {
+   if ((!serverProcess || serverProcessQuit) && process.platform !== 'win32') {
+@@ -1264,60 +1366,6 @@ async function getRunningHeadlampPIDs() {
+   return ownPids;
+ }
+ 
+-/**
+- * Check if a specific port is occupied by a Headlamp process
+- * @returns Array of Headlamp PIDs using the port, or null if port is free or used by another process
+- */
+-async function getHeadlampPIDsOnPort(port: number): Promise<number[] | null> {
+-  try {
+-    // Get all Headlamp processes
+-    // Keep process inspection unloaded unless a port is actually occupied.
+-    const { default: findProcess } = await import('find-process');
+-    const headlampProcesses = await findProcess('name', 'headlamp-server');
+-    if (headlampProcesses.length === 0) {
+-      return null;
+-    }
+-
+-    // Parse command line arguments to find which Headlamp process is using this port
+-    const headlampOnPort = headlampProcesses.filter(p => {
+-      if (!p.cmd) return false;
+-
+-      // Look for --port=XXXX or --port XXXX in the command line
+-      const portRegex = /--port[=\s]+(\d+)/;
+-      const match = p.cmd.match(portRegex);
+-
+-      if (match && match[1]) {
+-        const processPort = parseInt(match[1], 10);
+-        return processPort === port;
+-      }
+-
+-      // If no port specified, Headlamp uses default port 4466
+-      if (port === 4466 && !p.cmd.includes('--port')) {
+-        return true;
+-      }
+-
+-      return false;
+-    });
+-
+-    if (headlampOnPort.length === 0) {
+-      return null;
+-    }
+-
+-    // Scope to the current user's processes, like getRunningHeadlampPIDs():
+-    // another user's server on the port is just a generic occupied port
+-    // (isPortAvailable still detects it), not ours to report or touch.
+-    const ownPids = await filterUserOwnedPids(headlampOnPort.map(p => p.pid));
+-    if (ownPids.length === 0) {
+-      return null;
+-    }
+-
+-    return ownPids;
+-  } catch (error) {
+-    console.error(`Error checking if port ${port} is used by Headlamp:`, error);
+-    return null;
+-  }
+-}
+-
+ function killProcess(pid: number) {
+   if (process.platform === 'win32') {
+     // Otherwise on Windows the process will stick around.
+@@ -1412,12 +1460,47 @@ function startElectron() {
+   // Default is 10, setting to 20 provides headroom for future additions
+   ipcMain.setMaxListeners(20);
+ 
+-  ipcMain.on('request-backend-token', event => {
+-    if (!isFromMainWindowFrame(event)) {
++  /** Sends the launch token only after the current backend generation is ready. */
++  async function sendBackendToken(event: IpcMainEvent): Promise<void> {
++    const requestedBackendReady = backendReady;
++    try {
++      await requestedBackendReady;
++    } catch {
++      return;
++    }
++    if (
++      requestedBackendReady !== backendReady ||
++      !backendCredentialsAvailable ||
++      !isFromMainWindowFrame(event)
++    ) {
+       return;
+     }
+     event.sender.send('backend-token', backendToken);
+-  });
++  }
++  ipcMain.on('request-backend-token', sendBackendToken);
++
++  /**
++   * Sends the selected port after the internal backend accepts its launch token.
++   *
++   * @param event - Backend-port request from the trusted main renderer frame.
++   */
++  async function sendBackendPort(event: IpcMainEvent): Promise<void> {
++    const requestedBackendReady = backendReady;
++    try {
++      await requestedBackendReady;
++    } catch {
++      return;
++    }
++    if (
++      requestedBackendReady !== backendReady ||
++      !backendCredentialsAvailable ||
++      !isFromMainWindowFrame(event)
++    ) {
++      return;
++    }
++    event.sender.send('backend-port', actualPort);
++  }
++  ipcMain.on('request-backend-port', sendBackendPort);
+ 
+   let appVersion: string;
+   if (isDev && process.env.HEADLAMP_APP_VERSION) {
+@@ -1429,84 +1512,120 @@ function startElectron() {
+ 
+   console.log('Check for updates: ', shouldCheckForUpdates);
+ 
++  /**
++   * Starts the bundled backend and waits for its trusted post-bind output marker.
++   *
++   * Renderer readiness is released only after the spawned child reports a successful
++   * socket bind. If the child loses the port-allocation race, startup is retried
++   * with a newly selected port without sending the token to the port owner.
++   *
++   * @param startPort - First port to consider for this startup attempt.
++   * @returns The backend child process that owns the selected listening socket.
++   * @throws When the backend exits before binding its selected port.
++   */
++  async function startInternalBackend(
++    startPort = defaultPort
++  ): Promise<ChildProcessWithoutNullStreams> {
++    const startedServerProcess = await startServer([], startPort);
++    serverProcess = startedServerProcess;
++    serverProcessQuit = false;
++    attachServerEventHandlers(startedServerProcess);
++    let stopObservingReadiness = () => {};
++    /** Reports when this spawned child confirms that it owns the listening socket. */
++    const readyOutcome = new Promise<InternalBackendReadyOutcome>(resolve => {
++      stopObservingReadiness = observeInternalBackendReady(startedServerProcess.stdout, () => {
++        resolve({ type: 'ready' });
++      });
++    });
++    /** Reports an exit that occurs before trusted post-bind readiness. */
++    const exitOutcome = new Promise<InternalBackendExitOutcome | InternalBackendErrorOutcome>(
++      resolve => {
++        startedServerProcess.once('exit', exitCode => {
++          stopObservingReadiness();
++          resolve({ type: 'exit', exitCode });
++        });
++        startedServerProcess.once('error', error => {
++          stopObservingReadiness();
++          resolve({ type: 'error', error });
++        });
++      }
++    );
++    /** Prevents malformed or missing child output from blocking desktop startup forever. */
++    let readinessTimeout: NodeJS.Timeout | undefined;
++    const timeoutOutcome = new Promise<InternalBackendTimeoutOutcome>(resolve => {
++      readinessTimeout = setTimeout(
++        () => resolve({ type: 'timeout' }),
++        INTERNAL_BACKEND_READY_TIMEOUT_MS
++      );
++    });
++    /** First terminal startup outcome for this child process. */
++    const outcome = await Promise.race([readyOutcome, exitOutcome, timeoutOutcome]);
++    clearTimeout(readinessTimeout);
++    stopObservingReadiness();
++
++    if (outcome.type === 'timeout') {
++      startedServerProcess.kill();
++      throw new Error(
++        `Backend did not become ready within ${INTERNAL_BACKEND_READY_TIMEOUT_MS} ms`
++      );
++    }
++
++    if (outcome.type === 'error') {
++      throw new Error(`Backend failed to start: ${outcome.error.message}`, {
++        cause: outcome.error,
++      });
++    }
++    if (outcome.type === 'exit') {
++      if (outcome.exitCode === SERVER_ADDRESS_IN_USE_EXIT_CODE) {
++        console.warn('Server failed to start because its selected port became occupied; retrying');
++        return startInternalBackend(actualPort + 1);
++      }
++      throw new Error(`Backend exited before becoming ready with code ${outcome.exitCode}`);
++    }
++
++    readyServerProcesses.add(startedServerProcess);
++    backendCredentialsAvailable = true;
++    resolveBackendReady();
++    return startedServerProcess;
++  }
++
+   async function startServerIfNeeded() {
+     if (useExternalServer) {
+       await waitForExternalBackend(actualPort, backendToken);
++      backendCredentialsAvailable = true;
+       return;
+     }
+     if (!useExternalServer) {
++      if (
++        backendCredentialsAvailable &&
++        serverProcess &&
++        serverProcess.exitCode === null &&
++        !serverProcess.killed
++      ) {
++        return;
++      }
++      if (backendReadyState !== 'pending') {
++        resetBackendReady();
++      }
+       try {
+         // Try to start the server (it will find an available port)
+-        serverProcess = await startServer();
+-        attachServerEventHandlers(serverProcess);
+-
+-        serverProcess.addListener('exit', async e => {
+-          const ERROR_ADDRESS_IN_USE = 98;
+-          if (e === ERROR_ADDRESS_IN_USE) {
+-            // This is a fallback - we should have already checked for port conflicts
+-            // before starting the server. This handles edge cases where the port
+-            // became occupied between our check and the server start.
+-            console.warn('Server failed to start due to address in use (unexpected)');
+-
+-            const runningHeadlamp = await getRunningHeadlampPIDs();
+-
+-            if (!mainWindow) {
+-              return;
+-            }
+-
+-            if (!!runningHeadlamp) {
+-              const resp = dialog.showMessageBoxSync(mainWindow, {
+-                title: i18n.t('Another process is running'),
+-                message: i18n.t(
+-                  'Looks like another process is already running. Continue by terminating that process automatically, or quit?'
+-                ),
+-                type: 'question',
+-                buttons: [i18n.t('Continue'), i18n.t('Quit')],
+-              });
+-
+-              if (resp === 0) {
+-                runningHeadlamp.forEach(pid => {
+-                  try {
+-                    killProcess(pid);
+-                  } catch (e: unknown) {
+-                    const message = e instanceof Error ? e.message : String(e);
+-                    console.error(`Failed to kill process with PID ${pid}: ${message}`);
+-                  }
+-                });
+-
+-                // Wait a bit and retry
+-                await new Promise(resolve => setTimeout(resolve, 1000));
+-              } else {
+-                mainWindow.close();
+-                return;
+-              }
+-            }
+-
+-            // If we couldn't kill the process, warn the user and quit.
+-            const processes = await getRunningHeadlampPIDs();
+-            if (!!processes) {
+-              dialog.showMessageBoxSync({
+-                type: 'warning',
+-                title: i18n.t('Failed to quit the other running process'),
+-                message: i18n.t(
+-                  `Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.`,
+-                  { process_list: processes }
+-                ),
+-              });
+-
+-              mainWindow.close();
+-              return;
+-            }
+-            serverProcess = await startServer();
+-            attachServerEventHandlers(serverProcess);
+-          }
+-        });
++        await startInternalBackend();
+       } catch (error: unknown) {
++        if (!(error instanceof BackendPortAllocationError)) {
++          const message = error instanceof Error ? error.message : String(error);
++          rejectBackendStartup(error instanceof Error ? error : new Error(message));
++          console.error('Backend failed to start:', message);
++          dialog.showErrorBox(i18n.t('Failed to start'), message);
++          mainWindow?.close();
++          return;
++        }
++
+         // Failed to find an available port after all attempts
+         const message = error instanceof Error ? error.message : String(error);
+         console.error('Failed to find an available port:', message);
+ 
+         if (!mainWindow) {
++          rejectBackendStartup(error instanceof Error ? error : new Error(message));
+           console.error('Cannot show dialog - no main window available');
+           return;
+         }
+@@ -1544,11 +1663,13 @@ function startElectron() {
+ 
+             // Retry starting the server
+             try {
+-              serverProcess = await startServer();
+-              attachServerEventHandlers(serverProcess);
++              await startInternalBackend();
+             } catch (retryError: unknown) {
+               const retryMessage =
+                 retryError instanceof Error ? retryError.message : String(retryError);
++              rejectBackendStartup(
++                retryError instanceof Error ? retryError : new Error(retryMessage)
++              );
+               console.error('Failed to start server after killing processes:', retryMessage);
+               dialog.showErrorBox(
+                 i18n.t('Failed to start'),
+@@ -1558,10 +1679,12 @@ function startElectron() {
+             }
+           } else {
+             // User chose to quit
++            rejectBackendStartup(error instanceof Error ? error : new Error(message));
+             mainWindow.close();
+           }
+         } else {
+           // No Headlamp processes found, but still can't find a port
++          rejectBackendStartup(error instanceof Error ? error : new Error(message));
+           dialog.showErrorBox(
+             i18n.t('No available ports'),
+             i18n.t(
+@@ -1599,7 +1722,7 @@ function startElectron() {
        },
      });
      protocolHandler.attachToWebContents(mainWindow.webContents);
@@ -3973,7 +5006,7 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..ce912ef1b36dcdbb136a7ba85342d75c
        mainWindow,
        ipcMain,
        productPluginCommandPolicy,
-@@ -1608,6 +1625,14 @@ function startElectron() {
+@@ -1608,6 +1731,14 @@ function startElectron() {
        isDev,
        areDevelopmentPluginsEnabled
      );
@@ -3988,7 +5021,45 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..ce912ef1b36dcdbb136a7ba85342d75c
  
      applyZoom();
  
-@@ -1840,13 +1865,13 @@ function startElectron() {
+@@ -1641,8 +1772,6 @@ function startElectron() {
+ 
+     mainWindow.webContents.on('did-finish-load', () => {
+       scheduleApplyZoom(true);
+-      // Inject the backend port into the window object
+-      mainWindow?.webContents.executeJavaScript(`window.headlampBackendPort = ${actualPort};`);
+     });
+ 
+     mainWindow.webContents.on('did-frame-finish-load', (_event, isMainFrame) => {
+@@ -1688,10 +1817,11 @@ function startElectron() {
+       mainWindow = null;
+     });
+ 
+-    // Workaround to cookies to be saved, since file:// protocal and localhost:port
+-    // are treated as a cross site request.
++    // Work around cookies not being saved because file:// and the backend origin
++    // are treated as a cross-site request.
+     mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+-      if (details.url.startsWith(`http://localhost:${actualPort}`)) {
++      const backendOrigin = `http://${INTERNAL_BACKEND_HOST}:${actualPort}`;
++      if (details.url === backendOrigin || details.url.startsWith(`${backendOrigin}/`)) {
+         callback({
+           responseHeaders: {
+             ...details.responseHeaders,
+@@ -1783,13 +1913,6 @@ function startElectron() {
+       }
+     });
+ 
+-    ipcMain.on('request-backend-port', event => {
+-      if (!isFromMainWindowFrame(event, mainWindow)) {
+-        return;
+-      }
+-      event.sender.send('backend-port', actualPort);
+-    });
+-
+     ipcMain.on('request-tray-icon', event => {
+       if (!isFromMainWindowFrame(event, mainWindow)) {
+         return;
+@@ -1840,13 +1963,13 @@ function startElectron() {
  
      // Also add bundled plugin bin directories to PATH
      const bundledPlugins = path.join(process.resourcesPath, '.plugins');
@@ -4004,15 +5075,17 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..ce912ef1b36dcdbb136a7ba85342d75c
      if (userPluginBinDirs.length > 0) {
        addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
      }
-@@ -1872,6 +1897,7 @@ function startElectron() {
+@@ -1871,7 +1994,9 @@ function startElectron() {
+       createWindow,
        getBackendPort: () => actualPort,
        getMainWindow: () => mainWindow,
++      isBackendAvailable: () => backendCredentialsAvailable,
        isDev,
 +      trayIcon: productMetadata?.trayIcon,
        quit: () => {
          isQuitting = true;
          app.quit();
-@@ -1935,26 +1961,31 @@ function startElectron() {
+@@ -1935,26 +2060,31 @@ function startElectron() {
      }
    });
  
@@ -4062,6 +5135,76 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..ce912ef1b36dcdbb136a7ba85342d75c
  }
  
  if (!isRunningScript) {
+@@ -1965,31 +2095,16 @@ if (!isRunningScript) {
+  * add some error handlers to the serverProcess.
+  * @param  {ChildProcess} serverProcess to attach the error handlers to.
+  */
+-function attachServerEventHandlers(serverProcess: ChildProcessWithoutNullStreams) {
+-  serverProcess.on('error', err => {
++function attachServerEventHandlers(startedServerProcess: ChildProcessWithoutNullStreams) {
++  startedServerProcess.on('error', err => {
+     console.error(`server process failed to start: ${err}`);
+   });
+ 
+-  const extractPortFromOutput = (data: Buffer) => {
+-    const output = data.toString();
+-    const portMatch = output.match(/Listen address:.*:(\d+)/);
+-    if (portMatch && portMatch[1]) {
+-      actualPort = parseInt(portMatch[1], 10);
+-      console.info(`Backend server listening on port: ${actualPort}`);
+-
+-      // Update the environment variable for the frontend
+-      if (mainWindow) {
+-        mainWindow.webContents.executeJavaScript(`window.headlampBackendPort = ${actualPort};`);
+-      }
+-    }
+-  };
+-
+-  serverProcess.stdout.on('data', data => {
++  startedServerProcess.stdout.on('data', data => {
+     console.info(`server process stdout: ${data}`);
+-    extractPortFromOutput(data);
+   });
+ 
+-  serverProcess.stderr.on('data', data => {
++  startedServerProcess.stderr.on('data', data => {
+     const sterrMessage = `server process stderr: ${data}`;
+     if (data && data.indexOf && data.indexOf('Requesting') !== -1) {
+       // The server prints out urls it's getting, which aren't errors.
+@@ -1997,10 +2112,20 @@ function attachServerEventHandlers(serverProcess: ChildProcessWithoutNullStreams
+     } else {
+       console.error(sterrMessage);
+     }
+-    extractPortFromOutput(data);
+   });
+ 
+-  serverProcess.on('close', (code, signal) => {
++  startedServerProcess.on('exit', () => {
++    if (serverProcess !== startedServerProcess || !readyServerProcesses.has(startedServerProcess)) {
++      return;
++    }
++    backendCredentialsAvailable = false;
++    resetBackendReady();
++    if (!intentionalQuit && mainWindow && !mainWindow.isDestroyed()) {
++      mainWindow.webContents.send('backend-unavailable');
++    }
++  });
++
++  startedServerProcess.on('close', (code, signal) => {
+     const closeMessage = `server process process exited with code:${code} signal:${signal}`;
+     if (!intentionalQuit) {
+       // @todo: message mainWindow, or loadURL to an error url?
+@@ -2008,7 +2133,9 @@ function attachServerEventHandlers(serverProcess: ChildProcessWithoutNullStreams
+     } else {
+       console.info(closeMessage);
+     }
+-    serverProcessQuit = true;
++    if (serverProcess === startedServerProcess) {
++      serverProcessQuit = true;
++    }
+   });
+ }
+ 
 diff --git a/source/app/electron/package.test.ts b/source/app/electron/package.test.ts
 index 50980afbca683e9a0925de5270884a5c758d316a..5491d1f4012b1478626d3f3cb0f7c75e3c376732 100644
 --- a/source/app/electron/package.test.ts
@@ -4282,7 +5425,7 @@ index b78577b36913aea2d6302310f5a4b95123da1031..f9d724c482989bd127b62ea260a0d12e
      expect(desktopApi.isDevelopment).toBe(true);
    });
 diff --git a/source/app/electron/preload.ts b/source/app/electron/preload.ts
-index b6eebc2366e7581f13089821e687cdcfe2c93cfd..b4f53ff1a97b7d12a078a0aaed03a7b014f2b5ce 100644
+index b6eebc2366e7581f13089821e687cdcfe2c93cfd..8988bc49ec40a91d0a94bcdd5e2c61c521e43fbf 100644
 --- a/source/app/electron/preload.ts
 +++ b/source/app/electron/preload.ts
 @@ -16,6 +16,7 @@
@@ -4309,7 +5452,15 @@ index b6eebc2366e7581f13089821e687cdcfe2c93cfd..b4f53ff1a97b7d12a078a0aaed03a7b0
    send: (channel: string, data: unknown) => {
      // allowed channels
      const validChannels = [
-@@ -170,6 +180,17 @@ contextBridge.exposeInMainWorld('desktopApi', {
+@@ -72,6 +82,7 @@ contextBridge.exposeInMainWorld('desktopApi', {
+       'plugin-permission-secrets',
+       'open-about-dialog',
+       'backend-port',
++      'backend-unavailable',
+       'tray-icon',
+       'development-plugins',
+     ];
+@@ -170,6 +181,17 @@ contextBridge.exposeInMainWorld('desktopApi', {
      ipcRenderer.send('cluster-changed', cluster);
    },
  
@@ -7385,7 +8536,7 @@ index 7a6ce832755838335ed56c52dcad7909cfae047b..52a524da572e1c340768114adc3b850f
        return { success: true };
      } catch {
 diff --git a/source/app/electron/tray.test.ts b/source/app/electron/tray.test.ts
-index 143fc5ad44e5412eec45d42345d2c00c9a957bf9..f34be9cecc24c854b08bef44a1f1d9c95b0eb06d 100644
+index 143fc5ad44e5412eec45d42345d2c00c9a957bf9..98d89f4f197bdbcfbec3807e3d19bf35147e799c 100644
 --- a/source/app/electron/tray.test.ts
 +++ b/source/app/electron/tray.test.ts
 @@ -18,7 +18,12 @@ import fs from 'node:fs';
@@ -7442,20 +8593,87 @@ index 143fc5ad44e5412eec45d42345d2c00c9a957bf9..f34be9cecc24c854b08bef44a1f1d9c9
  describe('tray cluster status requests', () => {
    afterEach(() => {
      vi.unstubAllGlobals();
+@@ -112,18 +150,61 @@ describe('tray cluster status requests', () => {
+       createWindow: vi.fn(),
+       getBackendPort: () => 4466,
+       getMainWindow: () => null,
++      isBackendAvailable: () => true,
+       isDev: true,
+       quit: vi.fn(),
+     });
+ 
+     const expectedHeaders = { 'X-HEADLAMP_BACKEND-TOKEN': 'desktop-token' };
+-    expect(fetchMock).toHaveBeenNthCalledWith(1, 'http://localhost:4466/config', {
++    expect(fetchMock).toHaveBeenNthCalledWith(1, 'http://127.0.0.1:4466/config', {
+       headers: expectedHeaders,
+     });
+     expect(fetchMock).toHaveBeenNthCalledWith(
+       2,
+-      'http://localhost:4466/clusters/test-cluster/healthz',
++      'http://127.0.0.1:4466/clusters/test-cluster/healthz',
+       { headers: expectedHeaders }
+     );
+   });
++
++  it('does not send the backend token after backend ownership is lost', async () => {
++    const fetchMock = vi.fn();
++    vi.stubGlobal('fetch', fetchMock);
++
++    await getClusterStatuses({
++      backendToken: 'desktop-token',
++      createWindow: vi.fn(),
++      getBackendPort: () => 4466,
++      getMainWindow: () => null,
++      isBackendAvailable: () => false,
++      isDev: true,
++      quit: vi.fn(),
++    });
++
++    expect(fetchMock).not.toHaveBeenCalled();
++  });
++
++  it('stops authenticated health requests when ownership is lost during a poll', async () => {
++    let backendAvailable = true;
++    const fetchMock = vi.fn().mockResolvedValueOnce({
++      ok: true,
++      json: async () => {
++        backendAvailable = false;
++        return { clusters: [{ name: 'test-cluster' }] };
++      },
++    });
++    vi.stubGlobal('fetch', fetchMock);
++
++    const statuses = await getClusterStatuses({
++      backendToken: 'desktop-token',
++      createWindow: vi.fn(),
++      getBackendPort: () => 4466,
++      getMainWindow: () => null,
++      isBackendAvailable: () => backendAvailable,
++      isDev: true,
++      quit: vi.fn(),
++    });
++
++    expect(fetchMock).toHaveBeenCalledOnce();
++    expect(statuses).toEqual([{ name: 'test-cluster', status: 'unknown' }]);
++  });
+ });
 diff --git a/source/app/electron/tray.ts b/source/app/electron/tray.ts
-index 2fc746f127378e92ac0dce5ee0e1d0196f2a8e6a..85b1e9d127451c369c8224eace995725b1bbd444 100644
+index 2fc746f127378e92ac0dce5ee0e1d0196f2a8e6a..acb8ea73f5cf9c66bcd81f91e53b048e23779d37 100644
 --- a/source/app/electron/tray.ts
 +++ b/source/app/electron/tray.ts
-@@ -33,6 +33,8 @@ interface HeadlampTrayOptions {
+@@ -32,7 +32,11 @@ interface HeadlampTrayOptions {
+   createWindow: () => Promise<void>;
    getBackendPort: () => number;
    getMainWindow: () => BrowserWindow | null;
++  /** Returns whether the backend still owns its confirmed endpoint. */
++  isBackendAvailable: () => boolean;
    isDev: boolean;
 +  /** Resource-relative product tray icon used by packaged applications. */
 +  trayIcon?: string;
    quit: () => void;
  }
  
-@@ -99,6 +101,33 @@ export function cleanupHeadlampTray(): void {
+@@ -99,6 +103,33 @@ export function cleanupHeadlampTray(): void {
    tray = null;
  }
  
@@ -7489,7 +8707,7 @@ index 2fc746f127378e92ac0dce5ee0e1d0196f2a8e6a..85b1e9d127451c369c8224eace995725
  export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
    if (!shouldRunTray()) {
      return false;
-@@ -112,13 +141,9 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
+@@ -112,13 +143,9 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
      return true;
    }
  
@@ -7505,7 +8723,7 @@ index 2fc746f127378e92ac0dce5ee0e1d0196f2a8e6a..85b1e9d127451c369c8224eace995725
    if (trayIcon.isEmpty()) {
      console.error(
        `Failed to load tray icon from path "${iconPath}". System tray will not be created.`
-@@ -127,6 +152,9 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
+@@ -127,6 +154,9 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
    }
  
    if (process.platform === 'darwin') {
@@ -7515,6 +8733,34 @@ index 2fc746f127378e92ac0dce5ee0e1d0196f2a8e6a..85b1e9d127451c369c8224eace995725
      trayIcon.setTemplateImage(true);
    }
  
+@@ -150,9 +180,13 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
+ }
+ 
+ export async function getClusterStatuses(options: HeadlampTrayOptions): Promise<ClusterStatus[]> {
++  if (!options.isBackendAvailable()) {
++    return [];
++  }
++
+   try {
+     // Keep the app token separate from Authorization, which cluster routes reserve for Kubernetes credentials.
+-    const configResponse = await fetch(`http://localhost:${options.getBackendPort()}/config`, {
++    const configResponse = await fetch(`http://127.0.0.1:${options.getBackendPort()}/config`, {
+       headers: { 'X-HEADLAMP_BACKEND-TOKEN': options.backendToken },
+     });
+ 
+@@ -175,8 +209,11 @@ export async function getClusterStatuses(options: HeadlampTrayOptions): Promise<
+       }
+ 
+       try {
++        if (!options.isBackendAvailable()) {
++          return { name: cluster.name, status: 'unknown' as const };
++        }
+         const healthResponse = await fetch(
+-          `http://localhost:${options.getBackendPort()}/clusters/${cluster.name}/healthz`,
++          `http://127.0.0.1:${options.getBackendPort()}/clusters/${cluster.name}/healthz`,
+           {
+             headers: { 'X-HEADLAMP_BACKEND-TOKEN': options.backendToken },
+           }
 diff --git a/source/app/package-lock.json b/source/app/package-lock.json
 index 1e9ba34e598fcba4911b90835d9a21384b860e58..881bce672d3eea4a5f836e19d62cd7aa4ee9c581 100644
 --- a/source/app/package-lock.json
@@ -8000,6 +9246,74 @@ index 1674e3aa045bc9082e171ac788d52ba8dd035d24..7823255a10bbddc926f215dce27a8073
    for (const field of scalarFields) {
      if (metadata[field] !== undefined && typeof metadata[field] !== 'string') {
        throw new Error(`Build manifest product.${field} must be a string`);
+diff --git a/source/backend/.air.toml b/source/backend/.air.toml
+index efdaf368a21c4f8d32afcb2ad731096573b5fb89..8f161d71ce10b82ac7eefbea22e20e3c2a3cffa6 100644
+--- a/source/backend/.air.toml
++++ b/source/backend/.air.toml
+@@ -3,7 +3,7 @@ testdata_dir = "testdata"
+ tmp_dir = "tmp"
+ 
+ [build]
+-  args_bin = ["-dev", "-proxy-urls", "https://artifacthub.io/*", "-listen-addr=localhost"]
++  args_bin = ["-dev", "-proxy-urls", "https://artifacthub.io/*", "-listen-addr=127.0.0.1"]
+   bin = "./tmp/main"
+   cmd = "go build -o ./tmp/main ./cmd"
+   delay = 1000
+diff --git a/source/backend/cmd/headlamp.go b/source/backend/cmd/headlamp.go
+index cdbf8fdf3a37ced1b68dac8f6dabe0cf2d6ab1fe..7c7a2cbd119cc18256764be1cb0ee48042551808 100644
+--- a/source/backend/cmd/headlamp.go
++++ b/source/backend/cmd/headlamp.go
+@@ -1593,12 +1593,29 @@ func runServer(config *HeadlampConfig, cancel context.CancelFunc, handler http.H
+ 	serverDone := make(chan struct{})
+ 	setupGracefulShutdown(server, cancel, serverDone)
+ 
+-	var err error
++	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
++	if err != nil {
++		close(serverDone)
++		logger.Log(logger.LevelError, nil, err, "Failed to start server")
++		HandleServerStartError(&err)
++
++		return
++	}
++	defer func() {
++		_ = listener.Close()
++	}()
++
++	if _, err = fmt.Fprintln(os.Stdout, internalBackendReadyMessage); err != nil {
++		close(serverDone)
++		logger.Log(logger.LevelError, nil, err, "Failed to report server readiness")
++
++		return
++	}
+ 
+ 	if config.TLSCertPath != "" && config.TLSKeyPath != "" {
+-		err = server.ListenAndServeTLS(config.TLSCertPath, config.TLSKeyPath)
++		err = server.ServeTLS(listener, config.TLSCertPath, config.TLSKeyPath)
+ 	} else {
+-		err = server.ListenAndServe()
++		err = server.Serve(listener)
+ 	}
+ 
+ 	close(serverDone)
+@@ -1683,15 +1700,8 @@ func setupGracefulShutdown(server *http.Server, cancel context.CancelFunc, serve
+ 	}()
+ }
+ 
+-// Handle common server startup errors.
+-func HandleServerStartError(err *error) {
+-	// Check if the reason server failed because the address is already in use
+-	// this might be because backend process is already running
+-	if errors.Is(*err, syscall.EADDRINUSE) {
+-		// Exit with 98 (address in use) exit code
+-		os.Exit(int(syscall.EADDRINUSE))
+-	}
+-}
++// internalBackendReadyMessage tells the Electron parent that this child owns its listening port.
++const internalBackendReadyMessage = "HEADLAMP_BACKEND_READY"
+ 
+ // Returns the helm.Handler given the config and request. Writes http.NotFound if clusterName is not there.
+ func getHelmHandler(c *HeadlampConfig, w http.ResponseWriter, r *http.Request) (*helm.Handler, error) {
 diff --git a/source/backend/cmd/headlamp_test.go b/source/backend/cmd/headlamp_test.go
 index 15a4f4af271aab02328b05d837de2bb854525fbb..89f4c4af492f9a88c31e515b6790a54de2927b3f 100644
 --- a/source/backend/cmd/headlamp_test.go
@@ -8028,6 +9342,130 @@ index 15a4f4af271aab02328b05d837de2bb854525fbb..89f4c4af492f9a88c31e515b6790a54d
      <title>Branded &amp; Headlamp</title>
      <script>var headlampBaseUrl = '/custom';</script>
      <link rel="stylesheet" href="/custom/styles.css">
+diff --git a/source/backend/cmd/server_start_error.go b/source/backend/cmd/server_start_error.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..8998353c1c0e2338267e23fd7805f78f52f4337d
+--- /dev/null
++++ b/source/backend/cmd/server_start_error.go
+@@ -0,0 +1,52 @@
++/*
++Copyright 2025 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package main
++
++import (
++	"errors"
++	"os"
++	"syscall"
++)
++
++// serverAddressInUseExitCode is the stable process status Electron uses to retry on another port.
++const serverAddressInUseExitCode = 98
++
++// windowsAddressInUseErrno is WSAEADDRINUSE, which is not syscall.EADDRINUSE on Windows.
++const windowsAddressInUseErrno syscall.Errno = 10048
++
++// isAddressInUseError reports whether err means another process won the socket bind race.
++// Unix exposes this as EADDRINUSE. Windows uses WSAEADDRINUSE (10048), which Go does not
++// normalize to syscall.EADDRINUSE when cross-compiled, so both values must be checked.
++func isAddressInUseError(err error) bool {
++	return errors.Is(err, syscall.EADDRINUSE) || errors.Is(err, windowsAddressInUseErrno)
++}
++
++// serverStartExitCode maps a server startup error to a stable application exit code.
++func serverStartExitCode(err error) (int, bool) {
++	if isAddressInUseError(err) {
++		return serverAddressInUseExitCode, true
++	}
++
++	return 0, false
++}
++
++// HandleServerStartError exits with a stable status for recoverable server startup errors.
++func HandleServerStartError(err *error) {
++	if exitCode, shouldExit := serverStartExitCode(*err); shouldExit {
++		os.Exit(exitCode)
++	}
++}
+diff --git a/source/backend/cmd/server_start_error_test.go b/source/backend/cmd/server_start_error_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..8514c5355615fa433ef094a4ae3dfae6827cc78c
+--- /dev/null
++++ b/source/backend/cmd/server_start_error_test.go
+@@ -0,0 +1,60 @@
++/*
++Copyright 2025 The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package main
++
++import (
++	"errors"
++	"fmt"
++	"syscall"
++	"testing"
++
++	"github.com/stretchr/testify/assert"
++)
++
++func TestServerStartExitCode(t *testing.T) {
++	tests := []struct {
++		name       string
++		err        error
++		wantCode   int
++		shouldExit bool
++	}{
++		{
++			name:       "address in use uses stable application exit code",
++			err:        fmt.Errorf("listen failed: %w", syscall.EADDRINUSE),
++			wantCode:   serverAddressInUseExitCode,
++			shouldExit: true,
++		},
++		{
++			name:       "Windows address in use uses stable application exit code",
++			err:        fmt.Errorf("listen failed: %w", windowsAddressInUseErrno),
++			wantCode:   serverAddressInUseExitCode,
++			shouldExit: true,
++		},
++		{
++			name: "unrelated error does not exit",
++			err:  errors.New("listen failed"),
++		},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			gotCode, gotShouldExit := serverStartExitCode(tt.err)
++			assert.Equal(t, tt.wantCode, gotCode)
++			assert.Equal(t, tt.shouldExit, gotShouldExit)
++		})
++	}
++}
 diff --git a/source/backend/pkg/spa/embeddedSPAHandler.go b/source/backend/pkg/spa/embeddedSPAHandler.go
 index 1ffbea862783526a19c3b54ca519799f3c3e29d4..19dde02625164e244fd78a5d8d55a343dda4acc2 100644
 --- a/source/backend/pkg/spa/embeddedSPAHandler.go
@@ -9442,6 +10880,68 @@ index b208535edf8fd0cbbbdab4f2cb19bd4a3ae8585d..5b6bcf44a38207cc54c55c0e56428c16
      pluginReact({
        swcReactOptions: {
          throwIfNamespace: false,
+diff --git a/source/frontend/src/components/App/AppContainer.stories.tsx b/source/frontend/src/components/App/AppContainer.stories.tsx
+index c4af39c5e81a4fa7d4dc5ae216e6353ca588940d..1e81e5ba4dabff35c2845659bc3be43b90c336bf 100644
+--- a/source/frontend/src/components/App/AppContainer.stories.tsx
++++ b/source/frontend/src/components/App/AppContainer.stories.tsx
+@@ -30,6 +30,8 @@ const WithEnv = (Story: React.ComponentType) => {
+     receive: (channel: string, callback: (value: unknown) => void) => {
+       if (channel === 'backend-token') {
+         callback('storybook-token');
++      } else if (channel === 'backend-port') {
++        callback(4466);
+       } else if (channel === 'plugin-permission-secrets') {
+         callback({});
+       }
+diff --git a/source/frontend/src/components/App/AppContainer.tsx b/source/frontend/src/components/App/AppContainer.tsx
+index 1a3107e7c0e51f8332f71be1d47caf5b2108e357..d5a939123f67a8c48b3a373ade73efb688929ddd 100644
+--- a/source/frontend/src/components/App/AppContainer.tsx
++++ b/source/frontend/src/components/App/AppContainer.tsx
+@@ -18,9 +18,8 @@ import GlobalStyles from '@mui/material/GlobalStyles';
+ import { SnackbarProvider } from 'notistack';
+ import React, { useEffect } from 'react';
+ import { BrowserRouter, HashRouter, useHistory, useLocation } from 'react-router-dom';
+-import { installBackendTokenFetch } from '../../helpers/backendTokenFetch';
++import { DesktopBackendApi, initializeDesktopBackend } from '../../helpers/backendTokenFetch';
+ import { getBaseUrl } from '../../helpers/getBaseUrl';
+-import { setBackendToken } from '../../helpers/getHeadlampAPIHeaders';
+ import { isElectron } from '../../helpers/isElectron';
+ import Plugins from '../../plugin/Plugins';
+ import { useTypedSelector } from '../../redux/hooks';
+@@ -166,7 +165,8 @@ const Router = ({ children }: React.PropsWithChildren<{}>) =>
+   );
+ 
+ export default function AppContainer() {
+-  const [backendTokenReady, setBackendTokenReady] = React.useState(!window.desktopApi);
++  // Desktop rendering waits until both authenticated backend connection details arrive.
++  const [desktopBackendReady, setDesktopBackendReady] = React.useState(!window.desktopApi);
+   const arePluginsLoaded = useTypedSelector(state => state.plugins.loaded);
+   const isThemeConfigReady = useTypedSelector(state => state.theme.backendConfigReady);
+ 
+@@ -175,17 +175,14 @@ export default function AppContainer() {
+       return;
+     }
+ 
+-    installBackendTokenFetch();
+-    const unsubscribe = window.desktopApi.receive('backend-token', (token: string) => {
+-      setBackendToken(token);
+-      setBackendTokenReady(true);
+-    });
+-    window.desktopApi.send('request-backend-token');
+-
+-    return () => unsubscribe?.();
++    return initializeDesktopBackend(
++      window.desktopApi as unknown as DesktopBackendApi,
++      () => setDesktopBackendReady(true),
++      () => setDesktopBackendReady(false)
++    );
+   }, []);
+ 
+-  if (!backendTokenReady) {
++  if (!desktopBackendReady) {
+     return null;
+   }
+ 
 diff --git a/source/frontend/src/components/App/ClusterLayout.tsx b/source/frontend/src/components/App/ClusterLayout.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..2cdd719a74ad7f2416cefc3aa898b11975a96fc7
@@ -11130,6 +12630,505 @@ index 0000000000000000000000000000000000000000..75eeb5e2d240221d7fbc78ee92ee5e78
 +    }
 +  }
 +);
+diff --git a/source/frontend/src/helpers/backendTokenFetch.test.ts b/source/frontend/src/helpers/backendTokenFetch.test.ts
+index f6bc50021610c3136c179227630273811160c1ee..6557f8e66beca24b5a93c94472876832e2c8eecc 100644
+--- a/source/frontend/src/helpers/backendTokenFetch.test.ts
++++ b/source/frontend/src/helpers/backendTokenFetch.test.ts
+@@ -14,7 +14,12 @@
+  * limitations under the License.
+  */
+ 
+-import { createBackendTokenFetch } from './backendTokenFetch';
++import {
++  createBackendTokenFetch,
++  DesktopBackendApi,
++  initializeDesktopBackend,
++} from './backendTokenFetch';
++import { getHeadlampAPIHeaders, setBackendToken } from './getHeadlampAPIHeaders';
+ 
+ describe('createBackendTokenFetch', () => {
+   const response = new Response();
+@@ -27,11 +32,12 @@ describe('createBackendTokenFetch', () => {
+       () => 4466
+     );
+ 
+-    await backendFetch('http://localhost:4466/externalproxy', {
++    await backendFetch('http://127.0.0.1:4466/externalproxy', {
+       headers: { 'Forward-To': 'https://artifacthub.io/api/v1/packages/search' },
+     });
+ 
+     const headers = new Headers(fetchImplementation.mock.calls[0][1]?.headers);
++    expect(fetchImplementation.mock.calls[0][0]).toBe('http://127.0.0.1:4466/externalproxy');
+     expect(headers.get('Forward-To')).toBe('https://artifacthub.io/api/v1/packages/search');
+     expect(headers.get('X-HEADLAMP_BACKEND-TOKEN')).toBe('desktop-token');
+   });
+@@ -43,7 +49,7 @@ describe('createBackendTokenFetch', () => {
+       () => ({ 'X-HEADLAMP_BACKEND-TOKEN': 'desktop-token' }),
+       () => 4466
+     );
+-    const request = new Request('http://localhost:4466/config', {
++    const request = new Request('http://127.0.0.1:4466/config', {
+       headers: { 'X-HEADLAMP_BACKEND-TOKEN': 'stale-token' },
+     });
+ 
+@@ -53,7 +59,7 @@ describe('createBackendTokenFetch', () => {
+     expect(headers.get('X-HEADLAMP_BACKEND-TOKEN')).toBe('desktop-token');
+   });
+ 
+-  it('does not expose the token to other origins or ports', async () => {
++  it('rewrites legacy loopback requests without exposing the token to other origins or ports', async () => {
+     const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(response);
+     const backendFetch = createBackendTokenFetch(
+       fetchImplementation,
+@@ -62,7 +68,10 @@ describe('createBackendTokenFetch', () => {
+     );
+ 
+     await backendFetch('https://artifacthub.io/api/v1/packages/search');
++    await backendFetch('http://localhost:4466/config');
++    await backendFetch('http://[::1]:4466/config');
+     await backendFetch('http://localhost:4467/config');
++    await backendFetch('http://[::1]:4467/config');
+ 
+     expect(fetchImplementation).toHaveBeenNthCalledWith(
+       1,
+@@ -71,9 +80,20 @@ describe('createBackendTokenFetch', () => {
+     );
+     expect(fetchImplementation).toHaveBeenNthCalledWith(
+       2,
++      'http://127.0.0.1:4466/config',
++      expect.objectContaining({ headers: expect.any(Headers) })
++    );
++    expect(fetchImplementation).toHaveBeenNthCalledWith(
++      3,
++      'http://127.0.0.1:4466/config',
++      expect.objectContaining({ headers: expect.any(Headers) })
++    );
++    expect(fetchImplementation).toHaveBeenNthCalledWith(
++      4,
+       'http://localhost:4467/config',
+       undefined
+     );
++    expect(fetchImplementation).toHaveBeenNthCalledWith(5, 'http://[::1]:4467/config', undefined);
+   });
+ 
+   it('leaves requests unchanged until the backend token is available', async () => {
+@@ -84,8 +104,71 @@ describe('createBackendTokenFetch', () => {
+       () => 4466
+     );
+ 
+-    await backendFetch('http://localhost:4466/config');
++    await backendFetch('http://127.0.0.1:4466/config');
++
++    expect(fetchImplementation).toHaveBeenCalledWith('http://127.0.0.1:4466/config', undefined);
++  });
++
++  it('does not expose a token before the selected backend port is available', async () => {
++    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(response);
++    const backendFetch = createBackendTokenFetch(
++      fetchImplementation,
++      () => ({ 'X-HEADLAMP_BACKEND-TOKEN': 'desktop-token' }),
++      () => undefined
++    );
++
++    await backendFetch('http://127.0.0.1:4466/config');
++
++    expect(fetchImplementation).toHaveBeenCalledWith('http://127.0.0.1:4466/config', undefined);
++  });
++});
++
++describe('initializeDesktopBackend', () => {
++  it('waits for both the selected port and token before allowing backend requests', () => {
++    const callbacks: Record<string, (value: string | number) => void> = {};
++    const unsubscribers = [vi.fn(), vi.fn(), vi.fn()];
++    const api = {
++      send: vi.fn(),
++      receive: vi.fn((channel: string, callback: (value: string | number) => void) => {
++        callbacks[channel] = callback;
++        return unsubscribers[Object.keys(callbacks).length - 1];
++      }),
++    };
++    const onReady = vi.fn();
++    const onUnavailable = vi.fn();
++    window.headlampBackendPort = 4466;
++    setBackendToken('stale-token');
++
++    const cleanup = initializeDesktopBackend(
++      api as unknown as DesktopBackendApi,
++      onReady,
++      onUnavailable
++    );
++    callbacks['backend-token']('desktop-token');
++
++    expect(onReady).not.toHaveBeenCalled();
++    expect(window.headlampBackendPort).toBeUndefined();
++    expect(getHeadlampAPIHeaders()).toEqual({});
++
++    callbacks['backend-port'](4467);
++
++    expect(window.headlampBackendPort).toBe(4467);
++    expect(getHeadlampAPIHeaders()).toEqual({
++      'X-HEADLAMP_BACKEND-TOKEN': 'desktop-token',
++    });
++    expect(onReady).toHaveBeenCalledOnce();
++    expect(api.send.mock.calls).toEqual([['request-backend-token'], ['request-backend-port']]);
++
++    callbacks['backend-unavailable'](undefined as never);
++
++    expect(window.headlampBackendPort).toBeUndefined();
++    expect(getHeadlampAPIHeaders()).toEqual({});
++    expect(onUnavailable).toHaveBeenCalledOnce();
+ 
+-    expect(fetchImplementation).toHaveBeenCalledWith('http://localhost:4466/config', undefined);
++    cleanup();
++    expect(unsubscribers[0]).toHaveBeenCalledOnce();
++    expect(unsubscribers[1]).toHaveBeenCalledOnce();
++    expect(unsubscribers[2]).toHaveBeenCalledOnce();
++    setBackendToken(null);
+   });
+ });
+diff --git a/source/frontend/src/helpers/backendTokenFetch.ts b/source/frontend/src/helpers/backendTokenFetch.ts
+index fcdebb4cdd9485cbd5a8a7b0287fe632ae69a58d..131f6720118737ea8124b15bc311e877c54b79c7 100644
+--- a/source/frontend/src/helpers/backendTokenFetch.ts
++++ b/source/frontend/src/helpers/backendTokenFetch.ts
+@@ -14,15 +14,26 @@
+  * limitations under the License.
+  */
+ 
+-import { getHeadlampAPIHeaders } from './getHeadlampAPIHeaders';
++import { getHeadlampAPIHeaders, setBackendToken } from './getHeadlampAPIHeaders';
+ 
+ const BACKEND_TOKEN_HEADER = 'X-HEADLAMP_BACKEND-TOKEN';
+ let installed = false;
+ 
++/**
++ * Wraps fetch so requests to the active local Headlamp backend include its token.
++ *
++ * Requests to any other protocol, host, or port are passed through unchanged to
++ * avoid exposing the desktop backend token outside its intended origin.
++ *
++ * @param fetchImplementation - Fetch implementation to wrap.
++ * @param getHeaders - Returns the current Headlamp API headers.
++ * @param getBackendPort - Returns the active desktop backend port when confirmed.
++ * @returns A fetch implementation that authenticates local backend requests.
++ */
+ export function createBackendTokenFetch(
+   fetchImplementation: typeof fetch,
+   getHeaders: () => Record<string, string>,
+-  getBackendPort: () => number
++  getBackendPort: () => number | undefined
+ ): typeof fetch {
+   return (input: RequestInfo | URL, init?: RequestInit) => {
+     const requestUrl = input instanceof Request ? input.url : input.toString();
+@@ -37,20 +48,33 @@ export function createBackendTokenFetch(
+     const token = getHeaders()[BACKEND_TOKEN_HEADER];
+     if (
+       !token ||
++      backendPort === undefined ||
+       url.protocol !== 'http:' ||
+-      url.hostname !== 'localhost' ||
++      !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
+       url.port !== `${backendPort}`
+     ) {
+       return fetchImplementation(input, init);
+     }
+ 
++    // Older plugins use localhost or IPv6 loopback directly. Rewrite before adding
++    // the token so the authenticated request reaches the backend's owned listener.
++    url.hostname = '127.0.0.1';
++    const backendInput =
++      input instanceof Request
++        ? new Request(url, input)
++        : input instanceof URL
++        ? url
++        : url.toString();
+     const requestHeaders = input instanceof Request ? input.headers : undefined;
+     const headers = new Headers(init?.headers ?? requestHeaders);
+     headers.set(BACKEND_TOKEN_HEADER, token);
+-    return fetchImplementation(input, { ...init, headers });
++    return fetchImplementation(backendInput, { ...init, headers });
+   };
+ }
+ 
++/**
++ * Installs the authenticated backend fetch wrapper once in a browser window.
++ */
+ export function installBackendTokenFetch(): void {
+   if (installed || typeof window === 'undefined') {
+     return;
+@@ -59,7 +83,102 @@ export function installBackendTokenFetch(): void {
+   window.fetch = createBackendTokenFetch(
+     window.fetch.bind(window),
+     getHeadlampAPIHeaders,
+-    () => window.headlampBackendPort ?? 4466
++    () => window.headlampBackendPort
+   );
+   installed = true;
+ }
++
++/** IPC surface used to request desktop backend connection details. */
++export interface DesktopBackendApi {
++  /**
++   * Sends a backend initialization request to Electron's main process.
++   *
++   * @param channel - IPC channel identifying the requested connection detail.
++   */
++  send(channel: string): void;
++
++  /**
++   * Subscribes to delivery of the per-launch backend token.
++   *
++   * @param channel - Backend-token response channel.
++   * @param callback - Receives the token generated for this desktop launch.
++   * @returns A function that removes the subscription, when one is provided.
++   */
++  receive(channel: 'backend-token', callback: (token: string) => void): (() => void) | undefined;
++
++  /**
++   * Subscribes to delivery of the authenticated backend port.
++   *
++   * @param channel - Backend-port response channel.
++   * @param callback - Receives the port selected for this desktop launch.
++   * @returns A function that removes the subscription, when one is provided.
++   */
++  receive(channel: 'backend-port', callback: (port: number) => void): (() => void) | undefined;
++
++  /** Subscribes to notification that the desktop backend connection is no longer valid. */
++  receive(channel: 'backend-unavailable', callback: () => void): (() => void) | undefined;
++}
++
++/**
++ * Initializes authenticated communication with the desktop backend.
++ *
++ * Readiness is reported only after both the per-launch token and the backend's
++ * confirmed listening port have arrived. The returned cleanup function removes
++ * both IPC subscriptions.
++ *
++ * @param api - Desktop IPC API exposed by Electron's preload script.
++ * @param onReady - Called when authenticated backend requests can be created.
++ * @param onUnavailable - Called when the backend exits after becoming ready.
++ * @returns A function that removes the token and port subscriptions.
++ */
++export function initializeDesktopBackend(
++  api: DesktopBackendApi,
++  onReady: () => void,
++  onUnavailable: () => void = () => {}
++): () => void {
++  installBackendTokenFetch();
++  setBackendToken(null);
++  window.headlampBackendPort = undefined;
++  /** Confirmed backend port waiting to be published with its token. */
++  let backendPort: number | undefined;
++  /** Per-launch backend token waiting to be published with its port. */
++  let backendToken: string | undefined;
++  /** Whether the complete backend connection has already been published. */
++  let backendReady = false;
++  /** Publishes both backend connection details together, then reports readiness once. */
++  const markBackendReady = () => {
++    if (backendReady || backendPort === undefined || backendToken === undefined) {
++      return;
++    }
++    window.headlampBackendPort = backendPort;
++    setBackendToken(backendToken);
++    backendReady = true;
++    onReady();
++  };
++  /** Removes the backend-token subscription during renderer cleanup. */
++  const unsubscribeToken = api.receive('backend-token', (token: string) => {
++    backendToken = token;
++    markBackendReady();
++  });
++  /** Removes the backend-port subscription during renderer cleanup. */
++  const unsubscribePort = api.receive('backend-port', (port: number) => {
++    backendPort = port;
++    markBackendReady();
++  });
++  const unsubscribeUnavailable = api.receive('backend-unavailable', () => {
++    backendPort = undefined;
++    backendToken = undefined;
++    backendReady = false;
++    window.headlampBackendPort = undefined;
++    setBackendToken(null);
++    onUnavailable();
++  });
++  api.send('request-backend-token');
++  api.send('request-backend-port');
++
++  return () => {
++    unsubscribeToken?.();
++    unsubscribePort?.();
++    unsubscribeUnavailable?.();
++  };
++}
+diff --git a/source/frontend/src/helpers/getAppUrl.ts b/source/frontend/src/helpers/getAppUrl.ts
+index 974d9c87a862ffec97cf4b2d5062fac64c832e40..978707ceea8011b9c86ab008bacfd1b887b75bfb 100644
+--- a/source/frontend/src/helpers/getAppUrl.ts
++++ b/source/frontend/src/helpers/getAppUrl.ts
+@@ -32,11 +32,12 @@ declare global {
+ /**
+  * @returns URL depending on dev-mode/electron/docker desktop, base-url, and window.location.origin.
+  *
+- * @example isDevMode | isElectron returns 'http://localhost:4466/'
++ * @example isDevMode returns 'http://localhost:4466/'
++ * @example isElectron returns '/' until the backend port is confirmed
++ * @example isElectron with port 4467 returns 'http://127.0.0.1:4467/'
+  * @example isDockerDesktop returns 'http://localhost:64446/'
+  * @example base-url set as '/headlamp' returns '/headlamp/'
+- * @example isDevMode | isElectron and base-url is set
+- *          it returns 'http://localhost:4466/headlamp/'
++ * @example isDevMode and base-url is set returns 'http://localhost:4466/headlamp/'
+  * @example returns 'https://headlamp.example.com/'using the window.location.origin of browser
+  *
+  */
+@@ -44,12 +45,14 @@ export function getAppUrl(): string {
+   let url = '';
+   let backendPort = 4466;
+   let useLocalhost = false;
++  let useInternalBackendHost = false;
+ 
+   if (isElectron()) {
+-    if (window?.headlampBackendPort) {
+-      backendPort = window.headlampBackendPort;
++    if (!window?.headlampBackendPort) {
++      return '/';
+     }
+-    useLocalhost = true;
++    backendPort = window.headlampBackendPort;
++    useInternalBackendHost = true;
+   }
+ 
+   if (isDevMode()) {
+@@ -61,7 +64,9 @@ export function getAppUrl(): string {
+     useLocalhost = true;
+   }
+ 
+-  if (useLocalhost) {
++  if (useInternalBackendHost) {
++    url = `http://127.0.0.1:${backendPort}`;
++  } else if (useLocalhost) {
+     url = `http://localhost:${backendPort}`;
+   } else {
+     url = window.location.origin;
+diff --git a/source/frontend/src/helpers/getHeadlampAPIHeaders.test.ts b/source/frontend/src/helpers/getHeadlampAPIHeaders.test.ts
+index 8c3c3bdae18452a90cf34388f2981cf47091b370..421e4d9e1dcd6b81f7763e0738d4f3393a161e70 100644
+--- a/source/frontend/src/helpers/getHeadlampAPIHeaders.test.ts
++++ b/source/frontend/src/helpers/getHeadlampAPIHeaders.test.ts
+@@ -23,6 +23,8 @@ import {
+ describe('Headlamp backend token transports', () => {
+   afterEach(() => {
+     vi.unstubAllEnvs();
++    delete (window as Partial<Window>).desktopApi;
++    window.headlampBackendPort = undefined;
+     setBackendToken(null);
+   });
+ 
+@@ -62,4 +64,17 @@ describe('Headlamp backend token transports', () => {
+       'X-HEADLAMP_BACKEND-TOKEN': 'environment-token',
+     });
+   });
++
++  it('does not expose credentials in Electron before the backend port is confirmed', () => {
++    window.desktopApi = {} as typeof window.desktopApi;
++    setBackendToken('desktop-token');
++
++    expect(getHeadlampAPIHeaders()).toEqual({});
++    expect(getHeadlampWebSocketProtocol()).toBeNull();
++
++    window.headlampBackendPort = 4467;
++    expect(getHeadlampAPIHeaders()).toEqual({
++      'X-HEADLAMP_BACKEND-TOKEN': 'desktop-token',
++    });
++  });
+ });
+diff --git a/source/frontend/src/helpers/getHeadlampAPIHeaders.ts b/source/frontend/src/helpers/getHeadlampAPIHeaders.ts
+index 0b0c447de38d6c7915f62af0a7cb08fbfcbe46a3..9b0e08a0548843ce87cc1c14aac5152973ec66c6 100644
+--- a/source/frontend/src/helpers/getHeadlampAPIHeaders.ts
++++ b/source/frontend/src/helpers/getHeadlampAPIHeaders.ts
+@@ -28,6 +28,13 @@
+  */
+ let backendToken: string | null = import.meta.env.REACT_APP_HEADLAMP_BACKEND_TOKEN || null;
+ 
++/** Returns whether desktop IPC has confirmed the endpoint that may receive the token. */
++function hasConfirmedDesktopBackend(): boolean {
++  return (
++    typeof window === 'undefined' || !window.desktopApi || window.headlampBackendPort !== undefined
++  );
++}
++
+ /**
+  * Sets the backend token to use when making API calls from Headlamp when running as an app.
+  *
+@@ -46,7 +53,7 @@ export function setBackendToken(token: string | null): void {
+  * @returns The backend authorization header, or an empty object when no token is configured.
+  */
+ export function getHeadlampAPIHeaders(): { [key: string]: string } {
+-  if (backendToken === null) {
++  if (backendToken === null || !hasConfirmedDesktopBackend()) {
+     return {};
+   }
+ 
+@@ -61,7 +68,7 @@ export function getHeadlampAPIHeaders(): { [key: string]: string } {
+  * @returns A namespaced, base64url-encoded subprotocol, or null when no backend token is configured.
+  */
+ export function getHeadlampWebSocketProtocol(): string | null {
+-  if (backendToken === null) {
++  if (backendToken === null || !hasConfirmedDesktopBackend()) {
+     return null;
+   }
+ 
+diff --git a/source/frontend/src/helpers/helpers.test.ts b/source/frontend/src/helpers/helpers.test.ts
+index cb1c7a70134822575d7ba88c1d57da6c6bc21126..7077763e79d7ec3e9748a04f77db0c0981591285 100644
+--- a/source/frontend/src/helpers/helpers.test.ts
++++ b/source/frontend/src/helpers/helpers.test.ts
+@@ -32,12 +32,22 @@ describe('getAppUrl', () => {
+   test('dev mode and isElectron', () => {
+     vi.spyOn(isDevMode, 'isDevMode').mockImplementation(() => true);
+     vi.spyOn(isElectron, 'isElectron').mockImplementation(() => true);
+-    expect(getAppUrl.getAppUrl()).toBe('http://localhost:4466/');
++    expect(getAppUrl.getAppUrl()).toBe('/');
+   });
+   test('isElectron, not dev mode', () => {
+     vi.spyOn(isDevMode, 'isDevMode').mockImplementation(() => false);
+     vi.spyOn(isElectron, 'isElectron').mockImplementation(() => true);
+-    expect(getAppUrl.getAppUrl()).toBe('http://localhost:4466/');
++    expect(getAppUrl.getAppUrl()).toBe('/');
++  });
++
++  test('isElectron uses the confirmed IPv4 backend endpoint', () => {
++    vi.spyOn(isDevMode, 'isDevMode').mockImplementation(() => false);
++    vi.spyOn(isElectron, 'isElectron').mockImplementation(() => true);
++    windowSpy.mockImplementation(() => ({
++      headlampBackendPort: 4467,
++    }));
++
++    expect(getAppUrl.getAppUrl()).toBe('http://127.0.0.1:4467/');
+   });
+ 
+   test('base-url is set through headlampBaseUrl variable', () => {
+@@ -57,7 +67,7 @@ describe('getAppUrl', () => {
+     windowSpy.mockImplementation(() => ({
+       headlampBaseUrl: '/headlamp',
+     }));
+-    expect(getAppUrl.getAppUrl()).toBe('http://localhost:4466/');
++    expect(getAppUrl.getAppUrl()).toBe('/');
+   });
+ 
+   test('base-url is used without dev mode and without isElectron, uses window.location.origin', () => {
+diff --git a/source/frontend/src/i18n/locales/ar/app.json b/source/frontend/src/i18n/locales/ar/app.json
+index c9a006c5e5c4d6e68e456a3c543ee2193613439e..971804fa16906316dbe68dd6003b838c865584fd 100644
+--- a/source/frontend/src/i18n/locales/ar/app.json
++++ b/source/frontend/src/i18n/locales/ar/app.json
+@@ -46,11 +46,6 @@
+   "Help": "مساعدة",
+   "Documentation": "التوثيق",
+   "Open an Issue": "فتح مشكلة",
+-  "Another process is running": "هناك عملية أخرى قيد التشغيل",
+-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "يبدو أن هناك عملية أخرى قيد التشغيل بالفعل. هل تريد المتابعة بإنهاء العملية تلقائيًا أم الخروج؟",
+-  "Continue": "متابعة",
+-  "Failed to quit the other running process": "فشل إنهاء العملية الأخرى",
+-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "تعذر إنهاء العملية الأخرى، المعرفات: {{ process_list }}. يرجى إيقاف العملية ثم إعادة تشغيل التطبيق.",
+   "No available ports": "لا توجد منافذ متاحة",
+   "Could not find an available port. There are processes running on ports {{startPort}}-{{endPort}}. Terminate these processes and retry?": "تعذر العثور على منفذ متاح. توجد عمليات تعمل على المنافذ {{startPort}}-{{endPort}}. هل تريد إنهاء هذه العمليات وإعادة المحاولة؟",
+   "Terminate and Retry": "إنهاء وإعادة المحاولة",
 diff --git a/source/frontend/src/i18n/locales/ar/translation.json b/source/frontend/src/i18n/locales/ar/translation.json
 index 85f362d129e707b8be091c79b19f5f8b12fc1214..4f31e321d8cb4e51ec493778455e3370579feb9e 100644
 --- a/source/frontend/src/i18n/locales/ar/translation.json
@@ -11152,6 +13151,22 @@ index 85f362d129e707b8be091c79b19f5f8b12fc1214..4f31e321d8cb4e51ec493778455e3370
    "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "يجب أن يحتوي اسم الكتلة فقط على أحرف وأرقام صغيرة أو '-'، ويجب أن يبدأ وينتهي بحرف أو رقم.",
    "Error": "خطأ",
    "Okay": "حسنًا",
+diff --git a/source/frontend/src/i18n/locales/bn/app.json b/source/frontend/src/i18n/locales/bn/app.json
+index 57149ac6f62ee2ea25c97096478f99bab12459bb..dc5da938ce3a7b3b9b83314933c540de6575397b 100644
+--- a/source/frontend/src/i18n/locales/bn/app.json
++++ b/source/frontend/src/i18n/locales/bn/app.json
+@@ -46,11 +46,6 @@
+   "Help": "সাহায্য",
+   "Documentation": "ডকুমেন্টেশন",
+   "Open an Issue": "একটি issue খুলুন",
+-  "Another process is running": "আরেকটি process ইতিমধ্যেই চলছে",
+-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "মনে হচ্ছে আরেকটি process ইতিমধ্যে চলছে। আপনি কি সেই processটি স্বয়ংক্রিয়ভাবে বন্ধ করে চালিয়ে যেতে চান, না কি বের হতে চান?",
+-  "Continue": "Continue করুন",
+-  "Failed to quit the other running process": "অন্য চলমান process বন্ধ করতে Failed হয়েছে",
+-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "অন্য চলমান processটি বন্ধ করা যায়নি, PID গুলি: {{ process_list }}। অনুগ্রহ করে সেই processটি বন্ধ করুন এবং অ্যাপটি পুনরায় চালু করুন।",
+   "No available ports": "কোনো উপলব্ধ পোর্ট নেই",
+   "Could not find an available port. There are processes running on ports {{startPort}}-{{endPort}}. Terminate these processes and retry?": "একটি উপলব্ধ পোর্ট খুঁজে পাওয়া যায়নি। পোর্ট {{startPort}}-{{endPort}} এ process চলছে। এই processগুলো বন্ধ করে আবার চেষ্টা করবেন?",
+   "Terminate and Retry": "বন্ধ করুন এবং আবার চেষ্টা করুন",
 diff --git a/source/frontend/src/i18n/locales/bn/translation.json b/source/frontend/src/i18n/locales/bn/translation.json
 index cfd11916cd9072121e0460623c2450626b228f6d..f190672a1586c0f13fae0eb6350ca57d1e0ba54a 100644
 --- a/source/frontend/src/i18n/locales/bn/translation.json
@@ -11218,6 +13233,22 @@ index 4d6be7dab64a889d456929b2143edbe3cecee171..70d095579ee4a8f9f4ed2b543cea41d0
    "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "",
    "Error": "Error",
    "Okay": "",
+diff --git a/source/frontend/src/i18n/locales/en/app.json b/source/frontend/src/i18n/locales/en/app.json
+index 1f1bc4fd8c386c6a1269a1ab62b8fcaf6f6daeea..1955dff9d463875f039fda66331a84355b04ccfc 100644
+--- a/source/frontend/src/i18n/locales/en/app.json
++++ b/source/frontend/src/i18n/locales/en/app.json
+@@ -46,11 +46,6 @@
+   "Help": "Help",
+   "Documentation": "Documentation",
+   "Open an Issue": "Open an Issue",
+-  "Another process is running": "Another process is running",
+-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "Looks like another process is already running. Continue by terminating that process automatically, or quit?",
+-  "Continue": "Continue",
+-  "Failed to quit the other running process": "Failed to quit the other running process",
+-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.",
+   "No available ports": "No available ports",
+   "Could not find an available port. There are processes running on ports {{startPort}}-{{endPort}}. Terminate these processes and retry?": "Could not find an available port. There are processes running on ports {{startPort}}-{{endPort}}. Terminate these processes and retry?",
+   "Terminate and Retry": "Terminate and Retry",
 diff --git a/source/frontend/src/i18n/locales/en/translation.json b/source/frontend/src/i18n/locales/en/translation.json
 index bc82ec374566a26ebac7941c2c184ea2e68fefd8..9fb5ec41a418e858a05e2857c864ba009262039d 100644
 --- a/source/frontend/src/i18n/locales/en/translation.json
@@ -11284,6 +13315,22 @@ index 89c2bbc717943c8f6af9aa3bd60113842989d5f2..6b1a0f2f48e6810a5bec1fc75dc2e190
    "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Le nom du cluster ne doit contenir que des caractères alphanumériques minuscules ou '-', et doit commencer et se terminer par un caractère alphanumérique.",
    "Error": "Erreur",
    "Okay": "D'accord",
+diff --git a/source/frontend/src/i18n/locales/he/app.json b/source/frontend/src/i18n/locales/he/app.json
+index eefdcb22f4cce6466a375e2e09e2caba63a77c5e..2a5e8f48686cd4d731a09146ebc1af63489a6f72 100644
+--- a/source/frontend/src/i18n/locales/he/app.json
++++ b/source/frontend/src/i18n/locales/he/app.json
+@@ -46,11 +46,6 @@
+   "Help": "Help",
+   "Documentation": "Documentation",
+   "Open an Issue": "Open an Issue",
+-  "Another process is running": "Another process is running",
+-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "Looks like another process is already running. Continue by terminating that process automatically, or quit?",
+-  "Continue": "Continue",
+-  "Failed to quit the other running process": "Failed to quit the other running process",
+-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.",
+   "No available ports": "No available ports",
+   "Could not find an available port. There are processes running on ports {{startPort}}-{{endPort}}. Terminate these processes and retry?": "Could not find an available port. There are processes running on ports {{startPort}}-{{endPort}}. Terminate these processes and retry?",
+   "Terminate and Retry": "Terminate and Retry",
 diff --git a/source/frontend/src/i18n/locales/he/translation.json b/source/frontend/src/i18n/locales/he/translation.json
 index 389dc780633ac63795eaf039556dc6b745341b08..7d5e2031366bdec691be370134e6807221d78698 100644
 --- a/source/frontend/src/i18n/locales/he/translation.json
@@ -11306,6 +13353,22 @@ index 389dc780633ac63795eaf039556dc6b745341b08..7d5e2031366bdec691be370134e68072
    "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.",
    "Error": "Error",
    "Okay": "Okay",
+diff --git a/source/frontend/src/i18n/locales/hi/app.json b/source/frontend/src/i18n/locales/hi/app.json
+index b9f8a2211a12b4495fc405b73b93ba29da869165..d3a5f48acaebeca250eec6d03187121947c8c19a 100644
+--- a/source/frontend/src/i18n/locales/hi/app.json
++++ b/source/frontend/src/i18n/locales/hi/app.json
+@@ -46,11 +46,6 @@
+   "Help": "सहायता",
+   "Documentation": "दस्तावेज़ीकरण",
+   "Open an Issue": "एक इशू खोलें",
+-  "Another process is running": "एक अन्य प्रक्रिया चल रही है",
+-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "लगता है कि एक अन्य प्रक्रिया पहले से ही चल रही है। उस प्रक्रिया को स्वचालित रूप से समाप्त करके जारी रखें, या बाहर निकलें?",
+-  "Continue": "जारी रखें",
+-  "Failed to quit the other running process": "अन्य चल रही प्रक्रिया से बाहर निकलने में विफल",
+-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "अन्य चल रही प्रक्रिया से बाहर नहीं निकल सका, PIDs: {{ process_list }}। कृपया उस प्रक्रिया को रोकें और ऐप को फिर से लॉन्च करें।",
+   "No available ports": "",
+   "Could not find an available port. There are processes running on ports {{startPort}}-{{endPort}}. Terminate these processes and retry?": "",
+   "Terminate and Retry": "",
 diff --git a/source/frontend/src/i18n/locales/hi/translation.json b/source/frontend/src/i18n/locales/hi/translation.json
 index b36683c0f6a342ca78f077f2832e6a750d43420d..e24f953910ae4598a7c7520f3e354f96a37ded94 100644
 --- a/source/frontend/src/i18n/locales/hi/translation.json
@@ -11570,6 +13633,22 @@ index b5f8adc1a24f93df6950c7806ca597db2cc974f7..d496aa0e7c18e72bf1dfc7c6a0087eee
    "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Klusternamnet får bara innehålla gemena alfanumeriska tecken och bindestreck och de måste börja och sluta med ett alfanumeriskt tecken.",
    "Error": "Fel",
    "Okay": "Ok",
+diff --git a/source/frontend/src/i18n/locales/ta/app.json b/source/frontend/src/i18n/locales/ta/app.json
+index cccd87f1542c88274d6663dd7b0519647b6d71d2..c156ead23f986a7564dade47fe1003656bc65613 100644
+--- a/source/frontend/src/i18n/locales/ta/app.json
++++ b/source/frontend/src/i18n/locales/ta/app.json
+@@ -46,11 +46,6 @@
+   "Help": "உதவி",
+   "Documentation": "ஆவணப்படுத்தல்",
+   "Open an Issue": "ஒரு இஷ்யூவைத் திற",
+-  "Another process is running": "மற்றொரு ப்ராசஸ் இயங்குகிறது",
+-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "மற்றொரு ப்ராசஸ் ஏற்கனவே இயங்குவது போல் தெரிகிறது. அந்த ப்ராசஸை தானாகவே முடிப்பதன் மூலம் தொடரவா, அல்லது வெளியேறவா?",
+-  "Continue": "தொடர்க",
+-  "Failed to quit the other running process": "மற்ற இயங்கும் ப்ராசஸிலிருந்து வெளியேற முடியவில்லை",
+-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "மற்ற இயங்கும் ப்ராசஸிலிருந்து வெளியேற முடியவில்லை, PIDs: {{ process_list }}. தயவுசெய்து அந்த ப்ராசஸை நிறுத்தி பயன்பாட்டை மீண்டும் தொடங்கவும்.",
+   "No available ports": "",
+   "Could not find an available port. There are processes running on ports {{startPort}}-{{endPort}}. Terminate these processes and retry?": "",
+   "Terminate and Retry": "",
 diff --git a/source/frontend/src/i18n/locales/ta/translation.json b/source/frontend/src/i18n/locales/ta/translation.json
 index a423b30c9b0281c1088e66a774472de692a12540..359b8b2d966b5f8e9e167f47c2d49c27ad3f5c34 100644
 --- a/source/frontend/src/i18n/locales/ta/translation.json
@@ -11614,6 +13693,22 @@ index f6be1629ba3df3721bdd8cf82d5bfd480048c431..ba8d02539dc8ffaacecd6a0df74edcf5
    "Cluster name must contain only lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character.": "Küme adı, yalnızca küçük harf alfasayısal karakterler veya '-' içermeli ve alfasayısal bir karakter ile başlayıp bitmelidir.",
    "Error": "Hata",
    "Okay": "Tamam",
+diff --git a/source/frontend/src/i18n/locales/ur/app.json b/source/frontend/src/i18n/locales/ur/app.json
+index ad0304c0f11de41485c073e20dcbd6fc38d65f10..9a34fdf7cc35ddc0c879b7ef7f4feb69ab46f187 100644
+--- a/source/frontend/src/i18n/locales/ur/app.json
++++ b/source/frontend/src/i18n/locales/ur/app.json
+@@ -46,11 +46,6 @@
+   "Help": "مدد",
+   "Documentation": "دستاویزات",
+   "Open an Issue": "مسئلہ رپورٹ کریں",
+-  "Another process is running": "ایک اور عمل چل رہا ہے",
+-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "ایسا لگتا ہے کہ پہلے سے ایک اور عمل چل رہا ہے۔ کیا آپ اسے خودکار طور پر بند کر کے جاری رکھنا چاہتے ہیں یا ایپ بند کر دیں؟",
+-  "Continue": "جاری رکھیں",
+-  "Failed to quit the other running process": "دوسرے چلتے ہوئے عمل کو بند کرنے میں ناکامی",
+-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "دوسرا عمل بند نہیں کیا جا سکا، PIDs: {{ process_list }}۔ براہِ کرم اسے بند کریں اور ایپ دوبارہ شروع کریں۔",
+   "No available ports": "کوئی دستیاب پورٹ نہیں",
+   "Could not find an available port. There are processes running on ports {{startPort}}-{{endPort}}. Terminate these processes and retry?": "کوئی دستیاب پورٹ نہیں ملی۔ پورٹس {{startPort}}-{{endPort}} پر عمل چل رہے ہیں۔ کیا انہیں بند کر کے دوبارہ کوشش کریں؟",
+   "Terminate and Retry": "بند کریں اور دوبارہ کوشش کریں",
 diff --git a/source/frontend/src/i18n/locales/ur/translation.json b/source/frontend/src/i18n/locales/ur/translation.json
 index 6e789df9d24f5f258cadf8164f03667734f20339..fccaf08078e20bb93e10b73ed51d5365905b1773 100644
 --- a/source/frontend/src/i18n/locales/ur/translation.json
@@ -13531,7 +15626,7 @@ index e7afa1ecb0f26a2248b02d8b791302d014b402b6..f97ed3c902b08d0f193fa8c5f05129e2
        }
      },
 diff --git a/source/package.json b/source/package.json
-index 8752536ad16c5d53f2b729a275f044e50659a56c..ee867baf5a2eef55020ccae9e1fa6fcb6380c238 100644
+index 8752536ad16c5d53f2b729a275f044e50659a56c..7530f1a09dc98a407ff969d39e21452965486a57 100644
 --- a/source/package.json
 +++ b/source/package.json
 @@ -10,7 +10,7 @@
@@ -13543,6 +15638,20 @@ index 8752536ad16c5d53f2b729a275f044e50659a56c..ee867baf5a2eef55020ccae9e1fa6fcb
    },
    "scripts": {
      "install:all": "npm install && npm run frontend:install && npm run backend:build && npm run app:install && npm run tools:install",
+@@ -33,10 +33,10 @@
+     "backend:coverage": "cd backend && go test -v -p 1 -coverprofile=coverage.out ./... && go tool cover -func=coverage.out",
+     "backend:coverage:html": "cd backend && go test -v -p 1 -coverprofile=coverage.out ./... && go tool cover -html=coverage.out",
+     "backend:format": "cd backend && go fmt ./cmd/ ./pkg/**",
+-    "backend:start": "echo 'Warning: Running with Helm and dynamic-clusters endpoints enabled.' && HEADLAMP_BACKEND_TOKEN=headlamp HEADLAMP_CONFIG_ENABLE_HELM=true HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true ./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=localhost",
++    "backend:start": "echo 'Warning: Running with Helm and dynamic-clusters endpoints enabled.' && HEADLAMP_BACKEND_TOKEN=headlamp HEADLAMP_CONFIG_ENABLE_HELM=true HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true ./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=127.0.0.1",
+     "backend:dev": "echo 'Starting Headlamp backend in dev mode with Air...' && cd backend && air",
+-    "backend:start:metrics": "echo 'Running backend with Prometheus metrics enabled' && HEADLAMP_BACKEND_TOKEN=headlamp HEADLAMP_CONFIG_METRICS_ENABLED=true HEADLAMP_CONFIG_ENABLE_HELM=true HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true ./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=localhost",
+-    "backend:start:traces": "echo 'Running backend with distributed tracing enabled' && HEADLAMP_BACKEND_TOKEN=headlamp HEADLAMP_CONFIG_TRACING_ENABLED=true HEADLAMP_CONFIG_ENABLE_HELM=true HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true ./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=localhost",
++    "backend:start:metrics": "echo 'Running backend with Prometheus metrics enabled' && HEADLAMP_BACKEND_TOKEN=headlamp HEADLAMP_CONFIG_METRICS_ENABLED=true HEADLAMP_CONFIG_ENABLE_HELM=true HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true ./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=127.0.0.1",
++    "backend:start:traces": "echo 'Running backend with distributed tracing enabled' && HEADLAMP_BACKEND_TOKEN=headlamp HEADLAMP_CONFIG_TRACING_ENABLED=true HEADLAMP_CONFIG_ENABLE_HELM=true HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS=true ./backend/headlamp-server -dev -proxy-urls https://artifacthub.io/* -listen-addr=127.0.0.1",
+     "frontend:install": "cd frontend && npm install",
+     "frontend:install:ci": "cd frontend && npm ci",
+     "frontend:build": "cd frontend && npm run build",
 @@ -57,16 +57,18 @@
      "i18n:extract": "cd tools/i18n && npm run extract --",
      "i18n:copy": "cd tools/i18n && npm run copy --",

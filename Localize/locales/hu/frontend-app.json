@@ -55,10 +55,5 @@
   "Development plugins run local code and may request command access. Only enable this mode if you trust every plugin in the development plugins directory.": "",
   "Enable": "Engedélyezés",
   "Enable Plugin Development Mode?": "",
-  "Plugin Development Mode": "",
-  "Another process is running": "Egy másik folyamat fut",
-  "Continue": "Folytatás",
-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "Nem sikerült kilépni a másik futó folyamatból; folyamatazonosítók: {{ process_list }}. Állítsa le azt a folyamatot, majd indítsa újra az alkalmazást.",
-  "Failed to quit the other running process": "Nem sikerült kilépni a másik futó folyamatból",
-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "Úgy tűnik, már fut egy másik folyamat. Folytatja a folyamat automatikus leállításával, vagy kilép?"
+  "Plugin Development Mode": ""
 }

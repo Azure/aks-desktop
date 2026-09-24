@@ -55,10 +55,5 @@
   "Development plugins run local code and may request command access. Only enable this mode if you trust every plugin in the development plugins directory.": "",
   "Enable": "사용",
   "Enable Plugin Development Mode?": "",
-  "Plugin Development Mode": "",
-  "Another process is running": "다른 프로세스가 실행 중임",
-  "Continue": "계속",
-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "다른 실행 중인 프로세스(PID: {{ process_list }})를 끝낼 수 없습니다. 해당 프로세스를 중지하고 앱을 다시 실행하세요.",
-  "Failed to quit the other running process": "실행 중인 다른 프로세스를 끝내지 못 함",
-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "다른 프로세스가 이미 실행 중인 것 같습니다. 해당 프로세스를 자동으로 종료하고 계속하시겠습니까, 아니면 끝내시겠습니까?"
+  "Plugin Development Mode": ""
 }
