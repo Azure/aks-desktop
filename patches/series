@@ -1,4 +1,5 @@
 0071 source 0071-headlamp-upstream-cluster-pre-open-proxies.patch
+0080 source 0080-headlamp-aks-desktop-host-marker.patch
 7683 source 7683-headlamp-upstream-legacy-github-storage.patch
 7685 source 7685-headlamp-upstream-product-command-preapproval.patch
 7712 source 7712-headlamp-upstream-rsbuild-default.patch
