@@ -4259,7 +4259,7 @@ index b78577b36913aea2d6302310f5a4b95123da1031..f9d724c482989bd127b62ea260a0d12e
      expect(desktopApi.isDevelopment).toBe(true);
    });
 diff --git a/source/app/electron/preload.ts b/source/app/electron/preload.ts
-index b6eebc2366e7581f13089821e687cdcfe2c93cfd..237939fbdc75638d6a4d55d2a9184cd148b92949 100644
+index b6eebc2366e7581f13089821e687cdcfe2c93cfd..b4f53ff1a97b7d12a078a0aaed03a7b014f2b5ce 100644
 --- a/source/app/electron/preload.ts
 +++ b/source/app/electron/preload.ts
 @@ -16,6 +16,7 @@
@@ -4270,10 +4270,13 @@ index b6eebc2366e7581f13089821e687cdcfe2c93cfd..237939fbdc75638d6a4d55d2a9184cd1
  
  // Keeps the mapping between a caller-provided listener and the wrapped one we
  // actually register with ipcRenderer, so removeListener can still unsubscribe
-@@ -34,6 +35,12 @@ const wrappedListeners = new WeakMap<
+@@ -34,6 +35,15 @@ const wrappedListeners = new WeakMap<
  contextBridge.exposeInMainWorld('desktopApi', {
    isDevelopment: Boolean(process.env.ELECTRON_DEV),
    getDevelopmentPluginsEnabled: () => ipcRenderer.invoke('get-development-plugins'),
++  // Compatibility marker used by AI Assistant to identify AKS Desktop.
++  registerAKSCluster: () => undefined,
++
 +  /** Starts a proxy only when the caller supplies its scoped plugin capability. */
 +  startClusterProxy: (
 +    target: ClusterProxyTarget,
@@ -4283,7 +4286,7 @@ index b6eebc2366e7581f13089821e687cdcfe2c93cfd..237939fbdc75638d6a4d55d2a9184cd1
    send: (channel: string, data: unknown) => {
      // allowed channels
      const validChannels = [
-@@ -170,6 +177,17 @@ contextBridge.exposeInMainWorld('desktopApi', {
+@@ -170,6 +180,17 @@ contextBridge.exposeInMainWorld('desktopApi', {
      ipcRenderer.send('cluster-changed', cluster);
    },
  
