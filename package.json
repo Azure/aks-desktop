@@ -173,6 +173,7 @@
       "companyName": "Microsoft",
       "appId": "com.microsoft.aksdesktop",
       "artifactName": "aks-desktop-${version}-${os}-${arch}.${ext}",
+      "trayIcon": "assets/aks-desktop-tray.png",
       "protocols": {
         "name": "AKS Desktop",
         "schemes": [
@@ -241,6 +242,11 @@
           "base": "project",
           "from": "NOTICE.md",
           "to": "AKS_DESKTOP_NOTICE.md"
+        },
+        {
+          "base": "project",
+          "from": "build/icons/aks-desktop.png",
+          "to": "assets/aks-desktop-tray.png"
         }
       ],
       "externalTools": [
@@ -1134,7 +1140,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.d4c87a8f.patch",
-    "integrity": "sha512-hdoesLSUpP+mYoAgh/Seq+ei1pMZOsCYFW0RvRCwrA7L08fJJkyuZ0F5NeZG/DYEGFu5eNkO3zHQ3hya5xeo/w=="
+    "integrity": "sha512-Ei/ia4RN2MWu893NbxprLY4ZksbmmHwMUCXiUcUFxYCvmPW7Pdl50tXGrj0+yFqGQQpyWRdwear3b2sRKGTnMA=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [

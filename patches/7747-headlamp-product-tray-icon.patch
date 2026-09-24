@@ -1,0 +1,209 @@
+From 7185dccf2b88869579cf5f9db97e3ed97b687164 Mon Sep 17 00:00:00 2001
+From: Evangelos <skoeva@users.noreply.github.com>
+Date: Thu, 24 Sep 2026 10:45:00 -0400
+Subject: [PATCH] app: support product-specific tray icons
+
+Allow branded Headlamp packages to select a resource-relative tray icon while preserving the built-in Headlamp assets as the default. Reject paths outside packaged resources and resize custom macOS icons for native menu-bar rendering.
+---
+ app/app-build-manifest.schema.json |  5 ++++
+ app/electron/main.ts               |  3 +++
+ app/electron/tray.test.ts          | 40 +++++++++++++++++++++++++++++-
+ app/electron/tray.ts               | 40 +++++++++++++++++++++++++-----
+ app/scripts/product-metadata.ts    |  2 ++
+ 5 files changed, 83 insertions(+), 7 deletions(-)
+
+diff --git a/app/app-build-manifest.schema.json b/app/app-build-manifest.schema.json
+index 2897e5b..a21da6d 100644
+--- a/app/app-build-manifest.schema.json
++++ b/app/app-build-manifest.schema.json
+@@ -57,6 +57,11 @@
+         "version": { "type": "string" },
+         "appId": { "type": "string" },
+         "artifactName": { "type": "string" },
++        "trayIcon": {
++          "type": "string",
++          "minLength": 1,
++          "description": "Resource-relative icon used by the packaged desktop system tray."
++        },
+         "protocols": {
+           "type": "object",
+           "properties": {
+diff --git a/app/electron/main.ts b/app/electron/main.ts
+index 08ef65b..ce912ef 100644
+--- a/app/electron/main.ts
++++ b/app/electron/main.ts
+@@ -38,6 +38,7 @@ import { hideBin } from 'yargs/helpers';
+ import {
+   loadBuildManifest,
+   productPluginCommandPolicies,
++  readProductMetadata,
+   resolveBuildManifestPath,
+ } from '../scripts/build-manifest';
+ import { withBackendMemoryDefaults } from './backendMemory';
+@@ -233,6 +234,7 @@ const productPluginCommandPolicy = productPluginCommandPolicies(
+   appBuildManifest,
+   isDev ? 'development' : 'production'
+ );
++const productMetadata = readProductMetadata(appBuildManifest);
+ 
+ // make it global so that it doesn't get garbage collected
+ let mainWindow: BrowserWindow | null;
+@@ -1895,6 +1897,7 @@ function startElectron() {
+       getBackendPort: () => actualPort,
+       getMainWindow: () => mainWindow,
+       isDev,
++      trayIcon: productMetadata?.trayIcon,
+       quit: () => {
+         isQuitting = true;
+         app.quit();
+diff --git a/app/electron/tray.test.ts b/app/electron/tray.test.ts
+index 143fc5a..f34be9c 100644
+--- a/app/electron/tray.test.ts
++++ b/app/electron/tray.test.ts
+@@ -18,7 +18,12 @@ import fs from 'node:fs';
+ import os from 'node:os';
+ import path from 'path';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+-import { getClusterStatuses, isTrayIconEnabled, setTrayIconEnabled } from './tray';
++import {
++  getClusterStatuses,
++  isTrayIconEnabled,
++  resolveTrayIconPath,
++  setTrayIconEnabled,
++} from './tray';
+ 
+ function tmpPath(): string {
+   return path.join(os.tmpdir(), `tray-test-${Date.now()}-${Math.random()}.json`);
+@@ -92,6 +97,39 @@ describe('tray icon setting', () => {
+   });
+ });
+ 
++describe('tray icon path', () => {
++  it('uses a product icon from packaged resources', () => {
++    expect(
++      resolveTrayIconPath(
++        { isDev: false, trayIcon: 'assets/example-tray.png' },
++        '/opt/example/resources'
++      )
++    ).toBe(path.join('/opt/example/resources', 'assets', 'example-tray.png'));
++  });
++
++  it('rejects product icons outside packaged resources', () => {
++    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
++
++    expect(
++      resolveTrayIconPath(
++        { isDev: false, trayIcon: '../outside.png' },
++        '/opt/example/resources'
++      )
++    ).toBe(
++      path.join(
++        '/opt/example/resources',
++        'assets',
++        process.platform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon.png'
++      )
++    );
++    expect(consoleError).toHaveBeenCalledWith(
++      'Ignoring tray icon outside packaged resources: "../outside.png"'
++    );
++
++    consoleError.mockRestore();
++  });
++});
++
+ describe('tray cluster status requests', () => {
+   afterEach(() => {
+     vi.unstubAllGlobals();
+diff --git a/app/electron/tray.ts b/app/electron/tray.ts
+index 2fc746f..85b1e9d 100644
+--- a/app/electron/tray.ts
++++ b/app/electron/tray.ts
+@@ -33,6 +33,8 @@ interface HeadlampTrayOptions {
+   getBackendPort: () => number;
+   getMainWindow: () => BrowserWindow | null;
+   isDev: boolean;
++  /** Resource-relative product tray icon used by packaged applications. */
++  trayIcon?: string;
+   quit: () => void;
+ }
+ 
+@@ -99,6 +101,33 @@ export function cleanupHeadlampTray(): void {
+   tray = null;
+ }
+ 
++/** Resolves a product tray icon without allowing paths outside packaged resources. */
++export function resolveTrayIconPath(
++  options: Pick<HeadlampTrayOptions, 'isDev' | 'trayIcon'>,
++  resourcesPath: string = process.resourcesPath
++): string {
++  if (options.trayIcon && !options.isDev) {
++    const root = path.resolve(resourcesPath);
++    const iconPath = path.resolve(root, options.trayIcon);
++    const relativePath = path.relative(root, iconPath);
++    if (
++      relativePath &&
++      relativePath !== '..' &&
++      !relativePath.startsWith(`..${path.sep}`) &&
++      !path.isAbsolute(relativePath)
++    ) {
++      return iconPath;
++    }
++    console.error(`Ignoring tray icon outside packaged resources: "${options.trayIcon}"`);
++  }
++
++  const trayIconFilename =
++    process.platform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon.png';
++  return options.isDev
++    ? path.join(__dirname, '..', 'assets', trayIconFilename)
++    : path.join(resourcesPath, 'assets', trayIconFilename);
++}
++
+ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
+   if (!shouldRunTray()) {
+     return false;
+@@ -112,13 +141,9 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
+     return true;
+   }
+ 
+-  const trayIconFilename =
+-    process.platform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon.png';
+-  const iconPath = options.isDev
+-    ? path.join(__dirname, '..', 'assets', trayIconFilename)
+-    : path.join(process.resourcesPath, 'assets', trayIconFilename);
++  const iconPath = resolveTrayIconPath(options);
+ 
+-  const trayIcon = nativeImage.createFromPath(iconPath);
++  let trayIcon = nativeImage.createFromPath(iconPath);
+   if (trayIcon.isEmpty()) {
+     console.error(
+       `Failed to load tray icon from path "${iconPath}". System tray will not be created.`
+@@ -127,6 +152,9 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
+   }
+ 
+   if (process.platform === 'darwin') {
++    if (options.trayIcon && !options.isDev) {
++      trayIcon = trayIcon.resize({ width: 22, height: 22 });
++    }
+     trayIcon.setTemplateImage(true);
+   }
+ 
+diff --git a/app/scripts/product-metadata.ts b/app/scripts/product-metadata.ts
+index 3a7235a..7823255 100644
+--- a/app/scripts/product-metadata.ts
++++ b/app/scripts/product-metadata.ts
+@@ -22,6 +22,7 @@ export type ProductMetadata = {
+   version?: string;
+   appId?: string;
+   artifactName?: string;
++  trayIcon?: string;
+   protocols?: Record<string, unknown>;
+ };
+ 
+@@ -53,6 +54,7 @@ export function readProductMetadata(manifest: unknown): ProductMetadata | undefi
+     'version',
+     'appId',
+     'artifactName',
++    'trayIcon',
+   ] as const;
+   for (const field of scalarFields) {
+     if (metadata[field] !== undefined && typeof metadata[field] !== 'string') {
