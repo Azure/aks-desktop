@@ -281,7 +281,7 @@ index f08c19eb4af4e87cda5f0439d7903772c0da3dfa..1ef923d8d2de2e25547d2dcfcee05d2b
    ],
    "legalDocuments": [
 diff --git a/source/app/app-build-manifest.schema.json b/source/app/app-build-manifest.schema.json
-index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..2897e5ba25c9fccb343785239b8bad124e02c113 100644
+index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..a21da6d908ec2ed40ed15222e748324df25bea80 100644
 --- a/source/app/app-build-manifest.schema.json
 +++ b/source/app/app-build-manifest.schema.json
 @@ -26,6 +26,11 @@
@@ -296,7 +296,7 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..2897e5ba25c9fccb343785239b8bad12
      "commandSets": {
        "type": "object",
        "description": "Reusable named command grant arrays. A runCommands policy composes one or more with commandSets instead of repeating commands.",
-@@ -33,12 +38,22 @@
+@@ -33,15 +38,30 @@
        "propertyNames": { "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
        "additionalProperties": { "$ref": "#/definitions/commandGrantList" }
      },
@@ -319,7 +319,15 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..2897e5ba25c9fccb343785239b8bad12
          "version": { "type": "string" },
          "appId": { "type": "string" },
          "artifactName": { "type": "string" },
-@@ -87,7 +102,7 @@
++        "trayIcon": {
++          "type": "string",
++          "minLength": 1,
++          "description": "Resource-relative icon used by the packaged desktop system tray."
++        },
+         "protocols": {
+           "type": "object",
+           "properties": {
+@@ -87,7 +107,7 @@
        "type": "object",
        "description": "Electron Builder metadata overrides selected per platform.",
        "properties": {
@@ -328,7 +336,7 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..2897e5ba25c9fccb343785239b8bad12
          "mac": { "$ref": "#/definitions/platformMetadata" },
          "win": { "$ref": "#/definitions/platformMetadata" }
        },
-@@ -106,6 +121,40 @@
+@@ -106,6 +126,40 @@
    },
    "additionalProperties": true,
    "definitions": {
@@ -369,7 +377,7 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..2897e5ba25c9fccb343785239b8bad12
      "plugin": {
        "type": "object",
        "properties": {
-@@ -159,6 +208,13 @@
+@@ -159,6 +213,13 @@
            "maxItems": 64,
            "items": { "$ref": "#/definitions/pluginIdentity" }
          },
@@ -383,7 +391,7 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..2897e5ba25c9fccb343785239b8bad12
          "pluginExecutables": {
            "type": "array",
            "description": "Tools supplied by these plugin bundles at the derived path bin/<tool> instead of resolved on the sanitized system PATH.",
-@@ -180,11 +236,26 @@
+@@ -180,11 +241,26 @@
              "type": "string",
              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
            }
@@ -410,7 +418,7 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..2897e5ba25c9fccb343785239b8bad12
          {
            "if": {
              "properties": {
-@@ -202,10 +273,66 @@
+@@ -202,10 +278,66 @@
                }
              }
            }
@@ -477,7 +485,7 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..2897e5ba25c9fccb343785239b8bad12
      "pluginExecutable": {
        "type": "object",
        "description": "A plugin-owned native executable at the derived path bin/<tool>, confined to the verified bundle and integrity-checked before production execution.",
-@@ -384,6 +511,22 @@
+@@ -384,6 +516,22 @@
        },
        "additionalProperties": false
      },
@@ -500,7 +508,7 @@ index 4d522e828af00a9c39b849e7c57cf5b855b5bc48..2897e5ba25c9fccb343785239b8bad12
      "verification": {
        "type": "object",
        "properties": {
-@@ -402,6 +545,11 @@
+@@ -402,6 +550,11 @@
        "description": "Hexadecimal SHA-256 digest.",
        "pattern": "^[A-Fa-f0-9]{64}$"
      },
@@ -3888,10 +3896,16 @@ index 0000000000000000000000000000000000000000..d37d1df46fa4232609ea3f4a6885dba7
 +  export default spawn;
 +}
 diff --git a/source/app/electron/main.ts b/source/app/electron/main.ts
-index f1a61e976f05ee502ecb42eb140be1c58871bbb7..08ef65b6f5fc9547181ae8c86f795db43b793c33 100644
+index f1a61e976f05ee502ecb42eb140be1c58871bbb7..ce912ef1b36dcdbb136a7ba85342d75ce1c6e395 100644
 --- a/source/app/electron/main.ts
 +++ b/source/app/electron/main.ts
-@@ -43,6 +43,7 @@ import {
+@@ -38,11 +38,13 @@ import { hideBin } from 'yargs/helpers';
+ import {
+   loadBuildManifest,
+   productPluginCommandPolicies,
++  readProductMetadata,
+   resolveBuildManifestPath,
+ } from '../scripts/build-manifest';
  import { withBackendMemoryDefaults } from './backendMemory';
  import { resolveBackendToken, waitForExternalBackend } from './backendToken';
  import { createCertificateSetup } from './certificates';
@@ -3899,7 +3913,7 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..08ef65b6f5fc9547181ae8c86f795db4
  import { setupDevelopmentPluginsHandlers } from './developmentPlugins';
  import { startWindowsVMDetection, waitForWindowsVMDetection } from './hardwareAcceleration';
  import i18n from './i18next.config';
-@@ -68,8 +69,11 @@ import {
+@@ -68,8 +70,11 @@ import {
  } from './plugin-management';
  import { readProtocolScheme } from './protocol';
  import { createProtocolHandler } from './protocolHandler';
@@ -3911,7 +3925,7 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..08ef65b6f5fc9547181ae8c86f795db4
    environmentOverrides,
    removeRunCmdConsent,
    runScript,
-@@ -224,15 +228,19 @@ const appBuildManifestPath = isDev
+@@ -224,15 +229,20 @@ const appBuildManifestPath = isDev
  const legalDocuments = loadLegalDocuments(appBuildManifestPath);
  const protocolScheme = readProtocolScheme(appBuildManifestPath);
  const shouldCheckForUpdates = shouldCheckForAppUpdates(appBuildManifestPath);
@@ -3921,6 +3935,7 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..08ef65b6f5fc9547181ae8c86f795db4
 +  appBuildManifest,
    isDev ? 'development' : 'production'
  );
++const productMetadata = readProductMetadata(appBuildManifest);
  
  // make it global so that it doesn't get garbage collected
  let mainWindow: BrowserWindow | null;
@@ -3933,7 +3948,7 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..08ef65b6f5fc9547181ae8c86f795db4
    return (
      !!window &&
      event.sender === window.webContents &&
-@@ -703,7 +711,14 @@ export async function getShellEnvironment(): Promise<NodeJS.ProcessEnv> {
+@@ -703,7 +713,14 @@ export async function getShellEnvironment(): Promise<NodeJS.ProcessEnv> {
          return {};
        });
    }
@@ -3949,7 +3964,7 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..08ef65b6f5fc9547181ae8c86f795db4
  }
  
  /**
-@@ -1599,7 +1614,7 @@ function startElectron() {
+@@ -1599,7 +1616,7 @@ function startElectron() {
        },
      });
      protocolHandler.attachToWebContents(mainWindow.webContents);
@@ -3958,7 +3973,7 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..08ef65b6f5fc9547181ae8c86f795db4
        mainWindow,
        ipcMain,
        productPluginCommandPolicy,
-@@ -1608,6 +1623,14 @@ function startElectron() {
+@@ -1608,6 +1625,14 @@ function startElectron() {
        isDev,
        areDevelopmentPluginsEnabled
      );
@@ -3973,7 +3988,7 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..08ef65b6f5fc9547181ae8c86f795db4
  
      applyZoom();
  
-@@ -1840,13 +1863,13 @@ function startElectron() {
+@@ -1840,13 +1865,13 @@ function startElectron() {
  
      // Also add bundled plugin bin directories to PATH
      const bundledPlugins = path.join(process.resourcesPath, '.plugins');
@@ -3989,7 +4004,15 @@ index f1a61e976f05ee502ecb42eb140be1c58871bbb7..08ef65b6f5fc9547181ae8c86f795db4
      if (userPluginBinDirs.length > 0) {
        addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
      }
-@@ -1935,26 +1958,31 @@ function startElectron() {
+@@ -1872,6 +1897,7 @@ function startElectron() {
+       getBackendPort: () => actualPort,
+       getMainWindow: () => mainWindow,
+       isDev,
++      trayIcon: productMetadata?.trayIcon,
+       quit: () => {
+         isQuitting = true;
+         app.quit();
+@@ -1935,26 +1961,31 @@ function startElectron() {
      }
    });
  
@@ -7361,6 +7384,137 @@ index 7a6ce832755838335ed56c52dcad7909cfae047b..52a524da572e1c340768114adc3b850f
        writeSecureStorageFile(this.storagePath, data);
        return { success: true };
      } catch {
+diff --git a/source/app/electron/tray.test.ts b/source/app/electron/tray.test.ts
+index 143fc5ad44e5412eec45d42345d2c00c9a957bf9..f34be9cecc24c854b08bef44a1f1d9c95b0eb06d 100644
+--- a/source/app/electron/tray.test.ts
++++ b/source/app/electron/tray.test.ts
+@@ -18,7 +18,12 @@ import fs from 'node:fs';
+ import os from 'node:os';
+ import path from 'path';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+-import { getClusterStatuses, isTrayIconEnabled, setTrayIconEnabled } from './tray';
++import {
++  getClusterStatuses,
++  isTrayIconEnabled,
++  resolveTrayIconPath,
++  setTrayIconEnabled,
++} from './tray';
+ 
+ function tmpPath(): string {
+   return path.join(os.tmpdir(), `tray-test-${Date.now()}-${Math.random()}.json`);
+@@ -92,6 +97,39 @@ describe('tray icon setting', () => {
+   });
+ });
+ 
++describe('tray icon path', () => {
++  it('uses a product icon from packaged resources', () => {
++    expect(
++      resolveTrayIconPath(
++        { isDev: false, trayIcon: 'assets/example-tray.png' },
++        '/opt/example/resources'
++      )
++    ).toBe(path.join('/opt/example/resources', 'assets', 'example-tray.png'));
++  });
++
++  it('rejects product icons outside packaged resources', () => {
++    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
++
++    expect(
++      resolveTrayIconPath(
++        { isDev: false, trayIcon: '../outside.png' },
++        '/opt/example/resources'
++      )
++    ).toBe(
++      path.join(
++        '/opt/example/resources',
++        'assets',
++        process.platform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon.png'
++      )
++    );
++    expect(consoleError).toHaveBeenCalledWith(
++      'Ignoring tray icon outside packaged resources: "../outside.png"'
++    );
++
++    consoleError.mockRestore();
++  });
++});
++
+ describe('tray cluster status requests', () => {
+   afterEach(() => {
+     vi.unstubAllGlobals();
+diff --git a/source/app/electron/tray.ts b/source/app/electron/tray.ts
+index 2fc746f127378e92ac0dce5ee0e1d0196f2a8e6a..85b1e9d127451c369c8224eace995725b1bbd444 100644
+--- a/source/app/electron/tray.ts
++++ b/source/app/electron/tray.ts
+@@ -33,6 +33,8 @@ interface HeadlampTrayOptions {
+   getBackendPort: () => number;
+   getMainWindow: () => BrowserWindow | null;
+   isDev: boolean;
++  /** Resource-relative product tray icon used by packaged applications. */
++  trayIcon?: string;
+   quit: () => void;
+ }
+ 
+@@ -99,6 +101,33 @@ export function cleanupHeadlampTray(): void {
+   tray = null;
+ }
+ 
++/** Resolves a product tray icon without allowing paths outside packaged resources. */
++export function resolveTrayIconPath(
++  options: Pick<HeadlampTrayOptions, 'isDev' | 'trayIcon'>,
++  resourcesPath: string = process.resourcesPath
++): string {
++  if (options.trayIcon && !options.isDev) {
++    const root = path.resolve(resourcesPath);
++    const iconPath = path.resolve(root, options.trayIcon);
++    const relativePath = path.relative(root, iconPath);
++    if (
++      relativePath &&
++      relativePath !== '..' &&
++      !relativePath.startsWith(`..${path.sep}`) &&
++      !path.isAbsolute(relativePath)
++    ) {
++      return iconPath;
++    }
++    console.error(`Ignoring tray icon outside packaged resources: "${options.trayIcon}"`);
++  }
++
++  const trayIconFilename =
++    process.platform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon.png';
++  return options.isDev
++    ? path.join(__dirname, '..', 'assets', trayIconFilename)
++    : path.join(resourcesPath, 'assets', trayIconFilename);
++}
++
+ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
+   if (!shouldRunTray()) {
+     return false;
+@@ -112,13 +141,9 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
+     return true;
+   }
+ 
+-  const trayIconFilename =
+-    process.platform === 'darwin' ? 'tray-iconTemplate.png' : 'tray-icon.png';
+-  const iconPath = options.isDev
+-    ? path.join(__dirname, '..', 'assets', trayIconFilename)
+-    : path.join(process.resourcesPath, 'assets', trayIconFilename);
++  const iconPath = resolveTrayIconPath(options);
+ 
+-  const trayIcon = nativeImage.createFromPath(iconPath);
++  let trayIcon = nativeImage.createFromPath(iconPath);
+   if (trayIcon.isEmpty()) {
+     console.error(
+       `Failed to load tray icon from path "${iconPath}". System tray will not be created.`
+@@ -127,6 +152,9 @@ export function createHeadlampTray(options: HeadlampTrayOptions): boolean {
+   }
+ 
+   if (process.platform === 'darwin') {
++    if (options.trayIcon && !options.isDev) {
++      trayIcon = trayIcon.resize({ width: 22, height: 22 });
++    }
+     trayIcon.setTemplateImage(true);
+   }
+ 
 diff --git a/source/app/package-lock.json b/source/app/package-lock.json
 index 1e9ba34e598fcba4911b90835d9a21384b860e58..881bce672d3eea4a5f836e19d62cd7aa4ee9c581 100644
 --- a/source/app/package-lock.json
@@ -7813,10 +7967,10 @@ index 4e9e40f6c791a92cb9679b0abf4550c2d5e1c020..343e8f1ee85fe235d1cc217e4f9b8cd5
        }
        if (typeof fieldValue !== 'string') {
 diff --git a/source/app/scripts/product-metadata.ts b/source/app/scripts/product-metadata.ts
-index 1674e3aa045bc9082e171ac788d52ba8dd035d24..3a7235a0b9e2803405daaa9bcc9f6ba7d51eea2e 100644
+index 1674e3aa045bc9082e171ac788d52ba8dd035d24..7823255a10bbddc926f215dce27a80731937be5d 100644
 --- a/source/app/scripts/product-metadata.ts
 +++ b/source/app/scripts/product-metadata.ts
-@@ -17,6 +17,7 @@
+@@ -17,10 +17,12 @@
  /** Product identity fields consumed by Electron Builder and the app runtime. */
  export type ProductMetadata = {
    name?: string;
@@ -7824,7 +7978,12 @@ index 1674e3aa045bc9082e171ac788d52ba8dd035d24..3a7235a0b9e2803405daaa9bcc9f6ba7
    productName?: string;
    version?: string;
    appId?: string;
-@@ -45,7 +46,14 @@ export function readProductMetadata(manifest: unknown): ProductMetadata | undefi
+   artifactName?: string;
++  trayIcon?: string;
+   protocols?: Record<string, unknown>;
+ };
+ 
+@@ -45,7 +47,15 @@ export function readProductMetadata(manifest: unknown): ProductMetadata | undefi
    }
  
    const metadata = product as ProductMetadata;
@@ -7836,6 +7995,7 @@ index 1674e3aa045bc9082e171ac788d52ba8dd035d24..3a7235a0b9e2803405daaa9bcc9f6ba7
 +    'version',
 +    'appId',
 +    'artifactName',
++    'trayIcon',
 +  ] as const;
    for (const field of scalarFields) {
      if (metadata[field] !== undefined && typeof metadata[field] !== 'string') {

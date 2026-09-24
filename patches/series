@@ -8,3 +8,4 @@
 7731 source 7731-headlamp-upstream-electron-build-timings.patch
 7744 source 7744-headlamp-upstream-aks-cluster-registration.patch
 7746 source 7746-headlamp-upstream-product-company-name.patch
+7747 source 7747-headlamp-product-tray-icon.patch

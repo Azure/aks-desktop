@@ -594,6 +594,49 @@ test('shipped plugins use verified workspace and release sources', () => {
   assert.match(rootManifest.scripts['headlamp:translations'], /distribute-packaged/);
 });
 
+test('AKS product metadata packages its tray icon', context => {
+  assert.equal(rootManifest.headlamp.product.trayIcon, 'assets/aks-desktop-tray.png');
+  const configuredResource = rootManifest.headlamp.build.resources.find(
+    resource =>
+      resource.base === 'project' &&
+      resource.from === 'build/icons/aks-desktop.png' &&
+      resource.to === 'assets/aks-desktop-tray.png'
+  );
+  assert.ok(configuredResource);
+    const { createManifest } = require(
+      path.join(PACKAGE_DIR, 'src', 'lib', 'generate-product-manifest.ts')
+    );
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'aks tray icon-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const iconPath = path.join(directory, configuredResource.from);
+  fs.mkdirSync(path.dirname(iconPath), { recursive: true });
+  fs.copyFileSync(path.join(ROOT_DIR, configuredResource.from), iconPath);
+  const project = structuredClone(rootManifest);
+  project.headlamp.build.externalTools = [];
+  project.headlamp.build.icons = {};
+  project.headlamp.build.resources = [configuredResource];
+  fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify(project));
+    const { manifest } = createManifest({
+    rootDir: directory,
+      packageDir: HEADLAMP_PACKAGE_DIR,
+      platform: process.platform,
+    });
+    assert.equal(manifest.product.trayIcon, 'assets/aks-desktop-tray.png');
+    const trayResource = Object.values(manifest.resources)
+      .flat()
+      .find((resource: any) => resource.to === 'assets/aks-desktop-tray.png');
+    assert.ok(trayResource);
+    assert.equal(
+      path.resolve(
+        path.dirname(
+          path.join(HEADLAMP_SOURCE_DIR, 'app', rootManifest.headlamp.build.manifest)
+        ),
+        trayResource.from
+      ),
+      iconPath
+    );
+});
+
 test('aks-mcp remains retired from AKS Desktop product policy and tools', () => {
   assert.doesNotMatch(JSON.stringify(rootManifest.config.externalTools), /aks-mcp/i);
   assert.doesNotMatch(JSON.stringify(rootManifest.headlamp.runCommands), /aks-mcp/i);
