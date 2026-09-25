@@ -1,0 +1,144 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the Apache 2.0.
+
+import { Icon } from '@iconify/react';
+import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
+import { Alert, Box, Typography } from '@mui/material';
+import React from 'react';
+import { RESOURCE_GROUP_LABEL, SUBSCRIPTION_LABEL } from '../../utils/constants/projectLabels';
+import { DeploymentSelector } from '../shared/DeploymentSelector';
+import { ScalingChart } from './components/ScalingChart';
+import { ScalingMetrics } from './components/ScalingMetrics';
+import { useChartData } from './hooks/useChartData';
+import { useDeployments } from './hooks/useDeployments';
+import { useHPAInfo } from './hooks/useHPAInfo';
+
+/**
+ * Defines the structure of a project for scaling operations.
+ */
+export interface ProjectDefinition {
+  /** Unique identifier for the project. */
+  id: string;
+  /** List of Kubernetes namespaces associated with the project. */
+  namespaces: string[];
+  /** List of cluster names/identifiers where the project can be deployed. */
+  clusters: string[];
+}
+
+/** Alias for ProjectDefinition. */
+type Project = ProjectDefinition;
+
+// 2 hours at 15-minute resolution (8 data points)
+const TIME_RANGE_SECS = 7200;
+const STEP_SECS = 900;
+
+/**
+ * Props for the {@link ScalingCard} component.
+ */
+interface ScalingCardProps {
+  /** The project whose first cluster and namespace are used to fetch deployments. */
+  project: Project;
+}
+
+/**
+ * Displays scaling metrics and charts for a selected Kubernetes deployment.
+ *
+ * @param props.project - The project whose first cluster and namespace are used to fetch deployments.
+ */
+function ScalingCard({ project }: ScalingCardProps) {
+  const { t } = useTranslation();
+  const namespace = project.namespaces?.[0];
+  const cluster = project.clusters?.[0];
+
+  // Get subscription and resource group from namespace labels
+  const [namespaceInstance] = K8s.ResourceClasses.Namespace.useGet(namespace, undefined, {
+    cluster,
+  });
+  const subscription = namespaceInstance?.jsonData?.metadata?.labels?.[SUBSCRIPTION_LABEL];
+  const resourceGroupLabel = namespaceInstance?.jsonData?.metadata?.labels?.[RESOURCE_GROUP_LABEL];
+
+  // Fetch real deployments from Kubernetes API
+  const { deployments, selectedDeployment, loading, error, setSelectedDeployment } = useDeployments(
+    namespace,
+    cluster
+  );
+  // Find HPA that targets the selected deployment
+  const { hpaInfo } = useHPAInfo(selectedDeployment, namespace, cluster);
+  // Fetch real chart data from Prometheus
+  const {
+    chartData,
+    loading: chartLoading,
+    error: chartError,
+  } = useChartData(
+    selectedDeployment,
+    namespace,
+    cluster,
+    subscription,
+    resourceGroupLabel,
+    TIME_RANGE_SECS,
+    STEP_SECS
+  );
+
+  return (
+    <Box
+      sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 0, '&:last-child': { pb: 0 } }}
+    >
+      {/* Header with title and deployment selector */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          mb: 2,
+        }}
+      >
+        <Typography variant="h6">{t('Scaling')}</Typography>
+        <DeploymentSelector
+          selectedDeployment={selectedDeployment}
+          deployments={deployments}
+          loading={loading}
+          onDeploymentChange={setSelectedDeployment}
+          suppressLiveRegion
+        />
+      </Box>
+
+      {error && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      {selectedDeployment && (
+        <>
+          {/* Metrics Overview */}
+          <ScalingMetrics
+            hpaInfo={hpaInfo}
+            selectedDeployment={selectedDeployment}
+            deployments={deployments}
+          />
+          {/* Chart */}
+          <Box sx={{ height: 400, width: '100%' }}>
+            <ScalingChart chartData={chartData} loading={chartLoading} error={chartError} />
+          </Box>
+        </>
+      )}
+
+      {!selectedDeployment && (
+        <Box
+          display="flex"
+          flexDirection="column"
+          alignItems="center"
+          justifyContent="center"
+          flex={1}
+        >
+          <Icon icon="mdi:chart-line" style={{ marginBottom: 16, color: '#ccc', fontSize: 48 }} />
+          <Typography color="textSecondary" variant="body1">
+            {t('Select a deployment to view scaling metrics')}
+          </Typography>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+export default ScalingCard;
