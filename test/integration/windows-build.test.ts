@@ -12,6 +12,18 @@ const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const workflow = (name: string) =>
   fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', name), 'utf8');
 
+test('PR and scheduled builds validate Windows ARM64 on a native runner', () => {
+  const ci = workflow('ci.yml');
+  assert.match(ci, /platform: Windows ARM64\s+runner: windows-11-arm/);
+  assert.match(ci, /run: npm run build\s/);
+  assert.match(ci, /run: npm run test:distribution --/);
+
+  const scheduled = workflow('build-app-win.yml');
+  assert.match(scheduled, /arch: arm64\s+runner: windows-11-arm/);
+  assert.match(scheduled, /run: npm run build:win:\$\{\{ matrix\.arch \}\}/);
+  assert.match(scheduled, /run: npm run test:distribution/);
+});
+
 for (const missing of [undefined, 'x64', 'arm64']) {
   test(`release collection requires both installers (${missing ?? 'both present'})`, {
     skip: process.platform === 'win32',

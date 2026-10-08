@@ -104,6 +104,9 @@ jobs:
           - platform: Windows x64
             runner: windows-latest
             distribution-args: ""
+          - platform: Windows ARM64
+            runner: windows-11-arm
+            distribution-args: ""
     defaults:
       run:
         shell: bash
