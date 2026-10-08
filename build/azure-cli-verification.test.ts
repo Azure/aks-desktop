@@ -207,10 +207,18 @@ test("validates exact installed extension names and versions from wheel metadata
   );
 });
 
-test("invokes packaged runtimes only on a matching host", () => {
+test("invokes packaged runtimes on matching hosts and rejects incompatible hosts", () => {
   assert.equal(canInvokePackagedRuntime("darwin", "x64", "darwin", "x64"), true);
   assert.equal(canInvokePackagedRuntime("darwin", "arm64", "darwin", "x64"), false);
   assert.equal(canInvokePackagedRuntime("linux", "x64", "darwin", "x64"), false);
+});
+
+test("invokes the bundled x64 runtime under Windows ARM64 emulation", () => {
+  assert.equal(canInvokePackagedRuntime("win32", "x64", "win32", "arm64"), true);
+  assert.equal(canInvokePackagedRuntime("win32", "arm64", "win32", "arm64"), true);
+  assert.equal(canInvokePackagedRuntime("win32", "arm64", "win32", "x64"), false);
+  assert.equal(canInvokePackagedRuntime("linux", "x64", "linux", "arm64"), false);
+  assert.equal(canInvokePackagedRuntime("win32", "x64", "linux", "arm64"), false);
 });
 
 test("normalizes Windows paths for wheel RECORD matching", () => {
@@ -272,4 +280,3 @@ test("authenticates locked wheelhouses before cache reuse", () => {
 test("loads Azure CLI staging without executing the installer", async () => {
   await import("./download-az-cli");
 });
-
