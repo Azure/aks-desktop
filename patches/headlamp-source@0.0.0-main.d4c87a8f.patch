@@ -10839,6 +10839,71 @@ index 0c2d85927ef0ac1d9723025baa1894bff7fe424c..f983ce30e65a1e8a62d1bbf0d7a70b15
        } catch (error) {
          console.error('Error in getRelatedPods:', error);
          throw new Error(
+diff --git a/source/frontend/src/components/common/Resource/PortForward.test.tsx b/source/frontend/src/components/common/Resource/PortForward.test.tsx
+index 08af5b5f26dac1a0cc474da46e6bd460d70edd77..c682d1c29a2d1e82059f3f8562c319737672c851 100644
+--- a/source/frontend/src/components/common/Resource/PortForward.test.tsx
++++ b/source/frontend/src/components/common/Resource/PortForward.test.tsx
+@@ -18,9 +18,10 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+ import { TestContext } from '../../../test';
+ import PortForward, { PORT_FORWARD_STOP_STATUS, PORT_FORWARDS_STORAGE_KEY } from './PortForward';
+ 
+-const { mockListPortForward, mockStopOrDeletePortForward } = vi.hoisted(() => ({
++const { mockListPortForward, mockStopOrDeletePortForward, mockUsePodList } = vi.hoisted(() => ({
+   mockListPortForward: vi.fn(),
+   mockStopOrDeletePortForward: vi.fn(),
++  mockUsePodList: vi.fn<(options: unknown) => [never[], null]>(() => [[], null]),
+ }));
+ 
+ vi.mock('react-i18next', () => ({
+@@ -36,7 +37,7 @@ vi.mock('../../../lib/k8s/api/v1/portForward', () => ({
+   stopOrDeletePortForward: (...args: any[]) => mockStopOrDeletePortForward(...args),
+ }));
+ vi.mock('../../../lib/k8s/pod', () => ({
+-  default: { useList: () => [[], null] },
++  default: { useList: (options: any) => mockUsePodList(options) },
+ }));
+ vi.mock('../../portforward/PortForwardStartDialog', () => ({ default: () => null }));
+ 
+@@ -77,6 +78,27 @@ describe('PortForward stop handler', () => {
+     mockListPortForward.mockResolvedValue([runningPortForward]);
+   });
+ 
++  it('loads service pods from the resource cluster', () => {
++    const service = {
++      kind: 'Service',
++      cluster: 'project-cluster',
++      metadata: { name: 'my-service', namespace: 'default' },
++      jsonData: { spec: { selector: { app: 'my-service' } } },
++    };
++
++    render(
++      <TestContext>
++        <PortForward containerPort={80} resource={service as any} />
++      </TestContext>
++    );
++
++    expect(mockUsePodList).toHaveBeenCalledWith({
++      namespace: 'default',
++      labelSelector: 'app=my-service',
++      cluster: 'project-cluster',
++    });
++  });
++
+   it('shows Stop button when a port forward is running', async () => {
+     renderPortForward();
+     await waitFor(() => {
+diff --git a/source/frontend/src/components/common/Resource/PortForward.tsx b/source/frontend/src/components/common/Resource/PortForward.tsx
+index 37a768d21cff7259f5b9d894d07089e2e300f9bb..db590f90396c2bb0253d9ab7fc8a6840a24b6599 100644
+--- a/source/frontend/src/components/common/Resource/PortForward.tsx
++++ b/source/frontend/src/components/common/Resource/PortForward.tsx
+@@ -173,6 +173,7 @@ function PortForwardContent(props: PortForwardProps) {
+   const [pods, podsFetchError] = Pod.useList({
+     namespace,
+     labelSelector: getPodsSelectorFilter(service),
++    cluster: resource?.cluster,
+   });
+ 
+   const cluster = React.useMemo(() => {
 diff --git a/source/frontend/src/frontendDevServer.test.js b/source/frontend/src/frontendDevServer.test.js
 new file mode 100644
 index 0000000000000000000000000000000000000000..75eeb5e2d240221d7fbc78ee92ee5e785b6e7221
