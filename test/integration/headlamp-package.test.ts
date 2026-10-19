@@ -709,7 +709,14 @@ test('frontend identity comes from package and product metadata', () => {
     fs.writeFileSync(
       manifestPath,
       JSON.stringify({
-        product: { version: '1.2.3', productName: 'Example Desktop' },
+        product: {
+          version: '1.2.3',
+          productName: 'Example Desktop',
+          errorReporting: {
+            githubIssueUrl: 'https://github.com/example/product/issues/new?labels=bug',
+            buttonLabel: 'Contact support',
+          },
+        },
       })
     );
     const result = spawnSync(
@@ -740,6 +747,14 @@ test('frontend identity comes from package and product metadata', () => {
       environment,
       /^REACT_APP_HEADLAMP_PRODUCT_VERSION='1\.2\.3'$/m
     );
+    assert.match(
+      environment,
+      /^REACT_APP_HEADLAMP_ERROR_REPORT_GITHUB_URL='https:\/\/github\.com\/example\/product\/issues\/new\?labels=bug'$/m
+    );
+    assert.match(
+      environment,
+      /^REACT_APP_HEADLAMP_ERROR_REPORT_BUTTON_LABEL='Contact support'$/m
+    );
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -747,6 +762,13 @@ test('frontend identity comes from package and product metadata', () => {
 
 test('AKS desktop packages identify Microsoft as the product company', () => {
   assert.equal(rootManifest.headlamp.product.companyName, 'Microsoft');
+});
+
+test('AKS desktop crash reports target the AKS Desktop issue form', () => {
+  assert.deepEqual(rootManifest.headlamp.product.errorReporting, {
+    githubIssueUrl: 'https://github.com/Azure/aks-desktop/issues/new?labels=bug',
+    buttonLabel: 'Contact us',
+  });
 });
 
 for (const [platform, platformKey] of [
@@ -777,6 +799,10 @@ for (const [platform, platformKey] of [
         platform,
       });
       assert.equal(manifest.product.version, version);
+      assert.deepEqual(
+        manifest.product.errorReporting,
+        rootManifest.headlamp.product.errorReporting
+      );
       fs.writeFileSync(manifestPath, JSON.stringify(manifest));
       const result = spawnSync(
         process.execPath,
