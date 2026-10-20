@@ -16,7 +16,10 @@ refetches.
 
 Refresh preserves unsaved edits and reports failures without hiding the editor.
 Successful saves publish confirmed settings to the cache while preserving edits
-made during the update. Label-preserving reads before updates are still required.
+made during the update. Reconciliation is per field: untouched fields adopt the
+server-confirmed values. Retry also refetches failed namespace metadata when
+cached labels are still available. Label-preserving reads before updates are
+still required.
 The tab supports AKS managed namespaces, not native Arc namespace settings.
 
 Detected Azure account changes clear cached settings and drafts using the

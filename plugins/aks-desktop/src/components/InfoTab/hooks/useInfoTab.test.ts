@@ -222,6 +222,51 @@ describe('useInfoTab', () => {
     expect(result.current.error).toBeNull();
   });
 
+  test.each([false, true])(
+    'retries failed cached metadata and follows changed resource-group labels: %s',
+    async changeGroup => {
+      const first = render();
+      await loaded(first.result);
+      first.unmount();
+      const metadataKey = [
+        'aks-desktop',
+        'managed-namespace',
+        'metadata',
+        getManagedNamespaceAuthState().generation,
+        target.clusterName,
+        target.namespaceName,
+      ];
+      client.setQueryData(metadataKey, metadata(), { updatedAt: Date.now() - 60_001 });
+      mocks.metadata.mockRejectedValueOnce(new Error('metadata temporarily unavailable'));
+      const { result } = render();
+      await waitFor(() =>
+        expect(result.current.error).toContain('metadata temporarily unavailable')
+      );
+      expect(result.current.namespaceDetails).toEqual(details());
+      act(() => result.current.handleFormDataChange({ cpuLimit: 1500 }));
+      const retry = deferred<ReturnType<typeof metadata>>();
+      mocks.metadata.mockReturnValueOnce(retry.promise);
+      mocks.show.mockResolvedValue(details('DenyAll'));
+      act(() => result.current.handleRefresh());
+      await waitFor(() => expect(mocks.metadata).toHaveBeenCalledTimes(3));
+      expect(result.current.revalidating).toBe(true);
+      await act(async () =>
+        retry.resolve(
+          metadata(changeGroup ? { 'aks-desktop/project-resource-group': 'new-group' } : {})
+        )
+      );
+      await waitFor(() => expect(result.current.error).toBeNull());
+      await waitFor(() => expect(result.current.revalidating).toBe(false));
+      expect(result.current.formData.ingress).toBe(changeGroup ? 'DenyAll' : 'AllowAll');
+      expect(result.current.formData.cpuLimit).toBe(changeGroup ? 1000 : 1500);
+      expect(result.current.hasChanges).toBe(!changeGroup);
+      expect(mocks.show).toHaveBeenCalledTimes(changeGroup ? 2 : 1);
+      if (changeGroup) {
+        expect(mocks.show).toHaveBeenLastCalledWith({ ...target, resourceGroup: 'new-group' });
+      }
+    }
+  );
+
   test('cold failure preserves actionable errors, does not retry, and supports Retry', async () => {
     mocks.show.mockRejectedValueOnce(new Error('Authentication required: az login'));
     const { result } = render();
@@ -372,6 +417,83 @@ describe('useInfoTab', () => {
     });
     expect(result.current.hasChanges).toBe(false);
   });
+
+  test.each([
+    ['ingress', 'AllowAll'],
+    ['egress', 'AllowSameNamespace'],
+    ['cpuRequest', 700],
+    ['cpuLimit', 3000],
+    ['memoryRequest', 400],
+    ['memoryLimit', 2048],
+  ] as const)(
+    'save retains only the %s edit made during submission and adopts other confirmed fields',
+    async (field, value) => {
+      const { result } = render();
+      await loaded(result);
+      const pending = deferred<ManagedNamespaceDetails>();
+      mocks.update.mockReturnValueOnce(pending.promise);
+      act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+      act(() => result.current.handleSave());
+      await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+      act(() => result.current.handleFormDataChange({ [field]: value }));
+      const confirmed = {
+        properties: {
+          defaultNetworkPolicy: { ingress: 'AllowSameNamespace', egress: 'AllowAll' },
+          defaultResourceQuota: {
+            cpuRequest: '600m',
+            cpuLimit: '2000m',
+            memoryRequest: '384Mi',
+            memoryLimit: '1024Mi',
+          },
+        },
+      };
+      await act(async () => pending.resolve(confirmed));
+      await waitFor(() => expect(result.current.updating).toBe(false));
+      const expected = {
+        ingress: 'AllowSameNamespace',
+        egress: 'AllowAll',
+        cpuRequest: 600,
+        cpuLimit: 2000,
+        memoryRequest: 384,
+        memoryLimit: 1024,
+        [field]: value,
+      };
+      expect(result.current.formData).toMatchObject(expected);
+      expect(result.current.hasChanges).toBe(true);
+      expect(client.getQueryData(key())).toEqual(confirmed);
+      await save(result);
+      expect(mocks.update).toHaveBeenLastCalledWith({
+        ...target,
+        ingressPolicy: expected.ingress,
+        egressPolicy: expected.egress,
+        cpuRequest: expected.cpuRequest,
+        cpuLimit: expected.cpuLimit,
+        memoryRequest: expected.memoryRequest,
+        memoryLimit: expected.memoryLimit,
+      });
+      expect(result.current.hasChanges).toBe(false);
+    }
+  );
+
+  test.each([undefined, 'AllowAll', 'DenyAll', 'AllowSameNamespace'] as const)(
+    'quota-only saves preserve egress policy %s and default missing egress to AllowAll',
+    async egress => {
+      mocks.show.mockResolvedValue({
+        properties: {
+          ...details().properties,
+          defaultNetworkPolicy: { ingress: 'AllowAll', egress },
+        },
+      });
+      const { result } = render();
+      await loaded(result);
+      expect(result.current.formData.egress).toBe(egress ?? 'AllowAll');
+      act(() => result.current.handleFormDataChange({ cpuLimit: 2000 }));
+      await save(result);
+      expect(mocks.update).toHaveBeenCalledWith(
+        expect.objectContaining({ cpuLimit: 2000, egressPolicy: egress ?? 'AllowAll' })
+      );
+    }
+  );
 
   test('multiple field edits in one event retain both values', async () => {
     const { result } = render();

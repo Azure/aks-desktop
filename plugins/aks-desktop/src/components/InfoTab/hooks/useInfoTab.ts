@@ -54,7 +54,7 @@ function readForm(details?: ManagedNamespaceDetails): FormData {
   return {
     ...DEFAULT_FORM_DATA,
     ingress: normalizePolicy(policy?.ingress),
-    egress: normalizePolicy(policy?.egress),
+    egress: normalizePolicy(policy?.egress ?? 'AllowAll'),
     cpuRequest: parseQuota(quota?.cpuRequest),
     cpuLimit: parseQuota(quota?.cpuLimit),
     memoryRequest: parseQuota(quota?.memoryRequest),
@@ -199,15 +199,23 @@ export function useInfoTab(project: { clusters: string[]; namespaces: string[]; 
       const currentAuth = getManagedNamespaceAuthState();
       if (!currentAuth.ready || currentAuth.generation !== submission.generation) return;
       const saved = savedDetails(submission.snapshot, response, submission.values);
+      const confirmedForm = readForm(saved);
       client.setQueryData(submission.key, saved);
       setDraft(previous =>
         previous?.owner === submission.owner
           ? {
               owner: submission.owner,
-              baseline: readForm(saved),
-              values: equalSettings(previous.values, submission.values)
-                ? readForm(saved)
-                : previous.values,
+              baseline: confirmedForm,
+              values: fields.reduce(
+                (values, field) => ({
+                  ...values,
+                  [field]:
+                    previous.values[field] !== submission.values[field]
+                      ? previous.values[field]
+                      : confirmedForm[field],
+                }),
+                confirmedForm
+              ),
             }
           : previous
       );
@@ -241,8 +249,8 @@ export function useInfoTab(project: { clusters: string[]; namespaces: string[]; 
   const handleRefresh = () => {
     if (!auth.ready || client.isMutating({ mutationKey, exact: true })) return;
     setActionError(undefined);
-    if (target) void query.refetch({ cancelRefetch: false });
-    else void metadata.refetch({ cancelRefetch: false });
+    if (metadata.error || !target) void metadata.refetch({ cancelRefetch: false });
+    else void query.refetch({ cancelRefetch: false });
   };
 
   const failure = metadata.error ?? query.error;
@@ -263,7 +271,7 @@ export function useInfoTab(project: { clusters: string[]; namespaces: string[]; 
 
   return {
     loading: auth.ready && singleNamespace && !error && !query.data,
-    revalidating: query.isFetching && !!query.data,
+    revalidating: (metadata.isFetching || query.isFetching) && !!query.data,
     updating,
     canRefresh: auth.ready && singleNamespace,
     error,
