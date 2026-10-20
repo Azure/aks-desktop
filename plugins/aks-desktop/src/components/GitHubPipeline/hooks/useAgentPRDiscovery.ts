@@ -2,12 +2,13 @@
 // Licensed under the Apache 2.0.
 
 import { Octokit } from '@octokit/rest';
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import {
   findLinkedPullRequest,
   getIssue,
   listIssueComments,
 } from '../../../utils/github/github-api';
+import { isGitHubSessionCurrent } from '../../../utils/github/github-session';
 import { AGENT_DISCOVERY_MAX_POLLS, POLLING_INTERVAL_MS } from '../constants';
 import { usePolling } from './usePolling';
 
@@ -75,15 +76,22 @@ export const useAgentPRDiscovery = (
   owner: string,
   repo: string,
   enabled: boolean,
-  issueNumber?: number | null
+  issueNumber: number | null | undefined,
+  sessionVersion: number
 ): UseAgentPRDiscoveryResult => {
   const isEnabled = !!(octokit && owner && repo && issueNumber && enabled);
+  const resetKey = JSON.stringify([sessionVersion, owner, repo, issueNumber]);
+  const identityRef = useRef(resetKey);
+  identityRef.current = resetKey;
 
   const pollFn = useCallback(async (): Promise<AgentPRPollData | null> => {
-    if (!octokit || !issueNumber) return null;
+    const current = () =>
+      identityRef.current === resetKey && isGitHubSessionCurrent(sessionVersion);
+    if (!octokit || !issueNumber || !current()) return null;
 
     try {
       const linked = await findLinkedPullRequest(octokit, owner, repo, issueNumber);
+      if (!current()) return null;
       if (linked) {
         if (!linked.draft) {
           return {
@@ -104,20 +112,24 @@ export const useAgentPRDiscovery = (
           failureReason: null,
         };
       }
-    } catch (err) {
-      console.warn('Failed to query issue timeline:', err);
+    } catch {
+      if (!current()) return null;
+      console.warn('Failed to query issue timeline');
     }
 
     try {
       const issue = await getIssue(octokit, owner, repo, issueNumber);
+      if (!current()) return null;
       if (issue.state === 'closed') {
         let failureReason: AgentFailureReason = 'unknown';
         try {
           const comments = await listIssueComments(octokit, owner, repo, issueNumber);
+          if (!current()) return null;
           failureReason = classifyFailureFromComments(comments);
-        } catch (err) {
+        } catch {
+          if (!current()) return null;
           // Comment fetch is best-effort; default to 'unknown'.
-          console.warn('Failed to fetch issue comments for failure classification:', err);
+          console.warn('Failed to fetch issue comments for failure classification');
         }
         return {
           prUrl: null,
@@ -128,12 +140,13 @@ export const useAgentPRDiscovery = (
           failureReason,
         };
       }
-    } catch (err) {
-      console.warn('Failed to check issue status:', err);
+    } catch {
+      if (!current()) return null;
+      console.warn('Failed to check issue status');
     }
 
     return null;
-  }, [octokit, owner, repo, issueNumber]);
+  }, [octokit, owner, repo, issueNumber, resetKey, sessionVersion]);
 
   const shouldStop = useCallback(
     (result: AgentPRPollData): boolean => !!(result.prNumber || result.issueClosed),
@@ -142,6 +155,7 @@ export const useAgentPRDiscovery = (
 
   const { data, isTimedOut, error, stopPolling } = usePolling<AgentPRPollData>({
     enabled: isEnabled,
+    resetKey,
     intervalMs: POLLING_INTERVAL_MS,
     maxPolls: AGENT_DISCOVERY_MAX_POLLS,
     pollFn,

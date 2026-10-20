@@ -5,10 +5,10 @@ import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material';
 import type { Octokit } from '@octokit/rest';
-import React, { useState } from 'react';
-import type { GitHubRepo } from '../../../types/github';
+import React, { useEffect, useState } from 'react';
+import type { GitHubAuthState, GitHubRepo } from '../../../types/github';
 import { openExternalUrl } from '../../../utils/shared/openExternalUrl';
-import type { GitHubAuthState } from '../types';
+import { GitHubDeviceCodePrompt } from './GitHubDeviceCodePrompt';
 import { RepoSelector } from './RepoSelector';
 
 function getPermissions(t: (key: string) => string) {
@@ -28,28 +28,32 @@ function getPermissions(t: (key: string) => string) {
 interface ConnectSourceStepProps {
   authState: GitHubAuthState;
   onStartOAuth: () => void;
+  onCancelOAuth: () => void;
+  onAbortOAuth: () => void;
+  onDisconnect: () => void;
   octokit: Octokit | null;
   selectedRepo: GitHubRepo | null;
   onRepoSelect: (repo: GitHubRepo) => void;
   appInstallNeeded?: boolean;
   appInstallUrl?: string | null;
-  /** Override from the wizard: auth was completed (state machine advanced past auth). */
-  authCompleted?: boolean;
 }
 
 export function ConnectSourceStep({
   authState,
   onStartOAuth,
+  onCancelOAuth,
+  onAbortOAuth,
+  onDisconnect,
   octokit,
   selectedRepo,
   onRepoSelect,
   appInstallNeeded,
   appInstallUrl,
-  authCompleted,
 }: ConnectSourceStepProps) {
   const { t } = useTranslation();
   const { isAuthorizingBrowser, username, error } = authState;
-  const isAuthenticated = authCompleted || authState.isAuthenticated;
+  useEffect(() => () => onCancelOAuth(), [onCancelOAuth]);
+  const isAuthenticated = authState.isAuthenticated;
   const permissions = getPermissions(t);
 
   return (
@@ -62,7 +66,20 @@ export function ConnectSourceStep({
         </Typography>
       </Box>
 
-      {isAuthenticated ? (
+      {authState.isDisconnecting ? (
+        <Typography role="status" variant="body2" sx={{ mb: 2 }}>
+          {t('Removing saved GitHub credentials...')}
+        </Typography>
+      ) : authState.disconnectError ? (
+        <Box sx={{ mb: 2 }}>
+          <Alert severity="warning" sx={{ mb: 1 }}>
+            {t('Saved GitHub credentials may remain. Retry disconnect before connecting again.')}
+          </Alert>
+          <Button variant="outlined" onClick={onDisconnect}>
+            {t('Retry disconnect')}
+          </Button>
+        </Box>
+      ) : isAuthenticated ? (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
           <Box
             component={Icon}
@@ -72,6 +89,9 @@ export function ConnectSourceStep({
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
             {t("Connected to '{{username}}'.", { username })}
           </Typography>
+          <Button size="small" onClick={onDisconnect}>
+            {t('Disconnect GitHub')}
+          </Button>
         </Box>
       ) : (
         <>
@@ -99,21 +119,16 @@ export function ConnectSourceStep({
           </Box>
 
           {isAuthorizingBrowser ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <Box
-                component={Icon}
-                icon="mdi:open-in-new"
-                sx={{ fontSize: 16, color: 'primary.main' }}
-              />
-              <Typography variant="body2" sx={{ color: 'primary.main' }}>
-                {t('Complete authorization on your browser screen')}
-              </Typography>
-            </Box>
+            <GitHubDeviceCodePrompt
+              authorization={authState.deviceAuthorization}
+              onCancel={onAbortOAuth}
+            />
           ) : (
             <Button
               variant="outlined"
               size="small"
-              startIcon={<Icon icon="mdi:open-in-new" aria-hidden="true" />}
+              disabled={authState.isRestoring}
+              startIcon={<Icon icon="mdi:github" aria-hidden="true" />}
               onClick={onStartOAuth}
               sx={{ textTransform: 'none', mb: 2 }}
             >
@@ -123,19 +138,30 @@ export function ConnectSourceStep({
 
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
+              {t(error)}
             </Alert>
           )}
         </>
       )}
 
-      {/* Repo Selector - shown after auth */}
-      {isAuthenticated && octokit && (
+      {isAuthenticated && error && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {t(error)}
+        </Alert>
+      )}
+
+      {/* Repo Selector - shown only for the current usable session. */}
+      {isAuthenticated && octokit && !authState.isDisconnecting && !authState.disconnectError && (
         <>
           <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5 }}>
             {t('Select repository')}
           </Typography>
-          <RepoSelector octokit={octokit} selectedRepo={selectedRepo} onRepoSelect={onRepoSelect} />
+          <RepoSelector
+            octokit={octokit}
+            sessionVersion={authState.sessionVersion}
+            selectedRepo={selectedRepo}
+            onRepoSelect={onRepoSelect}
+          />
 
           {/* App install warning - shown inline below repo selector */}
           {appInstallNeeded && selectedRepo && (

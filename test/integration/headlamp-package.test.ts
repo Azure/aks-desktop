@@ -40,6 +40,13 @@ const { packagedExecutableCandidates } = require(
   path.join(HEADLAMP_PACKAGE_DIR, 'src', 'lib', 'smoke-app.ts')
 );
 
+test('the installed host provides the opt-in sensitive OAuth proxy contract', () => {
+  const backend = fs.readFileSync(path.join(HEADLAMP_SOURCE_DIR, 'backend', 'cmd', 'headlamp.go'), 'utf8');
+  assert.match(backend, /X-Headlamp-Proxy-Redirect/);
+  assert.match(backend, /http\.ErrUseLastResponse/);
+  assert.match(backend, /Header\(\)\.Set\("Retry-After"/);
+});
+
 test('the installed package is a complete pinned source distribution', () => {
   assert.equal(fs.lstatSync(HEADLAMP_PACKAGE_DIR).isSymbolicLink(), false);
   assert.equal(packageManifest.name, '@headlamp-k8s/headlamp-source');

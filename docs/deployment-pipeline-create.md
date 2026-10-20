@@ -111,16 +111,22 @@ There are two ways to start:
 
 ### Step 2 — Connect to GitHub
 
-1. Click **Connect** to begin GitHub authentication
-2. A browser window opens to GitHub's authorization page
-3. Review the permissions requested:
-   - **Contents** — push workflow and agent config files to your repo
-   - **Workflows** — create and trigger GitHub Actions workflows
-   - **Pull Requests** — create setup and deployment PRs
-   - **Issues** — create tasks for the Copilot agent
-   - **Actions** — monitor workflow runs
-4. Click **Authorize** in the browser
-5. Return to AKS Desktop — you should see **"Connected as \<your-username\>"**
+1. Click **Connect**. AKS Desktop displays a temporary device code and its expiry time.
+2. Click **Open GitHub** to open the approval page. The browser does not open automatically.
+3. Enter the displayed code on GitHub, use the intended GitHub account, and review the app's permissions before approving access.
+4. Return to AKS Desktop. Your connected GitHub identity appears when approval and secure credential storage have completed.
+
+Use **Cancel** to abandon pending sign-in. Closing the panel that started the sign-in also cancels it. AKS Desktop does not sign you out of GitHub in your browser.
+
+The configured GitHub App must have device flow enabled by its owner. If AKS Desktop reports that device login is disabled, contact the app owner; this cannot be enabled from AKS Desktop.
+
+#### Disconnect or switch GitHub accounts
+
+Open the **GitHub account** control in the project header and select **Disconnect GitHub**. This removes the app's saved GitHub credentials locally; it does not revoke GitHub App permissions or sign out of your browser.
+
+Repositories, GitHub App installations, Azure login and resources, deployments, and saved pipeline configuration/PR progress are kept. Connect again with an account that can access the selected repository to resume.
+
+If credential removal fails, the app warns that saved credentials may remain and offers **Retry disconnect**. A new sign-in remains blocked until cleanup succeeds. A temporary repository-check failure instead offers **Retry repository access**, without requiring sign-out or discarding progress.
 
 ### Step 3 — Select a repository
 

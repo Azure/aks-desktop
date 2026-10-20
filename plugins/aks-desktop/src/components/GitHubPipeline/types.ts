@@ -30,20 +30,6 @@ export const DEPLOYMENT_STATES = [
 
 export type PipelineDeploymentState = (typeof DEPLOYMENT_STATES)[number];
 
-export interface GitHubAuthState {
-  isAuthenticated: boolean;
-  isRestoring: boolean;
-  isAuthorizingBrowser: boolean;
-  /** Expires ~8 hours. */
-  token: string | null;
-  /** Expires ~6 months. */
-  refreshToken: string | null;
-  /** ISO timestamp. */
-  expiresAt: string | null;
-  username: string | null;
-  error: string | null;
-}
-
 /**
  * Pipeline deployment configuration — collected from the existing deploy wizard.
  * Serialized into the agent task issue body per PRD Section 6.3.

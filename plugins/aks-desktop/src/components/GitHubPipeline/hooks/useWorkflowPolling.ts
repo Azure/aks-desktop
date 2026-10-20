@@ -2,9 +2,10 @@
 // Licensed under the Apache 2.0.
 
 import type { Octokit } from '@octokit/rest';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import type { WorkflowRunConclusion, WorkflowRunStatus } from '../../../types/github';
 import { getWorkflowRun, listWorkflowRuns } from '../../../utils/github/github-api';
+import { isGitHubSessionCurrent } from '../../../utils/github/github-session';
 import {
   PIPELINE_WORKFLOW_FILENAME,
   POLLING_INTERVAL_MS,
@@ -43,19 +44,30 @@ export const useWorkflowPolling = (
   owner: string,
   repo: string,
   branchName: string | null,
-  enabled: boolean
+  enabled: boolean,
+  sessionVersion: number,
+  dispatchIdentity?: string
 ): UseWorkflowPollingResult => {
   const isEnabled = !!(octokit && branchName && enabled);
+  const resetKey = JSON.stringify([
+    sessionVersion,
+    owner,
+    repo,
+    branchName,
+    PIPELINE_WORKFLOW_FILENAME,
+    dispatchIdentity,
+  ]);
   const runIdRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!isEnabled) {
-      runIdRef.current = null;
-    }
-  }, [isEnabled]);
+  const identityRef = useRef(resetKey);
+  if (identityRef.current !== resetKey) {
+    identityRef.current = resetKey;
+    runIdRef.current = null;
+  }
 
   const pollFn = useCallback(async (): Promise<WorkflowPollData | null> => {
-    if (!octokit || !branchName) return null;
+    const current = () =>
+      identityRef.current === resetKey && isGitHubSessionCurrent(sessionVersion);
+    if (!octokit || !branchName || !current()) return null;
 
     if (runIdRef.current === null) {
       const runs = await listWorkflowRuns(octokit, owner, repo, {
@@ -63,6 +75,7 @@ export const useWorkflowPolling = (
         per_page: 5,
         workflowFileName: PIPELINE_WORKFLOW_FILENAME,
       });
+      if (!current()) return null;
       if (runs.length > 0) {
         const latestRun = runs[0];
         runIdRef.current = latestRun.id;
@@ -76,12 +89,13 @@ export const useWorkflowPolling = (
     }
 
     const run = await getWorkflowRun(octokit, owner, repo, runIdRef.current);
+    if (!current()) return null;
     return {
       runStatus: run.status,
       runConclusion: run.conclusion,
       runUrl: run.url,
     };
-  }, [octokit, owner, repo, branchName]);
+  }, [octokit, owner, repo, branchName, resetKey, sessionVersion]);
 
   const shouldStop = useCallback(
     (result: WorkflowPollData): boolean => result.runStatus === 'completed',
@@ -95,6 +109,7 @@ export const useWorkflowPolling = (
     stopPolling,
   } = usePolling<WorkflowPollData>({
     enabled: isEnabled,
+    resetKey,
     intervalMs: POLLING_INTERVAL_MS,
     maxPolls: WORKFLOW_POLLING_MAX_POLLS,
     pollFn,

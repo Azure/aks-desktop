@@ -526,7 +526,7 @@ registerConditionalProjectOverviewSection({
   // GitHubAuthProvider is duplicated across three registrations (here, DeployTab, and
   // ConfigurePipelineButton) because Headlamp renders each registered component in an
   // independent React tree — there is no shared ancestor to hoist the provider into.
-  // Token state is shared across instances via localStorage inside useGitHubAuth.
+  // Independent trees subscribe to one plugin-module GitHub session coordinator.
   component: ({ project }) => (
     <GitHubAuthProvider>
       <PipelineCard project={project} />

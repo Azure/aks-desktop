@@ -9,6 +9,7 @@ import {
   checkRepoReadiness,
   dispatchWorkflow,
 } from '../../../utils/github/github-api';
+import { isGitHubSessionCurrent } from '../../../utils/github/github-session';
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
 import { APP_INSTALL_CHECK_INTERVAL_MS, PIPELINE_WORKFLOW_FILENAME } from '../constants';
 import { useGitHubAuthContext } from '../GitHubAuthContext';
@@ -32,6 +33,7 @@ import { useDeploymentHealth } from './useDeploymentHealth';
 import type { UseGitHubAuthResult } from './useGitHubAuth';
 import type { UseGitHubPipelineStateResult } from './useGitHubPipelineState';
 import { useGitHubPipelineState } from './useGitHubPipelineState';
+import { useGitHubRepoAccess } from './useGitHubRepoAccess';
 import {
   ANNOTATION_WORKLOAD_IDENTITY,
   usePipelineAnnotationSync,
@@ -68,6 +70,7 @@ interface UseGitHubPipelineOrchestrationProps {
 
 export interface UseGitHubPipelineOrchestrationResult {
   gitHubAuth: UseGitHubAuthResult;
+  repoAccess: ReturnType<typeof useGitHubRepoAccess>;
   selectedRepo: GitHubRepo | null;
   setSelectedRepo: React.Dispatch<React.SetStateAction<GitHubRepo | null>>;
   appInstallUrl: string | null;
@@ -107,8 +110,20 @@ export const useGitHubPipelineOrchestration = ({
   mode = 'deploy',
   projectName,
 }: UseGitHubPipelineOrchestrationProps): UseGitHubPipelineOrchestrationResult => {
-  const agentTriggerInFlightRef = useRef(false);
-  const checkRepoInFlightRef = useRef(false);
+  const agentTriggerInFlightRef = useRef<symbol | null>(null);
+  const checkRepoInFlightRef = useRef<symbol | null>(null);
+  const setupPrInFlightRef = useRef<symbol | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      agentTriggerInFlightRef.current =
+        checkRepoInFlightRef.current =
+        setupPrInFlightRef.current =
+          null;
+    };
+  }, []);
 
   const deploymentStateRef = useRef<PipelineDeploymentState>('Configured');
 
@@ -122,6 +137,39 @@ export const useGitHubPipelineOrchestration = ({
   const [isCheckingInstall, setIsCheckingInstall] = useState(false);
   const repoKey = selectedRepo ? `${selectedRepo.owner}/${selectedRepo.repo}` : null;
   const pipeline = useGitHubPipelineState(repoKey);
+  const sessionVersion = gitHubAuth.authState.sessionVersion;
+  const repoAccess = useGitHubRepoAccess(gitHubAuth.octokit, selectedRepo, sessionVersion);
+  const ready = gitHubAuth.authState.isAuthenticated && repoAccess.status === 'granted';
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
+  const key = JSON.stringify([
+    sessionVersion,
+    repoKey,
+    selectedRepo?.defaultBranch,
+    clusterName,
+    namespace,
+  ]);
+  const scopeRef = useRef({ key });
+  if (scopeRef.current.key !== key) {
+    scopeRef.current = { key };
+    agentTriggerInFlightRef.current =
+      checkRepoInFlightRef.current =
+      setupPrInFlightRef.current =
+        null;
+  }
+  const scope = scopeRef.current;
+  const isCurrent = useCallback(
+    () =>
+      mountedRef.current &&
+      scopeRef.current === scope &&
+      readyRef.current &&
+      isGitHubSessionCurrent(sessionVersion),
+    [scope, sessionVersion]
+  );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A new scope clears the previous operation's transient indicator.
+  useEffect(() => {
+    setIsCheckingInstall(false);
+  }, [scope]);
 
   const [namespaceInstance] = K8s.ResourceClasses.Namespace.useGet(namespace, undefined, {
     cluster: clusterName,
@@ -152,6 +200,7 @@ export const useGitHubPipelineOrchestration = ({
   }, [localAppName, selectedRepo]);
 
   useEffect(() => {
+    if (!ready || !isCurrent()) return;
     if (
       identitySetup.status === 'done' &&
       identitySetup.result &&
@@ -167,24 +216,23 @@ export const useGitHubPipelineOrchestration = ({
     pipeline.state.deploymentState,
     pipeline.updateConfig,
     pipeline.setIdentityReady,
+    ready,
+    isCurrent,
   ]);
 
-  // Latch first successful auth — cross-tree sync can briefly flicker the flag.
-  const authSeenRef = useRef(false);
+  // Authentication is an overlay over advanced progress, not a replacement state.
   useEffect(() => {
-    if (gitHubAuth.authState.isAuthenticated) {
-      authSeenRef.current = true;
-    }
-  }, [gitHubAuth.authState.isAuthenticated]);
-
-  useEffect(() => {
-    if (gitHubAuth.authState.isRestoring) return;
-    if (!gitHubAuth.authState.isAuthenticated && !authSeenRef.current) {
-      pipeline.setAuthNeeded();
-    }
+    if (
+      gitHubAuth.authState.isRestoring ||
+      gitHubAuth.authState.isAuthenticated ||
+      pipeline.state.deploymentState !== 'Configured'
+    )
+      return;
+    pipeline.setAuthNeeded();
   }, [
     gitHubAuth.authState.isAuthenticated,
     gitHubAuth.authState.isRestoring,
+    pipeline.state.deploymentState,
     pipeline.setAuthNeeded,
   ]);
 
@@ -224,9 +272,11 @@ export const useGitHubPipelineOrchestration = ({
 
   const checkRepoAndApp = useCallback(
     async (options?: { silent?: boolean }) => {
-      if (!gitHubAuth.octokit || !selectedRepo) return;
+      if (!isCurrent() || !gitHubAuth.octokit || !selectedRepo) return;
       if (checkRepoInFlightRef.current) return;
-      checkRepoInFlightRef.current = true;
+      const operation = Symbol('repository-check');
+      checkRepoInFlightRef.current = operation;
+      const current = () => isCurrent() && checkRepoInFlightRef.current === operation;
       setIsCheckingInstall(true);
       if (!options?.silent) {
         pipeline.setCheckingRepo();
@@ -237,6 +287,7 @@ export const useGitHubPipelineOrchestration = ({
           selectedRepo.owner,
           selectedRepo.repo
         );
+        if (!current()) return;
         if (!installed) {
           pipeline.setAppInstallNeeded();
           setAppInstallUrl(installUrl);
@@ -251,15 +302,19 @@ export const useGitHubPipelineOrchestration = ({
         // Only shortcut to PipelineConfigured when resuming via initialRepo.
         // When the user manually selected a repo (or used "Start over"),
         // always show the setup review so they can re-run the pipeline.
+        if (!current()) return;
         const effective = isResumingRef.current
           ? readiness
           : { ...readiness, hasDeployWorkflow: false };
         pipeline.setRepoReadiness(effective);
       } catch (err) {
-        pipeline.setFailed(err instanceof Error ? err.message : 'Failed to check repo');
+        if (current())
+          pipeline.setFailed(err instanceof Error ? err.message : 'Failed to check repo');
       } finally {
-        checkRepoInFlightRef.current = false;
-        setIsCheckingInstall(false);
+        if (checkRepoInFlightRef.current === operation) {
+          checkRepoInFlightRef.current = null;
+          if (isCurrent()) setIsCheckingInstall(false);
+        }
       }
     },
     [
@@ -269,6 +324,7 @@ export const useGitHubPipelineOrchestration = ({
       pipeline.setAppInstallNeeded,
       pipeline.setRepoReadiness,
       pipeline.setFailed,
+      isCurrent,
     ]
   );
 
@@ -277,22 +333,26 @@ export const useGitHubPipelineOrchestration = ({
     selectedRepo?.owner ?? '',
     selectedRepo?.repo ?? '',
     pipeline.state.setupPr.number,
-    pipeline.state.deploymentState === 'SetupPRAwaitingMerge'
+    ready && pipeline.state.deploymentState === 'SetupPRAwaitingMerge',
+    sessionVersion
   );
 
   const agentPrDiscovery = useAgentPRDiscovery(
     gitHubAuth.octokit,
     selectedRepo?.owner ?? '',
     selectedRepo?.repo ?? '',
-    pipeline.state.deploymentState === 'AgentRunning',
-    pipeline.state.triggerIssue.number
+    ready && pipeline.state.deploymentState === 'AgentRunning',
+    pipeline.state.triggerIssue.number,
+    sessionVersion
   );
 
   const agentWorkflowProgress = useAgentWorkflowProgress(
     gitHubAuth.octokit,
     selectedRepo?.owner ?? '',
     selectedRepo?.repo ?? '',
-    pipeline.state.deploymentState === 'AgentRunning'
+    ready && pipeline.state.deploymentState === 'AgentRunning',
+    pipeline.state.triggerIssue.number,
+    sessionVersion
   );
 
   const generatedPrPolling = usePRPolling(
@@ -300,7 +360,8 @@ export const useGitHubPipelineOrchestration = ({
     selectedRepo?.owner ?? '',
     selectedRepo?.repo ?? '',
     pipeline.state.generatedPr.number,
-    pipeline.state.deploymentState === 'GeneratedPRAwaitingMerge'
+    ready && pipeline.state.deploymentState === 'GeneratedPRAwaitingMerge',
+    sessionVersion
   );
 
   const workflowPolling = useWorkflowPolling(
@@ -308,7 +369,8 @@ export const useGitHubPipelineOrchestration = ({
     selectedRepo?.owner ?? '',
     selectedRepo?.repo ?? '',
     selectedRepo?.defaultBranch ?? null,
-    pipeline.state.deploymentState === 'PipelineRunning'
+    ready && pipeline.state.deploymentState === 'PipelineRunning',
+    sessionVersion
   );
 
   const deploymentHealth = useDeploymentHealth(
@@ -321,26 +383,28 @@ export const useGitHubPipelineOrchestration = ({
 
   // Agent task creation: secrets + Copilot agent trigger (narrow dependencies)
   useEffect(() => {
-    if (pipeline.state.deploymentState !== 'AgentTaskCreating') return;
+    if (!ready || !isCurrent() || pipeline.state.deploymentState !== 'AgentTaskCreating') return;
     if (agentTriggerInFlightRef.current) return;
     const currentConfig = pipeline.state.config;
     const currentOctokit = gitHubAuth.octokit;
     if (!currentConfig || !currentOctokit) return;
 
-    agentTriggerInFlightRef.current = true;
+    const operation = Symbol('agent-trigger');
+    agentTriggerInFlightRef.current = operation;
+    const current = () => isCurrent() && agentTriggerInFlightRef.current === operation;
     (async () => {
       try {
         await createPipelineSecrets(currentOctokit, currentConfig);
-        if (deploymentStateRef.current !== 'AgentTaskCreating') return;
+        if (!current() || deploymentStateRef.current !== 'AgentTaskCreating') return;
         const issue = await triggerCopilotAgent(currentOctokit, currentConfig);
-        if (deploymentStateRef.current !== 'AgentTaskCreating') return;
+        if (!current() || deploymentStateRef.current !== 'AgentTaskCreating') return;
         pipeline.setAgentTriggered(issue);
       } catch (err) {
-        if (deploymentStateRef.current !== 'AgentTaskCreating') return;
-        console.error('Failed to trigger Copilot agent:', err);
+        if (!current() || deploymentStateRef.current !== 'AgentTaskCreating') return;
+        console.error('Failed to trigger Copilot agent');
         pipeline.setFailed(err instanceof Error ? err.message : 'Failed to trigger Copilot agent');
       } finally {
-        agentTriggerInFlightRef.current = false;
+        if (agentTriggerInFlightRef.current === operation) agentTriggerInFlightRef.current = null;
       }
     })();
   }, [
@@ -349,11 +413,15 @@ export const useGitHubPipelineOrchestration = ({
     gitHubAuth.octokit,
     pipeline.setAgentTriggered,
     pipeline.setFailed,
+    ready,
+    isCurrent,
   ]);
 
   useEffect(() => {
+    if (!ready || !isCurrent()) return;
     switch (pipeline.state.deploymentState) {
       case 'Configured':
+      case 'CheckingRepo':
         if (gitHubAuth.authState.isAuthenticated && selectedRepo) {
           checkRepoAndApp();
         }
@@ -425,18 +493,21 @@ export const useGitHubPipelineOrchestration = ({
     mode,
     pipeline.setDeployed,
     pipeline.setFailed,
+    ready,
+    isCurrent,
   ]);
 
   // Polls silently without transitioning to CheckingRepo, so the install
   // screen stays visible. Only advances state when installation is detected.
   useEffect(() => {
-    if (pipeline.state.deploymentState !== 'AppInstallationNeeded') return;
+    if (!ready || !isCurrent() || pipeline.state.deploymentState !== 'AppInstallationNeeded')
+      return;
     if (!gitHubAuth.octokit || !selectedRepo) return;
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout>;
 
     const poll = async () => {
-      if (cancelled) return;
+      if (cancelled || !isCurrent()) return;
       const currentOctokit = gitHubAuth.octokit;
       const currentRepo = selectedRepo;
       if (!currentOctokit || !currentRepo) return;
@@ -447,16 +518,16 @@ export const useGitHubPipelineOrchestration = ({
           currentRepo.owner,
           currentRepo.repo
         );
-        if (!cancelled && installed) {
+        if (!cancelled && isCurrent() && installed) {
           checkRepoAndApp({ silent: true });
           return;
         }
-      } catch (err) {
-        console.warn('App installation check failed:', err);
+      } catch {
+        if (!cancelled && isCurrent()) console.warn('App installation check failed');
       } finally {
-        if (!cancelled) setIsCheckingInstall(false);
+        if (!cancelled && isCurrent()) setIsCheckingInstall(false);
       }
-      if (!cancelled) {
+      if (!cancelled && isCurrent()) {
         timeoutId = setTimeout(poll, APP_INSTALL_CHECK_INTERVAL_MS);
       }
     };
@@ -466,7 +537,14 @@ export const useGitHubPipelineOrchestration = ({
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [pipeline.state.deploymentState, gitHubAuth.octokit, selectedRepo, checkRepoAndApp]);
+  }, [
+    pipeline.state.deploymentState,
+    gitHubAuth.octokit,
+    selectedRepo,
+    checkRepoAndApp,
+    ready,
+    isCurrent,
+  ]);
 
   // Saves the selected repo when the pipeline is in progress, so DeployButton
   // can show a "Resume" button. Clears when the pipeline completes or is reset.
@@ -493,7 +571,8 @@ export const useGitHubPipelineOrchestration = ({
   });
 
   const handleCreateSetupPR = useCallback(async () => {
-    if (!pipeline.state.config || !gitHubAuth.octokit) return;
+    if (!isCurrent() || !pipeline.state.config || !gitHubAuth.octokit || setupPrInFlightRef.current)
+      return;
 
     const resolvedIdentityId = identityId || pipeline.state.config.identityId;
     const resolvedAppName = localAppName || pipeline.state.config.appName;
@@ -520,13 +599,19 @@ export const useGitHubPipelineOrchestration = ({
       return;
     }
 
+    const operation = Symbol('setup-pr');
+    setupPrInFlightRef.current = operation;
+    const current = () => isCurrent() && setupPrInFlightRef.current === operation;
     pipeline.setCreatingSetupPR();
     try {
       const pr = await createSetupPR(gitHubAuth.octokit, mergedConfig);
-      pipeline.setSetupPRCreated(pr);
+      if (current()) pipeline.setSetupPRCreated(pr);
     } catch (error) {
-      console.error('Failed to create setup PR:', error);
+      if (!current()) return;
+      console.error('Failed to create setup PR');
       pipeline.setFailed(error instanceof Error ? error.message : 'Failed to create setup PR');
+    } finally {
+      if (setupPrInFlightRef.current === operation) setupPrInFlightRef.current = null;
     }
   }, [
     gitHubAuth.octokit,
@@ -540,10 +625,11 @@ export const useGitHubPipelineOrchestration = ({
     identityId,
     localAppName,
     containerConfig,
+    isCurrent,
   ]);
 
   const handleRedeploy = useCallback(async () => {
-    if (!gitHubAuth.octokit || !selectedRepo) return;
+    if (!isCurrent() || !gitHubAuth.octokit || !selectedRepo) return;
     try {
       await dispatchWorkflow(
         gitHubAuth.octokit,
@@ -553,12 +639,14 @@ export const useGitHubPipelineOrchestration = ({
         selectedRepo.defaultBranch
       );
     } catch (error) {
-      pipeline.setFailed(error instanceof Error ? error.message : 'Failed to redeploy');
+      if (isCurrent())
+        pipeline.setFailed(error instanceof Error ? error.message : 'Failed to redeploy');
     }
-  }, [gitHubAuth.octokit, selectedRepo, pipeline.setFailed]);
+  }, [gitHubAuth.octokit, selectedRepo, pipeline.setFailed, isCurrent]);
 
   return {
     gitHubAuth,
+    repoAccess,
     selectedRepo,
     setSelectedRepo,
     appInstallUrl,

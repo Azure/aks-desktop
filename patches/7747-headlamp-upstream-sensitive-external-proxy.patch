@@ -1,0 +1,296 @@
+From cc0f75e689f4f465d78b18f3402ebfb950d0740b Mon Sep 17 00:00:00 2001
+From: gambtho <Thomas.Gamble@microsoft.com>
+Date: Mon, 19 Oct 2026 16:03:00 -0400
+Subject: [PATCH] backend: cmd: add opt-in sensitive external proxy requests
+
+---
+ backend/cmd/externalproxy_sensitive_test.go | 208 ++++++++++++++++++++
+ backend/cmd/headlamp.go                     |  34 +++-
+ 2 files changed, 241 insertions(+), 1 deletion(-)
+ create mode 100644 backend/cmd/externalproxy_sensitive_test.go
+
+diff --git a/backend/cmd/externalproxy_sensitive_test.go b/backend/cmd/externalproxy_sensitive_test.go
+new file mode 100644
+index 0000000..78e87c6
+--- /dev/null
++++ b/backend/cmd/externalproxy_sensitive_test.go
+@@ -0,0 +1,208 @@
++/*
++ * Copyright 2026 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ */
++
++package main
++
++import (
++	"bytes"
++	"compress/gzip"
++	"context"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync/atomic"
++	"testing"
++
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++)
++
++func TestExternalProxySensitiveHeaders(t *testing.T) {
++	t.Setenv("HEADLAMP_BACKEND_TOKEN", "local-desktop-token")
++
++	for _, sensitive := range []bool{false, true} {
++		name := "default"
++		if sensitive {
++			name = "sensitive"
++		}
++
++		t.Run(name, func(t *testing.T) {
++			headers := make(chan http.Header, 1)
++			bodies := make(chan string, 1)
++			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				body, err := io.ReadAll(r.Body)
++				assert.NoError(t, err)
++				headers <- r.Header.Clone()
++				bodies <- string(body)
++				w.Header().Set("Content-Type", "application/json")
++				w.Header().Set("Retry-After", "17")
++				w.Header().Set("Set-Cookie", "upstream-cookie=private")
++				w.WriteHeader(http.StatusTooManyRequests)
++				_, _ = w.Write([]byte(`{"error":"pending"}`))
++			}))
++			defer upstream.Close()
++
++			req := httptest.NewRequest(http.MethodPost, "/externalproxy", strings.NewReader("synthetic=form"))
++			req.Header.Set("Forward-To", upstream.URL)
++			req.Header.Set("X-HEADLAMP_BACKEND-TOKEN", "local-desktop-token")
++			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
++			// Exercise case-insensitive filtering even for noncanonical map keys.
++			req.Header["cOoKiE"] = []string{"browser-cookie=private"}
++			req.Header["aCcEpT-EnCoDiNg"] = []string{"br"}
++			if sensitive {
++				req.Header.Set("x-headlamp-proxy-redirect", "error")
++			}
++
++			rr := httptest.NewRecorder()
++			newExternalProxyHandler(t, upstream.URL).ServeHTTP(rr, req)
++
++			assert.Equal(t, http.StatusTooManyRequests, rr.Code)
++			assert.Equal(t, `{"error":"pending"}`, rr.Body.String())
++			assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
++			assert.Empty(t, rr.Header().Get("Set-Cookie"))
++			assert.Equal(t, "synthetic=form", <-bodies)
++			forwarded := <-headers
++			assert.Equal(t, "application/x-www-form-urlencoded", forwarded.Get("Content-Type"))
++			assert.Empty(t, forwarded.Get("X-HEADLAMP_BACKEND-TOKEN"))
++			if sensitive {
++				assert.Equal(t, "identity", forwarded.Get("Accept-Encoding"))
++				assert.Empty(t, forwarded.Get("Cookie"))
++				assert.Empty(t, forwarded.Get("Forward-To"))
++				assert.Empty(t, forwarded.Get("X-Headlamp-Proxy-Redirect"))
++				assert.Equal(t, "17", rr.Header().Get("Retry-After"))
++			} else {
++				assert.Equal(t, "br", forwarded.Get("Accept-Encoding"))
++				assert.Equal(t, "browser-cookie=private", forwarded.Get("Cookie"))
++				assert.Equal(t, upstream.URL, forwarded.Get("Forward-To"))
++				assert.Empty(t, rr.Header().Get("Retry-After"))
++			}
++		})
++	}
++}
++
++func TestExternalProxySensitiveRedirect(t *testing.T) {
++	for _, mode := range []string{"", "follow", "error"} {
++		t.Run("mode="+mode, func(t *testing.T) {
++			var targetCalls atomic.Int32
++			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				targetCalls.Add(1)
++				w.WriteHeader(http.StatusOK)
++			}))
++			defer target.Close()
++
++			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				w.Header().Set("Location", target.URL)
++				w.WriteHeader(http.StatusFound)
++				_, _ = w.Write([]byte("redirect-response"))
++			}))
++			defer upstream.Close()
++
++			req := httptest.NewRequest(http.MethodPost, "/externalproxy", strings.NewReader("private=form"))
++			req.Header.Set("proxy-to", upstream.URL)
++			req.Header.Set("X-Headlamp-Proxy-Redirect", mode)
++			rr := httptest.NewRecorder()
++			newExternalProxyHandler(t, upstream.URL).ServeHTTP(rr, req)
++
++			if mode == "error" {
++				assert.Equal(t, http.StatusFound, rr.Code)
++				assert.Equal(t, "redirect-response", rr.Body.String())
++				assert.Zero(t, targetCalls.Load(), "private form must never reach the redirect destination")
++				assert.Empty(t, rr.Header().Get("Location"))
++			} else {
++				assert.Equal(t, http.StatusOK, rr.Code)
++				assert.EqualValues(t, 1, targetCalls.Load())
++			}
++		})
++	}
++}
++
++func TestExternalProxySensitiveEncoding(t *testing.T) {
++	for _, encoding := range []string{"br", "gzip", "identity", ""} {
++		t.Run("encoding="+encoding, func(t *testing.T) {
++			body := []byte("upstream-body-must-not-escape")
++			if encoding == "gzip" {
++				var compressed bytes.Buffer
++				writer := gzip.NewWriter(&compressed)
++				_, err := writer.Write(body)
++				require.NoError(t, err)
++				require.NoError(t, writer.Close())
++				body = compressed.Bytes()
++			}
++
++			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				w.Header().Set("Content-Encoding", encoding)
++				_, _ = w.Write(body)
++			}))
++			defer upstream.Close()
++
++			req := httptest.NewRequest(http.MethodGet, "/externalproxy", nil)
++			req.Header.Set("proxy-to", upstream.URL)
++			req.Header.Set("X-Headlamp-Proxy-Redirect", "error")
++			rr := httptest.NewRecorder()
++			newExternalProxyHandler(t, upstream.URL).ServeHTTP(rr, req)
++
++			if encoding == "br" || encoding == "gzip" {
++				assert.Equal(t, http.StatusBadGateway, rr.Code)
++				assert.NotContains(t, rr.Body.String(), "upstream-body-must-not-escape")
++			} else {
++				assert.Equal(t, http.StatusOK, rr.Code)
++				assert.Equal(t, "upstream-body-must-not-escape", rr.Body.String())
++			}
++		})
++	}
++}
++
++func TestExternalProxyDefaultGzipUnchanged(t *testing.T) {
++	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		var body bytes.Buffer
++		writer := gzip.NewWriter(&body)
++		_, err := writer.Write([]byte("decoded-default-body"))
++		assert.NoError(t, err)
++		assert.NoError(t, writer.Close())
++		w.Header().Set("Content-Encoding", "gzip")
++		_, _ = w.Write(body.Bytes())
++	}))
++	defer upstream.Close()
++
++	req := httptest.NewRequest(http.MethodGet, "/externalproxy", nil)
++	req.Header.Set("proxy-to", upstream.URL)
++	req.Header.Set("Accept-Encoding", "gzip")
++	rr := httptest.NewRecorder()
++	newExternalProxyHandler(t, upstream.URL).ServeHTTP(rr, req)
++	assert.Equal(t, http.StatusOK, rr.Code)
++	assert.Equal(t, "decoded-default-body", rr.Body.String())
++}
++
++func TestExternalProxySensitiveExactGrant(t *testing.T) {
++	var calls atomic.Int32
++	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		calls.Add(1)
++		w.WriteHeader(http.StatusOK)
++	}))
++	defer upstream.Close()
++
++	target := upstream.URL + "/token"
++	handler := newExternalProxyHandler(t, target)
++	for _, suffix := range []string{"", "?extra=1", "/other"} {
++		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/externalproxy", nil)
++		require.NoError(t, err)
++		req.Header.Set("Forward-To", target+suffix)
++		req.Header.Set("X-Headlamp-Proxy-Redirect", "error")
++		rr := httptest.NewRecorder()
++		handler.ServeHTTP(rr, req)
++		if suffix == "" {
++			assert.Equal(t, http.StatusOK, rr.Code)
++		} else {
++			assert.Equal(t, http.StatusBadRequest, rr.Code)
++		}
++	}
++	assert.EqualValues(t, 1, calls.Load())
++}
+diff --git a/backend/cmd/headlamp.go b/backend/cmd/headlamp.go
+index cdbf8fd..c768956 100644
+--- a/backend/cmd/headlamp.go
++++ b/backend/cmd/headlamp.go
+@@ -883,12 +883,26 @@ func createHeadlampHandler(ctx context.Context, config *HeadlampConfig) http.Han
+ 			return
+ 		}
+ 
+-		// We may want to filter some headers, otherwise we could just use a shallow copy
++		// Sensitive callers opt out of ambient cookies, proxy controls and compression.
++		// Leave existing proxy clients' forwarding behavior unchanged.
++		sensitive := r.Header.Get("X-Headlamp-Proxy-Redirect") == "error"
+ 		proxyReq.Header = make(http.Header)
+ 		for h, val := range r.Header {
++			if sensitive {
++				switch strings.ToLower(h) {
++				case "cookie", "proxy-to", "forward-to", "x-headlamp_backend-token",
++					"x-headlamp-proxy-redirect", "accept-encoding":
++					continue
++				}
++			}
++
+ 			proxyReq.Header[h] = val
+ 		}
+ 
++		if sensitive {
++			proxyReq.Header.Set("Accept-Encoding", "identity")
++		}
++
+ 		// Disable caching
+ 		w.Header().Set("Cache-Control", "no-cache, private, max-age=0")
+ 		w.Header().Set("Expires", time.Unix(0, 0).Format(http.TimeFormat))
+@@ -896,6 +910,11 @@ func createHeadlampHandler(ctx context.Context, config *HeadlampConfig) http.Han
+ 		w.Header().Set("X-Accel-Expires", "0")
+ 
+ 		client := http.Client{}
++		if sensitive {
++			client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
++				return http.ErrUseLastResponse
++			}
++		}
+ 
+ 		resp, err := client.Do(proxyReq) //nolint:gosec
+ 		if err != nil {
+@@ -907,6 +926,13 @@ func createHeadlampHandler(ctx context.Context, config *HeadlampConfig) http.Han
+ 
+ 		defer func() { _ = resp.Body.Close() }()
+ 
++		if encoding := resp.Header.Get("Content-Encoding"); sensitive &&
++			encoding != "" && !strings.EqualFold(encoding, "identity") {
++			http.Error(w, "unexpected upstream content encoding", http.StatusBadGateway)
++
++			return
++		}
++
+ 		// Check that the server actually sent compressed data
+ 		var reader io.ReadCloser
+ 
+@@ -941,6 +967,12 @@ func createHeadlampHandler(ctx context.Context, config *HeadlampConfig) http.Han
+ 			w.Header().Set("Content-Type", contentType)
+ 		}
+ 
++		if sensitive {
++			if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
++				w.Header().Set("Retry-After", retryAfter)
++			}
++		}
++
+ 		// Reject early if Content-Length exceeds the maximum allowed size.
+ 		if resp.ContentLength > maxProxyResponseSize {
+ 			logger.Log(logger.LevelError, nil, nil, "proxy response exceeded maximum allowed size (Content-Length)")

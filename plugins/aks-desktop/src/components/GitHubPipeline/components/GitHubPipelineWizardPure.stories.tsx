@@ -72,11 +72,16 @@ function makeOrchestration(
     stopPolling: noop,
   };
   return {
+    repoAccess: { status: 'granted', error: null, retry: noop },
     gitHubAuth: {
       authState: {
         isAuthenticated: true,
         isRestoring: false,
         isAuthorizingBrowser: false,
+        deviceAuthorization: null,
+        isDisconnecting: false,
+        disconnectError: null,
+        sessionVersion: 1,
         token: 'gho_token',
         refreshToken: null,
         expiresAt: null,
@@ -85,9 +90,9 @@ function makeOrchestration(
       },
       octokit: {} as never,
       startOAuth: asyncNoop,
-      logout: noop,
-      refreshAuthState: asyncNoop,
-      reset: asyncNoop,
+      cancelOAuth: noop,
+      abortOAuth: noop,
+      reset: async () => ({ success: true as const }),
     } as UseGitHubPipelineOrchestrationResult['gitHubAuth'],
     selectedRepo: mockRepo,
     setSelectedRepo: noop,
@@ -155,6 +160,7 @@ function makeOrchestration(
 
 function makeFastPath(state: FastPathState = makeFastPathState()): UseFastPathOrchestrationResult {
   return {
+    repoAccess: { status: 'granted', error: null, retry: noop },
     pipeline: {
       state,
       setConfig: noop,
@@ -301,6 +307,10 @@ export const ConnectGitHub: StoryFn = () => (
             isAuthenticated: false,
             isRestoring: false,
             isAuthorizingBrowser: false,
+            deviceAuthorization: null,
+            isDisconnecting: false,
+            disconnectError: null,
+            sessionVersion: 0,
             token: null,
             refreshToken: null,
             expiresAt: null,
@@ -309,9 +319,9 @@ export const ConnectGitHub: StoryFn = () => (
           },
           octokit: null,
           startOAuth: asyncNoop,
-          logout: noop,
-          refreshAuthState: asyncNoop,
-          reset: asyncNoop,
+          cancelOAuth: noop,
+          abortOAuth: noop,
+          reset: async () => ({ success: true as const }),
         } as UseGitHubPipelineOrchestrationResult['gitHubAuth'],
       },
     })}

@@ -27,6 +27,9 @@ function getSecureStorage(): PluginSecureStorage | null {
   return null;
 }
 
+/** Availability is distinct from a failed deletion; neither proves credentials are absent. */
+export const isSecureStorageAvailable = (): boolean => getSecureStorage() !== null;
+
 /**
  * Encrypts and persists a value via Electron safeStorage.
  * Returns true on success, false if unavailable or failed.

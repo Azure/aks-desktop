@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNamespaceCapabilities } from '../../hooks/useNamespaceCapabilities';
 import type { GitHubRepo } from '../../types/github';
 import type { ContainerConfig } from '../DeployWizard/hooks/useContainerConfiguration';
@@ -47,7 +47,7 @@ interface GitHubPipelineWizardProps {
  * Composes the pipeline/fast-path/dockerfile/container hooks with
  * {@link GitHubPipelineWizardPure}. The connector's only responsibilities are:
  * - Calling the hooks that produce orchestration state.
- * - Managing the local `pathChoice` state and latched auth-completion effect.
+ * - Managing local path selection and current-session auth completion.
  * - Passing everything as props to the pure component for rendering.
  *
  * Stories test {@link GitHubPipelineWizardPure} directly with mocked hook results,
@@ -130,25 +130,14 @@ export function GitHubPipelineWizard({
     });
   }, [dockerfileDiscovery.selection, fastPath.handleDeploy, pathChoice]);
 
-  // Latch first successful auth to avoid cross-tree flicker regression.
-  const authAdvancedRef = useRef(false);
-  const setAuthCompletedRef = useRef(orchestration.pipeline.setAuthCompleted);
-  useEffect(() => {
-    setAuthCompletedRef.current = orchestration.pipeline.setAuthCompleted;
-  }, [orchestration.pipeline.setAuthCompleted]);
-
   const deploymentState = orchestration.pipeline.state.deploymentState;
   const isAuthenticated = orchestration.gitHubAuth.authState.isAuthenticated;
+  const repoReady = !orchestration.selectedRepo || orchestration.repoAccess.status === 'granted';
+  const setAuthCompleted = orchestration.pipeline.setAuthCompleted;
   useEffect(() => {
-    if (
-      !authAdvancedRef.current &&
-      deploymentState === 'GitHubAuthorizationNeeded' &&
-      isAuthenticated
-    ) {
-      authAdvancedRef.current = true;
-      setAuthCompletedRef.current();
-    }
-  }, [deploymentState, isAuthenticated]);
+    if (deploymentState === 'GitHubAuthorizationNeeded' && isAuthenticated && repoReady)
+      setAuthCompleted();
+  }, [deploymentState, isAuthenticated, repoReady, setAuthCompleted]);
 
   return (
     <GitHubPipelineWizardPure

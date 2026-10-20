@@ -20,6 +20,8 @@ import {
 } from '../../../utils/github/github-api';
 import { useAgentPRDiscovery } from './useAgentPRDiscovery';
 
+vi.mock('../../../utils/github/github-session', () => ({ isGitHubSessionCurrent: () => true }));
+
 const fakeOctokit = {} as unknown as Octokit;
 const ISSUE_NUMBER = 42;
 const OWNER = 'test-owner';
@@ -50,7 +52,7 @@ describe('useAgentPRDiscovery — failure classification', () => {
     ]);
 
     const { result } = renderHook(() =>
-      useAgentPRDiscovery(fakeOctokit, OWNER, REPO, true, ISSUE_NUMBER)
+      useAgentPRDiscovery(fakeOctokit, OWNER, REPO, true, ISSUE_NUMBER, 1)
     );
 
     await waitFor(() => expect(result.current.issueClosed).toBe(true));
@@ -70,7 +72,7 @@ describe('useAgentPRDiscovery — failure classification', () => {
     ]);
 
     const { result } = renderHook(() =>
-      useAgentPRDiscovery(fakeOctokit, OWNER, REPO, true, ISSUE_NUMBER)
+      useAgentPRDiscovery(fakeOctokit, OWNER, REPO, true, ISSUE_NUMBER, 1)
     );
 
     await waitFor(() => expect(result.current.issueClosed).toBe(true));
@@ -88,14 +90,13 @@ describe('useAgentPRDiscovery — failure classification', () => {
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const { result } = renderHook(() =>
-      useAgentPRDiscovery(fakeOctokit, OWNER, REPO, true, ISSUE_NUMBER)
+      useAgentPRDiscovery(fakeOctokit, OWNER, REPO, true, ISSUE_NUMBER, 1)
     );
 
     await waitFor(() => expect(result.current.issueClosed).toBe(true));
     expect(result.current.failureReason).toBe('unknown');
     expect(consoleWarn).toHaveBeenCalledWith(
-      'Failed to fetch issue comments for failure classification:',
-      expect.any(Error)
+      'Failed to fetch issue comments for failure classification'
     );
 
     consoleWarn.mockRestore();

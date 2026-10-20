@@ -2,9 +2,10 @@
 // Licensed under the Apache 2.0.
 
 import type { RefObject } from 'react';
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { GitHubRepo } from '../../../types/github';
 import { dispatchWorkflow } from '../../../utils/github/github-api';
+import { isGitHubSessionCurrent } from '../../../utils/github/github-session';
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
 import { DEFAULT_DOCKERFILE_PATH, MANIFESTS_DIR, PIPELINE_WORKFLOW_FILENAME } from '../constants';
 import { useGitHubAuthContext } from '../GitHubAuthContext';
@@ -21,6 +22,7 @@ import type { DockerfileSelection } from './useDockerfileDiscovery';
 import type { FastPathDeploymentState } from './useFastPathPipelineState';
 import type { UseFastPathPipelineStateResult } from './useFastPathPipelineState';
 import { useFastPathPipelineState } from './useFastPathPipelineState';
+import { useGitHubRepoAccess } from './useGitHubRepoAccess';
 import type { UsePRPollingResult } from './usePRPolling';
 import { usePRPolling } from './usePRPolling';
 import type { UseWorkflowPollingResult } from './useWorkflowPolling';
@@ -64,6 +66,7 @@ export interface HandleDeployOptions {
 }
 
 export interface UseFastPathOrchestrationResult {
+  repoAccess: ReturnType<typeof useGitHubRepoAccess>;
   pipeline: UseFastPathPipelineStateResult;
   /** Kicks off fast-path generation + PR creation + workflow dispatch. */
   handleDeploy: (options: HandleDeployOptions) => Promise<void>;
@@ -90,14 +93,54 @@ export const useFastPathOrchestration = ({
   containerConfig,
   identityId,
 }: UseFastPathOrchestrationProps): UseFastPathOrchestrationResult => {
-  const deployInFlightRef = useRef(false);
-  const dispatchInFlightRef = useRef(false);
-  const asyncAgentInFlightRef = useRef(false);
+  const deployInFlightRef = useRef<symbol | null>(null);
+  const dispatchInFlightRef = useRef<symbol | null>(null);
+  const asyncAgentInFlightRef = useRef<symbol | null>(null);
+  const dispatchStartedRef = useRef<string | null>(null);
+  const [dispatchAttempt, setDispatchAttempt] = useState(0);
+  const reviewStartedRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      deployInFlightRef.current =
+        dispatchInFlightRef.current =
+        asyncAgentInFlightRef.current =
+          null;
+    };
+  }, []);
   const deploymentStateRef = useRef<FastPathDeploymentState>('Configured');
 
   const gitHubAuth = useGitHubAuthContext();
   const repoKey = selectedRepo ? `${selectedRepo.owner}/${selectedRepo.repo}` : null;
   const pipeline = useFastPathPipelineState(repoKey);
+  const sessionVersion = gitHubAuth.authState.sessionVersion;
+  const repoAccess = useGitHubRepoAccess(gitHubAuth.octokit, selectedRepo, sessionVersion);
+  const ready = gitHubAuth.authState.isAuthenticated && repoAccess.status === 'granted';
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
+  const key = JSON.stringify([
+    sessionVersion,
+    repoKey,
+    selectedRepo?.defaultBranch,
+    clusterName,
+    namespace,
+  ]);
+  const scopeRef = useRef({ key });
+  if (scopeRef.current.key !== key) {
+    scopeRef.current = { key };
+    deployInFlightRef.current = dispatchInFlightRef.current = asyncAgentInFlightRef.current = null;
+  }
+  const scope = scopeRef.current;
+  const isCurrent = useCallback(
+    () =>
+      mountedRef.current &&
+      scopeRef.current === scope &&
+      readyRef.current &&
+      isGitHubSessionCurrent(sessionVersion),
+    [scope, sessionVersion]
+  );
 
   useLayoutEffect(() => {
     deploymentStateRef.current = pipeline.state.deploymentState;
@@ -108,7 +151,8 @@ export const useFastPathOrchestration = ({
     selectedRepo?.owner ?? '',
     selectedRepo?.repo ?? '',
     pipeline.state.fastPathPr.number,
-    pipeline.state.deploymentState === 'FastPathPRAwaitingMerge'
+    ready && pipeline.state.deploymentState === 'FastPathPRAwaitingMerge',
+    sessionVersion
   );
 
   const workflowPolling = useWorkflowPolling(
@@ -116,7 +160,9 @@ export const useFastPathOrchestration = ({
     selectedRepo?.owner ?? '',
     selectedRepo?.repo ?? '',
     selectedRepo?.defaultBranch ?? null,
-    pipeline.state.deploymentState === 'PipelineRunning'
+    ready && pipeline.state.deploymentState === 'PipelineRunning',
+    sessionVersion,
+    JSON.stringify([pipeline.state.fastPathPr.number, dispatchAttempt])
   );
 
   const deploymentHealth = useDeploymentHealth(
@@ -133,9 +179,11 @@ export const useFastPathOrchestration = ({
    */
   const handleDeploy = useCallback(
     async ({ selection, withAsyncAgent }: HandleDeployOptions) => {
-      if (!gitHubAuth.octokit || !selectedRepo) return;
+      if (!isCurrent() || !gitHubAuth.octokit || !selectedRepo) return;
       if (deployInFlightRef.current) return;
-      deployInFlightRef.current = true;
+      const operation = Symbol('deploy');
+      deployInFlightRef.current = operation;
+      const current = () => isCurrent() && deployInFlightRef.current === operation;
 
       const config: PipelineConfig = {
         tenantId,
@@ -159,7 +207,7 @@ export const useFastPathOrchestration = ({
       try {
         // Create secrets first (needed for the workflow to authenticate)
         await createPipelineSecrets(gitHubAuth.octokit, config);
-        if (currentState(deploymentStateRef) !== 'FastPathGenerating') return;
+        if (!current() || currentState(deploymentStateRef) !== 'FastPathGenerating') return;
 
         const fastPathConfig: FastPathPRConfig = {
           pipelineConfig: config,
@@ -172,14 +220,14 @@ export const useFastPathOrchestration = ({
         pipeline.setPRCreating();
         deploymentStateRef.current = 'FastPathPRCreating';
         const pr = await createFastPathPR(gitHubAuth.octokit, fastPathConfig);
-        if (currentState(deploymentStateRef) !== 'FastPathPRCreating') return;
+        if (!current() || currentState(deploymentStateRef) !== 'FastPathPRCreating') return;
 
         pipeline.setPRCreated(pr);
       } catch (err) {
-        if (currentState(deploymentStateRef) === 'Failed') return;
+        if (!current() || currentState(deploymentStateRef) === 'Failed') return;
         pipeline.setFailed(errorMessage(err, 'Failed to create fast-path PR'));
       } finally {
-        deployInFlightRef.current = false;
+        if (deployInFlightRef.current === operation) deployInFlightRef.current = null;
       }
     },
     [
@@ -199,10 +247,12 @@ export const useFastPathOrchestration = ({
       pipeline.setPRCreating,
       pipeline.setPRCreated,
       pipeline.setFailed,
+      isCurrent,
     ]
   );
 
   useEffect(() => {
+    if (!ready || !isCurrent()) return;
     switch (pipeline.state.deploymentState) {
       case 'FastPathPRAwaitingMerge':
         if (fastPathPrPolling.isMerged) {
@@ -226,14 +276,21 @@ export const useFastPathOrchestration = ({
     pipeline.setPRMerged,
     pipeline.setDeployed,
     pipeline.setFailed,
+    ready,
+    isCurrent,
   ]);
 
   useEffect(() => {
-    if (pipeline.state.deploymentState !== 'PipelineRunning') return;
-    if (dispatchInFlightRef.current) return;
+    if (!ready || !isCurrent() || pipeline.state.deploymentState !== 'PipelineRunning') return;
+    const dispatchKey = JSON.stringify([repoKey, pipeline.state.fastPathPr.number]);
+    if (dispatchInFlightRef.current || dispatchStartedRef.current === dispatchKey) return;
     if (!gitHubAuth.octokit || !selectedRepo) return;
 
-    dispatchInFlightRef.current = true;
+    const operation = Symbol('dispatch');
+    dispatchInFlightRef.current = operation;
+    // Reconnection is not a request to deploy the same merged PR a second time.
+    dispatchStartedRef.current = dispatchKey;
+    const current = () => isCurrent() && dispatchInFlightRef.current === operation;
     (async () => {
       try {
         await dispatchWorkflow(
@@ -244,22 +301,35 @@ export const useFastPathOrchestration = ({
           selectedRepo.defaultBranch
         );
       } catch (err) {
-        if (currentState(deploymentStateRef) !== 'PipelineRunning') return;
+        if (!current() || currentState(deploymentStateRef) !== 'PipelineRunning') return;
         pipeline.setFailed(errorMessage(err, 'Failed to dispatch workflow'));
       } finally {
-        dispatchInFlightRef.current = false;
+        if (dispatchInFlightRef.current === operation) dispatchInFlightRef.current = null;
       }
     })();
-  }, [pipeline.state.deploymentState, gitHubAuth.octokit, selectedRepo, pipeline.setFailed]);
+  }, [
+    pipeline.state.deploymentState,
+    pipeline.state.fastPathPr.number,
+    gitHubAuth.octokit,
+    selectedRepo,
+    pipeline.setFailed,
+    repoKey,
+    ready,
+    isCurrent,
+  ]);
 
   // Fire-and-forget: trigger async agent review after successful deploy
   useEffect(() => {
-    if (pipeline.state.deploymentState !== 'Deployed') return;
+    if (!ready || !isCurrent() || pipeline.state.deploymentState !== 'Deployed') return;
     if (!pipeline.state.withAsyncAgent) return;
-    if (asyncAgentInFlightRef.current) return;
+    const reviewKey = JSON.stringify([repoKey, pipeline.state.fastPathPr.number]);
+    if (asyncAgentInFlightRef.current || reviewStartedRef.current === reviewKey) return;
     if (!gitHubAuth.octokit || !selectedRepo || !pipeline.state.config) return;
 
-    asyncAgentInFlightRef.current = true;
+    const operation = Symbol('agent-review');
+    asyncAgentInFlightRef.current = operation;
+    reviewStartedRef.current = reviewKey;
+    const current = () => isCurrent() && asyncAgentInFlightRef.current === operation;
     const config = pipeline.state.config;
     const dockerfilePath = pipeline.state.dockerfilePaths[0] ?? DEFAULT_DOCKERFILE_PATH;
 
@@ -275,12 +345,12 @@ export const useFastPathOrchestration = ({
           dockerfilePath,
           manifestsPath: `${MANIFESTS_DIR}/`,
         });
-        pipeline.setAsyncAgentTriggered(issueUrl);
-      } catch (err) {
+        if (current()) pipeline.setAsyncAgentTriggered(issueUrl);
+      } catch {
         // Fire-and-forget: don't fail the deploy because the async agent failed
-        console.warn('Failed to trigger async agent review:', err);
+        if (current()) console.warn('Failed to trigger async agent review');
       } finally {
-        asyncAgentInFlightRef.current = false;
+        if (asyncAgentInFlightRef.current === operation) asyncAgentInFlightRef.current = null;
       }
     })();
   }, [
@@ -291,10 +361,14 @@ export const useFastPathOrchestration = ({
     gitHubAuth.octokit,
     selectedRepo,
     pipeline.setAsyncAgentTriggered,
+    pipeline.state.fastPathPr.number,
+    repoKey,
+    ready,
+    isCurrent,
   ]);
 
   const handleRedeploy = useCallback(async () => {
-    if (!gitHubAuth.octokit || !selectedRepo) return;
+    if (!isCurrent() || !gitHubAuth.octokit || !selectedRepo) return;
     try {
       await dispatchWorkflow(
         gitHubAuth.octokit,
@@ -304,12 +378,30 @@ export const useFastPathOrchestration = ({
         selectedRepo.defaultBranch
       );
     } catch (err) {
-      pipeline.setFailed(errorMessage(err, 'Failed to redeploy'));
+      if (isCurrent()) pipeline.setFailed(errorMessage(err, 'Failed to redeploy'));
     }
-  }, [gitHubAuth.octokit, selectedRepo, pipeline.setFailed]);
+  }, [gitHubAuth.octokit, selectedRepo, pipeline.setFailed, isCurrent]);
+
+  const retry = useCallback(() => {
+    if (!isCurrent()) return;
+    if (
+      pipeline.state.deploymentState === 'Failed' &&
+      pipeline.state.lastSuccessfulState === 'PipelineRunning'
+    ) {
+      dispatchStartedRef.current = null;
+      setDispatchAttempt(value => value + 1);
+    }
+    pipeline.retry();
+  }, [
+    isCurrent,
+    pipeline.state.deploymentState,
+    pipeline.state.lastSuccessfulState,
+    pipeline.retry,
+  ]);
 
   return {
-    pipeline,
+    repoAccess,
+    pipeline: { ...pipeline, retry },
     handleDeploy,
     handleRedeploy,
     fastPathPrPolling,

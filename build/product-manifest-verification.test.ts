@@ -23,11 +23,13 @@ const expected = {
   version: '0.9.0',
 };
 
-test('allows the bundled plugin catalog to query Artifact Hub', () => {
+test('limits external proxy grants to the catalog and GitHub device-flow endpoints', () => {
   const project = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 
   assert.deepEqual(project.headlamp?.['proxy-urls'], [
     'https://artifacthub.io/api/v1/packages/*',
+    'https://github.com/login/device/code',
+    'https://github.com/login/oauth/access_token',
   ]);
 });
 

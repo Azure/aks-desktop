@@ -3,44 +3,28 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-/**
- * Options for the {@link usePolling} hook.
- */
 export interface UsePollingOptions<T> {
-  /** Whether polling is active. When false, polling stops (state is preserved until next enable cycle). */
+  /** Disabling preserves state until the next enable cycle. */
   enabled: boolean;
-  /** Milliseconds between polls (after each poll completes). */
   intervalMs: number;
-  /** Maximum number of polls before timeout. */
   maxPolls: number;
-  /**
-   * The async function to call each poll cycle.
-   * Return the result, or null if no meaningful result yet.
-   */
   pollFn: () => Promise<T | null>;
-  /**
-   * Called with each non-null poll result. Return true to stop polling.
-   * If omitted, polling continues until maxPolls or manual stop.
-   */
   shouldStop?: (result: T) => boolean;
-  /** Called when max polls exceeded. Defaults to setting isTimedOut. */
   onTimeout?: () => void;
+  /** Stable resource/session identity, never token or callback identity. */
+  resetKey?: string;
 }
-
 export interface UsePollingResult<T> {
   data: T | null;
-  /** True when polling exceeded maxPolls without shouldStop returning true. */
   isTimedOut: boolean;
   error: string | null;
   stopPolling: () => void;
 }
+function initial<T>(resetKey: string | undefined) {
+  return { resetKey, data: null as T | null, isTimedOut: false, error: null as string | null };
+}
 
-/**
- * Generic polling hook that encapsulates the poll-sleep-repeat pattern.
- *
- * Manages refs for timeout scheduling, poll count, and active flag.
- * Polls sequentially (next poll scheduled only after current completes).
- */
+/** Sequential polling, with local ownership for every effect cycle. */
 export const usePolling = <T>({
   enabled,
   intervalMs,
@@ -48,91 +32,71 @@ export const usePolling = <T>({
   pollFn,
   shouldStop,
   onTimeout,
+  resetKey,
 }: UsePollingOptions<T>): UsePollingResult<T> => {
-  const [data, setData] = useState<T | null>(null);
-  const [isTimedOut, setIsTimedOut] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollCountRef = useRef(0);
-  const activeRef = useRef(false);
-  const pollingInFlightRef = useRef(false);
-
+  const [state, setState] = useState(() => initial<T>(resetKey));
+  const latest = useRef({ enabled, resetKey });
+  latest.current = { enabled, resetKey };
+  const cycleRef = useRef<symbol | null>(null);
+  const stopRef = useRef<() => void>(() => undefined);
   const pollFnRef = useRef(pollFn);
   pollFnRef.current = pollFn;
   const shouldStopRef = useRef(shouldStop);
   shouldStopRef.current = shouldStop;
   const onTimeoutRef = useRef(onTimeout);
   onTimeoutRef.current = onTimeout;
-
-  const stopPolling = useCallback(() => {
-    activeRef.current = false;
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  }, []);
+  const stopPolling = useCallback(() => stopRef.current(), []);
 
   useEffect(() => {
-    if (!enabled) {
-      stopPolling();
-      return;
-    }
-
-    pollCountRef.current = 0;
-    pollingInFlightRef.current = false;
-    activeRef.current = true;
-    setData(null);
-    setIsTimedOut(false);
-    setError(null);
+    if (!enabled) return;
+    const cycle = Symbol('poll-cycle');
+    cycleRef.current = cycle;
+    let active = true;
+    let count = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const belongs = () =>
+      cycleRef.current === cycle && latest.current.enabled && latest.current.resetKey === resetKey;
+    const current = () => active && belongs();
+    const stop = () => {
+      active = false;
+      clearTimeout(timer);
+    };
+    stopRef.current = stop;
+    setState(previous => (belongs() ? initial<T>(resetKey) : previous));
 
     const poll = async () => {
-      if (pollingInFlightRef.current) return;
-      pollingInFlightRef.current = true;
+      if (!current()) return;
+      count++;
       try {
-        pollCountRef.current++;
-        try {
-          const result = await pollFnRef.current();
-          if (!activeRef.current) return;
-          setError(null);
-
-          if (result !== null) {
-            setData(result);
-            if (shouldStopRef.current?.(result)) {
-              stopPolling();
-              return;
-            }
-          }
-        } catch (err) {
-          if (!activeRef.current) return;
-          console.error('Polling error:', err);
-          setError(err instanceof Error ? err.message : 'Polling failed');
-        }
-
-        if (pollCountRef.current >= maxPolls) {
-          stopPolling();
-          if (onTimeoutRef.current) {
-            onTimeoutRef.current();
-          } else {
-            setIsTimedOut(true);
-          }
+        const result = await pollFnRef.current();
+        if (!current()) return;
+        setState(previous =>
+          belongs() ? { ...previous, error: null, data: result ?? previous.data } : previous
+        );
+        if (result !== null && shouldStopRef.current?.(result)) {
+          stop();
           return;
         }
-
-        if (activeRef.current) {
-          timeoutRef.current = setTimeout(poll, intervalMs);
-        }
-      } finally {
-        pollingInFlightRef.current = false;
+      } catch (error) {
+        if (!current()) return;
+        // Octokit error objects can contain Authorization in request/cause metadata.
+        const message = error instanceof Error ? error.message : 'Polling failed';
+        console.error('Polling error:', message);
+        setState(previous => (belongs() ? { ...previous, error: message } : previous));
       }
+      if (!current()) return;
+      if (count >= maxPolls) {
+        if (onTimeoutRef.current) onTimeoutRef.current();
+        else setState(previous => (belongs() ? { ...previous, isTimedOut: true } : previous));
+        stop();
+        return;
+      }
+      timer = setTimeout(poll, intervalMs);
     };
+    void poll();
+    return stop;
+  }, [enabled, intervalMs, maxPolls, resetKey]);
 
-    poll();
-
-    return () => {
-      stopPolling();
-      pollingInFlightRef.current = false;
-    };
-  }, [enabled, intervalMs, maxPolls, stopPolling]);
-
-  return { data, isTimedOut, error, stopPolling };
+  const visible = state.resetKey === resetKey ? state : initial<T>(resetKey);
+  return { data: visible.data, isTimedOut: visible.isTimedOut, error: visible.error, stopPolling };
 };

@@ -185,6 +185,9 @@ export function GitHubPipelineWizardPure({
   const deploymentState = pipeline.state.deploymentState;
   const fastPathDeploymentState = fastPath.pipeline.state.deploymentState;
   const isFastPathActive = isFastPath && fastPathDeploymentState !== 'Configured';
+  const currentAccess = isFastPath ? fastPath.repoAccess : orchestration.repoAccess;
+  const authBlocked =
+    !gitHubAuth.authState.isAuthenticated || (!!selectedRepo && currentAccess.status !== 'granted');
 
   const activeStep = (() => {
     if (!isFastPathActive) {
@@ -296,6 +299,55 @@ export function GitHubPipelineWizardPure({
   }
 
   function renderContent() {
+    if (authBlocked) {
+      const saved =
+        isFastPathActive || !['Configured', 'GitHubAuthorizationNeeded'].includes(deploymentState);
+      return (
+        <>
+          {saved && (
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              {t('Your pipeline progress is kept. Reconnect GitHub to continue.')}
+            </Typography>
+          )}
+          {!gitHubAuth.authState.isAuthenticated ? (
+            <ConnectSourceStep
+              authState={gitHubAuth.authState}
+              onStartOAuth={gitHubAuth.startOAuth}
+              onCancelOAuth={gitHubAuth.cancelOAuth}
+              onAbortOAuth={gitHubAuth.abortOAuth}
+              onDisconnect={gitHubAuth.reset}
+              octokit={gitHubAuth.octokit}
+              selectedRepo={selectedRepo}
+              onRepoSelect={setSelectedRepo}
+            />
+          ) : currentAccess.status === 'denied' ? (
+            <>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                {t(
+                  'Repository access could not be verified. Reconnect with an authorized GitHub account.'
+                )}
+              </Alert>
+              <Button variant="outlined" onClick={() => void gitHubAuth.reset()}>
+                {t('Disconnect GitHub')}
+              </Button>
+            </>
+          ) : currentAccess.error ? (
+            <>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                {t('Repository access could not be checked. Try again.')}
+              </Alert>
+              <Button variant="outlined" onClick={currentAccess.retry}>
+                {t('Retry repository access')}
+              </Button>
+            </>
+          ) : (
+            <Box role="status">
+              <LoadingSpinner message={t('Checking repository access...')} />
+            </Box>
+          )}
+        </>
+      );
+    }
     switch (deploymentState) {
       case 'GitHubAuthorizationNeeded':
       case 'AppInstallationNeeded':
@@ -311,13 +363,15 @@ export function GitHubPipelineWizardPure({
         return (
           <ConnectSourceStep
             authState={gitHubAuth.authState}
-            onStartOAuth={() => gitHubAuth.startOAuth()}
+            onStartOAuth={gitHubAuth.startOAuth}
+            onCancelOAuth={gitHubAuth.cancelOAuth}
+            onAbortOAuth={gitHubAuth.abortOAuth}
+            onDisconnect={gitHubAuth.reset}
             octokit={gitHubAuth.octokit}
             selectedRepo={selectedRepo}
             onRepoSelect={setSelectedRepo}
             appInstallNeeded={isAppInstallNeeded}
             appInstallUrl={appInstallUrl}
-            authCompleted={deploymentState !== 'GitHubAuthorizationNeeded'}
           />
         );
       }
@@ -478,6 +532,7 @@ export function GitHubPipelineWizardPure({
   }
 
   function renderFooterActions() {
+    if (authBlocked) return null;
     switch (deploymentState) {
       case 'GitHubAuthorizationNeeded':
       case 'AppInstallationNeeded':

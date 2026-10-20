@@ -2,8 +2,9 @@
 // Licensed under the Apache 2.0.
 
 import { Octokit } from '@octokit/rest';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { listWorkflowRunJobs, listWorkflowRuns } from '../../../utils/github/github-api';
+import { isGitHubSessionCurrent } from '../../../utils/github/github-session';
 import { AGENT_DISCOVERY_MAX_POLLS, POLLING_INTERVAL_MS } from '../constants';
 import { usePolling } from './usePolling';
 
@@ -69,22 +70,27 @@ export function useAgentWorkflowProgress(
   octokit: Octokit | null,
   owner: string,
   repo: string,
-  enabled: boolean
+  enabled: boolean,
+  issueNumber: number | null,
+  sessionVersion: number
 ): AgentWorkflowProgress {
   const isEnabled = !!(octokit && owner && repo && enabled);
+  const resetKey = JSON.stringify([sessionVersion, owner, repo, issueNumber]);
   const runIdRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!isEnabled) {
-      runIdRef.current = null;
-    }
-  }, [isEnabled]);
+  const identityRef = useRef(resetKey);
+  if (identityRef.current !== resetKey) {
+    identityRef.current = resetKey;
+    runIdRef.current = null;
+  }
 
   const pollFn = useCallback(async (): Promise<AgentPollData | null> => {
-    if (!octokit) return null;
+    const current = () =>
+      identityRef.current === resetKey && isGitHubSessionCurrent(sessionVersion);
+    if (!octokit || !current()) return null;
 
     if (runIdRef.current === null) {
       const runs = await listWorkflowRuns(octokit, owner, repo, { per_page: 5 });
+      if (!current()) return null;
       const active = runs.filter(r => r.status === 'in_progress' || r.status === 'queued');
       const activeRun = active.find(r => COPILOT_RUN_PATTERN.test(r.name)) ?? active[0] ?? null;
       if (!activeRun) return null;
@@ -105,13 +111,14 @@ export function useAgentWorkflowProgress(
       // non-critical — progress display only
     }
 
-    return { agentWorking, agentStartedAt };
-  }, [octokit, owner, repo]);
+    return current() ? { agentWorking, agentStartedAt } : null;
+  }, [octokit, owner, repo, resetKey, sessionVersion]);
 
   const shouldStop = useCallback(() => false, []);
 
   const { data } = usePolling<AgentPollData>({
     enabled: isEnabled,
+    resetKey,
     intervalMs: POLLING_INTERVAL_MS,
     maxPolls: AGENT_DISCOVERY_MAX_POLLS,
     pollFn,

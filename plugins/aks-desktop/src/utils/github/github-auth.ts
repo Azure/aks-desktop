@@ -1,7 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { secureStorageDelete, secureStorageLoad, secureStorageSave } from './secure-storage';
+import type { DisconnectResult } from '../../types/github';
+import {
+  isSecureStorageAvailable,
+  secureStorageDelete,
+  secureStorageLoad,
+  secureStorageSave,
+} from './secure-storage';
 
 // GitHub App slug — used for the app installation URL.
 const GITHUB_APP_SLUG =
@@ -24,86 +30,6 @@ export interface StoredTokens {
   refreshToken: string;
   expiresAt: string;
 }
-
-/** Result shape from the Electron main process OAuth callback. */
-export interface OAuthCallbackResult {
-  success: boolean;
-  accessToken?: string;
-  refreshToken?: string;
-  expiresAt?: string;
-  error?: string;
-}
-
-/** Optional GitHub OAuth methods supplied by older AKS Desktop preload builds. */
-interface DesktopApi {
-  startGitHubOAuth?: () => Promise<{ success: boolean; error?: string }>;
-  onGitHubOAuthCallback?: (callback: (result: OAuthCallbackResult) => void) => () => void;
-  refreshGitHubOAuth?: (refreshToken: string) => Promise<OAuthCallbackResult>;
-}
-
-function getDesktopApi(): DesktopApi {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const api = (window as any).desktopApi as DesktopApi | undefined;
-  if (!api) throw new Error('desktopApi not available — not running in Electron');
-  return api;
-}
-
-/**
- * Opens the user's browser to the GitHub OAuth authorize page.
- * The Electron main process generates a CSRF state token and opens the URL.
- */
-export const startBrowserOAuth = async (): Promise<void> => {
-  const api = getDesktopApi();
-  if (
-    typeof api.startGitHubOAuth !== 'function' ||
-    typeof api.onGitHubOAuthCallback !== 'function'
-  ) {
-    throw new Error('GitHub browser authentication is not available in this desktop build.');
-  }
-  const result = await api.startGitHubOAuth();
-  if (!result.success) {
-    throw new Error(result.error ?? 'Failed to start GitHub OAuth flow');
-  }
-};
-
-/**
- * Registers a listener for the OAuth callback from the Electron main process.
- * Returns an unsubscribe function, or a no-op when the host does not supply GitHub OAuth.
- */
-export const onOAuthCallback = (callback: (result: OAuthCallbackResult) => void): (() => void) => {
-  const api = getDesktopApi();
-  return typeof api.onGitHubOAuthCallback === 'function'
-    ? api.onGitHubOAuthCallback(callback)
-    : () => {};
-};
-
-/**
- * Uses the refresh token to get a new access token via the Electron main process.
- * The main process makes the POST request directly (no CORS issues).
- * Returns { accessToken, refreshToken, expiresIn }.
- */
-export const refreshAccessToken = async (refreshToken: string): Promise<TokenResponse> => {
-  const api = getDesktopApi();
-  if (typeof api.refreshGitHubOAuth !== 'function') {
-    throw new Error('GitHub token refresh is not available in this desktop build.');
-  }
-  const result = await api.refreshGitHubOAuth(refreshToken);
-
-  if (!result.success || !result.accessToken || !result.refreshToken || !result.expiresAt) {
-    throw new Error(`Token refresh failed: ${result.error ?? 'unknown error'}`);
-  }
-
-  const expiresIn = Math.max(
-    0,
-    Math.floor((new Date(result.expiresAt).getTime() - Date.now()) / 1000)
-  );
-
-  return {
-    accessToken: result.accessToken,
-    refreshToken: result.refreshToken,
-    expiresIn,
-  };
-};
 
 const EXPIRY_BUFFER_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -142,16 +68,19 @@ const IS_DEV = typeof process !== 'undefined' && process.env?.NODE_ENV === 'deve
  * Persists tokens using Electron safeStorage (OS-level encryption).
  * In development mode, falls back to localStorage when secure storage is unavailable.
  */
-export const saveTokens = async (tokens: StoredTokens): Promise<void> => {
+export const saveTokens = async (tokens: StoredTokens): Promise<boolean> => {
   const json = JSON.stringify(tokens);
   const saved = await secureStorageSave(STORAGE_KEY, json);
-  if (!saved && IS_DEV) {
+  if (saved) return true;
+  if (IS_DEV) {
     try {
       localStorage.setItem(LOCALSTORAGE_FALLBACK_KEY, json);
+      return true;
     } catch {
-      // Ignore — tokens remain in React state for the current session
+      return false;
     }
   }
+  return false;
 };
 
 /**
@@ -180,15 +109,27 @@ export const loadTokens = async (): Promise<StoredTokens | null> => {
 };
 
 /**
- * Removes saved tokens from secure storage (and localStorage in dev mode).
+ * Removes secure credentials and the known development fallback, regardless of current mode.
  */
-export const clearTokens = async (): Promise<void> => {
-  await secureStorageDelete(STORAGE_KEY);
-  if (IS_DEV) {
-    try {
-      localStorage.removeItem(LOCALSTORAGE_FALLBACK_KEY);
-    } catch {
-      // Ignore
-    }
+export const clearTokens = async (): Promise<DisconnectResult> => {
+  const available = isSecureStorageAvailable();
+  const host = window as Window & { desktopApi?: unknown; process?: { type?: string } };
+  const browserOnlyDevelopment =
+    IS_DEV &&
+    !host.desktopApi &&
+    host.process?.type !== 'renderer' &&
+    !navigator.userAgent.includes('Electron');
+  let deleted = false;
+  try {
+    deleted = available ? await secureStorageDelete(STORAGE_KEY) : browserOnlyDevelopment;
+    localStorage.removeItem(LOCALSTORAGE_FALLBACK_KEY);
+  } catch {
+    return { success: false, reason: 'storage-failed' };
   }
+  return deleted
+    ? { success: true }
+    : {
+        success: false,
+        reason: available ? 'storage-failed' : 'storage-unavailable',
+      };
 };

@@ -57,3 +57,22 @@ export type WorkflowRunConclusion =
 /** Alias — status/conclusion types are shared across workflow runs and check runs. */
 export type GitHubRunStatus = WorkflowRunStatus;
 export type GitHubRunConclusion = WorkflowRunConclusion;
+
+export type DisconnectResult =
+  | { success: true }
+  | { success: false; reason: 'storage-unavailable' | 'storage-failed' };
+
+export interface GitHubAuthState {
+  isAuthenticated: boolean;
+  isRestoring: boolean;
+  isAuthorizingBrowser: boolean;
+  token: string | null;
+  refreshToken: string | null;
+  expiresAt: string | null;
+  username: string | null;
+  error: string | null;
+  deviceAuthorization: { userCode: string; verificationUri: string; expiresAt: number } | null;
+  isDisconnecting: boolean;
+  disconnectError: string | null;
+  sessionVersion: number;
+}

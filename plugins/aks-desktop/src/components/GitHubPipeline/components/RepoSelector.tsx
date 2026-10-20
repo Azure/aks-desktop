@@ -14,45 +14,63 @@ import {
 } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
 import type { Octokit } from '@octokit/rest';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { GitHubRepo } from '../../../types/github';
 import { listUserRepos, type RepoListItem } from '../../../utils/github/github-api';
+import { isGitHubSessionCurrent } from '../../../utils/github/github-session';
 
 interface RepoSelectorProps {
   octokit: Octokit;
+  sessionVersion: number;
   selectedRepo: GitHubRepo | null;
   onRepoSelect: (repo: GitHubRepo) => void;
 }
 
-export function RepoSelector({ octokit, selectedRepo, onRepoSelect }: RepoSelectorProps) {
+export function RepoSelector({
+  octokit,
+  sessionVersion,
+  selectedRepo,
+  onRepoSelect,
+}: RepoSelectorProps) {
   const { t } = useTranslation();
-  const [repos, setRepos] = useState<RepoListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [model, setModel] = useState({
+    sessionVersion,
+    repos: [] as RepoListItem[],
+    loading: true,
+    failed: false,
+  });
   const [filter, setFilter] = useState('');
-
-  const fetchRepos = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setRepos([]);
-    try {
-      await listUserRepos(octokit, {
-        per_page: 100,
-        onPage: allReposSoFar => {
-          setRepos(allReposSoFar);
-          setLoading(false);
-        },
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('Failed to load repositories'));
-    } finally {
-      setLoading(false);
-    }
-  }, [octokit]);
-
+  const versionRef = useRef(sessionVersion);
+  versionRef.current = sessionVersion;
   useEffect(() => {
-    fetchRepos();
-  }, [fetchRepos]);
+    let active = true;
+    const current = () =>
+      active && versionRef.current === sessionVersion && isGitHubSessionCurrent(sessionVersion);
+    setFilter('');
+    setModel({ sessionVersion, repos: [], loading: true, failed: false });
+    void listUserRepos(octokit, {
+      per_page: 100,
+      onPage: repos => {
+        if (current())
+          setModel({ sessionVersion, repos: [...repos], loading: false, failed: false });
+      },
+    })
+      .catch(() => {
+        if (current()) setModel(previous => ({ ...previous, failed: true }));
+      })
+      .finally(() => {
+        if (current()) setModel(previous => ({ ...previous, loading: false }));
+      });
+    return () => {
+      active = false;
+    };
+  }, [octokit, sessionVersion]);
+  const repos = model.sessionVersion === sessionVersion ? model.repos : [];
+  const loading = model.sessionVersion !== sessionVersion || model.loading;
+  const error =
+    model.sessionVersion === sessionVersion && model.failed
+      ? t('Failed to load repositories')
+      : null;
 
   const filtered = useMemo(
     () =>
@@ -118,6 +136,7 @@ export function RepoSelector({ octokit, selectedRepo, onRepoSelect }: RepoSelect
             <ButtonBase
               key={r.fullName}
               onClick={() =>
+                isGitHubSessionCurrent(sessionVersion) &&
                 onRepoSelect({
                   owner: r.owner,
                   repo: r.name,

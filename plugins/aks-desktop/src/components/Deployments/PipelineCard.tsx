@@ -4,6 +4,7 @@
 import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -13,7 +14,7 @@ import {
   Typography,
 } from '@mui/material';
 import { visuallyHidden } from '@mui/utils';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { usePreviewFeatures } from '../../hooks/usePreviewFeatures';
 import type { ProjectDefinition } from '../../types/project';
 import { openExternalUrl } from '../../utils/shared/openExternalUrl';
@@ -32,9 +33,16 @@ function PipelineCard({ project }: PipelineCardProps) {
   const { githubPipelines } = usePreviewFeatures();
   const cluster = project.clusters?.[0] ?? '';
   const namespace = project.namespaces?.[0] ?? '';
-  const { octokit, authState, startOAuth } = useGitHubAuthContext();
+  const { octokit, authState, startOAuth, cancelOAuth, abortOAuth, reset } = useGitHubAuthContext();
   const pipelineStatus = usePipelineStatus(cluster, namespace);
-  const { runs, loading, error } = usePipelineRuns(octokit, pipelineStatus.repos);
+  const { runs, loading, error } = usePipelineRuns(
+    octokit,
+    pipelineStatus.repos,
+    authState.sessionVersion
+  );
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Losing the visible card must cancel approval even if its provider survives.
+  useEffect(() => () => cancelOAuth(), [cancelOAuth, pipelineStatus.isConfigured]);
 
   if (!githubPipelines) return null;
 
@@ -82,22 +90,56 @@ function PipelineCard({ project }: PipelineCardProps) {
 
       {pipelineStatus.isConfigured && !authState.isAuthenticated && !authState.isRestoring && (
         <Box>
-          {authState.isAuthorizingBrowser ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CircularProgress size={14} />
-              <Typography variant="body2" color="text.secondary">
-                {t('Waiting for browser authorization...')}
-              </Typography>
-            </Box>
+          {authState.isDisconnecting ? (
+            <Typography role="status">{t('Removing saved GitHub credentials...')}</Typography>
+          ) : authState.disconnectError ? (
+            <>
+              <Alert severity="warning">
+                {t(
+                  'Saved GitHub credentials may remain. Retry disconnect before connecting again.'
+                )}
+              </Alert>
+              <Button onClick={() => void reset()}>{t('Retry disconnect')}</Button>
+            </>
           ) : (
-            <Typography
-              variant="body2"
-              color="primary"
-              sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-              onClick={startOAuth}
-            >
-              {t('Sign in to GitHub to view pipeline runs.')}
-            </Typography>
+            <>
+              {authState.error && <Alert severity="error">{t(authState.error)}</Alert>}
+              {authState.isAuthorizingBrowser && (
+                <Box role="status" aria-live="polite" aria-atomic="true" sx={{ mb: 1 }}>
+                  <Typography variant="body2">
+                    {authState.deviceAuthorization
+                      ? t('Enter this code on GitHub to connect:')
+                      : t('Requesting a GitHub authorization code...')}
+                  </Typography>
+                  {authState.deviceAuthorization && (
+                    <Typography component="code" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                      {authState.deviceAuthorization.userCode}
+                    </Typography>
+                  )}
+                </Box>
+              )}
+              {authState.isAuthorizingBrowser && (
+                <Button
+                  size="small"
+                  disabled={!authState.deviceAuthorization}
+                  onClick={() => {
+                    if (authState.deviceAuthorization)
+                      openExternalUrl(authState.deviceAuthorization.verificationUri);
+                  }}
+                >
+                  {t('Open GitHub')}
+                </Button>
+              )}
+              <Button
+                size="small"
+                onClick={() => {
+                  if (authState.isAuthorizingBrowser) abortOAuth();
+                  else void startOAuth();
+                }}
+              >
+                {authState.isAuthorizingBrowser ? t('Cancel') : t('Connect GitHub')}
+              </Button>
+            </>
           )}
         </Box>
       )}

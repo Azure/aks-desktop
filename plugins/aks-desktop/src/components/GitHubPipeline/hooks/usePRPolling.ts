@@ -2,9 +2,10 @@
 // Licensed under the Apache 2.0.
 
 import type { Octokit } from '@octokit/rest';
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import type { GitHubRunConclusion, GitHubRunStatus } from '../../../types/github';
 import { getPullRequest, getStatusChecks } from '../../../utils/github/github-api';
+import { isGitHubSessionCurrent } from '../../../utils/github/github-session';
 import { POLLING_INTERVAL_MS, PR_POLLING_MAX_POLLS } from '../constants';
 import { usePolling } from './usePolling';
 
@@ -49,26 +50,35 @@ export const usePRPolling = (
   owner: string,
   repo: string,
   prNumber: number | null,
-  enabled: boolean
+  enabled: boolean,
+  sessionVersion: number
 ): UsePRPollingResult => {
   const isEnabled = !!(octokit && prNumber && enabled);
+  const resetKey = JSON.stringify([sessionVersion, owner, repo, prNumber]);
+  const identityRef = useRef(resetKey);
+  identityRef.current = resetKey;
 
   const pollFn = useCallback(async (): Promise<PRPollData | null> => {
-    if (!octokit || !prNumber) return null;
+    const current = () =>
+      identityRef.current === resetKey && isGitHubSessionCurrent(sessionVersion);
+    if (!octokit || !prNumber || !current()) return null;
     const result = await getPullRequest(octokit, owner, repo, prNumber);
+    if (!current()) return null;
     let statusChecks: PRPollData['statusChecks'] = null;
     if (result.state === 'open') {
       try {
         statusChecks = await getStatusChecks(octokit, owner, repo, result.headSha);
-      } catch (err) {
-        console.error('Failed to fetch status checks:', err);
+      } catch {
+        if (!current()) return null;
+        console.error('Failed to fetch status checks');
       }
     }
+    if (!current()) return null;
     return {
       prStatus: { state: result.state, merged: result.merged, mergeable: result.mergeable },
       statusChecks,
     };
-  }, [octokit, owner, repo, prNumber]);
+  }, [octokit, owner, repo, prNumber, resetKey, sessionVersion]);
 
   const shouldStop = useCallback(
     (result: PRPollData): boolean => result.prStatus.merged || result.prStatus.state === 'closed',
@@ -77,6 +87,7 @@ export const usePRPolling = (
 
   const { data, isTimedOut, error, stopPolling } = usePolling<PRPollData>({
     enabled: isEnabled,
+    resetKey,
     intervalMs: POLLING_INTERVAL_MS,
     maxPolls: PR_POLLING_MAX_POLLS,
     pollFn,
