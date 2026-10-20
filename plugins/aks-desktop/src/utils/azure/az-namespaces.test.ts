@@ -19,8 +19,12 @@ describe('managed namespace updates', () => {
     resourceGroup: 'group',
     clusterName: 'cluster',
     namespaceName: 'namespace',
+    assertCanUpdate: vi.fn(),
   };
-  beforeEach(() => run.mockReset());
+  beforeEach(() => {
+    run.mockReset();
+    target.assertCanUpdate.mockReset();
+  });
 
   test.each(['properties', 'root'])(
     'preserves %s labels and uses one show plus one update',
@@ -40,6 +44,10 @@ describe('managed namespace updates', () => {
         .mockResolvedValueOnce({ stdout: '{}', stderr: '' });
       await updateManagedNamespace({ ...target, cpuRequest: 500 });
       expect(run).toHaveBeenCalledTimes(2);
+      expect(target.assertCanUpdate).toHaveBeenCalledTimes(1);
+      const checked = target.assertCanUpdate.mock.invocationCallOrder[0];
+      expect(checked).toBeGreaterThan(run.mock.invocationCallOrder[0]);
+      expect(checked).toBeLessThan(run.mock.invocationCallOrder[1]);
       const show = run.mock.calls[0][1];
       const update = run.mock.calls[1][1];
       expect(show.slice(0, 3)).toEqual(['aks', 'namespace', 'show']);
@@ -76,5 +84,6 @@ describe('managed namespace updates', () => {
     await expect(updateManagedNamespace(target)).rejects.toThrow('aborting to avoid wiping labels');
     expect(run).toHaveBeenCalledTimes(1);
     expect(run.mock.calls[0][1].slice(0, 3)).toEqual(['aks', 'namespace', 'show']);
+    expect(target.assertCanUpdate).not.toHaveBeenCalled();
   });
 });

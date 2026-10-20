@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   metadata: vi.fn(),
   show: vi.fn(),
   update: vi.fn(),
+  command: vi.fn(),
   clusterAction: vi.fn(),
   actions: [] as Promise<unknown>[],
 }));
@@ -32,6 +33,13 @@ vi.mock('@kinvolk/headlamp-plugin/lib/ApiProxy', () => ({
 vi.mock('../../../utils/azure/az-namespaces', () => ({
   getManagedNamespaceDetails: mocks.show,
   updateManagedNamespace: mocks.update,
+}));
+vi.mock('../../../utils/azure/az-cli-core', () => ({
+  debugLog: vi.fn(),
+  getErrorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  isAzError: (stderr: string) => stderr.startsWith('ERROR'),
+  needsRelogin: () => false,
+  runCommandAsync: mocks.command,
 }));
 vi.mock('../../../utils/shared/isAksProject', () => ({
   supportsManagedNamespaceSettings: (labels: Record<string, string>) =>
@@ -573,6 +581,7 @@ describe('useInfoTab', () => {
       await save(result);
       expect(mocks.update).toHaveBeenLastCalledWith({
         ...target,
+        assertCanUpdate: expect.any(Function),
         ingressPolicy: expected.ingress,
         egressPolicy: expected.egress,
         cpuRequest: expected.cpuRequest,
@@ -728,6 +737,42 @@ describe('useInfoTab', () => {
     expect(result.current.formData.ingress).toBe('AllowAll');
     expect(result.current.hasChanges).toBe(false);
   });
+
+  test.each(['logout', 'switch accounts'])(
+    'does not dispatch an update after %s during the real label-preserving read',
+    async change => {
+      const actual = await vi.importActual<typeof import('../../../utils/azure/az-namespaces')>(
+        '../../../utils/azure/az-namespaces'
+      );
+      mocks.update.mockImplementation(actual.updateManagedNamespace);
+      const labels = deferred<{ stdout: string; stderr: string }>();
+      mocks.command
+        .mockReturnValueOnce(labels.promise)
+        .mockResolvedValue({ stdout: '{}', stderr: '' });
+      const { result } = render();
+      await loaded(result);
+      act(() => result.current.handleFormDataChange({ cpuLimit: 2000 }));
+      act(() => result.current.handleSave());
+      await waitFor(() => expect(mocks.command).toHaveBeenCalledTimes(1));
+      expect(mocks.command.mock.calls[0][1].slice(0, 3)).toEqual(['aks', 'namespace', 'show']);
+      act(() => {
+        if (change === 'logout') invalidateManagedNamespaceAuth();
+        else updateManagedNamespaceAuth({ ...account, username: 'replacement@example.com' });
+      });
+      const rejected = expect(mocks.actions[0]).rejects.toThrow(
+        'Azure account changed. Sign in and try again.'
+      );
+      await act(async () => {
+        labels.resolve({
+          stdout: JSON.stringify({ properties: { labels: { unrelated: 'keep' } } }),
+          stderr: '',
+        });
+        await rejected;
+      });
+      expect(mocks.command).toHaveBeenCalledTimes(1);
+      expect(mocks.command.mock.calls.some(([, args]) => args[2] === 'update')).toBe(false);
+    }
+  );
 
   test('invalid quotas block save and reverting edits clears dirty state', async () => {
     const { result } = render();

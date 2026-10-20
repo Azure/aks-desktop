@@ -176,6 +176,8 @@ export async function updateManagedNamespace(options: {
   egressPolicy?: 'AllowAll' | 'AllowSameNamespace' | 'DenyAll';
   subscriptionId?: string;
   noWait?: boolean;
+  /** Synchronously throws if the captured operation is no longer authorized. */
+  assertCanUpdate: () => void;
 }): Promise<ManagedNamespaceDetails> {
   const {
     clusterName,
@@ -189,6 +191,7 @@ export async function updateManagedNamespace(options: {
     egressPolicy,
     subscriptionId,
     noWait,
+    assertCanUpdate,
   } = options;
 
   const args: string[] = [
@@ -250,6 +253,7 @@ export async function updateManagedNamespace(options: {
 
   args.push('--output', 'json');
 
+  assertCanUpdate();
   const { stdout, stderr } = await runCommandAsync('az', args);
 
   if (stderr && needsRelogin(stderr)) {

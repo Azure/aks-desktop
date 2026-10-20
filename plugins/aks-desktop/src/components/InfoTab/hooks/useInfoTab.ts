@@ -194,12 +194,16 @@ export function useInfoTab(project: { clusters: string[]; namespaces: string[]; 
     mutationKey,
     mutationFn: async (submission: Submission) => {
       await client.cancelQueries({ queryKey: submission.key, exact: true });
-      const currentAuth = getManagedNamespaceAuthState();
-      if (!currentAuth.ready || currentAuth.generation !== submission.generation) {
-        throw new Error(t('Azure account changed. Sign in and try again.'));
-      }
+      const assertCurrentAuth = () => {
+        const currentAuth = getManagedNamespaceAuthState();
+        if (!currentAuth.ready || currentAuth.generation !== submission.generation) {
+          throw new Error(t('Azure account changed. Sign in and try again.'));
+        }
+      };
+      assertCurrentAuth();
       return updateManagedNamespace({
         ...submission.target,
+        assertCanUpdate: assertCurrentAuth,
         ingressPolicy: submission.values.ingress,
         egressPolicy: submission.values.egress,
         cpuRequest: submission.values.cpuRequest,
