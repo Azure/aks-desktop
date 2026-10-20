@@ -45,6 +45,7 @@ import { GitHubAuthStatusButton } from './components/GitHubPipeline/components/G
 import { GitHubAuthProvider } from './components/GitHubPipeline/GitHubAuthContext';
 import ImportAKSProjects from './components/ImportAKSProjects/ImportAKSProjects';
 import InfoTab from './components/InfoTab/InfoTab';
+import InfoTabQueryProvider from './components/InfoTab/InfoTabQueryProvider';
 import AzureLogo from './components/Logo/Logo';
 import LogsTab from './components/LogsTab/LogsTab';
 import MetricsCard from './components/Metrics/MetricsCard';
@@ -61,6 +62,10 @@ import { setConsentPredicate, setTelemetryEnabled } from './telemetry';
 import { registerReduxCallback } from './telemetry/setup';
 import type { ProjectDefinition } from './types/project';
 import { getLoginStatus } from './utils/azure/az-auth';
+import {
+  invalidateManagedNamespaceAuth,
+  updateManagedNamespaceAuth,
+} from './utils/azure/managedNamespaceQueries';
 import { CONTACT_US_URL } from './utils/constants/contactUs';
 import { AZURE_ACCOUNT_POLL_INTERVAL_MS } from './utils/constants/timing';
 import {
@@ -177,10 +182,14 @@ if (Headlamp.isRunningAsApp()) {
 
   // Update Azure Account label based on login status
   let currentUsername: string | null = null;
+  let authStatusRequestId = 0;
 
   const updateAzureAccountLabel = async () => {
+    const requestId = ++authStatusRequestId;
     try {
       const status = await getLoginStatus();
+      if (requestId !== authStatusRequestId) return;
+      updateManagedNamespaceAuth(status);
 
       // Expose auth status to window object for headlamp components
       (window as any).__azureAuthStatus = {
@@ -219,11 +228,16 @@ if (Headlamp.isRunningAsApp()) {
         });
       }
     } catch (error) {
+      if (requestId !== authStatusRequestId) return;
+      const status = {
+        isLoggedIn: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+      updateManagedNamespaceAuth(status);
       // Update auth status to indicate error/not logged in
       (window as any).__azureAuthStatus = {
-        isLoggedIn: false,
+        ...status,
         isChecking: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
   };
@@ -232,7 +246,10 @@ if (Headlamp.isRunningAsApp()) {
   updateAzureAccountLabel();
 
   // Listen for custom events from login/logout operations
-  window.addEventListener('azure-auth-update', updateAzureAccountLabel);
+  window.addEventListener('azure-auth-update', () => {
+    invalidateManagedNamespaceAuth();
+    updateAzureAccountLabel();
+  });
 
   // Check when window regains focus (user might have logged in/out externally)
   let isWindowFocused = document.hasFocus();
@@ -418,7 +435,9 @@ if (Headlamp.isRunningAsApp()) {
     isEnabled: isAksProjectWithResourceGroup,
     component: ({ project }) => (
       <TelemetryErrorBoundary>
-        <InfoTab project={project} />
+        <InfoTabQueryProvider>
+          <InfoTab project={project} />
+        </InfoTabQueryProvider>
       </TelemetryErrorBoundary>
     ),
   });

@@ -1,381 +1,531 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type PropsWithChildren } from 'react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-
-// --- Mocks (vi.hoisted ensures variables are available when vi.mock is hoisted) ---
-
-const mockUseGet = vi.hoisted(() => vi.fn());
-const mockGetManagedNamespaces = vi.hoisted(() => vi.fn());
-const mockGetManagedNamespaceDetails = vi.hoisted(() => vi.fn());
-const mockUpdateManagedNamespace = vi.hoisted(() => vi.fn());
-const mockT = vi.hoisted(() => (key: string) => key);
-const mockClusterAction = vi.hoisted(() =>
-  vi.fn(async (action: () => Promise<void>) => {
-    try {
-      await action();
-    } catch {}
-  })
-);
-
-vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
-  K8s: {
-    ResourceClasses: {
-      Namespace: {
-        useGet: mockUseGet,
-      },
-    },
-  },
-  useTranslation: () => ({ t: mockT }),
-  clusterAction: mockClusterAction,
-}));
-
-vi.mock('../../../utils/azure/az-namespaces', () => ({
-  getManagedNamespaces: mockGetManagedNamespaces,
-  getManagedNamespaceDetails: mockGetManagedNamespaceDetails,
-  updateManagedNamespace: mockUpdateManagedNamespace,
-}));
-
+import {
+  createManagedNamespaceQueryClient,
+  getManagedNamespaceAuthState,
+  invalidateManagedNamespaceAuth,
+  type ManagedNamespaceDetails,
+  managedNamespaceQueryKey,
+  updateManagedNamespaceAuth,
+} from '../../../utils/azure/managedNamespaceQueries';
 import { useInfoTab } from './useInfoTab';
 
-/** A minimal project fixture used across tests. */
-const defaultProject = {
-  clusters: ['my-cluster'],
-  namespaces: ['my-namespace'],
-  id: 'my-project',
+const mocks = vi.hoisted(() => ({
+  metadata: vi.fn(),
+  show: vi.fn(),
+  update: vi.fn(),
+  clusterAction: vi.fn(),
+  actions: [] as Promise<unknown>[],
+}));
+vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+  clusterAction: mocks.clusterAction,
+}));
+vi.mock('@kinvolk/headlamp-plugin/lib/ApiProxy', () => ({
+  clusterRequest: mocks.metadata,
+}));
+vi.mock('../../../utils/azure/az-namespaces', () => ({
+  getManagedNamespaceDetails: mocks.show,
+  updateManagedNamespace: mocks.update,
+}));
+vi.mock('../../../utils/shared/isAksProject', () => ({
+  supportsManagedNamespaceSettings: (labels: Record<string, string>) =>
+    !labels['aks-desktop/project-authz-model'],
+}));
+
+const project = { id: 'project-id', clusters: ['cluster'], namespaces: ['namespace'] };
+const target = {
+  subscriptionId: 'subscription',
+  resourceGroup: 'group',
+  clusterName: 'cluster',
+  namespaceName: 'namespace',
 };
-
-/** A namespace instance returned by Headlamp with subscription and resource group labels. */
-function createNamespaceInstance(subscription = 'sub-123', resourceGroup = 'rg-prod') {
-  return {
-    jsonData: {
-      metadata: {
-        labels: {
-          'aks-desktop/project-subscription': subscription,
-          'aks-desktop/project-resource-group': resourceGroup,
-        },
-      },
+const account = { isLoggedIn: true, username: 'user@example.com', tenantId: 'tenant' };
+const metadata = (labels: Record<string, string> = {}) => ({
+  metadata: {
+    name: 'namespace',
+    labels: {
+      'headlamp.dev/project-managed-by': 'aks-desktop',
+      'aks-desktop/project-subscription': 'subscription',
+      'aks-desktop/project-resource-group': 'group',
+      ...labels,
     },
-  };
-}
-
-/** A namespace details object returned by the Azure CLI. */
-function createNamespaceDetails(
-  overrides: Partial<{
-    ingress: string;
-    egress: string;
-    cpuRequest: string;
-    cpuLimit: string;
-    memoryRequest: string;
-    memoryLimit: string;
-  }> = {}
-) {
-  const {
-    ingress = 'AllowSameNamespace',
-    egress = 'AllowAll',
-    cpuRequest = '500m',
-    cpuLimit = '1000m',
-    memoryRequest = '256Mi',
-    memoryLimit = '512Mi',
-  } = overrides;
-
-  return {
-    properties: {
-      defaultNetworkPolicy: { ingress, egress },
-      defaultResourceQuota: { cpuRequest, cpuLimit, memoryRequest, memoryLimit },
+  },
+});
+const details = (ingress = 'AllowAll'): ManagedNamespaceDetails => ({
+  properties: {
+    defaultNetworkPolicy: { ingress, egress: 'DenyAll' },
+    defaultResourceQuota: {
+      cpuRequest: '500m',
+      cpuLimit: '1000m',
+      memoryRequest: '256Mi',
+      memoryLimit: '512Mi',
     },
-  };
+  },
+});
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('useInfoTab', () => {
+  let client: ReturnType<typeof createManagedNamespaceQueryClient>;
+  let wrapper: (props: PropsWithChildren) => React.ReactElement;
+  const key = () => managedNamespaceQueryKey(target, getManagedNamespaceAuthState().generation);
+  const render = (value = project) =>
+    renderHook(({ value }) => useInfoTab(value), { initialProps: { value }, wrapper });
+  const loaded = async (result: ReturnType<typeof render>['result']) =>
+    waitFor(() => expect(result.current.namespaceDetails).not.toBeNull());
+  const save = async (result: ReturnType<typeof render>['result']) =>
+    act(async () => {
+      result.current.handleSave();
+      await mocks.actions[mocks.actions.length - 1];
+    });
+
   beforeEach(() => {
-    // Default: namespace labels present
-    mockUseGet.mockReturnValue([createNamespaceInstance()]);
-    // Default: managed namespaces available with details
-    mockGetManagedNamespaces.mockResolvedValue(['my-project']);
-    mockGetManagedNamespaceDetails.mockResolvedValue(createNamespaceDetails());
-    // Re-apply clusterAction implementation (vi.resetAllMocks clears it)
-    mockClusterAction.mockImplementation(async (action: () => Promise<void>) => {
-      try {
-        await action();
-      } catch {}
-    });
-  });
-
-  afterEach(() => {
     vi.resetAllMocks();
+    mocks.actions.length = 0;
+    updateManagedNamespaceAuth(account);
+    client = createManagedNamespaceQueryClient();
+    wrapper = ({ children }) => createElement(QueryClientProvider, { client }, children);
+    mocks.metadata.mockResolvedValue(metadata());
+    mocks.show.mockResolvedValue(details());
+    mocks.update.mockResolvedValue({});
+    mocks.clusterAction.mockImplementation((action: () => Promise<unknown>) => {
+      const task = action();
+      mocks.actions.push(task);
+      void task.catch(() => undefined);
+    });
+  });
+  afterEach(() => {
+    cleanup();
+    client.clear();
+    vi.restoreAllMocks();
   });
 
-  // --- Initial loading state ---
-
-  test('starts in loading state and resolves after fetch completes', async () => {
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
+  test('cold load makes one direct show with the namespace name, not project ID', async () => {
+    const { result } = render();
     expect(result.current.loading).toBe(true);
+    await loaded(result);
+    expect(mocks.show).toHaveBeenCalledExactlyOnceWith(target);
+    expect(mocks.metadata).toHaveBeenCalledWith('/api/v1/namespaces/namespace', {
+      cluster: 'cluster',
+      method: 'GET',
+    });
+    expect(result.current.formData).toMatchObject({
+      ingress: 'AllowAll',
+      egress: 'DenyAll',
+      cpuRequest: 500,
+      cpuLimit: 1000,
+      memoryRequest: 256,
+      memoryLimit: 512,
+    });
+    expect(result.current.hasChanges).toBe(false);
+  });
 
-    await waitFor(() => expect(result.current.loading).toBe(false));
+  test('deduplicates concurrent consumers and fresh remounts', async () => {
+    const first = render();
+    const second = render();
+    await loaded(first.result);
+    await loaded(second.result);
+    expect(mocks.show).toHaveBeenCalledTimes(1);
+    first.unmount();
+    second.unmount();
+    const third = render();
+    expect(third.result.current.loading).toBe(false);
+    expect(third.result.current.namespaceDetails).toEqual(details());
+    await act(async () => {});
+    expect(mocks.show).toHaveBeenCalledTimes(1);
+  });
 
+  test('deduplicates an in-flight read across unmount and remount', async () => {
+    const pending = deferred<ManagedNamespaceDetails>();
+    mocks.show.mockReturnValue(pending.promise);
+    const first = render();
+    await waitFor(() => expect(mocks.show).toHaveBeenCalledTimes(1));
+    first.unmount();
+    const second = render();
+    await act(async () => pending.resolve(details()));
+    await loaded(second.result);
+    expect(mocks.show).toHaveBeenCalledTimes(1);
+  });
+
+  test('late metadata hydrates a fresh cache without a cold show', async () => {
+    const pending = deferred<ReturnType<typeof metadata>>();
+    mocks.metadata.mockReturnValue(pending.promise);
+    client.setQueryData(key(), details('DenyAll'));
+    const { result } = render();
+    expect(result.current.loading).toBe(true);
+    expect(mocks.show).not.toHaveBeenCalled();
+    await act(async () => pending.resolve(metadata()));
+    await loaded(result);
+    expect(result.current.formData.ingress).toBe('DenyAll');
+    expect(result.current.loading).toBe(false);
+    expect(mocks.show).not.toHaveBeenCalled();
+  });
+
+  test('late metadata hydrates stale cache while one background show runs', async () => {
+    const pending = deferred<ManagedNamespaceDetails>();
+    client.setQueryData(key(), details('DenyAll'), { updatedAt: Date.now() - 60_001 });
+    mocks.show.mockReturnValue(pending.promise);
+    const { result } = render();
+    await loaded(result);
+    expect(result.current.formData.ingress).toBe('DenyAll');
+    expect(result.current.loading).toBe(false);
+    expect(result.current.revalidating).toBe(true);
+    await act(async () => pending.resolve(details()));
+    await waitFor(() => expect(result.current.formData.ingress).toBe('AllowAll'));
+    expect(mocks.show).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(['clusters', 'namespaces'] as const)('rejects an empty %s target', async field => {
+    const { result } = render({ ...project, [field]: [] });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toContain('one cluster and one namespace');
+    expect(mocks.metadata).not.toHaveBeenCalled();
+    expect(mocks.show).not.toHaveBeenCalled();
+    act(() => result.current.handleSave());
+    expect(result.current.saveError).toBeTruthy();
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { 'aks-desktop/project-subscription': '' },
+    { 'aks-desktop/project-resource-group': '' },
+    { 'aks-desktop/project-authz-model': 'kubernetes-rbac' },
+  ])('does not read or save an incomplete/unsupported target: %j', async labels => {
+    mocks.metadata.mockResolvedValue(metadata(labels));
+    const { result } = render();
+    await waitFor(() => expect(result.current.error).toContain('unavailable'));
+    act(() => result.current.handleSave());
+    expect(mocks.show).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  test('metadata failure is visible and retryable without Azure requests', async () => {
+    mocks.metadata.mockRejectedValueOnce(new Error('namespace forbidden'));
+    const { result } = render();
+    await waitFor(() => expect(result.current.error).toContain('namespace forbidden'));
+    expect(mocks.show).not.toHaveBeenCalled();
+    act(() => result.current.handleRefresh());
+    await loaded(result);
     expect(result.current.error).toBeNull();
-    expect(result.current.namespaceDetails).not.toBeNull();
   });
 
-  // --- Missing cluster or resource group ---
-
-  test('sets namespaceDetails to null and skips fetch when cluster is missing', async () => {
-    const project = { ...defaultProject, clusters: [] };
-
-    const { result } = renderHook(() => useInfoTab(project));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(mockGetManagedNamespaces).not.toHaveBeenCalled();
-    expect(result.current.namespaceDetails).toBeNull();
+  test('cold failure preserves actionable errors, does not retry, and supports Retry', async () => {
+    mocks.show.mockRejectedValueOnce(new Error('Authentication required: az login'));
+    const { result } = render();
+    await waitFor(() => expect(result.current.error).toContain('az login'));
+    expect(result.current.loading).toBe(false);
+    expect(mocks.show).toHaveBeenCalledTimes(1);
+    act(() => result.current.handleRefresh());
+    await loaded(result);
+    expect(result.current.error).toBeNull();
   });
 
-  test('sets namespaceDetails to null and skips fetch when resourceGroup label is absent', async () => {
-    mockUseGet.mockReturnValue([{ jsonData: { metadata: { labels: {} } } }]);
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(mockGetManagedNamespaces).not.toHaveBeenCalled();
-    expect(result.current.namespaceDetails).toBeNull();
+  test('explicit refresh bypasses freshness and repeated clicks share the pending read', async () => {
+    const { result } = render();
+    await loaded(result);
+    const pending = deferred<ManagedNamespaceDetails>();
+    mocks.show.mockReturnValue(pending.promise);
+    act(() => {
+      result.current.handleRefresh();
+      result.current.handleRefresh();
+    });
+    await waitFor(() => expect(mocks.show).toHaveBeenCalledTimes(2));
+    expect(result.current.loading).toBe(false);
+    expect(result.current.revalidating).toBe(true);
+    await act(async () => pending.resolve(details('DenyAll')));
+    await waitFor(() => expect(result.current.formData.ingress).toBe('DenyAll'));
   });
 
-  // --- Managed namespace list empty ---
-
-  test('sets namespaceDetails to null when no managed namespaces exist for the cluster', async () => {
-    mockGetManagedNamespaces.mockResolvedValue([]);
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(mockGetManagedNamespaceDetails).not.toHaveBeenCalled();
-    expect(result.current.namespaceDetails).toBeNull();
-  });
-
-  // --- Error handling ---
-
-  test('sets error and clears namespaceDetails when getManagedNamespaces throws', async () => {
-    mockGetManagedNamespaces.mockRejectedValue(new Error('network error'));
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(result.current.error).toBe('Failed to fetch managed namespaces');
-    expect(result.current.namespaceDetails).toBeNull();
-  });
-
-  test('sets error and clears namespaceDetails when getManagedNamespaceDetails throws', async () => {
-    mockGetManagedNamespaceDetails.mockRejectedValue(new Error('details error'));
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(result.current.error).toBe('Failed to fetch managed namespace details');
-    expect(result.current.namespaceDetails).toBeNull();
-  });
-
-  // --- Form population from namespace details ---
-
-  test('pre-populates formData from fetched namespace details', async () => {
-    mockGetManagedNamespaceDetails.mockResolvedValue(
-      createNamespaceDetails({
-        ingress: 'AllowAll',
-        egress: 'DenyAll',
-        cpuRequest: '250m',
-        cpuLimit: '500m',
-        memoryRequest: '128Mi',
-        memoryLimit: '256Mi',
-      })
-    );
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(result.current.formData.ingress).toBe('AllowAll');
-    expect(result.current.formData.egress).toBe('DenyAll');
-    expect(result.current.formData.cpuRequest).toBe(250);
-    expect(result.current.formData.cpuLimit).toBe(500);
-    expect(result.current.formData.memoryRequest).toBe(128);
-    expect(result.current.formData.memoryLimit).toBe(256);
-  });
-
-  test('falls back to AllowSameNamespace for unrecognised ingress policy value', async () => {
-    mockGetManagedNamespaceDetails.mockResolvedValue(
-      createNamespaceDetails({ ingress: 'InvalidPolicy' })
-    );
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
+  test('refresh preserves unsaved values and baseline while updating the snapshot', async () => {
+    const { result } = render();
+    await loaded(result);
+    act(() => result.current.handleFormDataChange({ ingress: 'AllowSameNamespace' }));
+    mocks.show.mockResolvedValue(details('DenyAll'));
+    act(() => result.current.handleRefresh());
+    await waitFor(() => expect(result.current.hasRemoteChanges).toBe(true));
     expect(result.current.formData.ingress).toBe('AllowSameNamespace');
+    expect(result.current.hasChanges).toBe(true);
+    expect(client.getQueryData(key())).toEqual(details('DenyAll'));
+    act(() => result.current.handleFormDataChange({ ingress: 'AllowAll' }));
+    expect(result.current.hasChanges).toBe(false);
+    expect(result.current.formData.ingress).toBe('DenyAll');
   });
 
-  test('parses resource values without units as zero', async () => {
-    mockGetManagedNamespaceDetails.mockResolvedValue(
-      createNamespaceDetails({
-        cpuRequest: 'invalid',
-        memoryRequest: 'bad',
+  test('refresh failure keeps the snapshot and edits, and surfaces recovery', async () => {
+    const { result } = render();
+    await loaded(result);
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    mocks.show.mockRejectedValue(new Error('offline'));
+    act(() => result.current.handleRefresh());
+    await waitFor(() => expect(result.current.error).toContain('offline'));
+    expect(result.current.namespaceDetails).toEqual(details());
+    expect(result.current.formData.ingress).toBe('DenyAll');
+    expect(result.current.hasChanges).toBe(true);
+  });
+
+  test.each([
+    ['subscriptionId', 'aks-desktop/project-subscription'],
+    ['resourceGroup', 'aks-desktop/project-resource-group'],
+  ])('isolates draft and cached data when %s changes', async (field, label) => {
+    const { result } = render();
+    await loaded(result);
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    client.setQueryData(
+      managedNamespaceQueryKey(
+        { ...target, [field]: 'other' },
+        getManagedNamespaceAuthState().generation
+      ),
+      details('AllowSameNamespace')
+    );
+    act(() => {
+      const entry = client
+        .getQueryCache()
+        .findAll()
+        .find(query => query.queryKey[2] === 'metadata');
+      if (!entry) throw new Error('Expected metadata query');
+      client.setQueryData(entry.queryKey, metadata({ [label]: 'other' }));
+    });
+    await waitFor(() => expect(result.current.formData.ingress).toBe('AllowSameNamespace'));
+    expect(result.current.hasChanges).toBe(false);
+  });
+
+  test.each(['clusters', 'namespaces'] as const)(
+    'late A read cannot change B after %s changes',
+    async field => {
+      const old = deferred<ManagedNamespaceDetails>();
+      mocks.show.mockReturnValueOnce(old.promise).mockRejectedValueOnce(new Error('B failed'));
+      const { result, rerender } = render();
+      await waitFor(() => expect(mocks.show).toHaveBeenCalledTimes(1));
+      rerender({ value: { ...project, [field]: ['other'] } });
+      await waitFor(() => expect(result.current.error).toContain('B failed'));
+      await act(async () => old.resolve(details()));
+      expect(result.current.namespaceDetails).toBeNull();
+      expect(result.current.error).toContain('B failed');
+      expect(result.current.hasChanges).toBe(false);
+    }
+  );
+
+  test('successful save publishes confirmed settings and preserves clusterAction notifications', async () => {
+    const { result, unmount } = render();
+    await loaded(result);
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    await save(result);
+    expect(mocks.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...target,
+        ingressPolicy: 'DenyAll',
+        egressPolicy: 'DenyAll',
+        cpuRequest: 500,
       })
     );
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(result.current.formData.cpuRequest).toBe(0);
-    expect(result.current.formData.memoryRequest).toBe(0);
-  });
-
-  // --- hasChanges ---
-
-  test('hasChanges is false initially after fetch', async () => {
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(result.current.hasChanges).toBe(false);
-  });
-
-  test('hasChanges becomes true after a form field is changed', async () => {
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    act(() => {
-      result.current.handleFormDataChange({ ingress: 'DenyAll' });
-    });
-
-    expect(result.current.hasChanges).toBe(true);
-  });
-
-  test('hasChanges returns to false after reverting a change back to the baseline', async () => {
-    mockGetManagedNamespaceDetails.mockResolvedValue(
-      createNamespaceDetails({ ingress: 'AllowSameNamespace' })
+    expect(mocks.clusterAction).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({
+        startMessage: 'Updating namespace {{ name }}…',
+        successMessage: 'Updated namespace {{ name }}.',
+        errorMessage: 'Failed to update namespace {{ name }}.',
+      })
     );
+    expect(client.getQueryData(key())).toEqual(details('DenyAll'));
+    expect(result.current.hasChanges).toBe(false);
+    unmount();
+    const next = render();
+    expect(next.result.current.formData.ingress).toBe('DenyAll');
+    expect(mocks.show).toHaveBeenCalledTimes(1);
+  });
 
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    act(() => {
-      result.current.handleFormDataChange({ ingress: 'DenyAll' });
+  test('a partial update response wins over submitted values without dropping unrelated settings', async () => {
+    const original = {
+      ...details(),
+      labels: { unrelated: 'keep' },
+    };
+    mocks.show.mockResolvedValue(original);
+    mocks.update.mockResolvedValue({
+      properties: { defaultResourceQuota: { cpuLimit: '2000m' } },
     });
-    expect(result.current.hasChanges).toBe(true);
-
-    act(() => {
-      result.current.handleFormDataChange({ ingress: 'AllowSameNamespace' });
+    const { result } = render();
+    await loaded(result);
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    await save(result);
+    expect(result.current.formData).toMatchObject({
+      ingress: 'DenyAll',
+      egress: 'DenyAll',
+      cpuRequest: 500,
+      cpuLimit: 2000,
+    });
+    expect(client.getQueryData(key())).toMatchObject({
+      labels: { unrelated: 'keep' },
+      properties: { defaultResourceQuota: { memoryLimit: '512Mi' } },
     });
     expect(result.current.hasChanges).toBe(false);
   });
 
-  // --- Validation ---
+  test('multiple field edits in one event retain both values', async () => {
+    const { result } = render();
+    await loaded(result);
+    act(() => {
+      result.current.handleFormDataChange({ ingress: 'DenyAll' });
+      result.current.handleFormDataChange({ cpuLimit: 2000 });
+    });
+    expect(result.current.formData).toMatchObject({ ingress: 'DenyAll', cpuLimit: 2000 });
+  });
 
-  test('validation is valid on initial form population', async () => {
-    const { result } = renderHook(() => useInfoTab(defaultProject));
+  test('editing a previously clean form uses the latest refreshed snapshot', async () => {
+    const { result } = render();
+    await loaded(result);
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    act(() => result.current.handleFormDataChange({ ingress: 'AllowAll' }));
+    mocks.show.mockResolvedValue(details('AllowSameNamespace'));
+    act(() => result.current.handleRefresh());
+    await waitFor(() => expect(result.current.formData.ingress).toBe('AllowSameNamespace'));
+    act(() => result.current.handleFormDataChange({ cpuLimit: 2000 }));
+    expect(result.current.formData.ingress).toBe('AllowSameNamespace');
+    expect(result.current.formData.cpuLimit).toBe(2000);
+  });
 
-    await waitFor(() => expect(result.current.loading).toBe(false));
+  test('a failed old read cannot replace the next target error or data', async () => {
+    const old = deferred<ManagedNamespaceDetails>();
+    mocks.show.mockReturnValueOnce(old.promise);
+    const { result, rerender } = render();
+    await waitFor(() => expect(mocks.show).toHaveBeenCalledTimes(1));
+    rerender({ value: { ...project, namespaces: ['other'] } });
+    await loaded(result);
+    await act(async () => old.reject(new Error('old target failed')));
+    expect(result.current.error).toBeNull();
+    expect(result.current.formData.ingress).toBe('AllowAll');
+  });
 
+  test('an old background GET resolving after save cannot roll back cache or form', async () => {
+    const { result } = render();
+    await loaded(result);
+    const old = deferred<ManagedNamespaceDetails>();
+    mocks.show.mockReturnValue(old.promise);
+    act(() => result.current.handleRefresh());
+    await waitFor(() => expect(mocks.show).toHaveBeenCalledTimes(2));
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    await save(result);
+    await act(async () => old.resolve(details()));
+    expect(result.current.formData.ingress).toBe('DenyAll');
+    expect(result.current.hasChanges).toBe(false);
+    expect(client.getQueryData(key())).toEqual(details('DenyAll'));
+  });
+
+  test('save preserves newer edits and suppresses duplicate saves and refresh', async () => {
+    const { result } = render();
+    await loaded(result);
+    const pending = deferred<ManagedNamespaceDetails>();
+    mocks.update.mockReturnValue(pending.promise);
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    act(() => {
+      result.current.handleSave();
+      result.current.handleSave();
+      result.current.handleRefresh();
+    });
+    await waitFor(() => expect(result.current.updating).toBe(true));
+    act(() => result.current.handleFormDataChange({ ingress: 'AllowSameNamespace' }));
+    await act(async () => pending.resolve({}));
+    await waitFor(() => expect(result.current.updating).toBe(false));
+    expect(mocks.update).toHaveBeenCalledTimes(1);
+    expect(mocks.show).toHaveBeenCalledTimes(1);
+    expect(result.current.formData.ingress).toBe('AllowSameNamespace');
+    expect(result.current.hasChanges).toBe(true);
+    expect(client.getQueryData(key())).toEqual(details('DenyAll'));
+  });
+
+  test('save finishing after navigation updates only the captured target', async () => {
+    const { result, rerender } = render();
+    await loaded(result);
+    const pending = deferred<ManagedNamespaceDetails>();
+    mocks.update.mockReturnValue(pending.promise);
+    const oldKey = key();
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    act(() => result.current.handleSave());
+    await waitFor(() => expect(mocks.update).toHaveBeenCalled());
+    rerender({ value: { ...project, namespaces: ['other'] } });
+    await loaded(result);
+    await act(async () => pending.resolve({}));
+    expect(client.getQueryData(oldKey)).toEqual(details('DenyAll'));
+    expect(result.current.formData.ingress).toBe('AllowAll');
+    expect(result.current.hasChanges).toBe(false);
+    expect(result.current.saveError).toBeNull();
+  });
+
+  test('save failure preserves edits, exposes error, and propagates through clusterAction', async () => {
+    const { result } = render();
+    await loaded(result);
+    mocks.update.mockRejectedValue(new Error('update denied'));
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    act(() => result.current.handleSave());
+    await expect(mocks.actions[0]).rejects.toThrow('update denied');
+    await waitFor(() => expect(result.current.saveError).toBe('update denied'));
+    expect(result.current.namespaceDetails).toEqual(details());
+    expect(result.current.formData.ingress).toBe('DenyAll');
+    expect(result.current.hasChanges).toBe(true);
+    expect(result.current.updating).toBe(false);
+  });
+
+  test('auth reset hides the previous editor and prevents a late write from repopulating it', async () => {
+    const { result } = render();
+    await loaded(result);
+    const pending = deferred<ManagedNamespaceDetails>();
+    mocks.update.mockReturnValue(pending.promise);
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    act(() => result.current.handleSave());
+    await waitFor(() => expect(mocks.update).toHaveBeenCalled());
+    const oldKey = key();
+    act(() => invalidateManagedNamespaceAuth());
+    expect(result.current.namespaceDetails).toBeNull();
+    expect(result.current.hasChanges).toBe(false);
+    expect(result.current.error).toContain('Sign in');
+    await act(async () => pending.resolve({}));
+    expect(client.getQueryData(oldKey)).toEqual(details());
+    act(() => updateManagedNamespaceAuth({ ...account, username: 'another@example.com' }));
+    await loaded(result);
+    expect(result.current.formData.ingress).toBe('AllowAll');
+    expect(result.current.hasChanges).toBe(false);
+  });
+
+  test('invalid quotas block save and reverting edits clears dirty state', async () => {
+    const { result } = render();
+    await loaded(result);
+    act(() => result.current.handleFormDataChange({ cpuRequest: 2000 }));
+    expect(result.current.validation.isValid).toBe(false);
+    act(() => result.current.handleSave());
+    expect(result.current.saveError).toBeTruthy();
+    expect(mocks.update).not.toHaveBeenCalled();
+    act(() => result.current.handleFormDataChange({ cpuRequest: 500 }));
+    expect(result.current.hasChanges).toBe(false);
     expect(result.current.validation.isValid).toBe(true);
   });
 
-  test('validation becomes invalid when cpuRequest exceeds cpuLimit', async () => {
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    act(() => {
-      result.current.handleFormDataChange({ cpuRequest: 2000, cpuLimit: 500 });
+  test('normalizes unknown policies and malformed quotas without triggering refetches', async () => {
+    mocks.show.mockResolvedValue({
+      properties: {
+        defaultNetworkPolicy: { ingress: 'invalid' },
+        defaultResourceQuota: { cpuRequest: 'invalid', memoryRequest: 'bad' },
+      },
     });
-
-    expect(result.current.validation.isValid).toBe(false);
-    expect(result.current.validation.errors).toContain(
-      'CPU requests cannot be greater than CPU limits'
-    );
-  });
-
-  test('validation becomes invalid when memoryRequest exceeds memoryLimit', async () => {
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    act(() => {
-      result.current.handleFormDataChange({ memoryRequest: 1024, memoryLimit: 256 });
+    const { result, rerender } = render();
+    await loaded(result);
+    expect(result.current.formData).toMatchObject({
+      ingress: 'AllowSameNamespace',
+      cpuRequest: 0,
+      memoryRequest: 0,
     });
-
-    expect(result.current.validation.isValid).toBe(false);
-  });
-
-  // --- handleSave ---
-
-  test('handleSave calls updateManagedNamespace with correct arguments and advances baseline', async () => {
-    mockUpdateManagedNamespace.mockResolvedValue(undefined);
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    act(() => {
-      result.current.handleFormDataChange({ ingress: 'DenyAll' });
-    });
-
-    expect(result.current.hasChanges).toBe(true);
-
-    await act(async () => {
-      await result.current.handleSave();
-    });
-
-    expect(mockUpdateManagedNamespace).toHaveBeenCalledWith(
-      expect.objectContaining({
-        clusterName: 'my-cluster',
-        resourceGroup: 'rg-prod',
-        namespaceName: 'my-project',
-        ingressPolicy: 'DenyAll',
-        subscriptionId: 'sub-123',
-      })
-    );
-    // Baseline advances so hasChanges resets
-    expect(result.current.hasChanges).toBe(false);
-  });
-
-  test('handleSave leaves updating as false when updateManagedNamespace throws', async () => {
-    mockUpdateManagedNamespace.mockRejectedValue(new Error('update failed'));
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    act(() => {
-      result.current.handleFormDataChange({ ingress: 'DenyAll' });
-    });
-
-    await act(async () => {
-      await result.current.handleSave();
-    });
-
-    await waitFor(() => expect(result.current.updating).toBe(false));
-    expect(result.current.error).toBe('update failed');
-  });
-
-  test('handleSave is a no-op when resourceGroup label is absent', async () => {
-    mockUseGet.mockReturnValue([{ jsonData: { metadata: { labels: {} } } }]);
-
-    const { result } = renderHook(() => useInfoTab(defaultProject));
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    await act(async () => {
-      await result.current.handleSave();
-    });
-
-    expect(mockUpdateManagedNamespace).not.toHaveBeenCalled();
+    rerender({ value: { ...project } });
+    expect(mocks.show).toHaveBeenCalledTimes(1);
   });
 });

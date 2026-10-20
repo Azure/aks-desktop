@@ -289,7 +289,6 @@
   "Failed to fetch deployment status": "デプロイの状態をフェッチできませんでした",
   "Failed to fetch deployments": "デプロイをフェッチできませんでした",
   "Failed to fetch managed namespace details": "マネージド名前空間の詳細を取得できませんでした",
-  "Failed to fetch managed namespaces": "マネージド名前空間を取得できませんでした",
   "Failed to fetch metrics from Prometheus": "Prometheus からメトリックを取得できませんでした",
   "Failed to fetch pod status": "ポッドの状態をフェッチできませんでした",
   "Failed to fetch service status": "サービスの状態をフェッチできませんでした",
@@ -749,5 +748,13 @@
   "Failed to save the selected cluster scope: {{message}}": "",
   "A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.": "",
   "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": "",
-  "Browse and import existing AKS Projects": ""
+  "Browse and import existing AKS Projects": "",
+  "Azure account changed. Sign in and try again.": "",
+  "Loading namespace settings": "",
+  "Managed namespace settings are unavailable for this project.": "",
+  "Namespace settings are not ready to save.": "",
+  "Refreshing data in background": "",
+  "Select a project with one cluster and one namespace.": "",
+  "Settings changed on the server. Your unsaved changes have been kept.": "",
+  "Sign in to Azure to manage namespace settings.": ""
 }

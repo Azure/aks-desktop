@@ -289,7 +289,6 @@
   "Failed to fetch deployment status": "배포 상태를 가져오지 못함",
   "Failed to fetch deployments": "배포를 가져오지 못함",
   "Failed to fetch managed namespace details": "관리형 네임스페이스 세부 정보를 가져오지 못 함",
-  "Failed to fetch managed namespaces": "관리되는 네임스페이스를 가져오지 못함",
   "Failed to fetch metrics from Prometheus": "Prometheus에서 메트릭을 가져오지 못함",
   "Failed to fetch pod status": "Pod 상태를 가져오지 못함",
   "Failed to fetch service status": "서비스 상태를 가져오지 못함",
@@ -749,5 +748,13 @@
   "Failed to save the selected cluster scope: {{message}}": "",
   "A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.": "",
   "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": "",
-  "Browse and import existing AKS Projects": ""
+  "Browse and import existing AKS Projects": "",
+  "Azure account changed. Sign in and try again.": "",
+  "Loading namespace settings": "",
+  "Managed namespace settings are unavailable for this project.": "",
+  "Namespace settings are not ready to save.": "",
+  "Refreshing data in background": "",
+  "Select a project with one cluster and one namespace.": "",
+  "Settings changed on the server. Your unsaved changes have been kept.": "",
+  "Sign in to Azure to manage namespace settings.": ""
 }
