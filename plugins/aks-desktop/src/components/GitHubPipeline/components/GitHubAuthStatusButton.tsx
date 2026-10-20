@@ -3,8 +3,8 @@
 
 import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { Button, CircularProgress, Tooltip } from '@mui/material';
-import React from 'react';
+import { Alert, Button, CircularProgress, Popover, Tooltip, Typography } from '@mui/material';
+import React, { useState } from 'react';
 import { usePreviewFeatures } from '../../../hooks/usePreviewFeatures';
 import { useGitHubAuthContext } from '../GitHubAuthContext';
 
@@ -14,8 +14,9 @@ import { useGitHubAuthContext } from '../GitHubAuthContext';
  */
 export function GitHubAuthStatusButton() {
   const { githubPipelines } = usePreviewFeatures();
-  const { authState, startOAuth } = useGitHubAuthContext();
+  const { authState, startOAuth, reset } = useGitHubAuthContext();
   const { t } = useTranslation();
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
 
   if (!githubPipelines) return null;
 
@@ -40,17 +41,59 @@ export function GitHubAuthStatusButton() {
     );
   }
 
-  if (authState.isAuthenticated) {
+  if (authState.isAuthenticated || authState.isDisconnecting || authState.disconnectError) {
+    const label = authState.disconnectError
+      ? t('GitHub disconnect failed')
+      : authState.isDisconnecting
+      ? t('Disconnecting GitHub...')
+      : authState.username ?? t('Connected');
     return (
-      <Tooltip title={t('GitHub: {{username}}', { username: authState.username })}>
-        <Button
-          variant="outlined"
-          startIcon={<Icon icon="mdi:github" aria-hidden="true" />}
-          sx={{ textTransform: 'none', fontWeight: 'bold' }}
+      <>
+        <Tooltip title={t('GitHub: {{username}}', { username: authState.username ?? label })}>
+          <Button
+            variant="outlined"
+            disabled={authState.isDisconnecting}
+            aria-label={label}
+            aria-haspopup="dialog"
+            aria-expanded={Boolean(anchor)}
+            onClick={event => setAnchor(event.currentTarget)}
+            startIcon={<Icon icon="mdi:github" aria-hidden="true" />}
+            sx={{ textTransform: 'none', fontWeight: 'bold' }}
+          >
+            {label}
+          </Button>
+        </Tooltip>
+        <Popover
+          open={Boolean(anchor)}
+          anchorEl={anchor}
+          onClose={() => setAnchor(null)}
+          PaperProps={{
+            role: 'dialog',
+            'aria-label': t('GitHub account'),
+            sx: { p: 2, maxWidth: 360 },
+          }}
         >
-          {authState.username ?? t('Connected')}
-        </Button>
-      </Tooltip>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            {t(
+              'Disconnect removes saved GitHub credentials from this app only. Repositories and deployments are kept.'
+            )}
+          </Typography>
+          {authState.disconnectError && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              {t('Saved GitHub credentials could not be removed. Retry disconnect.')}
+            </Alert>
+          )}
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setAnchor(null);
+              void reset();
+            }}
+          >
+            {authState.disconnectError ? t('Retry disconnect') : t('Disconnect GitHub')}
+          </Button>
+        </Popover>
+      </>
     );
   }
 

@@ -182,13 +182,14 @@ export const loadTokens = async (): Promise<StoredTokens | null> => {
 /**
  * Removes saved tokens from secure storage (and localStorage in dev mode).
  */
-export const clearTokens = async (): Promise<void> => {
-  await secureStorageDelete(STORAGE_KEY);
+export const clearTokens = async (): Promise<boolean> => {
+  const deleted = await secureStorageDelete(STORAGE_KEY);
   if (IS_DEV) {
     try {
       localStorage.removeItem(LOCALSTORAGE_FALLBACK_KEY);
     } catch {
-      // Ignore
+      return false;
     }
   }
+  return deleted;
 };
