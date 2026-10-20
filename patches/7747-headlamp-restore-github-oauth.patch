@@ -12,7 +12,7 @@ index 5ae6fdf9c7ab192a6b584249c0f8081165936c7b..ad465520fde23f889b1e83426e04f685
        run: xvfb-run --auto-servernum npm run app:test:e2e -- tests/externalBackendToken.spec.ts
      - name: Verify Linux build
 diff --git a/app/app-build-manifest.schema.json b/app/app-build-manifest.schema.json
-index 2897e5ba25c9fccb343785239b8bad124e02c113..d26d9dc9fad9b31c851a232061bbfb7335af6622 100644
+index 2897e5ba25c9fccb343785239b8bad124e02c113..7d5aa70a1fe1dc3758b935063dbb25c8d104b9d7 100644
 --- a/app/app-build-manifest.schema.json
 +++ b/app/app-build-manifest.schema.json
 @@ -31,6 +31,16 @@
@@ -32,6 +32,27 @@ index 2897e5ba25c9fccb343785239b8bad124e02c113..d26d9dc9fad9b31c851a232061bbfb73
      "commandSets": {
        "type": "object",
        "description": "Reusable named command grant arrays. A runCommands policy composes one or more with commandSets instead of repeating commands.",
+@@ -243,6 +253,10 @@
+           "maxItems": 16,
+           "uniqueItems": true,
+           "items": { "$ref": "#/definitions/clusterRegistrationProvider" }
++        },
++        "githubOAuth": {
++          "type": "boolean",
++          "description": "Grants these exact plugin identities the product's top-level githubOAuth client through their private command capability. Not allowed for user-installed plugins."
+         }
+       },
+       "required": ["environment", "pluginLocation", "plugins"],
+@@ -283,7 +297,8 @@
+           },
+           "then": {
+             "properties": {
+-              "clusterRegistrationProviders": { "maxItems": 0 }
++              "clusterRegistrationProviders": { "maxItems": 0 },
++              "githubOAuth": { "const": false }
+             }
+           }
+         }
 diff --git a/app/e2e-tests/playwright.electron.config.ts b/app/e2e-tests/playwright.electron.config.ts
 index fcf4cfdc16d107eddef933fa0c97b90b08e8b22e..97d57454ce115777e91ca7ff861712c54c272f91 100644
 --- a/app/e2e-tests/playwright.electron.config.ts
@@ -46,10 +67,10 @@ index fcf4cfdc16d107eddef933fa0c97b90b08e8b22e..97d57454ce115777e91ca7ff861712c5
      'runtimeProductIdentity.spec.ts',
 diff --git a/app/e2e-tests/tests/githubOAuth.spec.ts b/app/e2e-tests/tests/githubOAuth.spec.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b35724856c79c4d2202435317ed4dbe6c6256acc
+index 0000000000000000000000000000000000000000..9fb44f4c4833ccd8cc8805a874038eb0ac276f43
 --- /dev/null
 +++ b/app/e2e-tests/tests/githubOAuth.spec.ts
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,259 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -67,6 +88,7 @@ index 0000000000000000000000000000000000000000..b35724856c79c4d2202435317ed4dbe6
 + */
 +
 +import { expect, test } from '@playwright/test';
++import { createHash } from 'node:crypto';
 +import fs from 'node:fs';
 +import { createServer, Server } from 'node:http';
 +import type { AddressInfo } from 'node:net';
@@ -75,10 +97,17 @@ index 0000000000000000000000000000000000000000..b35724856c79c4d2202435317ed4dbe6
 +import { _electron, ElectronApplication, Page } from 'playwright';
 +
 +const appPath = path.resolve(__dirname, '../..');
++const plugins = [
++  { bundleName: 'github-oauth-e2e', packageName: '@headlamp-k8s/github-oauth-e2e' },
++  { bundleName: 'github-oauth-e2e-other', packageName: '@headlamp-k8s/github-oauth-e2e-other' },
++];
 +let backend: Server;
 +let electronApp: ElectronApplication;
 +let page: Page;
 +let directory: string;
++let pluginDirectories: string[] = [];
++let capability: string;
++let ungrantedCapability: string;
 +
 +test.describe('GitHub OAuth compiled desktop bridge', () => {
 +  test.beforeAll(async () => {
@@ -89,6 +118,21 @@ index 0000000000000000000000000000000000000000..b35724856c79c4d2202435317ed4dbe6
 +      JSON.stringify({
 +        product: { protocols: { name: 'test', schemes: ['test-desktop'] } },
 +        githubOAuth: { clientId: 'test-client', clientSecret: 'test-public-client-credential' },
++        runCommands: [
++          {
++            environment: 'development',
++            pluginLocation: 'shipped',
++            plugins: [plugins[0]],
++            commands: [{ tool: 'gh', args: ['--version'] }],
++            githubOAuth: true,
++          },
++          {
++            environment: 'development',
++            pluginLocation: 'shipped',
++            plugins: [plugins[1]],
++            commands: [{ tool: 'gh', args: ['--version'] }],
++          },
++        ],
 +      })
 +    );
 +    backend = createServer((_request, response) => {
@@ -123,6 +167,39 @@ index 0000000000000000000000000000000000000000..b35724856c79c4d2202435317ed4dbe6
 +    });
 +    page = await electronApp.firstWindow();
 +    await page.waitForLoadState('load');
++
++    // Real synthetic shipped plugins pass the one-time provenance registration;
++    // only the product-granted identity may use GitHub OAuth.
++    const resourcesPath = await electronApp.evaluate(() => process.resourcesPath);
++    const registrations = plugins.map(({ bundleName, packageName }) => {
++      const pluginDirectory = path.join(resourcesPath, '.plugins', bundleName);
++      pluginDirectories.push(pluginDirectory);
++      fs.mkdirSync(pluginDirectory, { recursive: true });
++      const source = `globalThis[${JSON.stringify(bundleName)}] = true;\n`;
++      fs.writeFileSync(path.join(pluginDirectory, 'main.js'), source);
++      fs.writeFileSync(
++        path.join(pluginDirectory, 'package.json'),
++        JSON.stringify({ name: packageName })
++      );
++      return {
++        bundleName,
++        packageName,
++        path: `static-plugins/${bundleName}`,
++        source: 'shipped',
++        type: 'shipped',
++        sourceDigest: createHash('sha256').update(source).digest('hex'),
++      };
++    });
++    const capabilities = await page.evaluate(
++      registrations => window.desktopApi.commandCapabilities.register(registrations),
++      registrations
++    );
++    expect(capabilities).toHaveLength(2);
++    expect(capabilities[0]).toMatchObject({ ...plugins[0], githubOAuth: true });
++    expect(capabilities[1]).not.toHaveProperty('githubOAuth');
++    capability = capabilities[0].capability;
++    ungrantedCapability = capabilities[1].capability;
++
 +    // Keep all Electron/IPC/protocol code real. Only the external browser and
 +    // GitHub transport are simulated; no personal account or token is used.
 +    await electronApp.evaluate(({ shell }) => {
@@ -154,19 +231,49 @@ index 0000000000000000000000000000000000000000..b35724856c79c4d2202435317ed4dbe6
 +  test.afterAll(async () => {
 +    await electronApp?.close();
 +    if (backend) await new Promise<void>(resolve => backend.close(() => resolve()));
++    for (const pluginDirectory of pluginDirectories) {
++      fs.rmSync(pluginDirectory, { recursive: true, force: true });
++    }
 +    if (directory) fs.rmSync(directory, { recursive: true, force: true });
 +  });
 +
-+  test('signs in and refreshes through the actual compiled preload and main process', async () => {
-+    const started = await page.evaluate(async () => {
++  test('exposes no global token subscription and denies wrong capabilities', async () => {
++    expect(
++      await page.evaluate(() => {
++        const api = window.desktopApi as any;
++        return [
++          typeof api.startGitHubOAuth,
++          typeof api.onGitHubOAuthCallback,
++          typeof api.refreshGitHubOAuth,
++          Object.keys(api.githubOAuth).sort(),
++        ];
++      })
++    ).toEqual(['undefined', 'undefined', 'undefined', ['refresh', 'start']]);
++    for (const wrong of [ungrantedCapability, 'f'.repeat(64), undefined]) {
++      await expect(
++        page.evaluate(token => (window.desktopApi as any).githubOAuth.start(token), wrong)
++      ).resolves.toEqual({ success: false, error: 'Unauthorized request' });
++      await expect(
++        page.evaluate(
++          token => (window.desktopApi as any).githubOAuth.refresh(token, 'ghr_fresh'),
++          wrong
++        )
++      ).resolves.toEqual({ success: false, error: 'Unauthorized request' });
++    }
++    expect(await electronApp.evaluate(() => (globalThis as any).oauthAuthorizationUrl)).toBe(
++      undefined
++    );
++    expect(await electronApp.evaluate(() => (globalThis as any).oauthRequests)).toEqual([]);
++  });
++
++  test('signs in with PKCE and refreshes through the actual compiled preload and main process', async () => {
++    await page.evaluate(token => {
 +      const state = window as any;
-+      state.oauthResults = [];
-+      state.unsubscribeOAuth = state.desktopApi.onGitHubOAuthCallback((result: unknown) => {
-+        state.oauthResults.push(result);
-+      });
-+      return state.desktopApi.startGitHubOAuth();
-+    });
-+    expect(started).toEqual({ success: true });
++      state.oauthStart = state.desktopApi.githubOAuth.start(token);
++    }, capability);
++    await expect
++      .poll(() => electronApp.evaluate(() => (globalThis as any).oauthAuthorizationUrl))
++      .toBeTruthy();
 +    const authorize = new URL(
 +      await electronApp.evaluate(() => (globalThis as any).oauthAuthorizationUrl)
 +    );
@@ -175,6 +282,10 @@ index 0000000000000000000000000000000000000000..b35724856c79c4d2202435317ed4dbe6
 +    expect(authorize.searchParams.get('redirect_uri')).toBe(
 +      'http://localhost:48321/oauth/callback'
 +    );
++    expect(authorize.searchParams.get('code_challenge_method')).toBe('S256');
++    const challenge = authorize.searchParams.get('code_challenge')!;
++    expect(challenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
++    expect(authorize.searchParams.has('code_verifier')).toBe(false);
 +    const callback = new URL('http://127.0.0.1:48321/oauth/callback');
 +    callback.search = new URLSearchParams({
 +      state: authorize.searchParams.get('state')!,
@@ -182,14 +293,15 @@ index 0000000000000000000000000000000000000000..b35724856c79c4d2202435317ed4dbe6
 +    }).toString();
 +    const response = await fetch(callback);
 +    expect(response.status).toBe(200);
-+    await expect.poll(() => page.evaluate(() => (window as any).oauthResults.length)).toBe(1);
-+    expect(await page.evaluate(() => (window as any).oauthResults[0])).toMatchObject({
++    expect(await response.text()).not.toContain('ghu_fresh');
++    expect(await page.evaluate(() => (window as any).oauthStart)).toMatchObject({
 +      success: true,
 +      accessToken: 'ghu_fresh',
 +      refreshToken: 'ghr_fresh',
 +    });
-+    const refreshed = await page.evaluate(() =>
-+      (window as any).desktopApi.refreshGitHubOAuth('ghr_fresh')
++    const refreshed = await page.evaluate(
++      token => (window as any).desktopApi.githubOAuth.refresh(token, 'ghr_fresh'),
++      capability
 +    );
 +    expect(refreshed).toMatchObject({
 +      success: true,
@@ -197,12 +309,14 @@ index 0000000000000000000000000000000000000000..b35724856c79c4d2202435317ed4dbe6
 +      refreshToken: 'ghr_rotated',
 +    });
 +    expect(Date.parse(refreshed.expiresAt)).toBeGreaterThan(Date.now());
-+    expect(await electronApp.evaluate(() => (globalThis as any).oauthRequests)).toEqual([
++    const requests = await electronApp.evaluate(() => (globalThis as any).oauthRequests);
++    expect(requests).toEqual([
 +      {
 +        client_id: 'test-client',
 +        client_secret: 'test-public-client-credential',
 +        code: 'test-authorization-code',
 +        redirect_uri: 'http://localhost:48321/oauth/callback',
++        code_verifier: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
 +      },
 +      {
 +        client_id: 'test-client',
@@ -211,11 +325,13 @@ index 0000000000000000000000000000000000000000..b35724856c79c4d2202435317ed4dbe6
 +        refresh_token: 'ghr_fresh',
 +      },
 +    ]);
-+    await page.evaluate(() => (window as any).unsubscribeOAuth());
++    expect(createHash('sha256').update(requests[0].code_verifier).digest('base64url')).toBe(
++      challenge
++    );
 +  });
 +});
 diff --git a/app/electron/build-manifest.test.ts b/app/electron/build-manifest.test.ts
-index 61f6e3ef77affb1429ab8eccfd136e3c316f5db5..7b7ebfc6998127ff7a0974ab519b5d194e3e276d 100644
+index 61f6e3ef77affb1429ab8eccfd136e3c316f5db5..99d312c153cacc0a64de8829cd058c696f9582cb 100644
 --- a/app/electron/build-manifest.test.ts
 +++ b/app/electron/build-manifest.test.ts
 @@ -926,6 +926,30 @@ describe('build manifest selection', () => {
@@ -249,12 +365,67 @@ index 61f6e3ef77affb1429ab8eccfd136e3c316f5db5..7b7ebfc6998127ff7a0974ab519b5d19
    it('validates the optional app-owned command environment module', () => {
      const schema = JSON.parse(
        fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
+@@ -1352,6 +1376,54 @@ describe('build manifest selection', () => {
+     ]);
+   });
+ 
++  it('loads an optional GitHub OAuth grant for exact plugin identities', () => {
++    const schema = JSON.parse(
++      fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
++    );
++    const validate = addFormats(new Ajv()).compile(schema);
++    const policy = (pluginLocation: string, githubOAuth?: unknown) => ({
++      runCommands: [
++        {
++          environment: 'production',
++          pluginLocation,
++          plugins: [{ bundleName: 'example-plugin', packageName: '@example/plugin' }],
++          commands: [{ tool: 'examplectl', args: ['list'] }],
++          ...(githubOAuth !== undefined && { githubOAuth }),
++        },
++      ],
++    });
++
++    expect(validate(policy('shipped', true))).toBe(true);
++    expect(
++      productPluginCommandPolicies(validateBuildManifest(policy('shipped', true)), 'production')
++    ).toEqual([expect.objectContaining({ githubOAuth: true })]);
++    for (const githubOAuth of [undefined, false]) {
++      expect(validate(policy('shipped', githubOAuth))).toBe(true);
++      expect(
++        productPluginCommandPolicies(
++          validateBuildManifest(policy('shipped', githubOAuth)),
++          'production'
++        )[0]
++      ).not.toHaveProperty('githubOAuth');
++    }
++    expect(validate(policy('shipped', 'yes'))).toBe(false);
++    expect(() => validateBuildManifest(policy('shipped', 'yes'))).toThrow(
++      'runCommands[0].githubOAuth'
++    );
++    const userPolicy = {
++      runCommands: [
++        {
++          ...policy('user', true).runCommands[0],
++          environment: 'development',
++        },
++      ],
++    };
++    expect(validate(userPolicy)).toBe(false);
++    expect(() => validateBuildManifest(userPolicy)).toThrow(
++      'cannot grant GitHub OAuth to user plugins'
++    );
++  });
++
+   it('rejects cluster registration grants for user-installed plugins', () => {
+     const manifest = {
+       runCommands: [
 diff --git a/app/electron/githubOAuth.test.ts b/app/electron/githubOAuth.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383bb96ee5a
+index 0000000000000000000000000000000000000000..a4b60915a3a5bb0a28bdafbd2dbc437bab219be1
 --- /dev/null
 +++ b/app/electron/githubOAuth.test.ts
-@@ -0,0 +1,682 @@
+@@ -0,0 +1,860 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -317,9 +488,9 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +}));
 +
 +import './preload';
++import crypto from 'node:crypto';
 +import {
 +  DEV_REDIRECT_URI,
-+  GITHUB_OAUTH_CALLBACK,
 +  GITHUB_OAUTH_REFRESH,
 +  GITHUB_OAUTH_START,
 +  setupGitHubOAuth,
@@ -329,12 +500,20 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +const START_URL = 'http://localhost:4466/';
 +const SCHEME = 'example-app';
 +const CONFIG = { clientId: 'Iv1.testclient', clientSecret: 'test-secret' };
++const CAPABILITY = 'a'.repeat(64);
++const OTHER_CAPABILITY = 'b'.repeat(64);
 +const TOKENS = {
 +  access_token: 'ghu_access123',
 +  refresh_token: 'ghr_refresh456',
 +  expires_in: 28800,
 +  refresh_token_expires_in: 15897600,
 +  token_type: 'bearer',
++};
++const SUCCESS = {
++  success: true,
++  accessToken: TOKENS.access_token,
++  refreshToken: TOKENS.refresh_token,
++  expiresAt: expect.any(String),
 +};
 +
 +class FakeWebContents extends EventEmitter {
@@ -372,6 +551,8 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +
 +const fetchMock = vi.fn();
 +const cleanups: Array<() => void> = [];
++/** Capabilities currently granted by the simulated command-capability registry. */
++let granted: Set<string>;
 +
 +function setup(window: FakeWindow, overrides: Record<string, unknown> = {}) {
 +  const cleanup = setupGitHubOAuth({
@@ -380,17 +561,27 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    protocolScheme: SCHEME,
 +    config: CONFIG,
 +    isDev: false,
++    authorizeGitHubOAuth: (_event, capability) => granted.has(capability),
++    isGitHubOAuthCapabilityLive: capability => granted.has(capability),
 +    ...overrides,
 +  });
 +  cleanups.push(cleanup);
 +  return cleanup;
 +}
 +
-+async function startAndGetState(window: FakeWindow): Promise<URL> {
-+  await expect(invoke(GITHUB_OAUTH_START, trustedEvent(window))).resolves.toEqual({
-+    success: true,
-+  });
-+  return new URL(openExternal.mock.calls.at(-1)![0]);
++function start(window: FakeWindow, capability = CAPABILITY): Promise<any> {
++  return invoke(GITHUB_OAUTH_START, trustedEvent(window), capability);
++}
++
++/** Starts a flow and waits until the browser opens; the result stays pending. */
++async function startAndGetUrl(
++  window: FakeWindow
++): Promise<{ url: URL; state: string; result: Promise<any> }> {
++  const calls = openExternal.mock.calls.length;
++  const result = start(window);
++  await vi.waitFor(() => expect(openExternal.mock.calls.length).toBe(calls + 1));
++  const url = new URL(openExternal.mock.calls.at(-1)![0]);
++  return { url, state: url.searchParams.get('state')!, result };
 +}
 +
 +function callbackUrl(params: Record<string, string>) {
@@ -413,8 +604,16 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +  });
 +}
 +
++function isSettled(promise: Promise<unknown>): Promise<boolean> {
++  const marker = Symbol();
++  return Promise.race([promise.then(() => true), flush().then(() => marker)]).then(
++    value => value === true
++  );
++}
++
 +beforeEach(() => {
 +  handlers.clear();
++  granted = new Set([CAPABILITY]);
 +  openExternal.mockReset();
 +  openExternal.mockResolvedValue(undefined);
 +  fetchMock.mockReset();
@@ -429,32 +628,41 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +});
 +
 +describe('GitHub browser OAuth start', () => {
-+  it('opens the fixed GitHub authorize URL with client, protocol redirect, and random state', async () => {
++  it('opens the fixed GitHub authorize URL with client, protocol redirect, state, and PKCE', async () => {
 +    const window = fakeWindow();
 +    setup(window);
 +
-+    const url = await startAndGetState(window);
++    const { url, state } = await startAndGetUrl(window);
 +    expect(`${url.origin}${url.pathname}`).toBe('https://github.com/login/oauth/authorize');
 +    expect(url.searchParams.get('client_id')).toBe(CONFIG.clientId);
 +    expect(url.searchParams.get('redirect_uri')).toBe(`${SCHEME}://oauth/callback`);
 +    expect(url.searchParams.has('scope')).toBe(false);
-+    expect(url.searchParams.get('state')).toMatch(/^[A-Za-z0-9_-]{32,}$/);
++    expect(state).toMatch(/^[A-Za-z0-9_-]{32,}$/);
 +    expect(url.searchParams.has('client_secret')).toBe(false);
++    expect(url.searchParams.get('code_challenge_method')).toBe('S256');
++    expect(url.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/);
++    expect(url.searchParams.has('code_verifier')).toBe(false);
 +
-+    const second = await startAndGetState(window);
-+    expect(second.searchParams.get('state')).not.toBe(url.searchParams.get('state'));
++    const second = await startAndGetUrl(window);
++    expect(second.state).not.toBe(state);
++    expect(second.url.searchParams.get('code_challenge')).not.toBe(
++      url.searchParams.get('code_challenge')
++    );
 +  });
 +
 +  it('reports unavailability through IPC when no client is configured', async () => {
 +    const window = fakeWindow();
 +    setup(window, { config: undefined });
 +
-+    await expect(invoke(GITHUB_OAUTH_START, trustedEvent(window))).resolves.toEqual({
++    await expect(start(window)).resolves.toEqual({
 +      success: false,
 +      error: expect.stringMatching(/not available/i),
 +    });
 +    await expect(
-+      invoke(GITHUB_OAUTH_REFRESH, trustedEvent(window), { refreshToken: 'ghr_x' })
++      invoke(GITHUB_OAUTH_REFRESH, trustedEvent(window), {
++        capability: CAPABILITY,
++        refreshToken: 'ghr_x',
++      })
 +    ).resolves.toEqual({ success: false, error: expect.stringMatching(/not available/i) });
 +    expect(dispatchOAuthCallback(callbackUrl({ code: 'c', state: 's' }), SCHEME)).toBe(false);
 +    expect(openExternal).not.toHaveBeenCalled();
@@ -475,12 +683,51 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    setup(window);
 +    const event = makeEvent(window);
 +
-+    await expect(invoke(GITHUB_OAUTH_START, event)).resolves.toMatchObject({ success: false });
++    await expect(invoke(GITHUB_OAUTH_START, event, CAPABILITY)).resolves.toMatchObject({
++      success: false,
++    });
 +    await expect(
-+      invoke(GITHUB_OAUTH_REFRESH, event, { refreshToken: 'ghr_refresh456' })
++      invoke(GITHUB_OAUTH_REFRESH, event, { capability: CAPABILITY, refreshToken: 'ghr_r' })
 +    ).resolves.toMatchObject({ success: false });
 +    expect(openExternal).not.toHaveBeenCalled();
 +    expect(fetchMock).not.toHaveBeenCalled();
++  });
++
++  it.each([
++    ['missing', undefined],
++    ['non-string', 42],
++    ['ungranted', OTHER_CAPABILITY],
++  ])('denies start and refresh with a %s capability', async (_name, capability) => {
++    const window = fakeWindow();
++    setup(window);
++    fetchMock.mockResolvedValue(jsonResponse(TOKENS));
++
++    await expect(invoke(GITHUB_OAUTH_START, trustedEvent(window), capability)).resolves.toEqual({
++      success: false,
++      error: 'Unauthorized request',
++    });
++    await expect(
++      invoke(GITHUB_OAUTH_REFRESH, trustedEvent(window), { capability, refreshToken: 'ghr_r' })
++    ).resolves.toEqual({ success: false, error: 'Unauthorized request' });
++    expect(openExternal).not.toHaveBeenCalled();
++    expect(fetchMock).not.toHaveBeenCalled();
++  });
++
++  it('fails closed when the private capability authorizer is absent', async () => {
++    const window = fakeWindow();
++    setup(window, { authorizeGitHubOAuth: undefined, isGitHubOAuthCapabilityLive: undefined });
++
++    await expect(start(window)).resolves.toEqual({
++      success: false,
++      error: 'Unauthorized request',
++    });
++    await expect(
++      invoke(GITHUB_OAUTH_REFRESH, trustedEvent(window), {
++        capability: CAPABILITY,
++        refreshToken: 'ghr_r',
++      })
++    ).resolves.toEqual({ success: false, error: 'Unauthorized request' });
++    expect(openExternal).not.toHaveBeenCalled();
 +  });
 +
 +  it('fails start and clears state when the browser cannot be opened', async () => {
@@ -488,56 +735,124 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    setup(window);
 +    openExternal.mockRejectedValueOnce(new Error('no browser'));
 +
-+    await expect(invoke(GITHUB_OAUTH_START, trustedEvent(window))).resolves.toMatchObject({
++    await expect(start(window)).resolves.toEqual({
 +      success: false,
++      error: 'Could not start GitHub sign-in: start failed',
 +    });
 +    const state = new URL(openExternal.mock.calls[0][0]).searchParams.get('state')!;
 +    expect(dispatchOAuthCallback(callbackUrl({ code: 'c', state }), SCHEME)).toBe(true);
 +    await flush();
 +    expect(fetchMock).not.toHaveBeenCalled();
 +  });
-+});
 +
-+describe('GitHub browser OAuth protocol callback', () => {
-+  it('exchanges a matching callback once and delivers the token shape to the trusted window', async () => {
++  it.each(['timeout', 'cleanup'] as const)(
++    'settles %s independently of a stalled browser launch',
++    async cancellation => {
++      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
++      let finishLaunch!: () => void;
++      openExternal.mockReturnValueOnce(
++        new Promise<void>(resolve => {
++          finishLaunch = resolve;
++        })
++      );
++      const window = fakeWindow();
++      const cleanup = setup(window);
++      try {
++        let delivered: unknown;
++        void start(window).then(result => {
++          delivered = result;
++        });
++        await flush();
++        if (cancellation === 'timeout') vi.advanceTimersByTime(11 * 60 * 1000);
++        else cleanup();
++        await flush();
++        expect(delivered).toMatchObject({
++          success: false,
++          error: expect.stringMatching(cancellation === 'timeout' ? /timed out/i : /cancelled/i),
++        });
++        if (cancellation === 'timeout') {
++          const retry = await startAndGetUrl(window);
++          cleanup();
++          await expect(retry.result).resolves.toMatchObject({ success: false });
++        }
++      } finally {
++        finishLaunch();
++        vi.useRealTimers();
++      }
++    }
++  );
++
++  it('never broadcasts OAuth results through renderer events', async () => {
 +    const window = fakeWindow();
 +    setup(window);
 +    fetchMock.mockResolvedValue(jsonResponse(TOKENS));
-+    const state = (await startAndGetState(window)).searchParams.get('state')!;
++    const { state, result } = await startAndGetUrl(window);
++    dispatchOAuthCallback(callbackUrl({ code: 'auth-code', state }), SCHEME);
++
++    await expect(result).resolves.toEqual(SUCCESS);
++    expect(window.webContents.send).not.toHaveBeenCalled();
++  });
++});
++
++describe('GitHub browser OAuth protocol callback', () => {
++  it('exchanges a matching callback once with its PKCE verifier and resolves the start request', async () => {
++    const window = fakeWindow();
++    setup(window);
++    fetchMock.mockResolvedValue(jsonResponse(TOKENS));
++    const { url, state, result } = await startAndGetUrl(window);
 +
 +    expect(dispatchOAuthCallback(callbackUrl({ code: 'auth-code', state }), SCHEME)).toBe(true);
-+    await flush();
++    const delivered = await result;
 +
 +    expect(fetchMock).toHaveBeenCalledOnce();
 +    const [endpoint, init] = fetchMock.mock.calls[0];
 +    expect(endpoint).toBe('https://github.com/login/oauth/access_token');
 +    expect(init.method).toBe('POST');
 +    expect(init.signal).toBeInstanceOf(AbortSignal);
-+    expect(Object.fromEntries(new URLSearchParams(init.body))).toEqual({
++    const body = Object.fromEntries(new URLSearchParams(init.body));
++    expect(body).toEqual({
 +      client_id: CONFIG.clientId,
 +      client_secret: CONFIG.clientSecret,
 +      code: 'auth-code',
 +      redirect_uri: `${SCHEME}://oauth/callback`,
++      code_verifier: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
 +    });
-+    expect(window.webContents.send).toHaveBeenCalledOnce();
-+    const [channel, result] = window.webContents.send.mock.calls[0];
-+    expect(channel).toBe(GITHUB_OAUTH_CALLBACK);
-+    expect(result).toEqual({
-+      success: true,
-+      accessToken: TOKENS.access_token,
-+      refreshToken: TOKENS.refresh_token,
-+      expiresAt: expect.any(String),
-+    });
-+    const expiresIn = (Date.parse(result.expiresAt) - Date.now()) / 1000;
++    expect(crypto.createHash('sha256').update(body.code_verifier).digest('base64url')).toBe(
++      url.searchParams.get('code_challenge')
++    );
++    expect(url.toString()).not.toContain(body.code_verifier);
++    expect(delivered).toEqual(SUCCESS);
++    expect(JSON.stringify(delivered)).not.toContain(body.code_verifier);
++    const expiresIn = (Date.parse(delivered.expiresAt) - Date.now()) / 1000;
 +    expect(expiresIn).toBeGreaterThan(28700);
 +    expect(expiresIn).toBeLessThanOrEqual(28800);
++    expect(window.focus).toHaveBeenCalled();
++  });
++
++  it('binds each flow to its own verifier', async () => {
++    const window = fakeWindow();
++    setup(window);
++    fetchMock.mockImplementation(async () => jsonResponse(TOKENS));
++    const challenges: string[] = [];
++    const verifiers: string[] = [];
++    for (let i = 0; i < 2; i++) {
++      const { url, state, result } = await startAndGetUrl(window);
++      challenges.push(url.searchParams.get('code_challenge')!);
++      dispatchOAuthCallback(callbackUrl({ code: `code-${i}`, state }), SCHEME);
++      await expect(result).resolves.toEqual(SUCCESS);
++      verifiers.push(new URLSearchParams(fetchMock.mock.calls[i][1].body).get('code_verifier')!);
++    }
++    expect(verifiers[0]).not.toBe(verifiers[1]);
++    expect(
++      verifiers.map(verifier => crypto.createHash('sha256').update(verifier).digest('base64url'))
++    ).toEqual(challenges);
 +  });
 +
 +  it('rejects a wrong state without consuming the pending flow', async () => {
 +    const window = fakeWindow();
 +    setup(window);
 +    fetchMock.mockResolvedValue(jsonResponse(TOKENS));
-+    const state = (await startAndGetState(window)).searchParams.get('state')!;
++    const { state, result } = await startAndGetUrl(window);
 +    const reportError = vi.fn();
 +
 +    expect(
@@ -546,10 +861,10 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    await flush();
 +    expect(reportError).toHaveBeenCalledOnce();
 +    expect(fetchMock).not.toHaveBeenCalled();
-+    expect(window.webContents.send).not.toHaveBeenCalled();
++    expect(await isSettled(result)).toBe(false);
 +
 +    dispatchOAuthCallback(callbackUrl({ code: 'auth-code', state }), SCHEME);
-+    await flush();
++    await expect(result).resolves.toEqual(SUCCESS);
 +    expect(fetchMock).toHaveBeenCalledOnce();
 +  });
 +
@@ -558,88 +873,125 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    setup(window);
 +    let resolveFetch!: (value: Response) => void;
 +    fetchMock.mockReturnValue(new Promise<Response>(resolve => (resolveFetch = resolve)));
-+    const state = (await startAndGetState(window)).searchParams.get('state')!;
++    const { state, result } = await startAndGetUrl(window);
 +    const reportError = vi.fn();
 +
 +    dispatchOAuthCallback(callbackUrl({ code: 'one', state }), SCHEME, reportError);
 +    dispatchOAuthCallback(callbackUrl({ code: 'two', state }), SCHEME, reportError);
 +    await flush();
 +    resolveFetch(jsonResponse(TOKENS));
-+    await flush();
++    await expect(result).resolves.toEqual(SUCCESS);
 +    dispatchOAuthCallback(callbackUrl({ code: 'three', state }), SCHEME, reportError);
 +    await flush();
 +
 +    expect(fetchMock).toHaveBeenCalledOnce();
 +    expect(reportError).toHaveBeenCalledTimes(2);
-+    expect(window.webContents.send).toHaveBeenCalledOnce();
 +  });
 +
-+  it('rejects callbacks after the pending flow expires', async () => {
++  it('settles the start request and rejects callbacks after the pending flow expires', async () => {
 +    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
 +    try {
 +      const window = fakeWindow();
 +      setup(window);
-+      const state = (await startAndGetState(window)).searchParams.get('state')!;
++      const { state, result } = await startAndGetUrl(window);
 +      vi.advanceTimersByTime(11 * 60 * 1000);
++      await expect(result).resolves.toEqual({
++        success: false,
++        error: expect.stringMatching(/timed out/i),
++      });
 +      const reportError = vi.fn();
 +      dispatchOAuthCallback(callbackUrl({ code: 'late', state }), SCHEME, reportError);
 +      await vi.waitFor(() => expect(reportError).toHaveBeenCalledOnce());
 +      expect(fetchMock).not.toHaveBeenCalled();
-+      expect(window.webContents.send).toHaveBeenCalledWith(GITHUB_OAUTH_CALLBACK, {
-+        success: false,
-+        error: expect.stringMatching(/timed out/i),
-+      });
-+      await startAndGetState(window);
++      await startAndGetUrl(window);
 +    } finally {
 +      vi.useRealTimers();
 +    }
 +  });
 +
-+  it('delivers a sanitized failure when GitHub denies authorization', async () => {
++  it('resolves a sanitized failure when GitHub denies authorization', async () => {
 +    const window = fakeWindow();
 +    setup(window);
-+    const state = (await startAndGetState(window)).searchParams.get('state')!;
++    const { state, result } = await startAndGetUrl(window);
 +
 +    dispatchOAuthCallback(
 +      callbackUrl({ error: 'access_denied', error_description: '<script>', state }),
 +      SCHEME
 +    );
-+    await flush();
++    const delivered = await result;
 +
 +    expect(fetchMock).not.toHaveBeenCalled();
-+    const [, result] = window.webContents.send.mock.calls[0];
-+    expect(result).toEqual({ success: false, error: expect.stringContaining('access_denied') });
-+    expect(result.error).not.toContain('<script>');
++    expect(delivered).toEqual({ success: false, error: expect.stringContaining('access_denied') });
++    expect(delivered.error).not.toContain('<script>');
 +  });
 +
-+  it('does not deliver tokens after the main frame navigates away', async () => {
++  it('cancels without tokens when the main frame navigates during the exchange', async () => {
 +    const window = fakeWindow();
 +    setup(window);
 +    let resolveFetch!: (value: Response) => void;
 +    fetchMock.mockReturnValue(new Promise<Response>(resolve => (resolveFetch = resolve)));
-+    const state = (await startAndGetState(window)).searchParams.get('state')!;
++    const { state, result } = await startAndGetUrl(window);
 +
 +    dispatchOAuthCallback(callbackUrl({ code: 'one', state }), SCHEME);
 +    await flush();
 +    window.webContents.emit('did-start-navigation', {}, START_URL, false, true);
++    await expect(result).resolves.toEqual({ success: false, error: expect.any(String) });
 +    resolveFetch(jsonResponse(TOKENS));
 +    await flush();
-+
-+    expect(window.webContents.send).not.toHaveBeenCalled();
++    expect(JSON.stringify(await result)).not.toContain(TOKENS.access_token);
 +  });
 +
-+  it('drops an older exchange when another sign-in starts', async () => {
++  it('cancels a pending flow on main-frame navigation', async () => {
++    const window = fakeWindow();
++    setup(window);
++    const { state, result } = await startAndGetUrl(window);
++
++    window.webContents.emit('did-start-navigation', {}, START_URL, false, true);
++    await expect(result).resolves.toMatchObject({ success: false });
++    const reportError = vi.fn();
++    dispatchOAuthCallback(callbackUrl({ code: 'late', state }), SCHEME, reportError);
++    await flush();
++    expect(reportError).toHaveBeenCalledOnce();
++    expect(fetchMock).not.toHaveBeenCalled();
++  });
++
++  it('withholds tokens when the capability is revoked during the exchange', async () => {
 +    const window = fakeWindow();
 +    setup(window);
 +    let resolveFetch!: (value: Response) => void;
 +    fetchMock.mockReturnValue(new Promise<Response>(resolve => (resolveFetch = resolve)));
-+    const state = (await startAndGetState(window)).searchParams.get('state')!;
-+    dispatchOAuthCallback(callbackUrl({ code: 'old-code', state }), SCHEME);
++    const { state, result } = await startAndGetUrl(window);
++
++    dispatchOAuthCallback(callbackUrl({ code: 'one', state }), SCHEME);
 +    await flush();
-+    await startAndGetState(window);
++    granted.delete(CAPABILITY);
++    resolveFetch(jsonResponse(TOKENS));
++
++    const delivered = await result;
++    expect(delivered).toEqual({ success: false, error: expect.any(String) });
++    expect(JSON.stringify(delivered)).not.toContain(TOKENS.access_token);
++  });
++
++  it('settles an older exchange as replaced when another sign-in starts', async () => {
++    const window = fakeWindow();
++    setup(window);
++    let resolveFetch!: (value: Response) => void;
++    fetchMock.mockReturnValueOnce(new Promise<Response>(resolve => (resolveFetch = resolve)));
++    const first = await startAndGetUrl(window);
++    dispatchOAuthCallback(callbackUrl({ code: 'old-code', state: first.state }), SCHEME);
++    await flush();
++    const second = await startAndGetUrl(window);
++    await expect(first.result).resolves.toEqual({
++      success: false,
++      error: expect.stringMatching(/replaced/i),
++    });
 +    resolveFetch(jsonResponse(TOKENS));
 +    await flush();
-+    expect(window.webContents.send).not.toHaveBeenCalled();
++    expect(await isSettled(second.result)).toBe(false);
++
++    fetchMock.mockResolvedValueOnce(jsonResponse(TOKENS));
++    dispatchOAuthCallback(callbackUrl({ code: 'new-code', state: second.state }), SCHEME);
++    await expect(second.result).resolves.toEqual(SUCCESS);
 +  });
 +
 +  it('rejects overlapping starts while browser launch is pending', async () => {
@@ -652,44 +1004,43 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +          rejectOpen = reject;
 +        })
 +    );
-+    const first = invoke(GITHUB_OAUTH_START, trustedEvent(window));
++    const first = start(window);
 +    await flush();
-+    const second = await invoke(GITHUB_OAUTH_START, trustedEvent(window));
++    const second = await start(window);
 +    expect(second).toMatchObject({ success: false, error: expect.stringMatching(/starting/i) });
 +    rejectOpen(new Error('browser unavailable'));
 +    await expect(first).resolves.toMatchObject({ success: false });
-+    await startAndGetState(window);
++    await startAndGetUrl(window);
 +  });
 +
 +  it('replaces handlers, pending state, and the provider when the window is recreated', async () => {
 +    const first = fakeWindow();
 +    setup(first);
-+    const oldState = (await startAndGetState(first)).searchParams.get('state')!;
++    const old = await startAndGetUrl(first);
 +    const second = fakeWindow();
 +    setup(second);
++    await expect(old.result).resolves.toMatchObject({ success: false });
 +    fetchMock.mockResolvedValue(jsonResponse(TOKENS));
 +    const reportError = vi.fn();
 +
-+    await expect(invoke(GITHUB_OAUTH_START, trustedEvent(first))).resolves.toMatchObject({
-+      success: false,
-+    });
-+    dispatchOAuthCallback(callbackUrl({ code: 'old', state: oldState }), SCHEME, reportError);
++    await expect(start(first)).resolves.toMatchObject({ success: false });
++    dispatchOAuthCallback(callbackUrl({ code: 'old', state: old.state }), SCHEME, reportError);
 +    await flush();
 +    expect(reportError).toHaveBeenCalledOnce();
 +    expect(fetchMock).not.toHaveBeenCalled();
 +
-+    const state = (await startAndGetState(second)).searchParams.get('state')!;
++    const { state, result } = await startAndGetUrl(second);
 +    dispatchOAuthCallback(callbackUrl({ code: 'new', state }), SCHEME);
-+    await flush();
-+    expect(second.webContents.send).toHaveBeenCalledOnce();
-+    expect(first.webContents.send).not.toHaveBeenCalled();
++    await expect(result).resolves.toEqual(SUCCESS);
 +  });
 +
-+  it('removes IPC handlers and the provider on cleanup', () => {
++  it('removes IPC handlers and the provider and settles pending starts on cleanup', async () => {
 +    const window = fakeWindow();
 +    const cleanup = setup(window);
++    const { result } = await startAndGetUrl(window);
 +    cleanup();
 +
++    await expect(result).resolves.toMatchObject({ success: false });
 +    expect(handlers.has(GITHUB_OAUTH_START)).toBe(false);
 +    expect(handlers.has(GITHUB_OAUTH_REFRESH)).toBe(false);
 +    expect(dispatchOAuthCallback(callbackUrl({ code: 'c', state: 's' }), SCHEME)).toBe(false);
@@ -697,21 +1048,18 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +});
 +
 +describe('GitHub OAuth token refresh', () => {
++  function refresh(window: FakeWindow, refreshToken: unknown, capability: unknown = CAPABILITY) {
++    return invoke(GITHUB_OAUTH_REFRESH, trustedEvent(window), { capability, refreshToken });
++  }
++
 +  it('refreshes through the fixed endpoint and returns the token shape', async () => {
 +    const window = fakeWindow();
 +    setup(window);
 +    fetchMock.mockResolvedValue(jsonResponse(TOKENS));
 +
-+    const result = await invoke(GITHUB_OAUTH_REFRESH, trustedEvent(window), {
-+      refreshToken: 'ghr_old',
-+    });
++    const result = await refresh(window, 'ghr_old');
 +
-+    expect(result).toEqual({
-+      success: true,
-+      accessToken: TOKENS.access_token,
-+      refreshToken: TOKENS.refresh_token,
-+      expiresAt: expect.any(String),
-+    });
++    expect(result).toEqual(SUCCESS);
 +    const [endpoint, init] = fetchMock.mock.calls[0];
 +    expect(endpoint).toBe('https://github.com/login/oauth/access_token');
 +    expect(init.signal).toBeInstanceOf(AbortSignal);
@@ -723,23 +1071,38 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    });
 +  });
 +
-+  it.each([
-+    [undefined],
-+    [{}],
-+    [{ refreshToken: 42 }],
-+    [{ refreshToken: '' }],
-+    [{ refreshToken: 'x'.repeat(5000) }],
-+    [{ refreshToken: 'has space' }],
-+  ])('rejects invalid refresh input %#', async payload => {
++  it('withholds refreshed tokens when the capability is revoked mid-request', async () => {
 +    const window = fakeWindow();
 +    setup(window);
++    let resolveFetch!: (value: Response) => void;
++    fetchMock.mockReturnValue(new Promise<Response>(resolve => (resolveFetch = resolve)));
 +
-+    await expect(invoke(GITHUB_OAUTH_REFRESH, trustedEvent(window), payload)).resolves.toEqual({
-+      success: false,
-+      error: expect.any(String),
-+    });
-+    expect(fetchMock).not.toHaveBeenCalled();
++    const pending = refresh(window, 'ghr_old');
++    await flush();
++    granted.delete(CAPABILITY);
++    resolveFetch(jsonResponse(TOKENS));
++
++    const result = await pending;
++    expect(result).toEqual({ success: false, error: expect.any(String) });
++    expect(JSON.stringify(result)).not.toContain(TOKENS.access_token);
 +  });
++
++  it.each([[undefined], [42], [''], ['x'.repeat(5000)], ['has space']])(
++    'rejects invalid refresh input %#',
++    async refreshToken => {
++      const window = fakeWindow();
++      setup(window);
++
++      await expect(refresh(window, refreshToken)).resolves.toEqual({
++        success: false,
++        error: expect.any(String),
++      });
++      await expect(
++        invoke(GITHUB_OAUTH_REFRESH, trustedEvent(window), undefined)
++      ).resolves.toMatchObject({ success: false });
++      expect(fetchMock).not.toHaveBeenCalled();
++    }
++  );
 +
 +  it.each([
 +    ['HTTP failure', () => new Response('ghr_secret leaked body', { status: 500 }), /HTTP 500/],
@@ -763,9 +1126,7 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    setup(window);
 +    fetchMock.mockImplementation(async () => makeResponse());
 +
-+    const result = await invoke(GITHUB_OAUTH_REFRESH, trustedEvent(window), {
-+      refreshToken: 'ghr_secret',
-+    });
++    const result = await refresh(window, 'ghr_secret');
 +
 +    expect(result).toEqual({ success: false, error: expect.stringMatching(message) });
 +    expect(JSON.stringify(result)).not.toContain('ghr_secret');
@@ -778,12 +1139,8 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    fetchMock.mockRejectedValueOnce(new Error('connect to https://x?code=ghr_secret failed'));
 +    fetchMock.mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'));
 +
-+    const network = await invoke(GITHUB_OAUTH_REFRESH, trustedEvent(window), {
-+      refreshToken: 'ghr_secret',
-+    });
-+    const timeout = await invoke(GITHUB_OAUTH_REFRESH, trustedEvent(window), {
-+      refreshToken: 'ghr_secret',
-+    });
++    const network = await refresh(window, 'ghr_secret');
++    const timeout = await refresh(window, 'ghr_secret');
 +
 +    expect(network).toEqual({ success: false, error: expect.any(String) });
 +    expect(timeout).toEqual({ success: false, error: expect.stringMatching(/timed out/i) });
@@ -796,43 +1153,39 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +describe('GitHub OAuth preload bridge to host handlers', () => {
 +  function connectRenderer(window: FakeWindow) {
 +    renderer.event = trustedEvent(window);
-+    window.webContents.send.mockImplementation((channel: string, ...args: unknown[]) => {
-+      for (const listener of renderer.listeners.get(channel) ?? []) listener({}, ...args);
-+    });
 +  }
 +
-+  it('runs start, callback, and refresh through the real preload API', async () => {
++  it('runs capability-bound start and refresh through the real preload API', async () => {
 +    const window = fakeWindow();
 +    setup(window);
 +    connectRenderer(window);
 +    fetchMock.mockImplementation(async () => jsonResponse(TOKENS));
-+    const results: unknown[] = [];
 +
-+    const unsubscribe = renderer.api.onGitHubOAuthCallback((result: unknown) =>
-+      results.push(result)
-+    );
-+    await expect(renderer.api.startGitHubOAuth()).resolves.toEqual({ success: true });
++    expect(renderer.api.startGitHubOAuth).toBeUndefined();
++    expect(renderer.api.onGitHubOAuthCallback).toBeUndefined();
++    expect(renderer.api.refreshGitHubOAuth).toBeUndefined();
++    const started = renderer.api.githubOAuth.start(CAPABILITY);
++    await vi.waitFor(() => expect(openExternal).toHaveBeenCalledOnce());
 +    const state = new URL(openExternal.mock.calls[0][0]).searchParams.get('state')!;
 +    dispatchOAuthCallback(callbackUrl({ code: 'auth-code', state }), SCHEME);
-+    await flush();
-+    expect(results).toEqual([
-+      {
-+        success: true,
-+        accessToken: TOKENS.access_token,
-+        refreshToken: TOKENS.refresh_token,
-+        expiresAt: expect.any(String),
-+      },
-+    ]);
++    await expect(started).resolves.toEqual(SUCCESS);
++    expect(renderer.listeners.size).toBe(0);
 +
-+    unsubscribe();
-+    expect(renderer.listeners.get(GITHUB_OAUTH_CALLBACK)?.size ?? 0).toBe(0);
-+    await expect(renderer.api.refreshGitHubOAuth('ghr_old')).resolves.toMatchObject({
++    await expect(renderer.api.githubOAuth.refresh(CAPABILITY, 'ghr_old')).resolves.toMatchObject({
 +      success: true,
 +      accessToken: TOKENS.access_token,
 +    });
 +    expect(new URLSearchParams(fetchMock.mock.calls[1][1].body).get('refresh_token')).toBe(
 +      'ghr_old'
 +    );
++    await expect(renderer.api.githubOAuth.start(OTHER_CAPABILITY)).resolves.toEqual({
++      success: false,
++      error: 'Unauthorized request',
++    });
++    await expect(renderer.api.githubOAuth.refresh(OTHER_CAPABILITY, 'ghr_old')).resolves.toEqual({
++      success: false,
++      error: 'Unauthorized request',
++    });
 +  });
 +
 +  it('returns not-available results through the preload API when unconfigured', async () => {
@@ -840,8 +1193,10 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    setup(window, { config: undefined });
 +    connectRenderer(window);
 +
-+    await expect(renderer.api.startGitHubOAuth()).resolves.toMatchObject({ success: false });
-+    await expect(renderer.api.refreshGitHubOAuth('ghr_old')).resolves.toMatchObject({
++    await expect(renderer.api.githubOAuth.start(CAPABILITY)).resolves.toMatchObject({
++      success: false,
++    });
++    await expect(renderer.api.githubOAuth.refresh(CAPABILITY, 'ghr_old')).resolves.toMatchObject({
 +      success: false,
 +    });
 +  });
@@ -853,23 +1208,19 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    setup(window, { isDev: true });
 +    fetchMock.mockResolvedValue(jsonResponse(TOKENS));
 +
-+    const authorizeUrl = await startAndGetState(window);
-+    expect(authorizeUrl.searchParams.get('redirect_uri')).toBe(DEV_REDIRECT_URI);
++    const { url, state, result } = await startAndGetUrl(window);
++    expect(url.searchParams.get('redirect_uri')).toBe(DEV_REDIRECT_URI);
 +    expect(DEV_REDIRECT_URI).toBe('http://localhost:48321/oauth/callback');
-+    const state = authorizeUrl.searchParams.get('state')!;
 +
 +    expect((await get('http://127.0.0.1:48321/other')).status).toBe(404);
 +    expect((await get(`http://127.0.0.1:48321/oauth/callback?code=c&state=bad`)).status).toBe(400);
 +    const ok = await get(`http://127.0.0.1:48321/oauth/callback?code=c&state=${state}`);
 +    expect(ok.status).toBe(200);
 +    expect(ok.body).not.toContain(TOKENS.access_token);
-+    expect(new URLSearchParams(fetchMock.mock.calls[0][1].body).get('redirect_uri')).toBe(
-+      DEV_REDIRECT_URI
-+    );
-+    expect(window.webContents.send).toHaveBeenCalledWith(
-+      GITHUB_OAUTH_CALLBACK,
-+      expect.objectContaining({ success: true })
-+    );
++    const body = new URLSearchParams(fetchMock.mock.calls[0][1].body);
++    expect(body.get('redirect_uri')).toBe(DEV_REDIRECT_URI);
++    expect(body.get('code_verifier')).toMatch(/^[A-Za-z0-9_-]{43}$/);
++    await expect(result).resolves.toEqual(SUCCESS);
 +    await flush();
 +    await expect(get('http://127.0.0.1:48321/oauth/callback')).rejects.toThrow();
 +  });
@@ -878,7 +1229,7 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    const window = fakeWindow();
 +    setup(window, { isDev: true });
 +    fetchMock.mockResolvedValue(jsonResponse(TOKENS));
-+    const state = (await startAndGetState(window)).searchParams.get('state')!;
++    const { state, result } = await startAndGetUrl(window);
 +    const status = await new Promise<number>((resolve, reject) => {
 +      const request = http.get({ host: '127.0.0.1', port: 48321, path: '//[' }, response => {
 +        response.resume();
@@ -892,16 +1243,13 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    expect((await get(`http://127.0.0.1:48321/oauth/callback?code=c&state=${state}`)).status).toBe(
 +      200
 +    );
-+    expect(window.webContents.send).toHaveBeenCalledWith(
-+      GITHUB_OAUTH_CALLBACK,
-+      expect.objectContaining({ success: true })
-+    );
++    await expect(result).resolves.toEqual(SUCCESS);
 +  });
 +
 +  it('does not accept the protocol callback for a development flow', async () => {
 +    const window = fakeWindow();
 +    setup(window, { isDev: true });
-+    const state = (await startAndGetState(window)).searchParams.get('state')!;
++    const { state } = await startAndGetUrl(window);
 +    const reportError = vi.fn();
 +
 +    dispatchOAuthCallback(callbackUrl({ code: 'c', state }), SCHEME, reportError);
@@ -917,7 +1265,7 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +      const window = fakeWindow();
 +      setup(window, { isDev: true });
 +
-+      await expect(invoke(GITHUB_OAUTH_START, trustedEvent(window))).resolves.toEqual({
++      await expect(start(window)).resolves.toEqual({
 +        success: false,
 +        error: expect.any(String),
 +      });
@@ -927,22 +1275,23 @@ index 0000000000000000000000000000000000000000..52850b484b73828aeda53568706b4383
 +    }
 +  });
 +
-+  it('stops the loopback server on cleanup', async () => {
++  it('stops the loopback server and settles the start request on cleanup', async () => {
 +    const window = fakeWindow();
 +    const cleanup = setup(window, { isDev: true });
-+    await startAndGetState(window);
++    const { result } = await startAndGetUrl(window);
 +
 +    cleanup();
++    await expect(result).resolves.toMatchObject({ success: false });
 +    await flush();
 +    await expect(get('http://127.0.0.1:48321/oauth/callback')).rejects.toThrow();
 +  });
 +});
 diff --git a/app/electron/githubOAuth.ts b/app/electron/githubOAuth.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be09672c17
+index 0000000000000000000000000000000000000000..f312ddbc92a7b3dbc8f537417fb002fe82bdd220
 --- /dev/null
 +++ b/app/electron/githubOAuth.ts
-@@ -0,0 +1,414 @@
+@@ -0,0 +1,493 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -962,12 +1311,15 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +// GitHub App browser OAuth (web application flow) for desktop products that
 +// configure `githubOAuth` in their build manifest. The main process opens the
 +// browser, receives the callback, and exchanges or refreshes tokens so the
-+// renderer avoids CORS. Tokens are delivered to the trusted renderer only; the
-+// consuming plugin owns persistence through its scoped secure storage.
++// renderer avoids CORS. Every request carries a plugin command capability with
++// the product's githubOAuth grant. Tokens are returned only as the response to
++// that capability's own start or refresh request, never broadcast as renderer
++// events; the consuming plugin owns persistence through its scoped secure storage.
 +//
 +// The client secret is supplied by the product manifest and is not
 +// confidential: distributed native apps are public clients (RFC 8252 §8.5).
-+// Protection relies on the registered redirect URI and the single-use state.
++// Protection relies on the registered redirect URI, the single-use state, and a
++// per-flow PKCE verifier (RFC 7636) that never leaves the main process.
 +
 +import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 +import { ipcMain, shell } from 'electron';
@@ -978,7 +1330,6 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +
 +export const GITHUB_OAUTH_START = 'github-oauth-start';
 +export const GITHUB_OAUTH_REFRESH = 'github-oauth-refresh';
-+export const GITHUB_OAUTH_CALLBACK = 'github-oauth-callback';
 +
 +const AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
 +const TOKEN_URL = 'https://github.com/login/oauth/access_token';
@@ -993,6 +1344,8 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +const CODE_PATTERN = /^[A-Za-z0-9_.~-]{1,512}$/;
 +const OAUTH_ERROR_PATTERN = /^[a-z0-9_]{1,64}$/;
 +const NOT_AVAILABLE = 'GitHub browser authentication is not available in this build.';
++const UNAUTHORIZED = 'Unauthorized request';
++const CANCELLED = 'GitHub sign-in was cancelled';
 +
 +/** Product-supplied GitHub App OAuth client identity. */
 +export interface GitHubOAuthConfig {
@@ -1014,9 +1367,20 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +  config?: GitHubOAuthConfig;
 +  /** Whether to receive callbacks on the historical localhost redirect. */
 +  isDev: boolean;
++  /**
++   * Authenticates an IPC request for a capability holding the githubOAuth grant.
++   * When absent every request is denied.
++   */
++  authorizeGitHubOAuth?: (event: IpcMainInvokeEvent, capability: string) => boolean;
++  /**
++   * Reports whether a capability still holds the grant for the current trusted
++   * document, used before asynchronous results are delivered. When absent no
++   * result is delivered.
++   */
++  isGitHubOAuthCapabilityLive?: (capability: string) => boolean;
 +}
 +
-+/** Result delivered to the renderer for callbacks and refreshes. */
++/** Result returned to the requesting capability for sign-in and refresh. */
 +export interface GitHubOAuthResult {
 +  success: boolean;
 +  accessToken?: string;
@@ -1029,9 +1393,17 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +
 +interface PendingFlow {
 +  state: string;
++  /** PKCE verifier sent only in this flow's code exchange. */
++  codeVerifier: string;
++  /** Capability whose start request receives this flow's result. */
++  capability: string;
 +  source: CallbackSource;
 +  redirectUri: string;
-+  timer: ReturnType<typeof setTimeout>;
++  timer?: ReturnType<typeof setTimeout>;
++  /** Whether a callback has consumed the state and an exchange is in progress. */
++  consumed: boolean;
++  settled: boolean;
++  resolve: (result: GitHubOAuthResult) => void;
 +}
 +
 +/** Cleanup for the integration attached to the current main window. */
@@ -1052,11 +1424,20 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 + */
 +export function setupGitHubOAuth(options: GitHubOAuthOptions): () => void {
 +  activeCleanup?.();
-+  const { mainWindow, trustedStartUrl, protocolScheme, config, isDev } = options;
++  const {
++    mainWindow,
++    trustedStartUrl,
++    protocolScheme,
++    config,
++    isDev,
++    authorizeGitHubOAuth,
++    isGitHubOAuthCapabilityLive,
++  } = options;
 +  const webContents = mainWindow.webContents;
-+  let pending: PendingFlow | null = null;
++  /** The one flow whose start request has not settled, awaiting or exchanging a callback. */
++  let current: PendingFlow | null = null;
 +  let devServer: http.Server | null = null;
-+  // Navigation or a new sign-in invalidates any earlier asynchronous exchange.
++  // Navigation or a new sign-in invalidates a browser launch still starting.
 +  let documentGeneration = 0;
 +  let starting = false;
 +  let disposed = false;
@@ -1069,32 +1450,45 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +    event.sender === webContents &&
 +    event.senderFrame === webContents.mainFrame &&
 +    isTrustedRenderer();
++  const isAuthorized = (event: IpcMainInvokeEvent, capability: unknown): capability is string =>
++    typeof capability === 'string' &&
++    isTrustedSender(event) &&
++    authorizeGitHubOAuth?.(event, capability) === true;
++  const isLive = (capability: string) =>
++    isTrustedRenderer() && isGitHubOAuthCapabilityLive?.(capability) === true;
 +
 +  const stopDevServer = () => {
 +    devServer?.close();
 +    devServer?.closeAllConnections();
 +    devServer = null;
 +  };
-+  const clearPending = () => {
-+    if (pending) clearTimeout(pending.timer);
-+    pending = null;
++  /** Resolves a flow's start request exactly once. */
++  const settle = (flow: PendingFlow, result: GitHubOAuthResult) => {
++    if (flow.settled) return;
++    flow.settled = true;
++    clearTimeout(flow.timer);
++    if (current === flow) current = null;
++    flow.resolve(result);
++  };
++  /** Settles the unsettled flow, if any, without tokens and stops its callback server. */
++  const cancelCurrent = (error: string) => {
++    if (current) settle(current, { success: false, error });
 +    stopDevServer();
 +  };
 +
 +  /** Validates and consumes the pending state before any network exchange. */
 +  const consumePending = (url: URL, source: CallbackSource): PendingFlow => {
 +    const state = url.searchParams.get('state') ?? '';
-+    const flow = pending;
-+    if (!flow || flow.source !== source || !safeEqual(state, flow.state)) {
++    const flow = current;
++    if (!flow || flow.consumed || flow.source !== source || !safeEqual(state, flow.state)) {
 +      throw new OAuthFailure('Invalid or expired GitHub OAuth state');
 +    }
 +    clearTimeout(flow.timer);
-+    pending = null;
++    flow.consumed = true;
 +    return flow;
 +  };
 +
 +  const completeFlow = async (url: URL, flow: PendingFlow): Promise<void> => {
-+    const generation = documentGeneration;
 +    let result: GitHubOAuthResult;
 +    const providerError = url.searchParams.get('error');
 +    const code = url.searchParams.get('code');
@@ -1107,12 +1501,16 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +      result = await requestTokens(config!, {
 +        code,
 +        redirect_uri: flow.redirectUri,
++        code_verifier: flow.codeVerifier,
 +      });
 +    }
-+    if (generation !== documentGeneration || !isTrustedRenderer()) {
++    // Replacement, navigation, cleanup, or revocation already settled or invalidated
++    // this flow; never hand its tokens to a different document or capability.
++    if (flow.settled || current !== flow || !isLive(flow.capability)) {
++      settle(flow, { success: false, error: CANCELLED });
 +      return;
 +    }
-+    webContents.send(GITHUB_OAUTH_CALLBACK, result);
++    settle(flow, result);
 +    mainWindow.focus();
 +  };
 +
@@ -1147,7 +1545,7 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +      server.listen(DEV_CALLBACK_PORT, '127.0.0.1', () => {
 +        server.off('error', reject);
 +        server.on('error', () => {
-+          if (devServer === server) clearPending();
++          if (devServer === server) cancelCurrent('GitHub sign-in callback server failed');
 +        });
 +        devServer = server;
 +        resolve();
@@ -1158,68 +1556,98 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +  ipcMain.removeHandler(GITHUB_OAUTH_START);
 +  ipcMain.removeHandler(GITHUB_OAUTH_REFRESH);
 +
-+  ipcMain.handle(GITHUB_OAUTH_START, async event => {
-+    if (!isTrustedSender(event)) return { success: false, error: 'Unauthorized request' };
-+    if (!config) return { success: false, error: NOT_AVAILABLE };
-+    if (starting) return { success: false, error: 'GitHub sign-in is already starting' };
-+    starting = true;
-+    const generation = ++documentGeneration;
-+    clearPending();
-+    const source: CallbackSource = isDev ? 'loopback' : 'protocol';
-+    const redirectUri = isDev
-+      ? DEV_REDIRECT_URI
-+      : `${protocolScheme}://${CALLBACK_HOSTNAME}${CALLBACK_PATHNAME}`;
-+    const state = crypto.randomBytes(32).toString('base64url');
-+    try {
-+      if (isDev) await startDevServer();
-+      if (generation !== documentGeneration || !isTrustedSender(event)) {
-+        clearPending();
-+        return { success: false, error: 'GitHub sign-in was cancelled' };
-+      }
-+      const flow: PendingFlow = {
-+        state,
-+        source,
-+        redirectUri,
-+        timer: setTimeout(() => {
-+          if (pending === flow) {
-+            clearPending();
-+            if (isTrustedRenderer()) {
-+              webContents.send(GITHUB_OAUTH_CALLBACK, {
-+                success: false,
-+                error: 'GitHub sign-in timed out. Please try again.',
-+              });
-+            }
++  ipcMain.handle(
++    GITHUB_OAUTH_START,
++    async (event, capability: unknown): Promise<GitHubOAuthResult> => {
++      if (!isAuthorized(event, capability)) return { success: false, error: UNAUTHORIZED };
++      if (!config) return { success: false, error: NOT_AVAILABLE };
++      if (starting) return { success: false, error: 'GitHub sign-in is already starting' };
++      starting = true;
++      const generation = ++documentGeneration;
++      cancelCurrent('GitHub sign-in was replaced by a newer request');
++      const source: CallbackSource = isDev ? 'loopback' : 'protocol';
++      const redirectUri = isDev
++        ? DEV_REDIRECT_URI
++        : `${protocolScheme}://${CALLBACK_HOSTNAME}${CALLBACK_PATHNAME}`;
++      const state = crypto.randomBytes(32).toString('base64url');
++      const codeVerifier = crypto.randomBytes(32).toString('base64url');
++      const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
++      let flow: PendingFlow | undefined;
++      let completion: Promise<GitHubOAuthResult>;
++      // `starting` covers only server startup and browser launch; the returned
++      // completion promise stays pending until the callback, timeout, or cancellation.
++      try {
++        if (isDev) await startDevServer();
++        if (generation !== documentGeneration || !isAuthorized(event, capability)) {
++          stopDevServer();
++          return { success: false, error: CANCELLED };
++        }
++        completion = new Promise<GitHubOAuthResult>(resolve => {
++          flow = {
++            state,
++            codeVerifier,
++            capability,
++            source,
++            redirectUri,
++            consumed: false,
++            settled: false,
++            resolve,
++          };
++        });
++        const started = flow!;
++        started.timer = setTimeout(() => {
++          if (current === started && !started.consumed) {
++            cancelCurrent('GitHub sign-in timed out. Please try again.');
 +          }
-+        }, PENDING_FLOW_LIFETIME_MS),
-+      };
-+      pending = flow;
-+      const authorizeUrl = new URL(AUTHORIZE_URL);
-+      authorizeUrl.search = new URLSearchParams({
-+        client_id: config.clientId,
-+        redirect_uri: redirectUri,
-+        state,
-+      }).toString();
-+      await shell.openExternal(authorizeUrl.toString());
-+      return { success: true };
-+    } catch (error) {
-+      clearPending();
-+      const reason = isDev && isAddressInUse(error) ? 'callback port is in use' : 'start failed';
-+      console.error(`GitHub OAuth ${reason}`);
-+      return { success: false, error: `Could not start GitHub sign-in: ${reason}` };
-+    } finally {
-+      starting = false;
++        }, PENDING_FLOW_LIFETIME_MS);
++        current = started;
++        const authorizeUrl = new URL(AUTHORIZE_URL);
++        authorizeUrl.search = new URLSearchParams({
++          client_id: config.clientId,
++          redirect_uri: redirectUri,
++          state,
++          code_challenge: codeChallenge,
++          code_challenge_method: 'S256',
++        }).toString();
++        // Cancellation must reach the caller even if the OS browser launcher stalls.
++        await Promise.race([shell.openExternal(authorizeUrl.toString()), completion]);
++      } catch (error) {
++        const reason = isDev && isAddressInUse(error) ? 'callback port is in use' : 'start failed';
++        console.error(`GitHub OAuth ${reason}`);
++        const failure = { success: false, error: `Could not start GitHub sign-in: ${reason}` };
++        if (flow && current === flow) cancelCurrent(failure.error);
++        else if (!flow) stopDevServer();
++        return failure;
++      } finally {
++        starting = false;
++      }
++      return completion;
 +    }
-+  });
++  );
 +
-+  ipcMain.handle(GITHUB_OAUTH_REFRESH, async (event, payload: unknown) => {
-+    if (!isTrustedSender(event)) return { success: false, error: 'Unauthorized request' };
-+    if (!config) return { success: false, error: NOT_AVAILABLE };
-+    const refreshToken = (payload as { refreshToken?: unknown } | null)?.refreshToken;
-+    if (typeof refreshToken !== 'string' || !TOKEN_PATTERN.test(refreshToken)) {
-+      return { success: false, error: 'Invalid refresh token' };
++  ipcMain.handle(
++    GITHUB_OAUTH_REFRESH,
++    async (event, payload: unknown): Promise<GitHubOAuthResult> => {
++      const request = (typeof payload === 'object' && payload !== null ? payload : {}) as {
++        capability?: unknown;
++        refreshToken?: unknown;
++      };
++      const { capability, refreshToken } = request;
++      if (!isAuthorized(event, capability)) return { success: false, error: UNAUTHORIZED };
++      if (!config) return { success: false, error: NOT_AVAILABLE };
++      if (typeof refreshToken !== 'string' || !TOKEN_PATTERN.test(refreshToken)) {
++        return { success: false, error: 'Invalid refresh token' };
++      }
++      const result = await requestTokens(config, {
++        grant_type: 'refresh_token',
++        refresh_token: refreshToken,
++      });
++      // Navigation or revocation during the request invalidates its response.
++      return isLive(capability)
++        ? result
++        : { success: false, error: 'GitHub token refresh was cancelled' };
 +    }
-+    return requestTokens(config, { grant_type: 'refresh_token', refresh_token: refreshToken });
-+  });
++  );
 +
 +  const unregisterProvider = config
 +    ? registerOAuthProvider({
@@ -1237,7 +1665,7 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +  ) => {
 +    if (isMainFrame && !isInPlace) {
 +      documentGeneration++;
-+      clearPending();
++      cancelCurrent(CANCELLED);
 +    }
 +  };
 +  webContents.on('did-start-navigation', onNavigation);
@@ -1245,7 +1673,7 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +  const cleanup = () => {
 +    if (disposed) return;
 +    disposed = true;
-+    clearPending();
++    cancelCurrent(CANCELLED);
 +    unregisterProvider();
 +    webContents.removeListener('did-start-navigation', onNavigation);
 +    if (activeCleanup === cleanup) {
@@ -1358,7 +1786,7 @@ index 0000000000000000000000000000000000000000..7359b30f8548a5589dadd913593d30be
 +  return (error as NodeJS.ErrnoException)?.code === 'EADDRINUSE';
 +}
 diff --git a/app/electron/main.ts b/app/electron/main.ts
-index 08ef65b6f5fc9547181ae8c86f795db43b793c33..8bbdbe08e8fe02eab8f53a67f4f935a112a335fe 100644
+index 08ef65b6f5fc9547181ae8c86f795db43b793c33..6ab30cdd7b08b7563212a531d187b61407efa540 100644
 --- a/app/electron/main.ts
 +++ b/app/electron/main.ts
 @@ -45,6 +45,7 @@ import { resolveBackendToken, waitForExternalBackend } from './backendToken';
@@ -1369,22 +1797,34 @@ index 08ef65b6f5fc9547181ae8c86f795db43b793c33..8bbdbe08e8fe02eab8f53a67f4f935a1
  import { startWindowsVMDetection, waitForWindowsVMDetection } from './hardwareAcceleration';
  import i18n from './i18next.config';
  import {
-@@ -1613,6 +1614,14 @@ function startElectron() {
+@@ -1613,7 +1614,6 @@ function startElectron() {
          preload: `${__dirname}/preload.js`,
        },
      });
-+    // Register before the protocol handler can become ready for this window.
+-    protocolHandler.attachToWebContents(mainWindow.webContents);
+     const privatePluginCapabilities = setupRunCmdHandlers(
+       mainWindow,
+       ipcMain,
+@@ -1631,6 +1631,18 @@ function startElectron() {
+       isDev ? path.join(__dirname, '..', 'resources') : process.resourcesPath,
+       startUrl
+     );
++    // Register after command capabilities (absent authorization denies every
++    // request) and before the protocol handler can become ready for this window.
 +    setupGitHubOAuth({
 +      mainWindow,
 +      trustedStartUrl: startUrl,
 +      protocolScheme,
 +      config: appBuildManifest.githubOAuth,
 +      isDev,
++      authorizeGitHubOAuth: privatePluginCapabilities?.authorizeGitHubOAuth,
++      isGitHubOAuthCapabilityLive: privatePluginCapabilities?.isGitHubOAuthCapabilityLive,
 +    });
-     protocolHandler.attachToWebContents(mainWindow.webContents);
-     const privatePluginCapabilities = setupRunCmdHandlers(
-       mainWindow,
-@@ -1708,6 +1717,7 @@ function startElectron() {
++    protocolHandler.attachToWebContents(mainWindow.webContents);
+ 
+     applyZoom();
+ 
+@@ -1708,6 +1720,7 @@ function startElectron() {
      });
  
      mainWindow.on('closed', () => {
@@ -1392,7 +1832,7 @@ index 08ef65b6f5fc9547181ae8c86f795db43b793c33..8bbdbe08e8fe02eab8f53a67f4f935a1
        mainWindow = null;
      });
  
-@@ -1964,6 +1974,7 @@ function startElectron() {
+@@ -1964,6 +1977,7 @@ function startElectron() {
        await killAllProxies();
        // Persist any zoom change still waiting on the debounced save.
        flushZoomFactorSave();
@@ -1401,46 +1841,39 @@ index 08ef65b6f5fc9547181ae8c86f795db43b793c33..8bbdbe08e8fe02eab8f53a67f4f935a1
        hasTray = false;
        i18n.off('languageChanged');
 diff --git a/app/electron/preload.test.ts b/app/electron/preload.test.ts
-index f9d724c482989bd127b62ea260a0d12e7046bf05..015fcac5129eb46666cf74334a1b70e6d04a1582 100644
+index f9d724c482989bd127b62ea260a0d12e7046bf05..7a63495ac2feb5eab7c019b8395175b850ab9b74 100644
 --- a/app/electron/preload.test.ts
 +++ b/app/electron/preload.test.ts
-@@ -138,6 +138,31 @@ describe('desktop preload API', () => {
+@@ -138,6 +138,24 @@ describe('desktop preload API', () => {
      expect(electronMocks.removeListener).toHaveBeenCalledWith('locale', wrappedListener);
    });
  
-+  it('exposes the GitHub OAuth start and refresh requests', async () => {
++  it('exposes only capability-bound GitHub OAuth requests', async () => {
 +    electronMocks.invoke.mockResolvedValue({ success: true });
++    const capability = 'a'.repeat(64);
 +
-+    await expect(desktopApi.startGitHubOAuth()).resolves.toEqual({ success: true });
-+    await desktopApi.refreshGitHubOAuth('ghr_token');
++    await expect(desktopApi.githubOAuth.start(capability)).resolves.toEqual({ success: true });
++    await desktopApi.githubOAuth.refresh(capability, 'ghr_token');
 +
-+    expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, 'github-oauth-start');
++    expect(electronMocks.invoke).toHaveBeenNthCalledWith(1, 'github-oauth-start', capability);
 +    expect(electronMocks.invoke).toHaveBeenNthCalledWith(2, 'github-oauth-refresh', {
++      capability,
 +      refreshToken: 'ghr_token',
 +    });
-+  });
-+
-+  it('subscribes to GitHub OAuth callbacks without exposing the IPC event', () => {
-+    const callback = vi.fn();
-+    const unsubscribe = desktopApi.onGitHubOAuthCallback(callback);
-+    const [channel, wrapped] = electronMocks.on.mock.calls[0];
-+
-+    wrapped({ sender: 'private' }, { success: true });
-+    unsubscribe();
-+
-+    expect(channel).toBe('github-oauth-callback');
-+    expect(callback).toHaveBeenCalledWith({ success: true });
-+    expect(electronMocks.removeListener).toHaveBeenCalledWith('github-oauth-callback', wrapped);
++    expect(desktopApi).not.toHaveProperty('startGitHubOAuth');
++    expect(desktopApi).not.toHaveProperty('onGitHubOAuthCallback');
++    expect(desktopApi).not.toHaveProperty('refreshGitHubOAuth');
++    expect(electronMocks.on).not.toHaveBeenCalled();
 +  });
 +
    it('falls back to removing the provided listener', () => {
      const listener = vi.fn();
      desktopApi.receive('locale', listener);
 diff --git a/app/electron/preload.ts b/app/electron/preload.ts
-index b4f53ff1a97b7d12a078a0aaed03a7b014f2b5ce..53b29365f327380b60ba19f633c6f58378eb4472 100644
+index b4f53ff1a97b7d12a078a0aaed03a7b014f2b5ce..08ae79e1cbe871dcddba9cbfe5e9423b425ee28d 100644
 --- a/app/electron/preload.ts
 +++ b/app/electron/preload.ts
-@@ -18,6 +18,21 @@ import { contextBridge, ipcRenderer } from 'electron';
+@@ -18,6 +18,20 @@ import { contextBridge, ipcRenderer } from 'electron';
  import type { LegalDocumentResult, LegalDocumentSummary } from './legal-documents';
  import type { ClusterProxyTarget, StartProxyResult } from './proxies';
  
@@ -1448,7 +1881,6 @@ index b4f53ff1a97b7d12a078a0aaed03a7b014f2b5ce..53b29365f327380b60ba19f633c6f583
 +// not import that main-process module.
 +const GITHUB_OAUTH_START = 'github-oauth-start';
 +const GITHUB_OAUTH_REFRESH = 'github-oauth-refresh';
-+const GITHUB_OAUTH_CALLBACK = 'github-oauth-callback';
 +
 +/** GitHub OAuth result delivered by the main process. */
 +interface GitHubOAuthResult {
@@ -1462,38 +1894,258 @@ index b4f53ff1a97b7d12a078a0aaed03a7b014f2b5ce..53b29365f327380b60ba19f633c6f583
  // Keeps the mapping between a caller-provided listener and the wrapped one we
  // actually register with ipcRenderer, so removeListener can still unsubscribe
  // the listener when callers pass the original function reference.
-@@ -193,6 +208,29 @@ contextBridge.exposeInMainWorld('desktopApi', {
+@@ -193,6 +207,31 @@ contextBridge.exposeInMainWorld('desktopApi', {
  
    platform: process.platform,
  
-+  /** Opens the browser to authorize the product's configured GitHub App. */
-+  startGitHubOAuth: (): Promise<{ success: boolean; error?: string }> =>
-+    ipcRenderer.invoke(GITHUB_OAUTH_START),
 +  /**
-+   * Subscribes to browser OAuth results from the main process.
-+   *
-+   * @param callback - Receives each callback result without the IPC event.
-+   * @returns A function that removes the subscription.
++   * GitHub OAuth requests authorized by a plugin command capability with the
++   * product's githubOAuth grant. Results return only to the requesting call;
++   * there is deliberately no token event subscription.
 +   */
-+  onGitHubOAuthCallback: (callback: (result: GitHubOAuthResult) => void): (() => void) => {
-+    const wrapped = (_event: unknown, result: GitHubOAuthResult) => callback(result);
-+    ipcRenderer.on(GITHUB_OAUTH_CALLBACK, wrapped);
-+    return () => ipcRenderer.removeListener(GITHUB_OAUTH_CALLBACK, wrapped);
++  githubOAuth: {
++    /**
++     * Opens the browser and resolves when that sign-in completes, fails, or is cancelled.
++     *
++     * @param capability - Opaque command capability granted GitHub OAuth.
++     * @returns The token set or a sanitized failure.
++     */
++    start: (capability: string): Promise<GitHubOAuthResult> =>
++      ipcRenderer.invoke(GITHUB_OAUTH_START, capability),
++    /**
++     * Exchanges a refresh token for a new expiring token set.
++     *
++     * @param capability - Opaque command capability granted GitHub OAuth.
++     * @param refreshToken - Current GitHub refresh token.
++     * @returns The new token set or a sanitized failure.
++     */
++    refresh: (capability: string, refreshToken: string): Promise<GitHubOAuthResult> =>
++      ipcRenderer.invoke(GITHUB_OAUTH_REFRESH, { capability, refreshToken }),
 +  },
-+  /**
-+   * Exchanges a refresh token for a new expiring token set.
-+   *
-+   * @param refreshToken - Current GitHub refresh token.
-+   * @returns The new token set or a sanitized failure.
-+   */
-+  refreshGitHubOAuth: (refreshToken: string): Promise<GitHubOAuthResult> =>
-+    ipcRenderer.invoke(GITHUB_OAUTH_REFRESH, { refreshToken }),
 +
    /** @returns Legal documents declared by the packaged application manifest. */
    getLegalDocuments: (): Promise<LegalDocumentSummary[]> =>
      ipcRenderer.invoke('get-legal-documents'),
+diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
+index c9f153bfe05a6be4ce823bb636c25a9152a35c5f..c9c757d682d57aa0998c458c2bb280457380da29 100644
+--- a/app/electron/runCmd.test.ts
++++ b/app/electron/runCmd.test.ts
+@@ -2527,3 +2527,138 @@ describe('command consent', () => {
+     expect(spawnMock).toHaveBeenCalled();
+   });
+ });
++
++describe('GitHub OAuth command-capability grant', () => {
++  async function registerGrantedPlugins() {
++    const pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-github-oauth-grant-'));
++    const sourceDigest = (bundleName: string) => {
++      const source = `console.log(${JSON.stringify(bundleName)});`;
++      fs.mkdirSync(path.join(pluginRoot, bundleName));
++      fs.writeFileSync(
++        path.join(pluginRoot, bundleName, 'package.json'),
++        JSON.stringify({ name: `@example/${bundleName}` })
++      );
++      fs.writeFileSync(path.join(pluginRoot, bundleName, 'main.js'), source);
++      return crypto.createHash('sha256').update(source).digest('hex');
++    };
++    const registrations = ['oauth-plugin', 'other-plugin'].map(bundleName => ({
++      bundleName,
++      packageName: `@example/${bundleName}`,
++      path: `static-plugins/${bundleName}`,
++      source: 'shipped',
++      type: 'shipped',
++      sourceDigest: sourceDigest(bundleName),
++    }));
++    const invokeHandlers = new Map<string, (...args: any[]) => any>();
++    const webContentsHandlers = new Map<string, (...args: any[]) => void>();
++    const webContents = {
++      id: 7,
++      mainFrame: { url: 'https://headlamp.test/' },
++      on: vi.fn((event: string, handler: (...args: any[]) => void) => {
++        webContentsHandlers.set(event, handler);
++      }),
++      send: vi.fn(),
++    };
++    let destroyed = false;
++    const mainWindow = { webContents, on: vi.fn(), isDestroyed: () => destroyed } as any;
++    const ipcMain = {
++      on: vi.fn(),
++      handle: vi.fn((channel: string, handler: (...args: any[]) => any) => {
++        invokeHandlers.set(channel, handler);
++      }),
++      off: vi.fn(),
++      removeHandler: vi.fn(),
++    } as any;
++    const grants = [{ tool: 'examplectl', args: ['list'] }];
++    const privateCapabilities = setupRunCmdHandlers(
++      mainWindow,
++      ipcMain,
++      [
++        {
++          bundleName: 'oauth-plugin',
++          packageName: '@example/oauth-plugin',
++          source: 'shipped',
++          grants,
++          githubOAuth: true,
++        },
++        {
++          bundleName: 'other-plugin',
++          packageName: '@example/other-plugin',
++          source: 'shipped',
++          grants,
++        },
++      ],
++      'https://headlamp.test/',
++      { development: pluginRoot, user: pluginRoot, shipped: pluginRoot }
++    )!;
++    webContentsHandlers.get('did-frame-navigate')!({}, 'https://headlamp.test/', 200, 'OK', true);
++    const event = { sender: webContents, senderFrame: webContents.mainFrame } as any;
++    const capabilities = await invokeHandlers.get('register-plugin-command-capabilities')!(
++      event,
++      registrations
++    );
++    fs.rmSync(pluginRoot, { recursive: true, force: true });
++    return {
++      capabilities,
++      event,
++      privateCapabilities,
++      webContents,
++      webContentsHandlers,
++      destroy: () => (destroyed = true),
++    };
++  }
++
++  it('publishes the optional grant only for the granted identity', async () => {
++    const { capabilities } = await registerGrantedPlugins();
++
++    expect(capabilities).toHaveLength(2);
++    expect(capabilities[0]).toMatchObject({ bundleName: 'oauth-plugin', githubOAuth: true });
++    expect(capabilities[1]).not.toHaveProperty('githubOAuth');
++  });
++
++  it('authorizes only the granted capability from the trusted main frame', async () => {
++    const { capabilities, event, privateCapabilities, webContents } =
++      await registerGrantedPlugins();
++    const [oauth, other] = capabilities.map((capability: any) => capability.capability);
++
++    expect(privateCapabilities.authorizeGitHubOAuth(event, oauth)).toBe(true);
++    expect(privateCapabilities.isGitHubOAuthCapabilityLive(oauth)).toBe(true);
++    expect(privateCapabilities.authorizeGitHubOAuth(event, other)).toBe(false);
++    expect(privateCapabilities.isGitHubOAuthCapabilityLive(other)).toBe(false);
++    expect(privateCapabilities.authorizeGitHubOAuth(event, 'f'.repeat(64))).toBe(false);
++    expect(privateCapabilities.authorizeGitHubOAuth(event, undefined as never)).toBe(false);
++    expect(
++      privateCapabilities.authorizeGitHubOAuth(
++        { sender: webContents, senderFrame: { url: 'https://headlamp.test/' } } as any,
++        oauth
++      )
++    ).toBe(false);
++    expect(
++      privateCapabilities.authorizeGitHubOAuth(
++        { sender: { id: 7 }, senderFrame: webContents.mainFrame } as any,
++        oauth
++      )
++    ).toBe(false);
++    webContents.mainFrame.url = 'https://attacker.example/';
++    expect(privateCapabilities.authorizeGitHubOAuth(event, oauth)).toBe(false);
++    expect(privateCapabilities.isGitHubOAuthCapabilityLive(oauth)).toBe(false);
++  });
++
++  it.each(['main-frame navigation', 'window destruction'])(
++    'reports the grant as no longer live after %s',
++    async lifecycle => {
++      const { capabilities, event, privateCapabilities, webContentsHandlers, destroy } =
++        await registerGrantedPlugins();
++      const oauth = capabilities[0].capability;
++
++      if (lifecycle === 'window destruction') destroy();
++      else
++        webContentsHandlers.get('did-start-navigation')!({}, 'https://headlamp.test/', false, true);
++
++      expect(privateCapabilities.isGitHubOAuthCapabilityLive(oauth)).toBe(false);
++      if (lifecycle !== 'window destruction') {
++        expect(privateCapabilities.authorizeGitHubOAuth(event, oauth)).toBe(false);
++      }
++    }
++  );
++});
+diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
+index bd4966b804d85722239504eb1a718dd7f210742a..db179f9877d5f48b1e5019a82e1c91466c7269a5 100644
+--- a/app/electron/runCmd.ts
++++ b/app/electron/runCmd.ts
+@@ -99,6 +99,8 @@ export interface ProductPluginCommandPolicy {
+     /** Verified external-tool IDs consumed by this provider. */
+     tools: Record<string, string>;
+   }>;
++  /** Whether this exact plugin identity may use the product's GitHub OAuth client. */
++  githubOAuth?: boolean;
+ }
+ 
+ // Keep these IPC contract interfaces in sync with frontend/src/plugin/commandCapabilities.ts.
+@@ -166,6 +168,8 @@ export interface PluginCommandCapability {
+   capability: string;
+   /** Provider IDs this exact plugin identity may invoke. */
+   clusterRegistrationProviders: string[];
++  /** Present and true only when this plugin identity may use GitHub OAuth. */
++  githubOAuth?: boolean;
+ }
+ 
+ /** Command capability state retained only by Electron's main process. */
+@@ -844,6 +848,7 @@ export function createProductCommandCapabilities(
+       clusterRegistrationProviders: (policy.clusterRegistrationProviders ?? []).map(
+         provider => provider.id
+       ),
++      ...(policy.githubOAuth === true && { githubOAuth: true }),
+     });
+     capabilityRegistry.set(capability, { ...policy, webContentsId });
+   }
+@@ -1272,6 +1277,13 @@ export interface PrivatePluginCapabilities {
+     providerId: string,
+     capability: string
+   ): NonNullable<ProductPluginCommandPolicy['clusterRegistrationProviders']>[number] | undefined;
++  /** Authenticates a trusted main-frame request for a capability granted GitHub OAuth. */
++  authorizeGitHubOAuth(event: Electron.IpcMainInvokeEvent, capability: string): boolean;
++  /**
++   * Reports whether a capability still holds the GitHub OAuth grant for the current
++   * main-window document, for asynchronous completions without a live IPC sender.
++   */
++  isGitHubOAuthCapabilityLive(capability: string): boolean;
+ }
+ 
+ /**
+@@ -1414,6 +1426,30 @@ export function setupRunCmdHandlers(
+       }
+       return registered.clusterRegistrationProviders?.find(provider => provider.id === providerId);
+     },
++    authorizeGitHubOAuth(event, capability) {
++      const registered =
++        typeof capability === 'string' ? capabilityRegistry.get(capability) : undefined;
++      return (
++        registered?.githubOAuth === true &&
++        registered.webContentsId === event.sender.id &&
++        event.sender === mainWindow.webContents &&
++        event.senderFrame === mainWindow.webContents.mainFrame &&
++        (trustedStartUrl === undefined ||
++          isTrustedDocumentUrl(event.senderFrame.url, trustedStartUrl))
++      );
++    },
++    isGitHubOAuthCapabilityLive(capability) {
++      // Reads the current registry and document; navigation and window close revoke.
++      const registered =
++        typeof capability === 'string' ? capabilityRegistry.get(capability) : undefined;
++      return (
++        registered?.githubOAuth === true &&
++        !mainWindow.isDestroyed() &&
++        registered.webContentsId === mainWindow.webContents.id &&
++        (trustedStartUrl === undefined ||
++          isTrustedDocumentUrl(mainWindow.webContents.mainFrame.url, trustedStartUrl))
++      );
++    },
+   };
+ }
+ 
 diff --git a/app/scripts/build-manifest.ts b/app/scripts/build-manifest.ts
-index 343e8f1ee85fe235d1cc217e4f9b8cd58ee50ab3..3fb6923becb881da16d1fd3d9ff98f118fd9197d 100644
+index 343e8f1ee85fe235d1cc217e4f9b8cd58ee50ab3..ae477b7737a786c5dcb982548af81a734a363ff6 100644
 --- a/app/scripts/build-manifest.ts
 +++ b/app/scripts/build-manifest.ts
 @@ -35,6 +35,9 @@ export type BuildManifest = {
@@ -1506,7 +2158,25 @@ index 343e8f1ee85fe235d1cc217e4f9b8cd58ee50ab3..3fb6923becb881da16d1fd3d9ff98f11
    /** Reusable command grant arrays referenced by command policies. */
    commandSets?: Record<string, RunCommandGrant[]>;
  
-@@ -393,6 +396,22 @@ export function validateBuildManifest(value: unknown): BuildManifest {
+@@ -131,6 +134,8 @@ export interface ProductPluginRunCommands {
+   commandSets?: string[];
+   /** Native cluster registration providers granted to these exact plugin identities. */
+   clusterRegistrationProviders?: ProductClusterRegistrationProvider[];
++  /** Grants these exact plugin identities the product's GitHub OAuth client. */
++  githubOAuth?: boolean;
+ }
+ 
+ /** Validated command policy for one plugin identity and inventory. */
+@@ -158,6 +163,8 @@ export interface ProductPluginCommandPolicy {
+   grants: RunCommandGrant[];
+   /** Native cluster registration providers granted to this verified plugin identity. */
+   clusterRegistrationProviders: ProductClusterRegistrationProvider[];
++  /** Present and true when this verified plugin identity may use GitHub OAuth. */
++  githubOAuth?: boolean;
+ }
+ 
+ const COMMAND_POLICY_DOCS_FILE = 'docs/development/plugins/command-capabilities.md';
+@@ -393,6 +400,22 @@ export function validateBuildManifest(value: unknown): BuildManifest {
        'Build manifest commandEnvironment must reference a resource-relative CommonJS module'
      );
    }
@@ -1529,3 +2199,401 @@ index 343e8f1ee85fe235d1cc217e4f9b8cd58ee50ab3..3fb6923becb881da16d1fd3d9ff98f11
    const externalTools = manifest['external-tools'];
    if (externalTools !== undefined) {
      if (
+@@ -568,6 +591,7 @@ export function productPluginCommandPolicies(
+             'commands',
+             'commandSets',
+             'clusterRegistrationProviders',
++            'githubOAuth',
+           ].includes(key)
+       )
+     ) {
+@@ -691,6 +715,14 @@ export function productPluginCommandPolicies(
+         `Build manifest runCommands[${index}] cannot grant cluster registration to user plugins`
+       );
+     }
++    if (policy.githubOAuth !== undefined && typeof policy.githubOAuth !== 'boolean') {
++      throw new Error(`Invalid build manifest runCommands[${index}].githubOAuth`);
++    }
++    if (policy.pluginLocation === 'user' && policy.githubOAuth === true) {
++      throw new Error(
++        `Build manifest runCommands[${index}] cannot grant GitHub OAuth to user plugins`
++      );
++    }
+     for (const tool of pluginExecutables) {
+       if (!parsedGrants.some(grant => grant.tool === tool)) {
+         throw new Error(`Unused build manifest runCommands[${index}] plugin executable ${tool}`);
+@@ -785,6 +817,7 @@ export function productPluginCommandPolicies(
+           }),
+           grants,
+           clusterRegistrationProviders,
++          ...(policy.githubOAuth === true && { githubOAuth: true }),
+         });
+       }
+     }
+diff --git a/frontend/src/plugin/commandCapabilities.ts b/frontend/src/plugin/commandCapabilities.ts
+index 2211247cce60880b57a1645bf635068b467224d9..b5eeb5b3618a837a4dc95ee0b4888434481c52e2 100644
+--- a/frontend/src/plugin/commandCapabilities.ts
++++ b/frontend/src/plugin/commandCapabilities.ts
+@@ -83,6 +83,8 @@ export interface PluginCommandCapability {
+   capability: string;
+   /** Provider IDs this exact plugin identity may invoke. */
+   clusterRegistrationProviders: string[];
++  /** Present and true only when this plugin identity may use GitHub OAuth. */
++  githubOAuth?: boolean;
+ }
+ 
+ interface PluginCommandCapabilitiesBridge {
+diff --git a/frontend/src/plugin/githubOAuth.test.ts b/frontend/src/plugin/githubOAuth.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a546c6d32bbebd91f99f5c5a32eeb961a91d9fd0
+--- /dev/null
++++ b/frontend/src/plugin/githubOAuth.test.ts
+@@ -0,0 +1,168 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { describe, expect, it, vi } from 'vitest';
++import type { PluginCommandCapability } from './commandCapabilities';
++import {
++  captureGitHubOAuthBridge,
++  createPluginGitHubOAuth,
++  getPluginGitHubOAuthArgValues,
++} from './githubOAuth';
++import type { PluginInfo } from './pluginsSlice';
++
++const CAPABILITY = 'a'.repeat(64);
++const TOKENS = {
++  success: true,
++  accessToken: 'ghu_token',
++  refreshToken: 'ghr_token',
++  expiresAt: '2030-01-01T00:00:00.000Z',
++};
++const plugin = {
++  name: '@example/plugin',
++  folderName: 'example-plugin',
++  source: 'shipped',
++  type: 'shipped',
++} as PluginInfo;
++const granted: PluginCommandCapability = {
++  bundleName: 'example-plugin',
++  packageName: '@example/plugin',
++  source: 'shipped',
++  capability: CAPABILITY,
++  clusterRegistrationProviders: [],
++  githubOAuth: true,
++};
++
++function bridge(result: unknown = TOKENS) {
++  return { start: vi.fn().mockResolvedValue(result), refresh: vi.fn().mockResolvedValue(TOKENS) };
++}
++
++describe('getPluginGitHubOAuthArgValues', () => {
++  it('injects pluginGitHubOAuth only for the exact granted identity', () => {
++    const raw = bridge();
++    const [names, values] = getPluginGitHubOAuthArgValues([granted], plugin, raw);
++    expect(names).toEqual(['pluginGitHubOAuth']);
++    expect(Object.keys(values[0] as object).sort()).toEqual([
++      'onGitHubOAuthCallback',
++      'refreshGitHubOAuth',
++      'startGitHubOAuth',
++    ]);
++  });
++
++  it.each([
++    ['an unrelated package', [granted], { ...plugin, name: '@attacker/plugin' }],
++    ['an unrelated bundle', [granted], { ...plugin, folderName: 'attacker' }],
++    ['a different inventory', [granted], { ...plugin, source: 'user', type: 'user' }],
++    ['an ungranted capability', [{ ...granted, githubOAuth: undefined }], plugin],
++    ['an explicitly denied grant', [{ ...granted, githubOAuth: false }], plugin],
++    ['a malformed capability', [{ ...granted, capability: 'secret' }], plugin],
++  ])('withholds the facade from %s', (_name, capabilities, candidate) => {
++    expect(
++      getPluginGitHubOAuthArgValues(
++        capabilities as PluginCommandCapability[],
++        candidate as PluginInfo,
++        bridge()
++      )
++    ).toEqual([[], []]);
++  });
++
++  it('withholds the facade without the private bridge', () => {
++    expect(getPluginGitHubOAuthArgValues([granted], plugin, undefined)).toEqual([[], []]);
++  });
++});
++
++describe('captureGitHubOAuthBridge', () => {
++  it('captures bridge functions so later global mutation cannot redirect them', async () => {
++    const raw = bridge();
++    const original = raw.start;
++    const captured = captureGitHubOAuthBridge(raw)!;
++    raw.start = vi.fn();
++
++    await captured.start(CAPABILITY);
++    expect(original).toHaveBeenCalledWith(CAPABILITY);
++    expect(raw.start).not.toHaveBeenCalled();
++    expect(captureGitHubOAuthBridge(undefined)).toBeUndefined();
++    expect(captureGitHubOAuthBridge({ start: 'x' } as never)).toBeUndefined();
++  });
++});
++
++describe('createPluginGitHubOAuth', () => {
++  it('delivers start results only to this facade and returns token-free status', async () => {
++    const raw = bridge();
++    const facade = createPluginGitHubOAuth(CAPABILITY, raw);
++    const other = createPluginGitHubOAuth('b'.repeat(64), bridge());
++    const listener = vi.fn();
++    const otherListener = vi.fn();
++    facade.onGitHubOAuthCallback(listener);
++    other.onGitHubOAuthCallback(otherListener);
++
++    const status = await facade.startGitHubOAuth();
++
++    expect(raw.start).toHaveBeenCalledWith(CAPABILITY);
++    expect(status).toEqual({ success: true });
++    expect(JSON.stringify(status)).not.toContain('ghu_token');
++    expect(listener).toHaveBeenCalledWith(TOKENS);
++    expect(otherListener).not.toHaveBeenCalled();
++  });
++
++  it('returns failures with their error and notifies listeners', async () => {
++    const failure = { success: false, error: 'GitHub sign-in timed out. Please try again.' };
++    const facade = createPluginGitHubOAuth(CAPABILITY, bridge(failure));
++    const listener = vi.fn();
++    facade.onGitHubOAuthCallback(listener);
++
++    await expect(facade.startGitHubOAuth()).resolves.toEqual(failure);
++    expect(listener).toHaveBeenCalledWith(failure);
++  });
++
++  it('converts bridge rejections to sanitized failures', async () => {
++    const raw = { start: vi.fn().mockRejectedValue(new Error('ghr_secret')), refresh: vi.fn() };
++    raw.refresh.mockRejectedValue(new Error('ghr_secret'));
++    const facade = createPluginGitHubOAuth(CAPABILITY, raw);
++
++    const status = await facade.startGitHubOAuth();
++    const refreshed = await facade.refreshGitHubOAuth('ghr_old');
++    expect(status).toEqual({ success: false, error: expect.any(String) });
++    expect(refreshed).toEqual({ success: false, error: expect.any(String) });
++    expect(JSON.stringify([status, refreshed])).not.toContain('ghr_secret');
++  });
++
++  it('unsubscribes listeners and isolates listener failures', async () => {
++    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
++    const facade = createPluginGitHubOAuth(CAPABILITY, bridge());
++    const removed = vi.fn();
++    const later = vi.fn();
++    const unsubscribe = facade.onGitHubOAuthCallback(removed);
++    facade.onGitHubOAuthCallback(() => {
++      throw new Error('ghu_token listener failure');
++    });
++    facade.onGitHubOAuthCallback(later);
++    unsubscribe();
++
++    await expect(facade.startGitHubOAuth()).resolves.toEqual({ success: true });
++    expect(removed).not.toHaveBeenCalled();
++    expect(later).toHaveBeenCalledWith(TOKENS);
++    expect(JSON.stringify(consoleError.mock.calls)).not.toContain('ghu_token');
++    consoleError.mockRestore();
++  });
++
++  it('refreshes through the private bridge with the bound capability', async () => {
++    const raw = bridge();
++    const facade = createPluginGitHubOAuth(CAPABILITY, raw);
++
++    await expect(facade.refreshGitHubOAuth('ghr_old')).resolves.toEqual(TOKENS);
++    expect(raw.refresh).toHaveBeenCalledWith(CAPABILITY, 'ghr_old');
++  });
++});
+diff --git a/frontend/src/plugin/githubOAuth.ts b/frontend/src/plugin/githubOAuth.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a702038ca617f6e95c65849162594e281f4ec008
+--- /dev/null
++++ b/frontend/src/plugin/githubOAuth.ts
+@@ -0,0 +1,140 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++// Private GitHub OAuth facade injected only into the plugin identity whose command
++// capability carries the product's githubOAuth grant. Results reach only that
++// facade's listeners; Electron exposes no global token event. This is least
++// privilege against unauthorized API use, not isolation from same-realm code.
++
++import { findPluginCapability, type PluginCommandCapability } from './commandCapabilities';
++import type { PluginInfo } from './pluginsSlice';
++
++/** Token set or sanitized failure returned by Electron. */
++export interface GitHubOAuthResult {
++  success: boolean;
++  accessToken?: string;
++  refreshToken?: string;
++  expiresAt?: string;
++  error?: string;
++}
++
++/** Capability-bound preload bridge captured before plugins execute. */
++export interface GitHubOAuthBridge {
++  start(capability: string): Promise<GitHubOAuthResult>;
++  refresh(capability: string, refreshToken: string): Promise<GitHubOAuthResult>;
++}
++
++/** Facade available to the granted plugin as the lexical `pluginGitHubOAuth`. */
++export interface PluginGitHubOAuth {
++  /** Opens the browser; resolves with the sign-in status after it completes, without tokens. */
++  startGitHubOAuth(): Promise<{ success: boolean; error?: string }>;
++  /** Receives completed sign-in results for this plugin only. */
++  onGitHubOAuthCallback(callback: (result: GitHubOAuthResult) => void): () => void;
++  /** Exchanges a refresh token for a new expiring token set. */
++  refreshGitHubOAuth(refreshToken: string): Promise<GitHubOAuthResult>;
++}
++
++/**
++ * Copies bridge functions so later changes to `window.desktopApi` cannot redirect them.
++ *
++ * @param bridge - Preload bridge read before plugin code runs.
++ * @returns Captured functions, or undefined when the bridge is unavailable.
++ */
++export function captureGitHubOAuthBridge(
++  bridge: Partial<GitHubOAuthBridge> | undefined
++): GitHubOAuthBridge | undefined {
++  const start = bridge?.start;
++  const refresh = bridge?.refresh;
++  if (typeof start !== 'function' || typeof refresh !== 'function') return undefined;
++  return Object.freeze({ start, refresh });
++}
++
++/**
++ * Creates the facade bound to one capability with its own listener set.
++ *
++ * @param capability - Opaque command capability granted GitHub OAuth.
++ * @param bridge - Captured capability-bound preload bridge.
++ * @returns The plugin-visible facade.
++ */
++export function createPluginGitHubOAuth(
++  capability: string,
++  bridge: GitHubOAuthBridge
++): PluginGitHubOAuth {
++  const { start, refresh } = bridge;
++  const listeners = new Set<(result: GitHubOAuthResult) => void>();
++  const consoleError = console.error;
++  const failed = (error: string): GitHubOAuthResult => ({ success: false, error });
++
++  return Object.freeze({
++    async startGitHubOAuth() {
++      let result: GitHubOAuthResult;
++      try {
++        result = await start(capability);
++      } catch {
++        result = failed('GitHub sign-in failed');
++      }
++      for (const listener of [...listeners]) {
++        try {
++          listener(result);
++        } catch {
++          // Do not log the error: it may embed token values from the result.
++          consoleError('GitHub OAuth listener failed');
++        }
++      }
++      return result.error === undefined
++        ? { success: result.success }
++        : { success: result.success, error: result.error };
++    },
++    onGitHubOAuthCallback(callback: (result: GitHubOAuthResult) => void) {
++      const listener = (result: GitHubOAuthResult) => callback(result);
++      listeners.add(listener);
++      return () => {
++        listeners.delete(listener);
++      };
++    },
++    async refreshGitHubOAuth(refreshToken: string) {
++      try {
++        return await refresh(capability, refreshToken);
++      } catch {
++        return failed('GitHub token refresh failed');
++      }
++    },
++  });
++}
++
++/**
++ * Builds lexical plugin arguments only for the exact identity granted GitHub OAuth.
++ *
++ * @param capabilities - Capabilities returned by Electron's main process.
++ * @param plugin - Plugin package and inventory metadata.
++ * @param bridge - Captured preload bridge, or undefined outside Electron.
++ * @returns `pluginGitHubOAuth` and its facade, or empty arrays without a grant.
++ */
++export function getPluginGitHubOAuthArgValues(
++  capabilities: PluginCommandCapability[],
++  plugin: PluginInfo,
++  bridge: GitHubOAuthBridge | undefined
++): [string[], unknown[]] {
++  const capability = findPluginCapability(capabilities, plugin);
++  if (
++    !bridge ||
++    capability?.githubOAuth !== true ||
++    !/^[0-9a-f]{64}$/.test(capability.capability)
++  ) {
++    return [[], []];
++  }
++  return [['pluginGitHubOAuth'], [createPluginGitHubOAuth(capability.capability, bridge)]];
++}
+diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
+index 4fee35e329fe1d55c3eae3f68c8f4998f464294f..0864b2f7fa4d302e1d1293990e0c7d466bf100e1 100644
+--- a/frontend/src/plugin/index.ts
++++ b/frontend/src/plugin/index.ts
+@@ -66,6 +66,7 @@ import {
+   getDormantDevelopmentPluginSettings,
+ } from './developmentPlugins';
+ import { fetchPluginResource } from './fetchPluginResource';
++import { captureGitHubOAuthBridge, getPluginGitHubOAuthArgValues } from './githubOAuth';
+ import { Headlamp, Plugin } from './lib';
+ import { changePluginLanguage, initializePluginI18n } from './pluginI18n';
+ import { useTranslation } from './pluginI18n';
+@@ -667,6 +668,7 @@ export async function fetchAndExecutePlugins(
+   const pluginDesktopApiReceive = window?.desktopApi?.receive;
+   const pluginStartClusterProxy = window?.desktopApi?.startClusterProxy;
+   const pluginRegisterCluster = window?.desktopApi?.registerCluster;
++  const pluginGitHubOAuthBridge = captureGitHubOAuthBridge(window?.desktopApi?.githubOAuth);
+   const internalRunCommand = runCommand;
+   const PrivateFunction = Function;
+   const internalRunPlugin = runPlugin;
+@@ -757,6 +759,13 @@ export async function fetchAndExecutePlugins(
+           );
+           argumentNames.push(...registrationArgs);
+           argumentValues.push(...registrationValues);
++          const [gitHubOAuthArgs, gitHubOAuthValues] = getPluginGitHubOAuthArgValues(
++            commandCapabilities,
++            packageInfosToExecute[index],
++            pluginGitHubOAuthBridge
++          );
++          argumentNames.push(...gitHubOAuthArgs);
++          argumentValues.push(...gitHubOAuthValues);
+           const storageNamespace = secureStorageNamespaces[index];
+           const storageCapability = storageNamespace
+             ? secureStorageCapabilities[storageNamespace]

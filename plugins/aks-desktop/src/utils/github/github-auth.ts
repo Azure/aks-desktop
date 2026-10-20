@@ -25,7 +25,7 @@ export interface StoredTokens {
   expiresAt: string;
 }
 
-/** Result shape from the Electron main process OAuth callback. */
+/** Result delivered privately through the plugin's authorized OAuth facade. */
 export interface OAuthCallbackResult {
   success: boolean;
   accessToken?: string;
@@ -34,18 +34,17 @@ export interface OAuthCallbackResult {
   error?: string;
 }
 
-/** Optional GitHub OAuth methods supplied by older AKS Desktop preload builds. */
-interface DesktopApi {
+/** Optional OAuth capability injected by Headlamp only into the authorized plugin. */
+interface PluginGitHubOAuth {
   startGitHubOAuth?: () => Promise<{ success: boolean; error?: string }>;
   onGitHubOAuthCallback?: (callback: (result: OAuthCallbackResult) => void) => () => void;
   refreshGitHubOAuth?: (refreshToken: string) => Promise<OAuthCallbackResult>;
 }
 
-function getDesktopApi(): DesktopApi {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const api = (window as any).desktopApi as DesktopApi | undefined;
-  if (!api) throw new Error('desktopApi not available — not running in Electron');
-  return api;
+declare const pluginGitHubOAuth: PluginGitHubOAuth | undefined;
+
+function getOAuthApi(): PluginGitHubOAuth {
+  return typeof pluginGitHubOAuth !== 'undefined' && pluginGitHubOAuth ? pluginGitHubOAuth : {};
 }
 
 /**
@@ -53,7 +52,7 @@ function getDesktopApi(): DesktopApi {
  * The Electron main process generates a CSRF state token and opens the URL.
  */
 export const startBrowserOAuth = async (): Promise<void> => {
-  const api = getDesktopApi();
+  const api = getOAuthApi();
   if (
     typeof api.startGitHubOAuth !== 'function' ||
     typeof api.onGitHubOAuthCallback !== 'function'
@@ -67,11 +66,11 @@ export const startBrowserOAuth = async (): Promise<void> => {
 };
 
 /**
- * Registers a listener for the OAuth callback from the Electron main process.
- * Returns an unsubscribe function, or a no-op when the host does not supply GitHub OAuth.
+ * Subscribes to results held by this plugin's private OAuth facade, not a global event.
+ * Returns an unsubscribe function, or a no-op without an injected capability.
  */
 export const onOAuthCallback = (callback: (result: OAuthCallbackResult) => void): (() => void) => {
-  const api = getDesktopApi();
+  const api = getOAuthApi();
   return typeof api.onGitHubOAuthCallback === 'function'
     ? api.onGitHubOAuthCallback(callback)
     : () => {};
@@ -83,7 +82,7 @@ export const onOAuthCallback = (callback: (result: OAuthCallbackResult) => void)
  * Returns { accessToken, refreshToken, expiresIn }.
  */
 export const refreshAccessToken = async (refreshToken: string): Promise<TokenResponse> => {
-  const api = getDesktopApi();
+  const api = getOAuthApi();
   if (typeof api.refreshGitHubOAuth !== 'function') {
     throw new Error('GitHub token refresh is not available in this desktop build.');
   }

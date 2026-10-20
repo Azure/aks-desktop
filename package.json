@@ -320,6 +320,7 @@
       {
         "environment": "development",
         "pluginLocation": "development",
+        "githubOAuth": true,
         "approvedCommands": [
           {
             "tool": "az",
@@ -718,6 +719,7 @@
       {
         "environment": "production",
         "pluginLocation": "shipped",
+        "githubOAuth": true,
         "approvedCommands": [
           {
             "tool": "az",
