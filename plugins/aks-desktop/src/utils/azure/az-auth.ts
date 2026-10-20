@@ -156,52 +156,6 @@ export async function getLoginStatus(): Promise<AzureLoginStatus> {
 }
 
 /**
- * Reads the complete current Azure CLI account payload.
- *
- * @returns Parsed `az account show` response.
- * @throws When the command fails, requires login, returns no output, or returns malformed JSON.
- */
-export async function getUserAccountInfo(): Promise<any> {
-  const { stdout, stderr } = await runCommandAsync('az', ['account', 'show', '-o', 'json']);
-  const accountOutput = stdout.trim();
-  const errorOutput = stderr.trim();
-  if (errorOutput && isCommandFailure(errorOutput)) {
-    const err: any = new Error(errorOutput);
-    if (needsRelogin(errorOutput)) err.needsRelogin = true;
-    throw err;
-  }
-  if (!accountOutput) {
-    const err: any = new Error(errorOutput || 'Failed to get account info');
-    if (needsRelogin(stderr)) err.needsRelogin = true;
-    throw err;
-  }
-  return JSON.parse(accountOutput);
-}
-
-/**
- * Requests an access token from Azure CLI.
- *
- * @returns Parsed `az account get-access-token` response.
- * @throws When the command fails, requires login, returns no output, or returns malformed JSON.
- */
-export async function getAccessToken(): Promise<any> {
-  const { stdout, stderr } = await runCommandAsync('az', ['account', 'get-access-token']);
-  const tokenOutput = stdout.trim();
-  const errorOutput = stderr.trim();
-  if (errorOutput && isCommandFailure(errorOutput)) {
-    const err: any = new Error(errorOutput);
-    if (needsRelogin(errorOutput)) err.needsRelogin = true;
-    throw err;
-  }
-  if (!tokenOutput) {
-    const err: any = new Error(errorOutput || 'Failed to get access token');
-    if (needsRelogin(stderr)) err.needsRelogin = true;
-    throw err;
-  }
-  return JSON.parse(tokenOutput);
-}
-
-/**
  * Runs Azure CLI login and classifies command-level failures.
  *
  * @returns Login initiation result with a user-facing message.

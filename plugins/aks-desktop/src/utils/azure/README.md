@@ -14,20 +14,20 @@ This directory contains the Azure CLI integration layer for AKS Desktop. Every A
 
 ### Domain Modules
 
-| Module                     | Responsibility                                                                           |
-| -------------------------- | ---------------------------------------------------------------------------------------- |
-| `az-auth.ts`               | Login flows, status checks, access tokens                                                |
-| `az-extensions.ts`         | Extension installation, status checks, and Azure CLI configuration                       |
-| `az-resource-providers.ts` | Subscription resource-provider registration                                              |
-| `az-subscriptions.ts`      | Subscriptions, tenants, resource groups, locations, VM sizes                             |
-| `az-clusters.ts`           | AKS cluster listing (Resource Graph optimized), status, capabilities, kubeconfig, addons |
-| `az-resource-graph.ts`     | Azure Resource Graph queries for fast cluster lookups                                    |
-| `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                                 |
-| `az-namespace-access.ts`   | Namespace role assignments and access verification                                       |
-| `az-identity.ts`           | Managed identity CRUD, role assignments, scope building                                  |
-| `az-ad.ts`                 | Azure AD user search                                                                     |
-| `az-acr.ts`                | Container registry creation, listing, and image discovery                                |
-| `az-federation.ts`         | Federated credentials for GitHub Actions and Kubernetes OIDC                             |
+| Module                     | Responsibility                                                               |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| `az-auth.ts`               | Login flows and status checks                                                |
+| `az-extensions.ts`         | Extension installation, status checks, and Azure CLI configuration           |
+| `az-resource-providers.ts` | Subscription resource-provider registration                                  |
+| `az-subscriptions.ts`      | Subscriptions, tenants, resource groups, locations                           |
+| `az-clusters.ts`           | AKS cluster listing (Resource Graph optimized), status, capabilities, addons |
+| `az-resource-graph.ts`     | Azure Resource Graph queries for fast cluster lookups                        |
+| `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                     |
+| `az-namespace-access.ts`   | Namespace role assignments and access verification                           |
+| `az-identity.ts`           | Managed identity CRUD, role assignments, scope building                      |
+| `az-ad.ts`                 | Azure AD user search                                                         |
+| `az-acr.ts`                | Container registry creation, listing, and image discovery                    |
+| `az-federation.ts`         | Federated credentials for GitHub Actions and Kubernetes OIDC                 |
 
 ### Orchestration Modules
 
@@ -66,6 +66,26 @@ az-validation.ts  (standalone — no internal imports)
 ```
 
 No circular dependencies. `az-cli-core.ts` is the single hub — every domain module imports from it.
+
+## REST Migration Consumer Audit (REST-32)
+
+[REST-32](https://github.com/Azure/aks-desktop/issues/1008) audited repository imports, tests,
+package entry points and declarations, documented contracts, native integration patches, and
+available assembled plugin/host outputs. The following internal named exports had no supported
+runtime consumers and were removed. An export or a unit test alone is not a supported contract.
+
+| Removed helper                        | Consumer evidence                                                                                                                                                              | Remaining migration scope                                                                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getSubscriptionIds`                  | No callers; subscription discovery uses `getSubscriptions` via [the resource hook](../../components/CreateAKSProject/hooks/useAzureResources.ts) and [registration](./aks.ts). | [REST-03](https://github.com/Azure/aks-desktop/issues/1010): retain subscription/tenant discovery, not this projection.                        |
+| `getVmSizes`                          | No callers or documented external contract.                                                                                                                                    | [REST-05](https://github.com/Azure/aks-desktop/issues/1012): retain `getLocations`; no VM-size workflow is needed.                             |
+| `getManagedNamespacesForSubscription` | No callers; [InfoTab](../../components/InfoTab/hooks/useInfoTab.ts) uses cluster-scoped `getManagedNamespaces`.                                                                | [REST-13](https://github.com/Azure/aks-desktop/issues/1019): retain active namespace reads/status; no subscription-wide aggregation is needed. |
+| `getAksKubeconfig`                    | No callers; [registration](./aks.ts) uses the native `registerCluster` capability instead.                                                                                     | [REST-25](https://github.com/Azure/aks-desktop/issues/1032): audit the native credential handler, not this helper.                             |
+| `getUserAccountInfo`                  | Unit tests only; [Azure auth](../../hooks/useAzureAuth.tsx) uses `getLoginStatus`.                                                                                             | [REST-02](https://github.com/Azure/aks-desktop/issues/1031): retain active login/status flows.                                                 |
+| `getAccessToken`                      | Unit tests only; [Prometheus](../prometheus/queryPrometheus.tsx) acquires tokens independently.                                                                                | [REST-02](https://github.com/Azure/aks-desktop/issues/1031): migrate active token consumers, not this wrapper.                                 |
+
+This cleanup does not retire CLI authentication, native credential registration, or the Arc proxy.
+The linked migration issues still have live work; no REST workflow should be introduced solely
+to replace one of these removed helpers.
 
 ## Adding a New Function
 
