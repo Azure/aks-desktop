@@ -38,9 +38,9 @@ vi.mock('../../hooks/usePreviewFeatures', () => ({
 }));
 
 /**
- * Helper to set up a mock desktopApi on the window object.
+ * Simulates the private OAuth facade injected into the authorized plugin.
  */
-function mockDesktopApi(overrides: Record<string, unknown> = {}) {
+function mockOAuthCapability(overrides: Record<string, unknown> = {}) {
   const api = {
     startGitHubOAuth: vi.fn().mockResolvedValue({ success: true }),
     onGitHubOAuthCallback: vi.fn().mockReturnValue(() => {}),
@@ -52,8 +52,7 @@ function mockDesktopApi(overrides: Record<string, unknown> = {}) {
     }),
     ...overrides,
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (window as any).desktopApi = api;
+  vi.stubGlobal('pluginGitHubOAuth', api);
   return api;
 }
 
@@ -65,15 +64,37 @@ describe('github-auth', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (window as any).desktopApi;
+    vi.unstubAllGlobals();
+  });
+
+  it('does not use the global OAuth bridge even when it is available', async () => {
+    const globalStart = vi.fn();
+    const globalSubscribe = vi.fn();
+    const globalRefresh = vi.fn();
+    Object.assign(window, {
+      desktopApi: {
+        startGitHubOAuth: globalStart,
+        onGitHubOAuthCallback: globalSubscribe,
+        refreshGitHubOAuth: globalRefresh,
+      },
+    });
+    try {
+      await expect(startBrowserOAuth()).rejects.toThrow('not available');
+      onOAuthCallback(vi.fn())();
+      await expect(refreshAccessToken('synthetic-refresh-token')).rejects.toThrow('not available');
+      expect(globalStart).not.toHaveBeenCalled();
+      expect(globalSubscribe).not.toHaveBeenCalled();
+      expect(globalRefresh).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(window, 'desktopApi');
+    }
   });
 
   describe('startBrowserOAuth', () => {
     it.each(['startGitHubOAuth', 'onGitHubOAuthCallback'])(
       'reports unavailable authentication when %s is absent',
       async method => {
-        const api = mockDesktopApi({ [method]: undefined });
+        const api = mockOAuthCapability({ [method]: undefined });
         await expect(startBrowserOAuth()).rejects.toThrow(
           'GitHub browser authentication is not available in this desktop build.'
         );
@@ -83,8 +104,8 @@ describe('github-auth', () => {
       }
     );
 
-    it('should call desktopApi.startGitHubOAuth', async () => {
-      const api = mockDesktopApi();
+    it('uses the injected sign-in method', async () => {
+      const api = mockOAuthCapability();
 
       await startBrowserOAuth();
 
@@ -92,7 +113,7 @@ describe('github-auth', () => {
     });
 
     it('should throw when startGitHubOAuth returns failure', async () => {
-      mockDesktopApi({
+      mockOAuthCapability({
         startGitHubOAuth: vi.fn().mockResolvedValue({
           success: false,
           error: 'Something went wrong',
@@ -102,24 +123,24 @@ describe('github-auth', () => {
       await expect(startBrowserOAuth()).rejects.toThrow('Something went wrong');
     });
 
-    it('should throw when desktopApi is not available', async () => {
+    it('fails closed when the private capability is not injected', async () => {
       await expect(startBrowserOAuth()).rejects.toThrow(
-        'desktopApi not available — not running in Electron'
+        'GitHub browser authentication is not available in this desktop build.'
       );
     });
   });
 
   describe('onOAuthCallback', () => {
     it('does not crash project creation when the host has no GitHub OAuth bridge', () => {
-      mockDesktopApi({ onGitHubOAuthCallback: undefined });
+      mockOAuthCapability({ onGitHubOAuthCallback: undefined });
       const unsubscribe = onOAuthCallback(vi.fn());
       expect(unsubscribe).toBeTypeOf('function');
       expect(() => unsubscribe()).not.toThrow();
     });
 
-    it('should call desktopApi.onGitHubOAuthCallback with the provided callback', () => {
+    it('subscribes through the injected facade with the provided callback', () => {
       const unsubscribe = vi.fn();
-      const api = mockDesktopApi({
+      const api = mockOAuthCapability({
         onGitHubOAuthCallback: vi.fn().mockReturnValue(unsubscribe),
       });
 
@@ -130,23 +151,21 @@ describe('github-auth', () => {
       expect(result).toBe(unsubscribe);
     });
 
-    it('should throw when desktopApi is not available', () => {
-      expect(() => onOAuthCallback(vi.fn())).toThrow(
-        'desktopApi not available — not running in Electron'
-      );
+    it('returns a no-op subscription when the private capability is unavailable', () => {
+      expect(onOAuthCallback(vi.fn())).toBeTypeOf('function');
     });
   });
 
   describe('refreshAccessToken', () => {
-    it('reports unavailable refresh when the host lacks the legacy method', async () => {
-      mockDesktopApi({ refreshGitHubOAuth: undefined });
+    it('reports unavailable refresh when the facade lacks the refresh method', async () => {
+      mockOAuthCapability({ refreshGitHubOAuth: undefined });
       await expect(refreshAccessToken('synthetic-refresh-token')).rejects.toThrow(
         'GitHub token refresh is not available in this desktop build.'
       );
     });
     it('should return new tokens on success', async () => {
       const expiresAt = new Date(Date.now() + 28800 * 1000).toISOString();
-      const api = mockDesktopApi({
+      const api = mockOAuthCapability({
         refreshGitHubOAuth: vi.fn().mockResolvedValue({
           success: true,
           accessToken: 'ghu_new_token',
@@ -164,7 +183,7 @@ describe('github-auth', () => {
     });
 
     it('should throw when refresh returns failure', async () => {
-      mockDesktopApi({
+      mockOAuthCapability({
         refreshGitHubOAuth: vi.fn().mockResolvedValue({
           success: false,
           error: 'The refresh token is invalid',
@@ -176,15 +195,15 @@ describe('github-auth', () => {
       );
     });
 
-    it('should throw when desktopApi is not available', async () => {
+    it('fails refresh closed when the private capability is not injected', async () => {
       await expect(refreshAccessToken('ghr_refresh456')).rejects.toThrow(
-        'desktopApi not available — not running in Electron'
+        'GitHub token refresh is not available in this desktop build.'
       );
     });
   });
 
   it('mounts the project auth hook on current Headlamp and contains unavailable login errors', async () => {
-    mockDesktopApi({
+    mockOAuthCapability({
       startGitHubOAuth: undefined,
       onGitHubOAuthCallback: undefined,
       refreshGitHubOAuth: undefined,
@@ -204,9 +223,9 @@ describe('github-auth', () => {
     unmount();
   });
 
-  it('unsubscribes the project auth hook from a supported legacy OAuth bridge', async () => {
+  it('unsubscribes the project auth hook from its private OAuth facade', async () => {
     const unsubscribe = vi.fn();
-    mockDesktopApi({ onGitHubOAuthCallback: vi.fn().mockReturnValue(unsubscribe) });
+    mockOAuthCapability({ onGitHubOAuthCallback: vi.fn().mockReturnValue(unsubscribe) });
     const { result, unmount } = renderHook(() => useGitHubAuth());
     await waitFor(() => expect(result.current.authState.isRestoring).toBe(false));
     unmount();
@@ -225,7 +244,9 @@ describe('github-auth', () => {
   it('mounts auth on enable and unsubscribes and unmounts pipeline UI on disable', async () => {
     const { secureStorageLoad } = await import('./secure-storage');
     const unsubscribe = vi.fn();
-    const api = mockDesktopApi({ onGitHubOAuthCallback: vi.fn().mockReturnValue(unsubscribe) });
+    const api = mockOAuthCapability({
+      onGitHubOAuthCallback: vi.fn().mockReturnValue(unsubscribe),
+    });
     const mounted = vi.fn();
     const unmounted = vi.fn();
     function PipelineChild() {

@@ -229,6 +229,13 @@ test('AKS supplies GitHub OAuth identity through its generated product manifest'
   assert.equal(configuration?.clientId, 'Iv23liWWbvrfIrA6WWj5');
   assert.equal(typeof configuration?.clientSecret, 'string');
   assert.ok(configuration.clientSecret.length > 0);
+  const oauthPolicies = rootManifest.headlamp.runCommands.filter(policy => policy.githubOAuth);
+  assert.equal(oauthPolicies.length, 2);
+  assert.deepEqual(new Set(oauthPolicies.map(policy => policy.pluginLocation)),
+    new Set(['development', 'shipped']));
+  for (const policy of oauthPolicies) {
+    assert.deepEqual(policy.plugins, [{ bundleName: 'aks-desktop', packageName: 'aks-desktop' }]);
+  }
   for (const platform of ['linux', 'darwin', 'win32']) {
     const manifest = validateBuildManifest(createProductTemplate(rootManifest, platform));
     assert.deepEqual(manifest.githubOAuth, configuration);
@@ -241,12 +248,18 @@ test('the installed host provides the GitHub sign-in, callback and refresh bridg
     path.join(HEADLAMP_SOURCE_DIR, 'app', 'electron', name), 'utf8'
   );
   const preload = electronFile('preload.ts');
-  for (const method of ['startGitHubOAuth', 'onGitHubOAuthCallback', 'refreshGitHubOAuth']) {
-    assert.match(preload, new RegExp(`\\b${method}:`));
-  }
+  assert.match(preload, /githubOAuth:/);
+  assert.doesNotMatch(preload, /\n  (?:startGitHubOAuth|onGitHubOAuthCallback|refreshGitHubOAuth):/);
+  const loader = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'frontend', 'src', 'plugin', 'index.ts'), 'utf8'
+  );
+  assert.match(loader, /pluginGitHubOAuth/);
   assert.match(electronFile('main.ts'), /setupGitHubOAuth/);
   const provider = electronFile('githubOAuth.ts');
   assert.match(provider, /registerOAuthProvider/);
+  assert.match(provider, /code_challenge_method: 'S256'/);
+  assert.match(provider, /code_verifier:/);
+  assert.doesNotMatch(provider, /GITHUB_OAUTH_CALLBACK|webContents\.send/);
   assert.doesNotMatch(provider, /Iv23liWWbvrfIrA6WWj5|aks-desktop/);
   assert.doesNotMatch(provider, /secure-storage\.json|safeStorage/);
 });

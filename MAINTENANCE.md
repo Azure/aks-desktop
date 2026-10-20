@@ -240,7 +240,10 @@ configuration schema and script API.
 
 AKS Desktop supplies its GitHub App identity through
 `package.json#headlamp.githubOAuth`. Its native-client credential is intentionally
-bundled, while user tokens use plugin-scoped OS-encrypted storage. Host changes belong in the numbered Headlamp patch series, not generated
+bundled, while user tokens use plugin-scoped OS-encrypted storage. Browser sign-in
+uses S256 PKCE. Only the provenance-verified AKS development/shipped plugin policies
+receive the private OAuth capability; token results are not broadcast to other
+plugins. Host changes belong in the numbered Headlamp patch series, not generated
 source copies. See the [configuration contract](packages/headlamp-source/README.md#githuboauth).
 
 After building a distribution, verify both paths with a separate test profile:

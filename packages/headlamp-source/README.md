@@ -129,8 +129,19 @@ The GitHub App registration must allow the product's
 `http://localhost:48321/oauth/callback`, with the listener bound only to loopback.
 The app must issue expiring user access tokens and refresh tokens. Permissions
 come from the GitHub App registration, not OAuth scopes supplied by a plugin.
-The renderer bridge exposes `startGitHubOAuth`, `onGitHubOAuthCallback` (returning
-an unsubscribe function), and `refreshGitHubOAuth`.
+Authorization uses per-flow S256 PKCE, binding the authorization code to a verifier
+held only by the desktop host. The verifier is not sent in the browser URL.
+
+OAuth access also requires `githubOAuth: true` on the exact plugin's `runCommands`
+policy. The default is no grant; user-installed plugin policies cannot request it.
+The loader verifies plugin provenance and injects a private `pluginGitHubOAuth`
+facade with `startGitHubOAuth`, `onGitHubOAuthCallback` (returning an unsubscribe
+function), and `refreshGitHubOAuth`. Tokens return through capability-authorized
+requests and this facade's local listeners, never a global callback event. The
+old unrestricted methods on `window.desktopApi` are not available. Products must
+update consumers to use the injected facade rather than falling back to a global
+bridge. Like existing private plugin capabilities, this limits direct privileged
+API access; it does not sandbox plugins that share a JavaScript realm.
 
 ### `build`
 
