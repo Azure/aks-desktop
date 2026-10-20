@@ -1,5 +1,8 @@
-import { getClusters } from './az-clusters';
+import { getClusterSettings, setClusterSettings } from '../shared/clusterSettings';
+import { getClusters, getConnectedClusters } from './az-clusters';
+import { isExtensionInstalled } from './az-extensions';
 import { getSubscriptions as getAzSubscriptions } from './az-subscriptions';
+import { getClusterRegistrationCapability } from './clusterRegistrationCapability';
 
 export interface Subscription {
   id: string;
@@ -10,6 +13,9 @@ export interface Subscription {
   isDefault: boolean;
 }
 
+/** Discriminator distinguishing managed AKS clusters from Arc-connected AKS Hybrid & Edge clusters. */
+export type ClusterType = 'aks' | 'aksarc';
+
 export interface AKSCluster {
   name: string;
   resourceGroup: string;
@@ -18,18 +24,153 @@ export interface AKSCluster {
   provisioningState: string;
   fqdn: string;
   isAzureRBACEnabled: boolean;
+  /** `'aks'` for managed clusters, `'aksarc'` for Arc-connected (AKS Hybrid & Edge) clusters. */
+  clusterType: ClusterType;
+  /**
+   * For AKS Hybrid & Edge (`aksarc`) clusters: the Azure Arc agent heartbeat status
+   * (`'Connected'` when online). Undefined for managed AKS clusters.
+   */
+  connectivityStatus?: string;
+}
+
+/** Tail promise used to serialize native kubeconfig updates. */
+let registrationQueue = Promise.resolve();
+
+/** Reserves one canonical cluster name for an Azure scope across queued registrations. */
+interface RegistrationScopeReservation {
+  /** Azure subscription that owns the reserved cluster name. */
+  subscriptionId: string;
+  /** Azure resource group that owns the reserved cluster name. */
+  resourceGroup: string;
+  /** Number of queued or active registrations using this reservation. */
+  pendingCount: number;
+  /** Whether native registration completed successfully in this session. */
+  registered: boolean;
+  /** Whether a malformed native response left the registration outcome unknown. */
+  indeterminate: boolean;
+  /** Whether live Headlamp configuration has contained the registered cluster name. */
+  observedActive: boolean;
+}
+
+/** Scopes reserved by registrations started during this application session. */
+const registrationScopes = new Map<string, RegistrationScopeReservation>();
+
+/**
+ * Reconciles session reservations with Headlamp's live kubeconfig cluster names.
+ * A completed reservation is released only after the name was observed active
+ * and a later authoritative update no longer contains it.
+ *
+ * @param clusterNames - Cluster names from authoritative live Headlamp configuration.
+ * @returns Nothing.
+ */
+export function reconcileRegisteredClusterNames(clusterNames: Iterable<string>): void {
+  const activeNames = new Set(Array.from(clusterNames, name => name.toLowerCase()));
+  for (const [clusterName, reservation] of registrationScopes) {
+    if (activeNames.has(clusterName)) {
+      reservation.observedActive = true;
+    } else if (reservation.indeterminate && reservation.pendingCount === 0) {
+      registrationScopes.delete(clusterName);
+    } else if (
+      reservation.registered &&
+      reservation.observedActive &&
+      reservation.pendingCount === 0
+    ) {
+      registrationScopes.delete(clusterName);
+    }
+  }
 }
 
 /**
- * Get list of Azure subscriptions
+ * Checks whether persisted or reserved Azure scope metadata matches a requested scope.
+ *
+ * @param scope - Scope metadata to validate.
+ * @param subscriptionId - Requested Azure subscription ID.
+ * @param resourceGroup - Requested Azure resource group.
+ * @returns `true` when both scope fields are strings and match case-insensitively.
  */
-export async function getSubscriptions(): Promise<{
+function scopeMatches(
+  scope: { subscriptionId?: unknown; resourceGroup?: unknown } | undefined,
+  subscriptionId: string,
+  resourceGroup: string
+): boolean {
+  return (
+    typeof scope?.subscriptionId === 'string' &&
+    typeof scope.resourceGroup === 'string' &&
+    scope.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
+    scope.resourceGroup.toLowerCase() === resourceGroup.toLowerCase()
+  );
+}
+
+/**
+ * Whether scope metadata has a usable Azure identity (both fields are non-empty).
+ *
+ * @param scope - Scope metadata to inspect.
+ * @returns `true` when both scope fields are non-empty strings.
+ */
+function scopeIsKnown(
+  scope: { subscriptionId?: unknown; resourceGroup?: unknown } | undefined
+): boolean {
+  return (
+    typeof scope?.subscriptionId === 'string' &&
+    scope.subscriptionId !== '' &&
+    typeof scope.resourceGroup === 'string' &&
+    scope.resourceGroup !== ''
+  );
+}
+
+/**
+ * Saves the Azure scope required to validate later same-name registrations.
+ *
+ * @param clusterName - Kubeconfig cluster name whose settings are updated.
+ * @param subscriptionId - Azure subscription containing the cluster.
+ * @param resourceGroup - Azure resource group containing the cluster.
+ * @returns Nothing.
+ */
+function persistRegistrationScope(
+  clusterName: string,
+  subscriptionId: string,
+  resourceGroup: string
+): void {
+  // This is a managed registration, so delete any stale Arc-only markers left under this name.
+  const settings = getClusterSettings(clusterName);
+  delete settings.clusterType;
+  delete settings.subscriptionId;
+  delete settings.resourceGroup;
+  setClusterSettings(clusterName, {
+    ...settings,
+    azureRegistration: { subscriptionId, resourceGroup },
+  });
+}
+
+/**
+ * Builds the recoverable result returned when native registration succeeds but scope storage fails.
+ *
+ * @param clusterName - Cluster whose registration metadata could not be saved.
+ * @returns A failed result instructing the caller to retry metadata persistence.
+ */
+function registrationScopePersistenceFailure(clusterName: string): {
+  success: false;
+  message: string;
+} {
+  return {
+    success: false,
+    message: `Cluster '${clusterName}' was registered, but its Azure scope could not be saved. Retry to save the registration metadata.`,
+  };
+}
+
+/**
+ * Gets cached or refreshed Azure subscriptions for the registration dialog.
+ *
+ * @param refresh - Whether Azure CLI should retrieve current subscriptions from the server.
+ * @returns Subscription discovery result with mapped tenant and status fields.
+ */
+export async function getSubscriptions(refresh = false): Promise<{
   success: boolean;
   message: string;
   subscriptions?: Subscription[];
 }> {
   try {
-    const subs = await getAzSubscriptions();
+    const subs = await getAzSubscriptions(refresh);
 
     return {
       success: true,
@@ -59,21 +200,65 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
   success: boolean;
   message: string;
   clusters?: AKSCluster[];
+  /**
+   * Why no AKS Hybrid & Edge clusters are listed, when the reason is actionable.
+   *
+   * Arc discovery needs the `connectedk8s` CLI extension and resolves to an empty
+   * list without it — indistinguishable from a subscription that simply has none.
+   * The register dialog's install guidance only runs once an Arc cluster has been
+   * selected, so without this the user on a fresh installation sees no Arc
+   * clusters and has no way to reach the instructions that would fix it.
+   */
+  arcDiscoveryUnavailable?: string;
 }> {
   try {
-    const clusters = await getClusters(subscriptionId);
+    const aksClusters = await getClusters(subscriptionId);
+
+    // AKS Hybrid & Edge (Arc-connected) discovery is additive and best-effort: a
+    // failure here must never prevent the managed AKS clusters from listing.
+    // getConnectedClusters already swallows its own errors, but we guard again
+    // so the AKS path is resilient regardless of that contract.
+    let arcClusters: any[] = [];
+    try {
+      arcClusters = await getConnectedClusters(subscriptionId);
+    } catch (arcError) {
+      console.warn(
+        'AKS Hybrid & Edge cluster discovery failed; continuing with AKS clusters only:',
+        arcError
+      );
+    }
+
+    // Only when discovery came up empty is the extension worth checking: an empty
+    // Arc list is the ambiguous case, and this keeps the extra `az` call off the
+    // common path where clusters were found.
+    let arcDiscoveryUnavailable: string | undefined;
+    if (arcClusters.length === 0) {
+      try {
+        const ext = await isExtensionInstalled('connectedk8s');
+        if (!ext.installed) {
+          arcDiscoveryUnavailable = ext.error || 'connectedk8s-extension-missing';
+        }
+      } catch (extError) {
+        console.warn('Could not determine connectedk8s extension state:', extError);
+      }
+    }
+
+    const clusters = [...aksClusters, ...arcClusters];
 
     return {
       success: true,
       message: 'AKS clusters retrieved successfully',
+      arcDiscoveryUnavailable,
       clusters: clusters.map((cluster: any) => ({
         name: cluster.name,
         resourceGroup: cluster.resourceGroup,
         location: cluster.location,
-        kubernetesVersion: cluster.version,
+        kubernetesVersion: cluster.version || '',
         provisioningState: cluster.status,
         fqdn: '', // Not returned by getClusters
-        isAzureRBACEnabled: cluster.aadProfile !== null,
+        isAzureRBACEnabled: cluster.aadProfile?.enableAzureRbac === true,
+        clusterType: (cluster.clusterType as ClusterType) || 'aks',
+        connectivityStatus: cluster.connectivityStatus,
       })),
     };
   } catch (error) {
@@ -89,52 +274,146 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
  * Register an AKS cluster using the Electron IPC API.
  * This calls the native registration logic in the Electron backend.
  *
+ * Registrations run serially because each native operation reads and rewrites
+ * the shared kubeconfig file.
+ *
+ * @param subscriptionId - Azure subscription containing the cluster.
+ * @param resourceGroup - Azure resource group containing the cluster.
+ * @param clusterName - AKS cluster to register.
  * @param managedNamespace - Optional managed namespace name to use for scoped credentials
+ * @param clusterAlreadyRegistered - Whether Headlamp currently has this cluster name active.
+ * @returns The native registration result after earlier registrations finish.
  */
 export async function registerAKSCluster(
   subscriptionId: string,
   resourceGroup: string,
   clusterName: string,
   managedNamespace?: string,
-  tenantId?: string
+  clusterAlreadyRegistered = false
 ): Promise<{
   success: boolean;
   message: string;
 }> {
+  const reservationKey = clusterName.toLowerCase();
+  const existingReservation = registrationScopes.get(reservationKey);
+  if (existingReservation && !scopeMatches(existingReservation, subscriptionId, resourceGroup)) {
+    return {
+      success: false,
+      message: `Cluster '${clusterName}' is already registered with a different cluster kind or Azure scope.`,
+    };
+  }
+  if (existingReservation?.indeterminate) {
+    return {
+      success: false,
+      message: `Cluster '${clusterName}' registration has an unknown outcome. Wait for cluster configuration to refresh before retrying.`,
+    };
+  }
+  if (clusterAlreadyRegistered) {
+    const settings = getClusterSettings(clusterName);
+    // Re-check even for a completed reservation, in case an Arc cluster replaced this name.
+    const conflictsWithRegistered =
+      settings.clusterType === 'aksarc' ||
+      (scopeIsKnown(settings.azureRegistration) &&
+        !scopeMatches(settings.azureRegistration, subscriptionId, resourceGroup));
+    if (conflictsWithRegistered) {
+      return {
+        success: false,
+        message: `Cluster '${clusterName}' is already registered with a different cluster kind or Azure scope.`,
+      };
+    }
+  }
+  const reservation = existingReservation ?? {
+    subscriptionId,
+    resourceGroup,
+    pendingCount: 0,
+    registered: clusterAlreadyRegistered,
+    indeterminate: false,
+    observedActive: clusterAlreadyRegistered,
+  };
+  reservation.pendingCount++;
+  registrationScopes.set(reservationKey, reservation);
+
+  const previousRegistration = registrationQueue;
+  let releaseRegistration!: () => void;
+  registrationQueue = new Promise(resolve => {
+    releaseRegistration = resolve;
+  });
+  await previousRegistration;
+
   try {
+    if (reservation.registered) {
+      try {
+        persistRegistrationScope(clusterName, subscriptionId, resourceGroup);
+        return {
+          success: true,
+          message: `Cluster '${clusterName}' is already registered from this Azure scope.`,
+        };
+      } catch (error) {
+        console.warn('[AKS] Failed to persist cluster registration scope:', error);
+        return registrationScopePersistenceFailure(clusterName);
+      }
+    }
+
     console.debug(
       '[AKS] Registering cluster:',
       clusterName,
       managedNamespace ? `with managed namespace: ${managedNamespace}` : ''
     );
 
-    // Call the Electron IPC handler
-    const desktopApi = (window as any).desktopApi;
-
-    if (!desktopApi || !desktopApi.registerAKSCluster) {
-      console.error('[AKS] Desktop API not available - running in non-desktop mode?');
+    const registerCluster = getClusterRegistrationCapability();
+    if (!registerCluster) {
+      console.error('[AKS] Desktop cluster registration capability is not available');
       return {
         success: false,
         message: 'Desktop API not available. This feature is only available in desktop mode.',
       };
     }
 
-    const result = await desktopApi.registerAKSCluster(
+    const result: unknown = await registerCluster('azure', {
       subscriptionId,
       resourceGroup,
       clusterName,
-      false, // isAzureRBACEnabled
+      isAzureRBACEnabled: false,
       managedNamespace,
-      tenantId
-    );
+      clusterType: 'aks',
+    });
+
+    if (
+      typeof result !== 'object' ||
+      result === null ||
+      typeof (result as { success?: unknown }).success !== 'boolean' ||
+      typeof (result as { message?: unknown }).message !== 'string'
+    ) {
+      reservation.indeterminate = true;
+      return {
+        success: false,
+        message: 'Cluster registration returned an invalid response.',
+      };
+    }
 
     console.debug('[AKS] Registration result:', result);
-    return result;
+    const registrationResult = result as { success: boolean; message: string };
+    if (registrationResult.success) {
+      reservation.registered = true;
+      try {
+        persistRegistrationScope(clusterName, subscriptionId, resourceGroup);
+      } catch (error) {
+        console.warn('[AKS] Failed to persist cluster registration scope:', error);
+        return registrationScopePersistenceFailure(clusterName);
+      }
+    }
+    return registrationResult;
   } catch (error) {
     console.error('[AKS] Error registering AKS cluster:', error);
     return {
       success: false,
       message: error instanceof Error ? error.message : 'Unknown error',
     };
+  } finally {
+    reservation.pendingCount--;
+    if (reservation.pendingCount === 0 && !reservation.registered && !reservation.indeterminate) {
+      registrationScopes.delete(reservationKey);
+    }
+    releaseRegistration();
   }
 }

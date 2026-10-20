@@ -7,6 +7,7 @@ import {
   bucketNodeCount,
   kubernetesMinor,
   localeLanguage,
+  sanitizeConsent,
   sanitizeFeatureType,
   sanitizeKind,
   sanitizeRegion,
@@ -72,6 +73,11 @@ describe('sanitizeFeatureType', () => {
     expect(sanitizeFeatureType('cluster:my-prod')).toBeUndefined();
     expect(sanitizeFeatureType(undefined)).toBeUndefined();
   });
+  it('accepts the contact-us feature name', () => {
+    // Guard: dropping this from KNOWN_FEATURE_TYPES makes trackFeature return
+    // early without emitting and without erroring, silently killing the metric.
+    expect(sanitizeFeatureType('aksd.feedback')).toBe('aksd.feedback');
+  });
 });
 
 describe('sanitizeStatus', () => {
@@ -87,6 +93,21 @@ describe('sanitizeStatus', () => {
     expect(sanitizeStatus('error: foo')).toBe('unknown');
     expect(sanitizeStatus('')).toBe('unknown');
     expect(sanitizeStatus(undefined)).toBe('unknown');
+  });
+});
+
+describe('sanitizeConsent', () => {
+  it('passes known consent values through', () => {
+    expect(sanitizeConsent('granted')).toBe('granted');
+    expect(sanitizeConsent('revoked')).toBe('revoked');
+  });
+  it('returns undefined for an unknown value, unlike sanitizeStatus which defaults', () => {
+    // No honest default exists for consent: falling back to a value here
+    // would fabricate a consent state nobody actually recorded.
+    expect(sanitizeConsent('cluster:my-prod')).toBeUndefined();
+    expect(sanitizeConsent('')).toBeUndefined();
+    expect(sanitizeConsent(undefined)).toBeUndefined();
+    expect(sanitizeConsent(null)).toBeUndefined();
   });
 });
 

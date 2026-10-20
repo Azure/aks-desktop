@@ -82,9 +82,16 @@ interface ClusterDeployCardProps {
 
 export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: ClusterDeployCardProps) {
   const { t } = useTranslation();
-  const { azureContext } = useAzureContext(cluster);
+  const {
+    azureContext,
+    error: azureContextError,
+    isLoading: azureContextLoading,
+  } = useAzureContext(cluster);
   const pipelineStatus = usePipelineStatus(cluster, namespace);
-  const pipelineRepos = pipelineStatus.isConfigured ? pipelineStatus.repos : [];
+  // Pipeline actions stay behind the preview flag; with them disabled there is
+  // no GitHubAuthProvider above this card, so nothing may open a dialog that
+  // consumes the GitHub auth context.
+  const pipelineRepos = pipelineEnabled && pipelineStatus.isConfigured ? pipelineStatus.repos : [];
   const { deployments, services, loading, error } = useClusterDeployStatus(
     cluster,
     namespace,
@@ -254,7 +261,8 @@ export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: Clust
                                 </IconButton>
                               </Tooltip>
                             )}
-                          {(d.provenance === 'pipeline' || d.provenance === 'vscode') &&
+                          {pipelineEnabled &&
+                            (d.provenance === 'pipeline' || d.provenance === 'vscode') &&
                             d.pipelineRepo && (
                               <Tooltip title={t('Re-deploy')}>
                                 <IconButton size="small" onClick={() => handleRedeployPipeline(d)}>
@@ -297,10 +305,12 @@ export function ClusterDeployCard({ cluster, namespace, pipelineEnabled }: Clust
                 }
               : undefined
           }
+          azureContextError={azureContextError ?? undefined}
+          azureContextLoading={azureContextLoading}
         />
       </Dialog>
 
-      {pipelineDeployRepo && azureContext && (
+      {pipelineEnabled && pipelineDeployRepo && azureContext && (
         <PipelineDeployDialog
           open
           onClose={() => setPipelineDeployRepo(null)}

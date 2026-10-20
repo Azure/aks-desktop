@@ -1,10 +1,22 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
+import { quoteForPlatform } from '../shared/quoteForPlatform';
 import { debugLog, isAzError, isValidGuid, needsRelogin, runCommandAsync } from './az-cli-core';
 
+/**
+ * Resolves a cluster's resource group from Azure Resource Graph.
+ *
+ * @param clusterType - Restricts the lookup to one provider. Names are unique per
+ *   type and resource group, so a managed AKS cluster and an Arc-connected one can
+ *   legally share a name; without this the answer would be whichever row came
+ *   back first, and the caller could be handed the other resource's group. When
+ *   the kind is unknown the lookup still searches both, but reports nothing rather
+ *   than guessing if the name is ambiguous.
+ */
 export async function getClusterResourceGroupViaGraph(
   clusterName: string,
-  subscription: string
+  subscription: string,
+  clusterType?: 'aks' | 'aksarc'
 ): Promise<string | null> {
   try {
     if (!subscription || !isValidGuid(subscription)) {
@@ -18,19 +30,33 @@ export async function getClusterResourceGroupViaGraph(
       return null;
     }
 
+    // Both cluster kinds are looked up here. An AKS Hybrid & Edge cluster is a
+    // `microsoft.kubernetes/connectedclusters` resource and would otherwise never
+    // resolve, leaving callers without the resource group they need to reach any
+    // Azure API for it (metrics, capabilities, role assignments).
+    const typeFilter =
+      clusterType === 'aksarc'
+        ? "type == 'microsoft.kubernetes/connectedclusters'"
+        : clusterType === 'aks'
+        ? "type == 'microsoft.containerservice/managedclusters'"
+        : "type in ('microsoft.containerservice/managedclusters', 'microsoft.kubernetes/connectedclusters')";
+
+    // Deduplicate before limiting: managed and Arc resources can produce
+    // multiple rows in one group, which must not hide a match in another group.
+    // Two distinct groups are enough for the ambiguity check below.
     const query = `
       Resources
-      | where type == 'microsoft.containerservice/managedclusters'
+      | where ${typeFilter}
       | where name == '${clusterName}'
-      | project resourceGroup
-      | limit 1
+      | summarize by resourceGroup
+      | limit 2
     `;
 
     const { stdout, stderr } = await runCommandAsync('az', [
       'graph',
       'query',
       '-q',
-      query,
+      quoteForPlatform(query),
       '--output',
       'json',
       '--subscription',
@@ -53,7 +79,20 @@ export async function getClusterResourceGroupViaGraph(
 
     try {
       const result = JSON.parse(stdout);
-      const resourceGroup = result.data?.[0]?.resourceGroup;
+      const rows: Array<{ resourceGroup?: string }> = result.data ?? [];
+      const groups = [...new Set(rows.map(row => row.resourceGroup).filter(Boolean))];
+
+      if (groups.length > 1) {
+        // The name exists as more than one resource. Answering with either would
+        // point the caller at the wrong cluster's resource group.
+        debugLog(
+          'Resource Graph: cluster name is ambiguous across resource groups/types:',
+          groups.join(', ')
+        );
+        return null;
+      }
+
+      const resourceGroup = groups[0];
 
       if (resourceGroup) {
         debugLog('Resource Graph: Found resource group:', resourceGroup);
@@ -90,7 +129,16 @@ async function fetchGraphPage(
   skipToken?: string
 ): Promise<{ clusters: any[]; skipToken?: string }> {
   const pageSize = '1000';
-  const args = ['graph', 'query', '-q', query, '--first', pageSize, '--output', 'json'];
+  const args = [
+    'graph',
+    'query',
+    '-q',
+    quoteForPlatform(query),
+    '--first',
+    pageSize,
+    '--output',
+    'json',
+  ];
   // Append skip token for pagination if provided
   if (skipToken) {
     args.push('--skip-token', skipToken);
@@ -147,7 +195,8 @@ export async function getClustersViaGraph(
         location,
         version = tostring(properties.kubernetesVersion),
         status = tostring(properties.provisioningState),
-        powerState = tostring(properties.powerState.code)
+        powerState = tostring(properties.powerState.code),
+        azureRbacEnabled = tobool(properties.aadProfile.enableAzureRbac)
     | order by name asc
   `;
 
@@ -181,6 +230,10 @@ export async function getClustersViaGraph(
     status: cluster.status,
     powerState: cluster.powerState || 'Unknown',
     nodeCount: cluster.nodeCount || 0,
+    aadProfile:
+      typeof cluster.azureRbacEnabled === 'boolean'
+        ? { enableAzureRbac: cluster.azureRbacEnabled }
+        : undefined,
   }));
 }
 
@@ -197,7 +250,7 @@ export async function getClusterCount(subscriptionId: string): Promise<number> {
       'graph',
       'query',
       '-q',
-      query,
+      quoteForPlatform(query),
       '--output',
       'json',
     ]);

@@ -23,6 +23,7 @@ describe('telemetry privacy vocabularies', () => {
       'headlamp.feature',
       'headlamp.exception',
       'headlamp.plugins-loaded',
+      'headlamp.telemetry-consent',
     ]);
   });
 
@@ -50,6 +51,7 @@ describe('telemetry privacy vocabularies', () => {
       'enabledCount',
       'knownEnabledIds',
       'thirdPartyCount',
+      'consent',
     ]);
   });
 
@@ -78,6 +80,7 @@ describe('telemetry privacy vocabularies', () => {
       'aksd.cluster-add',
       'aksd.namespace-create',
       'aksd.project-delete',
+      'aksd.feedback',
     ]);
   });
 
@@ -91,6 +94,7 @@ describe('telemetry privacy vocabularies', () => {
       'aksd.cluster-add',
       'aksd.namespace-create',
       'aksd.project-delete',
+      'aksd.feedback',
     ]);
   });
 

@@ -63,6 +63,7 @@ const containerConfigStub = {
     containerPreviewYaml: '',
   },
   setConfig: noOp as any,
+  furthestStep: 0,
 };
 
 const baseArgs: DeployWizardPureProps = {

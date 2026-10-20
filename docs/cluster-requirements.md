@@ -14,7 +14,7 @@ These are hard requirements. AKS desktop will not function with AKS clusters tha
 | --- | --- | --- | --- |
 | **Microsoft Entra ID (AAD) authentication** | Required for Azure RBAC and managed namespace role assignments. Clusters without Entra ID authentication enabled do not appear in the AKS desktop cluster picker. | `az aks show -g <rg> -n <cluster> --query aadProfile` -- must not be `null` | Must be set at cluster creation: `--enable-aad --enable-azure-rbac` |
 | **Azure RBAC for Kubernetes authorization** | Required for assigning users to projects with Admin, Writer, or Reader roles. | `az aks show -g <rg> -n <cluster> --query aadProfile.enableAzureRbac` -- must be `true` | Must be set at cluster creation: `--enable-azure-rbac` |
-| **aks-preview CLI extension** | Required for `az aks namespace` commands used to create managed namespaces (AKS Projects). | `az extension show --name aks-preview` | AKS desktop installs this automatically if it is missing. To install manually: `az extension add --name aks-preview` |
+| **Azure CLI 2.85 or newer** | `az aks namespace` (used to create managed namespaces / AKS Projects) is provided by core Azure CLI, not an extension. 2.85.0 fixed the managed-namespace update location logic this app relies on. | `az version --query '"azure-cli"'` | AKS desktop bundles a compatible Azure CLI version automatically. |
 
 
 ## Recommended configuration

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-// Collects translation keys from plugins/aks-desktop, plugins/ai-assistant,
-// and headlamp/frontend into JSON files for the translation team, and
-// distributes completed translations back to the source locale directories.
+// Collects translation keys from in-repo plugins, staged release plugins,
+// installed Headlamp source, and the external headlamp-plugins repository into
+// JSON files for the translation team, then distributes completed translations.
 //
 // Usage:
 //   node Localize/translation-manager.mjs collect
@@ -10,75 +10,154 @@
 //     for OneLocBuild to use as source files.
 //
 //   node Localize/translation-manager.mjs distribute
-//     Writes collected translations back to the source locale files,
-//     completely replacing existing content.
+//     Writes collected translations back to the source locale files.
+//     `replaceDir` targets (owned by this repo) are fully replaced.
+//     `mergeDir` targets (the external plugins repo) only receive keys that
+//     are still missing there, so community translations always win.
+//
+// Release plugins must be staged before collection. The external plugins repo is
+// expected as a sibling checkout ("../plugins");
+// override with the HEADLAMP_PLUGINS_DIR environment variable. Missing external
+// plugin directories are skipped; the installed Headlamp source is required.
 
-import fs from 'node:fs';
-import path from 'node:path';
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(import.meta.dirname, '..');
-const OUTPUT_DIR = path.join(ROOT, 'Localize/locales');
+const ROOT = path.resolve(import.meta.dirname, "..");
+const OUTPUT_DIR = path.join(ROOT, "Localize/locales");
 
+const EXTERNAL_PLUGINS_DIR = path.resolve(
+  process.env.HEADLAMP_PLUGINS_DIR ?? path.join(ROOT, "..", "plugins")
+);
+
+/* Locales dir of a plugin in the external headlamp-plugins repo. */
+function externalPluginLocales(name) {
+  return path.join(EXTERNAL_PLUGINS_DIR, name, "locales");
+}
+
+/* Locales dir of a plugin vendored in this repo. */
+function localPluginLocales(name) {
+  return path.join(ROOT, "plugins", name, "locales");
+}
+
+/* Locales dir of a release plugin staged for desktop packaging. */
+function packagedPluginLocales(name) {
+  return path.join(
+    ROOT,
+    "node_modules/@headlamp-k8s/headlamp-source/source/.plugins",
+    name,
+    "locales",
+  );
+}
+
+const HEADLAMP_LOCALES = {
+  "pt-BR": "pt-br",
+  "pt-PT": "pt-pt",
+  "zh-Hans": "zh",
+  "zh-Hant": "zh-tw",
+};
+
+/* Converts OneLoc language names to the directories used by Headlamp. */
+function headlampLocaleName(lang) {
+  return HEADLAMP_LOCALES[lang] ?? lang;
+}
+
+/*
+ * name       - prefix of the collected file, e.g. "keda" -> keda-translation.json
+ * sourceDir  - locales dir the English source keys are read from
+ * replaceDir - locales dir fully overwritten on distribute (owned by this repo)
+ * mergeDir   - locales dir that only receives keys it is still missing
+ * required   - fail collection when an in-repo source is unavailable
+ */
 const SOURCES = [
   {
-    name: 'frontend',
-    localesDir: path.join(ROOT, 'headlamp/frontend/src/i18n/locales'),
-    namespaces: ['translation', 'glossary', 'app'],
+    name: "frontend",
+    sourceDir: path.join(
+      ROOT,
+      "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales",
+    ),
+    replaceDir: path.join(
+      ROOT,
+      "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales",
+    ),
+    replaceLocaleName: headlampLocaleName,
+    required: true,
+    namespaces: ["translation", "glossary", "app"],
   },
   {
-    name: 'plugin',
-    localesDir: path.join(ROOT, 'plugins/aks-desktop/locales'),
-    namespaces: ['translation'],
+    name: "plugin",
+    sourceDir: localPluginLocales("aks-desktop"),
+    replaceDir: localPluginLocales("aks-desktop"),
+    namespaces: ["translation"],
   },
   {
-    name: 'ai-assistant',
-    localesDir: path.join(ROOT, 'plugins/ai-assistant/locales'),
-    namespaces: ['translation'],
+    name: "ai-assistant",
+    sourceDir: packagedPluginLocales("ai-assistant"),
+    replaceDir: packagedPluginLocales("ai-assistant"),
+    namespaces: ["translation"],
   },
+  {
+    name: "plugin-catalog",
+    sourceDir: localPluginLocales("plugin-catalog"),
+    replaceDir: localPluginLocales("plugin-catalog"),
+    mergeDir: externalPluginLocales("plugin-catalog"),
+    namespaces: ["translation"],
+  },
+  // Plugins that only live in the external repo: translated here, merged back
+  // without ever overwriting an existing community translation.
+  ...["cert-manager", "keda", "prometheus"].map((name) => ({
+    name,
+    sourceDir: externalPluginLocales(name),
+    mergeDir: externalPluginLocales(name),
+    namespaces: ["translation"],
+  })),
 ];
 
 /** Terms that should be left as-is */
 const LOCKED_TERMS = [
   // Product / brand names
-  'Kubernetes',
-  'Headlamp',
-  'Azure',
-  'GitHub',
-  'Docker',
-  'Prometheus',
-  'Iconify',
+  "Kubernetes",
+  "Headlamp",
+  "Azure",
+  "GitHub",
+  "Docker",
+  "Prometheus",
+  "KEDA",
+  "cert-manager",
+  "Iconify",
 
   // CLI tools and config
-  'kubeconfig',
-  'kubectl',
-  'aks-preview',
-  'ManagedNamespacePreview',
+  "kubeconfig",
+  "kubectl",
+  "aks-preview",
+  "ManagedNamespacePreview",
 
   // K8s API field names (camelCase identifiers shown in UI)
-  'ipBlock',
-  'namespaceSelector',
-  'podSelector',
-  'fieldRef',
-  'resourceFieldRef',
+  "ipBlock",
+  "namespaceSelector",
+  "podSelector",
+  "fieldRef",
+  "resourceFieldRef",
 
   // K8s service types (config values)
-  'ClusterIP',
-  'LoadBalancer',
-  'NodePort',
+  "ClusterIP",
+  "LoadBalancer",
+  "NodePort",
 
   // Technical status names
-  'OOMKilled',
+  "OOMKilled",
 
   // Data format names
-  'YAML',
-  'JSON',
+  "YAML",
+  "JSON",
 ];
 
 /* Builds the `{Locked="…"}` comment for a value, or returns null if nothing matches. */
 function lockedComment(value) {
   const matches = LOCKED_TERMS.filter((term) => value.includes(term));
   if (matches.length === 0) return null;
-  return `{Locked=${matches.map((t) => `"${t}"`).join(',')}}`;
+  return `{Locked=${matches.map((t) => `"${t}"`).join(",")}}`;
 }
 
 /* Returns the flat filename for a source/namespace pair, e.g. "frontend-translation.json". */
@@ -89,13 +168,20 @@ function collectedFileName(source, ns) {
 /* Reads and parses a JSON file, returns null if it doesn't exist. */
 function readJson(filePath) {
   if (!fs.existsSync(filePath)) return null;
-  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  return JSON.parse(fs.readFileSync(filePath, "utf-8"));
 }
 
 /* Writes data as formatted JSON, creating parent directories as needed. */
-function writeJson(filePath, data) {
+function writeJson(filePath, data, eol = "\n") {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n');
+  const json = JSON.stringify(data, null, 2) + "\n";
+  fs.writeFileSync(filePath, eol === "\n" ? json : json.replace(/\n/g, eol));
+}
+
+/* OneLocBuild writes CRLF, so keep whatever a file already uses. */
+function detectEol(filePath, fallback = "\n") {
+  if (!fs.existsSync(filePath)) return fallback;
+  return fs.readFileSync(filePath, "utf-8").includes("\r\n") ? "\r\n" : "\n";
 }
 
 /*
@@ -106,15 +192,31 @@ function collect() {
   let totalFiles = 0;
 
   for (const source of SOURCES) {
+    const translationMemory = collectTranslationMemory(source);
+    const englishNamespaces = source.namespaces.map((ns) =>
+      readJson(path.join(source.sourceDir, "en", `${ns}.json`)) ?? {}
+    );
     for (const ns of source.namespaces) {
-      const srcPath = path.join(source.localesDir, 'en', `${ns}.json`);
+      const srcPath = path.join(source.sourceDir, "en", `${ns}.json`);
       const data = readJson(srcPath);
-      if (!data) continue;
+      if (!data) {
+        if (source.required) {
+          throw new Error(`Required translation source is missing: ${srcPath}`);
+        }
+        continue;
+      }
 
       const output = {};
-      const sortedEntries = Object.entries(data).sort(([a], [b]) =>
-        a.localeCompare(b),
-      );
+      const sortedEntries = Object.entries(data)
+        .map(([key, value]) => [
+          key,
+          source.name === "frontend" && ns === "app" && !value
+            ? englishNamespaces
+                .map((namespace) => namespace[key])
+                .find((text) => typeof text === "string" && text.trim()) || key
+            : value,
+        ])
+        .sort(([a], [b]) => a.localeCompare(b));
       for (const [key, value] of sortedEntries) {
         output[key] = value;
         const comment = lockedComment(String(value));
@@ -123,12 +225,19 @@ function collect() {
 
       const outPath = path.join(
         OUTPUT_DIR,
-        'en',
-        collectedFileName(source.name, ns),
+        "en",
+        collectedFileName(source.name, ns)
       );
       writeJson(outPath, output);
       totalKeys += Object.keys(data).length;
       totalFiles++;
+
+      totalFiles += scaffoldLanguages(
+        source.name,
+        ns,
+        sortedEntries,
+        translationMemory
+      );
     }
   }
 
@@ -136,63 +245,220 @@ function collect() {
   console.log(`Output: ${path.relative(ROOT, OUTPUT_DIR)}/en/`);
 }
 
+/* Snapshots unambiguous translations across sibling namespaces before scaffolding rewrites them. */
+function collectTranslationMemory(source) {
+  const memory = {};
+  for (const lang of languageDirs()) {
+    const translations = {};
+    const conflicts = new Set();
+    for (const ns of source.namespaces) {
+      const existing = readJson(
+        path.join(OUTPUT_DIR, lang, collectedFileName(source.name, ns))
+      );
+      for (const [key, value] of Object.entries(existing ?? {})) {
+        if (!value || conflicts.has(key)) continue;
+        if (key in translations && translations[key] !== value) {
+          delete translations[key];
+          conflicts.add(key);
+        } else {
+          translations[key] = value;
+        }
+      }
+    }
+    memory[lang] = translations;
+  }
+  return memory;
+}
+
+/* Language directories under Localize/locales, excluding the English source. */
+function languageDirs() {
+  if (!fs.existsSync(OUTPUT_DIR)) return [];
+  return fs
+    .readdirSync(OUTPUT_DIR, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name !== "en")
+    .map((e) => e.name);
+}
+
+/*
+ * Mirrors the English key set into every language file, keeping any value the
+ * translation team already provided and leaving new keys blank. Existing key
+ * order is preserved so re-collecting stays a minimal diff.
+ */
+function scaffoldLanguages(sourceName, ns, sortedEntries, translationMemory = {}) {
+  let written = 0;
+  const englishKeys = sortedEntries.map(([key]) => key);
+  const englishKeySet = new Set(englishKeys);
+
+  for (const lang of languageDirs()) {
+    const filePath = path.join(
+      OUTPUT_DIR,
+      lang,
+      collectedFileName(sourceName, ns)
+    );
+    const existing = readJson(filePath) ?? {};
+
+    const output = {};
+    for (const key of Object.keys(existing)) {
+      if (englishKeySet.has(key)) output[key] = existing[key];
+    }
+    for (const key of englishKeys) {
+      if (!output[key]) output[key] = translationMemory[lang]?.[key] ?? "";
+    }
+
+    writeJson(filePath, output, detectEol(filePath, "\r\n"));
+    written++;
+  }
+
+  return written;
+}
+
 /*
  * Copies collected translation files back to the original source locale
- * directories, fully replacing their content.
+ * directories. `replaceDir` targets are fully rewritten; `mergeDir` targets
+ * keep every translation they already have and only gain the missing ones.
  */
-function distribute() {
+function distribute(sourceNames) {
   if (!fs.existsSync(OUTPUT_DIR)) {
     console.error(`No collected translations found at ${OUTPUT_DIR}`);
     process.exit(1);
   }
 
-  let updated = 0;
-  const languages = fs
-    .readdirSync(OUTPUT_DIR, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name);
+  let replaced = 0;
+  let merged = 0;
+  let addedKeys = 0;
+  const languages = languageDirs();
 
   for (const lang of languages) {
     for (const source of SOURCES) {
+      if (sourceNames && !sourceNames.has(source.name)) continue;
       for (const ns of source.namespaces) {
         const collectedPath = path.join(
           OUTPUT_DIR,
           lang,
-          collectedFileName(source.name, ns),
+          collectedFileName(source.name, ns)
         );
         const collected = readJson(collectedPath);
         if (!collected) continue;
 
-        const withoutComments = Object.fromEntries(
-          Object.entries(collected).filter(
-            ([k]) => !k.startsWith('_') || !k.endsWith('.comment'),
-          ),
-        );
+        const translations = stripComments(collected);
 
-        const targetPath = path.join(source.localesDir, lang, `${ns}.json`);
-        writeJson(targetPath, withoutComments);
-        updated++;
+        if (source.replaceDir) {
+          const replaceLang = source.replaceLocaleName?.(lang) ?? lang;
+          writeJson(
+            path.join(source.replaceDir, replaceLang, `${ns}.json`),
+            translations
+          );
+          replaced++;
+        }
+
+        if (source.mergeDir) {
+          const sourceEn =
+            readJson(
+              path.join(OUTPUT_DIR, "en", collectedFileName(source.name, ns))
+            ) ?? {};
+          const added = mergeMissing(
+            source.mergeDir,
+            lang,
+            ns,
+            translations,
+            sourceEn
+          );
+          if (added > 0) {
+            merged++;
+            addedKeys += added;
+          }
+        }
       }
     }
   }
 
-  console.log(`Distributed translations to ${updated} locale files.`);
+  console.log(`Replaced ${replaced} locale files.`);
+  console.log(
+    `Added ${addedKeys} missing keys across ${merged} external locale files.`
+  );
+}
+
+/* Drops the `_<key>.comment` entries added during collection. */
+function stripComments(collected) {
+  return Object.fromEntries(
+    Object.entries(collected).filter(
+      ([k]) => !k.startsWith("_") || !k.endsWith(".comment")
+    )
+  );
+}
+
+/*
+ * Adds translations to an external locale file for keys it does not have yet.
+ * Only keys present in that plugin's own English file are considered, and only
+ * when its English text still matches what we translated, so an existing
+ * community translation is never overwritten or mismatched.
+ */
+function mergeMissing(localesDir, lang, ns, translations, sourceEn) {
+  const targetEn = readJson(path.join(localesDir, "en", `${ns}.json`));
+  if (!targetEn) return 0;
+
+  const targetPath = path.join(localesDir, lang, `${ns}.json`);
+  const existing = readJson(targetPath) ?? {};
+
+  // Keep the plugin's own English key order so merging stays a minimal diff.
+  const result = {};
+  let added = 0;
+  for (const [key, english] of Object.entries(targetEn)) {
+    // An existing empty string means the key is present but untranslated.
+    if (existing[key]) {
+      result[key] = existing[key];
+      continue;
+    }
+    if (sourceEn[key] !== english) {
+      if (key in existing) result[key] = existing[key];
+      continue;
+    }
+    const value = translations[key];
+    if (!value) {
+      if (key in existing) result[key] = existing[key];
+      continue;
+    }
+    result[key] = value;
+    added++;
+  }
+  for (const [key, value] of Object.entries(existing)) {
+    if (!(key in result)) result[key] = value;
+  }
+
+  if (added === 0) return 0;
+
+  writeJson(targetPath, result, detectEol(targetPath));
+  return added;
 }
 
 function main() {
   const args = process.argv.slice(2);
   const command = args[0];
 
-  if (command === 'collect') {
+  if (command === "collect") {
     collect();
-  } else if (command === 'distribute') {
+  } else if (command === "distribute") {
     distribute();
+  } else if (command === "distribute-headlamp") {
+    distribute(new Set(["frontend"]));
+  } else if (command === "distribute-packaged") {
+    distribute(new Set(["frontend", "ai-assistant"]));
   } else {
-    console.log('Usage:');
-    console.log('  node Localize/translation-manager.mjs collect');
-    console.log('  node Localize/translation-manager.mjs distribute');
+    console.log("Usage:");
+    console.log("  node Localize/translation-manager.mjs collect");
+    console.log("  node Localize/translation-manager.mjs distribute");
+    console.log("  node Localize/translation-manager.mjs distribute-headlamp");
+    console.log("  node Localize/translation-manager.mjs distribute-packaged");
     process.exit(1);
   }
 }
 
-main();
+if (
+  process.argv[1] &&
+  fs.realpathSync(fileURLToPath(import.meta.url)) ===
+    fs.realpathSync(path.resolve(process.argv[1]))
+) {
+  main();
+}
+
+export { headlampLocaleName, mergeMissing };

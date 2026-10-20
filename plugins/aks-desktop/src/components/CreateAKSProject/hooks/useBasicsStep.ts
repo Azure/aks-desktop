@@ -4,8 +4,30 @@
 import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useRef } from 'react';
 import { useAzureAuth } from '../../../hooks/useAzureAuth';
+import type { ClusterState } from '../../../utils/azure/clusterState';
+import {
+  getClusterStateLabel,
+  isAksHybridEdgeOnline,
+  isClusterFailed as isProvisioningFailed,
+} from '../../../utils/azure/clusterState';
+import { normalizeClusterName } from '../../../utils/kubernetes/k8sNames';
+import { getClusterSettings } from '../../../utils/shared/clusterSettings';
 import type { SearchableSelectOption } from '../components/SearchableSelect';
 import type { AzureCluster, AzureSubscription, FormData } from '../types';
+
+/**
+ * Adapts an {@link AzureCluster} to the shared {@link ClusterState} shape. The
+ * two cluster lists in this plugin name the ARM provisioning state differently
+ * (`status` here, `provisioningState` in the Add Cluster dialog), so the shared
+ * state rules take one canonical shape and each caller maps into it.
+ */
+function toClusterState(cluster: AzureCluster): ClusterState {
+  return {
+    clusterType: cluster.clusterType,
+    provisioningState: cluster.status,
+    connectivityStatus: cluster.connectivityStatus,
+  };
+}
 
 /**
  * The subset of {@link BasicsStepProps} that {@link useBasicsStep} actually
@@ -113,6 +135,16 @@ export function getClusterStateMessage(cluster: AzureCluster, t: (key: string) =
   return '';
 }
 
+/**
+ * Returns a collision-free select value without changing the cluster name stored in form data.
+ *
+ * @param cluster - Azure cluster whose option identity is required.
+ * @returns A serialized tuple containing the cluster kind, resource group, and name.
+ */
+export function getClusterOptionValue(cluster: AzureCluster): string {
+  return JSON.stringify([cluster.clusterType ?? 'aks', cluster.resourceGroup, cluster.name]);
+}
+
 // ---------------------------------------------------------------------------
 // Hook return type
 // ---------------------------------------------------------------------------
@@ -127,6 +159,11 @@ export interface UseBasicsStepResult {
   subscriptionOptions: SearchableSelectOption[];
   /** Cluster list formatted for {@link SearchableSelect}. */
   clusterOptions: SearchableSelectOption[];
+  /**
+   * Value identifying the current selection among {@link clusterOptions}. Not the
+   * cluster name: names repeat across resource groups and cluster kinds.
+   */
+  selectedClusterValue: string;
   /** Helper text shown below the Cluster select field. */
   clusterHelperText: string;
   /** The currently selected Azure subscription object, or `undefined` if none. */
@@ -138,6 +175,8 @@ export interface UseBasicsStepResult {
    * kubeconfig — the user must register it before proceeding.
    */
   isClusterMissing: boolean;
+  /** `true` when the active same-name cluster has a different kind or known Azure scope. */
+  clusterScopeConflict: boolean;
   /**
    * When the selected cluster is in a non-ready state, contains the cluster
    * object and a pre-translated warning message. `null` otherwise.
@@ -153,6 +192,59 @@ export interface UseBasicsStepResult {
    * together so they stay in sync.
    */
   handleClusterChange: (clusterName: string) => void;
+}
+
+export type ClusterRegistrationState =
+  | 'missing'
+  | 'registered'
+  | 'scope-adoption-required'
+  | 'scope-conflict';
+
+/**
+ * Resolves whether a selected Azure cluster matches the active kubeconfig entry.
+ *
+ * @param headlampClusters - Current Headlamp cluster configuration, if available.
+ * @param clusterName - Selected Azure cluster name.
+ * @param subscriptionId - Selected Azure subscription ID.
+ * @param resourceGroup - Selected Azure resource group.
+ * @param clusterType - Selected cluster kind, when known.
+ * @returns Whether the cluster is missing, registered, needs scope adoption, or conflicts.
+ */
+export function getClusterRegistrationState(
+  headlampClusters: Record<string, unknown> | null | undefined,
+  clusterName: string,
+  subscriptionId: string,
+  resourceGroup: string,
+  clusterType?: 'aks' | 'aksarc'
+): ClusterRegistrationState {
+  const activeCluster = Object.values(headlampClusters || {}).find(
+    (cluster: any) =>
+      typeof cluster.name === 'string' &&
+      normalizeClusterName(cluster.name) === normalizeClusterName(clusterName)
+  );
+  if (!activeCluster) return 'missing';
+
+  const settings = getClusterSettings(clusterName);
+  // A same-name registered cluster of a different kind is a different resource, so importing
+  // or creating against it would target the wrong kubeconfig context.
+  const registeredIsArc = settings.clusterType === 'aksarc';
+  if (clusterType !== undefined && registeredIsArc !== (clusterType === 'aksarc')) {
+    return 'scope-conflict';
+  }
+  const registeredScope = registeredIsArc
+    ? { subscriptionId: settings.subscriptionId, resourceGroup: settings.resourceGroup }
+    : settings.azureRegistration;
+  const scopeIsKnown =
+    typeof registeredScope?.subscriptionId === 'string' &&
+    registeredScope.subscriptionId !== '' &&
+    typeof registeredScope.resourceGroup === 'string' &&
+    registeredScope.resourceGroup !== '';
+  // Arc requires scope metadata for reconnecting; managed clusters can adopt unknown scope.
+  if (!scopeIsKnown) return registeredIsArc ? 'missing' : 'scope-adoption-required';
+  const scopeMatches =
+    registeredScope!.subscriptionId!.toLowerCase() === subscriptionId.toLowerCase() &&
+    registeredScope!.resourceGroup!.toLowerCase() === resourceGroup.toLowerCase();
+  return scopeMatches ? 'registered' : 'scope-conflict';
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +267,7 @@ export interface UseBasicsStepResult {
  *   delegate to `props.onFormDataChange`.
  *
  * @param props - The fields from {@link UseBasicsStepInput} that the hook needs.
+ * @returns Derived Basics-step state and handlers for the current form data.
  */
 export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
   const { t } = useTranslation();
@@ -220,19 +313,46 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
   // Derived values
   // ---------------------------------------------------------------------------
 
-  const subscriptionOptions: SearchableSelectOption[] = subscriptions.map(sub => ({
-    value: sub.id,
-    label: sub.name,
-    subtitle: `${t('Tenant')}: ${sub.tenantName} - (${sub.tenant}) • ${t('Status')}: ${sub.status}`,
-  }));
+  const subscriptionOptions: SearchableSelectOption[] = subscriptions.map(sub => {
+    // tenantName is absent for guest/cross-tenant subscriptions, and can equal
+    // the GUID once upstream fallbacks apply — don't render the GUID twice.
+    const tenantLabel =
+      sub.tenantName && sub.tenantName !== sub.tenant
+        ? `${sub.tenantName} - (${sub.tenant})`
+        : sub.tenant;
+    return {
+      value: sub.id,
+      label: sub.name,
+      subtitle: `${t('Tenant')}: ${tenantLabel} • ${t('Status')}: ${sub.status}`,
+    };
+  });
 
-  const clusterOptions: SearchableSelectOption[] = clusters.map(cluster => ({
-    value: cluster.name,
-    label: cluster.name,
-    subtitle: `${cluster.location} • ${cluster.version} • ${t('{{count}} nodes', {
-      count: cluster.nodeCount,
-    })} • ${cluster.status}`,
-  }));
+  const clusterOptions: SearchableSelectOption[] = clusters.map(cluster => {
+    const state = toClusterState(cluster);
+    const offline = !isAksHybridEdgeOnline(state);
+    return {
+      value: getClusterOptionValue(cluster),
+      label: cluster.name,
+      subtitle: `${t('Resource Group')}: ${cluster.resourceGroup} • ${cluster.location} • ${
+        cluster.version
+      } • ${t('{{count}} nodes', { count: cluster.nodeCount })} • ${getClusterStateLabel(state)}`,
+      // Clusters in a Failed provisioning state are not deployable, and an Arc
+      // cluster whose agent is offline cannot be reached at all — disable both
+      // (non-selectable) in the dropdown. The subtitle shows "Failed"/"Offline"
+      // so the reason is visible.
+      disabled: isProvisioningFailed(state) || offline,
+      // Tag Arc-connected clusters so they stand out in the dropdown, matching the
+      // "AKS Hybrid & Edge" and "Offline" chips used in the Add Cluster dialog.
+      chips: [
+        ...(cluster.clusterType === 'aksarc'
+          ? [{ label: t('AKS Hybrid & Edge'), icon: 'mdi:server', color: 'info' as const }]
+          : []),
+        ...(offline
+          ? [{ label: t('Offline'), icon: 'mdi:cloud-off-outline', color: 'default' as const }]
+          : []),
+      ],
+    };
+  });
 
   const clusterHelperText = getClusterHelperText(
     t,
@@ -246,13 +366,28 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     : undefined;
 
   const selectedCluster = formData.cluster
-    ? clusters.find(c => c.name === formData.cluster)
+    ? clusters.find(
+        c =>
+          c.name === formData.cluster &&
+          c.resourceGroup === formData.resourceGroup &&
+          // Older form state has no kind recorded; fall back to name+group there.
+          (formData.clusterType === undefined || c.clusterType === formData.clusterType)
+      )
     : undefined;
+  const selectedClusterValue = selectedCluster ? getClusterOptionValue(selectedCluster) : '';
 
+  const clusterRegistrationState = selectedCluster
+    ? getClusterRegistrationState(
+        headlampClusters,
+        selectedCluster.name,
+        formData.subscription,
+        selectedCluster.resourceGroup,
+        selectedCluster.clusterType
+      )
+    : undefined;
   const isClusterMissing =
-    selectedCluster !== undefined &&
-    Object.values(headlampClusters || {}).find((it: any) => it.name === selectedCluster.name) ===
-      undefined;
+    clusterRegistrationState === 'missing' || clusterRegistrationState === 'scope-conflict';
+  const clusterScopeConflict = clusterRegistrationState === 'scope-conflict';
 
   const nonReadyCluster: UseBasicsStepResult['nonReadyCluster'] =
     selectedCluster && isClusterNonReady(selectedCluster)
@@ -270,14 +405,18 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     onFormDataChange({ [field]: value } as Pick<FormData, K>);
   };
 
-  const handleClusterChange = (clusterName: string) => {
-    if (!clusterName) {
-      onFormDataChange({ cluster: '', resourceGroup: '' });
+  const handleClusterChange = (clusterValue: string) => {
+    if (!clusterValue) {
+      onFormDataChange({ cluster: '', resourceGroup: '', clusterType: undefined });
       return;
     }
-    const found = clusters.find(c => c.name === clusterName);
+    const found = clusters.find(c => getClusterOptionValue(c) === clusterValue);
     if (found) {
-      onFormDataChange({ cluster: clusterName, resourceGroup: found.resourceGroup });
+      onFormDataChange({
+        cluster: found.name,
+        resourceGroup: found.resourceGroup,
+        clusterType: found.clusterType,
+      });
     }
   };
 
@@ -288,7 +427,9 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
     clusterHelperText,
     selectedSubscription,
     selectedCluster,
+    selectedClusterValue,
     isClusterMissing,
+    clusterScopeConflict,
     nonReadyCluster,
     handleInputChange,
     handleClusterChange,

@@ -17,25 +17,38 @@ export interface AzureContext {
 
 export const useAzureContext = (
   cluster: string | undefined
-): { azureContext: AzureContext | null; error: string | null } => {
+): { azureContext: AzureContext | null; error: string | null; isLoading: boolean } => {
   const { t } = useTranslation();
   const azureAuth = useAzureAuth();
   const [azureContext, setAzureContext] = useState<AzureContext | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Match what the effect sets, so the first render doesn't show a stale state.
+  const [isLoading, setIsLoading] = useState(
+    () => Boolean(cluster) && (azureAuth.isChecking || azureAuth.isLoggedIn)
+  );
 
   useEffect(() => {
     if (!cluster) {
       setAzureContext(null);
+      setIsLoading(false);
       setError(t('No cluster is associated with this project.'));
+      return;
+    }
+    // isLoggedIn is only meaningful once isChecking clears.
+    if (azureAuth.isChecking) {
+      setIsLoading(true);
+      setError(null);
       return;
     }
     if (!azureAuth.isLoggedIn) {
       setAzureContext(null);
+      setIsLoading(false);
       setError(t('Please sign in to Azure to continue.'));
       return;
     }
     setAzureContext(null); // clear stale context during fetch
     setError(null);
+    setIsLoading(true);
     let cancelled = false;
     (async () => {
       try {
@@ -71,12 +84,16 @@ export const useAzureContext = (
           console.error('Failed to resolve Azure context:', err);
           setError(err instanceof Error ? err.message : t('Failed to load Azure context'));
         }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [cluster, azureAuth.isLoggedIn, azureAuth.tenantId]);
+  }, [cluster, azureAuth.isChecking, azureAuth.isLoggedIn, azureAuth.tenantId]);
 
-  return { azureContext, error };
+  return { azureContext, error, isLoading };
 };

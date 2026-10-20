@@ -31,6 +31,7 @@ export const BASE_PROPS: CreateAKSProjectPureProps = {
   isCreating: false,
   creationProgress: '',
   creationError: null,
+  creationWarnings: [],
   showSuccessDialog: false,
   applicationName: '',
   setApplicationName: (() => {}) as any,

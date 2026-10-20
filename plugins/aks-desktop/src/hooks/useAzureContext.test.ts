@@ -65,6 +65,17 @@ describe('useAzureContext', () => {
     expect(mockGetClusterInfo).not.toHaveBeenCalled();
   });
 
+  it('reports loading, not a sign-in error, while the auth check is still running', () => {
+    mockAuth({ isLoggedIn: false, isChecking: true, tenantId: undefined });
+
+    const { result } = renderHook(() => useAzureContext('my-cluster'));
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.error).toBeNull();
+    expect(result.current.azureContext).toBeNull();
+    expect(mockGetClusterInfo).not.toHaveBeenCalled();
+  });
+
   it('resolves context when cluster info is available', async () => {
     mockAuth();
     mockGetClusterInfo.mockResolvedValue({
@@ -83,6 +94,7 @@ describe('useAzureContext', () => {
       });
     });
     expect(result.current.error).toBeNull();
+    expect(result.current.isLoading).toBe(false);
   });
 
   it('sets error when getClusterInfo fails', async () => {
@@ -95,6 +107,7 @@ describe('useAzureContext', () => {
       expect(result.current.error).toBe('network error');
     });
     expect(result.current.azureContext).toBeNull();
+    expect(result.current.isLoading).toBe(false);
   });
 
   it('sets error when required fields are missing', async () => {
@@ -111,6 +124,7 @@ describe('useAzureContext', () => {
       expect(result.current.error).toContain('Missing required Azure context');
     });
     expect(result.current.azureContext).toBeNull();
+    expect(result.current.isLoading).toBe(false);
   });
 
   it('clears context when cluster changes to undefined', async () => {

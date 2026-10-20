@@ -1,22 +1,47 @@
 {
   "name": "aks-desktop-monorepo",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "AKS desktop - Headlamp Plugin Monorepo",
   "private": true,
+  "packageManager": "npm@12.0.1",
+  "engines": {
+    "node": ">=22.22.2",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
-    "build": "npm run plugin:setup && cd headlamp && make app",
-    "build:linux": "npm run plugin:setup && cd headlamp && make app-linux",
-    "build:mac": "npm run plugin:setup && cd headlamp && make app-mac",
-    "build:win": "npm run plugin:setup && cd headlamp && make app-win",
-    "build:win-ci": "npm run plugin:setup && cd headlamp && make app-win",
-    "build:unpacked": "npm run plugin:setup && cd headlamp && make app-build",
-    "build:unpacked:linux": "npm run plugin:setup && cd headlamp && make app-build",
-    "build:unpacked:mac": "npm run plugin:setup && cd headlamp && make app-build",
-    "build:unpacked:win": "npm run plugin:setup && cd headlamp && make app-build",
-    "test:build": "tsx --test build/plugin-packaging.test.ts",
-    "test:post-build": "npx --yes tsx ./build/verify-bundled-tools.ts",
-    "plugin:setup": "npx --yes tsx ./build/setup-plugins.ts",
-    "plugin:install": "cd plugins/aks-desktop && npm install",
+    "start": "npm run dev",
+    "postinstall": "npm run headlamp:patch-installed && npm run install:all",
+    "build": "tsx ./build/build-host-platform.ts",
+    "build:diagnostic": "cross-env DEBUG=electron-builder,electron-builder:* tsx ./build/build-host-platform.ts",
+    "build:linux": "npm run build:linux:x64",
+    "build:linux:x64": "tsx ./build/package-target.ts --platform=linux --arch=x64",
+    "build:linux:arm64": "tsx ./build/package-target.ts --platform=linux --arch=arm64",
+    "build:mac": "npm run build:mac:x64",
+    "build:mac:x64": "tsx ./build/package-target.ts --platform=darwin --arch=x64",
+    "build:mac:arm64": "tsx ./build/package-target.ts --platform=darwin --arch=arm64",
+    "build:win": "npm run build:win:x64 && npm run build:win:arm64",
+    "build:win:x64": "tsx ./build/package-target.ts --platform=win32 --arch=x64",
+    "build:win:arm64": "tsx ./build/package-target.ts --platform=win32 --arch=arm64",
+    "build:win-ci": "npm run build:win:x64",
+    "ci:windows": "node build/windows-ci.cjs",
+    "build:unpacked": "tsx ./build/build-host-platform.ts --unpacked",
+    "build:unpacked:diagnostic": "cross-env DEBUG=electron-builder,electron-builder:* tsx ./build/build-host-platform.ts --unpacked",
+    "build:unpacked:linux:x64": "tsx ./build/package-target.ts --platform=linux --arch=x64 --unpacked",
+    "build:unpacked:linux:arm64": "tsx ./build/package-target.ts --platform=linux --arch=arm64 --unpacked",
+    "build:unpacked:mac:x64": "tsx ./build/package-target.ts --platform=darwin --arch=x64 --unpacked",
+    "build:unpacked:mac:arm64": "tsx ./build/package-target.ts --platform=darwin --arch=arm64 --unpacked",
+    "build:unpacked:win:x64": "tsx ./build/package-target.ts --platform=win32 --arch=x64 --unpacked",
+    "build:unpacked:win:arm64": "tsx ./build/package-target.ts --platform=win32 --arch=arm64 --unpacked",
+    "build:container": "npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:container",
+    "test:build": "node --test build/windows-ci.test.cjs && npm --prefix packages/headlamp-source run test:helpers && tsx --test build/build-target.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/generate-frontend-environment.test.ts build/go-version.test.ts build/install-dependencies.test.ts build/install-headlamp-desktop.test.ts build/install-release-plugins.test.ts build/package-target.test.ts build/product-manifest-verification.test.ts build/start-development.test.ts test/integration/*.test.ts",
+    "test:headlamp-package": "npm --prefix packages/headlamp-source run test:package && tsx --test test/integration/headlamp-package.test.ts",
+    "test:headlamp-patches": "npm run headlamp:patches -- --check && npm run test:headlamp-package",
+    "test:i18n": "node --test Localize/translation-manager.test.mjs",
+    "test:post-build": "tsx ./build/verify-bundled-tools.ts",
+    "test:distribution": "npm run test:post-build && npm run headlamp:smoke --",
+    "plugin:setup": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run bundle:plugins",
+    "plugin:install-releases": "tsx ./build/install-release-plugins.ts",
+    "plugin:install": "npm ci --prefix plugins/aks-desktop --prefer-offline --no-audit --no-fund",
     "plugin:build": "cd plugins/aks-desktop && npm run build",
     "plugin:start": "cd plugins/aks-desktop && npm start",
     "plugin:test": "cd plugins/aks-desktop && npm test",
@@ -24,55 +49,1092 @@
     "plugin:test:all": "cd plugins/aks-desktop && npm run test:all",
     "plugin:format": "cd plugins/aks-desktop && npm run format",
     "plugin:package": "cd plugins/aks-desktop && npm run package",
-    "ai-assistant:install": "cd plugins/ai-assistant && npm install",
-    "ai-assistant:build": "cd plugins/ai-assistant && npm run build",
-    "ai-assistant:start": "cd plugins/ai-assistant && npm start",
-    "ai-assistant:test": "cd plugins/ai-assistant && npm test",
-    "ai-assistant:lint": "cd plugins/ai-assistant && npm run lint",
-    "ai-assistant:format": "cd plugins/ai-assistant && npm run format",
-    "headlamp:install": "cd headlamp/frontend && npm install && cd ../app && npm install",
-    "headlamp:build": "cd headlamp && make backend && make frontend",
-    "install:all": "npm run headlamp:install && npm run plugin:install && npm run ai-assistant:install",
-    "build:all": "npm run headlamp:build && npm run plugin:build && npm run ai-assistant:build",
-    "dev": "concurrently --kill-others --names \"PLUGIN,AI-ASSISTANT,BACKEND,FRONTEND,APP\" -c \"cyan,blue,green,yellow,magenta\" \"npm run plugin:start\" \"npm run ai-assistant:start\" \"cd headlamp && make run-backend\" \"cd headlamp && make run-frontend\" \"cd headlamp && make run-only-app\"",
+    "plugin-catalog:install": "npm ci --prefix plugins/plugin-catalog --prefer-offline --no-audit --no-fund",
+    "headlamp:manifest": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run manifest:generate",
+    "headlamp:frontend-env": "tsx ./build/generate-frontend-environment.ts",
+    "headlamp:patches": "npm --prefix packages/headlamp-source run patches:compose --",
+    "headlamp:patch-installed": "node --experimental-strip-types packages/headlamp-source/src/bin/compose-patches.ts --apply node_modules/@headlamp-k8s/headlamp-source",
+    "headlamp:prepare": "node --experimental-strip-types packages/headlamp-source/src/bin/update-source.ts --prepare --root .",
+    "headlamp:assemble": "npm run headlamp:tools && npm run headlamp:manifest && npm run plugin:install-releases && npm run headlamp:translations && npm run plugin:setup && npm run headlamp:frontend-env",
+    "headlamp:doctor": "npm run test:headlamp-package && npm --prefix node_modules/@headlamp-k8s/headlamp-source run manifest:check",
+    "headlamp:source": "npm --prefix packages/headlamp-source run source:update --",
+    "headlamp:smoke": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run smoke:app --",
+    "headlamp:tools": "tsx ./build/setup-external-tools.ts",
+    "headlamp:translations": "node Localize/translation-manager.mjs distribute-packaged",
+    "headlamp:install": "tsx ./build/install-headlamp-desktop.ts",
+    "headlamp:build": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run build",
+    "install:all": "tsx ./build/install-dependencies.ts",
+    "build:all": "npm run headlamp:build && npm run plugin:build",
+    "predev": "tsx ./build/prepare-development.ts",
+    "dev": "tsx ./build/start-development.ts",
+    "dev:services": "cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json concurrently --kill-others --names \"PLUGIN,BACKEND,FRONTEND,APP\" -c \"cyan,green,yellow,magenta\" \"npm run plugin:start\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:backend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:frontend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:app\"",
     "prepare": "husky",
     "knip": "knip",
-    "i18n:collect": "node Localize/translation-manager.mjs collect",
+    "i18n:collect": "npm run plugin:install-releases && node Localize/translation-manager.mjs collect",
     "i18n:distribute": "node Localize/translation-manager.mjs distribute"
   },
   "config": {
     "externalTools": {
       "python": {
+        "version": "3.14",
         "linux": {
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250723/cpython-3.10.18+20250723-x86_64_v3-unknown-linux-gnu-install_only_stripped.tar.gz",
-          "checksum": "b712e37fd4f50243afae019f0c325568129550b66598addb6dd9685d36b4625f"
+          "x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+            "checksum": "02c092dc99ca4d37a9ac7ea2fc154e3bd7fa1b33195b714bfb7eb6d5a6bd3632"
+          },
+          "arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+            "checksum": "fd3f24236faa41b8548cd59b7ee5e703af9651d6ab097498676a9727fdd3285b"
+          }
         },
         "darwin": {
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.10.19+20251028-x86_64-apple-darwin-install_only_stripped.tar.gz",
-          "checksum": "ff636e82637a7768c499921188222322369584d1b6a2e85a898aba1e263d69f2"
+          "x64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-x86_64-apple-darwin-install_only_stripped.tar.gz",
+            "checksum": "25bd3a638d4820ee027317888c5057bddf5b304521f59d776ae3bea6830d0c7f"
+          },
+          "arm64": {
+            "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-aarch64-apple-darwin-install_only_stripped.tar.gz",
+            "checksum": "c3223d5924a0ed0ef5958a750377c362d0957587f896c0f6c635ae4b39e0f337"
+          }
         }
       },
       "azureCli": {
-        "version": "2.78.0",
+        "version": "2.90.0",
         "extensions": [
-          "aks-preview",
           "resource-graph",
-          "alertsmanagement"
+          "alertsmanagement",
+          "connectedk8s"
         ],
+        "extensionVersions": {
+          "resource-graph": "2.1.1",
+          "alertsmanagement": "1.0.0b2",
+          "connectedk8s": "1.11.3"
+        },
+        "extensionPackages": {
+          "resource-graph": {
+            "url": "https://azcliprod.blob.core.windows.net/cli-extensions/resource_graph-2.1.1-py2.py3-none-any.whl",
+            "checksum": "436b2e865d7f3fb6beea2cdc017c74dd48a66991209a5ab8dc092443ec93140f"
+          },
+          "alertsmanagement": {
+            "url": "https://azcliprod.blob.core.windows.net/cli-extensions/alertsmanagement-1.0.0b2-py3-none-any.whl",
+            "checksum": "37f376234f8047df93d7c5355cc864f35ec195f6c7babe148f57349303af6696"
+          },
+          "connectedk8s": {
+            "url": "https://azcliprod.blob.core.windows.net/cli-extensions/connectedk8s-1.11.3-py2.py3-none-any.whl",
+            "checksum": "18b2087ed7f70d621a6259ad2ce14836a57b215ab71c03aed52296a05a609c1f"
+          }
+        },
+        "linux": {
+          "x64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-linux-x86_64.tar.gz",
+            "checksum": "9b2a19ad37bbe578e506a2643e974c99d3ee141b2f94cdb6f064a342e5c4eae1"
+          },
+          "arm64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-linux-arm64.tar.gz",
+            "checksum": "df71d304216c1adb1bf6957f0386ea320d32beaf7019f927e0b7e4cf2d2a4df5"
+          }
+        },
+        "darwin": {
+          "x64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-macos-x86_64.tar.gz",
+            "checksum": "4617d8d16350dbee34f8024059ac768e0cfbdb7ec8f637abdfdaab1e5c9ba0ce"
+          },
+          "arm64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-macos-arm64.tar.gz",
+            "checksum": "1cdcf8dc99ece8c10d198d9451d7ac0905a4d63aea5fac5fcf903bdf2aba93b3"
+          }
+        },
         "win32": {
-          "checksum": "37918233a753986e698ab3b2993b97a17b4458d24c2af94c05be5fa9042874ed"
+          "x64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-x64.zip",
+            "checksum": "c4ef59b14f0edd074427fd9981e57b0780965ccdcf6191c033fdf4b4361f33d7",
+            "runtimeArch": "x64"
+          },
+          "arm64": {
+            "url": "https://github.com/Azure/azure-cli/releases/download/azure-cli-2.90.0/azure-cli-2.90.0-x64.zip",
+            "checksum": "c4ef59b14f0edd074427fd9981e57b0780965ccdcf6191c033fdf4b4361f33d7",
+            "runtimeArch": "x64"
+          }
         }
       }
     }
   },
+  "headlampSource": {
+    "revision": "d4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0"
+  },
+  "headlamp": {
+    "commandEnvironment": "external-tools/aks-tool-environment.cjs",
+    "proxy-urls": [
+      "https://artifacthub.io/api/v1/packages/*"
+    ],
+    "product": {
+      "name": "aks-desktop",
+      "productName": "AKS desktop",
+      "companyName": "Microsoft",
+      "appId": "com.microsoft.aksdesktop",
+      "artifactName": "aks-desktop-${version}-${os}-${arch}.${ext}",
+      "protocols": {
+        "name": "AKS Desktop",
+        "schemes": [
+          "aks-desktop"
+        ]
+      }
+    },
+    "checkForUpdates": false,
+    "legalDocuments": [
+      {
+        "id": "license",
+        "title": "AKS Desktop license",
+        "file": "AKS_DESKTOP_LICENSE.txt"
+      },
+      {
+        "id": "notices",
+        "title": "AKS Desktop notices",
+        "file": "AKS_DESKTOP_NOTICE.md"
+      }
+    ],
+    "platforms": {
+      "linux": {
+        "executableName": "aks-desktop",
+        "maintainer": "Microsoft <opencode@microsoft.com>"
+      },
+      "mac": {
+        "appId": "com.microsoft.aksdesktop",
+        "executableName": "AKS desktop"
+      },
+      "win": {
+        "executableName": "AKS desktop"
+      }
+    },
+    "build": {
+      "manifest": ".aks-desktop/product-manifest.json",
+      "productNames": {
+        "linux": "AKS-Desktop"
+      },
+      "icons": {
+        "mac": "build/icons/aks-desktop.icns",
+        "win": "build/icons/aks-desktop.ico",
+        "linux": "build/icons/aks-desktop.png"
+      },
+      "frontendEnvironment": {
+        "REACT_APP_HEADLAMP_ERROR_PAGE_TITLE": "AKS Desktop encountered an error",
+        "REACT_APP_HEADLAMP_ERROR_PAGE_GRAPHIC": {
+          "file": "build/icons/aks-desktop-error.svg"
+        },
+        "REACT_APP_HEADLAMP_NOT_FOUND_PAGE_TITLE": "Page not found in AKS Desktop",
+        "REACT_APP_HEADLAMP_NOT_FOUND_PAGE_GRAPHIC": {
+          "file": "build/icons/aks-desktop-not-found.svg"
+        }
+      },
+      "resources": [
+        {
+          "base": "headlampApp",
+          "from": "resources/external-tools",
+          "to": "external-tools"
+        },
+        {
+          "base": "project",
+          "from": "LICENSE.txt",
+          "to": "AKS_DESKTOP_LICENSE.txt"
+        },
+        {
+          "base": "project",
+          "from": "NOTICE.md",
+          "to": "AKS_DESKTOP_NOTICE.md"
+        }
+      ],
+      "externalTools": [
+        {
+          "id": "az",
+          "platforms": {
+            "linux": {
+              "file": "resources/external-tools/az-cli/linux/bin/az",
+              "path": "external-tools/az-cli/linux/bin/az",
+              "verificationPath": "external-tools/az-cli/linux/bin/az-wrapper"
+            },
+            "darwin": {
+              "file": "resources/external-tools/az-cli/darwin/bin/az",
+              "path": "external-tools/az-cli/darwin/bin/az",
+              "verificationPath": "external-tools/az-cli/darwin/bin/az-wrapper"
+            },
+            "win32": {
+              "file": "resources/external-tools/az-cli/win32/bin/az.cmd",
+              "path": "external-tools/az-cli/win32/bin/az.cmd"
+            }
+          }
+        },
+        {
+          "id": "az-kubelogin",
+          "platforms": {
+            "linux": {
+              "file": "resources/external-tools/bin/az-kubelogin.py",
+              "path": "external-tools/bin/az-kubelogin.py"
+            },
+            "darwin": {
+              "file": "resources/external-tools/bin/az-kubelogin.py",
+              "path": "external-tools/bin/az-kubelogin.py"
+            },
+            "win32": {
+              "file": "resources/external-tools/bin/az-kubelogin.py",
+              "path": "external-tools/bin/az-kubelogin.py"
+            }
+          }
+        },
+        {
+          "id": "az-python",
+          "platforms": {
+            "linux": {
+              "file": "resources/external-tools/az-cli/linux/python/bin/python3",
+              "path": "external-tools/az-cli/linux/python/bin/python3"
+            },
+            "darwin": {
+              "file": "resources/external-tools/az-cli/darwin/bin/python-wrapper",
+              "path": "external-tools/az-cli/darwin/bin/python-wrapper"
+            },
+            "win32": {
+              "file": "resources/external-tools/az-cli/win32/python.exe",
+              "path": "external-tools/az-cli/win32/python.exe"
+            }
+          }
+        }
+      ]
+    },
+    "runCommands": [
+      {
+        "environment": "development",
+        "pluginLocation": "development",
+        "approvedCommands": [
+          {
+            "tool": "az",
+            "args": []
+          },
+          {
+            "tool": "az",
+            "args": [
+              "--version"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "version"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "login"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "logout"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "aks"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "connectedk8s"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "aksarc"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "extension"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "feature"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "provider"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "account"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "role"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "graph"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "acr"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "group"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "vm"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "alerts-management"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "monitor"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "kubectl",
+            "args": [
+              "top"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "kubectl",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad",
+              "user",
+              "list"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad",
+              "user",
+              "show"
+            ],
+            "allowTrailingArgs": true
+          }
+        ],
+        "plugins": [
+          {
+            "bundleName": "aks-desktop",
+            "packageName": "aks-desktop"
+          }
+        ],
+        "clusterRegistrationProviders": [
+          {
+            "id": "azure",
+            "type": "azure",
+            "tools": {
+              "cli": "az",
+              "python": "az-python",
+              "kubelogin": "az-kubelogin"
+            }
+          }
+        ],
+        "commands": [
+          {
+            "tool": "az",
+            "args": [
+              "account"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "acr"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "aks"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "alerts-management"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "connectedk8s"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "extension"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "feature"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "graph"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "group"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "identity"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "login"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "logout"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "monitor"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "provider"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "rest"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "role"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "version"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "vm"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "kubectl",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          }
+        ]
+      },
+      {
+        "environment": "development",
+        "pluginLocation": "development",
+        "approvedCommands": [
+          {
+            "tool": "gh",
+            "args": [
+              "auth"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "account"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "cognitiveservices"
+            ],
+            "allowTrailingArgs": true
+          }
+        ],
+        "plugins": [
+          {
+            "bundleName": "ai-assistant",
+            "packageName": "@headlamp-k8s/ai-assistant"
+          }
+        ],
+        "commands": [
+          {
+            "tool": "gh",
+            "args": [
+              "auth",
+              "token"
+            ]
+          },
+          {
+            "tool": "az",
+            "args": [
+              "account",
+              "get-access-token",
+              "--resource",
+              "https://management.azure.com/",
+              "--query",
+              "accessToken",
+              "-o",
+              "tsv"
+            ]
+          }
+        ]
+      },
+      {
+        "environment": "production",
+        "pluginLocation": "shipped",
+        "approvedCommands": [
+          {
+            "tool": "az",
+            "args": []
+          },
+          {
+            "tool": "az",
+            "args": [
+              "--version"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "version"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "login"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "logout"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "aks"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "connectedk8s"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "aksarc"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "extension"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "feature"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "provider"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "account"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "role"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "graph"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "acr"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "group"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "vm"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "alerts-management"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "monitor"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "kubectl",
+            "args": [
+              "top"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "kubectl",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad",
+              "user",
+              "list"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad",
+              "user",
+              "show"
+            ],
+            "allowTrailingArgs": true
+          }
+        ],
+        "plugins": [
+          {
+            "bundleName": "aks-desktop",
+            "packageName": "aks-desktop"
+          }
+        ],
+        "clusterRegistrationProviders": [
+          {
+            "id": "azure",
+            "type": "azure",
+            "tools": {
+              "cli": "az",
+              "python": "az-python",
+              "kubelogin": "az-kubelogin"
+            }
+          }
+        ],
+        "commands": [
+          {
+            "tool": "az",
+            "args": [
+              "account"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "ad"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "acr"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "aks"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "alerts-management"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "connectedk8s"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "extension"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "feature"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "graph"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "group"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "identity"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "login"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "logout"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "monitor"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "provider"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "rest"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "role"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "version"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "vm"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "kubectl",
+            "args": [
+              "config"
+            ],
+            "allowTrailingArgs": true
+          }
+        ]
+      },
+      {
+        "environment": "production",
+        "pluginLocation": "shipped",
+        "approvedCommands": [
+          {
+            "tool": "gh",
+            "args": [
+              "auth"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "account"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
+              "cognitiveservices"
+            ],
+            "allowTrailingArgs": true
+          }
+        ],
+        "plugins": [
+          {
+            "bundleName": "ai-assistant",
+            "packageName": "@headlamp-k8s/ai-assistant"
+          }
+        ],
+        "commands": [
+          {
+            "tool": "gh",
+            "args": [
+              "auth",
+              "token"
+            ]
+          },
+          {
+            "tool": "az",
+            "args": [
+              "account",
+              "get-access-token",
+              "--resource",
+              "https://management.azure.com/",
+              "--query",
+              "accessToken",
+              "-o",
+              "tsv"
+            ]
+          }
+        ]
+      }
+    ],
+    "plugins": [
+      {
+        "name": "aks-desktop",
+        "packageName": "aks-desktop",
+        "source": "plugins/aks-desktop",
+        "enabledByDefault": true
+      },
+      {
+        "name": "ai-assistant",
+        "packageName": "@headlamp-k8s/ai-assistant",
+        "archive": "https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.1-alpha/headlamp-k8s-ai-assistant-0.4.1-alpha.tar.gz",
+        "sha256": "a91984fa15682a4109088803a6265d5caf49fe1f0931870716169b14d99e98ef",
+        "enabledByDefault": true
+      },
+      {
+        "name": "insights-plugin",
+        "packageName": "insights-plugin",
+        "source": "plugins/insights-plugin",
+        "enabledByDefault": true
+      },
+      {
+        "name": "plugin-catalog",
+        "packageName": "@headlamp-k8s/plugin-catalog",
+        "source": "plugins/plugin-catalog",
+        "enabledByDefault": true
+      }
+    ]
+  },
   "devDependencies": {
+    "@headlamp-k8s/headlamp-source": "file:packages/headlamp-source",
     "@types/node": "^26.1.1",
     "concurrently": "^9.1.2",
+    "cross-env": "10.1.0",
     "husky": "^9.0.0",
     "knip": "^6.24.0",
     "lint-staged": "^17.0.8",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3"
+  },
+  "headlampPatch": {
+    "path": "patches/headlamp-source@0.0.0-main.d4c87a8f.patch",
+    "integrity": "sha512-wmdaiS2nP8+jd2phgApjAcUGG4m1TymkYRoEntHPF5mgL8iDQezkRDVHBpJXwy9aZowIZafJx1dtstIS8pbzzw=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
@@ -80,12 +1142,6 @@
     ],
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx,json,css,scss,md}": [
       "node .husky/format-plugin.js"
-    ],
-    "plugins/ai-assistant/**/*.{js,jsx,ts,tsx}": [
-      "node .husky/lint-ai-assistant.js"
-    ],
-    "plugins/ai-assistant/**/*.{js,jsx,ts,tsx,json,css,scss,md}": [
-      "node .husky/format-ai-assistant.js"
     ]
   },
   "repository": {
@@ -100,5 +1156,8 @@
     "plugin"
   ],
   "author": "Microsoft",
-  "license": "MIT"
+  "license": "MIT",
+  "allowScripts": {
+    "esbuild": false
+  }
 }

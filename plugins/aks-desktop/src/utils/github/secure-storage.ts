@@ -2,28 +2,27 @@
 // Licensed under the Apache 2.0.
 
 /**
- * Thin wrapper around Electron's safeStorage IPC bridge.
+ * Thin wrapper around Headlamp's plugin-scoped safeStorage bridge.
  * Falls back gracefully when not running in desktop mode.
  */
 
-interface DesktopApiSecureStorage {
-  secureStorageSave(key: string, value: string): Promise<{ success: boolean; error?: string }>;
-  secureStorageLoad(
-    key: string
-  ): Promise<{ success: boolean; value?: string | null; error?: string }>;
-  secureStorageDelete(key: string): Promise<{ success: boolean; error?: string }>;
+interface PluginSecureStorage {
+  save(key: string, value: string): Promise<{ success: boolean; error?: string }>;
+  load(key: string): Promise<{ success: boolean; value?: string | null; error?: string }>;
+  delete(key: string): Promise<{ success: boolean; error?: string }>;
 }
 
-function getDesktopApi(): DesktopApiSecureStorage | null {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const api = (window as any).desktopApi as DesktopApiSecureStorage | undefined;
+declare const pluginSecureStorage: PluginSecureStorage | undefined;
+
+function getSecureStorage(): PluginSecureStorage | null {
   if (
-    api &&
-    typeof api.secureStorageSave === 'function' &&
-    typeof api.secureStorageLoad === 'function' &&
-    typeof api.secureStorageDelete === 'function'
+    typeof pluginSecureStorage !== 'undefined' &&
+    pluginSecureStorage &&
+    typeof pluginSecureStorage.save === 'function' &&
+    typeof pluginSecureStorage.load === 'function' &&
+    typeof pluginSecureStorage.delete === 'function'
   ) {
-    return api;
+    return pluginSecureStorage;
   }
   return null;
 }
@@ -33,10 +32,10 @@ function getDesktopApi(): DesktopApiSecureStorage | null {
  * Returns true on success, false if unavailable or failed.
  */
 export const secureStorageSave = async (key: string, value: string): Promise<boolean> => {
-  const api = getDesktopApi();
+  const api = getSecureStorage();
   if (!api) return false;
   try {
-    const result = await api.secureStorageSave(key, value);
+    const result = await api.save(key, value);
     return result.success;
   } catch {
     return false;
@@ -48,10 +47,10 @@ export const secureStorageSave = async (key: string, value: string): Promise<boo
  * Returns the plaintext string, or null if unavailable/not found/failed.
  */
 export const secureStorageLoad = async (key: string): Promise<string | null> => {
-  const api = getDesktopApi();
+  const api = getSecureStorage();
   if (!api) return null;
   try {
-    const result = await api.secureStorageLoad(key);
+    const result = await api.load(key);
     if (result.success && result.value !== undefined && result.value !== null) {
       return result.value;
     }
@@ -66,10 +65,10 @@ export const secureStorageLoad = async (key: string): Promise<string | null> => 
  * Returns true on success, false if unavailable or failed.
  */
 export const secureStorageDelete = async (key: string): Promise<boolean> => {
-  const api = getDesktopApi();
+  const api = getSecureStorage();
   if (!api) return false;
   try {
-    const result = await api.secureStorageDelete(key);
+    const result = await api.delete(key);
     return result.success;
   } catch {
     return false;

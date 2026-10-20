@@ -1,4 +1,0 @@
-[submodule "headlamp"]
-	path = headlamp
-	url = https://github.com/Azure/aks-desktop.git
-	branch = headlamp-downstream

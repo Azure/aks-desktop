@@ -48,6 +48,12 @@ vi.mock('../../telemetry', () => ({
   trackClusterShape: (...args: any[]) => mockTrackClusterShape(...args),
 }));
 
+// Mock useConsentEpoch so a test can force the cluster-shape effect to re-run.
+const mockUseConsentEpoch = vi.fn(() => 0);
+vi.mock('../../hooks/useConsentEpoch', () => ({
+  useConsentEpoch: () => mockUseConsentEpoch(),
+}));
+
 import ClusterCapabilityCard from './ClusterCapabilityCard';
 
 function makeCapabilities(overrides: Partial<ClusterCapabilities> = {}): ClusterCapabilities {
@@ -351,6 +357,30 @@ describe('ClusterCapabilityCard', () => {
       render(<ClusterCapabilityCard project={defaultProject} />);
 
       expect(mockTrackClusterShape).not.toHaveBeenCalled();
+    });
+
+    test('re-invokes trackClusterShape when the consent epoch changes with unchanged data', () => {
+      mockUseClusterCapabilities.mockReturnValue({
+        capabilities: fullCapabilities,
+        loading: false,
+        error: null,
+        fetchCapabilities: mockFetchCapabilities,
+      });
+      mockNodeUseList.mockReturnValue([[{}, {}, {}], null]);
+      mockNamespaceUseList.mockReturnValue([[{}, {}], null]);
+      mockUseConsentEpoch.mockReturnValue(0);
+
+      const { rerender } = render(<ClusterCapabilityCard project={defaultProject} />);
+      expect(mockTrackClusterShape).toHaveBeenCalledTimes(1);
+
+      // Same cluster data, only the consent epoch changed — this simulates a
+      // mid-session grant. The effect must re-run so a producer that was
+      // silently no-op'd while telemetry was off gets a chance to emit now
+      // that trackClusterShape's ai-null guard no longer applies.
+      mockUseConsentEpoch.mockReturnValue(1);
+      rerender(<ClusterCapabilityCard project={defaultProject} />);
+
+      expect(mockTrackClusterShape).toHaveBeenCalledTimes(2);
     });
   });
 });

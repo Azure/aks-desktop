@@ -20,6 +20,38 @@ const SAMPLE_TENANTS = [
   { id: 'tenant-2', name: 'Tenant 2' },
 ];
 
+// Realistic multi-tenant data: real GUIDs plus the display names resolved from
+// `az account tenant list`, including a guest tenant that only has a domain.
+const MULTI_TENANTS = [
+  { id: '11111111-1111-1111-1111-111111111111', name: 'Contoso Corporation' },
+  { id: '22222222-2222-2222-2222-222222222222', name: 'Fabrikam Engineering' },
+  { id: '33333333-3333-3333-3333-333333333333', name: 'northwind.onmicrosoft.com' },
+];
+
+const MULTI_TENANT_SUBSCRIPTIONS = [
+  {
+    id: 'aaaaaaaa-0000-0000-0000-000000000001',
+    name: 'Contoso Production',
+    state: 'Enabled',
+    tenantId: MULTI_TENANTS[0].id,
+    tenantName: MULTI_TENANTS[0].name,
+  },
+  {
+    id: 'aaaaaaaa-0000-0000-0000-000000000002',
+    name: 'Fabrikam Shared Services',
+    state: 'Enabled',
+    tenantId: MULTI_TENANTS[1].id,
+    tenantName: MULTI_TENANTS[1].name,
+  },
+  {
+    id: 'aaaaaaaa-0000-0000-0000-000000000003',
+    name: 'Northwind Guest Access',
+    state: 'Enabled',
+    tenantId: MULTI_TENANTS[2].id,
+    tenantName: MULTI_TENANTS[2].name,
+  },
+];
+
 const SAMPLE_CLUSTERS = [
   {
     name: 'prod-aks-cluster',
@@ -37,12 +69,34 @@ const SAMPLE_CLUSTERS = [
   },
 ];
 
+const SAMPLE_ARC_CLUSTERS = [
+  {
+    name: 'prod-aks-cluster',
+    resourceGroup: 'edge-rg',
+    location: 'eastus',
+    kubernetesVersion: '1.28.5',
+    provisioningState: 'Succeeded',
+    clusterType: 'aksarc' as const,
+    connectivityStatus: 'Connected',
+  },
+  {
+    name: 'factory-edge-cluster',
+    resourceGroup: 'factory-rg',
+    location: 'westus2',
+    kubernetesVersion: '1.27.7',
+    provisioningState: 'Succeeded',
+    clusterType: 'aksarc' as const,
+    connectivityStatus: 'Offline',
+  },
+];
+
 const baseArgs: RegisterAKSClusterDialogPureProps = {
   open: true,
   isChecking: false,
   isLoggedIn: true,
   loading: false,
   loadingSubscriptions: false,
+  subscriptionRefresh: { status: 'idle', addedCount: 0 },
   loadingClusters: false,
   capabilitiesLoading: false,
   error: '',
@@ -110,6 +164,28 @@ LoadingSubscriptions.args = {
   subscriptions: [],
 };
 
+/** Cached subscriptions are usable while Azure refreshes the list in the background. */
+export const CachedSubscriptionsRefreshing = Template.bind({});
+CachedSubscriptionsRefreshing.args = {
+  ...baseArgs,
+  subscriptionRefresh: { status: 'refreshing', addedCount: 0 },
+};
+
+/** Azure refresh discovered subscriptions that were absent from the cached list. */
+export const NewSubscriptionsLoaded = Template.bind({});
+NewSubscriptionsLoaded.args = {
+  ...baseArgs,
+  subscriptions: [...baseArgs.subscriptions, SAMPLE_SUBSCRIPTIONS[1]],
+  subscriptionRefresh: { status: 'updated', addedCount: 1 },
+};
+
+/** Refresh failed, so the cached subscription list remains available. */
+export const SubscriptionRefreshFailed = Template.bind({});
+SubscriptionRefreshFailed.args = {
+  ...baseArgs,
+  subscriptionRefresh: { status: 'failed', addedCount: 0 },
+};
+
 /** Subscription selected, loading clusters. */
 export const LoadingClusters = Template.bind({});
 LoadingClusters.args = {
@@ -135,6 +211,34 @@ WithClusters.args = {
   filteredClusters: SAMPLE_CLUSTERS,
 };
 
+/** Managed and Arc clusters, including duplicate names across resource groups and kinds. */
+export const WithManagedAndArcClusters = Template.bind({});
+WithManagedAndArcClusters.args = {
+  ...baseArgs,
+  selectedSubscription: SAMPLE_SUBSCRIPTIONS[0],
+  clusters: [...SAMPLE_CLUSTERS, ...SAMPLE_ARC_CLUSTERS],
+  filteredClusters: [...SAMPLE_CLUSTERS, ...SAMPLE_ARC_CLUSTERS],
+};
+
+/** Arc discovery is unavailable, while managed clusters remain selectable. */
+export const ArcDiscoveryUnavailable = Template.bind({});
+ArcDiscoveryUnavailable.args = {
+  ...WithClusters.args,
+  notice:
+    'AKS Hybrid & Edge clusters are not listed: the Azure CLI "connectedk8s" extension is required.',
+};
+
+/** An offline Arc cluster is selected so its connectivity warning is visible. */
+export const OfflineArcClusterSelected = Template.bind({});
+OfflineArcClusterSelected.args = {
+  ...baseArgs,
+  selectedSubscription: SAMPLE_SUBSCRIPTIONS[0],
+  clusters: SAMPLE_ARC_CLUSTERS,
+  filteredClusters: SAMPLE_ARC_CLUSTERS,
+  selectedCluster: SAMPLE_ARC_CLUSTERS[1],
+  clusterInputValue: SAMPLE_ARC_CLUSTERS[1].name,
+};
+
 /** Cluster selected — shows cluster details and enabled Register button. */
 export const ClusterSelected = Template.bind({});
 ClusterSelected.args = {
@@ -144,6 +248,13 @@ ClusterSelected.args = {
   filteredClusters: SAMPLE_CLUSTERS,
   selectedCluster: SAMPLE_CLUSTERS[0],
   clusterInputValue: SAMPLE_CLUSTERS[0].name,
+};
+
+/** Cluster selected while Headlamp cluster configuration is still loading. */
+export const ClusterConfigurationLoading = Template.bind({});
+ClusterConfigurationLoading.args = {
+  ...ClusterSelected.args,
+  clusterConfigReady: false,
 };
 
 /** Registration in progress — Register button shows spinner and "Registering...". */
@@ -158,6 +269,13 @@ Registering.args = {
   loading: true,
 };
 
+/** Registration in progress with tenant, subscription, and cluster selection locked. */
+export const SelectionControlsLockedDuringRegistration = Template.bind({});
+SelectionControlsLockedDuringRegistration.args = {
+  ...ClusterSelected.args,
+  loading: true,
+};
+
 /** Registration succeeded — success alert and Done button. */
 export const Success = Template.bind({});
 Success.args = {
@@ -168,6 +286,20 @@ Success.args = {
   selectedCluster: SAMPLE_CLUSTERS[0],
   clusterInputValue: SAMPLE_CLUSTERS[0].name,
   success: "Cluster 'prod-aks-cluster' successfully merged in kubeconfig",
+};
+
+/** Successful registration keeps selection controls locked and exposes the terminal action. */
+export const SelectionControlsLockedAfterSuccess = Template.bind({});
+SelectionControlsLockedAfterSuccess.args = {
+  ...Success.args,
+};
+
+/** Success alert dismissed while the dialog remains terminal with only Done available. */
+export const DismissedSuccessRemainsTerminal = Template.bind({});
+DismissedSuccessRemainsTerminal.args = {
+  ...ClusterSelected.args,
+  registrationSucceeded: true,
+  success: '',
 };
 
 /** Registration failed — error alert displayed. */
@@ -260,4 +392,30 @@ TenantNotSelected.args = {
   tenantInputValue: '',
   selectedSubscription: null,
   subscriptionInputValue: '',
+};
+
+/**
+ * Multi-tenant account with real tenant display names resolved from
+ * `az account tenant list` — each option shows the name above its GUID.
+ * Regression cover for issue #853, where every option showed the GUID twice.
+ */
+export const MultipleTenantsWithNames = Template.bind({});
+MultipleTenantsWithNames.args = {
+  ...baseArgs,
+  tenants: MULTI_TENANTS,
+  selectedTenant: null,
+  tenantInputValue: '',
+  subscriptions: MULTI_TENANT_SUBSCRIPTIONS.filter(s => s.tenantId === MULTI_TENANTS[0].id),
+  selectedSubscription: null,
+  subscriptionInputValue: '',
+};
+
+/**
+ * Multi-tenant account where no display name could be resolved (tenant list
+ * unavailable, e.g. stale login). Options fall back to the GUID, shown once.
+ */
+export const MultipleTenantsUnresolvedNames = Template.bind({});
+MultipleTenantsUnresolvedNames.args = {
+  ...MultipleTenantsWithNames.args,
+  tenants: MULTI_TENANTS.map(tenant => ({ ...tenant, name: tenant.id })),
 };

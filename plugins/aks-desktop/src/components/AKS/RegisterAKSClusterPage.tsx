@@ -8,6 +8,17 @@ import { trackAksFeature } from '../../telemetry/aksFeature';
 import RegisterAKSClusterDialog from './RegisterAKSClusterDialog';
 
 /**
+ * Records cancellation without allowing telemetry failures to block navigation.
+ *
+ * @returns Nothing.
+ */
+function safelyTrackCancellation() {
+  try {
+    trackAksFeature('aksd.cluster-add', 'cancelled');
+  } catch {}
+}
+
+/**
  * Page component for the AKS cluster registration flow
  * This is rendered when user clicks "Add" on the AKS cluster provider
  */
@@ -35,7 +46,7 @@ export default function RegisterAKSClusterPage() {
   const handleClose = () => {
     if (terminalStatusRef.current === 'active') {
       terminalStatusRef.current = 'cancelled';
-      trackAksFeature('aksd.cluster-add', 'cancelled');
+      safelyTrackCancellation();
     }
 
     setOpen(false);
@@ -60,7 +71,7 @@ export default function RegisterAKSClusterPage() {
   };
 
   const handleRegistrationFinished = (outcome: 'failed' | 'succeeded') => {
-    // Only an active attempt can reach a terminal status, so a late result
+    // Only an active attempt can reach a final status, so a late result
     // cannot overwrite a recorded cancellation. The dialog blocks close while
     // registration is in flight, so this is defensive rather than a live path.
     if (terminalStatusRef.current === 'active') {

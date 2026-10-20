@@ -21,7 +21,7 @@ vi.mock('./az-subscriptions', () => ({
 vi.mock('./az-identity', () => ({
   getManagedIdentity: (...args: any[]) => mockGetManagedIdentity(...args),
   createManagedIdentity: (...args: any[]) => mockCreateManagedIdentity(...args),
-  assignRolesToIdentity: (...args: any[]) => mockAssignRolesToIdentity(...args),
+  assignAzureRoles: (...args: any[]) => mockAssignRolesToIdentity(...args),
   getManagedNamespaceResourceId: (...args: any[]) => mockGetManagedNamespaceResourceId(...args),
   getKubeletIdentityObjectId: (...args: any[]) => mockGetKubeletIdentityObjectId(...args),
   buildClusterScope: (sub: string, rg: string, cluster: string) =>
@@ -229,7 +229,7 @@ describe('ensureIdentityWithRoles', () => {
       onStatusChange: vi.fn(),
     });
 
-    // Second call to assignRolesToIdentity is for kubelet AcrPull
+    // Second call to assignAzureRoles is for kubelet AcrPull
     // subscriptionId is extracted from the ACR resource ID to support cross-subscription ACR
     expect(mockAssignRolesToIdentity).toHaveBeenCalledTimes(2);
     expect(mockAssignRolesToIdentity).toHaveBeenLastCalledWith({

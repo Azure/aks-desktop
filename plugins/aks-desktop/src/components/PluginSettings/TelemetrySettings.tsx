@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { Alert, Box, FormControlLabel, Switch, Typography } from '@mui/material';
+import { Box, FormControlLabel, Switch, Typography } from '@mui/material';
 import React from 'react';
 import {
   TELEMETRY_DEFAULTS,
@@ -20,12 +20,6 @@ export default function TelemetrySettings() {
   const { t } = useTranslation();
   const config = useTelemetryConfig();
 
-  // Snapshot the enabled state at mount so the restart notice only shows
-  // when the user has toggled the setting during this session, not on
-  // every render or when initTelemetry has merely been attempted.
-  const initialEnabled = React.useRef(config.enabled).current;
-  const needsRestart = config.enabled !== initialEnabled;
-
   function handleToggle(checked: boolean) {
     telemetrySettingsStore.update({ enabled: checked });
   }
@@ -35,7 +29,7 @@ export default function TelemetrySettings() {
       <Typography variant="h6">{t('Telemetry')}</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         {t(
-          'AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent. Telemetry changes take effect on next launch.'
+          'AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.'
         )}
       </Typography>
       <FormControlLabel
@@ -45,11 +39,6 @@ export default function TelemetrySettings() {
         label={<Typography variant="body1">{t('Send pseudonymous usage data')}</Typography>}
         sx={{ alignItems: 'flex-start', ml: 0, mt: 1 }}
       />
-      {needsRestart && (
-        <Alert severity="info" sx={{ mt: 2 }}>
-          {t('Restart AKS Desktop for this change to take effect.')}
-        </Alert>
-      )}
     </Box>
   );
 }

@@ -1,0 +1,12 @@
+diff --git a/app/electron/preload.ts b/app/electron/preload.ts
+--- a/app/electron/preload.ts
++++ b/app/electron/preload.ts
+@@ -35,5 +35,8 @@ contextBridge.exposeInMainWorld('desktopApi', {
+   isDevelopment: Boolean(process.env.ELECTRON_DEV),
+   getDevelopmentPluginsEnabled: () => ipcRenderer.invoke('get-development-plugins'),
++  // Compatibility marker used by AI Assistant to identify AKS Desktop.
++  registerAKSCluster: () => undefined,
++
+   /** Starts a proxy only when the caller supplies its scoped plugin capability. */
+   startClusterProxy: (
+     target: ClusterProxyTarget,
