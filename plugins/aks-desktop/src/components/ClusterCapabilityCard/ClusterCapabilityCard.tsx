@@ -4,6 +4,7 @@
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { Alert, Box, Typography } from '@mui/material';
 import React, { useEffect } from 'react';
+import { useConsentEpoch } from '../../hooks/useConsentEpoch';
 import { trackClusterShape } from '../../telemetry';
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { ClusterConfigurePanel } from '../CreateAKSProject/components/ClusterConfigurePanel';
@@ -54,6 +55,13 @@ function ClusterCapabilityCard({ project }: ClusterCapabilityCardProps) {
   const [nodes] = K8s.ResourceClasses.Node.useList({ cluster });
   const [namespaces] = K8s.ResourceClasses.Namespace.useList({ cluster });
 
+  // Bumps whenever telemetry consent is granted mid-session. trackClusterShape
+  // no-ops while telemetry is off (ai is null) without marking the dedupe set,
+  // so the shape data is recoverable — but only if something re-invokes this
+  // effect. It's otherwise driven purely by cluster data, so without this the
+  // effect never re-fires after a grant and the cluster is never reported.
+  const consentEpoch = useConsentEpoch();
+
   useEffect(() => {
     if (!capabilities || !subscription || !resourceGroup || !cluster || !nodes || !namespaces) {
       return;
@@ -66,7 +74,7 @@ function ClusterCapabilityCard({ project }: ClusterCapabilityCardProps) {
       region: capabilities.location ?? undefined,
       aksTier: capabilities.tier ?? undefined,
     });
-  }, [capabilities, nodes, namespaces, subscription, resourceGroup, cluster]);
+  }, [capabilities, nodes, namespaces, subscription, resourceGroup, cluster, consentEpoch]);
 
   // Don't show anything while loading or if we don't have data yet
   if (loading) return null;

@@ -26,13 +26,18 @@ vi.mock('../../../utils/azure/az-namespace-access', () => ({
 
 import { useAccessTab } from './useAccessTab';
 
-function createNamespaceInstance(subscription = 'test-sub', resourceGroup = 'test-rg') {
+function createNamespaceInstance(
+  subscription = 'test-sub',
+  resourceGroup = 'test-rg',
+  authorizationModel?: string
+) {
   return {
     jsonData: {
       metadata: {
         labels: {
           'aks-desktop/project-subscription': subscription,
           'aks-desktop/project-resource-group': resourceGroup,
+          ...(authorizationModel ? { 'aks-desktop/project-authz-model': authorizationModel } : {}),
         },
       },
     },
@@ -139,5 +144,23 @@ describe('useAccessTab', () => {
 
     expect(result.current.assignments).toEqual([]);
     expect(result.current.error).toBe('Failed to load role assignments');
+  });
+
+  test('uses the Arc role-assignment lookup for Azure RBAC projects', async () => {
+    const project = createProject('arc-azure-rbac');
+    mockUseGet.mockReturnValue([createNamespaceInstance('arc-sub', 'arc-rg', 'azure-rbac')]);
+    mockListNamespaceRoleAssignments.mockResolvedValue({ success: true, assignments: [] });
+
+    renderHook(() => useAccessTab(project));
+
+    await waitFor(() =>
+      expect(mockListNamespaceRoleAssignments).toHaveBeenCalledWith({
+        clusterName: 'cluster-arc-azure-rbac',
+        resourceGroup: 'arc-rg',
+        namespaceName: 'namespace-arc-azure-rbac',
+        subscriptionId: 'arc-sub',
+        isArcCluster: true,
+      })
+    );
   });
 });

@@ -27,6 +27,26 @@
           "SourceFile": "Localize\\locales\\en\\ai-assistant-translation.json",
           "CopyOption": "LangIDOnPath",
           "OutputPath": "Localize\\locales"
+        },
+        {
+          "SourceFile": "Localize\\locales\\en\\plugin-catalog-translation.json",
+          "CopyOption": "LangIDOnPath",
+          "OutputPath": "Localize\\locales"
+        },
+        {
+          "SourceFile": "Localize\\locales\\en\\cert-manager-translation.json",
+          "CopyOption": "LangIDOnPath",
+          "OutputPath": "Localize\\locales"
+        },
+        {
+          "SourceFile": "Localize\\locales\\en\\keda-translation.json",
+          "CopyOption": "LangIDOnPath",
+          "OutputPath": "Localize\\locales"
+        },
+        {
+          "SourceFile": "Localize\\locales\\en\\prometheus-translation.json",
+          "CopyOption": "LangIDOnPath",
+          "OutputPath": "Localize\\locales"
         }
       ]
     }

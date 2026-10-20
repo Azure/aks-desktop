@@ -1,11 +1,23 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockTrackFeature = vi.hoisted(() => vi.fn());
 const mockTrackError = vi.hoisted(() => vi.fn());
+const mockCheckNamespaceViaK8s = vi.hoisted(() => vi.fn());
+const mockCheckClusterAccessible = vi.hoisted(() => vi.fn());
+const mockAssignAzureRoles = vi.hoisted(() => vi.fn());
+const mockReviewNamespaceAccess = vi.hoisted(() => vi.fn());
+const mockApplyNamespaceManifest = vi.hoisted(() => vi.fn());
+const mockGetClusterSettings = vi.hoisted(() => vi.fn());
+const mockSetClusterSettings = vi.hoisted(() => vi.fn());
+const mockAzureResourcesState = vi.hoisted(() => ({ clusters: [] as any[] }));
+const mockClustersConf = vi.hoisted(() => ({
+  current: null as Record<string, { name: string }> | null,
+}));
+const mockClearNamespaceStatus = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../telemetry', () => ({
   trackFeature: mockTrackFeature,
@@ -29,8 +41,30 @@ vi.mock('@kinvolk/headlamp-plugin/lib', async () => {
       returnEmptyString: false,
     });
   }
-  return { useTranslation, K8s: { useClustersConf: () => ({}) } };
+  return { useTranslation, K8s: { useClustersConf: () => mockClustersConf.current } };
 });
+
+vi.mock('../../../utils/azure/aksHybridEdgeProxy', () => ({
+  checkClusterAccessible: mockCheckClusterAccessible,
+}));
+
+vi.mock('../../../utils/azure/az-identity', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../utils/azure/az-identity')>()),
+  assignAzureRoles: mockAssignAzureRoles,
+}));
+
+vi.mock('../../../utils/kubernetes/accessReview', () => ({
+  reviewNamespaceAccess: mockReviewNamespaceAccess,
+}));
+
+vi.mock('../../../utils/kubernetes/namespaceUtils', () => ({
+  applyNamespaceManifest: mockApplyNamespaceManifest,
+}));
+
+vi.mock('../../../utils/shared/clusterSettings', () => ({
+  getClusterSettings: mockGetClusterSettings,
+  setClusterSettings: mockSetClusterSettings,
+}));
 
 vi.mock('react-router-dom', () => ({
   useHistory: () => ({ push: vi.fn() }),
@@ -47,13 +81,21 @@ vi.mock('../../../utils/azure/az-namespaces', () => ({
 }));
 
 vi.mock('../../../utils/azure/checkAzureCli', () => ({
-  checkAzureCliAndAksPreview: vi.fn().mockResolvedValue({ suggestions: [] }),
+  checkAzureCli: vi.fn().mockResolvedValue({ suggestions: [] }),
+}));
+
+vi.mock('../../../utils/azure/az-cli-core', () => ({
+  debugLog: vi.fn(),
+}));
+
+vi.mock('../../../utils/azure/az-resource-providers', () => ({
+  registerContainerServiceProvider: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 vi.mock('./useAzureResources', () => ({
   useAzureResources: () => ({
     subscriptions: [],
-    clusters: [],
+    clusters: mockAzureResourcesState.clusters,
     loading: false,
     error: null,
     clusterError: null,
@@ -77,38 +119,14 @@ vi.mock('./useClusterCapabilities', () => ({
   }),
 }));
 
-vi.mock('./useExtensionCheck', () => ({
-  useExtensionCheck: () => ({
-    installed: true,
-    installing: false,
-    error: null,
-    showSuccess: false,
-    installExtension: vi.fn(),
-    checkExtension: vi.fn(),
-    clearError: vi.fn(),
-  }),
-}));
-
-vi.mock('./useFeatureCheck', () => ({
-  useFeatureCheck: () => ({
-    registered: true,
-    state: null,
-    registering: false,
-    error: null,
-    showSuccess: false,
-    registerFeature: vi.fn(),
-    checkFeature: vi.fn(),
-    clearError: vi.fn(),
-  }),
-}));
-
 vi.mock('./useNamespaceCheck', () => ({
   useNamespaceCheck: () => ({
     exists: false,
     checking: false,
     error: null,
     checkNamespace: vi.fn(),
-    clearStatus: vi.fn(),
+    checkNamespaceViaK8s: mockCheckNamespaceViaK8s,
+    clearStatus: mockClearNamespaceStatus,
   }),
 }));
 
@@ -120,12 +138,14 @@ vi.mock('./useValidation', () => ({
   useValidation: () => ({ isValid: true, errors: {}, warnings: [], fieldErrors: {} }),
 }));
 
+import { debugLog } from '../../../utils/azure/az-cli-core';
 import {
   checkNamespaceExists,
   createNamespaceRoleAssignment,
   verifyNamespaceAccess,
 } from '../../../utils/azure/az-namespace-access';
 import { createManagedNamespace } from '../../../utils/azure/az-namespaces';
+import { registerContainerServiceProvider } from '../../../utils/azure/az-resource-providers';
 import { useCreateAKSProjectWizard } from './useCreateAKSProjectWizard';
 import { useFormData } from './useFormData';
 
@@ -147,12 +167,23 @@ const defaultFormData = {
 describe('useCreateAKSProjectWizard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetClusterSettings.mockReturnValue({});
+    mockSetClusterSettings.mockImplementation(() => {});
+    mockCheckClusterAccessible.mockResolvedValue({ accessible: true });
+    mockAssignAzureRoles.mockResolvedValue({ success: true, results: [] });
+    mockReviewNamespaceAccess.mockResolvedValue({ allowed: true });
+    mockApplyNamespaceManifest.mockResolvedValue({ success: true });
+    mockAzureResourcesState.clusters = [];
+    mockClustersConf.current = null;
     mockTrackFeature.mockImplementation(() => {});
     mockTrackError.mockImplementation(() => {});
     // Silence console.error so error-path tests don't pollute the test output.
     // Individual tests that need to assert on console.error output create their
     // own spy on top and restore it themselves before this one is cleaned up.
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(registerContainerServiceProvider).mockResolvedValue({
+      success: true,
+    } as any);
     vi.mocked(useFormData).mockReturnValue({
       formData: defaultFormData,
       updateFormData: vi.fn(),
@@ -175,12 +206,254 @@ describe('useCreateAKSProjectWizard', () => {
     });
   });
 
+  it('checks an Arc namespace only after the cluster context is connected', async () => {
+    vi.useFakeTimers();
+    const arcFormData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'arc-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aksarc' as const,
+    };
+    mockAzureResourcesState.clusters = [
+      { name: 'arc-a', resourceGroup: 'rg-a', clusterType: 'aksarc' },
+    ];
+    mockGetClusterSettings.mockReturnValue({
+      clusterType: 'aksarc',
+      subscriptionId: 'sub-a',
+      resourceGroup: 'rg-a',
+    });
+    vi.mocked(useFormData).mockReturnValue({
+      formData: arcFormData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { rerender } = renderHook(() => useCreateAKSProjectWizard());
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(mockCheckNamespaceViaK8s).not.toHaveBeenCalled();
+
+    mockClustersConf.current = { 'arc-a': { name: 'arc-a' } };
+    rerender();
+    await act(() => vi.advanceTimersByTimeAsync(500));
+
+    expect(mockCheckNamespaceViaK8s).toHaveBeenCalledWith('arc-a', 'test-project');
+  });
+
+  it('invalidates namespace status immediately when lookup inputs change', () => {
+    vi.useFakeTimers();
+    const { rerender } = renderHook(() => useCreateAKSProjectWizard());
+    mockClearNamespaceStatus.mockClear();
+
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, projectName: 'changed-project' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+    rerender();
+
+    expect(mockClearNamespaceStatus).toHaveBeenCalledOnce();
+  });
   it('handleNext increments activeStep', () => {
     const { result } = renderHook(() => useCreateAKSProjectWizard());
     act(() => {
       result.current.handleNext();
     });
     expect(result.current.activeStep).toBe(1);
+  });
+
+  it('handleNext adopts an active managed cluster with unknown scope', () => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'aks-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+    };
+    mockAzureResourcesState.clusters = [
+      { name: 'aks-a', resourceGroup: 'rg-a', clusterType: 'aks' },
+    ];
+    mockClustersConf.current = { 'aks-a': { name: 'aks-a' } };
+    mockGetClusterSettings.mockReturnValue({ appearance: { icon: 'mdi:test' } });
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleNext());
+
+    expect(mockSetClusterSettings).toHaveBeenCalledWith('aks-a', {
+      appearance: { icon: 'mdi:test' },
+      azureRegistration: { subscriptionId: 'sub-a', resourceGroup: 'rg-a' },
+    });
+    expect(result.current.activeStep).toBe(1);
+    expect(result.current.scopeAdoptionError).toBeNull();
+  });
+
+  it('handleStepClick adopts managed scope before jumping forward', () => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'aks-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+    };
+    mockClustersConf.current = { 'aks-a': { name: 'aks-a' } };
+    mockGetClusterSettings.mockReturnValue({});
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleStepClick(4));
+
+    expect(mockSetClusterSettings).toHaveBeenCalledWith('aks-a', {
+      azureRegistration: { subscriptionId: 'sub-a', resourceGroup: 'rg-a' },
+    });
+    expect(result.current.activeStep).toBe(4);
+  });
+
+  it.each([
+    ['subscription', { subscription: '' }],
+    ['resource group', { resourceGroup: '' }],
+  ])('handleStepClick stays on Basics when the managed %s is missing', (_label, missingScope) => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'aks-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+      ...missingScope,
+    };
+    mockClustersConf.current = { 'aks-a': { name: 'aks-a' } };
+    mockGetClusterSettings.mockReturnValue({});
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleStepClick(4));
+
+    expect(mockSetClusterSettings).not.toHaveBeenCalled();
+    expect(result.current.activeStep).toBe(0);
+  });
+
+  it('handleNext stays on Basics when managed scope adoption fails', () => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'aks-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+    };
+    mockAzureResourcesState.clusters = [
+      { name: 'aks-a', resourceGroup: 'rg-a', clusterType: 'aks' },
+    ];
+    mockClustersConf.current = { 'aks-a': { name: 'aks-a' } };
+    mockGetClusterSettings.mockReturnValue({});
+    mockSetClusterSettings.mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleNext());
+
+    expect(result.current.activeStep).toBe(0);
+    expect(result.current.scopeAdoptionError).toBe(
+      'Failed to save the selected cluster scope: storage unavailable'
+    );
+  });
+
+  it('clears a scope adoption error when only the selected cluster kind changes', () => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'shared-name',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+    };
+    mockClustersConf.current = { 'shared-name': { name: 'shared-name' } };
+    mockGetClusterSettings.mockReturnValue({});
+    mockSetClusterSettings.mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result, rerender } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleNext());
+    expect(result.current.scopeAdoptionError).not.toBeNull();
+
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...formData, clusterType: 'aksarc' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+    rerender();
+
+    expect(result.current.scopeAdoptionError).toBeNull();
+  });
+
+  it('handleSubmit returns to Basics when managed scope adoption fails', async () => {
+    const formData = {
+      ...defaultFormData,
+      subscription: 'sub-a',
+      cluster: 'aks-a',
+      resourceGroup: 'rg-a',
+      clusterType: 'aks' as const,
+    };
+    mockClustersConf.current = { 'aks-a': { name: 'aks-a' } };
+    mockGetClusterSettings.mockReturnValue({
+      azureRegistration: { subscriptionId: 'sub-a', resourceGroup: 'rg-a' },
+    });
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    const { result, rerender } = renderHook(() => useCreateAKSProjectWizard());
+    act(() => result.current.handleStepClick(4));
+    expect(result.current.activeStep).toBe(4);
+
+    mockGetClusterSettings.mockReturnValue({});
+    mockSetClusterSettings.mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+    rerender();
+    await act(() => result.current.handleSubmit());
+
+    expect(result.current.activeStep).toBe(0);
+    expect(result.current.scopeAdoptionError).toBe(
+      'Failed to save the selected cluster scope: storage unavailable'
+    );
+    expect(mockTrackFeature).not.toHaveBeenCalledWith({
+      feature: 'aksd.project-create',
+      status: 'started',
+    });
   });
 
   it('handleBack decrements activeStep', () => {
@@ -212,6 +485,157 @@ describe('useCreateAKSProjectWizard', () => {
     const { result } = renderHook(() => useCreateAKSProjectWizard());
     expect(result.current.isCreating).toBe(false);
   });
+
+  it('registers the Microsoft.ContainerService provider for the selected subscription', async () => {
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, subscription: 'sub-123' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    renderHook(() => useCreateAKSProjectWizard());
+    await waitFor(() => {
+      expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123');
+    });
+  });
+
+  // Regression guard for the dead `.catch()` this replaced: registerContainerServiceProvider
+  // resolves { success: false, error } and never rejects, so a catch handler could never fire
+  // and failures were unobservable. Assert the resolved failure is actually inspected.
+  it('logs a diagnostic when provider registration fails, without throwing', async () => {
+    vi.mocked(registerContainerServiceProvider).mockResolvedValue({
+      success: false,
+      error: 'boom',
+    } as any);
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, subscription: 'sub-123' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    expect(() => renderHook(() => useCreateAKSProjectWizard())).not.toThrow();
+
+    await waitFor(() => {
+      expect(debugLog).toHaveBeenCalledWith(
+        'Microsoft.ContainerService registration failed:',
+        'boom'
+      );
+    });
+  });
+
+  it('does not log a registration diagnostic when provider registration succeeds', async () => {
+    vi.mocked(registerContainerServiceProvider).mockResolvedValue({
+      success: true,
+    } as any);
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, subscription: 'sub-123' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+
+    renderHook(() => useCreateAKSProjectWizard());
+
+    await waitFor(() => {
+      expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123');
+    });
+    expect(debugLog).not.toHaveBeenCalledWith(
+      'Microsoft.ContainerService registration failed:',
+      expect.anything()
+    );
+  });
+
+  // Regression guard for fire-and-forget registration: handleSubmit must await the
+  // in-flight registration promise before calling createManagedNamespace. A deferred
+  // promise proves this — if handleSubmit merely kicked off registration without
+  // retaining/awaiting it (the old behaviour), createManagedNamespace would already
+  // have been called before we ever resolve the registration promise below.
+  it('handleSubmit does not create the namespace until provider registration settles', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    let resolveRegistration!: (value: { success: boolean }) => void;
+    vi.mocked(registerContainerServiceProvider).mockReturnValue(
+      new Promise(resolve => {
+        resolveRegistration = resolve;
+      }) as any
+    );
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, subscription: 'sub-123' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+    vi.mocked(createManagedNamespace).mockResolvedValue({ success: true } as any);
+    vi.mocked(checkNamespaceExists).mockResolvedValue({ exists: true } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+
+    // The subscription effect runs synchronously during render and kicks off
+    // registration immediately (the promise itself is left unresolved here).
+    expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123');
+
+    let submitPromise!: Promise<void>;
+    await act(async () => {
+      submitPromise = result.current.handleSubmit();
+      // Flush microtasks without resolving registration.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(createManagedNamespace).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveRegistration({ success: true });
+      await vi.advanceTimersByTimeAsync(7000);
+      await submitPromise;
+    });
+
+    expect(createManagedNamespace).toHaveBeenCalled();
+  }, 10000);
+
+  // A registration promise that settles only after the 10-minute timeout has
+  // already failed the submission must not resume the creation path: the
+  // namespace would be created in the background and the progress state the
+  // timeout cleared would be overwritten.
+  it('handleSubmit timeout: registration settling after timeout does not create the namespace', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    let resolveRegistration!: (value: { success: boolean }) => void;
+    vi.mocked(registerContainerServiceProvider).mockReturnValue(
+      new Promise(resolve => {
+        resolveRegistration = resolve;
+      }) as any
+    );
+    vi.mocked(useFormData).mockReturnValue({
+      formData: { ...defaultFormData, subscription: 'sub-123' },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    } as any);
+    vi.mocked(createManagedNamespace).mockResolvedValue({ success: true } as any);
+    vi.mocked(checkNamespaceExists).mockResolvedValue({ exists: true } as any);
+
+    const { result } = renderHook(() => useCreateAKSProjectWizard());
+
+    await act(async () => {
+      const submitPromise = result.current.handleSubmit();
+      // Registration is still pending when the 10-minute timeout fires.
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 100);
+      await submitPromise;
+    });
+
+    expect(result.current.creationError).toContain('timed out');
+    expect(result.current.isCreating).toBe(false);
+
+    // Registration finally settles; the aborted submission must stay dead.
+    await act(async () => {
+      resolveRegistration({ success: true });
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+
+    expect(createManagedNamespace).not.toHaveBeenCalled();
+    expect(result.current.creationProgress).toBe('');
+  }, 10000);
 
   it('handleSubmit success path: sets showSuccessDialog after success and timer', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false });
@@ -415,6 +839,58 @@ describe('useCreateAKSProjectWizard', () => {
   });
 
   describe('PII redaction in non-debug error logging', () => {
+    it('logs only an aggregate count for Arc project warnings', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockAzureResourcesState.clusters = [
+        {
+          name: 'arc-cluster',
+          resourceGroup: 'arc-rg',
+          clusterType: 'aksarc',
+          azureRbacEnabled: false,
+        },
+      ];
+      vi.mocked(useFormData).mockReturnValue({
+        formData: {
+          ...defaultFormData,
+          subscription: '11111111-2222-3333-4444-555555555555',
+          cluster: 'arc-cluster',
+          resourceGroup: 'arc-rg',
+          clusterType: 'aksarc',
+          userAssignments: [
+            {
+              objectId: '38927c93-a0fd-4b06-b21a-69b8ed1e208c',
+              upn: 'admin@contoso.com',
+              role: 'Writer',
+            },
+          ],
+        },
+        updateFormData: vi.fn(),
+        resetFormData: vi.fn(),
+        setFormDataField: vi.fn(),
+      } as any);
+      mockAssignAzureRoles.mockResolvedValue({
+        success: false,
+        results: [],
+        error: 'Azure denied access for admin@contoso.com',
+      });
+
+      const { result } = renderHook(() => useCreateAKSProjectWizard());
+
+      await act(async () => {
+        await result.current.handleSubmit();
+      });
+
+      expect(mockApplyNamespaceManifest).toHaveBeenCalledOnce();
+      expect(result.current.creationError).toBeNull();
+      expect(mockAssignAzureRoles).toHaveBeenCalledOnce();
+      expect(result.current.creationWarnings.join(' ')).toContain('admin@contoso.com');
+      expect(result.current.creationWarnings.join(' ')).toContain('Azure denied access');
+      expect(consoleSpy).toHaveBeenCalledWith('[CreateAKSProject] Project created with warnings', {
+        warningCount: 1,
+      });
+      expect(JSON.stringify(consoleSpy.mock.calls)).not.toMatch(/admin@contoso\.com|Azure denied/);
+    });
+
     it('redacts email addresses from the error message before logging', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(createManagedNamespace).mockRejectedValue(

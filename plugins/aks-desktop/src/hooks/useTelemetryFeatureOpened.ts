@@ -7,6 +7,8 @@ import type { AksFeatureType } from '../telemetry/schema';
 
 export function useTelemetryFeatureOpened(feature: AksFeatureType): void {
   useEffect(() => {
-    trackAksFeature(feature, 'opened');
+    try {
+      trackAksFeature(feature, 'opened');
+    } catch {}
   }, [feature]);
 }

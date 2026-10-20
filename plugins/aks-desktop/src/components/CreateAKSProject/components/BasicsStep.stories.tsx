@@ -64,6 +64,16 @@ const CLUSTERS = [
   },
 ];
 
+const SAME_NAME_CLUSTERS = [
+  { ...CLUSTERS[0], name: 'shared-aks', resourceGroup: 'rg-platform' },
+  {
+    ...CLUSTERS[1],
+    name: 'shared-aks',
+    resourceGroup: 'rg-apps',
+    location: 'westus',
+  },
+];
+
 const BASE_PROPS: BasicsStepProps = {
   formData: BASE_FORM_DATA,
   onFormDataChange: () => {},
@@ -75,19 +85,10 @@ const BASE_PROPS: BasicsStepProps = {
   loadingClusters: false,
   clusterError: null,
   totalClusterCount: null,
-  extensionStatus: { installed: true, installing: false, error: null, showSuccess: false },
-  featureStatus: {
-    registered: true,
-    state: 'Registered',
-    registering: false,
-    error: null,
-    showSuccess: false,
-  },
   namespaceStatus: { exists: null, checking: false, error: null },
+  clusterAccessStatus: { checking: false, accessible: null },
   clusterCapabilities: null,
   capabilitiesLoading: false,
-  onInstallExtension: async () => {},
-  onRegisterFeature: async () => {},
   onRetrySubscriptions: async () => {},
   onRetryClusters: async () => {},
   onRefreshCapabilities: () => {},
@@ -154,6 +155,23 @@ HiddenClusters.args = {
 };
 
 /**
+ * Same-name clusters in separate resource groups remain distinct options.
+ * Open the Cluster dropdown to inspect each resource-group subtitle.
+ */
+export const SameNameClustersByResourceGroup = Template.bind({});
+SameNameClustersByResourceGroup.args = {
+  ...BASE_PROPS,
+  formData: {
+    ...BASE_FORM_DATA,
+    subscription: 'sub-123',
+    cluster: 'shared-aks',
+    resourceGroup: 'rg-apps',
+  },
+  clusters: SAME_NAME_CLUSTERS,
+  totalClusterCount: 2,
+};
+
+/**
  * Selected cluster is in a non-ready provisioning state.
  * Shows the "Cluster Not Ready" warning banner with a Refresh button.
  */
@@ -168,73 +186,6 @@ ClusterNotReady.args = {
   },
   clusters: [{ ...CLUSTERS[0], status: 'Updating' }, CLUSTERS[1]],
   totalClusterCount: 2,
-};
-
-/**
- * AKS Preview extension is not installed.
- * Shows the yellow warning banner with the "Install Extension" button.
- */
-export const ExtensionNotInstalled = Template.bind({});
-ExtensionNotInstalled.args = {
-  ...BASE_PROPS,
-  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
-  extensionStatus: { installed: false, installing: false, error: null, showSuccess: false },
-};
-
-/**
- * AKS Preview extension is currently being installed.
- * The "Install Extension" button shows a spinner and is disabled.
- */
-export const ExtensionInstalling = Template.bind({});
-ExtensionInstalling.args = {
-  ...BASE_PROPS,
-  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
-  extensionStatus: { installed: false, installing: true, error: null, showSuccess: false },
-};
-
-/**
- * AKS Preview extension install succeeded.
- * Shows the green success alert.
- */
-export const ExtensionInstallSuccess = Template.bind({});
-ExtensionInstallSuccess.args = {
-  ...BASE_PROPS,
-  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
-  extensionStatus: { installed: true, installing: false, error: null, showSuccess: true },
-};
-
-/**
- * The `ManagedNamespacePreview` feature flag is not yet registered.
- * Shows the red error panel with the "Register Feature" button.
- */
-export const FeatureNotRegistered = Template.bind({});
-FeatureNotRegistered.args = {
-  ...BASE_PROPS,
-  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
-  featureStatus: {
-    registered: false,
-    state: 'NotRegistered',
-    registering: false,
-    error: null,
-    showSuccess: false,
-  },
-};
-
-/**
- * Feature registration is in progress.
- * The "Register Feature" button shows a spinner and is disabled.
- */
-export const FeatureRegistering = Template.bind({});
-FeatureRegistering.args = {
-  ...BASE_PROPS,
-  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
-  featureStatus: {
-    registered: false,
-    state: 'Registering',
-    registering: true,
-    error: null,
-    showSuccess: false,
-  },
 };
 
 /**
@@ -280,6 +231,16 @@ ClusterError.args = {
   formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
   clusters: [],
   clusterError: 'Failed to load clusters: network timeout',
+};
+
+/** Managed clusters remain usable when the `connectedk8s` extension cannot discover Arc clusters. */
+export const ArcDiscoveryUnavailable = Template.bind({});
+ArcDiscoveryUnavailable.args = {
+  ...BASE_PROPS,
+  formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
+  clusters: CLUSTERS,
+  totalClusterCount: CLUSTERS.length,
+  arcDiscoveryUnavailable: true,
 };
 
 /**

@@ -3,14 +3,7 @@
 
 import { useMemo } from 'react';
 import type { ClusterCapabilities } from '../../../types/ClusterCapabilities';
-import type {
-  ExtensionStatus,
-  FeatureStatus,
-  FormData,
-  FormValidationResult,
-  NamespaceStatus,
-  ValidationState,
-} from '../types';
+import type { FormData, FormValidationResult, NamespaceStatus, ValidationState } from '../types';
 import { validateForm, validateStep } from '../validators';
 
 /**
@@ -19,23 +12,27 @@ import { validateForm, validateStep } from '../validators';
 export const useValidation = (
   activeStep: number,
   formData: FormData,
-  extensionStatus?: ExtensionStatus,
-  featureStatus?: FeatureStatus,
   namespaceStatus?: NamespaceStatus,
   isClusterMissing?: boolean,
-  capabilities?: ClusterCapabilities | null
+  capabilities?: ClusterCapabilities | null,
+  isArc?: boolean,
+  clusterAccess?: { checking: boolean; accessible: boolean | null },
+  /** True when the grant will be a RoleBinding, so every assignee needs a UPN. */
+  requiresUpn?: boolean
 ) => {
   const validation = useMemo((): ValidationState => {
     const result = validateStep(
       activeStep,
       formData,
-      extensionStatus?.installed,
-      featureStatus?.registered,
       namespaceStatus?.exists,
       namespaceStatus?.checking,
       namespaceStatus?.error || undefined,
       isClusterMissing,
-      capabilities
+      capabilities,
+      isArc,
+      clusterAccess?.checking,
+      clusterAccess?.accessible,
+      requiresUpn
     );
     return {
       ...result,
@@ -44,18 +41,20 @@ export const useValidation = (
   }, [
     activeStep,
     formData,
-    extensionStatus?.installed,
-    featureStatus?.registered,
     namespaceStatus?.exists,
     namespaceStatus?.checking,
     namespaceStatus?.error,
     isClusterMissing,
     capabilities,
+    isArc,
+    clusterAccess?.checking,
+    clusterAccess?.accessible,
+    requiresUpn,
   ]);
 
   const fieldValidation = useMemo((): FormValidationResult => {
-    return validateForm(formData);
-  }, [formData]);
+    return validateForm(formData, requiresUpn);
+  }, [formData, requiresUpn]);
 
   return {
     ...validation,

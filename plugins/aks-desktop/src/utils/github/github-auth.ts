@@ -34,11 +34,11 @@ export interface OAuthCallbackResult {
   error?: string;
 }
 
-/** desktopApi methods exposed by the Electron preload script. */
+/** Optional GitHub OAuth methods supplied by older AKS Desktop preload builds. */
 interface DesktopApi {
-  startGitHubOAuth: () => Promise<{ success: boolean; error?: string }>;
-  onGitHubOAuthCallback: (callback: (result: OAuthCallbackResult) => void) => () => void;
-  refreshGitHubOAuth: (refreshToken: string) => Promise<OAuthCallbackResult>;
+  startGitHubOAuth?: () => Promise<{ success: boolean; error?: string }>;
+  onGitHubOAuthCallback?: (callback: (result: OAuthCallbackResult) => void) => () => void;
+  refreshGitHubOAuth?: (refreshToken: string) => Promise<OAuthCallbackResult>;
 }
 
 function getDesktopApi(): DesktopApi {
@@ -54,6 +54,12 @@ function getDesktopApi(): DesktopApi {
  */
 export const startBrowserOAuth = async (): Promise<void> => {
   const api = getDesktopApi();
+  if (
+    typeof api.startGitHubOAuth !== 'function' ||
+    typeof api.onGitHubOAuthCallback !== 'function'
+  ) {
+    throw new Error('GitHub browser authentication is not available in this desktop build.');
+  }
   const result = await api.startGitHubOAuth();
   if (!result.success) {
     throw new Error(result.error ?? 'Failed to start GitHub OAuth flow');
@@ -62,11 +68,13 @@ export const startBrowserOAuth = async (): Promise<void> => {
 
 /**
  * Registers a listener for the OAuth callback from the Electron main process.
- * Returns an unsubscribe function.
+ * Returns an unsubscribe function, or a no-op when the host does not supply GitHub OAuth.
  */
 export const onOAuthCallback = (callback: (result: OAuthCallbackResult) => void): (() => void) => {
   const api = getDesktopApi();
-  return api.onGitHubOAuthCallback(callback);
+  return typeof api.onGitHubOAuthCallback === 'function'
+    ? api.onGitHubOAuthCallback(callback)
+    : () => {};
 };
 
 /**
@@ -76,6 +84,9 @@ export const onOAuthCallback = (callback: (result: OAuthCallbackResult) => void)
  */
 export const refreshAccessToken = async (refreshToken: string): Promise<TokenResponse> => {
   const api = getDesktopApi();
+  if (typeof api.refreshGitHubOAuth !== 'function') {
+    throw new Error('GitHub token refresh is not available in this desktop build.');
+  }
   const result = await api.refreshGitHubOAuth(refreshToken);
 
   if (!result.success || !result.accessToken || !result.refreshToken || !result.expiresAt) {

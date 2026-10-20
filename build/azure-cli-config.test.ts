@@ -1,0 +1,451 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the Apache 2.0.
+
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import test from 'node:test';
+
+import {
+  azureCliRuntimeFilesExist,
+  azureCliCacheIdentity,
+  azureCliCacheKey,
+  azureCliExtensionsToInstall,
+  azureCliExtensionsToRemove,
+  azureCliVersionDataMatchesTarget,
+  installRequiredExtensions,
+  extensionWheelDownloadArguments,
+  macOSCrossExtensionInstallArguments,
+  resolveAzureCliTarget,
+  verifyRequiredArtifact,
+  windowsExtensionInstallArguments,
+  windowsZipExtraction,
+} from './azure-cli-config';
+import { generateUnixAzWrapperScript, generateUnixPythonWrapperScript } from './az-cli-config';
+
+test('passes Windows ZIP paths as literal environment values', () => {
+  const archive = "C:\\O'Brien [build] & tools\\input.zip";
+  const destination = "C:\\O'Brien [build] & tools\\out";
+  const invocation = windowsZipExtraction(archive, destination, { PATH: 'existing' });
+  assert.equal(invocation.command, 'powershell.exe');
+  assert.match(invocation.args.at(-1)!, /Expand-Archive -LiteralPath \$env:AKS_ZIP_ARCHIVE/);
+  assert.match(invocation.args.at(-1)!, /\$ErrorActionPreference = 'Stop'/);
+  assert.ok(invocation.args.every(argument =>
+    !argument.includes(archive) && !argument.includes(destination)
+  ));
+  assert.deepEqual(invocation.env, {
+    PATH: 'existing',
+    AKS_ZIP_ARCHIVE: archive,
+    AKS_ZIP_DESTINATION: destination,
+  });
+});
+
+test('extracts Windows ZIPs under paths containing quotes and wildcards', {
+  skip: process.platform !== 'win32',
+}, t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aks-O'Brien [build] & tools-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const input = path.join(root, 'input');
+  fs.mkdirSync(input);
+  const payload = path.join(input, 'payload.txt');
+  fs.writeFileSync(payload, 'zip contents');
+  const archive = path.join(root, 'input.zip');
+  execFileSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-Command',
+    "$ErrorActionPreference = 'Stop'; Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory($env:AKS_ZIP_INPUT, $env:AKS_ZIP_ARCHIVE)",
+  ], { env: { ...process.env, AKS_ZIP_INPUT: input, AKS_ZIP_ARCHIVE: archive } });
+  const extraction = windowsZipExtraction(archive, path.join(root, 'out'));
+  execFileSync(extraction.command, extraction.args, { env: extraction.env });
+  assert.equal(fs.readFileSync(path.join(root, 'out', 'payload.txt'), 'utf8'), 'zip contents');
+});
+
+function createRoot(): string {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azure-cli-config-'));
+  fs.mkdirSync(path.join(rootDir, 'build'));
+  fs.writeFileSync(
+    path.join(rootDir, 'build', 'azure-cli-darwin-arm64-requirements.txt'),
+    'locked==1.0 --hash=sha256:abc\n'
+  );
+  fs.writeFileSync(
+    path.join(rootDir, 'build', 'azure-cli-darwin-x64-requirements.txt'),
+    'locked==1.0 --hash=sha256:def\n'
+  );
+  for (const name of [
+    'azure-cli-linux-x64-requirements.txt',
+    'azure-cli-linux-arm64-requirements.txt',
+    'azure-cli-win32-x64-requirements.txt',
+  ]) {
+    fs.writeFileSync(path.join(rootDir, 'build', name), 'locked==1.0 --hash=sha256:abc\n');
+  }
+  fs.writeFileSync(
+    path.join(rootDir, 'package.json'),
+    JSON.stringify({
+      config: {
+        externalTools: {
+          python: {
+            version: '3.14',
+            darwin: {
+              x64: { url: 'darwin-x64', checksum: 'darwin-x64-sum' },
+              arm64: { url: 'darwin-arm64', checksum: 'darwin-arm64-sum' },
+            },
+            linux: {
+              x64: { url: 'linux-x64', checksum: 'linux-x64-sum' },
+              arm64: { url: 'linux-arm64', checksum: 'linux-arm64-sum' },
+            },
+          },
+          azureCli: {
+            version: '2.90.0',
+            extensions: ['resource-graph', 'connectedk8s'],
+            extensionVersions: {
+              'resource-graph': '2.1.1',
+              connectedk8s: '1.11.3',
+            },
+            extensionPackages: {
+              'resource-graph': { url: 'resource-graph.whl', checksum: 'resource-graph-sum' },
+              connectedk8s: { url: 'connectedk8s.whl', checksum: 'connectedk8s-sum' },
+            },
+            darwin: {
+              x64: { url: 'mac-x64', checksum: 'mac-x64-sum' },
+              arm64: { url: 'mac-arm64', checksum: 'mac-arm64-sum' },
+            },
+            linux: {
+              x64: { url: 'linux-cli-x64', checksum: 'linux-cli-x64-sum' },
+              arm64: { url: 'linux-cli-arm64', checksum: 'linux-cli-arm64-sum' },
+            },
+            win32: {
+              x64: { url: 'win-x64', checksum: 'win-sum', runtimeArch: 'x64' },
+              arm64: { url: 'win-x64', checksum: 'win-sum', runtimeArch: 'x64' },
+            },
+          },
+        },
+      },
+    })
+  );
+  return rootDir;
+}
+
+test('selects native tools for Linux and macOS ARM64 packages', () => {
+  const rootDir = createRoot();
+  try {
+    const darwin = resolveAzureCliTarget(rootDir, 'darwin', 'arm64');
+    assert.equal(darwin.pythonVersion, '3.14');
+    assert.equal(darwin.python?.url, 'darwin-arm64');
+    assert.equal(darwin.cliPackage?.url, 'mac-arm64');
+    const linuxArm = resolveAzureCliTarget(rootDir, 'linux', 'arm64');
+    assert.equal(linuxArm.python?.url, 'linux-arm64');
+    assert.equal(linuxArm.cliPackage?.url, 'linux-cli-arm64');
+    assert.equal(resolveAzureCliTarget(rootDir, 'linux', 'x64').python?.url, 'linux-x64');
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('builds an Intel-hosted pip invocation for macOS ARM64 extensions', () => {
+  const rootDir = createRoot();
+  try {
+    const target = resolveAzureCliTarget(rootDir, 'darwin', 'arm64');
+    assert.match(target.extensionLockChecksum!, /^[0-9a-f]{64}$/);
+    assert.deepEqual(
+      extensionWheelDownloadArguments(target, '/tmp/requirements.txt', '/tmp/wheels'),
+      [
+        '-m', 'pip', 'download',
+        '--disable-pip-version-check',
+        '--dest', '/tmp/wheels',
+        '--platform', 'macosx_11_0_arm64',
+        '--python-version', '3.14',
+        '--implementation', 'cp',
+        '--only-binary=:all:',
+        '--require-hashes',
+        '--requirement', '/tmp/requirements.txt',
+      ]
+    );
+    assert.deepEqual(
+      macOSCrossExtensionInstallArguments(
+        target,
+        '/tmp/connectedk8s.whl',
+        '/tmp/connectedk8s',
+        '/tmp/wheels'
+      ),
+      [
+        '-m', 'pip', 'install',
+        '--disable-pip-version-check',
+        '--no-compile',
+        '--target', '/tmp/connectedk8s',
+        '--no-index',
+        '--find-links', '/tmp/wheels',
+        '--platform', 'macosx_11_0_arm64',
+        '--python-version', '3.14',
+        '--implementation', 'cp',
+        '--only-binary=:all:',
+        '/tmp/connectedk8s.whl',
+      ]
+    );
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('builds an offline pip invocation for Windows extensions', () => {
+  const rootDir = createRoot();
+  try {
+    const target = resolveAzureCliTarget(rootDir, 'win32', 'x64');
+    assert.deepEqual(
+      windowsExtensionInstallArguments(
+        target,
+        'C:\\wheelhouse\\connectedk8s.whl',
+        'C:\\extensions\\connectedk8s',
+        'C:\\wheelhouse'
+      ),
+      [
+        '-m', 'pip', 'install',
+        '--disable-pip-version-check',
+        '--no-compile',
+        '--target', 'C:\\extensions\\connectedk8s',
+        '--no-index',
+        '--find-links', 'C:\\wheelhouse',
+        '--only-binary=:all:',
+        'C:\\wheelhouse\\connectedk8s.whl',
+      ]
+    );
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('builds a locked pip download for native macOS x64 extensions', () => {
+  const rootDir = createRoot();
+  try {
+    const target = resolveAzureCliTarget(rootDir, 'darwin', 'x64');
+    assert.match(target.extensionLockPath!, /azure-cli-darwin-x64-requirements\.txt$/);
+    assert.match(target.extensionLockChecksum!, /^[0-9a-f]{64}$/);
+    assert.deepEqual(
+      extensionWheelDownloadArguments(target, '/tmp/requirements.txt', '/tmp/wheels'),
+      [
+        '-m', 'pip', 'download',
+        '--disable-pip-version-check',
+        '--dest', '/tmp/wheels',
+        '--platform', 'macosx_11_0_x86_64',
+        '--python-version', '3.14',
+        '--implementation', 'cp',
+        '--only-binary=:all:',
+        '--require-hashes',
+        '--requirement', '/tmp/requirements.txt',
+      ]
+    );
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('uses locked Linux and Windows extension wheel targets', async t => {
+  for (const [platform, arch, lockName, platformTag] of [
+    ['linux', 'x64', 'azure-cli-linux-x64-requirements.txt', 'manylinux_2_17_x86_64'],
+    ['linux', 'arm64', 'azure-cli-linux-arm64-requirements.txt', 'manylinux_2_17_aarch64'],
+    ['win32', 'x64', 'azure-cli-win32-x64-requirements.txt', 'win_amd64'],
+    ['win32', 'arm64', 'azure-cli-win32-x64-requirements.txt', 'win_amd64'],
+  ] as const) {
+    await t.test(`${platform}/${arch}`, () => {
+      const rootDir = createRoot();
+      try {
+        const target = resolveAzureCliTarget(rootDir, platform, arch);
+        assert.equal(target.pythonVersion, '3.14');
+        assert.ok(target.extensionLockPath?.endsWith(lockName));
+        assert.match(target.extensionLockChecksum!, /^[0-9a-f]{64}$/);
+        const args = extensionWheelDownloadArguments(
+          target,
+          '/tmp/requirements.txt',
+          '/tmp/wheels'
+        );
+        assert.equal(args[args.indexOf('--platform') + 1], platformTag);
+        assert.equal(args[args.indexOf('--python-version') + 1], '3.14');
+        assert.ok(args.includes('--require-hashes'));
+      } finally {
+        fs.rmSync(rootDir, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test('uses the supported x64 Azure CLI runtime for Windows ARM packages', () => {
+  const rootDir = createRoot();
+  try {
+    const target = resolveAzureCliTarget(rootDir, 'win32', 'arm64');
+    assert.equal(target.cliPackage?.url, 'win-x64');
+    assert.equal(target.cliPackage?.runtimeArch, 'x64');
+    assert.match(target.extensionLockPath!, /azure-cli-win32-x64-requirements\.txt$/);
+    assert.deepEqual(target.extensions, ['resource-graph', 'connectedk8s']);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('rejects targets without a verified runtime', () => {
+  const rootDir = createRoot();
+  try {
+    assert.throws(() => resolveAzureCliTarget(rootDir, 'linux', 'armv7l'));
+    assert.throws(() => resolveAzureCliTarget(rootDir, 'aix', 'x64'));
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('includes sorted extensions in the staged cache identity', () => {
+  const target = {
+    platform: 'linux',
+    arch: 'arm64',
+    version: '2.90.0',
+    extensions: ['resource-graph', 'connectedk8s'],
+    extensionVersions: {
+      'resource-graph': '2.1.1',
+      connectedk8s: '1.11.3',
+    },
+    extensionPackages: {
+      'resource-graph': { url: 'resource-graph.whl', checksum: 'resource-graph-sum' },
+      connectedk8s: { url: 'connectedk8s.whl', checksum: 'connectedk8s-sum' },
+    },
+    pythonVersion: '3.14',
+    python: { url: 'python', checksum: 'python-sum' },
+    cliPackage: { url: 'cli', checksum: 'cli-sum' },
+  };
+  const identity = azureCliCacheIdentity(target);
+  assert.deepEqual(identity.extensions, ['connectedk8s', 'resource-graph']);
+  assert.equal(identity.pythonChecksum, 'python-sum');
+  assert.equal(identity.packageChecksum, 'cli-sum');
+  assert.deepEqual(identity.extensionVersions, {
+    connectedk8s: '1.11.3',
+    'resource-graph': '2.1.1',
+  });
+  assert.deepEqual(identity.extensionPackages, {
+    connectedk8s: { url: 'connectedk8s.whl', checksum: 'connectedk8s-sum' },
+    'resource-graph': { url: 'resource-graph.whl', checksum: 'resource-graph-sum' },
+  });
+  assert.equal(identity.extensionInstallPolicy, 'verified-local-wheel-v3');
+  assert.match(azureCliCacheKey(target), /^[0-9a-f]{64}$/);
+  assert.notEqual(
+    azureCliCacheKey(target),
+    azureCliCacheKey({
+      ...target,
+      extensionVersions: { ...target.extensionVersions, connectedk8s: '1.11.4' },
+    })
+  );
+  assert.notEqual(
+    azureCliCacheKey(target),
+    azureCliCacheKey({
+      ...target,
+      extensionPackages: {
+        ...target.extensionPackages,
+        connectedk8s: { url: 'connectedk8s-v2.whl', checksum: 'connectedk8s-sum' },
+      },
+    })
+  );
+  assert.equal(
+    azureCliVersionDataMatchesTarget(target, {
+      'azure-cli': '2.90.0',
+      extensions: { connectedk8s: '1.11.3', 'resource-graph': '2.1.1' },
+    }),
+    true
+  );
+  assert.equal(
+    azureCliVersionDataMatchesTarget(target, {
+      'azure-cli': '2.90.0',
+      extensions: { connectedk8s: '1.11.2', 'resource-graph': '2.1.1' },
+    }),
+    false
+  );
+  assert.deepEqual(
+    azureCliExtensionsToInstall(target, {
+      connectedk8s: '1.11.2',
+      'resource-graph': '2.1.1',
+    }),
+    ['connectedk8s']
+  );
+  assert.deepEqual(
+    azureCliExtensionsToRemove(target, {
+      connectedk8s: '1.11.3',
+      'resource-graph': '2.1.1',
+      'aks-preview': '19.0.0',
+    }),
+    ['aks-preview']
+  );
+});
+
+test('generates a relocatable self-contained Unix wrapper', () => {
+  const wrapper = generateUnixAzWrapperScript();
+  assert.match(wrapper, /AZ_PYTHON="\$CLI_DIR\/python\/bin\/python3"/);
+  assert.doesNotMatch(wrapper, /\$CLI_DIR\/bin\/python3/);
+  assert.match(wrapper, /AZURE_EXTENSION_DIR="\$CLI_DIR\/cliextensions"/);
+  assert.match(wrapper, /exec "\$CLI_DIR\/libexec\/bin\/az" "\$@"/);
+  assert.doesNotMatch(wrapper, /\/Users\//);
+});
+
+test('runs a relocatable Python wrapper through its sibling runtime', {
+  skip: process.platform === 'win32',
+}, t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aks python wrapper '));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const binDir = path.join(rootDir, 'bin');
+  const pythonDir = path.join(rootDir, 'python', 'bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.mkdirSync(pythonDir, { recursive: true });
+  const wrapperPath = path.join(binDir, 'python-wrapper');
+  fs.writeFileSync(wrapperPath, generateUnixPythonWrapperScript(), { mode: 0o755 });
+  fs.writeFileSync(path.join(pythonDir, 'python3'), '#!/bin/sh\nprintf "%s\\n" "$@"\n', {
+    mode: 0o755,
+  });
+
+  assert.equal(
+    execFileSync(wrapperPath, ['first value', 'second'], { encoding: 'utf8' }),
+    'first value\nsecond\n'
+  );
+});
+
+test('rejects a stale Unix cache without the Python wrapper', t => {
+  const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azure-cli-runtime-'));
+  t.after(() => fs.rmSync(targetDir, { recursive: true, force: true }));
+  for (const relativePath of ['bin/az-wrapper', 'python/bin/python3']) {
+    const filePath = path.join(targetDir, relativePath);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, 'fixture');
+  }
+
+  assert.equal(azureCliRuntimeFilesExist(targetDir, 'darwin'), false);
+  fs.writeFileSync(path.join(targetDir, 'bin', 'python-wrapper'), 'fixture');
+  assert.equal(azureCliRuntimeFilesExist(targetDir, 'darwin'), true);
+  assert.equal(azureCliRuntimeFilesExist(targetDir, 'linux'), true);
+});
+
+test('requires both Windows Azure CLI runtime entry points', t => {
+  const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'azure-cli-runtime-'));
+  t.after(() => fs.rmSync(targetDir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(targetDir, 'bin'));
+  fs.writeFileSync(path.join(targetDir, 'bin', 'az.cmd'), 'fixture');
+
+  assert.equal(azureCliRuntimeFilesExist(targetDir, 'win32'), false);
+  fs.writeFileSync(path.join(targetDir, 'python.exe'), 'fixture');
+  assert.equal(azureCliRuntimeFilesExist(targetDir, 'win32'), true);
+});
+
+test('rejects an artifact whose checksum does not match', async () => {
+  await assert.doesNotReject(verifyRequiredArtifact(Promise.resolve(true), 'Azure CLI'));
+  await assert.rejects(
+    verifyRequiredArtifact(Promise.resolve(false), 'Azure CLI'),
+    /Azure CLI checksum verification failed/
+  );
+});
+
+test('propagates required extension installation failures', () => {
+  const installed: string[] = [];
+  assert.throws(
+    () =>
+      installRequiredExtensions(['resource-graph', 'connectedk8s'], extension => {
+        installed.push(extension);
+        if (extension === 'connectedk8s') {
+          throw new Error('extension failed');
+        }
+      }),
+    /extension failed/
+  );
+  assert.deepEqual(installed, ['resource-graph', 'connectedk8s']);
+});

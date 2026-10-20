@@ -11,9 +11,17 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 
 const mockRegisterAKSCluster = vi.hoisted(() => vi.fn());
+const mockRegisteredClustersState = vi.hoisted(() => ({
+  registeredClusters: new Set<string>(),
+  isReady: true,
+}));
 
 vi.mock('../../../utils/azure/aks', () => ({
   registerAKSCluster: mockRegisterAKSCluster,
+}));
+
+vi.mock('../../../hooks/useRegisteredClusters', () => ({
+  useRegisteredClusters: () => mockRegisteredClustersState,
 }));
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
@@ -35,6 +43,8 @@ import { useRegisterCluster } from './useRegisterCluster';
 describe('useRegisterCluster', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRegisteredClustersState.registeredClusters.clear();
+    mockRegisteredClustersState.isReady = true;
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -66,6 +76,30 @@ describe('useRegisterCluster', () => {
     await act(async () => {
       resolveRegister({ success: true, message: 'ok' });
       await handleRegisterPromise;
+    });
+  });
+
+  test('handleRegister ignores a second call while registration is in flight', async () => {
+    let resolveRegister!: (value: { success: boolean; message: string }) => void;
+    mockRegisterAKSCluster.mockReturnValue(
+      new Promise(resolve => {
+        resolveRegister = resolve;
+      })
+    );
+    const { result } = renderHook(() => useRegisterCluster('aks-prod', 'rg-prod', 'sub-123'));
+
+    let firstCall!: Promise<void>;
+    let secondCall!: Promise<void>;
+    act(() => {
+      firstCall = result.current.handleRegister();
+      secondCall = result.current.handleRegister();
+    });
+
+    expect(mockRegisterAKSCluster).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveRegister({ success: true, message: 'ok' });
+      await Promise.all([firstCall, secondCall]);
     });
   });
 
@@ -119,11 +153,9 @@ describe('useRegisterCluster', () => {
     expect(result.current.error).toContain('Unknown error');
   });
 
-  test('handleRegister passes subscription, resourceGroup, cluster, and tenantId to registerAKSCluster', async () => {
+  test('handleRegister passes subscription, resourceGroup, and cluster to registerAKSCluster', async () => {
     mockRegisterAKSCluster.mockResolvedValue({ success: true, message: '' });
-    const { result } = renderHook(() =>
-      useRegisterCluster('aks-prod', 'rg-prod', 'sub-123', 'tenant-abc')
-    );
+    const { result } = renderHook(() => useRegisterCluster('aks-prod', 'rg-prod', 'sub-123'));
 
     await act(async () => {
       await result.current.handleRegister();
@@ -134,7 +166,43 @@ describe('useRegisterCluster', () => {
       'rg-prod',
       'aks-prod',
       undefined,
-      'tenant-abc'
+      false
+    );
+  });
+
+  test('passes active cluster state to the shared registration boundary', async () => {
+    mockRegisteredClustersState.registeredClusters.add('aks-prod');
+    mockRegisterAKSCluster.mockResolvedValue({ success: false, message: 'scope conflict' });
+    const { result } = renderHook(() => useRegisterCluster('aks-prod', 'rg-prod', 'sub-123'));
+
+    await act(async () => {
+      await result.current.handleRegister();
+    });
+
+    expect(mockRegisterAKSCluster).toHaveBeenCalledWith(
+      'sub-123',
+      'rg-prod',
+      'aks-prod',
+      undefined,
+      true
+    );
+  });
+
+  test('matches active cluster state case-insensitively', async () => {
+    mockRegisteredClustersState.registeredClusters.add('aks-prod');
+    mockRegisterAKSCluster.mockResolvedValue({ success: false, message: 'scope conflict' });
+    const { result } = renderHook(() => useRegisterCluster('AKS-Prod', 'rg-prod', 'sub-123'));
+
+    await act(async () => {
+      await result.current.handleRegister();
+    });
+
+    expect(mockRegisterAKSCluster).toHaveBeenCalledWith(
+      'sub-123',
+      'rg-prod',
+      'AKS-Prod',
+      undefined,
+      true
     );
   });
 
@@ -145,6 +213,18 @@ describe('useRegisterCluster', () => {
       await result.current.handleRegister();
     });
 
+    expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
+  });
+
+  test('does not register while cluster configuration is unavailable', async () => {
+    mockRegisteredClustersState.isReady = false;
+    const { result } = renderHook(() => useRegisterCluster('aks-prod', 'rg-prod', 'sub-123'));
+
+    await act(async () => {
+      await result.current.handleRegister();
+    });
+
+    expect(result.current.clusterConfigReady).toBe(false);
     expect(mockRegisterAKSCluster).not.toHaveBeenCalled();
   });
 
@@ -211,5 +291,71 @@ describe('useRegisterCluster', () => {
       resolveSecond({ success: true, message: 'ok' });
       await secondHandlePromise;
     });
+  });
+
+  test('does not apply a completed registration to a newly selected cluster', async () => {
+    let resolveRegister!: (value: { success: boolean; message: string }) => void;
+    mockRegisterAKSCluster.mockReturnValue(
+      new Promise(resolve => {
+        resolveRegister = resolve;
+      })
+    );
+    const { result, rerender } = renderHook(
+      ({ cluster }) => useRegisterCluster(cluster, 'rg-prod', 'sub-123'),
+      { initialProps: { cluster: 'aks-old' } }
+    );
+
+    let registration!: Promise<void>;
+    act(() => {
+      registration = result.current.handleRegister();
+    });
+    rerender({ cluster: 'aks-new' });
+
+    await act(async () => {
+      resolveRegister({ success: true, message: 'ok' });
+      await registration;
+    });
+
+    expect(result.current.success).toBeUndefined();
+    expect(result.current.loading).toBe(false);
+  });
+
+  test('blocks a new selection until the prior native registration settles', async () => {
+    let resolveFirst!: (value: { success: boolean; message: string }) => void;
+    mockRegisterAKSCluster
+      .mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveFirst = resolve;
+        })
+      )
+      .mockResolvedValueOnce({ success: true, message: 'registered new cluster' });
+    const { result, rerender } = renderHook(
+      ({ cluster }) => useRegisterCluster(cluster, 'rg-prod', 'sub-123'),
+      { initialProps: { cluster: 'aks-old' } }
+    );
+
+    let firstRegistration!: Promise<void>;
+    act(() => {
+      firstRegistration = result.current.handleRegister();
+    });
+    rerender({ cluster: 'aks-new' });
+
+    expect(result.current.loading).toBe(true);
+    await act(async () => {
+      await result.current.handleRegister();
+    });
+    expect(mockRegisterAKSCluster).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFirst({ success: true, message: 'registered old cluster' });
+      await firstRegistration;
+    });
+    expect(result.current.loading).toBe(false);
+
+    await act(async () => {
+      await result.current.handleRegister();
+    });
+    expect(mockRegisterAKSCluster).toHaveBeenCalledTimes(2);
+    expect(mockRegisterAKSCluster.mock.calls[1][2]).toBe('aks-new');
   });
 });

@@ -261,6 +261,7 @@ function makeContainerConfig(): ReturnType<typeof useContainerConfiguration> {
       containerPreviewYaml: '',
     },
     setConfig: noop,
+    furthestStep: 0,
   };
 }
 

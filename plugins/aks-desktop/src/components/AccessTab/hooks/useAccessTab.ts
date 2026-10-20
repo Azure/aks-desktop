@@ -7,7 +7,12 @@ import {
   listNamespaceRoleAssignments,
   type NamespaceRoleAssignment,
 } from '../../../utils/azure/az-namespace-access';
-import { RESOURCE_GROUP_LABEL, SUBSCRIPTION_LABEL } from '../../../utils/constants/projectLabels';
+import {
+  AUTHZ_MODEL_AZURE_RBAC,
+  AUTHZ_MODEL_LABEL,
+  RESOURCE_GROUP_LABEL,
+  SUBSCRIPTION_LABEL,
+} from '../../../utils/constants/projectLabels';
 import { ACCESS_TAB_CACHE_TTL_MS } from '../../../utils/constants/timing';
 
 /** 1 minute cache scoped to (cluster/namespace) */
@@ -38,8 +43,13 @@ export function useAccessTab(project: {
   const [namespaceInstance] = K8s.ResourceClasses.Namespace.useGet(namespaceName, undefined, {
     cluster: clusterName,
   });
-  const subscription = namespaceInstance?.jsonData?.metadata?.labels?.[SUBSCRIPTION_LABEL];
-  const resourceGroup = namespaceInstance?.jsonData?.metadata?.labels?.[RESOURCE_GROUP_LABEL];
+  const labels = namespaceInstance?.jsonData?.metadata?.labels;
+  const subscription = labels?.[SUBSCRIPTION_LABEL];
+  const resourceGroup = labels?.[RESOURCE_GROUP_LABEL];
+  // Only Arc projects carry this label, and only when the cluster grants through
+  // Azure RBAC. It tells the lookup to construct a connectedClusters scope rather
+  // than resolving a managed-namespace ARM resource, which Arc has none of.
+  const isArcCluster = labels?.[AUTHZ_MODEL_LABEL] === AUTHZ_MODEL_AZURE_RBAC;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +82,7 @@ export function useAccessTab(project: {
       resourceGroup,
       namespaceName,
       subscriptionId: subscription,
+      isArcCluster,
     })
       .then(result => {
         if (cancelled) return;
@@ -92,7 +103,7 @@ export function useAccessTab(project: {
     return () => {
       cancelled = true;
     };
-  }, [clusterName, resourceGroup, namespaceName, subscription, fetchKey, cacheKey]);
+  }, [clusterName, resourceGroup, namespaceName, subscription, isArcCluster, fetchKey, cacheKey]);
 
   const refresh = useCallback(() => {
     cache.delete(cacheKey);

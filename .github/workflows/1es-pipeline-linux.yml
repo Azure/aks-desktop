@@ -11,10 +11,7 @@ resources:
 parameters:
   - name: nodeVersion
     type: string
-    default: 20.x
-  - name: goVersion
-    type: string
-    default: 1.26.3
+    default: 22.22.2
 
 extends:
   # The pipeline extends the 1ES PT which will inject different SDL and compliance tasks.
@@ -43,6 +40,15 @@ extends:
       - stage: Stage
         jobs:
           - job: HostJob
+            timeoutInMinutes: 120
+            variables:
+              NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+              NPM_CONFIG_REPLACE_REGISTRY_HOST: npmjs
+              # Bundled Azure CLI dependencies cannot reach pypi.org from this pool.
+              PIP_INDEX_URL: https://packagefeedproxy.microsoft.io/pypi/simple/
+              GOMODCACHE: $(Pipeline.Workspace)/.go/pkg/mod
+              GOCACHE: $(Pipeline.Workspace)/.go/build
+              ARCH: x64
             # If the pipeline publishes artifacts, use `templateContext` to define the artifacts.
             # This will enable 1ES PT to run SDL analysis tools on the artifacts and then upload them.
             templateContext:
@@ -53,11 +59,27 @@ extends:
             # # Define the steps that the pipeline will run.
             # # In most cases, copy and paste the steps from the original pipeline.
             steps:
+              - checkout: self
+                submodules: false
+
+              - task: NodeTool@0
+                displayName: Install Node.js
+                retryCountOnTaskFailure: 3
+                inputs:
+                  versionSpec: ${{ parameters.nodeVersion }}
+
+              - bash: |
+                  set -e
+                  go_version="$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build/go-version.ts)"
+                  echo "Headlamp Go toolchain: $go_version"
+                  echo "##vso[task.setvariable variable=HEADLAMP_GO_VERSION]$go_version"
+                displayName: Resolve Headlamp Go version
+
               - task: GoTool@0
                 displayName: Install Go
                 retryCountOnTaskFailure: 3
                 inputs:
-                  version: ${{ parameters.goVersion }}
+                  version: $(HEADLAMP_GO_VERSION)
               # FIX: Install .NET SDK early (required for ESRP Code Signing)
               # Changed from "runtime" to "sdk" and added version specification
               - task: UseDotNet@2
@@ -68,18 +90,13 @@ extends:
               # TODO: Remove debug logging after pipeline is stable
               - bash: |
                   echo "=== GO INSTALLATION DEBUG ==="
-                  echo "Go version requested: ${{ parameters.goVersion }}"
+                  echo "Go version requested: $(HEADLAMP_GO_VERSION)"
                   go version || echo "Go not found in PATH"
                   echo "GOROOT: $GOROOT"
                   echo "GOPATH: $GOPATH"
                   echo "PATH: $PATH"
                   echo "=== END GO DEBUG ==="
                 displayName: "Debug: Go Installation"
-              - task: NodeTool@0
-                displayName: Install Node.js
-                retryCountOnTaskFailure: 3
-                inputs:
-                  versionSpec: ${{ parameters.nodeVersion }}
               # TODO: Remove debug logging after pipeline is stable
               - bash: |
                   echo "=== NODE.JS INSTALLATION DEBUG ==="
@@ -90,16 +107,42 @@ extends:
                   echo "PATH: $PATH"
                   echo "=== END NODE.JS DEBUG ==="
                 displayName: "Debug: Node.js Installation"
-              - checkout: self
-                submodules: recursive
+              - bash: |
+                  set -e
+                  mkdir -p "$(GOMODCACHE)" "$(GOCACHE)"
+                  echo "GOMODCACHE=$(go env GOMODCACHE)"
+                  echo "GOCACHE=$(go env GOCACHE)"
+                  echo "GOTOOLCHAIN=$(go env GOTOOLCHAIN)"
+                displayName: 'Configure Go caches'
+
+              - task: Cache@2
+                displayName: 'Cache Go module downloads'
+                inputs:
+                  key: 'go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
+                  restoreKeys: |
+                    go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOMODCACHE)'
+                  cacheHitVar: GO_MODULE_CACHE_HIT
+
+              - task: Cache@2
+                displayName: 'Cache Go build outputs'
+                inputs:
+                  key: 'go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
+                  restoreKeys: |
+                    go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOCACHE)'
+                  cacheHitVar: GO_BUILD_CACHE_HIT
+
+              - bash: |
+                  echo "[build-timing] Go module cache result: $(GO_MODULE_CACHE_HIT)"
+                  echo "[build-timing] Go build cache result: $(GO_BUILD_CACHE_HIT)"
+                displayName: 'Report Go cache results'
               # TODO: Remove debug logging after pipeline is stable
               - bash: |
                   echo "=== CHECKOUT DEBUG ==="
                   echo "Current working directory: $(pwd)"
                   echo "Repository contents:"
                   ls -la
-                  echo "Submodules status:"
-                  git submodule status || echo "No submodules or git not available"
                   echo "Git branch:"
                   git branch -a || echo "Git not available"
                   echo "Git commit:"
@@ -108,44 +151,30 @@ extends:
                 displayName: "Debug: Checkout"
               - bash: |
                   set -e
-                  echo "=== INSTALL MAKE START ==="
-                  if command -v make >/dev/null 2>&1; then
-                    echo "make is already installed, skipping install."
-                  else
-                    echo "make not found, installing via tdnf..."
+                  echo "=== INSTALL BUILD PREREQUISITES START ==="
+                  packages=()
+                  command -v ld >/dev/null 2>&1 || packages+=(binutils)
+                  command -v make >/dev/null 2>&1 || packages+=(make)
+
+                  if [ "${#packages[@]}" -gt 0 ]; then
+                    echo "Installing via tdnf: ${packages[*]}"
                     if [ "$(id -u)" -eq 0 ]; then
-                      tdnf install -y make
+                      tdnf install -y "${packages[@]}"
                     else
-                      sudo -n tdnf install -y make
+                      sudo -n tdnf install -y "${packages[@]}"
                     fi
-                    echo "make installed successfully."
+                  else
+                    echo "Build prerequisites are already installed."
                   fi
 
-                  echo "make version:"
-                  make --version | head -n 1
-                  echo "=== INSTALL MAKE END ==="
-                displayName: "Install make build tool"
-              - bash: |
-                  set -e
-                  echo "=== INSTALL BINUTILS START ==="
-                  if command -v ld >/dev/null 2>&1; then
-                    echo "binutils is already installed, skipping install."
-                  else
-                    echo "binutils not found, installing via tdnf..."
-                    if [ "$(id -u)" -eq 0 ]; then
-                      tdnf install -y binutils
-                    else
-                      sudo -n tdnf install -y binutils
-                    fi
-                    echo "binutils installed successfully."
-                  fi
-
-                  echo "binutils version:"
+                  echo "Installed build prerequisites:"
                   ld --version | head -n 1
-                  echo "=== INSTALL BINUTILS END ==="
-                displayName: "Install binutils"
+                  make --version | head -n 1
+                  echo "=== INSTALL BUILD PREREQUISITES END ==="
+                displayName: "Install build prerequisites"
               # Build the Windows application
               - bash: |
+                  set -e  # fail the step when the build fails
                   echo "=== BUILD DEBUG START ==="
                   echo "Current working directory: $(pwd)"
                   echo "Node version: $(node --version)"
@@ -170,15 +199,24 @@ extends:
                   go env | grep -E "GOPROXY|GOSUMDB|PROXY"
                   echo "=== END GO ENVIRONMENT ==="
 
+                  npm_root="$(mktemp -d "${AGENT_TEMPDIRECTORY:-${TMPDIR:-/tmp}}/npm.XXXXXX")"
+                  npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
+                  echo "##vso[task.prependpath]$npm_root/node_modules/.bin"
+                  export PATH="$npm_root/node_modules/.bin:$PATH"
+                  npm ci --prefer-offline --no-audit --no-fund
                   echo "Building AKS desktop Linux application..."
-                  npm run build:linux
+                  # TODO: Restore the app smoke when the image includes Electron runtime libraries.
+                  if ! npm run build:linux || \
+                    ! npm run test:post-build; then
+                    exit 1
+                  fi
                   echo "✅ Build complete"
 
                   echo "=== POST-BUILD DEBUG ==="
                   echo "Checking for build outputs..."
                   find . -name "*.deb" -type f 2>/dev/null || echo "No .deb files found"
-                  echo "headlamp/app/dist contents:"
-                  ls -la headlamp/app/dist/ 2>/dev/null || echo "headlamp/app/dist not found"
+                  echo "Headlamp app dist contents:"
+                  ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ 2>/dev/null || echo "Headlamp app dist not found"
                   echo "=== END POST-BUILD DEBUG ==="
                 displayName: "Build AKS desktop (Linux)"
 
@@ -197,18 +235,18 @@ extends:
                   echo "All .tar.gz files in current directory:"
                   find . -name "*.tar.gz" -type f 2>/dev/null || echo "No .tar.gz files found"
 
-                  echo "headlamp/app/dist directory contents:"
-                  ls -la headlamp/app/dist/ 2>/dev/null || echo "headlamp/app/dist directory not found"
+                  echo "Headlamp app dist directory contents:"
+                  ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ 2>/dev/null || echo "Headlamp app dist directory not found"
 
                   echo "=== COPY EXECUTABLE DEBUG END ==="
 
                   echo "Finding built .deb file..."
-                  DEB_PATH=$(find headlamp/app/dist -type f -name "aks-desktop*.deb" -print -quit)
+                  DEB_PATH=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*.deb" -print -quit)
 
                   if [ -z "$DEB_PATH" ]; then
-                    echo "❌ No aks-desktop .deb file found in headlamp/app/dist!" >&2
-                    echo "Listing headlamp/app/dist contents:"
-                    ls -la headlamp/app/dist/ || echo "headlamp/app/dist directory not found"
+                    echo "❌ No aks-desktop .deb file found in the Headlamp app dist!" >&2
+                    echo "Listing Headlamp app dist contents:"
+                    ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ || echo "Headlamp app dist directory not found"
                     exit 1
                   fi
 
@@ -217,10 +255,10 @@ extends:
                   echo "File permissions: $(ls -la "$DEB_PATH")"
 
                   echo "Finding built .tar.gz files..."
-                  TARGZ_FILES=$(find headlamp/app/dist -type f -name "aks-desktop*.tar.gz" 2>/dev/null || true)
+                  TARGZ_FILES=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*.tar.gz" 2>/dev/null || true)
 
                   if [ -z "$TARGZ_FILES" ]; then
-                    echo "No aks-desktop .tar.gz files found in headlamp/app/dist"
+                    echo "No aks-desktop .tar.gz files found in the Headlamp app dist"
                   else
                     echo "Found tar.gz files:"
                     echo "$TARGZ_FILES" | while read -r file; do

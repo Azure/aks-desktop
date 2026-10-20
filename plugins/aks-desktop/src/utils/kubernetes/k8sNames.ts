@@ -39,3 +39,13 @@ export function sanitizeDnsName(raw: string, maxLength = 63, fallback = 'app'): 
 export function normalizeK8sName(raw: string): string {
   return sanitizeDnsName(raw);
 }
+
+/**
+ * Normalizes a cluster name for case-insensitive identity comparisons.
+ *
+ * @param clusterName - Azure or kubeconfig cluster name to normalize.
+ * @returns The lowercase canonical cluster identity.
+ */
+export function normalizeClusterName(clusterName: string): string {
+  return clusterName.toLowerCase();
+}

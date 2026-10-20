@@ -8,6 +8,7 @@ export const azureTheme: AppTheme = {
   base: 'light',
   primary: '#3F3682', // AKS Purple - primary brand color
   secondary: '#ecebe9', // Gray neutral color
+  secondaryContrastText: '#000000',
   text: {
     primary: '#000000', // Black for maximum contrast and readability
     // @ts-ignore todo: fix palette type so text.secondary is recognized

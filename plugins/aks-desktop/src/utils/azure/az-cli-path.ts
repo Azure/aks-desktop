@@ -22,6 +22,12 @@ function isElectron(): boolean {
 
 // Helper to get the platform
 function getPlatform(): string {
+  if (typeof window !== 'undefined') {
+    const platform = (window as { desktopApi?: { platform?: string } }).desktopApi?.platform;
+    if (platform) {
+      return platform;
+    }
+  }
   if (typeof process !== 'undefined') {
     return process.platform;
   }
@@ -152,8 +158,18 @@ export function getAzCommand(): string {
  * Get installation instructions based on platform
  * @returns Installation instructions string
  */
-export function getInstallationInstructions(): string {
-  const platform = getPlatform();
+export function getInstallationInstructions(
+  platform: string = getPlatform(),
+  electron: boolean = isElectron()
+): string {
+  if (electron) {
+    return `
+AKS desktop could not start its bundled Azure CLI.
+
+Repair or reinstall AKS desktop to restore the bundled Azure CLI, then restart
+the application. A separate system Azure CLI installation is not required.
+    `.trim();
+  }
 
   if (platform === 'win32') {
     return `
@@ -162,7 +178,6 @@ Azure CLI is not installed or not found in PATH.
 To install Azure CLI on Windows:
 1. Download from: https://aka.ms/installazurecliwindowsx64
 2. Or use WinGet: winget install Microsoft.AzureCLI
-3. Restart AKS desktop after installation
 
 For more info: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-windows
     `.trim();

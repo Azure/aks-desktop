@@ -8,6 +8,7 @@ import {
   Autocomplete,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -18,6 +19,7 @@ import {
 } from '@mui/material';
 import React from 'react';
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
+import { getClusterStateLabel, isAksHybridEdgeOnline } from '../../utils/azure/clusterState';
 import { ClusterConfigurePanel } from '../CreateAKSProject/components/ClusterConfigurePanel';
 
 export interface Subscription {
@@ -39,6 +41,18 @@ export interface AKSCluster {
   location: string;
   kubernetesVersion: string;
   provisioningState: string;
+  /** `'aks'` for managed clusters, `'aksarc'` for Arc-connected (AKS Hybrid & Edge) clusters. */
+  clusterType?: 'aks' | 'aksarc';
+  /** For AKS Hybrid & Edge clusters: Arc agent status (`'Connected'` when online). */
+  connectivityStatus?: string;
+}
+
+/** User-visible state of background Azure subscription discovery. */
+export interface SubscriptionRefreshState {
+  /** Current background refresh phase. */
+  status: 'idle' | 'refreshing' | 'updated' | 'failed';
+  /** Number of subscription IDs added by the refreshed list. */
+  addedCount: number;
 }
 
 export interface RegisterAKSClusterDialogPureProps {
@@ -47,10 +61,18 @@ export interface RegisterAKSClusterDialogPureProps {
   isLoggedIn: boolean;
   loading: boolean;
   loadingSubscriptions: boolean;
+  /** Background refresh state shown after cached subscriptions become available. */
+  subscriptionRefresh: SubscriptionRefreshState;
   loadingClusters: boolean;
   capabilitiesLoading: boolean;
   error: string;
+  /** Non-blocking message, shown as an info alert. */
+  notice?: string;
   success: string;
+  /** Whether registration completed successfully in the current dialog session. */
+  registrationSucceeded?: boolean;
+  /** Whether Headlamp's live cluster configuration is authoritative. */
+  clusterConfigReady?: boolean;
   subscriptions: Subscription[];
   selectedSubscription: Subscription | null;
   subscriptionInputValue: string;
@@ -82,10 +104,14 @@ export default function RegisterAKSClusterDialogPure({
   isLoggedIn,
   loading,
   loadingSubscriptions,
+  subscriptionRefresh,
   loadingClusters,
   capabilitiesLoading,
   error,
+  notice,
   success,
+  registrationSucceeded,
+  clusterConfigReady = true,
   subscriptions,
   selectedSubscription,
   subscriptionInputValue,
@@ -111,6 +137,8 @@ export default function RegisterAKSClusterDialogPure({
   onConfigured,
 }: RegisterAKSClusterDialogPureProps) {
   const { t } = useTranslation();
+  const registrationCompleted = registrationSucceeded ?? Boolean(success);
+  const isAksHybridEdgeSelected = selectedCluster?.clusterType === 'aksarc';
 
   return (
     <Dialog
@@ -137,9 +165,33 @@ export default function RegisterAKSClusterDialogPure({
             </Alert>
           )}
 
+          {notice && <Alert severity="info">{notice}</Alert>}
+
           {success && (
             <Alert severity="success" onClose={onDismissSuccess}>
               {success}
+            </Alert>
+          )}
+
+          {subscriptionRefresh.status === 'refreshing' && (
+            <Alert severity="info">
+              {t('Showing cached Azure subscriptions while checking for updates.')}
+            </Alert>
+          )}
+
+          {subscriptionRefresh.status === 'updated' && (
+            <Alert severity="success">
+              {subscriptionRefresh.addedCount > 0
+                ? t('{{count}} new Azure subscription(s) loaded.', {
+                    count: subscriptionRefresh.addedCount,
+                  })
+                : t('Azure subscription list updated.')}
+            </Alert>
+          )}
+
+          {subscriptionRefresh.status === 'failed' && (
+            <Alert severity="warning">
+              {t('Showing cached Azure subscriptions because the refresh failed.')}
             </Alert>
           )}
 
@@ -180,6 +232,7 @@ export default function RegisterAKSClusterDialogPure({
                 resourceGroup={selectedCluster.resourceGroup}
                 clusterName={selectedCluster.name}
                 onConfigured={onConfigured ?? (() => {})}
+                showNetworkPolicyNote={false}
               />
             )}
 
@@ -220,7 +273,9 @@ export default function RegisterAKSClusterDialogPure({
                 getOptionKey={option => option.id}
                 getOptionLabel={option => option.name}
                 isOptionEqualToValue={(option, value) => option.id === value.id}
-                disabled={loadingSubscriptions || tenants.length <= 1}
+                disabled={
+                  loading || registrationCompleted || loadingSubscriptions || tenants.length <= 1
+                }
                 renderInput={params => (
                   <TextField
                     {...params}
@@ -232,9 +287,13 @@ export default function RegisterAKSClusterDialogPure({
                   <li {...props} key={option.id}>
                     <Box>
                       <Typography variant="body1">{option.name}</Typography>
-                      <Typography variant="caption" color="textSecondary">
-                        {option.id}
-                      </Typography>
+                      {/* When the display name is unresolvable the name falls back to the
+                          tenant ID; showing it twice reads as a rendering bug. */}
+                      {option.name !== option.id && (
+                        <Typography variant="caption" color="textSecondary">
+                          {option.id}
+                        </Typography>
+                      )}
                     </Box>
                   </li>
                 )}
@@ -253,7 +312,12 @@ export default function RegisterAKSClusterDialogPure({
                   `${option.name}${option.state !== 'Enabled' ? ` (${option.state})` : ''}`
                 }
                 isOptionEqualToValue={(option, value) => option.id === value.id}
-                disabled={loadingSubscriptions || (tenants.length > 1 && !selectedTenant)}
+                disabled={
+                  loading ||
+                  registrationCompleted ||
+                  loadingSubscriptions ||
+                  (tenants.length > 1 && !selectedTenant)
+                }
                 loading={loadingSubscriptions}
                 renderInput={params => (
                   <TextField
@@ -318,11 +382,21 @@ export default function RegisterAKSClusterDialogPure({
                   inputValue={clusterInputValue}
                   onInputChange={onClusterInputChange}
                   filterOptions={x => x}
-                  getOptionKey={option => `${option.resourceGroup}/${option.name}`}
-                  getOptionLabel={option => option.name}
-                  isOptionEqualToValue={(option, value) =>
-                    option.name === value.name && option.resourceGroup === value.resourceGroup
+                  // Identity includes the cluster kind: a managed AKS cluster and an
+                  // Arc-connected one are different resource types, so they may share
+                  // a name and resource group. Without it the two are the same option
+                  // and the wrong kind can be selected and registered.
+                  getOptionKey={option =>
+                    `${option.clusterType ?? 'aks'}/${option.resourceGroup}/${option.name}`
                   }
+                  getOptionLabel={option => option.name}
+                  getOptionDisabled={option => !isAksHybridEdgeOnline(option)}
+                  isOptionEqualToValue={(option, value) =>
+                    option.name === value.name &&
+                    option.resourceGroup === value.resourceGroup &&
+                    (option.clusterType ?? 'aks') === (value.clusterType ?? 'aks')
+                  }
+                  disabled={loading || registrationCompleted}
                   renderInput={params => (
                     <TextField
                       {...params}
@@ -330,45 +404,81 @@ export default function RegisterAKSClusterDialogPure({
                       placeholder={t('Select an AKS cluster')}
                     />
                   )}
-                  renderOption={(props, option) => (
-                    <li {...props} key={`${option.resourceGroup}/${option.name}`}>
-                      <Box width="100%">
-                        <Typography variant="body1">{option.name}</Typography>
-                        <Typography variant="caption" color="textSecondary">
-                          {option.location} • v{option.kubernetesVersion} •{' '}
-                          {option.provisioningState}
-                        </Typography>
-                      </Box>
-                    </li>
-                  )}
+                  renderOption={(props, option) => {
+                    const offline = !isAksHybridEdgeOnline(option);
+                    return (
+                      <li
+                        {...props}
+                        key={`${option.clusterType ?? 'aks'}/${option.resourceGroup}/${
+                          option.name
+                        }`}
+                      >
+                        <Box width="100%">
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Typography variant="body1">{option.name}</Typography>
+                            {option.clusterType === 'aksarc' && (
+                              <Chip
+                                label={t('AKS Hybrid & Edge')}
+                                size="small"
+                                color="info"
+                                variant="outlined"
+                                icon={<Icon icon="mdi:server" aria-hidden="true" />}
+                              />
+                            )}
+                            {offline && (
+                              <Chip
+                                label={t('Offline')}
+                                size="small"
+                                color="default"
+                                variant="outlined"
+                                icon={<Icon icon="mdi:cloud-off-outline" aria-hidden="true" />}
+                              />
+                            )}
+                          </Box>
+                          <Typography variant="caption" color="textSecondary">
+                            {option.location} • v{option.kubernetesVersion} •{' '}
+                            {getClusterStateLabel(option)}
+                          </Typography>
+                        </Box>
+                      </li>
+                    );
+                  }}
                 />
               )}
 
-              {selectedCluster && clusterInputValue === selectedCluster.name && !success && (
-                <Box
-                  p={2}
-                  bgcolor="action.hover"
-                  borderRadius={1}
-                  role="region"
-                  aria-label={t('Selected Cluster Details')}
-                >
-                  <Typography variant="subtitle2" component="p" gutterBottom>
-                    {t('Selected Cluster Details')}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Name')}:</strong> {selectedCluster.name}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Resource Group')}:</strong> {selectedCluster.resourceGroup}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Location')}:</strong> {selectedCluster.location}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>{t('Kubernetes Version')}:</strong> {selectedCluster.kubernetesVersion}
-                  </Typography>
-                </Box>
-              )}
+              {selectedCluster &&
+                clusterInputValue === selectedCluster.name &&
+                !registrationCompleted && (
+                  <Box
+                    p={2}
+                    bgcolor="action.hover"
+                    borderRadius={1}
+                    role="region"
+                    aria-label={t('Selected Cluster Details')}
+                  >
+                    <Typography variant="subtitle2" component="p" gutterBottom>
+                      {t('Selected Cluster Details')}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Name')}:</strong> {selectedCluster.name}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Resource Group')}:</strong> {selectedCluster.resourceGroup}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Location')}:</strong> {selectedCluster.location}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>{t('Kubernetes Version')}:</strong>{' '}
+                      {selectedCluster.kubernetesVersion}
+                    </Typography>
+                    {isAksHybridEdgeSelected && (
+                      <Typography variant="body2">
+                        <strong>{t('Type')}:</strong> {t('AKS Hybrid & Edge (Arc-connected)')}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
             </>
           )}
           {/* Persistent live region for loading status announcements.
@@ -404,7 +514,7 @@ export default function RegisterAKSClusterDialogPure({
       </DialogContent>
 
       <DialogActions>
-        {success ? (
+        {registrationCompleted ? (
           <Button onClick={onDone} variant="contained">
             {t('Done')}
           </Button>
@@ -417,7 +527,9 @@ export default function RegisterAKSClusterDialogPure({
               onClick={onRegister}
               variant="contained"
               color="primary"
-              disabled={!selectedCluster || loading || !isLoggedIn || isChecking}
+              disabled={
+                !selectedCluster || loading || !isLoggedIn || isChecking || !clusterConfigReady
+              }
               startIcon={
                 loading ? (
                   <CircularProgress size={20} aria-hidden="true" />

@@ -21,6 +21,7 @@ const baseArgs: CreateAKSProjectPureProps = {
   isCreating: false,
   creationProgress: '',
   creationError: null,
+  creationWarnings: [],
   showSuccessDialog: false,
   applicationName: '',
   setApplicationName: noOp as any,

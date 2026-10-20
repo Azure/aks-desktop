@@ -7,11 +7,14 @@ import {
   registerAppBarAction,
   registerAppLogo,
   registerAppTheme,
+  registerClusterEmptyState,
+  registerClusterProviderDialog,
+  registerClusterProviderMenuItem,
+  registerClusterProviderPreOpen,
   registerCustomCreateProject,
   registerPluginSettings,
   registerProjectDeleteButton,
   registerProjectDetailsTab,
-  // @ts-ignore todo: registerProjectHeaderAction is not exported properly
   registerProjectHeaderAction,
   registerProjectOverviewSection,
   registerRoute,
@@ -21,10 +24,17 @@ import React from 'react';
 import { Redirect } from 'react-router-dom';
 import AccessTab from './components/AccessTab/AccessTab';
 import RegisterAKSClusterPage from './components/AKS/RegisterAKSClusterPage';
+import { aksHybridEdgePreOpenHook } from './components/AksHybridEdge/aksHybridEdgePreOpen';
+import {
+  AksHybridEdgeProxyMenuItem,
+  AksHybridEdgeProxyStartDialog,
+} from './components/AksHybridEdge/AksHybridEdgeProxyControls';
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
 import ClusterCapabilityCard from './components/ClusterCapabilityCard/ClusterCapabilityCard';
+import AKSClusterEmptyState from './components/ClusterEmptyState/AKSClusterEmptyState';
 import ConfigurePipelineButton from './components/ConfigurePipeline/ConfigurePipelineButton';
+import ContactUsButton from './components/ContactUs/ContactUsButton';
 import CreateAKSProject from './components/CreateAKSProject/CreateAKSProject';
 import CreateNamespace from './components/CreateNamespace/CreateNamespace';
 import AKSProjectDeleteButton from './components/DeleteAKSProject/AKSProjectDeleteButton';
@@ -47,17 +57,42 @@ import ScalingCard from './components/Scaling/ScalingCard';
 import ScalingTab from './components/Scaling/ScalingTab';
 import TelemetryBoot from './components/TelemetryBoot';
 import { TelemetryErrorBoundary } from './components/TelemetryErrorBoundary';
-import { setTelemetryEnabled } from './telemetry';
+import { setConsentPredicate, setTelemetryEnabled } from './telemetry';
 import { registerReduxCallback } from './telemetry/setup';
 import type { ProjectDefinition } from './types/project';
 import { getLoginStatus } from './utils/azure/az-auth';
+import { CONTACT_US_URL } from './utils/constants/contactUs';
 import { AZURE_ACCOUNT_POLL_INTERVAL_MS } from './utils/constants/timing';
 import {
   isAksProject,
   isAksProjectWithResourceGroup,
   isArmManagedProject,
+  isAzureRbacProject,
 } from './utils/shared/isAksProject';
 import { azureTheme } from './utils/shared/theme';
+
+type ProjectOverviewRegistration = Parameters<typeof registerProjectOverviewSection>[0];
+type ConditionalProjectOverviewRegistration = ProjectOverviewRegistration & {
+  isEnabled?: (props: { project: ProjectDefinition }) => Promise<boolean>;
+};
+
+/** Registers an overview section whose asynchronous predicate is evaluated by AKS Desktop. */
+function registerConditionalProjectOverviewSection(
+  registration: ConditionalProjectOverviewRegistration
+) {
+  registerProjectOverviewSection(registration);
+}
+
+/** Wraps the pipeline action with the GitHub authentication state it consumes. */
+function ConfigurePipelineHeaderAction(
+  props: React.ComponentProps<typeof ConfigurePipelineButton>
+) {
+  return (
+    <GitHubAuthProvider>
+      <ConfigurePipelineButton project={props.project} setSelectedTab={props.setSelectedTab} />
+    </GitHubAuthProvider>
+  );
+}
 
 Headlamp.setAppMenu(menus => {
   // Find the Help menu
@@ -74,13 +109,14 @@ Headlamp.setAppMenu(menus => {
       };
     }
 
-    // Replace Open Issue link
+    // Replace Open Issue link with Contact us, pointing at the same destination
+    // as the app bar button so there is one front door rather than two.
     const issueIndex = helpMenu.submenu.findIndex(item => item.id === 'original-open-issue');
     if (issueIndex !== -1) {
       helpMenu.submenu[issueIndex] = {
-        label: 'Open an Issue',
-        id: 'aks-open-issue',
-        url: 'https://github.com/Azure/aks-desktop/issues',
+        label: 'Contact us',
+        id: 'aks-contact-us',
+        url: CONTACT_US_URL,
       };
     }
   }
@@ -90,24 +126,36 @@ Headlamp.setAppMenu(menus => {
 
 // add azure related components only if running as app
 if (Headlamp.isRunningAsApp()) {
-  const telemetryEnabledAtLaunch = isTelemetryEnabled();
-  setTelemetryEnabled(telemetryEnabledAtLaunch);
+  setTelemetryEnabled(isTelemetryEnabled());
 
-  // Register before TelemetryBoot renders so early plugins-loaded events are buffered.
-  registerReduxCallback(() => telemetryEnabledAtLaunch);
+  // Give direct producers the same live predicate the Redux bridge gets, so
+  // opting out stops them on the config store write rather than waiting for
+  // TelemetryBoot's effect to run revokeConsent.
+  setConsentPredicate(isTelemetryEnabled);
+
+  // Register before TelemetryBoot renders so early plugins-loaded events are
+  // buffered. Pass the live predicate, not a captured launch-time constant —
+  // registration is unconditional and the predicate is re-read per event, so
+  // a mid-session consent grant is delivered without any re-registration step.
+  registerReduxCallback(isTelemetryEnabled);
 
   // boot App Insights telemetry once on first render
   registerAppBarAction(() => <TelemetryBoot />);
 
+  // Contact us button in the top app bar — present wherever the app bar renders.
+  // Deliberately not wrapped in TelemetryErrorBoundary: Headlamp already wraps
+  // every app-bar action in its own ErrorBoundary, and this one's fallback is a
+  // visible MUI Alert, which in an app bar would be worse than a missing icon.
+  // Neither boundary covers the onClick path — React error boundaries do not
+  // catch throws from event handlers.
+  registerAppBarAction({ id: 'aksd.contact-us', action: () => <ContactUsButton /> });
+
   // register azure logo
   registerAppLogo(AzureLogo);
+  registerClusterEmptyState(AKSClusterEmptyState);
 
   // register the theme and make it default
-  registerAppTheme(azureTheme);
-  if (!localStorage.getItem('headlampThemePreference')) {
-    localStorage.setItem('headlampThemePreference', 'Azure Theme');
-    localStorage.setItem('cached-current-theme', `${azureTheme}`);
-  }
+  registerAppTheme(azureTheme, { default: true });
 
   // Initialize Azure auth status on window object for Headlamp integration
   (window as any).__azureAuthStatus = {
@@ -341,6 +389,22 @@ if (Headlamp.isRunningAsApp()) {
     noAuthRequired: true,
   });
 
+  // AKS Hybrid & Edge (Arc-connected) cluster list integration.
+  // - AKS Hybrid & Edge clusters are differentiated on the Home list by a distinct
+  //   name badge (server icon + Azure-blue accent) set via the shared cluster
+  //   appearance settings at registration time — no custom status column.
+  // - A menu item reports whether the cluster is reachable and starts the local
+  //   `az connectedk8s proxy` when it is not. There is no Stop: arcProxy is a
+  //   machine-wide daemon shared by every connected cluster. Proxies are torn
+  //   down when the app exits, not on renderer reload.
+  // - A dialog drives the start flow and verifies the cluster becomes reachable.
+  // - A pre-open hook auto-starts and verifies the proxy when the user opens an
+  //   AKS Hybrid & Edge cluster, so connecting is seamless (no manual menu step);
+  //   the menu item/dialog remain as an explicit fallback.
+  registerClusterProviderMenuItem(AksHybridEdgeProxyMenuItem);
+  registerClusterProviderDialog(AksHybridEdgeProxyStartDialog);
+  registerClusterProviderPreOpen(aksHybridEdgePreOpenHook);
+
   // Project details tabs wrap in TelemetryErrorBoundary, which reports
   // through the telemetry chokepoint. Telemetry is only booted in the
   // app context (TelemetryBoot is registered via registerAppBarAction
@@ -364,11 +428,11 @@ if (Headlamp.isRunningAsApp()) {
     label: 'Deploy',
     icon: 'mdi:cloud-upload',
     isEnabled: isAksProject,
+    // DeployTab supplies its own GitHubAuthProvider, but only when pipeline
+    // deployment is enabled — manual deploy/edit needs no GitHub auth.
     component: ({ project }) => (
       <TelemetryErrorBoundary>
-        <GitHubAuthProvider>
-          <DeployTab project={project} />
-        </GitHubAuthProvider>
+        <DeployTab project={project} />
       </TelemetryErrorBoundary>
     ),
   });
@@ -409,12 +473,15 @@ if (Headlamp.isRunningAsApp()) {
     ),
   });
 
-  // Override built-in Access tab with Azure role assignments for ARM-managed projects
+  // Override the built-in Access tab (which lists Roles/RoleBindings) wherever the
+  // grants actually live in Azure — managed namespaces, and Arc clusters created
+  // with Azure RBAC. Arc clusters using native Kubernetes RBAC keep the built-in
+  // tab, because there the RoleBindings genuinely are the access.
   registerProjectDetailsTab({
     id: 'headlamp-projects.tabs.access',
     label: 'Access',
     icon: 'mdi:account-lock',
-    isEnabled: isArmManagedProject,
+    isEnabled: isAzureRbacProject,
     component: ({ project }) => (
       <TelemetryErrorBoundary>
         <AccessTab project={project} />
@@ -434,30 +501,26 @@ registerPluginSettings(
   false
 );
 
-registerProjectOverviewSection({
+registerConditionalProjectOverviewSection({
   id: 'cluster-capabilities',
-  // @ts-ignore todo: there is an isEnabled prop in registerProjectOverviewSection it's just not present in the types yet. We need to push our changes to headlamp
   isEnabled: isAksProject,
   component: ({ project }) => <ClusterCapabilityCard project={project} />,
 });
 
-registerProjectOverviewSection({
+registerConditionalProjectOverviewSection({
   id: 'scaling-overview',
-  // @ts-ignore todo: there is an isEnabled prop in registerProjectOverviewSection it's just not present in the types yet. We need to push our changes to headlamp
   isEnabled: isAksProject,
   component: ({ project }) => <ScalingCard project={project} />,
 });
 
-registerProjectOverviewSection({
+registerConditionalProjectOverviewSection({
   id: 'metrics-overview',
-  // @ts-ignore todo: there is an isEnabled prop in registerProjectOverviewSection it's just not present in the types yet. We need to push our changes to headlamp
   isEnabled: isAksProject,
   component: ({ project }) => <MetricsCard project={project} />,
 });
 
-registerProjectOverviewSection({
+registerConditionalProjectOverviewSection({
   id: 'pipeline-overview',
-  // @ts-expect-error isEnabled exists at runtime but is missing from ProjectOverviewSection types
   isEnabled: props =>
     previewFeaturesStore.get()?.githubPipelines ? isAksProject(props) : Promise.resolve(false),
   // GitHubAuthProvider is duplicated across three registrations (here, DeployTab, and
@@ -488,12 +551,7 @@ registerProjectHeaderAction({
 
 registerProjectHeaderAction({
   id: 'configure-pipeline',
-  // setSelectedTab is provided by the headlamp fork (PR #406) but not yet in published types
-  component: (props: { project: ProjectDefinition; setSelectedTab?: (tabId: string) => void }) => (
-    <GitHubAuthProvider>
-      <ConfigurePipelineButton project={props.project} setSelectedTab={props.setSelectedTab} />
-    </GitHubAuthProvider>
-  ),
+  component: ConfigurePipelineHeaderAction,
 });
 
 // Register custom delete button for AKS Desktop + ARM-managed projects only

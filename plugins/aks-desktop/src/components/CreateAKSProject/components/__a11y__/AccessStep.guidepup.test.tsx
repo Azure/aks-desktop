@@ -152,7 +152,7 @@ describe('SR: AccessStep — invalid object ID entered', () => {
     await virtual.start({ container: document.body });
     const ps = await phrases();
     const input = ps.find(p => /combobox/i.test(p) && /assignee/i.test(p));
-    expect(input).toMatch(/select a user from the search results or enter a valid object ID/i);
+    expect(input).toMatch(/select a user from the search results, or enter their object ID/i);
   });
 
   it('announces the Remove assignee button with its aria-label', async () => {

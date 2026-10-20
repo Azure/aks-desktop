@@ -240,3 +240,43 @@ describe('DeployWizard handleDeploy', () => {
     });
   });
 });
+
+describe('DeployWizard container step navigation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test('can jump back to an earlier step and forward again', async () => {
+    render(<DeployWizard cluster="test-cluster" namespace="default" onClose={vi.fn()} />);
+    const stepButton = (name: RegExp) => screen.getByRole('button', { name });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Container Image' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    fireEvent.change(screen.getByLabelText('Application name'), { target: { value: 'my-app' } });
+    fireEvent.change(screen.getByLabelText('Container image'), { target: { value: 'my-image' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() => expect(stepButton(/Networking/)).toHaveAttribute('aria-current', 'step'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await waitFor(() => expect(stepButton(/Healthchecks/)).toHaveAttribute('aria-current', 'step'));
+
+    // Never-visited steps stay disabled.
+    expect(stepButton(/Advanced/)).toBeDisabled();
+
+    fireEvent.click(stepButton(/Basics/));
+    await waitFor(() => expect(screen.getByLabelText('Application name')).toHaveValue('my-app'));
+
+    // Going back must not re-gate the steps that were already visited.
+    expect(stepButton(/Healthchecks/)).not.toBeDisabled();
+
+    // Leaving and re-entering the Configure step must not re-gate them either.
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Configure' }).pop()!);
+    await waitFor(() => expect(stepButton(/Healthchecks/)).not.toBeDisabled());
+
+    fireEvent.click(stepButton(/Healthchecks/));
+    await waitFor(() => expect(stepButton(/Healthchecks/)).toHaveAttribute('aria-current', 'step'));
+  });
+});

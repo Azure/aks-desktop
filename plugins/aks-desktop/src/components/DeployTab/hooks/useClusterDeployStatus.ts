@@ -4,10 +4,10 @@
 import { K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { useEffect, useState } from 'react';
 
-export const ANNOTATION_DEPLOYED_BY = 'aks-project/deployed-by';
-export const ANNOTATION_PIPELINE_REPO = 'aks-project/pipeline-repo';
-export const ANNOTATION_PIPELINE_RUN_URL = 'aks-project/pipeline-run-url';
-export const ANNOTATION_PIPELINE_WORKFLOW = 'aks-project/pipeline-workflow';
+const ANNOTATION_DEPLOYED_BY = 'aks-project/deployed-by';
+const ANNOTATION_PIPELINE_REPO = 'aks-project/pipeline-repo';
+const ANNOTATION_PIPELINE_RUN_URL = 'aks-project/pipeline-run-url';
+const ANNOTATION_PIPELINE_WORKFLOW = 'aks-project/pipeline-workflow';
 
 export type DeploymentProvenance = 'manual' | 'pipeline' | 'vscode' | 'unknown';
 

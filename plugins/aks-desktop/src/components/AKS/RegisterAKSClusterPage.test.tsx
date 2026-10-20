@@ -59,6 +59,7 @@ import RegisterAKSClusterPage from './RegisterAKSClusterPage';
 describe('RegisterAKSClusterPage telemetry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.trackAksFeature.mockReset();
     vi.useFakeTimers();
   });
 
@@ -73,13 +74,38 @@ describe('RegisterAKSClusterPage telemetry', () => {
     expect(mocks.useTelemetryFeatureOpened).toHaveBeenCalledWith('aksd.cluster-add');
   });
 
-  test('emits cancelled once when closing before registration succeeds', () => {
+  test('does not emit cancelled when leaving without starting a registration', () => {
     render(<RegisterAKSClusterPage />);
 
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(mocks.trackAksFeature).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(100);
+    expect(mocks.push).toHaveBeenCalledWith('/');
+  });
+
+  test('emits cancelled once when closing after registration started', () => {
+    render(<RegisterAKSClusterPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start registration' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
     expect(mocks.trackAksFeature.mock.calls).toEqual([['aksd.cluster-add', 'cancelled']]);
+
+    vi.advanceTimersByTime(100);
+    expect(mocks.push).toHaveBeenCalledWith('/');
+  });
+
+  test('continues closing when cancellation telemetry throws', () => {
+    mocks.trackAksFeature.mockImplementation(() => {
+      throw new Error('telemetry unavailable');
+    });
+    render(<RegisterAKSClusterPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start registration' }));
+    expect(() => fireEvent.click(screen.getByRole('button', { name: 'Close' }))).not.toThrow();
 
     vi.advanceTimersByTime(100);
     expect(mocks.push).toHaveBeenCalledWith('/');

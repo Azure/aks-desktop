@@ -1,205 +1,274 @@
 # Maintenance
 
-This document outlines the maintenance procedures for this project.
+## Headlamp source
 
-## Headlamp Fork
+AKS Desktop builds a pinned Headlamp commit from `packages/headlamp-source/`.
+The root `package.json#headlampSource` is the source of truth. The setup scripts
+copy Headlamp into the ignored `packages/headlamp-source/source/` directory.
 
-AKS desktop uses Headlamp as a base project. We maintain a fork of Headlamp to
-implement features and fixes that are specific to AKS desktop. This fork is kept as a branch
-`headlamp-downstream`, and is set up as a git submodule in this project's repository. This
-ensures flexibility.
+The numbered files listed in `patches/series` are the patches we review and
+maintain. npm combines them into the tracked
+`patches/headlamp-source@<version>.patch` file.
 
-This fork is meant to be kept in sync with the upstream Headlamp project as much as possible,
-meaning the downstream changes we make should be minimal and focused on AKS desktop-specific needs
-that do not make sense to contribute back upstream.
+### Update the Headlamp commit
 
-### Types of Changes
-
-We aim to keep our downstream changes to a minimum. Before implementing a change, we evaluate whether it can be achieved through configuration or customization options provided by Headlamp. If a feature can be implemented without modifying the core codebase, e.g. by leveraging Headlamp's plugin system, we prefer that approach.
-
-Our downstream changes to the Headlamp project can be categorized into two types:
-
-1. **AKS desktop Only**: These are changes that are specific to AKS desktop and do not make sense to contribute back to the Headlamp project. Examples include:
-
-- Custom branding or theming specific to AKS desktop.
-- Features that are tightly coupled with AKS desktop's architecture or user experience.
-
-We can lower the number of these changes by leveraging Headlamp's plugin system and configuration options wherever possible. When something is not possible through these means, we do implement them downstream and
-we work with upstream to understand if such changes can be made possible by expanding the plugin system or adding configuration options.
-
-2. **Upstreamable Contributions**: These are changes that are beneficial to the broader Headlamp community and can be contributed back upstream. Examples include:
-
-- Bug fixes that address issues in the Headlamp project.
-- Performance improvements or optimizations.
-- New features that enhance the overall functionality of Headlamp and are not specific to AKS desktop.
-
-We actively seek to contribute these changes back to the Headlamp project through pull requests in a timely manner. The quicker we can get these changes merged upstream, the less they will deviate from the main codebase and the lower the maintenance burden we have to carry downstream.
-
-### Git Commit Conventions
-
-To help with the maintenance of our Headlamp fork, we follow specific git commit conventions to clearly indicate the nature of each change. This helps in identifying which changes are AKS desktop specific and which are intended for upstream contribution.
-
-1. **AKS desktop Specific Changes**: These commits should be prefixed with `aksd:` to indicate that they are specific to the AKS desktop fork. For example:
-
-```
-aksd: Add custom branding for AKS desktop
-```
-
-2. **Upstream Contributions**: These commits should be prefixed with `upstreamable:` to indicate that they are intended for contribution back to the Headlamp project. For example:
-
-```
-upstreamable: Avoid crash in Headlamp plugin system
-```
-
-By following these conventions, we can maintain clarity in our commit history and facilitate the process of syncing with the upstream Headlamp project.
-
-### Syncing with Upstream
-
-To keep our fork in sync with the upstream Headlamp project, we regularly rebase our Headlamp fork against the latest upstream release. This helps to minimize merge conflicts and ensures that we are benefiting from the latest features and fixes in Headlamp.
-
-When rebasing, we carefully review each commit to ensure that our downstream changes do not conflict with upstream changes. Upstreamable changes done since the last rebase, should hopefully be already merged upstream, but if not, we will need to reapply them on top of the latest upstream changes.
-
-Ideally, we aim to rebase our fork regularly **up to 2 weeks** after the new upstream release.
-
-#### Rebasing Steps
-
-This section illustrates the steps to rebase our Headlamp fork against the latest upstream release.
-
-0. **Set up a remote for the upstream Headlamp repository** (if not already done):
+Use a clean Headlamp checkout at the commit to adopt:
 
 ```bash
-git remote add headlamp-repo https://github.com/kubernetes-sigs/headlamp.git
+git -C /path/to/headlamp checkout <full-commit-sha>
+npm run headlamp:source -- \
+  --source /path/to/headlamp \
+  --revision <full-commit-sha>
+npm install
+npm run test:headlamp-patches
+npm run test:build
 ```
 
-1. **Move to a new branch based on the new Headlamp version**:
+`headlamp:source` updates:
+
+- `headlampSource.revision`
+- the local package version and dependency
+- `package-lock.json`
+- the combined patch named for the package version
+
+If a numbered patch no longer applies, rebase it as described below. If its
+upstream PR is included in the new commit, remove it from `patches/series` and
+delete its numbered patch before rebuilding the combined patch.
+
+Commit the pin, package metadata, lockfile, series, numbered patches, and
+combined patch together. Never edit the installed package in `node_modules`.
+
+### Including new PRs as patches
+
+Choose the next number and export the PR's commits from a clean Headlamp
+worktree. Use the PR's base and head SHAs so original authorship and dates are
+preserved:
 
 ```bash
-git fetch headlamp-repo
-git checkout -b new-headlamp-downstream headlamp-repo/vX.Y.Z
+git -C /path/to/headlamp format-patch --stdout --no-signature \
+  <pr-base-sha>..<pr-head-sha> \
+  > patches/0072-headlamp-upstream-<topic>.patch
 ```
 
-2. **Check what is the last common commit with upstream in our current fork**:
+Add the patch to `patches/series` in numeric order:
+
+```text
+0072 source 0072-headlamp-upstream-<topic>.patch
+```
+
+Use `source` for changes applied to Headlamp source. Use `package` only for
+changes to the source-bearing npm package itself. Then regenerate and validate:
 
 ```bash
-git merge-base headlamp-downstream vX.Y.Z # Headlamp's latest release tag, fetched from the previous step
+npm run headlamp:patches
+npm install
+npm run test:headlamp-patches
+npm run test:build
 ```
 
-This command will output a commit hash, e.g. `abc1234`. This is the last common commit between our fork and the upstream release.
+When the upstream PR changes, regenerate the same numbered file and rerun these
+commands. When it merges and the pin includes it, remove the patch.
 
-3. **Cherry-pick all our downstream changes since that commit**:
-   First, keep a list of the commits that will be cherry-picked at hand. This is useful if you will need to skip some commits or pause the process for a while. You can get this list by running:
+### Rebase patches after a conflict
+
+Apply patches in `patches/series` order to a clean checkout of the new Headlamp
+commit. Resolve conflicts with Git so commit boundaries and mailbox metadata are
+retained:
 
 ```bash
-git log --oneline abc1234..headlamp-downstream # Replace abc1234 with the actual commit hash from the previous step
+root=$PWD
+git -C /path/to/headlamp checkout -b rebase-aks-desktop <new-headlamp-sha>
+git -C /path/to/headlamp am -3 "$root/patches/0018-headlamp-upstream-<topic>.patch"
 ```
 
-Then, start the cherry-pick process:
+After resolving any conflict, continue with `git am --continue`, record the
+range added by that numbered patch, and export it again with `git format-patch`.
+Apply the next patch on top of that result. Rebase `source` entries before
+`package` entries.
+
+After all entries apply:
 
 ```bash
-git cherry-pick abc1234..headlamp-downstream # Replace abc1234 with the actual commit hash from the previous step
+npm run headlamp:patches
+npm install
+npm run test:headlamp-patches
+npm run test:build
 ```
 
-This command will apply all commits from our current `headlamp-downstream` branch that are not in the upstream release.
+Run the Headlamp typecheck, lint, focused tests, and packaged-runtime checks for
+the code touched by the rebased patches.
 
-4. **Resolve any conflicts**:
-   If there are any conflicts during the cherry-pick process, Git will pause and allow you to resolve them. You can use your preferred text editor or IDE to fix the conflicts, then use:
+### Validate a distribution
 
 ```bash
-git cherry-pick --continue
+npm run headlamp:assemble
+npm run headlamp:doctor
+npm run build
+npm run test:distribution
 ```
 
-If a commit cannot be applied because it's functionality is already present upstream (just in a different form), you can skip it using:
+`npm run build` targets the current host. Architecture-specific commands include
+`build:linux:arm64`, `build:mac:arm64`, and `build:win:arm64`.
+Linux headless CI passes `-- --no-sandbox` to `test:distribution`.
+
+Successful build commands print the absolute output directory. Packages and
+unpacked applications are in
+`node_modules/@headlamp-k8s/headlamp-source/source/app/dist/`, not the repository
+root's `dist/`. See [build output](README.md#build-output) for each platform's
+installer formats and unpacked paths. Copy artifacts out of this generated
+package before reinstalling dependencies or deleting `node_modules`.
+
+### macOS release architecture
+
+The AzureContainerUpstream organization currently has no available hosted
+ARM64 macOS runner, and the AKS Desktop project can run only one hosted macOS
+job concurrently. Separate x64 and ARM64 build jobs would therefore run one
+after the other while repeating checkout, dependency installation, cache
+restore, certificate import, and keychain setup.
+
+`.github/workflows/1es-pipeline-mac.yml` intentionally builds both packages in
+one Intel-hosted job. It builds x64 first, then cross-packages ARM64. The ARM64
+package contains native ARM64 Electron, Go, Azure CLI, Python, and extension
+dependencies; host Python is used only to resolve those extension dependencies
+without executing target code.
+
+The second package reuses architecture-independent frontend, translation,
+plugin, icon, and compiled Electron assets. It must still reinstall native app
+dependencies, stage target-specific external tools, regenerate the product
+manifest, build the Go backend, run Electron Builder, and verify the package.
+The Intel worker cannot launch the ARM64 app, so ARM64 runs packaged-tool checks
+instead of the Electron launch smoke. Signing and notarization remain separate
+per architecture after the shared build job.
+
+Do not split the build job unless both an ARM64 macOS runner and at least two
+concurrent macOS jobs are available. After changing this flow, validate both
+unsigned artifacts and their signing and notarization stages.
+
+#### Azure CLI extension wheel lock
+
+Every Azure CLI extension archive is pinned by URL and SHA-256 in
+`package.json#config.externalTools.azureCli.extensionPackages`. Native builds
+download those exact archives, verify their checksums, and pass the local wheel
+to `az extension add --source`; do not replace this with name-based installation
+from the live extension index.
+
+Every packaged runtime additionally pins its complete target-specific Python
+dependency closure in `build/azure-cli-<platform>-<runtime-arch>-requirements.txt`.
+Tracked locks cover macOS x64/ARM64, Linux x64/ARM64, and Windows x64. Windows
+ARM64 packages intentionally use the x64 runtime and therefore the Windows x64
+lock. Each `# roots` header records which extension owns the locked transitive
+closure.
+
+pip downloads the selected lock with `--require-hashes`, then installs the
+reviewed extension wheels with `--no-index` from the completed local wheelhouse.
+Cache identity includes the target lock checksum and verified-wheel policy
+version. Before any version-based reuse decision, cache verification rehashes
+every wheel and compares every installed file against authenticated wheel
+`RECORD` data. Every platform reads wheels with the packaged or host Python
+standard-library `zipfile` module, so minimal build images need no `unzip`
+executable. Any mismatch rebuilds the cache.
+
+Wheelhouses always live outside packaged resources. CI may set
+`AZ_CLI_EXTENSION_CACHE_DIR`; otherwise staging uses a cache-keyed directory
+under the user cache root (`~/.cache/aks-desktop` on Unix or `%LOCALAPPDATA%` on
+Windows). Only installed extension directories are copied into app resources.
+
+Regenerate the lock only when changing an extension or one of its reviewed
+dependencies. Resolve each runtime independently because native wheel hashes
+differ by OS and architecture. Use these target tags:
+
+- `darwin-x64`: `macosx_11_0_x86_64`
+- `darwin-arm64`: `macosx_11_0_arm64`
+- `linux-x64`: `manylinux_2_17_x86_64`
+- `linux-arm64`: `manylinux_2_17_aarch64`
+- `win32-x64`: `win_amd64`
 
 ```bash
-git cherry-pick --skip
+python3 -m venv /tmp/aks-extension-lock
+resolver=/tmp/aks-extension-lock/bin/python
+"$resolver" -m pip install pip==25.2
+
+target=linux-x64
+platform=manylinux_2_17_x86_64
+wheel_dir=$(mktemp -d)
+report=$(mktemp)
+
+jq -r '.config.externalTools.azureCli.extensionPackages
+  | to_entries[] | [.value.url, .value.checksum] | @tsv' package.json |
+while IFS=$'\t' read -r url checksum; do
+  wheel="$wheel_dir/${url##*/}"
+  curl -fsSL "$url" -o "$wheel"
+  test "$(shasum -a 256 "$wheel" | awk '{print $1}')" = "$checksum"
+done
+
+"$resolver" -m pip install --dry-run --ignore-installed \
+  --report "$report" \
+  --platform "$platform" \
+  --python-version 3.14 \
+  --implementation cp \
+  --only-binary=:all: \
+  "$wheel_dir"/*.whl
+
+{
+  echo "# Transitive wheel lock for $target Azure CLI extension builds."
+  echo '# Direct extension wheels and hashes are pinned in package.json.'
+  echo '# roots: connectedk8s'
+  jq -r '.install[]
+    | select((.metadata.name | ascii_downcase)
+        | IN("resource-graph", "alertsmanagement", "connectedk8s") | not)
+    | "\(.metadata.name)==\(.metadata.version) --hash=\(.download_info.archive_info.hash | sub("="; ":"))"' \
+    "$report" | LC_ALL=C sort -f
+} > "build/azure-cli-$target-requirements.txt"
 ```
 
-_Important:_ Why do we use `cherry-pick` instead of `rebase`? Because `rebase` does the above automatically but, if there are conflicts and we choose to leave the fixing for later, it leaves the branch in a state that is hard to recover from, or we end up calling `cherry-pick --abort`, losing the progress on previously rebased commits. With `cherry-pick`, if we need to leave fixing conflicts for later, we can just abort the cherry-pick and return to our original branch.
+Review every version and hash change. Confirm the report contains only wheels,
+remove each target's extension cache, and run cold and warm staging passes.
+Tamper with one cached module on each platform and confirm staging rebuilds that
+cache. Finish with `npm run test:build` and packaged-tool verification. Never
+regenerate locks implicitly during a release build.
 
-#### Finalizing the Rebase
+### Ship static plugins
 
-Once all commits have been successfully cherry-picked and any conflicts resolved, we need to finalize the rebase process. This typically involves:
+Static plugins are declared in `package.json#headlamp.plugins`. Keep package
+plugins pinned exactly, keep reviewed capabilities in product configuration,
+and run `npm run test:headlamp-package` after changing the list.
 
-1. **Create a testing branch**:
-
-```bash
-git checkout -b test-new-headlamp-version
-```
-
-2. **Update the submodule in the main repository**:
-   Assuming we have our new `new-headlamp-downstream` branch ready after the rebase, we need to update the submodule reference in the main repository to point to this new branch. From the root of the main repository, run:
-
-```bash
-cd headlamp # The directory where the Headlamp submodule is located
-git checkout new-headlamp-downstream
-cd ../..
-git add ./headlamp
-git commit -m "Update Headlamp submodule to rebased on vX.Y.Z"
-git push origin test-new-headlamp-version
-```
-
-3. **Test the changes**:
-   Thoroughly test the changes in the `test-new-headlamp-version` branch to ensure that everything is functioning as expected with the new Headlamp version.
-
-4. **Merge into main branch**:
-   Once testing is complete and everything is verified to be working correctly, update the `headlamp-downstream` branch to point to the new changes:
-
-```bash
-git push origin +new-headlamp-downstream:headlamp-downstream
-```
-
-And then merge the `test-new-headlamp-version` branch into the main branch (e.g., `main` or `master`):
-
-```bash
-git checkout main
-git merge test-new-headlamp-version
-git push origin main
-```
-
-5. **Clean up**:
-   After the merge, you can delete the temporary branches created during the rebase process:
-
-```bash
-git branch -d new-headlamp-downstream
-git branch -d test-new-headlamp-version
-```
-
-By following these steps, we ensure that our Headlamp fork remains up-to-date with the latest upstream changes while preserving our AKS desktop-specific modifications.
-
-## Code Quality
-
-For for downstream changes in the Headlamp fork, and for changes in the main repository, we
-should all follow best practices to ensure high code quality and maintainability. This includes:
-
-Follow atomic commits and PRs, with clear messages, and keep changes small and focused. This
-makes it easier to review, test, and revert changes if necessary.
-
-Atomic commits are commits that contain a single logical change. This means that each commit should
-be self-contained and should not depend on other commits. This makes it easier to understand the
-history of the project and to revert changes if necessary. This is not about one commit per PR, nor one file change per commit, but about one logical change per commit. E.g. if a PR implements a new feature, it may contain multiple commits, but each commit should implement a single aspect of that feature.
-
-Each commit (not just each PR) should build and pass all tests. This ensures that the project is always in a
-working state and will help with bisecting issues.
-
-When writing commit messages, follow these guidelines:
-
-- Use the imperative mood in the subject line (e.g., "Fix bug" instead of "Fixed bug" or "Fixes bug").
-- Limit the subject line and body to 72 characters or less.
-- Use the body to explain what and why vs. how.
-
-### Tests
-
-As new functionality is added, tests of that functionality should be added to an automated test suite.
-As bugs are fixed, there should be a test covering that bug fix.
+See the [source package reference](packages/headlamp-source/README.md) for the
+configuration schema and script API.
 
 ## Translations
 
-Translation strings from `headlamp/frontend/` and `plugins/aks-desktop/` are managed via OneLocBuild. English source files are collected into `Localize/locales/en/`, and OneLocBuild produces translated files into `Localize/locales/{lang}/`. The `Localize/LocProject.json` file configures this pipeline.
+Translation strings from the installed Headlamp source package, the in-repo
+plugins, and a set of external Headlamp plugins are managed via OneLocBuild.
+English source files are collected into `Localize/locales/en/`, and OneLocBuild
+produces translated files into `Localize/locales/{lang}/`. The
+`Localize/LocProject.json` file configures this pipeline.
+
+The covered sources are the installed Headlamp frontend,
+`plugins/aks-desktop/`, `plugins/plugin-catalog/`, the staged `ai-assistant`
+release, and the external `keda`, `cert-manager`, and `prometheus` plugins.
+
+AI Assistant is staged from the pinned GitHub release before collection, and
+AKS-managed translations are overlaid onto that release before packaging.
+Other external plugins live in the separate Headlamp plugins repository,
+expected as a sibling checkout at `../plugins`. Override the location with the
+`HEADLAMP_PLUGINS_DIR` environment variable. Missing external sources are
+skipped.
 
 ### Workflow
 
-1. **Collect English keys**: Run `npm run i18n:collect` to copy English locale files from `headlamp/frontend/` and `plugins/aks-desktop/` into `Localize/locales/en/`. These are the source files OneLocBuild uses.
+1. **Collect English keys**: Run `npm run i18n:collect` to copy English locale
+files from every source into `Localize/locales/en/`. These are the source files
+OneLocBuild uses. The same step mirrors the English key set into each
+`Localize/locales/{lang}/` file, keeping existing translations and leaving new
+keys blank.
 
 2. **Translate**: OneLocBuild picks up the English files and produces translated files in `Localize/locales/{lang}/` for each target language.
 
-3. **Distribute**: Run `npm run i18n:distribute` to copy translated files from `Localize/locales/` back to the source locale directories (`headlamp/frontend/src/i18n/locales/` and `plugins/aks-desktop/locales/`), fully replacing their content.
+3. **Distribute**: Run `npm run i18n:distribute` to copy translated files back to their source locale directories.
+
+   - Directories owned by this repo (the installed Headlamp source locale
+     directory and `plugins/*/locales/`) are fully replaced.
+   - Directories in the external plugins repository are only topped up: a translation is written when the key is missing or empty there, is present in that plugin's own English file, and its English text matches ours. Existing community translations are never overwritten, and the plugin's key order is preserved to keep the diff small.
+
+   Translations for external plugins only reach users once they are merged upstream and the plugin is republished, since Headlamp fetches each plugin's `locales/{lang}/translation.json` from the plugin's own build output.

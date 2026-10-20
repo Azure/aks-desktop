@@ -53,7 +53,7 @@ const AzureCliWarning: React.FC<AzureCliWarningProps> = ({ suggestions }) => {
         }}
       >
         <AlertTitle>
-          <strong>{t('Azure CLI/aks-preview requirements not met')}:</strong>
+          <strong>{t('Azure CLI requirements not met')}:</strong>
         </AlertTitle>
         <List dense sx={{ mt: 1, mb: 1 }}>
           {suggestions.map((msg, i) => (

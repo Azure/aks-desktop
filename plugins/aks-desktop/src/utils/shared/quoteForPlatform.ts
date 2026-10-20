@@ -9,5 +9,5 @@
  */
 export function quoteForPlatform(value: string): string {
   const isWindows = (window as any)?.desktopApi?.platform === 'win32';
-  return isWindows ? `"${value}"` : value;
+  return isWindows ? `"${value.replace(/\n/g, '')}"` : value;
 }

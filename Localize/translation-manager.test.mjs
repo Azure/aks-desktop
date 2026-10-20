@@ -1,0 +1,350 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import test from "node:test";
+
+import {
+  headlampLocaleName,
+  mergeMissing,
+} from "./translation-manager.mjs";
+
+function createLocalesDir(t) {
+  const localesDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "translation-manager-")
+  );
+  t.after(() => fs.rmSync(localesDir, { recursive: true, force: true }));
+  return localesDir;
+}
+
+function writeFile(filePath, content) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content);
+}
+
+test("collect preserves existing translations while scaffolding new keys", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(
+    managerPath,
+    fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
+  );
+  for (const namespace of ["translation", "glossary", "app"]) {
+    writeFile(
+      path.join(
+        root,
+        "node_modules",
+        "@headlamp-k8s",
+        "headlamp-source",
+        "source",
+        "frontend",
+        "src",
+        "i18n",
+        "locales",
+        "en",
+        `${namespace}.json`
+      ),
+      "{}"
+    );
+  }
+  writeFile(
+    path.join(
+      root,
+      "plugins",
+      "aks-desktop",
+      "locales",
+      "en",
+      "translation.json"
+    ),
+    JSON.stringify({ existing: "Existing", added: "Added" })
+  );
+  const collectedPath = path.join(
+    root,
+    "Localize",
+    "locales",
+    "de",
+    "plugin-translation.json"
+  );
+  writeFile(collectedPath, JSON.stringify({ existing: "Vorhanden" }));
+
+  const result = spawnSync(process.execPath, [managerPath, "collect"], {
+    encoding: "utf-8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(collectedPath, "utf-8")), {
+    existing: "Vorhanden",
+    added: "",
+  });
+});
+
+test("collect preserves a translation when its key moves between namespaces", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(
+    managerPath,
+    fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
+  );
+  const frontendLocales = path.join(
+    root,
+    "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales/en"
+  );
+  writeFile(path.join(frontendLocales, "translation.json"), JSON.stringify({ About: "About" }));
+  writeFile(path.join(frontendLocales, "glossary.json"), "{}");
+  writeFile(path.join(frontendLocales, "app.json"), "{}");
+  const oldNamespace = path.join(
+    root,
+    "Localize/locales/fr/frontend-glossary.json"
+  );
+  writeFile(oldNamespace, JSON.stringify({ About: "À propos de" }));
+  writeFile(
+    path.join(root, "Localize/locales/fr/frontend-translation.json"),
+    JSON.stringify({ About: "" })
+  );
+
+  const result = spawnSync(process.execPath, [managerPath, "collect"], {
+    encoding: "utf-8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(
+    JSON.parse(
+      fs.readFileSync(
+        path.join(root, "Localize/locales/fr/frontend-translation.json"),
+        "utf-8"
+      )
+    ),
+    { About: "À propos de" }
+  );
+});
+
+test("collect fills blank English app messages without replacing translations", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(managerPath, fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url)));
+  const frontend = path.join(root, "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales/en");
+  writeFile(path.join(frontend, "translation.json"), JSON.stringify({ Cancel: "Cancel", Enable: "Enable feature" }));
+  writeFile(path.join(frontend, "glossary.json"), "{}");
+  writeFile(path.join(frontend, "app.json"), JSON.stringify({ Cancel: "", Enable: "", "Plugin Development Mode": "", Existing: "Existing text" }));
+  const translated = path.join(root, "Localize/locales/fr/frontend-app.json");
+  writeFile(translated, JSON.stringify({ Cancel: "Annuler", Enable: "Activer", "Plugin Development Mode": "", Existing: "Texte existant" }));
+  const run = () => spawnSync(process.execPath, [managerPath, "collect"], { encoding: "utf8" });
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  const english = path.join(root, "Localize/locales/en/frontend-app.json");
+  assert.deepEqual(JSON.parse(fs.readFileSync(english, "utf8")), {
+    Cancel: "Cancel", Enable: "Enable feature", Existing: "Existing text", "Plugin Development Mode": "Plugin Development Mode",
+  });
+  assert.equal(JSON.parse(fs.readFileSync(translated, "utf8")).Cancel, "Annuler");
+  const once = fs.readFileSync(english, "utf8");
+  assert.equal(run().status, 0);
+  assert.equal(fs.readFileSync(english, "utf8"), once);
+});
+
+test("collect rejects a missing installed Headlamp translation source", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(
+    managerPath,
+    fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
+  );
+
+  const result = spawnSync(process.execPath, [managerPath, "collect"], {
+    encoding: "utf-8",
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Required translation source is missing/);
+});
+
+test("collected Prometheus metric count uses correct English plurals", () => {
+  const translations = JSON.parse(
+    fs.readFileSync(
+      new URL("./locales/en/prometheus-translation.json", import.meta.url),
+      "utf-8"
+    )
+  );
+
+  assert.equal(translations["{{count}} metrics_one"], "{{count}} metric");
+  assert.equal(translations["{{count}} metrics_other"], "{{count}} metrics");
+});
+
+test("distribute rejects a translation when English changed after collection", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(
+    managerPath,
+    fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
+  );
+  writeFile(
+    path.join(
+      root,
+      "Localize",
+      "locales",
+      "en",
+      "cert-manager-translation.json"
+    ),
+    JSON.stringify({ greeting: "Original greeting" })
+  );
+  writeFile(
+    path.join(
+      root,
+      "Localize",
+      "locales",
+      "fr",
+      "cert-manager-translation.json"
+    ),
+    JSON.stringify({ greeting: "Ancienne salutation" })
+  );
+
+  const externalPluginsDir = path.join(root, "external-plugins");
+  writeFile(
+    path.join(
+      externalPluginsDir,
+      "cert-manager",
+      "locales",
+      "en",
+      "translation.json"
+    ),
+    JSON.stringify({ greeting: "Updated greeting" })
+  );
+
+  const result = spawnSync(process.execPath, [managerPath, "distribute"], {
+    encoding: "utf-8",
+    env: { ...process.env, HEADLAMP_PLUGINS_DIR: externalPluginsDir },
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    fs.existsSync(
+      path.join(
+        externalPluginsDir,
+        "cert-manager",
+        "locales",
+        "fr",
+        "translation.json"
+      )
+    ),
+    false
+  );
+});
+
+test("mergeMissing preserves the target locale CRLF line endings", (t) => {
+  const localesDir = createLocalesDir(t);
+  writeFile(
+    path.join(localesDir, "en", "translation.json"),
+    JSON.stringify({ existing: "Existing", added: "Added" })
+  );
+  const targetPath = path.join(localesDir, "fr", "translation.json");
+  writeFile(targetPath, '{\r\n  "existing": "Existant"\r\n}\r\n');
+
+  const added = mergeMissing(
+    localesDir,
+    "fr",
+    "translation",
+    { existing: "Existant", added: "Ajoute" },
+    { existing: "Existing", added: "Added" }
+  );
+
+  assert.equal(added, 1);
+  assert.equal(
+    fs.readFileSync(targetPath, "utf-8"),
+    '{\r\n  "existing": "Existant",\r\n  "added": "Ajoute"\r\n}\r\n'
+  );
+});
+
+test("maps OneLoc locale names to Headlamp locale directories", () => {
+  assert.equal(headlampLocaleName("pt-BR"), "pt-br");
+  assert.equal(headlampLocaleName("pt-PT"), "pt-pt");
+  assert.equal(headlampLocaleName("zh-Hans"), "zh");
+  assert.equal(headlampLocaleName("zh-Hant"), "zh-tw");
+  assert.equal(headlampLocaleName("fr"), "fr");
+});
+
+test("distribute-headlamp updates only installed Headlamp locales", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(
+    managerPath,
+    fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
+  );
+  writeFile(
+    path.join(root, "Localize", "locales", "fr", "frontend-translation.json"),
+    JSON.stringify({ greeting: "Bonjour" })
+  );
+  writeFile(
+    path.join(root, "Localize", "locales", "fr", "plugin-translation.json"),
+    JSON.stringify({ greeting: "Plugin" })
+  );
+
+  const result = spawnSync(process.execPath, [managerPath, "distribute-headlamp"], {
+    encoding: "utf-8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const headlampLocale = path.join(
+    root,
+    "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales/fr/translation.json"
+  );
+  assert.deepEqual(JSON.parse(fs.readFileSync(headlampLocale, "utf-8")), {
+    greeting: "Bonjour",
+  });
+  assert.equal(
+    fs.existsSync(path.join(root, "plugins/aks-desktop/locales/fr/translation.json")),
+    false
+  );
+});
+
+test("distribute-headlamp writes mapped Headlamp locale directories", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(
+    managerPath,
+    fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url))
+  );
+  writeFile(
+    path.join(
+      root,
+      "Localize/locales/pt-BR/frontend-translation.json"
+    ),
+    JSON.stringify({ greeting: "Ola" })
+  );
+
+  const result = spawnSync(process.execPath, [managerPath, "distribute-headlamp"], {
+    encoding: "utf-8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const headlampLocale = path.join(
+    root,
+    "node_modules/@headlamp-k8s/headlamp-source/source/frontend/src/i18n/locales/pt-br/translation.json"
+  );
+  assert.deepEqual(JSON.parse(fs.readFileSync(headlampLocale, "utf-8")), {
+    greeting: "Ola",
+  });
+});
+
+test("distribute-packaged overlays AI Assistant release translations", (t) => {
+  const root = createLocalesDir(t);
+  const managerPath = path.join(root, "Localize", "translation-manager.mjs");
+  writeFile(managerPath, fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url)));
+  writeFile(
+    path.join(root, "Localize/locales/fr/ai-assistant-translation.json"),
+    JSON.stringify({ greeting: "Bonjour" })
+  );
+  const packagedLocale = path.join(
+    root,
+    "node_modules/@headlamp-k8s/headlamp-source/source/.plugins/ai-assistant/locales/fr/translation.json"
+  );
+  writeFile(packagedLocale, JSON.stringify({ greeting: "Release translation" }));
+
+  const result = spawnSync(process.execPath, [managerPath, "distribute-packaged"], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(packagedLocale, "utf8")), {
+    greeting: "Bonjour",
+  });
+});

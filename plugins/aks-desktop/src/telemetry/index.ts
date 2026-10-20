@@ -15,6 +15,7 @@ import {
   localeLanguage,
   type NamespaceCountBucket,
   type NodeCountBucket,
+  sanitizeConsent,
   sanitizeErrorClass,
   sanitizeFeatureType,
   sanitizeKind,
@@ -24,6 +25,7 @@ import {
   sanitizeTier,
   TELEMETRY_EVENT_NAMES,
   TELEMETRY_PROPERTY_KEYS,
+  type TelemetryConsent,
   type TelemetryErrorArea,
   type TelemetryErrorClass,
   type TelemetryStatus,
@@ -40,6 +42,9 @@ let initAttempted = false;
 let transportOverrideForTests: IXHROverride | null = null;
 let telemetryEnabled = false;
 let initializedAppVersion: string | null = null;
+let consentGeneration = 0;
+let consentGateClosed = false;
+let consentPredicate: () => boolean = () => true;
 
 // Per-resource-id dedupe of headlamp.cluster-shape across re-renders.
 // Module-private (the key is never sent).
@@ -65,6 +70,29 @@ export function __resetForTests(): void {
   transportOverrideForTests = null;
   telemetryEnabled = false;
   initializedAppVersion = null;
+  consentGeneration = 0;
+  consentGateClosed = false;
+  consentPredicate = () => true;
+}
+
+/**
+ * Clears the initAttempted latch so initTelemetry can run again. Used by
+ * the grant side of a consent transition, which needs a fresh init
+ * attempt after a prior disable.
+ *
+ * Unloads any SDK still loaded first. The usual grant path runs after a
+ * revoke has already unloaded, so `ai` is null — but a grant that arrives
+ * while a revoke's flush is still pending finds the previous instance
+ * alive, and initTelemetry assigns `ai = insights` without unloading a
+ * prior one (line 158). Without this, that instance is orphaned along
+ * with its send queue: unreachable, never flushed, never unloaded.
+ */
+export function resetInitAttempted(): void {
+  if (ai) {
+    disableAndUnload(ai);
+    ai = null;
+  }
+  initAttempted = false;
 }
 
 export function setTelemetryEnabled(enabled: boolean): void {
@@ -78,6 +106,60 @@ export function setTelemetryEnabled(enabled: boolean): void {
   }
 }
 
+/**
+ * Starts a new consent transition: closes the ordinary-event gate before
+ * anything is emitted, and returns a generation number the caller must
+ * pass to endConsentTransition. A stale generation (superseded by a
+ * later beginConsentTransition) is a no-op on end, so a slow revoke that
+ * resumes after a fresh grant cannot reopen a state it no longer owns.
+ */
+/**
+ * Installs the live consent predicate consulted per ordinary event. Mirrors
+ * the predicate registerReduxCallback already takes, so direct producers and
+ * the Redux bridge honour the same source of truth.
+ *
+ * Without this, opting out only stopped direct producers once TelemetryBoot's
+ * effect ran revokeConsent. React defers passive effects, so between the
+ * config store write and that effect neither telemetryEnabled nor the gate
+ * had changed and trackError/trackAksFeature could still transmit — a window
+ * after the user opted out. Injected at boot rather than imported so this
+ * module stays independent of the settings store.
+ */
+export function setConsentPredicate(isEnabled: () => boolean): void {
+  consentPredicate = isEnabled;
+}
+
+/**
+ * The single transmission test for ordinary events. Both stateful producers
+ * consult it before touching their dedupe/rate-limit state, so an event this
+ * rejects costs nothing that would suppress a later legitimate one.
+ */
+function transmissionAllowed(): boolean {
+  if (consentGateClosed) return false;
+  try {
+    return consentPredicate();
+  } catch {
+    // Fail closed. A throwing predicate must never widen transmission.
+    return false;
+  }
+}
+
+export function beginConsentTransition(): number {
+  consentGateClosed = true;
+  consentGeneration += 1;
+  return consentGeneration;
+}
+
+export function isCurrentConsentGeneration(gen: number): boolean {
+  return gen === consentGeneration;
+}
+
+/** Reopens the ordinary-event gate only if gen is still the current transition. */
+export function endConsentTransition(gen: number): void {
+  if (!isCurrentConsentGeneration(gen)) return;
+  consentGateClosed = false;
+}
+
 export function __setTransportOverrideForTests(transport: IXHROverride): void {
   transportOverrideForTests = transport;
 }
@@ -86,18 +168,37 @@ export function __getPendingEventCountForTests(): number {
   return pendingEvents.length;
 }
 
-export function __flushForTests(): Promise<void> {
+/**
+ * Flushes any buffered envelopes, bounded by timeoutMs. Always resolves —
+ * on flush completion, on timeout, on a throwing transport, or
+ * immediately when ai is null. Never rejects: a hung or offline
+ * transport must not leave a consent transition pending indefinitely.
+ */
+export function flushTelemetry(timeoutMs = 2000): Promise<void> {
   return new Promise(resolve => {
     if (!ai) {
       resolve();
       return;
     }
-    try {
-      void ai.flush(false, resolve);
-    } catch {
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
       resolve();
+    };
+    const timer = window.setTimeout(settle, timeoutMs);
+    try {
+      void ai.flush(false, settle);
+    } catch {
+      // Fail closed. A throwing transport still resolves the flush.
+      settle();
     }
   });
+}
+
+export function __flushForTests(): Promise<void> {
+  return flushTelemetry();
 }
 
 export interface SessionStartProps extends AppInfo {
@@ -268,8 +369,7 @@ function flushPendingEvents(): void {
   for (const event of events) send(event);
 }
 
-/** The only path from the typed wrappers to ai.trackEvent. */
-function emit(name: string, properties: Record<string, string | undefined>): void {
+function emitInternal(name: string, properties: Record<string, string | undefined>): void {
   if (!telemetryEnabled) return;
   if (!TELEMETRY_EVENT_NAMES.has(name)) return;
   const filtered: Record<string, string> = {};
@@ -284,8 +384,34 @@ function emit(name: string, properties: Record<string, string | undefined>): voi
   send(event);
 }
 
+/** The only path from the typed wrappers to ai.trackEvent for ordinary events. */
+function emit(name: string, properties: Record<string, string | undefined>): void {
+  if (!transmissionAllowed()) return;
+  emitInternal(name, properties);
+}
+
+/**
+ * Emits the consent transition event itself. Bypasses the ordinary-event
+ * gate — this is the one event a revoke must still deliver — but still
+ * respects the telemetryEnabled flag and the closed consent vocabulary.
+ */
+export function emitConsentEvent(consent: TelemetryConsent): void {
+  if (!telemetryEnabled) return;
+  const safeConsent = sanitizeConsent(consent);
+  if (safeConsent === undefined) return;
+  emitInternal('headlamp.telemetry-consent', { consent: safeConsent });
+}
+
+/**
+ * Bypasses the ordinary-event gate. Its one production call site is
+ * initTelemetry, which runs inside a consent transition (the grant side
+ * closes the gate before re-initializing) and is already gated on
+ * telemetryEnabled above. Routing this through `emit` instead would drop
+ * session-start on every mid-session grant, since the gate does not reopen
+ * until after initTelemetry returns. Do not "fix" this back to `emit`.
+ */
 export function trackSessionStart(p: SessionStartProps): void {
-  emit('headlamp.session-start', {
+  emitInternal('headlamp.session-start', {
     appVersion: p.appVersion,
     locale: localeLanguage(p.locale),
     os: p.os,
@@ -310,10 +436,11 @@ export interface ClusterShapeInput {
  * cluster across re-renders.
  */
 export function trackClusterShape(dedupeKey: string, input: ClusterShapeInput): void {
-  // Bail before touching the dedupe set when telemetry isn't initialized:
-  // otherwise a pre-init call would mark the key as seen and permanently
-  // suppress the post-init emission for the same cluster.
-  if (!ai || emittedShapeFor.has(dedupeKey)) return;
+  // Bail before touching the dedupe set when telemetry isn't initialized,
+  // or when transmission isn't allowed: otherwise a pre-init or
+  // mid-transition call would mark the key as seen and permanently
+  // suppress the post-init/post-transition emission for the same cluster.
+  if (!ai || !transmissionAllowed() || emittedShapeFor.has(dedupeKey)) return;
   const {
     kubernetesVersion: kv,
     nodeCount: nc,
@@ -361,6 +488,14 @@ export type TelemetryErrorPhase = TelemetryStatus;
 
 export function trackError(p: ErrorProps): void {
   if (!telemetryEnabled) return;
+  // Bail before touching errorCounts whenever transmission is disallowed —
+  // a closed consent gate, or a live predicate already reporting opt-out:
+  // otherwise such an error charges the per-key session quota for an envelope
+  // `emit` then drops, and once five are charged, real errors on that key stay
+  // suppressed for the rest of the session. Same reasoning as
+  // trackClusterShape's dedupe-set guard below. Deliberately no `!ai` check —
+  // pre-init errors are meant to buffer into pendingEvents and flush on init.
+  if (!transmissionAllowed()) return;
   if (!ERROR_AREAS.has(p.area)) return;
   const errorClass = sanitizeErrorClass(p.errorClass);
   const key = `${p.area}:${errorClass}`;

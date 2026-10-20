@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const mockUseClustersConf = vi.hoisted(() => vi.fn());
 const mockUseAzureAuth = vi.hoisted(() => vi.fn());
+const mockGetClusterSettings = vi.hoisted(() => vi.fn());
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   K8s: {
@@ -24,10 +25,15 @@ vi.mock('../../../hooks/useAzureAuth', () => ({
   useAzureAuth: mockUseAzureAuth,
 }));
 
+vi.mock('../../../utils/shared/clusterSettings', () => ({
+  getClusterSettings: mockGetClusterSettings,
+}));
+
 // Import after mocks are in place
 import type { BasicsStepProps } from '../types';
 import {
   getClusterHelperText,
+  getClusterOptionValue,
   getClusterStateMessage,
   isClusterNonReady,
   useBasicsStep,
@@ -60,6 +66,20 @@ const CLUSTER_UPDATING = {
   status: 'Updating',
 };
 
+const ARC_ONLINE = {
+  ...CLUSTER_RUNNING,
+  name: 'arc-online',
+  nodeCount: 0,
+  clusterType: 'aksarc' as const,
+  connectivityStatus: 'Connected',
+};
+
+const ARC_OFFLINE = {
+  ...ARC_ONLINE,
+  name: 'arc-offline',
+  connectivityStatus: 'Offline',
+};
+
 function makeProps(overrides: Partial<BasicsStepProps> = {}): BasicsStepProps {
   return {
     formData: {
@@ -85,19 +105,10 @@ function makeProps(overrides: Partial<BasicsStepProps> = {}): BasicsStepProps {
     loadingClusters: false,
     clusterError: null,
     totalClusterCount: null,
-    extensionStatus: { installed: true, installing: false, error: null, showSuccess: false },
-    featureStatus: {
-      registered: true,
-      state: 'Registered',
-      registering: false,
-      error: null,
-      showSuccess: false,
-    },
     namespaceStatus: { exists: null, checking: false, error: null },
+    clusterAccessStatus: { checking: false, accessible: null },
     clusterCapabilities: null,
     capabilitiesLoading: false,
-    onInstallExtension: vi.fn(),
-    onRegisterFeature: vi.fn(),
     onRetrySubscriptions: vi.fn(),
     onRetryClusters: vi.fn(),
     onRefreshCapabilities: vi.fn(),
@@ -231,6 +242,9 @@ describe('useBasicsStep', () => {
     vi.clearAllMocks();
     // Default: no clusters in headlamp kubeconfig
     mockUseClustersConf.mockReturnValue({});
+    mockGetClusterSettings.mockReturnValue({
+      azureRegistration: { subscriptionId: 'sub-123', resourceGroup: 'rg-prod' },
+    });
     // Default: not logged in, no subscriptionId
     mockUseAzureAuth.mockReturnValue({ isLoggedIn: false, isChecking: false });
   });
@@ -249,13 +263,88 @@ describe('useBasicsStep', () => {
   test('maps clusters to SearchableSelectOption format', () => {
     const { result } = renderHook(() => useBasicsStep(makeProps()));
     expect(result.current.clusterOptions).toHaveLength(1);
+    // Keyed by kind + resource group + name: names repeat across resource groups
+    // and cluster kinds, and a duplicate option value would resolve to whichever
+    // came first — potentially the wrong creation path.
     expect(result.current.clusterOptions[0]).toMatchObject({
-      value: 'aks-prod',
+      value: getClusterOptionValue(CLUSTER_RUNNING),
       label: 'aks-prod',
     });
     expect(result.current.clusterOptions[0].subtitle).toContain('eastus');
     expect(result.current.clusterOptions[0].subtitle).toContain('1.28.5');
     expect(result.current.clusterOptions[0].subtitle).toContain('nodes');
+    // A Succeeded cluster is selectable.
+    expect(result.current.clusterOptions[0].disabled).toBe(false);
+  });
+
+  test('keeps a managed and an Arc cluster of the same name distinguishable', () => {
+    // Names are scoped by resource group and resource type, so this collision is
+    // legal in Azure. Keyed by name alone the two options would be identical and
+    // selecting either would resolve to the first — running the managed creation
+    // path against an Arc cluster, or the reverse.
+    const managed = { ...CLUSTER_RUNNING, name: 'shared', resourceGroup: 'rg-a' };
+    const arc = {
+      ...CLUSTER_RUNNING,
+      name: 'shared',
+      resourceGroup: 'rg-b',
+      clusterType: 'aksarc' as const,
+      connectivityStatus: 'Connected',
+    };
+    const onFormDataChange = vi.fn();
+    const props = makeProps({ clusters: [managed, arc], onFormDataChange });
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    const values = result.current.clusterOptions.map(o => o.value);
+    expect(new Set(values).size).toBe(2);
+
+    act(() => result.current.handleClusterChange(values[1]));
+    expect(onFormDataChange).toHaveBeenCalledWith(
+      expect.objectContaining({ cluster: 'shared', resourceGroup: 'rg-b', clusterType: 'aksarc' })
+    );
+  });
+
+  test('disables cluster options in a Failed provisioning state', () => {
+    const props = makeProps({
+      clusters: [CLUSTER_RUNNING, { ...CLUSTER_RUNNING, name: 'aks-broken', status: 'Failed' }],
+    });
+    const { result } = renderHook(() => useBasicsStep(props));
+    const options = result.current.clusterOptions;
+    expect(options.find(o => o.label === 'aks-prod')?.disabled).toBe(false);
+    expect(options.find(o => o.label === 'aks-broken')?.disabled).toBe(true);
+  });
+
+  test('disables an offline Arc cluster and shows Offline, not its stale Succeeded state', () => {
+    // An Arc cluster's `status` (provisioningState) stays Succeeded once created,
+    // however sick the cluster gets, so the heartbeat is the only signal here.
+    const props = makeProps({ clusters: [ARC_ONLINE, ARC_OFFLINE] });
+    const { result } = renderHook(() => useBasicsStep(props));
+    const online = result.current.clusterOptions.find(o => o.label === 'arc-online');
+    const offline = result.current.clusterOptions.find(o => o.label === 'arc-offline');
+
+    expect(online?.disabled).toBe(false);
+    expect(online?.subtitle).toContain('Succeeded');
+    expect(online?.chips?.map(c => c.label)).toEqual(['AKS Hybrid & Edge']);
+
+    expect(offline?.disabled).toBe(true);
+    expect(offline?.subtitle).toContain('Offline');
+    expect(offline?.subtitle).not.toContain('Succeeded');
+    expect(offline?.chips?.map(c => c.label)).toEqual(['AKS Hybrid & Edge', 'Offline']);
+  });
+
+  test('an offline Arc cluster that also failed provisioning reads Failed', () => {
+    const props = makeProps({
+      clusters: [{ ...ARC_OFFLINE, name: 'arc-broken', status: 'Failed' }],
+    });
+    const { result } = renderHook(() => useBasicsStep(props));
+    const option = result.current.clusterOptions[0];
+    expect(option.disabled).toBe(true);
+    expect(option.subtitle).toContain('Failed');
+  });
+
+  test('managed clusters carry no heartbeat and are never marked offline', () => {
+    const { result } = renderHook(() => useBasicsStep(makeProps()));
+    expect(result.current.clusterOptions[0].disabled).toBe(false);
+    expect(result.current.clusterOptions[0].chips).toEqual([]);
   });
 
   test('selectedSubscription is undefined when no subscription is selected', () => {
@@ -297,6 +386,44 @@ describe('useBasicsStep', () => {
     });
     const { result } = renderHook(() => useBasicsStep(props));
     expect(result.current.selectedCluster).toEqual(CLUSTER_RUNNING);
+    expect(result.current.selectedClusterValue).toBe(getClusterOptionValue(CLUSTER_RUNNING));
+  });
+
+  test('selects and validates same-name clusters by resource group', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'aks-prod' } });
+    const otherScopeCluster = {
+      ...CLUSTER_RUNNING,
+      location: 'westus',
+      resourceGroup: 'rg-other',
+    };
+    const onFormDataChange = vi.fn();
+    const props = makeProps({
+      clusters: [CLUSTER_RUNNING, otherScopeCluster],
+      onFormDataChange,
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'aks-prod',
+        resourceGroup: 'rg-other',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(new Set(result.current.clusterOptions.map(option => option.value)).size).toBe(2);
+    expect(result.current.clusterOptions.map(option => option.subtitle)).toEqual([
+      expect.stringContaining('rg-prod'),
+      expect.stringContaining('rg-other'),
+    ]);
+    expect(result.current.selectedCluster).toEqual(otherScopeCluster);
+    expect(result.current.selectedClusterValue).toBe(getClusterOptionValue(otherScopeCluster));
+    expect(result.current.clusterScopeConflict).toBe(true);
+
+    act(() => result.current.handleClusterChange(getClusterOptionValue(CLUSTER_RUNNING)));
+    expect(onFormDataChange).toHaveBeenCalledWith({
+      cluster: 'aks-prod',
+      resourceGroup: 'rg-prod',
+    });
   });
 
   test('isClusterMissing is true when cluster is selected but absent from headlamp', () => {
@@ -341,6 +468,103 @@ describe('useBasicsStep', () => {
     });
     const { result } = renderHook(() => useBasicsStep(props));
     expect(result.current.isClusterMissing).toBe(false);
+  });
+
+  test('validates an active cluster with different name casing', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'AKS-PROD' } });
+    const props = makeProps({
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'aks-prod',
+        resourceGroup: 'rg-prod',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(result.current.isClusterMissing).toBe(false);
+    expect(result.current.clusterScopeConflict).toBe(false);
+  });
+
+  test('isClusterMissing is true when a same-name active cluster has another Azure scope', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'aks-prod' } });
+    mockGetClusterSettings.mockReturnValue({
+      azureRegistration: { subscriptionId: 'other-sub', resourceGroup: 'other-rg' },
+    });
+    const props = makeProps({
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'aks-prod',
+        resourceGroup: 'rg-prod',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(result.current.isClusterMissing).toBe(true);
+    expect(result.current.clusterScopeConflict).toBe(true);
+  });
+
+  test('isClusterMissing is false when a same-name active cluster has unknown Azure scope', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'aks-prod' } });
+    mockGetClusterSettings.mockReturnValue({});
+    const props = makeProps({
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'aks-prod',
+        resourceGroup: 'rg-prod',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(result.current.isClusterMissing).toBe(false);
+    expect(result.current.clusterScopeConflict).toBe(false);
+  });
+
+  test('isClusterMissing is true when a same-name active Arc cluster has unknown scope', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'arc-online' } });
+    mockGetClusterSettings.mockReturnValue({ clusterType: 'aksarc' });
+    const props = makeProps({
+      clusters: [ARC_ONLINE],
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'arc-online',
+        resourceGroup: 'rg-prod',
+        clusterType: 'aksarc',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(result.current.isClusterMissing).toBe(true);
+    expect(result.current.clusterScopeConflict).toBe(false);
+  });
+
+  test('isClusterMissing is true when a same-name active cluster is a different kind', () => {
+    mockUseClustersConf.mockReturnValue({ 'ctx-1': { name: 'arc-online' } });
+    // The above is registered as a regular managed cluster (no aksarc marker),
+    // and below we mock selection of a same-named Arc cluster.
+    mockGetClusterSettings.mockReturnValue({});
+    const props = makeProps({
+      clusters: [ARC_ONLINE],
+      formData: {
+        ...makeProps().formData,
+        subscription: 'sub-123',
+        cluster: 'arc-online',
+        resourceGroup: 'rg-prod',
+        clusterType: 'aksarc',
+      },
+    });
+
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    expect(result.current.isClusterMissing).toBe(true);
+    expect(result.current.clusterScopeConflict).toBe(true);
   });
 
   test('nonReadyCluster is null for a healthy running cluster', () => {
@@ -400,7 +624,7 @@ describe('useBasicsStep', () => {
   test('handleClusterChange updates both cluster and resourceGroup', () => {
     const onFormDataChange = vi.fn();
     const { result } = renderHook(() => useBasicsStep(makeProps({ onFormDataChange })));
-    act(() => result.current.handleClusterChange('aks-prod'));
+    act(() => result.current.handleClusterChange(getClusterOptionValue(CLUSTER_RUNNING)));
     expect(onFormDataChange).toHaveBeenCalledWith({
       cluster: 'aks-prod',
       resourceGroup: 'rg-prod',
@@ -410,7 +634,7 @@ describe('useBasicsStep', () => {
   test('handleClusterChange does nothing when the cluster name is not in the list', () => {
     const onFormDataChange = vi.fn();
     const { result } = renderHook(() => useBasicsStep(makeProps({ onFormDataChange })));
-    act(() => result.current.handleClusterChange('nonexistent-cluster'));
+    act(() => result.current.handleClusterChange('aks|rg-prod|nonexistent-cluster'));
     expect(onFormDataChange).not.toHaveBeenCalled();
   });
 

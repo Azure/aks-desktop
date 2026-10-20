@@ -200,6 +200,35 @@ describe('usePrometheusMetrics', () => {
     expect(result.current.summary.errorRate).toBe('0.8%');
   });
 
+  test('aligns error rate by timestamp when error samples have different timestamps', async () => {
+    const requestValues: [number, string][] = [
+      [NOW - 120, '10.0'],
+      [NOW - 60, '12.0'],
+      [NOW, '15.0'],
+    ];
+    // Error query that only returns data for the first and last timestamps
+    const errorValues: [number, string][] = [
+      [NOW - 120, '2.0'],
+      [NOW, '3.0'],
+    ];
+
+    mockQueryResults({
+      request: [{ values: requestValues }],
+      error: [{ values: errorValues }],
+    });
+
+    const { result } = renderMetricsHook(mockSetPods);
+
+    await waitFor(() => {
+      expect(result.current.metricsLoading).toBe(false);
+    });
+
+    expect(result.current.requestErrorData).toHaveLength(3);
+    expect(result.current.requestErrorData[0].errorRate).toBe(2.0);
+    expect(result.current.requestErrorData[1].errorRate).toBe(0);
+    expect(result.current.requestErrorData[2].errorRate).toBe(3.0);
+  });
+
   test('updates per-pod CPU and memory via setPods', async () => {
     mockQueryResults({
       cpuByPod: [

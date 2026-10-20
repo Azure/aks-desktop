@@ -399,13 +399,18 @@ export function usePrometheusMetrics(
 
       // Process Request & Error data (combined)
       if (requestResults.length > 0 && requestResults[0].values) {
-        requestResults[0].values.forEach((v: [number, string], idx: number) => {
+        // Create a map of error values keyed by timestamp for correct alignment with
+        // request values, since Prometheus may return different timestamps for each query.
+        const errorByTimestamp = new Map<number, number>();
+        if (errorResults.length > 0 && errorResults[0].values) {
+          errorResults[0].values.forEach((v: [number, string]) => {
+            errorByTimestamp.set(v[0], safeParseFloat(v[1]));
+          });
+        }
+        requestResults[0].values.forEach((v: [number, string]) => {
           const timestamp = new Date(v[0] * 1000).toLocaleTimeString();
           const requestRate = safeParseFloat(v[1]);
-          const errorRate =
-            errorResults.length > 0 && errorResults[0].values[idx]
-              ? safeParseFloat(errorResults[0].values[idx][1])
-              : 0;
+          const errorRate = errorByTimestamp.get(v[0]) ?? 0;
 
           snapshot.requestErrorData.push({
             timestamp,
