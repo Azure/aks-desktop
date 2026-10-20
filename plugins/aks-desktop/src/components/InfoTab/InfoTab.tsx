@@ -37,6 +37,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
     loading,
     revalidating,
     updating,
+    resolvingTarget,
     canRefresh,
     error,
     saveError,
@@ -127,7 +128,7 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
             <Button
               variant="contained"
               color="primary"
-              disabled={!hasChanges || !validation.isValid || updating}
+              disabled={!hasChanges || !validation.isValid || updating || resolvingTarget}
               onClick={handleSave}
             >
               {updating ? `${t('Updating')}...` : t('Update')}

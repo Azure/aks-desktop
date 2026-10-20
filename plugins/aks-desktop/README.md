@@ -10,7 +10,10 @@ generation, subscription, resource group, cluster, and namespace name.
 
 Settings stay fresh for 60 seconds and inactive entries expire after five
 minutes. Reopening a fresh tab does not launch another Azure CLI read; stale
-settings remain visible during background refresh. **Refresh** bypasses freshness.
+settings remain visible during background refresh. **Refresh** bypasses freshness,
+reloads namespace metadata first, and then reads settings using the current
+subscription and resource-group labels. Saving is disabled while those labels
+are being refreshed.
 Reads are deduplicated, with no automatic retries, polling, or focus/reconnect
 refetches.
 

@@ -260,7 +260,7 @@ describe('useInfoTab', () => {
       expect(result.current.formData.ingress).toBe(changeGroup ? 'DenyAll' : 'AllowAll');
       expect(result.current.formData.cpuLimit).toBe(changeGroup ? 1000 : 1500);
       expect(result.current.hasChanges).toBe(!changeGroup);
-      expect(mocks.show).toHaveBeenCalledTimes(changeGroup ? 2 : 1);
+      expect(mocks.show).toHaveBeenCalledTimes(2);
       if (changeGroup) {
         expect(mocks.show).toHaveBeenLastCalledWith({ ...target, resourceGroup: 'new-group' });
       }
@@ -292,6 +292,115 @@ describe('useInfoTab', () => {
     expect(result.current.revalidating).toBe(true);
     await act(async () => pending.resolve(details('DenyAll')));
     await waitFor(() => expect(result.current.formData.ingress).toBe('DenyAll'));
+  });
+
+  test.each([
+    ['subscriptionId', 'aks-desktop/project-subscription', false],
+    ['subscriptionId', 'aks-desktop/project-subscription', true],
+    ['resourceGroup', 'aks-desktop/project-resource-group', false],
+    ['resourceGroup', 'aks-desktop/project-resource-group', true],
+  ] as const)(
+    'Refresh reloads %s (%s) before reads and saves without remounting (cached target: %s)',
+    async (field, label, cachedTarget) => {
+      const { result } = render();
+      await loaded(result);
+      const nextTarget = { ...target, [field]: 'new-scope' };
+      if (cachedTarget) {
+        client.setQueryData(
+          managedNamespaceQueryKey(nextTarget, getManagedNamespaceAuthState().generation),
+          details('DenyAll')
+        );
+      }
+      const next = deferred<ManagedNamespaceDetails>();
+      mocks.metadata.mockResolvedValueOnce(metadata({ [label]: 'new-scope' }));
+      mocks.show.mockReturnValueOnce(next.promise);
+      act(() => {
+        result.current.handleRefresh();
+        result.current.handleRefresh();
+      });
+      await waitFor(() => expect(mocks.metadata).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(mocks.show).toHaveBeenCalledTimes(2));
+      expect(mocks.show).toHaveBeenLastCalledWith(nextTarget);
+      await act(async () => next.resolve(details('AllowSameNamespace')));
+      await waitFor(() => expect(result.current.revalidating).toBe(false));
+      expect(result.current.formData.ingress).toBe('AllowSameNamespace');
+      expect(mocks.show).toHaveBeenCalledTimes(2);
+      act(() => result.current.handleFormDataChange({ cpuLimit: 2000 }));
+      await save(result);
+      expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining(nextTarget));
+    }
+  );
+
+  test('Refresh stops before Azure reads when authentication changes during metadata reload', async () => {
+    const { result } = render();
+    await loaded(result);
+    const pending = deferred<ReturnType<typeof metadata>>();
+    mocks.metadata.mockReturnValueOnce(pending.promise);
+    act(() => result.current.handleRefresh());
+    await waitFor(() => expect(mocks.metadata).toHaveBeenCalledTimes(2));
+    act(() => invalidateManagedNamespaceAuth());
+    await act(async () =>
+      pending.resolve(metadata({ 'aks-desktop/project-resource-group': 'new-scope' }))
+    );
+    expect(mocks.show).toHaveBeenCalledTimes(1);
+    expect(result.current.namespaceDetails).toBeNull();
+    expect(result.current.error).toContain('Sign in');
+  });
+
+  test('Refresh immediately blocks saves while current namespace labels are unresolved', async () => {
+    const { result } = render();
+    await loaded(result);
+    const pending = deferred<ReturnType<typeof metadata>>();
+    mocks.metadata.mockReturnValueOnce(pending.promise);
+    act(() => result.current.handleFormDataChange({ cpuLimit: 2000 }));
+    act(() => {
+      result.current.handleRefresh();
+      result.current.handleSave();
+    });
+    await waitFor(() => expect(mocks.metadata).toHaveBeenCalledTimes(2));
+    expect(result.current.resolvingTarget).toBe(true);
+    expect(mocks.update).not.toHaveBeenCalled();
+    await act(async () => pending.resolve(metadata()));
+    await waitFor(() => expect(result.current.revalidating).toBe(false));
+    expect(result.current.formData.cpuLimit).toBe(2000);
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  test('Refresh does not read an old target when namespace metadata reload fails', async () => {
+    const { result } = render();
+    await loaded(result);
+    mocks.metadata.mockRejectedValueOnce(new Error('metadata refresh failed'));
+    act(() => result.current.handleRefresh());
+    await waitFor(() => expect(result.current.error).toContain('metadata refresh failed'));
+    expect(mocks.show).toHaveBeenCalledTimes(1);
+    expect(result.current.namespaceDetails).toEqual(details());
+  });
+
+  test('a pending Refresh keeps metadata paired with its captured namespace after navigation', async () => {
+    const { result, rerender } = render();
+    await loaded(result);
+    const pending = deferred<ReturnType<typeof metadata>>();
+    mocks.metadata
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce(metadata({ 'aks-desktop/project-resource-group': 'b-group' }));
+    act(() => result.current.handleRefresh());
+    await waitFor(() => expect(mocks.metadata).toHaveBeenCalledTimes(2));
+    rerender({ value: { ...project, namespaces: ['namespace-b'] } });
+    await waitFor(() =>
+      expect(mocks.show).toHaveBeenCalledWith({
+        ...target,
+        namespaceName: 'namespace-b',
+        resourceGroup: 'b-group',
+      })
+    );
+    await act(async () =>
+      pending.resolve(metadata({ 'aks-desktop/project-resource-group': 'a-moved' }))
+    );
+    await waitFor(() =>
+      expect(mocks.show).toHaveBeenCalledWith({ ...target, resourceGroup: 'a-moved' })
+    );
+    expect(mocks.show).not.toHaveBeenCalledWith({ ...target, resourceGroup: 'b-group' });
+    expect(result.current.namespaceDetails).toEqual(details());
   });
 
   test('refresh preserves unsaved values and baseline while updating the snapshot', async () => {

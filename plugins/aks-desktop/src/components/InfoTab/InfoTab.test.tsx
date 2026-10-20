@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   loading: false,
   revalidating: false,
   updating: false,
+  resolvingTarget: false,
   error: null as string | null,
   saveError: null as string | null,
   namespaceDetails: {} as object | null,
@@ -39,6 +40,7 @@ describe('InfoTab recovery and status', () => {
   afterEach(cleanup);
   beforeEach(() => {
     state.loading = state.revalidating = state.updating = state.hasRemoteChanges = false;
+    state.resolvingTarget = false;
     state.error = state.saveError = null;
     state.namespaceDetails = {};
     state.hasChanges = true;
@@ -81,6 +83,13 @@ describe('InfoTab recovery and status', () => {
     expect(
       screen.getByRole('progressbar', { name: 'Loading namespace settings' })
     ).toBeInTheDocument();
+  });
+
+  test('metadata refresh keeps the editor but blocks saving an unresolved scope', () => {
+    state.resolvingTarget = true;
+    render(<InfoTab project={project} />);
+    expect(screen.getByText('Networking editor')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Update' })).toBeDisabled();
   });
 
   test('server changes inform the user without discarding the editor', () => {

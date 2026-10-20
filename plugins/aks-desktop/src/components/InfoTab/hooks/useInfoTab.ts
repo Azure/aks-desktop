@@ -4,8 +4,14 @@
 import { clusterAction, useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { clusterRequest } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
 import type { KubeNamespace } from '@kinvolk/headlamp-plugin/lib/lib/k8s/namespace';
-import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, useSyncExternalStore } from 'react';
+import {
+  isCancelledError,
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import {
   getManagedNamespaceDetails,
   updateManagedNamespace,
@@ -40,6 +46,22 @@ const fields = [
 
 function equalSettings(a: FormData, b: FormData) {
   return fields.every(field => a[field] === b[field]);
+}
+
+function resolveTarget(
+  namespace: KubeNamespace | undefined,
+  clusterName: string,
+  namespaceName: string
+): ManagedNamespaceTarget | null {
+  const labels = namespace?.metadata?.labels;
+  const subscriptionId = labels?.[SUBSCRIPTION_LABEL];
+  const resourceGroup = labels?.[RESOURCE_GROUP_LABEL];
+  return labels &&
+    subscriptionId &&
+    resourceGroup &&
+    supportsManagedNamespaceSettings(labels, clusterName)
+    ? { subscriptionId, resourceGroup, clusterName, namespaceName }
+    : null;
 }
 
 function readForm(details?: ManagedNamespaceDetails): FormData {
@@ -128,6 +150,7 @@ export function useInfoTab(project: { clusters: string[]; namespaces: string[]; 
   const clusterName = project.clusters[0];
   const namespaceName = project.namespaces[0];
   const singleNamespace = project.clusters.length === 1 && project.namespaces.length === 1;
+  const pendingRefreshes = useRef(new Set<string>());
   const metadataKey = [
     'aks-desktop',
     'managed-namespace',
@@ -136,26 +159,17 @@ export function useInfoTab(project: { clusters: string[]; namespaces: string[]; 
     clusterName,
     namespaceName,
   ] as const;
+  const fetchMetadata = (): Promise<KubeNamespace> =>
+    clusterRequest(`/api/v1/namespaces/${encodeURIComponent(namespaceName)}`, {
+      cluster: clusterName,
+      method: 'GET',
+    });
   const metadata = useQuery({
     queryKey: metadataKey,
     enabled: auth.ready && singleNamespace,
-    queryFn: async (): Promise<KubeNamespace> =>
-      clusterRequest(`/api/v1/namespaces/${encodeURIComponent(namespaceName)}`, {
-        cluster: clusterName,
-        method: 'GET',
-      }),
+    queryFn: fetchMetadata,
   });
-  const labels = metadata.data?.metadata?.labels;
-  const subscriptionId = labels?.[SUBSCRIPTION_LABEL];
-  const resourceGroup = labels?.[RESOURCE_GROUP_LABEL];
-  const target: ManagedNamespaceTarget | null =
-    singleNamespace &&
-    labels &&
-    subscriptionId &&
-    resourceGroup &&
-    supportsManagedNamespaceSettings(labels, clusterName)
-      ? { subscriptionId, resourceGroup, clusterName, namespaceName }
-      : null;
+  const target = singleNamespace ? resolveTarget(metadata.data, clusterName, namespaceName) : null;
   const key = managedNamespaceQueryKey(target, auth.generation);
   const owner = JSON.stringify(key);
   const mutationKey = [...key, 'update'];
@@ -224,7 +238,14 @@ export function useInfoTab(project: { clusters: string[]; namespaces: string[]; 
 
   const handleSave = () => {
     if (client.isMutating({ mutationKey, exact: true })) return;
-    if (!auth.ready || !target || !query.data || !validation.isValid || !hasChanges) {
+    if (
+      !auth.ready ||
+      !target ||
+      !query.data ||
+      !validation.isValid ||
+      !hasChanges ||
+      client.isFetching({ queryKey: metadataKey, exact: true })
+    ) {
       setActionError({ owner, message: t('Namespace settings are not ready to save.') });
       return;
     }
@@ -247,10 +268,44 @@ export function useInfoTab(project: { clusters: string[]; namespaces: string[]; 
   };
 
   const handleRefresh = () => {
-    if (!auth.ready || client.isMutating({ mutationKey, exact: true })) return;
+    if (!auth.ready || !singleNamespace || client.isMutating({ mutationKey, exact: true })) return;
+    const refreshOwner = JSON.stringify(metadataKey);
+    if (pendingRefreshes.current.has(refreshOwner)) return;
+    pendingRefreshes.current.add(refreshOwner);
     setActionError(undefined);
-    if (metadata.error || !target) void metadata.refetch({ cancelRefetch: false });
-    else void query.refetch({ cancelRefetch: false });
+    const isCurrentAuth = () => {
+      const current = getManagedNamespaceAuthState();
+      return current.ready && current.generation === auth.generation;
+    };
+    void (async () => {
+      if (!isCurrentAuth()) return;
+      const namespaceRequest = client.fetchQuery({
+        queryKey: metadataKey,
+        queryFn: fetchMetadata,
+        staleTime: 0,
+      });
+      // Invalidate every cached Azure scope of this namespace before labels can switch the key.
+      await client.invalidateQueries({
+        queryKey: [...key.slice(0, -1), { clusterName, namespaceName }],
+        refetchType: 'none',
+      });
+      const namespace = await namespaceRequest;
+      if (!isCurrentAuth()) return;
+      const nextTarget = resolveTarget(namespace, clusterName, namespaceName);
+      if (!nextTarget) return;
+      const nextKey = managedNamespaceQueryKey(nextTarget, auth.generation);
+      if (client.isMutating({ mutationKey: [...nextKey, 'update'], exact: true })) return;
+      await client.fetchQuery({
+        queryKey: nextKey,
+        queryFn: () => getManagedNamespaceDetails(nextTarget),
+      });
+    })()
+      .catch(error => {
+        if (!isCancelledError(error)) {
+          console.error('Failed to refresh managed namespace settings', error);
+        }
+      })
+      .finally(() => pendingRefreshes.current.delete(refreshOwner));
   };
 
   const failure = metadata.error ?? query.error;
@@ -273,6 +328,7 @@ export function useInfoTab(project: { clusters: string[]; namespaces: string[]; 
     loading: auth.ready && singleNamespace && !error && !query.data,
     revalidating: (metadata.isFetching || query.isFetching) && !!query.data,
     updating,
+    resolvingTarget: metadata.isFetching,
     canRefresh: auth.ready && singleNamespace,
     error,
     saveError,
