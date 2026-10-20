@@ -236,6 +236,35 @@ and run `npm run test:headlamp-package` after changing the list.
 See the [source package reference](packages/headlamp-source/README.md) for the
 configuration schema and script API.
 
+## GitHub desktop authentication verification
+
+AKS Desktop supplies its GitHub App identity through
+`package.json#headlamp.githubOAuth`. Its native-client credential is intentionally
+bundled, while user tokens use plugin-scoped OS-encrypted storage. Browser sign-in
+uses S256 PKCE. Only the provenance-verified AKS development/shipped plugin policies
+receive the private OAuth capability; token results are not broadcast to other
+plugins. Host changes belong in the numbered Headlamp patch series, not generated
+source copies. See the [configuration contract](packages/headlamp-source/README.md#githuboauth).
+
+After building a distribution, verify both paths with a separate test profile:
+
+1. Confirm with the GitHub App owner that `aks-desktop://oauth/callback` is
+   registered and expiring user access tokens are enabled. Development additionally
+   needs `http://localhost:48321/oauth/callback`. Registration settings are external
+   prerequisites, not evidence that a particular packaged build works.
+2. With no cached GitHub credentials, enable GitHub Pipeline preview and connect
+   GitHub. Confirm authorization opens in the system browser, returns to this app,
+   and the connected identity appears. Restart and confirm encrypted credentials
+   reload without another authorization.
+3. Leave that profile running until the access token reaches the refresh window
+   (the plugin uses a five-minute safety buffer). Perform another GitHub operation
+   and confirm it succeeds without browser authorization. Restart and verify the
+   rotated credentials also reload. Do not expose tokens in logs or screenshots.
+4. Record the package version, platform, and results separately for fresh sign-in
+   and refresh. Automated IPC tests with mocked GitHub responses do not substitute
+   for these live packaged checks. Callback routing to another installed app is
+   tracked separately in #458.
+
 ## Translations
 
 Translation strings from the installed Headlamp source package, the in-repo
