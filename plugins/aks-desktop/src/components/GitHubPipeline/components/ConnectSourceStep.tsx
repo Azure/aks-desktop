@@ -11,46 +11,25 @@ import { openExternalUrl } from '../../../utils/shared/openExternalUrl';
 import type { GitHubAuthState } from '../types';
 import { RepoSelector } from './RepoSelector';
 
-function getPermissions(t: (key: string) => string) {
-  return [
-    { id: 'contents', name: t('Contents'), purpose: t('Push agent config files') },
-    {
-      id: 'workflows',
-      name: t('Workflows'),
-      purpose: t('Create setup workflow in .github/workflows/'),
-    },
-    { id: 'pull-requests', name: t('Pull requests'), purpose: t('Create deployment PRs') },
-    { id: 'issues', name: t('Issues'), purpose: t('Track agent progress') },
-    { id: 'actions', name: t('Actions'), purpose: t('Run deployment workflows') },
-  ];
-}
-
 interface ConnectSourceStepProps {
   authState: GitHubAuthState;
-  onStartOAuth: () => void;
   octokit: Octokit | null;
   selectedRepo: GitHubRepo | null;
   onRepoSelect: (repo: GitHubRepo) => void;
   appInstallNeeded?: boolean;
   appInstallUrl?: string | null;
-  /** Override from the wizard: auth was completed (state machine advanced past auth). */
-  authCompleted?: boolean;
 }
 
 export function ConnectSourceStep({
   authState,
-  onStartOAuth,
   octokit,
   selectedRepo,
   onRepoSelect,
   appInstallNeeded,
   appInstallUrl,
-  authCompleted,
 }: ConnectSourceStepProps) {
   const { t } = useTranslation();
-  const { isAuthorizingBrowser, username, error } = authState;
-  const isAuthenticated = authCompleted || authState.isAuthenticated;
-  const permissions = getPermissions(t);
+  const { username, error, isAuthenticated } = authState;
 
   return (
     <Box sx={{ maxWidth: 600 }}>
@@ -76,50 +55,8 @@ export function ConnectSourceStep({
       ) : (
         <>
           <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
-            {t('Authorize AKS Desktop to create deployment pipelines in your repository.')}
+            {t('Connect GitHub from the project header to continue.')}
           </Typography>
-
-          <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
-            {t('Required Permissions')}
-          </Typography>
-          <Box sx={{ mb: 2 }}>
-            {permissions.map(perm => (
-              <Box key={perm.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <Box
-                  component={Icon}
-                  icon="mdi:check-circle-outline"
-                  sx={{ fontSize: 16, color: 'text.secondary' }}
-                />
-                <Typography variant="body2">
-                  <strong>{perm.name}</strong>
-                  {perm.purpose && ` - ${perm.purpose}`}
-                </Typography>
-              </Box>
-            ))}
-          </Box>
-
-          {isAuthorizingBrowser ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <Box
-                component={Icon}
-                icon="mdi:open-in-new"
-                sx={{ fontSize: 16, color: 'primary.main' }}
-              />
-              <Typography variant="body2" sx={{ color: 'primary.main' }}>
-                {t('Complete authorization on your browser screen')}
-              </Typography>
-            </Box>
-          ) : (
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<Icon icon="mdi:open-in-new" aria-hidden="true" />}
-              onClick={onStartOAuth}
-              sx={{ textTransform: 'none', mb: 2 }}
-            >
-              {t('Connect')}
-            </Button>
-          )}
 
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>

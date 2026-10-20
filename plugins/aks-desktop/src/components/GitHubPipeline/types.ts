@@ -31,6 +31,8 @@ export const DEPLOYMENT_STATES = [
 export type PipelineDeploymentState = (typeof DEPLOYMENT_STATES)[number];
 
 export interface GitHubAuthState {
+  isDisconnecting?: boolean;
+  disconnectError?: string | null;
   isAuthenticated: boolean;
   isRestoring: boolean;
   isAuthorizingBrowser: boolean;
