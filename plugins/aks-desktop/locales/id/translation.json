@@ -236,6 +236,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "Namespace akan dibuat pada kluster yang dipilih dan disiapkan sebagai proyek",
   "Regular Kubernetes namespace": "Namespace Kubernetes reguler",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "Namespace baru akan dibuat di kluster yang menerapkan label proyek. Namespace akan langsung muncul dalam daftar proyek Anda.",
+  "Back to home": "",
   "Create New Namespace": "Buat Namespace Baru",
   "Create a new namespace on an existing cluster and set it up as a project": "Buat namespace baru di kluster yang sudah ada dan siapkan sebagai proyek",
   "Creating Namespace": "Membuat Namespace",

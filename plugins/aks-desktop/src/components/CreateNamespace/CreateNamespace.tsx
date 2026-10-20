@@ -285,11 +285,9 @@ function CreateNamespaceContent() {
   return (
     <PageGrid maxWidth="lg" sx={{ margin: '0 auto' }}>
       {/*
-        SectionBox's backLink prop renders a plain route link and exposes no
-        click hook, so it cannot emit the namespace-create cancelled event.
-        An explicit Back button is used instead, following the pattern in
-        AzureProfilePage. It is labelled "Back to home" to distinguish it from
-        the wizard's own Back control, which steps between visible steps.
+        SectionBox's built-in Back button exposes no click callback. Use a
+        local button to route through cancellation handling, with a distinct
+        accessible name from the wizard's step-level Back control.
       */}
       <Button
         variant="text"
