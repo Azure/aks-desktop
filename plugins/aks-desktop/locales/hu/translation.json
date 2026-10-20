@@ -741,5 +741,21 @@
   "{{minutes}} min ago": "{{minutes}} perce",
   "{{hours}}h ago": "{{hours}} órája",
   "{{days}}d ago": "{{days}} napja",
-  "{{weeks}}w ago": "{{weeks}} hete"
+  "{{weeks}}w ago": "{{weeks}} hete",
+  "Sign in to GitHub to view pipeline runs.": "A folyamatfuttatások megtekintéséhez jelentkezzen be a GitHubra.",
+  "Sign in": "Bejelentkezés",
+  "GitHub authentication required to trigger deployment.": "Az üzembe helyezés elindításához GitHub-hitelesítés szükséges.",
+  "Contents": "Tartalom",
+  "Push agent config files": "Leküldéses ügynök konfigurációs fájljai",
+  "Workflows": "Munkafolyamatok",
+  "Create setup workflow in .github/workflows/": "Beállítási munkafolyamat létrehozása a .github/workflows/ webhelyen",
+  "Pull requests": "Lekéréses kérelem",
+  "Create deployment PRs": "Üzembe helyezési lekéréses kérelmek létrehozása",
+  "Issues": "Problémák",
+  "Track agent progress": "Ügynök állapotának nyomon követése",
+  "Run deployment workflows": "Üzembe helyezési munkafolyamatok futtatása",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Engedélyezze az AKS asztal számára, hogy üzembe helyezési folyamatokat hozzon létre az adattárban.",
+  "Required Permissions": "Szükséges engedélyek",
+  "Complete authorization on your browser screen": "Engedélyezés végrehajtása a böngésző képernyőjén",
+  "Connect": "Csatlakozás"
 }

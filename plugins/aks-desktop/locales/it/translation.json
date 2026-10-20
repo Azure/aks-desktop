@@ -753,5 +753,21 @@
   "{{minutes}} min ago": "{{minutes}} minuto/i fa",
   "{{hours}}h ago": "{{hours}} ora/e fa",
   "{{days}}d ago": "{{days}} giorno/i fa",
-  "{{weeks}}w ago": "{{weeks}} settimana/e fa"
+  "{{weeks}}w ago": "{{weeks}} settimana/e fa",
+  "Sign in to GitHub to view pipeline runs.": "Accedere a GitHub per visualizzare le esecuzioni della pipeline.",
+  "Sign in": "Accedi",
+  "GitHub authentication required to trigger deployment.": "Autenticazione GitHub necessaria per attivare la distribuzione.",
+  "Contents": "Contenuti",
+  "Push agent config files": "Push dei file di configurazione dell'agente",
+  "Workflows": "Flussi di lavoro",
+  "Create setup workflow in .github/workflows/": "Creare il flusso di lavoro di configurazione in .github/workflows/",
+  "Pull requests": "Richieste pull",
+  "Create deployment PRs": "Crea richieste pull di distribuzione",
+  "Issues": "Problemi",
+  "Track agent progress": "Monitora stato agente",
+  "Run deployment workflows": "Esegui flussi di lavoro di distribuzione",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Autorizzare Il desktop del servizio Azure Kubernetes a creare pipeline di distribuzione nel repository.",
+  "Required Permissions": "Autorizzazioni necessarie",
+  "Complete authorization on your browser screen": "Completare l'autorizzazione nella schermata del browser",
+  "Connect": "Connetti"
 }

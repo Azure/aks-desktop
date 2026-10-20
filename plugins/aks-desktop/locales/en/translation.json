@@ -741,5 +741,21 @@
   "{{minutes}} min ago": "{{minutes}} min ago",
   "{{hours}}h ago": "{{hours}}h ago",
   "{{days}}d ago": "{{days}}d ago",
-  "{{weeks}}w ago": "{{weeks}}w ago"
+  "{{weeks}}w ago": "{{weeks}}w ago",
+  "Sign in to GitHub to view pipeline runs.": "Sign in to GitHub to view pipeline runs.",
+  "Sign in": "Sign in",
+  "GitHub authentication required to trigger deployment.": "GitHub authentication required to trigger deployment.",
+  "Contents": "Contents",
+  "Push agent config files": "Push agent config files",
+  "Workflows": "Workflows",
+  "Create setup workflow in .github/workflows/": "Create setup workflow in .github/workflows/",
+  "Pull requests": "Pull requests",
+  "Create deployment PRs": "Create deployment PRs",
+  "Issues": "Issues",
+  "Track agent progress": "Track agent progress",
+  "Run deployment workflows": "Run deployment workflows",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Authorize AKS Desktop to create deployment pipelines in your repository.",
+  "Required Permissions": "Required Permissions",
+  "Complete authorization on your browser screen": "Complete authorization on your browser screen",
+  "Connect": "Connect"
 }

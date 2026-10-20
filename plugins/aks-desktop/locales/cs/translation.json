@@ -765,5 +765,21 @@
   "{{minutes}} min ago": "před {{minutes}} min.",
   "{{hours}}h ago": "Před {{hours}} h",
   "{{days}}d ago": "Před {{days}} d",
-  "{{weeks}}w ago": "před {{weeks}} týd."
+  "{{weeks}}w ago": "před {{weeks}} týd.",
+  "Sign in to GitHub to view pipeline runs.": "Pokud chcete zobrazit spuštění kanálu, přihlaste se ke GitHubu.",
+  "Sign in": "Přihlásit se",
+  "GitHub authentication required to trigger deployment.": "K aktivaci nasazení se vyžaduje ověřování GitHubu.",
+  "Contents": "Obsah",
+  "Push agent config files": "Odeslat konfigurační soubory agenta",
+  "Workflows": "Pracovní postupy",
+  "Create setup workflow in .github/workflows/": "Vytvořit pracovní postup nastavení v .github/workflows/",
+  "Pull requests": "Žádosti o přijetí změn",
+  "Create deployment PRs": "Vytvořit žádosti o přijetí změn nasazení",
+  "Issues": "Problémy",
+  "Track agent progress": "Sledovat průběh agenta",
+  "Run deployment workflows": "Spustit pracovní postupy nasazení",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Autorizujte AKS Desktop k vytváření kanálů nasazení ve vašem úložišti.",
+  "Required Permissions": "Požadovaná oprávnění",
+  "Complete authorization on your browser screen": "Dokončete autorizaci na obrazovce prohlížeče",
+  "Connect": "Připojit"
 }

@@ -741,5 +741,21 @@
   "{{minutes}} min ago": "{{minutes}} min. geleden",
   "{{hours}}h ago": "{{hours}}u geleden",
   "{{days}}d ago": "{{days}}d geleden",
-  "{{weeks}}w ago": "{{weeks}}w geleden"
+  "{{weeks}}w ago": "{{weeks}}w geleden",
+  "Sign in to GitHub to view pipeline runs.": "Meld u aan bij GitHub om pijplijnuitvoeringen weer te geven.",
+  "Sign in": "Aanmelden",
+  "GitHub authentication required to trigger deployment.": "GitHub-verificatie is vereist om de implementatie te activeren.",
+  "Contents": "Inhoud",
+  "Push agent config files": "Configuratiebestanden voor pushagent",
+  "Workflows": "Werkstromen",
+  "Create setup workflow in .github/workflows/": "Maak een installatiewerkstroom in .github/workflows/",
+  "Pull requests": "Pull-aanvragen",
+  "Create deployment PRs": "Implementatie-PR's maken",
+  "Issues": "Problemen",
+  "Track agent progress": "Voortgang van agent bijhouden",
+  "Run deployment workflows": "Implementatiewerkstromen uitvoeren",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "AKS Desktop autoriseren om implementatiepijplijnen te maken in uw opslagplaats.",
+  "Required Permissions": "Vereiste machtigingen",
+  "Complete authorization on your browser screen": "Autorisatie voltooien op uw browserscherm",
+  "Connect": "Verbinding maken"
 }

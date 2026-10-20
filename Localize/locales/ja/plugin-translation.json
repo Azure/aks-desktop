@@ -741,5 +741,21 @@
   "GitHub account": "",
   "GitHub disconnect failed": "",
   "Retry disconnect": "",
-  "Saved GitHub credentials could not be removed. Retry disconnect.": ""
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "AKS デスクトップでリポジトリにデプロイ パイプラインを作成することを認可します。",
+  "Complete authorization on your browser screen": "ブラウザー画面で認可を完了する",
+  "Connect": "接続",
+  "Contents": "コンテンツ",
+  "Create deployment PRs": "デプロイ PR の作成",
+  "Create setup workflow in .github/workflows/": ".github/workflows/ でセットアップ ワークフローを作成します",
+  "GitHub authentication required to trigger deployment.": "デプロイをトリガーするには GitHub 認証が必要です。",
+  "Issues": "懸案事項",
+  "Pull requests": "pull request",
+  "Push agent config files": "エージェント構成ファイルをプッシュする",
+  "Required Permissions": "必要なアクセス許可",
+  "Run deployment workflows": "デプロイ ワークフローを実行する",
+  "Sign in": "サインイン",
+  "Sign in to GitHub to view pipeline runs.": "パイプラインの実行を表示するには、GitHub にサインインします。",
+  "Track agent progress": "エージェントの進行状況を追跡する",
+  "Workflows": "ワークフロー"
 }

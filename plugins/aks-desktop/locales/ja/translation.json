@@ -739,5 +739,21 @@
   "Resources to be deployed ({{count}} object)_one": "デプロイするリソース ({{count}} 個のオブジェクト)",
   "Successfully merged {{count}} cluster(s)_one": "{{count}} 個のクラスターが正常にマージされました",
   "with {{count}} project(s)_one": "{{count}} 個のプロジェクトを含む",
-  "{{count}} nodes_one": "{{count}} node"
+  "{{count}} nodes_one": "{{count}} node",
+  "Sign in to GitHub to view pipeline runs.": "パイプラインの実行を表示するには、GitHub にサインインします。",
+  "Sign in": "サインイン",
+  "GitHub authentication required to trigger deployment.": "デプロイをトリガーするには GitHub 認証が必要です。",
+  "Contents": "コンテンツ",
+  "Push agent config files": "エージェント構成ファイルをプッシュする",
+  "Workflows": "ワークフロー",
+  "Create setup workflow in .github/workflows/": ".github/workflows/ でセットアップ ワークフローを作成します",
+  "Pull requests": "pull request",
+  "Create deployment PRs": "デプロイ PR の作成",
+  "Issues": "懸案事項",
+  "Track agent progress": "エージェントの進行状況を追跡する",
+  "Run deployment workflows": "デプロイ ワークフローを実行する",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "AKS デスクトップでリポジトリにデプロイ パイプラインを作成することを認可します。",
+  "Required Permissions": "必要なアクセス許可",
+  "Complete authorization on your browser screen": "ブラウザー画面で認可を完了する",
+  "Connect": "接続"
 }

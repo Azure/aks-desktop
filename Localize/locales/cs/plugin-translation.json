@@ -741,5 +741,21 @@
   "GitHub account": "",
   "GitHub disconnect failed": "",
   "Retry disconnect": "",
-  "Saved GitHub credentials could not be removed. Retry disconnect.": ""
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Autorizujte AKS Desktop k vytváření kanálů nasazení ve vašem úložišti.",
+  "Complete authorization on your browser screen": "Dokončete autorizaci na obrazovce prohlížeče",
+  "Connect": "Připojit",
+  "Contents": "Obsah",
+  "Create deployment PRs": "Vytvořit žádosti o přijetí změn nasazení",
+  "Create setup workflow in .github/workflows/": "Vytvořit pracovní postup nastavení v .github/workflows/",
+  "GitHub authentication required to trigger deployment.": "K aktivaci nasazení se vyžaduje ověřování GitHubu.",
+  "Issues": "Problémy",
+  "Pull requests": "Žádosti o přijetí změn",
+  "Push agent config files": "Odeslat konfigurační soubory agenta",
+  "Required Permissions": "Požadovaná oprávnění",
+  "Run deployment workflows": "Spustit pracovní postupy nasazení",
+  "Sign in": "Přihlásit se",
+  "Sign in to GitHub to view pipeline runs.": "Pokud chcete zobrazit spuštění kanálu, přihlaste se ke GitHubu.",
+  "Track agent progress": "Sledovat průběh agenta",
+  "Workflows": "Pracovní postupy"
 }

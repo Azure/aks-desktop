@@ -739,5 +739,21 @@
   "Resources to be deployed ({{count}} object)_one": "Sumber daya yang akan disebarkan ({{count}} objek)",
   "Successfully merged {{count}} cluster(s)_one": "Berhasil menggabungkan {{count}} kluster",
   "with {{count}} project(s)_one": "dengan {{count}} proyek",
-  "{{count}} nodes_one": "{{count}} node"
+  "{{count}} nodes_one": "{{count}} node",
+  "Sign in to GitHub to view pipeline runs.": "Masuk ke GitHub untuk melihat eksekusi alur.",
+  "Sign in": "Masuk",
+  "GitHub authentication required to trigger deployment.": "Autentikasi GitHub diperlukan untuk memicu penyebaran.",
+  "Contents": "Konten",
+  "Push agent config files": "Kirim file konfigurasi agen",
+  "Workflows": "Alur kerja",
+  "Create setup workflow in .github/workflows/": "Buat alur kerja penyiapan di .github/workflows/",
+  "Pull requests": "Permintaan pull",
+  "Create deployment PRs": "Buat PR penyebaran",
+  "Issues": "Masalah",
+  "Track agent progress": "Lacak kemajuan agen",
+  "Run deployment workflows": "Jalankan alur kerja penyebaran",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Izinkan AKS Desktop membuat alur penyebaran di repositori Anda.",
+  "Required Permissions": "Izin yang Diperlukan",
+  "Complete authorization on your browser screen": "Selesaikan otorisasi di layar browser Anda",
+  "Connect": "Sambungkan"
 }

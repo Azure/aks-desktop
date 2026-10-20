@@ -741,5 +741,21 @@
   "GitHub account": "",
   "GitHub disconnect failed": "",
   "Retry disconnect": "",
-  "Saved GitHub credentials could not be removed. Retry disconnect.": ""
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "AKS 데스크톱에 리포지토리에서 배포 파이프라인을 생성할 권한을 부여합니다.",
+  "Complete authorization on your browser screen": "브라우저 화면에서 권한 부여 완료",
+  "Connect": "연결",
+  "Contents": "콘텐츠",
+  "Create deployment PRs": "배포 PR 만들기",
+  "Create setup workflow in .github/workflows/": ".github/workflows/에서 설치 워크플로 만들기",
+  "GitHub authentication required to trigger deployment.": "배포를 트리거하는 데 필요한 GitHub 인증입니다.",
+  "Issues": "문제",
+  "Pull requests": "끌어오기 요청",
+  "Push agent config files": "에이전트 구성 파일 푸시",
+  "Required Permissions": "필요한 권한",
+  "Run deployment workflows": "배포 워크플로 실행",
+  "Sign in": "로그인",
+  "Sign in to GitHub to view pipeline runs.": "파이프라인 실행을 보려면 GitHub에 로그인합니다.",
+  "Track agent progress": "에이전트 진행률 추적",
+  "Workflows": "워크플로"
 }

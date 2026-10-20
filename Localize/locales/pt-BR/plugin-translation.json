@@ -741,5 +741,21 @@
   "GitHub account": "",
   "GitHub disconnect failed": "",
   "Retry disconnect": "",
-  "Saved GitHub credentials could not be removed. Retry disconnect.": ""
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Autorize a Área de Trabalho do AKS a criar pipelines de implantação em seu repositório.",
+  "Complete authorization on your browser screen": "Concluir autorização na tela do navegador",
+  "Connect": "Conectar",
+  "Contents": "Conteúdo",
+  "Create deployment PRs": "Criar PRs de implantação",
+  "Create setup workflow in .github/workflows/": "Criar fluxo de trabalho de instalação no .github/workflows/",
+  "GitHub authentication required to trigger deployment.": "Autenticação do GitHub necessária para disparar a implantação.",
+  "Issues": "Problemas",
+  "Pull requests": "Solicitações de pull",
+  "Push agent config files": "Enviar arquivos de configuração do agente por push",
+  "Required Permissions": "Permissões Necessárias",
+  "Run deployment workflows": "Executar fluxos de trabalho de implantação",
+  "Sign in": "Entrar",
+  "Sign in to GitHub to view pipeline runs.": "Entre no GitHub para exibir execuções de pipeline.",
+  "Track agent progress": "Acompanhar o progresso do agente",
+  "Workflows": "Fluxos de trabalho"
 }

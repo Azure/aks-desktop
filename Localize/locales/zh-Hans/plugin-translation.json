@@ -741,5 +741,21 @@
   "GitHub account": "",
   "GitHub disconnect failed": "",
   "Retry disconnect": "",
-  "Saved GitHub credentials could not be removed. Retry disconnect.": ""
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "授权 AKS 桌面在存储库中创建部署管道。",
+  "Complete authorization on your browser screen": "在浏览器屏幕上完成授权",
+  "Connect": "连接",
+  "Contents": "内容",
+  "Create deployment PRs": "创建部署 PR",
+  "Create setup workflow in .github/workflows/": "在 .github/workflows/ 中创建设置工作流",
+  "GitHub authentication required to trigger deployment.": "触发部署所需的 GitHub 身份验证。",
+  "Issues": "问题",
+  "Pull requests": "拉取请求",
+  "Push agent config files": "推送代理配置文件",
+  "Required Permissions": "所需权限",
+  "Run deployment workflows": "运行部署工作流",
+  "Sign in": "登录",
+  "Sign in to GitHub to view pipeline runs.": "登录到 GitHub 以查看管道运行。",
+  "Track agent progress": "跟踪代理进度",
+  "Workflows": "工作流"
 }

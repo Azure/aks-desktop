@@ -753,5 +753,21 @@
   "{{minutes}} min ago": "Há {{minutes}} min",
   "{{hours}}h ago": "Há {{hours}}\u00a0h",
   "{{days}}d ago": "Há {{days}} dia(s)",
-  "{{weeks}}w ago": "Há {{weeks}} semanas"
+  "{{weeks}}w ago": "Há {{weeks}} semanas",
+  "Sign in to GitHub to view pipeline runs.": "Inicie sessão no GitHub para ver execuções do pipeline.",
+  "Sign in": "Iniciar sessão",
+  "GitHub authentication required to trigger deployment.": "É necessária autenticação do GitHub para acionar a implementação.",
+  "Contents": "Conteúdo",
+  "Push agent config files": "Emitir ficheiros de configuração do agente",
+  "Workflows": "Fluxos de trabalho",
+  "Create setup workflow in .github/workflows/": "Criar fluxo de trabalho de configuração em .github/workflows/",
+  "Pull requests": "Pedidos Pull",
+  "Create deployment PRs": "Criar pedidos pull de implementação",
+  "Issues": "Problemas",
+  "Track agent progress": "Monitorizar o progresso do agente",
+  "Run deployment workflows": "Executar fluxos de trabalho de implementação",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Autorize o AKS Desktop a criar pipelines de implementação no seu repositório.",
+  "Required Permissions": "Permissões obrigatórias",
+  "Complete authorization on your browser screen": "Conclua a autorização no ecrã do seu browser",
+  "Connect": "Ligar"
 }

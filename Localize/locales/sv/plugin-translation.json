@@ -741,5 +741,21 @@
   "GitHub account": "",
   "GitHub disconnect failed": "",
   "Retry disconnect": "",
-  "Saved GitHub credentials could not be removed. Retry disconnect.": ""
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Ge AKS Desktop rätt att skapa distributionskanaler på din lagringsplats.",
+  "Complete authorization on your browser screen": "Slutför auktoriseringen på webbläsarskärmen",
+  "Connect": "Anslut",
+  "Contents": "Innehåll",
+  "Create deployment PRs": "Skapa pull-begäranden för distribution",
+  "Create setup workflow in .github/workflows/": "Skapa installationsarbetsflöde i .github/workflows/",
+  "GitHub authentication required to trigger deployment.": "GitHub-autentisering krävs för att utlösa distribution.",
+  "Issues": "Problem",
+  "Pull requests": "Pull-begäranden",
+  "Push agent config files": "Push-överför konfigurationsfiler till agent",
+  "Required Permissions": "Nödvändiga behörigheter",
+  "Run deployment workflows": "Kör distributionsarbetsflöden",
+  "Sign in": "Logga in",
+  "Sign in to GitHub to view pipeline runs.": "Logga in på GitHub för att visa pipelinekörningar.",
+  "Track agent progress": "Spåra agentens förlopp",
+  "Workflows": "Arbetsflöden"
 }

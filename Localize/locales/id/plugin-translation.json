@@ -741,5 +741,21 @@
   "GitHub account": "",
   "GitHub disconnect failed": "",
   "Retry disconnect": "",
-  "Saved GitHub credentials could not be removed. Retry disconnect.": ""
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Izinkan AKS Desktop membuat alur penyebaran di repositori Anda.",
+  "Complete authorization on your browser screen": "Selesaikan otorisasi di layar browser Anda",
+  "Connect": "Sambungkan",
+  "Contents": "Konten",
+  "Create deployment PRs": "Buat PR penyebaran",
+  "Create setup workflow in .github/workflows/": "Buat alur kerja penyiapan di .github/workflows/",
+  "GitHub authentication required to trigger deployment.": "Autentikasi GitHub diperlukan untuk memicu penyebaran.",
+  "Issues": "Masalah",
+  "Pull requests": "Permintaan pull",
+  "Push agent config files": "Kirim file konfigurasi agen",
+  "Required Permissions": "Izin yang Diperlukan",
+  "Run deployment workflows": "Jalankan alur kerja penyebaran",
+  "Sign in": "Masuk",
+  "Sign in to GitHub to view pipeline runs.": "Masuk ke GitHub untuk melihat eksekusi alur.",
+  "Track agent progress": "Lacak kemajuan agen",
+  "Workflows": "Alur kerja"
 }

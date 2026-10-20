@@ -741,5 +741,21 @@
   "{{minutes}} min ago": "{{minutes}} dakika önce",
   "{{hours}}h ago": "{{hours}} saat önce",
   "{{days}}d ago": "{{days}} gün önce",
-  "{{weeks}}w ago": "{{weeks}} hafta önce"
+  "{{weeks}}w ago": "{{weeks}} hafta önce",
+  "Sign in to GitHub to view pipeline runs.": "İşlem hattı çalıştırmalarını görüntülemek için GitHub’da oturum açın.",
+  "Sign in": "Oturum aç",
+  "GitHub authentication required to trigger deployment.": "Dağıtımı tetiklemek için GitHub kimlik doğrulaması gereklidir.",
+  "Contents": "İçindekiler",
+  "Push agent config files": "Aracı yapılandırma dosyalarını gönder",
+  "Workflows": "İş Akışları",
+  "Create setup workflow in .github/workflows/": ".github/workflows/ içinde kurulum iş akışı oluştur",
+  "Pull requests": "Çekme istekleri",
+  "Create deployment PRs": "Dağıtım PR'si oluştur",
+  "Issues": "Sorunlar",
+  "Track agent progress": "Aracı ilerlemesini izle",
+  "Run deployment workflows": "Dağıtım iş akışlarını çalıştır",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "AKS Masaüstü'nü deponuzda dağıtım veri hatları oluşturması için yetkilendirin.",
+  "Required Permissions": "Gerekli İzinler",
+  "Complete authorization on your browser screen": "Tarayıcı ekranında yetkilendirmeyi tamamla",
+  "Connect": "Bağlan"
 }

@@ -765,5 +765,21 @@
   "{{minutes}} min ago": "{{minutes}} мин. назад",
   "{{hours}}h ago": "{{hours}} ч назад",
   "{{days}}d ago": "{{days}}\u00a0дн. назад",
-  "{{weeks}}w ago": "{{weeks}} нед. назад"
+  "{{weeks}}w ago": "{{weeks}} нед. назад",
+  "Sign in to GitHub to view pipeline runs.": "Войдите в GitHub, чтобы просмотреть выполнения конвейера.",
+  "Sign in": "Вход",
+  "GitHub authentication required to trigger deployment.": "Чтобы активировать развертывание, требуется проверка подлинности GitHub.",
+  "Contents": "Содержимое",
+  "Push agent config files": "Отправить файлы конфигурации агента",
+  "Workflows": "Рабочие процессы",
+  "Create setup workflow in .github/workflows/": "Создать рабочий процесс настройки в .github/workflows/",
+  "Pull requests": "Запросы на вытягивание",
+  "Create deployment PRs": "Создать PR развертывания",
+  "Issues": "Проблемы",
+  "Track agent progress": "Отслеживание хода выполнения агента",
+  "Run deployment workflows": "Запустить рабочие процессы развертывания",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Авторизуйте классическую версию AKS для создания конвейеров развертывания в вашем репозитории.",
+  "Required Permissions": "Необходимые разрешения",
+  "Complete authorization on your browser screen": "Завершите авторизацию на экране браузера",
+  "Connect": "Подключить"
 }

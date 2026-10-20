@@ -741,5 +741,21 @@
   "GitHub account": "",
   "GitHub disconnect failed": "",
   "Retry disconnect": "",
-  "Saved GitHub credentials could not be removed. Retry disconnect.": ""
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Authorize AKS Desktop to create deployment pipelines in your repository.": "Engedélyezze az AKS asztal számára, hogy üzembe helyezési folyamatokat hozzon létre az adattárban.",
+  "Complete authorization on your browser screen": "Engedélyezés végrehajtása a böngésző képernyőjén",
+  "Connect": "Csatlakozás",
+  "Contents": "Tartalom",
+  "Create deployment PRs": "Üzembe helyezési lekéréses kérelmek létrehozása",
+  "Create setup workflow in .github/workflows/": "Beállítási munkafolyamat létrehozása a .github/workflows/ webhelyen",
+  "GitHub authentication required to trigger deployment.": "Az üzembe helyezés elindításához GitHub-hitelesítés szükséges.",
+  "Issues": "Problémák",
+  "Pull requests": "Lekéréses kérelem",
+  "Push agent config files": "Leküldéses ügynök konfigurációs fájljai",
+  "Required Permissions": "Szükséges engedélyek",
+  "Run deployment workflows": "Üzembe helyezési munkafolyamatok futtatása",
+  "Sign in": "Bejelentkezés",
+  "Sign in to GitHub to view pipeline runs.": "A folyamatfuttatások megtekintéséhez jelentkezzen be a GitHubra.",
+  "Track agent progress": "Ügynök állapotának nyomon követése",
+  "Workflows": "Munkafolyamatok"
 }
