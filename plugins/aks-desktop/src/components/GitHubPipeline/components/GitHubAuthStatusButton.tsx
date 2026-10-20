@@ -3,7 +3,7 @@
 
 import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { Alert, Button, CircularProgress, Popover, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Popover, Tooltip, Typography } from '@mui/material';
 import React, { useState } from 'react';
 import { usePreviewFeatures } from '../../../hooks/usePreviewFeatures';
 import { useGitHubAuthContext } from '../GitHubAuthContext';
@@ -98,15 +98,22 @@ export function GitHubAuthStatusButton() {
   }
 
   return (
-    <Tooltip title={t('Sign in to GitHub')}>
-      <Button
-        variant="outlined"
-        startIcon={<Icon icon="mdi:github" aria-hidden="true" />}
-        onClick={startOAuth}
-        sx={{ textTransform: 'none', fontWeight: 'bold' }}
-      >
-        {t('Connect GitHub')}
-      </Button>
-    </Tooltip>
+    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
+      <Tooltip title={t('Sign in to GitHub')}>
+        <Button
+          variant="outlined"
+          startIcon={<Icon icon="mdi:github" aria-hidden="true" />}
+          onClick={startOAuth}
+          sx={{ textTransform: 'none', fontWeight: 'bold' }}
+        >
+          {t('Connect GitHub')}
+        </Button>
+      </Tooltip>
+      {authState.error && (
+        <Alert severity="error" sx={{ maxWidth: 360 }}>
+          {authState.error}
+        </Alert>
+      )}
+    </Box>
   );
 }

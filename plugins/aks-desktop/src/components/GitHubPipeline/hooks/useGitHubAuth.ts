@@ -160,8 +160,8 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
   // Listen for OAuth callback from the Electron main process
   useEffect(() => {
     const unsubscribe = onOAuthCallback(async result => {
-      if (!isAuthorizingRef.current) return;
       const epoch = authEpoch;
+      if (!current(epoch)) return;
       if (!result.success || !result.accessToken || !result.refreshToken || !result.expiresAt) {
         isAuthorizingRef.current = false;
         setAuthState(prev => ({

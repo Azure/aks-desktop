@@ -40,6 +40,16 @@ it('does not expose disconnect while browser sign-in is pending', () => {
   expect(screen.queryByRole('button', { name: 'Disconnect GitHub' })).not.toBeInTheDocument();
 });
 
+it('shows sign-in failure alongside the header sign-in action', () => {
+  context.read.mockReturnValue({
+    authState: { isAuthenticated: false, error: 'Authorization was denied' },
+    startOAuth: vi.fn(),
+  });
+  render(<GitHubAuthStatusButton />);
+  expect(screen.getByRole('alert')).toHaveTextContent('Authorization was denied');
+  expect(screen.getByRole('button', { name: 'Sign in to GitHub' })).toBeEnabled();
+});
+
 it('offers retry instead of sign-in when credentials could not be removed', () => {
   const reset = vi.fn();
   context.read.mockReturnValue({

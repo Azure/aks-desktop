@@ -1,7 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { secureStorageDelete, secureStorageLoad, secureStorageSave } from './secure-storage';
+import {
+  isSecureStorageAvailable,
+  secureStorageDelete,
+  secureStorageLoad,
+  secureStorageSave,
+} from './secure-storage';
 
 // GitHub App slug — used for the app installation URL.
 const GITHUB_APP_SLUG =
@@ -183,6 +188,7 @@ export const loadTokens = async (): Promise<StoredTokens | null> => {
  * Removes saved tokens from secure storage (and localStorage in dev mode).
  */
 export const clearTokens = async (): Promise<boolean> => {
+  const available = isSecureStorageAvailable();
   const deleted = await secureStorageDelete(STORAGE_KEY);
   if (IS_DEV) {
     try {
@@ -191,5 +197,5 @@ export const clearTokens = async (): Promise<boolean> => {
       return false;
     }
   }
-  return deleted;
+  return deleted || (IS_DEV && !available);
 };
