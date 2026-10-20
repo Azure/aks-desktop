@@ -25,6 +25,40 @@ describe('plugin secure storage', () => {
     expect(storage.delete).toHaveBeenCalledWith('key');
   });
 
+  it('clears development fallback credentials when the native bridge is unavailable', async () => {
+    vi.resetModules();
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubGlobal('pluginSecureStorage', undefined);
+    localStorage.setItem('aks-desktop:github-auth-fallback', '{}');
+    try {
+      const { clearTokens } = await import('./github-auth');
+      await expect(clearTokens()).resolves.toBe(true);
+      expect(localStorage.getItem('aks-desktop:github-auth-fallback')).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+      localStorage.removeItem('aks-desktop:github-auth-fallback');
+    }
+  });
+
+  it('does not mask a native deletion failure with successful development fallback cleanup', async () => {
+    vi.resetModules();
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubGlobal('pluginSecureStorage', {
+      save: vi.fn(),
+      load: vi.fn(),
+      delete: vi.fn().mockResolvedValue({ success: false }),
+    });
+    localStorage.setItem('aks-desktop:github-auth-fallback', '{}');
+    try {
+      const { clearTokens } = await import('./github-auth');
+      await expect(clearTokens()).resolves.toBe(false);
+      expect(localStorage.getItem('aks-desktop:github-auth-fallback')).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+      localStorage.removeItem('aks-desktop:github-auth-fallback');
+    }
+  });
+
   it('fails closed when the bridge is unavailable', async () => {
     await expect(secureStorageSave('key', 'value')).resolves.toBe(false);
     await expect(secureStorageLoad('key')).resolves.toBeNull();

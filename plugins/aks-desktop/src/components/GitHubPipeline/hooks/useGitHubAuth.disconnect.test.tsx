@@ -8,6 +8,7 @@ import type { OAuthCallbackResult } from '../../../utils/github/github-auth';
 
 const storage = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), remove: vi.fn() }));
 vi.mock('../../../utils/github/secure-storage', () => ({
+  isSecureStorageAvailable: () => true,
   secureStorageLoad: storage.load,
   secureStorageSave: storage.save,
   secureStorageDelete: storage.remove,
@@ -53,7 +54,9 @@ beforeEach(async () => {
     startGitHubOAuth: vi.fn().mockResolvedValue({ success: true }),
     onGitHubOAuthCallback: vi.fn(callback => {
       callbacks.push(callback);
-      return () => {};
+      return () => {
+        callbacks = callbacks.filter(listener => listener !== callback);
+      };
     }),
     refreshGitHubOAuth: vi.fn(),
   };
@@ -148,6 +151,25 @@ it('finishes an already-started credential save before deleting it on disconnect
   expect(disk).toBeNull();
   expect(deletedEarly).toBe(0);
   expect(view.result.current.authState.isAuthenticated).toBe(false);
+});
+
+it('accepts a pending OAuth completion after the initiating view remounts', async () => {
+  disk = null;
+  const view = renderHook(useAuth);
+  await settle();
+  await act(async () => {
+    await view.result.current.startOAuth();
+  });
+  view.unmount();
+  const next = renderHook(useAuth);
+  await settle();
+  expect(callbacks).toHaveLength(1);
+  await act(async () => {
+    await callbacks[0]({ success: true, ...tokens() });
+  });
+  await settle();
+  expect(next.result.current.authState.isAuthenticated).toBe(true);
+  expect(JSON.parse(disk!)).toMatchObject({ accessToken: 'access-token' });
 });
 
 it('shows deletion failure across remounts and allows retry before another sign-in', async () => {
