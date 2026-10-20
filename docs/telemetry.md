@@ -1,185 +1,224 @@
 # Telemetry in AKS Desktop
 
-AKS Desktop sends a small amount of pseudonymous usage data to Microsoft to
-help us find crashes, fix broken workflows, and decide what to build next.
-
-This page lists everything that is collected, everything that is not, and how
-to turn it off. It is written to be complete: if something is sent, it is
-described here.
-
 ## Turning it off
 
 Telemetry is **on by default**. To turn it off, open **Settings**, find the
 **AKS Desktop** plugin settings, and switch off **Send pseudonymous usage
-data**.
+data**. No restart is required.
 
-You can change this as often as you like. When you change it, we record that
-the setting changed — see [Telemetry setting changes](#telemetry-setting-changes)
-below — and nothing further.
+Opting out immediately gates new ordinary telemetry events. The client attempts
+to send a `revoked` consent event and flush events already buffered in the SDK,
+then disables and unloads the SDK. The consent event and buffered events still
+include the common metadata described below. Delivery is best-effort, so opting
+out does not mean exactly one event is delivered or that all outgoing traffic
+stops at the instant of the click.
 
-## What we collect
+Switching the setting back on initializes telemetry again and resumes collection.
+See [Telemetry setting changes](#telemetry-setting-changes) for the transition
+events.
 
-Everything below is drawn from a fixed list defined in the source code. The
-application cannot send an event or a field that is not on that list — the
-check is enforced in code and covered by tests, not by convention. The list
-lives in
-[`plugins/aks-desktop/src/telemetry/schema.ts`](../plugins/aks-desktop/src/telemetry/schema.ts).
+## Scope
+
+This page describes the AKS Desktop plugin's usage telemetry and client-side
+filters. When enabled in the desktop app, the plugin sends custom events through
+the Application Insights SDK. It is not an inventory of other plugins, external
+feedback forms, or native crash reporting.
+
+The custom event names, property names and value vocabularies are defined in
+[`telemetry/schema.ts`](../plugins/aks-desktop/src/telemetry/schema.ts).
+The custom-property allowlist does not cover every field in the SDK's serialized
+envelope.
+
+## Common metadata
+
+Every event sent by an initialized client includes the application version as
+`appVersion`, in addition to its event-specific properties. The client also adds:
+
+- `ai.user.id`: a randomly generated installation identifier, described below.
+- `ai.operation.name`: a sanitized route category, not the original URL. Its
+  values are `/index`, `/login`, `/profile`, `/projects`, `/project-create`,
+  `/project-import`, `/namespace-create`, `/add-cluster`, `/settings`, or `unknown`.
+- `ai.location.ip`: overwritten with `0.0.0.0` by the client initializer.
+
+The SDK also adds envelope and context metadata, including event timestamps and
+SDK version information. These are separate from the custom event properties.
+The client scrubber removes the named country, province/state and city fields
+listed in [`telemetry/privacy.ts`](../plugins/aks-desktop/src/telemetry/privacy.ts).
+
+## Events and properties
 
 ### Session start
 
-Sent once when the application starts.
+`headlamp.session-start` is emitted when telemetry initializes successfully.
+This includes initialization after switching telemetry back on during a session,
+not just application startup. Starting with telemetry disabled does not emit it.
 
-| Field | Example | Why |
-|---|---|---|
-| `appVersion` | `1.4.0` | Tells us which release a problem belongs to |
-| `headlampVersion` | `0.30.0` | Same, for the underlying Headlamp version |
-| `os` | `darwin`, `win32`, `linux` | Which platforms need attention |
-| `arch` | `x64`, `arm64` | Catches architecture-specific failures |
-| `electronVersion` | `31.2.0` | Narrows down runtime-specific bugs |
-| `locale` | `en`, `de` | Language only, never region or country |
+| Field             | Example                    | Description                                       |
+| ----------------- | -------------------------- | ------------------------------------------------- |
+| `appVersion`      | `1.4.0`                    | Application version                               |
+| `headlampVersion` | `0.30.0`                   | Underlying Headlamp version                       |
+| `os`              | `darwin`, `win32`, `linux` | Runtime platform                                  |
+| `arch`            | `x64`, `arm64`             | Architecture inferred from the runtime user agent |
+| `electronVersion` | `31.2.0`                   | Electron version parsed from the user agent       |
+| `locale`          | `en`, `de`                 | Language portion of the locale, without region    |
+
+Application, Headlamp and Electron version strings retain their patch versions.
 
 ### Cluster shape
 
-Sent once per AKS cluster you open, describing its size and configuration.
-It never contains the cluster's name, resource group, or subscription.
+`headlamp.cluster-shape` is emitted from the AKS project overview when project
+labels, cluster capabilities, node data and namespace data are available. The
+client deduplicates it by Azure resource ID for the lifetime of the loaded
+telemetry module, including across opt-out/opt-in cycles. The deduplication ID
+itself is not included in the event.
 
-| Field | Example | Why |
-|---|---|---|
-| `provider` | `AKS` | Which platform the cluster runs on |
-| `kubernetesMinor` | `1.29` | Major and minor version only, never the patch |
-| `nodeCountBucket` | `6-20` | A range, never the exact count |
-| `namespaceCountBucket` | `11-50` | A range, never the exact count |
-| `region` | `eastus` | Where capacity problems cluster |
-| `aksTier` | `Standard` | Whether behaviour differs by tier |
+| Field                  | Example    | Description                                                                      |
+| ---------------------- | ---------- | -------------------------------------------------------------------------------- |
+| `provider`             | `AKS`      | Fixed provider value                                                             |
+| `kubernetesMinor`      | `1.29`     | Kubernetes major and minor version only                                          |
+| `nodeCountBucket`      | `6-20`     | `0`, `1-5`, `6-20`, `21-100`, or `100+`                                          |
+| `namespaceCountBucket` | `11-50`    | `0`, `1-10`, `11-50`, `51-200`, or `200+`                                        |
+| `region`               | `eastus`   | Cluster's Azure region, checked against a region-name pattern; otherwise `Other` |
+| `aksTier`              | `Standard` | `Free`, `Standard`, `Premium`, or `Unknown`                                      |
 
-Counts are reported as ranges rather than exact numbers specifically so a
-cluster cannot be recognised by its size.
+Positive counts are ranges; zero is reported as `0`. Only the Kubernetes version
+is truncated to major and minor.
 
 ### Feature use
 
-Sent when you use a tracked feature. It records *which* feature and *whether it
-worked* — never what you typed, selected, or named.
+`headlamp.feature` records a tracked action and its status. It does not include
+resource names or the contents of logs, terminals, edited resources or forms.
 
-| Field | Example | Why |
-|---|---|---|
-| `feature` | `aksd.project-create` | Which feature was used |
-| `status` | `opened`, `started`, `succeeded`, `failed`, `cancelled` | Whether it completed |
-| `resourceKind` | `Pod`, `Deployment` | The *type* of object, never its name |
+| Field          | Example               | Description                                   |
+| -------------- | --------------------- | --------------------------------------------- |
+| `feature`      | `aksd.project-create` | One of the tracked feature names below        |
+| `status`       | `opened`, `succeeded` | One of the shared status values below         |
+| `resourceKind` | `Pod`, `Deployment`   | Optional Kubernetes object type, not its name |
 
-Tracked features are AKS Desktop workflows — creating and importing projects,
-signing in and out, adding clusters, creating namespaces, deploying, deleting
-projects — and common Kubernetes actions such as viewing logs, opening a
-terminal, scaling, restarting, editing and deleting resources.
+The tracked AKS Desktop features are:
 
-`resourceKind` is restricted to a fixed list of standard Kubernetes types.
-Anything outside that list is reported as `CustomResource`, so the name of a
-custom resource definition is never sent.
+| Feature                 | Action                   |
+| ----------------------- | ------------------------ |
+| `aksd.project-create`   | Project creation         |
+| `aksd.project-import`   | Project import           |
+| `aksd.deploy`           | Deployment               |
+| `aksd.auth-login`       | Azure sign-in            |
+| `aksd.auth-logout`      | Azure sign-out           |
+| `aksd.cluster-add`      | Cluster registration     |
+| `aksd.namespace-create` | Namespace creation       |
+| `aksd.project-delete`   | Project deletion         |
+| `aksd.feedback`         | App-bar Contact us click |
+
+The Contact us action records `opened` after attempting external navigation. It
+does not confirm that the destination loaded or record feedback form contents or
+submission.
+
+The Headlamp actions forwarded by the plugin are `headlamp.create-resource`,
+`headlamp.edit-resource`, `headlamp.delete-resource`, `headlamp.delete-resources`,
+`headlamp.scale-resource`, `headlamp.restart-resource`,
+`headlamp.restart-resources`, `headlamp.rollback-resource`, `headlamp.logs`,
+`headlamp.terminal`, `headlamp.pod-attach`, `headlamp.plugin-loading-error`,
+`headlamp.details-view`, `headlamp.list-view`, and `headlamp.object-events`.
+
+The shared status vocabulary is `unknown`, `open`, `closed`, `confirmed`,
+`finished`, `opened`, `started`, `succeeded`, `failed`, `cancelled`, and
+`completed`. Not every action emits every status; some have no success/failure
+result. Partial project imports, for example, use `completed`.
+
+`resourceKind` uses the fixed built-in kind list in the schema. Other kind names
+become `CustomResource`; missing kind input can become `Unknown`, and mixed-kind
+batch actions use `Multiple`. Producers can omit the field when no resource kind
+is available. Custom resource-specific kind names are not forwarded.
 
 ### Errors
 
-Sent when something fails. It records the *category* of failure, never the
-error message or stack trace.
+`headlamp.exception` records a categorical failure, not an error message or
+stack trace.
 
-| Field | Example | Why |
-|---|---|---|
-| `area` | `deploy`, `auth-login` | Which part of the app failed |
-| `errorClass` | `NetworkError`, `TimeoutError`, `PermissionError` | What kind of failure |
-| `phase` | `started`, `failed` | Where in the workflow it happened |
+| Field        | Example                | Description                                      |
+| ------------ | ---------------------- | ------------------------------------------------ |
+| `area`       | `deploy`, `auth-login` | One of the areas below                           |
+| `errorClass` | `NetworkError`         | One of the six classes below                     |
+| `phase`      | `failed`, `completed`  | Optional value from the shared status vocabulary |
 
-`errorClass` is one of six fixed values. Error text is never inspected to pick
-one, because doing so risks copying message content into the field.
+Areas are `project-create`, `project-import`, `deploy`, `kubernetes`, `plugin-ui`,
+`auth-login`, `auth-logout`, `cluster-add`, `namespace-create`, and
+`project-delete`. Classes are `AuthenticationError`, `PermissionError`,
+`NetworkError`, `ValidationError`, `TimeoutError`, and `UnknownError`.
 
-Repeated failures of the same kind are capped, so a persistent error produces a
-handful of events rather than a flood.
+The client caps errors at five events per area/class pair for the lifetime of
+the loaded telemetry module. Opting out and back in does not reset that quota.
 
-### Installed plugins
+### Plugin-load snapshot
 
-Sent once per session, describing how many plugins are installed.
+`headlamp.plugins-loaded` describes the entries supplied by Headlamp's
+`PLUGINS_LOADED` notification. Headlamp builds that snapshot from entries marked
+`isLoaded`; it is not a complete inventory of every installed or disabled plugin.
+The telemetry bridge has no separate once-per-session delivery latch.
 
-| Field | Example | Why |
-|---|---|---|
-| `totalCount` | `4` | How many plugins are installed |
-| `enabledCount` | `3` | How many are turned on |
-| `knownEnabledIds` | `aks-desktop` | Which *Microsoft* plugins are enabled |
-| `thirdPartyCount` | `2` | How many third-party plugins, as a count only |
+| Field             | Example       | Description                                                         |
+| ----------------- | ------------- | ------------------------------------------------------------------- |
+| `totalCount`      | `4`           | Number of entries in the supplied snapshot                          |
+| `enabledCount`    | `3`           | Number of snapshot entries marked enabled                           |
+| `knownEnabledIds` | `aks-desktop` | Enabled IDs in the fixed known-ID set, currently only `aks-desktop` |
+| `thirdPartyCount` | `2`           | Enabled entries outside that known-ID set                           |
 
-Third-party plugins are counted but never named.
+These counts are exact, not bucketed. The known-ID set is not a publisher check:
+`thirdPartyCount` does not establish who published those plugins. Names outside
+the known-ID set are not included.
 
 ### Telemetry setting changes
 
-Sent when you turn telemetry on or off.
+`headlamp.telemetry-consent` is attempted when the enabled setting transitions
+on or off, with `consent` set to `granted` or `revoked`. Like other events, it
+includes common metadata; `consent` is not its entire payload.
 
-| Field | Example | Why |
-|---|---|---|
-| `consent` | `granted`, `revoked` | Whether telemetry was switched on or off |
+Ordinary application startup is not a consent transition. A mid-session grant
+can also emit session-start and allow cluster-shape collection when data becomes
+available, subject to the existing deduplication state. A revoke gates new
+ordinary events, attempts the revoke event and flushes the SDK backlog before
+unloading. Events may be dropped if initialization or transport fails.
 
-**One event is sent immediately after you turn telemetry off.** We are calling
-that out rather than leaving it to be discovered: it is the only way to know
-how many people opt out, which is something we hold ourselves accountable to.
-It carries the single field above and nothing else, and no further events are
-sent afterwards.
+## Client-side data restrictions
 
-## What we never collect
+The typed telemetry producers and the Redux event bridge do not forward account
+details, cluster/resource-group/subscription names, Azure resource IDs, namespace
+or resource names, kubeconfig contents, credentials, logs, terminal output, YAML,
+application content, raw form input, error messages or stack traces.
 
-None of the following is sent, in any event or field:
+The client applies these restrictions:
 
-- **Your name, email address, or Azure account details.**
-- **Cluster, resource group, or subscription names**, or any Azure resource ID.
-- **Namespace, application, or Kubernetes resource names.**
-- **Kubeconfig contents or any credential, token, or secret.**
-- **Application content** — logs, terminal output, YAML, environment
-  variables, or anything from inside your workloads.
-- **Error messages or stack traces.**
-- **File paths or URLs.**
-- **Your IP address.** It is explicitly discarded rather than merely unused.
-- **Your location.** Country, state and city are removed. The cluster's Azure
-  region is collected, which describes where the cluster runs, not where you
-  are.
-- **What you type**, anywhere in the application.
-
-## How this is enforced
-
-Rather than relying on care alone, the application constrains itself:
-
-- **Fixed lists.** Every event name and field name is checked against a list
-  in code. An unlisted field is dropped before sending. Tests pin the exact
-  contents of those lists, so adding one is a deliberate, reviewable change.
-- **Fixed values.** Fields like error class, status and cluster tier accept
-  only known values; anything unrecognised becomes a safe default or is
-  dropped rather than passed through.
-- **Outbound filter.** Every event passes a final check that removes anything
-  resembling a file path, URL, Azure resource ID, or location before it is
-  sent — a backstop in case something slips past the earlier stages.
-- **Ranges instead of counts**, and version numbers truncated to major and
-  minor.
-- **No cookies, no browser storage** used for tracking, and no automatic
-  page-view tracking.
+- Custom event names and custom property keys are checked against fixed lists.
+  Unlisted names are rejected and unlisted properties are dropped. Tests pin
+  these lists.
+- Feature names, resource kinds, status, consent, error class, error area and
+  cluster tier are checked or mapped to defined values.
+- The outbound scrubber recursively removes defined path/URL/Azure-resource-ID
+  patterns and named geographic fields. Approved route categories are retained.
+  This is a pattern/key filter, not a general detector for arbitrary sensitive
+  text.
+- The Application Insights SDK's automatic fetch, AJAX, exception and route
+  tracking are disabled. SDK cookies and SDK browser storage are disabled too.
+  The plugin's own installation identifier does use localStorage.
 
 ## The installation identifier
 
-A random identifier is generated the first time the application runs and stored
-on your device. It is attached to events so we can tell "one installation used
-this feature ten times" from "ten installations used it once" — a distinction
-that matters for nearly every question we ask of this data.
+On enabled telemetry initialization, the plugin reads or creates a random UUID
+in renderer localStorage. The UUID is attached as `ai.user.id` so events from
+that stored identifier can be correlated. It is generated with
+`crypto.randomUUID()`, not derived from an account, machine name or hardware.
 
-It is a random value. It is not derived from your name, account, email,
-machine name, or hardware, and it is not combined with anything that could
-identify you. We cannot use it to work out who you are.
+A valid stored UUID is reused. An invalid stored value is replaced. If storage
+is unavailable, the UUID is kept only in module memory for that session.
 
-If you turn telemetry off, it stops being sent.
+Opting out gates new ordinary events, but the revoke event and already-buffered
+events can still carry the identifier while the client flushes. The stored UUID
+is not deleted by the telemetry toggle.
 
-## Where the data goes
+## Transport and source
 
-Data is sent over an encrypted HTTPS connection to Microsoft's Azure
-Application Insights service, batched in the background so it does not slow the
-application down. It is handled under Microsoft's privacy practices, including
-GDPR and CCPA obligations, and is kept only for a limited retention period.
-
-See the [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement).
-
-## Questions
-
-If something here is unclear, or you think the application is sending
-something this page does not describe, please
-[open an issue](https://github.com/Azure/aks-desktop/issues). We would treat
-that as a bug.
+The plugin configures the Application Insights SDK and its background batching.
+The client implementation is in
+[`telemetry/index.ts`](../plugins/aks-desktop/src/telemetry/index.ts),
+[`telemetry/consent.ts`](../plugins/aks-desktop/src/telemetry/consent.ts), and
+[`telemetry/privacy.ts`](../plugins/aks-desktop/src/telemetry/privacy.ts).
