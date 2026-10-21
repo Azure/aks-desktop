@@ -73,7 +73,19 @@ No circular dependencies. `az-cli-core.ts` is the single hub — every domain mo
 
 Use `azRequest`/`azListAll` from `az-http.ts` for Azure REST calls. Tokens come from `azCliCredential` unless a `credential` is passed.
 
-Live tests (`*.live.test.ts`) compare REST results with `az` and require a logged-in `az`: `AZ_LIVE_TESTS=1 npx vitest run --project unit live.test`.
+From the repository root, explicitly opt in with `npm run test:e2e:azure`.
+It sets the shared `AZ_LIVE_TESTS=1` guard only in child processes and runs the
+read-only REST parity suite, then the mutating ACR sandbox suite, stopping on failure.
+Use `npm run test:e2e:azure -- --suite rest` for only the REST tests (`*.live.test.ts`),
+or `--suite acr` for only ACR; `--suite all` is the default.
+Ordinary offline tests do not enable live suites.
+
+REST tests require a logged-in `az` and the plugin's installed dependencies.
+Optional `AZ_LIVE_SUBSCRIPTION` selects an existing subscription; otherwise they use
+the CLI's current subscription. The runner does not log in or change accounts.
+The ACR suite additionally requires the dedicated sandbox configuration described in
+the [E2E README](../../../../../test/e2e/README.md); all selected suite configuration
+is validated before any suite starts. No resources are provisioned by the runner.
 
 ## Adding a New Function
 
