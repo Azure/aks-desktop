@@ -3,8 +3,10 @@
 
 import type { Octokit } from '@octokit/rest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import YAML from 'yaml';
 import { createContainerConfig, createValidConfig } from '../__fixtures__/pipelineConfig';
 import type { PipelineConfig } from '../types';
+import { generateDeployWorkflow } from './fastPathTemplates';
 
 // Mock github-api module — vi.hoisted ensures mocks are available when vi.mock is hoisted
 const {
@@ -288,6 +290,72 @@ describe('pipelineOrchestration', () => {
   });
 
   describe('createPipelineSecrets', () => {
+    it.each(['deterministic', 'agent'])(
+      'ignores a retained registry A ID after switching to name-only registry B (%s)',
+      async generationPath => {
+        const retainedSecrets: Record<string, string> = {};
+        mockSetRepoSecrets.mockImplementation(
+          async (
+            _client: Octokit,
+            _owner: string,
+            _repo: string,
+            secrets: Record<string, string>
+          ) => {
+            Object.assign(retainedSecrets, secrets);
+          }
+        );
+        const registryAId =
+          '/subscriptions/sub-a/resourceGroups/rg-a/providers/Microsoft.ContainerRegistry/registries/registrya';
+        await createPipelineSecrets(
+          mockOctokit,
+          createValidConfig({
+            acrLoginServer: 'registrya.azurecr.io',
+            acrResourceId: registryAId,
+          })
+        );
+        const next = createValidConfig({
+          acrLoginServer: 'registryb.azurecr.io',
+          acrResourceId: undefined,
+        });
+        await createPipelineSecrets(mockOctokit, next);
+        expect(retainedSecrets.AZURE_ACR_RESOURCE_ID).toBe(registryAId);
+        expect(retainedSecrets.AZURE_ACR_NAME).toBe('registryb');
+
+        let steps: { env: Record<string, string> }[];
+        if (generationPath === 'deterministic') {
+          const workflow = YAML.parse(
+            generateDeployWorkflow({
+              appName: next.appName,
+              clusterName: next.clusterName,
+              resourceGroup: next.resourceGroup,
+              namespace: next.namespace,
+              acrName: retainedSecrets.AZURE_ACR_NAME,
+              acrResourceId: next.acrResourceId,
+              dockerfilePath: 'Dockerfile',
+              buildContextPath: '.',
+              defaultBranch: next.repo.defaultBranch,
+            })
+          );
+          expect(workflow.env.AZURE_ACR_RESOURCE_ID).toBe('');
+          steps = workflow.jobs.buildImage.steps.filter((step: { env?: unknown }) => step.env);
+        } else {
+          const { generateAgentConfig } = await import('./agentTemplates');
+          const instructions = generateAgentConfig(next);
+          const match = instructions.match(/```yaml\n([\s\S]*?)```/);
+          expect(match).not.toBeNull();
+          steps = YAML.parse(match![1]).steps;
+        }
+        for (const step of steps) {
+          expect(step.env.AZURE_ACR_RESOURCE_ID).toBe('');
+          const name =
+            step.env.AZURE_CONTAINER_REGISTRY === '${{ secrets.AZURE_ACR_NAME }}'
+              ? retainedSecrets.AZURE_ACR_NAME
+              : step.env.AZURE_CONTAINER_REGISTRY;
+          expect(name).toBe('registryb');
+        }
+      }
+    );
+
     it('should pass Azure credentials as secrets', async () => {
       mockSetRepoSecrets.mockResolvedValue(undefined);
 
@@ -349,6 +417,30 @@ describe('pipelineOrchestration', () => {
     });
 
     describe('ACR name derivation', () => {
+      it('passes the registry ARM ID as a secret without replacing the login subscription', async () => {
+        mockSetRepoSecrets.mockResolvedValue(undefined);
+        const acrResourceId =
+          '/subscriptions/registry-sub/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/myacr';
+        const config = createValidConfig({
+          subscriptionId: 'cluster-sub',
+          resourceGroup: 'cluster-rg',
+          acrResourceId,
+        });
+
+        await createPipelineSecrets(mockOctokit, config);
+
+        expect(mockSetRepoSecrets).toHaveBeenCalledWith(
+          mockOctokit,
+          'testuser',
+          'my-repo',
+          expect.objectContaining({
+            AZURE_ACR_NAME: 'myacr',
+            AZURE_ACR_RESOURCE_ID: acrResourceId,
+            AZURE_SUBSCRIPTION_ID: 'cluster-sub',
+          })
+        );
+      });
+
       it('should derive AZURE_ACR_NAME from acrLoginServer', async () => {
         mockSetRepoSecrets.mockResolvedValue(undefined);
 
