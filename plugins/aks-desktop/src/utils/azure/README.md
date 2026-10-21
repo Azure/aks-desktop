@@ -11,6 +11,8 @@ This directory contains the Azure CLI integration layer for AKS Desktop. Every A
 | `az-cli-path.ts`   | Resolve the `az` command path (bundled Electron build vs system CLI)                                              |
 | `az-cli-core.ts`   | Foundation — `runCommandAsync`, `runAzCommand`, debug logging, error detection (`needsRelogin`, `isAzError`)      |
 | `az-validation.ts` | Input validation (`isValidAzResourceName`, `isValidGitHubName`) and output parsing (`parseManagedIdentityOutput`) |
+| `az-token.ts`      | CLI-backed `TokenCredential` (`getAzToken`, `azCliCredential`)                                                    |
+| `az-http.ts`       | Azure REST requests (`azRequest`, `azRequestRaw`, `azListAll`)                                                    |
 
 ### Domain Modules
 
@@ -66,6 +68,12 @@ az-validation.ts  (standalone — no internal imports)
 ```
 
 No circular dependencies. `az-cli-core.ts` is the single hub — every domain module imports from it.
+
+## Direct REST calls
+
+Use `azRequest`/`azListAll` from `az-http.ts` for Azure REST calls. Tokens come from `azCliCredential` unless a `credential` is passed.
+
+Live tests (`*.live.test.ts`) compare REST results with `az` and require a logged-in `az`: `AZ_LIVE_TESTS=1 npx vitest run --project unit live.test`.
 
 ## Adding a New Function
 
