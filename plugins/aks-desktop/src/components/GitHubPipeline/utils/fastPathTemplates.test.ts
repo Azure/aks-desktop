@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import YAML from 'yaml';
 import { createContainerConfig } from '../__fixtures__/pipelineConfig';
+import { generateAcrBuildSteps } from './acrBuildSteps';
+import { ACR_BUILD_SCRIPT_PATH } from './acrTasks/acrTaskRunner';
 import {
   generateDeploymentManifest,
   generateDeployWorkflow,
@@ -154,6 +156,120 @@ describe('generateDeployWorkflow', () => {
     expect(() => generateDeployWorkflow({ ...baseConfig, appName: '___###' })).toThrow(
       /no alphanumeric characters/
     );
+  });
+
+  describe('ACR Tasks REST build contract', () => {
+    const registryResourceId =
+      '/subscriptions/registry-sub/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/acrprod';
+    const config = {
+      ...baseConfig,
+      acrResourceId: registryResourceId,
+      dockerfilePath: './services/api/Dockerfile',
+      buildContextPath: './services/api',
+    };
+
+    it('does not execute az acr build in the generated workflow', () => {
+      const output = generateDeployWorkflow(config);
+
+      expect(output.match(/\baz\s+acr\s+build\b/)).toBeNull();
+    });
+
+    it('passes the selected registry ARM ID without assuming the cluster resource group', () => {
+      const workflow = YAML.parse(generateDeployWorkflow(config));
+      const buildEnv = { ...workflow.env, ...workflow.jobs.buildImage.env };
+
+      expect(buildEnv.AZURE_ACR_RESOURCE_ID).toBe(registryResourceId);
+      expect(workflow.env.CLUSTER_RESOURCE_GROUP).toBe('rg-prod');
+      expect(workflow.env.DOCKER_FILE).toBe('./services/api/Dockerfile');
+      expect(workflow.env.BUILD_CONTEXT_PATH).toBe('./services/api');
+    });
+
+    it('preserves OIDC authentication and commit-SHA image deployment', () => {
+      const workflow = YAML.parse(generateDeployWorkflow(config));
+
+      expect(workflow.jobs.buildImage.permissions).toEqual({
+        contents: 'read',
+        'id-token': 'write',
+      });
+      expect(workflow.jobs.buildImage.steps).toContainEqual(
+        expect.objectContaining({
+          uses: expect.stringMatching(/^azure\/login@/),
+          with: {
+            'client-id': '${{ secrets.AZURE_CLIENT_ID }}',
+            'tenant-id': '${{ secrets.AZURE_TENANT_ID }}',
+            'subscription-id': '${{ secrets.AZURE_SUBSCRIPTION_ID }}',
+          },
+        })
+      );
+      expect(workflow.jobs.deploy.steps).toContainEqual(
+        expect.objectContaining({
+          uses: expect.stringMatching(/^Azure\/k8s-deploy@/),
+          with: expect.objectContaining({
+            images:
+              '${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/${{ env.CONTAINER_NAME }}:${{ github.sha }}\n',
+          }),
+        })
+      );
+    });
+
+    it('keeps deployment gated on a successful build', () => {
+      const workflow = YAML.parse(generateDeployWorkflow(config));
+
+      expect(workflow.jobs.deploy.needs).toEqual(['buildImage']);
+      expect(workflow.jobs.deploy.if).toBeUndefined();
+      expect(workflow.jobs.buildImage['continue-on-error']).not.toBe(true);
+      expect(workflow.jobs.buildImage.steps).not.toContainEqual(
+        expect.objectContaining({ 'continue-on-error': true })
+      );
+    });
+
+    it('uses shared Python build and always-run cancellation steps without swallowing errors', () => {
+      const buildArguments = { MODE: 'production', MESSAGE: 'space "quotes" $value' };
+      const workflow = YAML.parse(generateDeployWorkflow({ ...config, buildArguments }));
+      const [build, cleanup] = workflow.jobs.buildImage.steps.slice(-2);
+
+      expect([build, cleanup]).toEqual(
+        generateAcrBuildSteps({
+          acrName: config.acrName,
+          acrResourceId: registryResourceId,
+          containerName: config.appName,
+          dockerfilePath: config.dockerfilePath,
+          buildContextPath: config.buildContextPath,
+          buildArguments,
+        })
+      );
+      expect(build.id).toBe('acr_build');
+      expect(build.run).toBe(`exec python3 ${ACR_BUILD_SCRIPT_PATH}\n`);
+      expect(JSON.parse(build.env.BUILD_ARGUMENTS)).toEqual(buildArguments);
+      expect(cleanup.if).toBe("always() && steps.acr_build.outcome != 'success'");
+      expect(cleanup.run).toBe(`exec python3 ${ACR_BUILD_SCRIPT_PATH} --cancel\n`);
+      expect(cleanup['continue-on-error']).toBeUndefined();
+    });
+
+    it('allows legacy registry-name metadata and empty build arguments', () => {
+      const workflow = YAML.parse(generateDeployWorkflow(baseConfig));
+      const build = workflow.jobs.buildImage.steps.find(
+        (step: { id?: string }) => step.id === 'acr_build'
+      );
+
+      expect(build.env.AZURE_ACR_RESOURCE_ID).toBe('');
+      expect(build.env.AZURE_CONTAINER_REGISTRY).toBe('acrprod');
+      expect(build.env.AZURE_SUBSCRIPTION_ID).toBe('${{ secrets.AZURE_SUBSCRIPTION_ID }}');
+      expect(build.env.BUILD_ARGUMENTS).toBe('{}');
+    });
+
+    it('pins actual action refs without embedding version comments in ref strings', () => {
+      const workflow = YAML.parse(generateDeployWorkflow(config));
+      for (const job of Object.values(workflow.jobs) as { steps: { uses?: string }[] }[]) {
+        for (const step of job.steps.filter(step => step.uses)) {
+          expect(step.uses).toMatch(/^[\w/-]+@[a-f0-9]{40}$/);
+        }
+      }
+    });
+
+    it('snapshots the actual generated build workflow', () => {
+      expect(generateDeployWorkflow(config)).toMatchSnapshot();
+    });
   });
 });
 

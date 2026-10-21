@@ -2,7 +2,9 @@
 // Licensed under the Apache 2.0.
 
 import type { Octokit } from '@octokit/rest';
+import YAML from 'yaml';
 import { createOrUpdateFile } from '../../../utils/github/github-api';
+import { normalizeK8sName } from '../../../utils/kubernetes/k8sNames';
 import { getServiceAccountName } from '../../../utils/kubernetes/serviceAccountNames';
 import {
   AGENT_CONFIG_PATH,
@@ -13,8 +15,12 @@ import {
   PIPELINE_WORKFLOW_FILENAME,
 } from '../constants';
 import type { PipelineConfig } from '../types';
+import { generateAcrBuildSteps } from './acrBuildSteps';
+import { ACR_BUILD_SCRIPT_PATH, ACR_TASKS_API_VERSION } from './acrTasks/acrTaskRunner';
+import { deriveAcrName } from './deriveAcrName';
 import { toEnvSecretName } from './pipelineOrchestration';
 import { getProbeConfigs, renderProbeMarkdown } from './probeHelpers';
+import { publishAcrBuildFiles } from './publishAcrBuildFiles';
 
 /**
  * Returns the non-empty environment variables from a pipeline config.
@@ -105,12 +111,62 @@ const generateEnvVarWorkflowInstructions = (config: PipelineConfig): string => {
 };
 
 /**
+ * Renders the shared build/cancel steps and registry-scoping requirements for the agent.
+ *
+ * @param config Deployment settings, including the selected registry and non-secret build arguments.
+ * @returns Markdown instructions, or an empty string when no registry is configured.
+ */
+const generateAcrWorkflowInstructions = (config: PipelineConfig): string => {
+  if (!config.acrLoginServer && !config.acrResourceId) return '';
+
+  const containerName = normalizeK8sName(config.appName);
+  const loginServer = config.acrLoginServer || `${deriveAcrName(config)}.azurecr.io`;
+  const steps = YAML.stringify(
+    {
+      steps: generateAcrBuildSteps({
+        acrName: '${{ secrets.AZURE_ACR_NAME }}',
+        acrResourceId: config.acrResourceId ? '${{ secrets.AZURE_ACR_RESOURCE_ID }}' : undefined,
+        containerName,
+        dockerfilePath: './Dockerfile',
+        buildContextPath: '.',
+        buildArguments: config.buildArguments,
+      }),
+    },
+    { lineWidth: 0 }
+  );
+
+  return `
+- Build/push with the committed Python 3 standard-library helper \`${ACR_BUILD_SCRIPT_PATH}\`; do not replace or duplicate its implementation in the workflow. Hosted Ubuntu already provides Python 3; no package downloads are needed.
+- After checkout and \`azure/login@v2\`, insert these exact shared build/cancel steps into \`buildImage\`. Adjust only \`DOCKER_FILE\` and \`BUILD_CONTEXT_PATH\` to the repository's Dockerfile and context:
+  \`\`\`yaml
+${steps
+  .trimEnd()
+  .split('\n')
+  .map(line => `  ${line}`)
+  .join('\n')}
+  \`\`\`
+- The helper uses the existing Azure login: \`az account get-access-token\` obtains an ARM token only. ${
+    config.acrResourceId
+      ? 'Registry scope comes from `secrets.AZURE_ACR_RESOURCE_ID` for this ID-backed configuration.'
+      : 'This name-only configuration explicitly leaves `AZURE_ACR_RESOURCE_ID` empty and uses ARM discovery in `secrets.AZURE_SUBSCRIPTION_ID`. Do not fall back to a retained registry-ID secret from an earlier configuration.'
+  } Never assume the registry belongs to the AKS resource group.
+- Preserve the complete ACR Tasks REST sequence with \`api-version=${ACR_TASKS_API_VERSION}\`: POST \`listBuildSourceUploadUrl\`, PUT the local context archive to its upload SAS URL, POST \`scheduleRun\` with a \`DockerBuildRequest\`, poll GET \`/runs/{runId}\` to a terminal state, POST \`/runs/{runId}/listLogSasUrl\`, and download/print the build log. Only \`Succeeded\` is success; failed, canceled, error, timeout, and polling/log failures must fail the build.
+- Preserve SIGINT/SIGTERM handling and the cleanup step: POST \`/runs/{runId}/cancel\` for unfinished builds using persisted \`RUNNER_TEMP\` state. Missing state is a no-op; cancellation errors must remain visible failures, never use \`continue-on-error\` or suppress them. Keep \`exec python3\` so runner signals reach the helper.
+- Deploy image \`${loginServer}/${containerName}:\${{ github.sha }}\`; keep the deploy job gated on a successful \`buildImage\`.
+- Queue rather than cancel deployments: concurrency group \`\${{ github.workflow }}-\${{ github.ref }}\`, \`cancel-in-progress: false\`.
+`;
+};
+
+/**
  * Generates the `.github/agents/containerization.agent.md` file,
  * parameterized with the user's AKS deployment config.
  *
  * Based on the reference implementation at
  * https://github.com/ReinierCC/spring-petclinic/blob/main/.github/agents/containerization.agent.md
  * with an appended AKS-specific deployment section.
+ *
+ * @param config Deployment settings used to specialize the agent's instructions.
+ * @returns Agent configuration Markdown, including shared ACR runtime instructions when configured.
  */
 export const generateAgentConfig = (config: PipelineConfig): string => {
   const optionalLines: string[] = [];
@@ -227,8 +283,10 @@ Template:
 - Namespace: ${config.namespace}
 - Service Type: ${config.serviceType}
 - Azure credentials stored as GitHub repository secrets: \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\`, \`AZURE_SUBSCRIPTION_ID\`${
-    config.acrLoginServer
-      ? `\n- Container Registry: \`${config.acrLoginServer}\` (ACR name stored as secret \`AZURE_ACR_NAME\`)`
+    config.acrLoginServer || config.acrResourceId
+      ? `\n- Container Registry: \`${
+          config.acrLoginServer || `${deriveAcrName(config)}.azurecr.io`
+        }\` (ACR name stored as secret \`AZURE_ACR_NAME\`; registry resource ID, when configured, stored as secret \`AZURE_ACR_RESOURCE_ID\`)`
       : ''
   }${optionalSection}
 
@@ -247,11 +305,9 @@ Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\`:
 - Two jobs: \`buildImage\` (build + push to ACR) and \`deploy\` (apply manifests) with \`needs: [buildImage]\`. The \`deploy\` job permissions block MUST include \`actions: read\`.
 - Use \`azure/login@v2\` with OIDC (\`secrets.AZURE_CLIENT_ID\`, \`secrets.AZURE_TENANT_ID\`, \`secrets.AZURE_SUBSCRIPTION_ID\`).
 - Use \`azure/aks-set-context@v4\` with \`\${{ inputs.cluster-name }}\` and \`\${{ inputs.resource-group }}\`.
-- Install kubelogin via \`azure/use-kubelogin@v1\` with \`kubelogin-version: '${KUBELOGIN_VERSION}'\`, then \`kubelogin convert-kubeconfig -l workloadidentity\`.${
-    config.acrLoginServer
-      ? `\n- Build/push image via ACR Tasks: \`az acr build --registry \${{ secrets.AZURE_ACR_NAME }} --image ${config.appName}:\${{ github.sha }} .\` — and update manifests to reference \`${config.acrLoginServer}/${config.appName}:\${{ github.sha }}\`.`
-      : ''
-  }${generateEnvVarWorkflowInstructions(config)}${generateWorkloadIdentityWorkflowInstructions(
+- Install kubelogin via \`azure/use-kubelogin@v1\` with \`kubelogin-version: '${KUBELOGIN_VERSION}'\`, then \`kubelogin convert-kubeconfig -l workloadidentity\`.${generateAcrWorkflowInstructions(
+    config
+  )}${generateEnvVarWorkflowInstructions(config)}${generateWorkloadIdentityWorkflowInstructions(
     config
   )}- Apply manifests: \`kubectl apply -f deploy/kubernetes/ -n \${{ inputs.namespace }}\`
 - After apply, annotate each Deployment with the run URL and workflow name:
@@ -269,8 +325,17 @@ Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\`:
 };
 
 /**
- * Pushes both agent config files (copilot-setup-steps.yml and containerization.agent.md)
- * to the given branch. Used by both the standard setup flow and the fast-path async review.
+ * Pushes agent config and, when a registry is configured, its exact ACR runtime bundle.
+ * Also owns runtime publication for the fast-path async review to avoid duplicate writes.
+ * Parallel writes are not atomic and are not rolled back on failure.
+ *
+ * @param octokit Authenticated client with repository contents write access.
+ * @param owner GitHub repository owner.
+ * @param repo GitHub repository name.
+ * @param branchName Existing branch receiving the setup workflow, agent config and optional runtime.
+ * @param config Deployment settings used to generate the agent config and select runtime publication.
+ * @returns Resolves when all requested files have been published.
+ * @throws If generation or any GitHub read/write fails; other writes may already have completed.
  */
 export async function pushAgentConfigFiles(
   octokit: Octokit,
@@ -290,6 +355,9 @@ export async function pushAgentConfigFiles(
       'Add Copilot setup workflow',
       branchName
     ),
+    ...(config.acrLoginServer || config.acrResourceId
+      ? [publishAcrBuildFiles(octokit, owner, repo, branchName)]
+      : []),
     createOrUpdateFile(
       octokit,
       owner,

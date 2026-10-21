@@ -43,7 +43,7 @@ export interface UseFastPathOrchestrationProps {
   namespace: string;
   /** App name used for the Deployment/Service resource names and branch slug. */
   appName: string;
-  /** Azure subscription that owns the cluster + ACR. */
+  /** Azure subscription that owns the cluster; also the registry discovery scope when no ID is supplied. */
   subscriptionId: string;
   /** Azure resource group containing the AKS cluster. */
   resourceGroup: string;
@@ -55,6 +55,12 @@ export interface UseFastPathOrchestrationProps {
   containerConfig: ContainerConfig;
   /** Azure managed identity client ID used by the workflow for workload-identity auth. */
   identityId: string;
+  /** Registry selected by the pipeline wizard; its scope need not match the cluster. */
+  acrResourceId?: string;
+  /** Selected registry's login server (e.g., `myregistry.azurecr.io`). */
+  acrLoginServer?: string;
+  /** Non-secret Docker build arguments embedded in the workflow; omitted means none. */
+  buildArguments?: Record<string, string>;
 }
 
 export interface HandleDeployOptions {
@@ -89,6 +95,9 @@ export const useFastPathOrchestration = ({
   selectedRepo,
   containerConfig,
   identityId,
+  acrResourceId,
+  acrLoginServer,
+  buildArguments,
 }: UseFastPathOrchestrationProps): UseFastPathOrchestrationResult => {
   const deployInFlightRef = useRef(false);
   const dispatchInFlightRef = useRef(false);
@@ -148,6 +157,9 @@ export const useFastPathOrchestration = ({
         serviceType: containerConfig.serviceType,
         containerConfig,
         repo: selectedRepo,
+        acrResourceId,
+        acrLoginServer,
+        buildArguments,
       };
 
       pipeline.setConfig(config, withAsyncAgent);
@@ -187,6 +199,9 @@ export const useFastPathOrchestration = ({
       selectedRepo,
       tenantId,
       identityId,
+      acrResourceId,
+      acrLoginServer,
+      buildArguments,
       subscriptionId,
       clusterName,
       resourceGroup,

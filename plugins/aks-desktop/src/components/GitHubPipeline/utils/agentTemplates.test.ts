@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import type { Octokit } from '@octokit/rest';
+import { Octokit } from '@octokit/rest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import YAML from 'yaml';
 
 const { mockCreateOrUpdateFile } = vi.hoisted(() => ({
   mockCreateOrUpdateFile: vi.fn(),
@@ -13,6 +14,8 @@ vi.mock('../../../utils/github/github-api', () => ({
 import { createContainerConfig, createValidConfig } from '../__fixtures__/pipelineConfig';
 import { KUBELOGIN_VERSION } from '../constants';
 import type { PipelineConfig } from '../types';
+import { generateAcrBuildSteps } from './acrBuildSteps';
+import { ACR_BUILD_SCRIPT_PATH, getAcrBuildFiles } from './acrTasks/acrTaskRunner';
 import {
   generateAgentConfig,
   generateBranchName,
@@ -110,6 +113,99 @@ describe('agentTemplates', () => {
       const result = generateAgentConfig(validConfig);
       expect(result).toContain('buildImage');
       expect(result).toContain('needs: [buildImage]');
+    });
+
+    describe('ACR Tasks REST instructions', () => {
+      const registryResourceId =
+        '/subscriptions/registry-sub/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/myregistry';
+      const acrConfig = createValidConfig({
+        acrLoginServer: 'myregistry.azurecr.io',
+        acrResourceId: registryResourceId,
+      });
+      const operations = ['listBuildSourceUploadUrl', 'scheduleRun', 'listLogSasUrl'];
+
+      it('does not tell the agent to recreate an az acr build workflow', () => {
+        const result = generateAgentConfig(acrConfig);
+
+        expect(result.match(/\baz\s+acr\s+build\b/)).toBeNull();
+      });
+
+      it.each([
+        { description: 'with a login server', acrLoginServer: 'myregistry.azurecr.io' },
+        { description: 'with only a resource ID', acrLoginServer: undefined },
+      ])('describes the complete ACR build API sequence $description', ({ acrLoginServer }) => {
+        const result = generateAgentConfig({ ...acrConfig, acrLoginServer });
+
+        expect(operations.filter(operation => result.includes(operation))).toEqual(operations);
+        expect(result).toMatch(/\/runs\//);
+        expect(result).toMatch(/\/cancel\b/);
+      });
+
+      it('pins a Tasks-supported API version rather than the registry-management version', () => {
+        const result = generateAgentConfig(acrConfig);
+
+        expect(result).toContain('2019-04-01');
+      });
+
+      it('references the registry ARM ID secret instead of exposing registry scope in the prompt', () => {
+        const result = generateAgentConfig(acrConfig);
+
+        expect(result).toContain('${{ secrets.AZURE_ACR_RESOURCE_ID }}');
+        expect(result).not.toContain(registryResourceId);
+        expect(result).not.toContain('registry-sub');
+        expect(result).toContain('${{ secrets.AZURE_SUBSCRIPTION_ID }}');
+        expect(result).toContain('myregistry.azurecr.io/my-app:${{ github.sha }}');
+      });
+
+      it('does not add ACR-specific build instructions when no registry is configured', () => {
+        const result = generateAgentConfig(validConfig);
+
+        expect(operations.filter(operation => result.includes(operation))).toEqual([]);
+        expect(result).not.toContain('AZURE_ACR_RESOURCE_ID');
+      });
+
+      it('embeds the shared step YAML, including JSON arguments and cancellation semantics', () => {
+        const buildArguments = { MODE: 'production', MESSAGE: 'space "quotes" $value' };
+        const result = generateAgentConfig({
+          ...acrConfig,
+          appName: 'My_App',
+          buildArguments,
+        });
+        const expectedSteps = YAML.stringify(
+          {
+            steps: generateAcrBuildSteps({
+              acrName: '${{ secrets.AZURE_ACR_NAME }}',
+              acrResourceId: '${{ secrets.AZURE_ACR_RESOURCE_ID }}',
+              containerName: 'my-app',
+              dockerfilePath: './Dockerfile',
+              buildContextPath: '.',
+              buildArguments,
+            }),
+          },
+          { lineWidth: 0 }
+        )
+          .trimEnd()
+          .split('\n')
+          .map(line => `  ${line}`)
+          .join('\n');
+
+        expect(result).toContain(expectedSteps);
+        expect(result).toContain(ACR_BUILD_SCRIPT_PATH);
+        expect(result).toContain('SIGINT/SIGTERM');
+        expect(result).toContain('Missing state is a no-op');
+        expect(result).not.toContain('def main(');
+        expect(result).toContain('myregistry.azurecr.io/my-app:${{ github.sha }}');
+      });
+
+      it('keeps legacy login-server-only configurations supported', () => {
+        const result = generateAgentConfig({ ...acrConfig, acrResourceId: undefined });
+
+        expect(result).toContain('ARM discovery');
+        expect(result).not.toContain('${{ secrets.AZURE_ACR_RESOURCE_ID }}');
+        expect(validatePipelineConfig({ ...acrConfig, acrResourceId: undefined }).isValid).toBe(
+          true
+        );
+      });
     });
 
     it('caps build retries to bound trajectory size', () => {
@@ -246,9 +342,14 @@ describe('agentTemplates', () => {
   });
 
   describe('pushAgentConfigFiles', () => {
-    const mockOctokit = {} as unknown as Octokit;
+    const mockOctokit = new Octokit();
+    const mockGetContent = vi.fn();
     beforeEach(() => {
+      vi.spyOn(mockOctokit.repos, 'getContent').mockImplementation(mockGetContent);
+      mockCreateOrUpdateFile.mockClear();
       mockCreateOrUpdateFile.mockResolvedValue(undefined);
+      mockGetContent.mockReset();
+      mockGetContent.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }));
     });
     it('should push both agent config files to the branch', async () => {
       await pushAgentConfigFiles(mockOctokit, 'owner', 'repo', 'my-branch', validConfig);
@@ -272,6 +373,73 @@ describe('agentTemplates', () => {
         'my-branch'
       );
     });
+    it.each([
+      { acrLoginServer: 'myregistry.azurecr.io' },
+      {
+        acrResourceId:
+          '/subscriptions/registry-sub/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/myregistry',
+      },
+    ])('publishes the exact runtime bundle for registry config %o', async registry => {
+      await pushAgentConfigFiles(mockOctokit, 'owner', 'repo', 'my-branch', {
+        ...validConfig,
+        ...registry,
+      });
+
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(
+        2 + Object.keys(getAcrBuildFiles()).length
+      );
+      for (const [path, content] of Object.entries(getAcrBuildFiles())) {
+        expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+          mockOctokit,
+          'owner',
+          'repo',
+          path,
+          content,
+          expect.any(String),
+          'my-branch',
+          undefined
+        );
+      }
+    });
+
+    it('can switch from a merged plain fast path to agent setup with an inherited runtime bundle', async () => {
+      const runtime = getAcrBuildFiles();
+      mockGetContent.mockImplementation(async ({ path }) => ({
+        data: { type: 'file', sha: `existing:${path}` },
+      }));
+      mockCreateOrUpdateFile.mockImplementation(async (...args: unknown[]) => {
+        if (Object.keys(runtime).includes(String(args[3])) && args[7] !== `existing:${args[3]}`) {
+          throw new Error('Existing runtime requires its current file SHA');
+        }
+      });
+
+      await expect(
+        pushAgentConfigFiles(mockOctokit, 'owner', 'repo', 'agent-branch', {
+          ...validConfig,
+          acrLoginServer: 'myregistry.azurecr.io',
+        })
+      ).resolves.toBeUndefined();
+
+      for (const [path, content] of Object.entries(runtime)) {
+        expect(mockGetContent).toHaveBeenCalledWith({
+          owner: 'owner',
+          repo: 'repo',
+          path,
+          ref: 'agent-branch',
+        });
+        expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+          mockOctokit,
+          'owner',
+          'repo',
+          path,
+          content,
+          expect.any(String),
+          'agent-branch',
+          `existing:${path}`
+        );
+      }
+    });
+
     it('should propagate errors from createOrUpdateFile', async () => {
       mockCreateOrUpdateFile.mockRejectedValueOnce(new Error('push failed'));
       await expect(

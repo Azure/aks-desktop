@@ -1,0 +1,113 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`generateDeployWorkflow > ACR Tasks REST build contract > snapshots the actual generated build workflow 1`] = `
+"name: Deploy to AKS
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: null
+concurrency:
+  group: \${{ github.workflow }}-\${{ github.ref }}
+  cancel-in-progress: false
+env:
+  AZURE_CONTAINER_REGISTRY: acrprod
+  AZURE_ACR_RESOURCE_ID: /subscriptions/registry-sub/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/acrprod
+  CONTAINER_NAME: contoso-air
+  CLUSTER_NAME: aks-prod
+  CLUSTER_RESOURCE_GROUP: rg-prod
+  DEPLOYMENT_MANIFEST_PATH: ./deploy/kubernetes
+  DOCKER_FILE: ./services/api/Dockerfile
+  BUILD_CONTEXT_PATH: ./services/api
+  NAMESPACE: demo
+jobs:
+  buildImage:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Azure login
+        uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474
+        with:
+          client-id: \${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: \${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: \${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Build and push image to ACR
+        id: acr_build
+        shell: bash
+        env:
+          AZURE_ACR_RESOURCE_ID: /subscriptions/registry-sub/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/acrprod
+          AZURE_CONTAINER_REGISTRY: acrprod
+          AZURE_SUBSCRIPTION_ID: \${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          CONTAINER_NAME: contoso-air
+          DOCKER_FILE: ./services/api/Dockerfile
+          BUILD_CONTEXT_PATH: ./services/api
+          BUILD_ARGUMENTS: "{}"
+        run: |
+          exec python3 .github/scripts/aksd-acr-build.py
+      - name: Cancel unfinished ACR build
+        if: always() && steps.acr_build.outcome != 'success'
+        shell: bash
+        env:
+          AZURE_ACR_RESOURCE_ID: /subscriptions/registry-sub/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/acrprod
+          AZURE_CONTAINER_REGISTRY: acrprod
+          AZURE_SUBSCRIPTION_ID: \${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          CONTAINER_NAME: contoso-air
+          DOCKER_FILE: ./services/api/Dockerfile
+          BUILD_CONTEXT_PATH: ./services/api
+          BUILD_ARGUMENTS: "{}"
+        run: |
+          exec python3 .github/scripts/aksd-acr-build.py --cancel
+  deploy:
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    needs:
+      - buildImage
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Azure login
+        uses: azure/login@eec3c95657c1536435858eda1f3ff5437fee8474
+        with:
+          client-id: \${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: \${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: \${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Set up kubelogin
+        uses: azure/use-kubelogin@0ce7c36141aa27d4934872cf00b0120804c98a29
+        with:
+          kubelogin-version: 'v0.1.6'
+      - name: Get K8s context
+        uses: azure/aks-set-context@c7eb093e5a5d47caa333f64974d5fd1cd4bf069d
+        with:
+          resource-group: \${{ env.CLUSTER_RESOURCE_GROUP }}
+          cluster-name: \${{ env.CLUSTER_NAME }}
+          admin: 'false'
+          use-kubelogin: 'true'
+      - name: Deploy application
+        uses: Azure/k8s-deploy@c8cfec839dc09896b3b8cc40cd13d04792680771
+        with:
+          action: deploy
+          manifests: \${{ env.DEPLOYMENT_MANIFEST_PATH }}
+          images: |
+            \${{ env.AZURE_CONTAINER_REGISTRY }}.azurecr.io/\${{ env.CONTAINER_NAME }}:\${{ github.sha }}
+          namespace: \${{ env.NAMESPACE }}
+      - name: Annotate namespace
+        continue-on-error: true
+        run: |
+          kubectl annotate namespace "\${{ env.NAMESPACE }}" \\
+            "aks-project/pipeline-repo=\${{ github.repository }}" \\
+            --overwrite
+      - name: Annotate deployment
+        continue-on-error: true
+        run: |
+          kubectl annotate deployment "\${{ env.CONTAINER_NAME }}" \\
+            -n "\${{ env.NAMESPACE }}" \\
+            aks-project/pipeline-run-url=\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }} \\
+            "aks-project/pipeline-workflow=\${{ github.workflow }}" \\
+            --overwrite
+"
+`;
