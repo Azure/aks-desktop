@@ -104,6 +104,23 @@ Use `registerProjectDetailsTab()` or `registerProjectOverviewSection()` in `src/
 - **Integration tests**: `src/utils/test/` for cross-module tests (Azure CLI, cluster settings, namespace utils).
 - **Stories**: `.stories.tsx` files for Storybook visual testing, co-located with components.
 
+## Triggering 1ES Builds
+
+Queue the Azure DevOps pipelines against the required Git ref (usually
+`refs/heads/main`):
+
+```sh
+org=https://dev.azure.com/AzureContainerUpstream
+project=Kubernetes
+branch=refs/heads/main
+az pipelines run --organization "$org" --project "$project" --id 1003 --branch "$branch" # Windows
+az pipelines run --organization "$org" --project "$project" --id 1001 --branch "$branch" # Linux
+az pipelines run --organization "$org" --project "$project" --id 1000 --branch "$branch" # macOS
+```
+
+See [`MAINTENANCE.md`](./MAINTENANCE.md#trigger-1es-builds) for authentication
+and status commands.
+
 ## File Size Guidance
 
 - Aim for under 400 lines per file. If a file exceeds this, look for opportunities to extract sub-components, hooks, or utility functions.

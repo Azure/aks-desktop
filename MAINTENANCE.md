@@ -118,6 +118,33 @@ root's `dist/`. See [build output](README.md#build-output) for each platform's
 installer formats and unpacked paths. Copy artifacts out of this generated
 package before reinstalling dependencies or deleting `node_modules`.
 
+### Trigger 1ES builds
+
+Install the Azure DevOps CLI extension and sign in:
+
+```sh
+az extension add --name azure-devops
+az login
+```
+
+Queue all release builds from the required Git ref:
+
+```sh
+org=https://dev.azure.com/AzureContainerUpstream
+project=Kubernetes
+branch=refs/heads/main
+az pipelines run --organization "$org" --project "$project" --id 1003 --branch "$branch" # Windows
+az pipelines run --organization "$org" --project "$project" --id 1001 --branch "$branch" # Linux
+az pipelines run --organization "$org" --project "$project" --id 1000 --branch "$branch" # macOS
+```
+
+Use `refs/heads/<branch>` for another branch. Each command prints its build ID;
+check it with:
+
+```sh
+az pipelines build show --organization "$org" --project "$project" --id <build-id>
+```
+
 ### macOS release architecture
 
 The AzureContainerUpstream organization currently has no available hosted
