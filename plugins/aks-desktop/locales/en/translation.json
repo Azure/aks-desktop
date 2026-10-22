@@ -241,6 +241,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "The namespace will be created on the selected cluster and set up as a project",
   "Regular Kubernetes namespace": "Regular Kubernetes namespace",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.",
+  "Back to home": "Back to home",
   "Create New Namespace": "Create New Namespace",
   "Create a new namespace on an existing cluster and set it up as a project": "Create a new namespace on an existing cluster and set it up as a project",
   "Creating Namespace": "Creating Namespace",

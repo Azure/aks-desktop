@@ -236,6 +236,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "選択したクラスターに名前空間が作成され、プロジェクトとして設定されます",
   "Regular Kubernetes namespace": "標準の Kubernetes 名前空間",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "プロジェクト ラベルが適用された新しい名前空間がクラスターに作成されます。それはプロジェクト リストにすぐに表示されます。",
+  "Back to home": "",
   "Create New Namespace": "新しい名前空間の作成",
   "Create a new namespace on an existing cluster and set it up as a project": "既存のクラスターに新しい名前空間を作成し、プロジェクトとして設定します",
   "Creating Namespace": "名前空間の作成中",
