@@ -747,5 +747,13 @@
   "Resources to be deployed ({{count}} object)_one": "배포할 리소스({{count}}개 개체)",
   "Successfully merged {{count}} cluster(s)_one": "클러스터를 {{count}}개를 병합함",
   "with {{count}} project(s)_one": "프로젝트 {{count}}개 포함",
-  "{{count}} nodes_one": "{{count}} node"
+  "{{count}} nodes_one": "{{count}} node",
+  "Connect GitHub from the project header to continue.": "",
+  "GitHub disconnect failed": "",
+  "Disconnecting GitHub...": "",
+  "GitHub account": "",
+  "Disconnect removes saved GitHub credentials from this app only. Repositories and deployments are kept.": "",
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Retry disconnect": "",
+  "Disconnect GitHub": ""
 }

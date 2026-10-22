@@ -747,5 +747,13 @@
   "Resources to be deployed ({{count}} object)_one": "デプロイするリソース ({{count}} 個のオブジェクト)",
   "Successfully merged {{count}} cluster(s)_one": "{{count}} 個のクラスターが正常にマージされました",
   "with {{count}} project(s)_one": "{{count}} 個のプロジェクトを含む",
-  "{{count}} nodes_one": "{{count}} node"
+  "{{count}} nodes_one": "{{count}} node",
+  "Connect GitHub from the project header to continue.": "",
+  "GitHub disconnect failed": "",
+  "Disconnecting GitHub...": "",
+  "GitHub account": "",
+  "Disconnect removes saved GitHub credentials from this app only. Repositories and deployments are kept.": "",
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Retry disconnect": "",
+  "Disconnect GitHub": ""
 }
