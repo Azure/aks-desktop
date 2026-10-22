@@ -14,20 +14,20 @@ This directory contains the Azure CLI integration layer for AKS Desktop. Every A
 
 ### Domain Modules
 
-| Module                     | Responsibility                                                                           |
-| -------------------------- | ---------------------------------------------------------------------------------------- |
-| `az-auth.ts`               | Login flows, status checks, access tokens                                                |
-| `az-extensions.ts`         | Extension installation, status checks, and Azure CLI configuration                       |
-| `az-resource-providers.ts` | Subscription resource-provider registration                                              |
-| `az-subscriptions.ts`      | Subscriptions, tenants, resource groups, locations, VM sizes                             |
-| `az-clusters.ts`           | AKS cluster listing (Resource Graph optimized), status, capabilities, kubeconfig, addons |
-| `az-resource-graph.ts`     | Azure Resource Graph queries for fast cluster lookups                                    |
-| `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                                 |
-| `az-namespace-access.ts`   | Namespace role assignments and access verification                                       |
-| `az-identity.ts`           | Managed identity CRUD, role assignments, scope building                                  |
-| `az-ad.ts`                 | Azure AD user search                                                                     |
-| `az-acr.ts`                | Container registry creation, listing, and image discovery                                |
-| `az-federation.ts`         | Federated credentials for GitHub Actions and Kubernetes OIDC                             |
+| Module                     | Responsibility                                                               |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| `az-auth.ts`               | Login flows and status checks                                                |
+| `az-extensions.ts`         | Extension installation, status checks, and Azure CLI configuration           |
+| `az-resource-providers.ts` | Subscription resource-provider registration                                  |
+| `az-subscriptions.ts`      | Subscriptions, tenants, resource groups, locations                           |
+| `az-clusters.ts`           | AKS cluster listing (Resource Graph optimized), status, capabilities, addons |
+| `az-resource-graph.ts`     | Azure Resource Graph queries for fast cluster lookups                        |
+| `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                     |
+| `az-namespace-access.ts`   | Namespace role assignments and access verification                           |
+| `az-identity.ts`           | Managed identity CRUD, role assignments, scope building                      |
+| `az-ad.ts`                 | Azure AD user search                                                         |
+| `az-acr.ts`                | Container registry creation, listing, and image discovery                    |
+| `az-federation.ts`         | Federated credentials for GitHub Actions and Kubernetes OIDC                 |
 
 ### Orchestration Modules
 

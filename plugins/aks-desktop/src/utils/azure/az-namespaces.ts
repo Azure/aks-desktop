@@ -57,58 +57,6 @@ export async function getManagedNamespaces(options: {
   }
 }
 
-export async function getManagedNamespacesForSubscription(subscriptionId: string): Promise<
-  Array<{
-    name: string;
-    clusterName: string;
-    resourceGroup: string;
-    properties?: any;
-  }>
-> {
-  const args = ['aks', 'namespace', 'list', '--subscription', subscriptionId, '--output', 'json'];
-
-  debugLog('Getting managed namespaces for subscription:', 'az', args.join(' '));
-
-  const { stdout, stderr } = await runCommandAsync('az', args);
-
-  if (stderr && needsRelogin(stderr)) {
-    throw new Error('Authentication required. Please log in to Azure CLI: az login');
-  }
-
-  if (stderr && isAzError(stderr)) {
-    throw new Error(`Failed to get managed namespaces for subscription: ${stderr}`);
-  }
-
-  try {
-    const result = JSON.parse(stdout || '[]');
-
-    if (Array.isArray(result)) {
-      // Parse the response to extract namespace details
-      // The name field is in format "clusterName/namespaceName"
-      const mapped = result.map((ns: any) => {
-        // Split the name to get cluster and namespace
-        const nameParts = (ns.name || '').split('/');
-        const clusterName = nameParts.length > 1 ? nameParts[0] : '';
-        const namespaceName = nameParts.length > 1 ? nameParts[1] : ns.name || '';
-
-        return {
-          name: namespaceName,
-          clusterName: clusterName,
-          resourceGroup: ns.resourceGroup || ns.resourceGroupName || '',
-          properties: ns.properties || {},
-        };
-      });
-
-      const filtered = mapped.filter(ns => ns.name && ns.clusterName);
-      return filtered;
-    }
-
-    return [];
-  } catch (error) {
-    throw new Error(`Failed to parse managed namespaces response: ${error}`);
-  }
-}
-
 export async function getManagedNamespaceDetails(options: {
   clusterName: string;
   resourceGroup: string;
