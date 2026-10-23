@@ -4306,7 +4306,7 @@ index b6eebc2366e7581f13089821e687cdcfe2c93cfd..b4f53ff1a97b7d12a078a0aaed03a7b0
    /** @returns Legal documents declared by the packaged application manifest. */
 diff --git a/source/app/electron/proxies.test.ts b/source/app/electron/proxies.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..06498ae7c4c3a59905895099f9c718a974d79e51
+index 0000000000000000000000000000000000000000..567149e8784b3f27c3e852250a24aafc45536161
 --- /dev/null
 +++ b/source/app/electron/proxies.test.ts
 @@ -0,0 +1,1061 @@
@@ -4500,7 +4500,7 @@ index 0000000000000000000000000000000000000000..06498ae7c4c3a59905895099f9c718a9
 +        'az.cmd connectedk8s proxy --subscription "00000000-0000-0000-0000-000000000000" --resource-group "rg(prod)" --name "cluster-a" --port "47011"',
 +      ],
 +      options: {
-+        detached: true,
++        detached: false,
 +        shell: false,
 +        windowsHide: true,
 +        windowsVerbatimArguments: true,
@@ -5373,7 +5373,7 @@ index 0000000000000000000000000000000000000000..06498ae7c4c3a59905895099f9c718a9
 +});
 diff --git a/source/app/electron/proxies.ts b/source/app/electron/proxies.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..32addd4e234419016390979dae822de430c192f6
+index 0000000000000000000000000000000000000000..f87ec79a0ee9fa1e88f6604edadfa8ea299f092d
 --- /dev/null
 +++ b/source/app/electron/proxies.ts
 @@ -0,0 +1,694 @@
@@ -5601,7 +5601,7 @@ index 0000000000000000000000000000000000000000..32addd4e234419016390979dae822de4
 +    return {
 +      command: commandShell,
 +      args: ['/d', '/s', '/c', ['az.cmd', ...windowsProxyArgs].join(' ')],
-+      options: { ...options, windowsVerbatimArguments: true },
++      options: { ...options, detached: false, windowsVerbatimArguments: true },
 +    };
 +  }
 +
