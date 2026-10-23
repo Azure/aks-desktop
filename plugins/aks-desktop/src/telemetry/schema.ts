@@ -59,7 +59,7 @@ export const BUILTIN_K8S_KINDS: ReadonlySet<string> = new Set([
   'Lease',
 ]);
 
-export const KNOWN_PLUGIN_IDS: ReadonlySet<string> = new Set(['aks-desktop']);
+export const KNOWN_PLUGIN_IDS: ReadonlySet<string> = new Set(['aks-desktop', 'aks-desktop-theme']);
 
 export const TELEMETRY_EVENT_NAMES: ReadonlySet<string> = new Set([
   'headlamp.session-start',

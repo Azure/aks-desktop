@@ -5,9 +5,6 @@ import {
   Headlamp,
   registerAddClusterProvider,
   registerAppBarAction,
-  registerAppLogo,
-  registerAppTheme,
-  registerClusterEmptyState,
   registerClusterProviderDialog,
   registerClusterProviderMenuItem,
   registerClusterProviderPreOpen,
@@ -32,9 +29,7 @@ import {
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
 import ClusterCapabilityCard from './components/ClusterCapabilityCard/ClusterCapabilityCard';
-import AKSClusterEmptyState from './components/ClusterEmptyState/AKSClusterEmptyState';
 import ConfigurePipelineButton from './components/ConfigurePipeline/ConfigurePipelineButton';
-import ContactUsButton from './components/ContactUs/ContactUsButton';
 import CreateAKSProject from './components/CreateAKSProject/CreateAKSProject';
 import CreateNamespace from './components/CreateNamespace/CreateNamespace';
 import AKSProjectDeleteButton from './components/DeleteAKSProject/AKSProjectDeleteButton';
@@ -45,7 +40,6 @@ import { GitHubAuthStatusButton } from './components/GitHubPipeline/components/G
 import { GitHubAuthProvider } from './components/GitHubPipeline/GitHubAuthContext';
 import ImportAKSProjects from './components/ImportAKSProjects/ImportAKSProjects';
 import InfoTab from './components/InfoTab/InfoTab';
-import AzureLogo from './components/Logo/Logo';
 import LogsTab from './components/LogsTab/LogsTab';
 import MetricsCard from './components/Metrics/MetricsCard';
 import MetricsTab from './components/Metrics/MetricsTab';
@@ -61,7 +55,6 @@ import { setConsentPredicate, setTelemetryEnabled } from './telemetry';
 import { registerReduxCallback } from './telemetry/setup';
 import type { ProjectDefinition } from './types/project';
 import { getLoginStatus } from './utils/azure/az-auth';
-import { CONTACT_US_URL } from './utils/constants/contactUs';
 import { AZURE_ACCOUNT_POLL_INTERVAL_MS } from './utils/constants/timing';
 import {
   isAksProject,
@@ -69,7 +62,6 @@ import {
   isArmManagedProject,
   isAzureRbacProject,
 } from './utils/shared/isAksProject';
-import { azureTheme } from './utils/shared/theme';
 
 type ProjectOverviewRegistration = Parameters<typeof registerProjectOverviewSection>[0];
 type ConditionalProjectOverviewRegistration = ProjectOverviewRegistration & {
@@ -94,36 +86,6 @@ function ConfigurePipelineHeaderAction(
   );
 }
 
-Headlamp.setAppMenu(menus => {
-  // Find the Help menu
-  const helpMenu = menus?.find(menu => menu.id === 'original-help');
-
-  if (helpMenu && helpMenu.submenu) {
-    // Replace Documentation link
-    const docIndex = helpMenu.submenu.findIndex(item => item.id === 'original-documentation');
-    if (docIndex !== -1) {
-      helpMenu.submenu[docIndex] = {
-        label: 'Documentation',
-        id: 'aks-documentation',
-        url: 'https://aka.ms/aks/aks-desktop',
-      };
-    }
-
-    // Replace Open Issue link with Contact us, pointing at the same destination
-    // as the app bar button so there is one front door rather than two.
-    const issueIndex = helpMenu.submenu.findIndex(item => item.id === 'original-open-issue');
-    if (issueIndex !== -1) {
-      helpMenu.submenu[issueIndex] = {
-        label: 'Contact us',
-        id: 'aks-contact-us',
-        url: CONTACT_US_URL,
-      };
-    }
-  }
-
-  return menus;
-});
-
 // add azure related components only if running as app
 if (Headlamp.isRunningAsApp()) {
   setTelemetryEnabled(isTelemetryEnabled());
@@ -141,21 +103,6 @@ if (Headlamp.isRunningAsApp()) {
 
   // boot App Insights telemetry once on first render
   registerAppBarAction(() => <TelemetryBoot />);
-
-  // Contact us button in the top app bar — present wherever the app bar renders.
-  // Deliberately not wrapped in TelemetryErrorBoundary: Headlamp already wraps
-  // every app-bar action in its own ErrorBoundary, and this one's fallback is a
-  // visible MUI Alert, which in an app bar would be worse than a missing icon.
-  // Neither boundary covers the onClick path — React error boundaries do not
-  // catch throws from event handlers.
-  registerAppBarAction({ id: 'aksd.contact-us', action: () => <ContactUsButton /> });
-
-  // register azure logo
-  registerAppLogo(AzureLogo);
-  registerClusterEmptyState(AKSClusterEmptyState);
-
-  // register the theme and make it default
-  registerAppTheme(azureTheme, { default: true });
 
   // Initialize Azure auth status on window object for Headlamp integration
   (window as any).__azureAuthStatus = {

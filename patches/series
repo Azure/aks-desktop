@@ -2,3 +2,4 @@
 0080 source 0080-headlamp-aks-desktop-host-marker.patch
 7683 source 7683-headlamp-upstream-legacy-github-storage.patch
 8025 source 8025-headlamp-upstream-error-reporting-config.patch
+8095 source 8095-headlamp-upstream-plugin-menu-reload.patch

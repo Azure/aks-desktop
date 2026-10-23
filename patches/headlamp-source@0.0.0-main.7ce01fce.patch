@@ -1,7 +1,16 @@
 diff --git a/source/.github/workflows/app.yml b/source/.github/workflows/app.yml
-index f6539d17358302b5da0aa5c85236452df69e92d6..669f703427ebe1d02ec7277aae4d810fb6c5a97d 100644
+index f6539d17358302b5da0aa5c85236452df69e92d6..4b2404a9c221e7f6a6bbc665e231ee1992ba0288 100644
 --- a/source/.github/workflows/app.yml
 +++ b/source/.github/workflows/app.yml
+@@ -66,7 +66,7 @@ jobs:
+         npm ci
+         npx playwright install --with-deps chromium
+     - name: Test desktop privileged bridges
+-      run: xvfb-run --auto-servernum npm run app:test:e2e -- tests/listenerCleanup.spec.ts tests/clusterRegistration.spec.ts
++      run: xvfb-run --auto-servernum npm run app:test:e2e -- tests/listenerCleanup.spec.ts tests/clusterRegistration.spec.ts tests/pluginMenuReload.spec.ts
+     - name: Test production frontend runtime
+       run: xvfb-run --auto-servernum npm run app:test:e2e:frontend-build
+     - name: Test desktop OAuth callbacks
 @@ -165,5 +165,9 @@ jobs:
      - name: App Mac
        run: |
@@ -77,6 +86,29 @@ index f2e956d753b17ede4a33b7328f382460214e45c5..b102020964491e2539fcaca71af76951
          "companyName": {
            "type": "string",
            "description": "Company attribution used for Windows and macOS metadata and the Linux vendor field."
+diff --git a/source/app/e2e-tests/README.md b/source/app/e2e-tests/README.md
+index 570b4e9795d88c8739c4629759e6b796fac0fa4a..3b9e4dc9834e51b7e219ce0954e00367e8472e6e 100644
+--- a/source/app/e2e-tests/README.md
++++ b/source/app/e2e-tests/README.md
+@@ -21,6 +21,18 @@ delete its own throwaway profile, so `minikube` and `kubectl` must both be on
+ `listenerCleanup.spec.ts` runs `gh --version`, so the GitHub CLI must also be
+ installed and available on `PATH`.
+ 
++`pluginMenuReload.spec.ts` needs the built backend and Electron, but not minikube
++or a frontend build. It uses an isolated HTML document to verify that a renderer
++reload removes plugin-owned native menu entries and restores the default Help
++links. Run it from the repository root with:
++
++```bash
++npm run app:test:e2e -- pluginMenuReload.spec.ts
++```
++
++The Linux desktop CI job selects this spec explicitly. It runs without a
++`PLAYWRIGHT_TEST_MODE` setting, so the regression cannot silently skip.
++
+ App mode runs the app from source rather than from a packaged build, so the
+ things the app loads in dev mode have to exist first:
+ 
 diff --git a/source/app/e2e-tests/fixtures/secureStorageMigrationMain.ts b/source/app/e2e-tests/fixtures/secureStorageMigrationMain.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..4e635bc1eef064100fbf5d552e34a21ffdff6831
@@ -133,6 +165,18 @@ index 0000000000000000000000000000000000000000..4e635bc1eef064100fbf5d552e34a21f
 +  await window.loadURL(url);
 +});
 +app.on('window-all-closed', () => app.quit());
+diff --git a/source/app/e2e-tests/playwright.electron.config.ts b/source/app/e2e-tests/playwright.electron.config.ts
+index fcf4cfdc16d107eddef933fa0c97b90b08e8b22e..c3bdfdca6a4ee07435aa2deb2dd5a4eed208e769 100644
+--- a/source/app/e2e-tests/playwright.electron.config.ts
++++ b/source/app/e2e-tests/playwright.electron.config.ts
+@@ -36,6 +36,7 @@ export default defineConfig({
+     'clusterRegistration.spec.ts',
+     'externalBackendToken.spec.ts',
+     'pluginSecureStorage.spec.ts',
++    'pluginMenuReload.spec.ts',
+     'listenerCleanup.spec.ts',
+     'runCommand.spec.ts',
+     'updateChecks.spec.ts',
 diff --git a/source/app/e2e-tests/tests/buildManifestProduct.spec.ts b/source/app/e2e-tests/tests/buildManifestProduct.spec.ts
 index cd3a3e13a3083b063cba07ff94ebb08e9561c419..35d9bc40982d825443dc709cca45a20b334f1090 100644
 --- a/source/app/e2e-tests/tests/buildManifestProduct.spec.ts
@@ -196,6 +240,155 @@ index b4cb323329c256ac31b2f0fa5eecf48274352ee2..4aaa21c69f96a1c20cc45b1b3b3205a9
            desktopApi.send,
            receive
          );
+diff --git a/source/app/e2e-tests/tests/pluginMenuReload.spec.ts b/source/app/e2e-tests/tests/pluginMenuReload.spec.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2fce2e6f4628bc14f881dc925fe56eb4b28cb7f9
+--- /dev/null
++++ b/source/app/e2e-tests/tests/pluginMenuReload.spec.ts
+@@ -0,0 +1,143 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { expect, test } from '@playwright/test';
++import fs from 'node:fs';
++import net from 'node:net';
++import os from 'node:os';
++import path from 'node:path';
++import { pathToFileURL } from 'node:url';
++import { _electron } from 'playwright';
++
++const appPath = path.resolve(__dirname, '../..');
++const electronPath = path.join(
++  appPath,
++  'node_modules',
++  'electron',
++  'dist',
++  process.platform === 'darwin'
++    ? 'Electron.app/Contents/MacOS/Electron'
++    : process.platform === 'win32'
++    ? 'electron.exe'
++    : 'electron'
++);
++
++test('restores native default menus when renderer plugins are not re-registered', async () => {
++  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-menu-reload-'));
++  const html = path.join(profile, 'index.html');
++  const kubeconfig = path.join(profile, 'kubeconfig');
++  fs.writeFileSync(
++    html,
++    '<!doctype html><html><title>Menu reload</title><body>Menu reload</body></html>'
++  );
++  fs.writeFileSync(
++    kubeconfig,
++    'apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\n'
++  );
++  const port = await new Promise<number>((resolve, reject) => {
++    const server = net.createServer();
++    server.once('error', reject);
++    server.listen(0, '127.0.0.1', () => {
++      const address = server.address();
++      if (!address || typeof address === 'string') {
++        server.close();
++        reject(new Error('Failed to reserve a backend port'));
++        return;
++      }
++      server.close(error => (error ? reject(error) : resolve(address.port)));
++    });
++  });
++  let app: Awaited<ReturnType<typeof _electron.launch>> | undefined;
++  try {
++    const electronApp = await _electron.launch({
++      cwd: appPath,
++      executablePath: electronPath,
++      args: ['.', `--port=${port}`, `--user-data-dir=${path.join(profile, 'electron')}`],
++      env: {
++        ...process.env,
++        HOME: profile,
++        APPDATA: profile,
++        LOCALAPPDATA: profile,
++        XDG_CONFIG_HOME: profile,
++        KUBECONFIG: kubeconfig,
++        ELECTRON_DEV: 'true',
++        ELECTRON_START_URL: pathToFileURL(html).href,
++        EXTERNAL_SERVER: 'false',
++      },
++    });
++    app = electronApp;
++    const page = await electronApp.firstWindow();
++    await page.waitForLoadState('load');
++    await page.evaluate(() => {
++      const api = (
++        window as Window & {
++          desktopApi?: { send: (channel: string, data?: unknown) => void };
++        }
++      ).desktopApi;
++      if (!api) {
++        throw new Error('Desktop API is unavailable');
++      }
++      api.send('pluginsLoaded');
++      api.send('setMenu', [
++        {
++          id: 'original-help',
++          label: 'Help',
++          submenu: [{ id: 'plugin-documentation', label: 'Plugin documentation' }],
++        },
++      ]);
++    });
++    await expect
++      .poll(() =>
++        electronApp.evaluate(
++          ({ Menu }) => !!Menu.getApplicationMenu()?.getMenuItemById('plugin-documentation')
++        )
++      )
++      .toBe(true);
++
++    await page.reload();
++    await page.evaluate(() => {
++      const api = (
++        window as Window & {
++          desktopApi?: { send: (channel: string) => void };
++        }
++      ).desktopApi;
++      if (!api) {
++        throw new Error('Desktop API is unavailable');
++      }
++      api.send('pluginsLoaded');
++    });
++    await expect
++      .poll(() =>
++        electronApp.evaluate(({ Menu }) => ({
++          plugin: !!Menu.getApplicationMenu()?.getMenuItemById('plugin-documentation'),
++          documentation: !!Menu.getApplicationMenu()?.getMenuItemById('original-documentation'),
++          issue: !!Menu.getApplicationMenu()?.getMenuItemById('original-open-issue'),
++        }))
++      )
++      .toEqual({ plugin: false, documentation: true, issue: true });
++  } finally {
++    try {
++      await app?.close();
++    } finally {
++      await fs.promises.rm(profile, {
++        recursive: true,
++        force: true,
++        maxRetries: 10,
++        retryDelay: 200,
++      });
++    }
++  }
++});
 diff --git a/source/app/e2e-tests/tests/pluginSecureStorage.spec.ts b/source/app/e2e-tests/tests/pluginSecureStorage.spec.ts
 index 874134a8384a772eacc5046065f939179160d83d..bb30d0b401236ac30a8bf69166524e3dc76ab445 100644
 --- a/source/app/e2e-tests/tests/pluginSecureStorage.spec.ts
@@ -442,7 +635,7 @@ index 0facf07617cff7a83d5a0ba9817d408099f5056a..70bacbce3600fd99e59c60556d1257c5
      const schema = JSON.parse(
        fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
 diff --git a/source/app/electron/main.ts b/source/app/electron/main.ts
-index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..d005363f22d981151b32559ee04f14e9aa302b56 100644
+index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..1d7ce36e24a69e133fa5ce94dd168b3855a9af94 100644
 --- a/source/app/electron/main.ts
 +++ b/source/app/electron/main.ts
 @@ -74,8 +74,11 @@ import {
@@ -473,7 +666,16 @@ index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..d005363f22d981151b32559ee04f14e9
  }
  
  /**
-@@ -1966,13 +1976,13 @@ function startElectron() {
+@@ -1789,6 +1799,8 @@ function startElectron() {
+ 
+     mainWindow.webContents.on('dom-ready', () => {
+       const defaultMenu = getDefaultAppMenu();
++      loadFullMenu = false;
++      setMenu(mainWindow, defaultMenu);
+       const currentMenu = JSON.parse(JSON.stringify(defaultMenu));
+       mainWindow?.webContents.send('currentMenu', currentMenu);
+     });
+@@ -1966,13 +1978,13 @@ function startElectron() {
  
      // Also add bundled plugin bin directories to PATH
      const bundledPlugins = path.join(process.resourcesPath, '.plugins');
@@ -489,7 +691,7 @@ index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..d005363f22d981151b32559ee04f14e9
      if (userPluginBinDirs.length > 0) {
        addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
      }
-@@ -2063,26 +2073,31 @@ function startElectron() {
+@@ -2063,26 +2075,31 @@ function startElectron() {
      }
    });
  
@@ -7177,6 +7379,18 @@ index fe3e1166aa7e7952c4951ae661787bcb4fdc9e5f..83f0536969606d0f800c66a8cc46632b
          resolve(secrets);
        });
        desktopApi.send('request-plugin-permission-secrets');
+diff --git a/source/frontend/src/plugin/lib.ts b/source/frontend/src/plugin/lib.ts
+index 426528a78404180bc926b14e5c7e5614ea6ee547..77cf31747f927561d52f15f0f7044bf78a6c7b63 100644
+--- a/source/frontend/src/plugin/lib.ts
++++ b/source/frontend/src/plugin/lib.ts
+@@ -159,6 +159,7 @@ export abstract class Headlamp {
+   /**
+    * Changes the app menu.
+    * If Headlamp is not running as a desktop app, then this method prints an error and doesn't do anything.
++   * Customizations apply to the current renderer document and must be registered again after reload.
+    *
+    * @param appMenuFunc A function that receives the current app menu configuration and a new one. If the function returns null, the menu is not changed.
+    */
 diff --git a/source/frontend/src/plugin/pluginLib.test.ts b/source/frontend/src/plugin/pluginLib.test.ts
 index c6d4ab70ec0675d754c78aa4a5c8a5e0ef6a3051..0f9f15d9e19b6c500dda15872f3d8c26da8e64b9 100644
 --- a/source/frontend/src/plugin/pluginLib.test.ts
