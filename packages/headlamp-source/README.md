@@ -44,7 +44,7 @@ and those consumer integration tests in CI.
 ```json
 {
   "headlampSource": {
-    "revision": "d4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0"
+    "revision": "7ce01fceac891f6dba09420cb102ad6ba7ecc519"
   }
 }
 ```

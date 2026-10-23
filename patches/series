@@ -1,11 +1,3 @@
 0071 source 0071-headlamp-upstream-cluster-pre-open-proxies.patch
-0072 source 0072-headlamp-upstream-service-port-forward-cluster.patch
 0080 source 0080-headlamp-aks-desktop-host-marker.patch
 7683 source 7683-headlamp-upstream-legacy-github-storage.patch
-7685 source 7685-headlamp-upstream-product-command-preapproval.patch
-7712 source 7712-headlamp-upstream-rsbuild-default.patch
-7726 source 7726-headlamp-upstream-workload-log-cluster.patch
-7727 source 7727-headlamp-upstream-package-prepared.patch
-7731 source 7731-headlamp-upstream-electron-build-timings.patch
-7744 source 7744-headlamp-upstream-aks-cluster-registration.patch
-7746 source 7746-headlamp-upstream-product-company-name.patch

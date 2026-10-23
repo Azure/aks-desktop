@@ -55,10 +55,5 @@
   "Development plugins run local code and may request command access. Only enable this mode if you trust every plugin in the development plugins directory.": "",
   "Enable": "Activer",
   "Enable Plugin Development Mode?": "",
-  "Plugin Development Mode": "",
-  "Another process is running": "Un autre processus est en cours d’exécution",
-  "Continue": "Continuer",
-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "Nous n’avons pas pu quitter l’autre processus en cours d’exécution, PID : {{ process_list }}. Veuillez arrêter ce processus, puis relancer l’application.",
-  "Failed to quit the other running process": "Nous n’avons pas pu quitter l’autre processus en cours d’exécution",
-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "Il semble qu’un autre processus soit déjà en cours d’exécution. Voulez-vous continuer en terminant automatiquement ce processus ou quitter ?"
+  "Plugin Development Mode": ""
 }
