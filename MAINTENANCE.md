@@ -40,20 +40,20 @@ combined patch together. Never edit the installed package in `node_modules`.
 
 ### Including new PRs as patches
 
-Choose the next number and export the PR's commits from a clean Headlamp
-worktree. Use the PR's base and head SHAs so original authorship and dates are
-preserved:
+Use the upstream Headlamp PR number, not a local counter, and export its commits
+from a clean Headlamp worktree. Use the PR's base and head SHAs so original
+authorship and dates are preserved:
 
 ```bash
 git -C /path/to/headlamp format-patch --stdout --no-signature \
   <pr-base-sha>..<pr-head-sha> \
-  > patches/0072-headlamp-upstream-<topic>.patch
+  > patches/8095-headlamp-upstream-plugin-menu-reload.patch
 ```
 
 Add the patch to `patches/series` in numeric order:
 
 ```text
-0072 source 0072-headlamp-upstream-<topic>.patch
+8095 source 8095-headlamp-upstream-plugin-menu-reload.patch
 ```
 
 Use `source` for changes applied to Headlamp source. Use `package` only for
@@ -272,7 +272,7 @@ produces translated files into `Localize/locales/{lang}/`. The
 `Localize/LocProject.json` file configures this pipeline.
 
 The covered sources are the installed Headlamp frontend,
-`plugins/aks-desktop/`, `plugins/plugin-catalog/`, the staged `ai-assistant`
+`plugins/aks-desktop/`, `plugins/aks-desktop-theme/`, `plugins/plugin-catalog/`, the staged `ai-assistant`
 release, and the external `keda`, `cert-manager`, and `prometheus` plugins.
 
 AI Assistant is staged from the pinned GitHub release before collection, and

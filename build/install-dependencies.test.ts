@@ -47,6 +47,7 @@ test('installs each dependency group once with timestamped timings', t => {
   assert.equal(new Set(scripts).size, scripts.length);
   assert.deepEqual(markedDirectories, [
     path.join('/workspace', 'plugins/aks-desktop'),
+    path.join('/workspace', 'plugins/aks-desktop-theme'),
     path.join('/workspace', 'plugins/plugin-catalog'),
   ]);
   assert.match(messages.join('\n'), /install Headlamp dependencies started at \d{4}-\d{2}-\d{2}T/);

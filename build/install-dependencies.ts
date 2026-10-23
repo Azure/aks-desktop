@@ -23,6 +23,11 @@ export const DEPENDENCY_INSTALL_STEPS = [
     pluginDirectory: 'plugins/aks-desktop',
   },
   {
+    name: 'install AKS theme dependencies',
+    script: 'theme:install',
+    pluginDirectory: 'plugins/aks-desktop-theme',
+  },
+  {
     name: 'install plugin catalog dependencies',
     script: 'plugin-catalog:install',
     pluginDirectory: 'plugins/plugin-catalog',
