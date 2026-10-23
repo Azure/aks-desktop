@@ -122,6 +122,7 @@ consumer-only `build` field.
 | `build.resources[].to` | Yes | Destination path in the packaged application. |
 | `build.externalTools` | Yes | Tools included in the product manifest with generated SHA-256 verification data. |
 | `build.externalTools[].id` | Yes | Stable tool identifier. |
+| `build.externalTools[].targets` | No | Build-only platform/architecture filter, such as `["win32-x64"]`. Omitted entries apply to every target. |
 | `build.externalTools[].platforms` | Yes | Platform records keyed by `linux`, `darwin`, or `win32`. The active build platform must have a record. |
 | `build.externalTools[].platforms.<platform>.file` | Yes | Tool file relative to the materialized Headlamp app directory. |
 | `build.externalTools[].platforms.<platform>.path` | Yes | Tool path in the packaged application. |
@@ -147,8 +148,14 @@ Each plugin must declare exactly one of `source`, `archive`, or `file`.
 ### `runCommands`
 
 Top-level `headlamp.runCommands` records the commands the product allows plugins
-to run. It is separate from `headlamp.plugins`; the source package copies it
-unchanged into the generated product manifest. Each policy selects one runtime
+to run. It is separate from `headlamp.plugins`. Optional build-only `targets`
+filters on policies, commands, approved commands, and native provider records
+select platform/architecture pairs such as `["win32-x64"]`. Unconstrained entries
+apply everywhere. These fields are removed from the generated manifest, and
+invalid constraints fail the build. Put a constraint on the whole policy when
+its `pluginExecutables` declaration is platform-specific.
+
+Each policy selects one runtime
 environment and plugin installation location, identifies one or more plugins,
 and declares their command grants:
 
@@ -180,11 +187,14 @@ arguments after that prefix. Use `tool`, not `command`.
 
 Commands resolve from Headlamp's sanitized system `PATH` by default. A product
 that intentionally runs a binary supplied by the plugin may add
-`pluginExecutables` to the policy. Each entry must map a granted `tool` to the
-exact path `bin/<tool>`. Headlamp does not fall back between plugin and system
-origins, and production plugin executables require app-owned integrity receipts.
-AKS Desktop omits `pluginExecutables` because its `az` and `kubectl` grants use
-the bundled tools exposed through the sanitized system path.
+`pluginExecutables: [{ "tool": "examplectl" }]` to the policy. Each entry contains
+only a granted `tool`; Headlamp maps it to the fixed path `bin/<tool>`.
+Headlamp does not fall back between plugin and system
+origins. Managed user/shipped plugin executables require app-owned integrity
+receipts, including production installation provenance for user plugins.
+The operator-controlled development inventory has no production receipt; it is
+not equivalent to catalog installation. Product-bundled tools can continue to
+use the sanitized system path without `pluginExecutables`.
 
 Only the product may define command grants. A plugin's own `package.json` must
 not declare `headlamp.runCommands`, because plugin-controlled grants would let

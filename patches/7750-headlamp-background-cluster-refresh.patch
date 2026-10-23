@@ -1,0 +1,11 @@
+diff --git a/frontend/src/components/App/Layout.tsx b/frontend/src/components/App/Layout.tsx
+--- a/frontend/src/components/App/Layout.tsx
++++ b/frontend/src/components/App/Layout.tsx
+@@ -220,6 +220,7 @@ export default function Layout() {
+     refetchInterval: disableBackendLoader
+       ? CLUSTER_FETCH_INTERVAL
+       : query => (query.state.status === 'error' ? false : CLUSTER_FETCH_INTERVAL),
++    refetchIntervalInBackground: true,
+   });
+ 
+   // Remove splash screen styles from the body

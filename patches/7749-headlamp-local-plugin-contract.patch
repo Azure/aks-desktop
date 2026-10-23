@@ -1,0 +1,205 @@
+diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/local-cluster-registration.test.ts
+index 10c59ab..3d75cf5 100644
+--- a/app/electron/local-cluster-registration.test.ts
++++ b/app/electron/local-cluster-registration.test.ts
+@@ -134,6 +134,66 @@ describe('local registration handoff', () => {
+     return { prepared, result: await call({ action: 'verify-delete', token: prepared.token }) };
+   }
+ 
++  it('advertises the versioned contract without CLI tools or file mutations', async () => {
++    const before = fs.readdirSync(root);
++    expect(isLocalRequest({ action: 'capabilities' })).toBe(true);
++    expect(isLocalRequest({ action: 'capabilities', command: 'create' })).toBe(false);
++    await expect(
++      provider.register({ action: 'capabilities' }, { resourcesPath: 'unused', tools: {} })
++    ).resolves.toEqual({
++      success: true,
++      message: 'Local cluster compatibility contract.',
++      data: { contract: 'aksedge-local', version: 1, platform: 'win32', arch: 'x64' },
++    });
++    expect(hardenDirectory).not.toHaveBeenCalled();
++    expect(persist).not.toHaveBeenCalled();
++    expect(fs.readdirSync(root)).toEqual(before);
++  });
++
++  it.each([
++    ['linux', 'x64'],
++    ['win32', 'arm64'],
++  ] as const)('rejects the compatibility probe on %s/%s', async (platform, arch) => {
++    const unsupported = createLocalClusterRegistrationProvider({
++      kubeconfigDirectory: () => path.dirname(destination),
++      platform,
++      arch,
++    });
++    await expect(unsupported.register({ action: 'capabilities' }, runtime)).resolves.toMatchObject({
++      success: false,
++      data: { code: 'unsupported' },
++    });
++  });
++
++  it('keeps the read-only capability available during a native operation without clearing its guard', async () => {
++    const prepared = await prepareCreate();
++    fs.writeFileSync(prepared.kubeconfigPath, credentials());
++    hardenDirectory.mockClear();
++    let completeImport: () => void = () => undefined;
++    persist.mockImplementationOnce(async (...args) => {
++      await new Promise<void>(resolve => {
++        completeImport = resolve;
++      });
++      return mergeKubeconfigTransaction(...args);
++    });
++    const pending = call({ action: 'register', token: prepared.token });
++    try {
++      await expect(call({ action: 'capabilities' })).resolves.toMatchObject({
++        success: true,
++        data: { contract: 'aksedge-local', version: 1 },
++      });
++      await expect(call({ action: 'inspect' })).resolves.toMatchObject({
++        success: false,
++        data: { code: 'busy' },
++      });
++      expect(persist).toHaveBeenCalledOnce();
++      expect(hardenDirectory).not.toHaveBeenCalled();
++    } finally {
++      completeImport();
++      await pending;
++    }
++  });
++
+   it('hardens an empty private handoff before writing and uses shared persistence without changing normal config', async () => {
+     const before = fs.readFileSync(normalConfig, 'utf8');
+     const prepared = await prepareCreate();
+diff --git a/app/electron/local-cluster-registration.ts b/app/electron/local-cluster-registration.ts
+index 3d9d1d2..7002667 100644
+--- a/app/electron/local-cluster-registration.ts
++++ b/app/electron/local-cluster-registration.ts
+@@ -41,7 +41,7 @@ import {
+ } from './local-kubeconfig';
+ 
+ type LocalRequest =
+-  | { action: 'inspect' }
++  | { action: 'inspect' | 'capabilities' }
+   | ({ action: 'prepare'; consent: true; distro: typeof LOCAL_DISTRO } & LocalConfiguration)
+   | { action: 'register' | 'discard' | 'verify-delete'; token: string }
+   | {
+@@ -82,7 +82,7 @@ const isToken = (value: unknown): value is string =>
+ export function isLocalRequest(value: unknown): value is LocalRequest {
+   if (!isRecord(value) || typeof value.action !== 'string') return false;
+   const only = (keys: string[]) => Object.keys(value).every(key => keys.includes(key));
+-  if (value.action === 'inspect') return only(['action']);
++  if (value.action === 'inspect' || value.action === 'capabilities') return only(['action']);
+   if (['register', 'discard', 'verify-delete'].includes(value.action)) {
+     return only(['action', 'token']) && isToken(value.token);
+   }
+@@ -248,6 +248,13 @@ export function createLocalClusterRegistrationProvider(
+           data: { code: 'unsupported' },
+         };
+       }
++      if (request.action === 'capabilities') {
++        return {
++          success: true,
++          message: 'Local cluster compatibility contract.',
++          data: { contract: LOCAL_PROVIDER, version: 1, platform: 'win32', arch: 'x64' },
++        };
++      }
+       if (requestInFlight) {
+         return {
+           success: false,
+diff --git a/app/electron/main.ts b/app/electron/main.ts
+index d1d76bb..ce1bfdd 100644
+--- a/app/electron/main.ts
++++ b/app/electron/main.ts
+@@ -710,13 +710,15 @@ let shellEnvironmentPromise: Promise<NodeJS.ProcessEnv> | null = null;
+ 
+ export function getProductCommandExecutable(
+   command: string,
+-  args: readonly string[] = []
++  args: readonly string[] = [],
++  validateOnly = false
+ ): string | undefined {
+   return resolveCommandExecutable(
+     command,
+     loadBuildManifest(appBuildManifestPath),
+     isDev ? path.resolve(__dirname, '../resources') : process.resourcesPath,
+-    args
++    args,
++    validateOnly
+   );
+ }
+ 
+diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
+index 28e74d6..30f786c 100644
+--- a/app/electron/runCmd.test.ts
++++ b/app/electron/runCmd.test.ts
+@@ -2470,6 +2470,27 @@ describe('setupRunCmdHandlers', () => {
+ });
+ 
+ describe('app-owned command environment', () => {
++  it('validates plugin arguments without consulting the product executable resolver', () => {
++    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-validation-')));
++    try {
++      fs.writeFileSync(
++        path.join(root, 'environment.cjs'),
++        'exports.validateCommand = (_command, args) => { if (args[0] !== "read") throw new Error("denied"); };' +
++          'exports.resolveExecutable = () => { throw new Error("product resolver called"); };'
++      );
++      const manifest = { commandEnvironment: 'environment.cjs' };
++      expect(resolveCommandExecutable('example', manifest, root, ['read'], true)).toBeUndefined();
++      expect(() => resolveCommandExecutable('example', manifest, root, ['delete'], true)).toThrow(
++        'denied'
++      );
++      expect(() => resolveCommandExecutable('example', manifest, root, ['read'])).toThrow(
++        'product resolver called'
++      );
++    } finally {
++      fs.rmSync(root, { recursive: true });
++    }
++  });
++
+   it('validates an immutable argument copy and fails closed for invalid or asynchronous validators', () => {
+     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'command validation-')));
+     try {
+diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
+index 6df6ad2..31bfeb2 100644
+--- a/app/electron/runCmd.ts
++++ b/app/electron/runCmd.ts
+@@ -390,6 +390,7 @@ export function applyCommandEnvironment(
+  * @param manifest - Trusted application build manifest selecting the optional callback module.
+  * @param resourcesDirectory - App-owned resource root.
+  * @param args - Authorized arguments, copied before optional product validation.
++ * @param validateOnly - Validate a plugin-owned command without consulting the product resolver.
+  * @returns The canonical executable, or undefined to preserve existing command lookup.
+  * @throws When resolution fails, returns an invalid value, or escapes app-owned resources.
+  */
+@@ -397,7 +398,8 @@ export function resolveCommandExecutable(
+   command: string,
+   manifest: Record<string, unknown>,
+   resourcesDirectory: string,
+-  args: readonly string[] = []
++  args: readonly string[] = [],
++  validateOnly = false
+ ): string | undefined {
+   const loaded = loadCommandEnvironmentModule(manifest, resourcesDirectory);
+   if (!loaded) return undefined;
+@@ -410,7 +412,7 @@ export function resolveCommandExecutable(
+       throw new Error('validateCommand must accept or throw synchronously');
+     }
+   }
+-  if (loaded.callbacks.resolveExecutable === undefined) return undefined;
++  if (validateOnly || loaded.callbacks.resolveExecutable === undefined) return undefined;
+   const { resolveExecutable } = loaded.callbacks;
+   if (typeof resolveExecutable !== 'function') {
+     throw new Error('commandEnvironment resolveExecutable must be a function');
+@@ -1082,8 +1084,10 @@ export async function handleRunCommand(
+   try {
+     const { getShellEnvironment, getProductCommandExecutable } = await import('./main');
+     shellEnvironment = await getShellEnvironment();
+-    if (commandData.command !== 'scriptjs' && !capabilityGrant?.executable) {
+-      productExecutable = getProductCommandExecutable(commandData.command, commandData.args);
++    if (commandData.command !== 'scriptjs') {
++      productExecutable = capabilityGrant?.executable
++        ? getProductCommandExecutable(commandData.command, commandData.args, true)
++        : getProductCommandExecutable(commandData.command, commandData.args);
+     }
+   } catch (error) {
+     console.error(

@@ -10,6 +10,7 @@ const { resolveHeadlampPaths, resolveWithin } = require('./paths.ts');
 const { createProductTemplate: createTemplate, projectManifest } = require(
   './product-manifest.ts'
 );
+const { selectBuildTarget, targetArchitecture } = require('./build-target-selection.ts');
 
 /**
  * Calculates the SHA-256 digest of a file.
@@ -144,7 +145,8 @@ function createManifest(options: any = {}) {
   if (!platform) {
     throw new Error(`Unsupported build platform: ${process.platform}`);
   }
-  const template = createTemplate(project, platform);
+  const arch = options.arch || targetArchitecture();
+  const template = createTemplate(project, platform, arch);
 
   const platformKey = platform === 'darwin' ? 'mac' : platform === 'win32' ? 'win' : platform;
   const icon = build.icons?.[platformKey];
@@ -165,7 +167,7 @@ function createManifest(options: any = {}) {
     };
   }
 
-  const tools = build.externalTools.map((tool: any) => {
+  const tools = selectBuildTarget(build.externalTools, platform, arch).map((tool: any) => {
     const platformTool = tool.platforms?.[platform];
     if (!platformTool) {
       throw new Error(`External tool ${tool.id} has no ${platform} configuration`);
