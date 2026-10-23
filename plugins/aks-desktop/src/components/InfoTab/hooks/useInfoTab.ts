@@ -1,14 +1,30 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { clusterAction, K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { clusterAction, useTranslation } from '@kinvolk/headlamp-plugin/lib';
+import { clusterRequest } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
+import type { KubeNamespace } from '@kinvolk/headlamp-plugin/lib/lib/k8s/namespace';
+import {
+  isCancelledError,
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import {
   getManagedNamespaceDetails,
-  getManagedNamespaces,
   updateManagedNamespace,
 } from '../../../utils/azure/az-namespaces';
+import {
+  getManagedNamespaceAuthState,
+  type ManagedNamespaceDetails,
+  managedNamespaceQueryKey,
+  type ManagedNamespaceTarget,
+  subscribeManagedNamespaceAuth,
+} from '../../../utils/azure/managedNamespaceQueries';
 import { RESOURCE_GROUP_LABEL, SUBSCRIPTION_LABEL } from '../../../utils/constants/projectLabels';
+import { supportsManagedNamespaceSettings } from '../../../utils/shared/isAksProject';
 import {
   DEFAULT_FORM_DATA,
   type FormData,
@@ -19,287 +35,325 @@ import {
   validateNetworkingPolicies,
 } from '../../CreateAKSProject/validators';
 
-// Pure helpers — module-level so they are never recreated on re-renders.
+const fields = [
+  'ingress',
+  'egress',
+  'cpuRequest',
+  'cpuLimit',
+  'memoryRequest',
+  'memoryLimit',
+] as const;
 
-function normalizePolicy(value: string): FormData['ingress'] {
-  const allowed: Record<FormData['ingress'], true> = {
-    AllowSameNamespace: true,
-    AllowAll: true,
-    DenyAll: true,
+function equalSettings(a: FormData, b: FormData) {
+  return fields.every(field => a[field] === b[field]);
+}
+
+function resolveTarget(
+  namespace: KubeNamespace | undefined,
+  clusterName: string,
+  namespaceName: string
+): ManagedNamespaceTarget | null {
+  const labels = namespace?.metadata?.labels;
+  const subscriptionId = labels?.[SUBSCRIPTION_LABEL];
+  const resourceGroup = labels?.[RESOURCE_GROUP_LABEL];
+  return labels &&
+    subscriptionId &&
+    resourceGroup &&
+    supportsManagedNamespaceSettings(labels, clusterName)
+    ? { subscriptionId, resourceGroup, clusterName, namespaceName }
+    : null;
+}
+
+function readForm(details?: ManagedNamespaceDetails): FormData {
+  const policy = details?.properties?.defaultNetworkPolicy;
+  const quota = details?.properties?.defaultResourceQuota;
+  const normalizePolicy = (value?: string): FormData['ingress'] =>
+    value === 'AllowAll' || value === 'DenyAll' ? value : 'AllowSameNamespace';
+  const parseQuota = (value?: string) => {
+    const parsed = parseInt(value ?? '', 10);
+    return Number.isFinite(parsed) ? parsed : 0;
   };
-  return (value as FormData['ingress']) in allowed
-    ? (value as FormData['ingress'])
-    : 'AllowSameNamespace';
-}
-
-function parseMillicores(val: string): number {
-  const n = parseInt(String(val).replace(/m$/i, ''), 10);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function parseMiB(val: string): number {
-  const n = parseInt(String(val).replace(/Mi$/i, ''), 10);
-  return Number.isFinite(n) ? n : 0;
-}
-
-/**
- * The shape of namespace details returned from the Azure CLI.
- */
-export interface NamespaceDetails {
-  properties?: {
-    defaultNetworkPolicy?: {
-      ingress?: string;
-      egress?: string;
-    };
-    defaultResourceQuota?: {
-      cpuRequest?: string;
-      cpuLimit?: string;
-      memoryRequest?: string;
-      memoryLimit?: string;
-    };
+  return {
+    ...DEFAULT_FORM_DATA,
+    ingress: normalizePolicy(policy?.ingress),
+    egress: normalizePolicy(policy?.egress ?? 'AllowAll'),
+    cpuRequest: parseQuota(quota?.cpuRequest),
+    cpuLimit: parseQuota(quota?.cpuLimit),
+    memoryRequest: parseQuota(quota?.memoryRequest),
+    memoryLimit: parseQuota(quota?.memoryLimit),
   };
 }
 
-/**
- * Return type for the {@link useInfoTab} hook.
- */
-export interface UseInfoTabResult {
-  /** Whether the initial namespace details fetch is in progress. */
-  loading: boolean;
-  /** Whether an update operation is in progress. */
-  updating: boolean;
-  /** Error message if fetch or update failed, otherwise null. */
-  error: string | null;
-  /** The fetched managed namespace details, or null if unavailable or not yet loaded. */
-  namespaceDetails: NamespaceDetails | null;
-  /** Current form field values. */
-  formData: FormData;
-  /** Current validation state of the form. */
-  validation: ValidationState;
-  /** Whether the form has unsaved changes relative to the last saved state. */
-  hasChanges: boolean;
-  /** Updates form fields and re-validates. */
-  handleFormDataChange: (updates: Partial<FormData>) => void;
-  /** Persists the current form data to the managed namespace. */
-  handleSave: () => void;
-}
-
-/**
- * Manages data fetching, form state, validation, and save logic for the InfoTab component.
- *
- * Fetches managed namespace details from the Azure CLI and pre-populates the networking
- * and compute quota form fields. Provides handlers for form changes and persisting updates.
- *
- * @param project - The project whose first cluster and namespace are used for Azure CLI calls.
- * @returns State and handlers for the InfoTab component to render.
- */
-export const useInfoTab = (project: {
-  clusters: string[];
-  namespaces: string[];
-  id: string;
-}): UseInfoTabResult => {
-  const { t } = useTranslation();
-
-  // Destructure stable primitives so the effects below don't re-run on
-  // every render when the caller passes a new project object reference.
-  const clusterName = project.clusters[0];
-  const projectId = project.id;
-
-  const [namespaceInstance] = K8s.ResourceClasses.Namespace.useGet(
-    project.namespaces[0],
-    undefined,
-    { cluster: clusterName }
-  );
-  const subscription = namespaceInstance?.jsonData?.metadata?.labels?.[SUBSCRIPTION_LABEL];
-  const resourceGroup = namespaceInstance?.jsonData?.metadata?.labels?.[RESOURCE_GROUP_LABEL];
-
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [namespaceDetails, setNamespaceDetails] = useState<NamespaceDetails | null>(null);
-  const [formData, setFormData] = useState<FormData>(DEFAULT_FORM_DATA);
-  const [baselineFormData, setBaselineFormData] = useState<FormData | null>(null);
-  const [updating, setUpdating] = useState(false);
-  const [validation, setValidation] = useState<ValidationState>({
-    isValid: true,
-    errors: [],
+function validateForm(form: FormData): ValidationState {
+  const compute = validateComputeQuota(form);
+  const networking = validateNetworkingPolicies(form);
+  return {
+    isValid: compute.isValid && networking.isValid,
+    errors: [...compute.errors, ...networking.errors],
     warnings: [],
-    fieldErrors: {},
+    fieldErrors: {
+      ...compute.fieldErrors,
+      ...(!networking.isValid ? { networking: networking.errors } : {}),
+    },
+  };
+}
+
+function savedDetails(
+  previous: ManagedNamespaceDetails,
+  response: ManagedNamespaceDetails,
+  form: FormData
+): ManagedNamespaceDetails {
+  return {
+    ...previous,
+    ...response,
+    properties: {
+      ...previous.properties,
+      ...response.properties,
+      defaultNetworkPolicy: {
+        ...previous.properties?.defaultNetworkPolicy,
+        ingress: form.ingress,
+        egress: form.egress,
+        ...response.properties?.defaultNetworkPolicy,
+      },
+      defaultResourceQuota: {
+        ...previous.properties?.defaultResourceQuota,
+        cpuRequest: `${form.cpuRequest}m`,
+        cpuLimit: `${form.cpuLimit}m`,
+        memoryRequest: `${form.memoryRequest}Mi`,
+        memoryLimit: `${form.memoryLimit}Mi`,
+        ...response.properties?.defaultResourceQuota,
+      },
+    },
+  };
+}
+
+interface Draft {
+  owner: string;
+  baseline: FormData;
+  values: FormData;
+}
+
+interface Submission {
+  target: ManagedNamespaceTarget;
+  key: ReturnType<typeof managedNamespaceQueryKey>;
+  owner: string;
+  generation: number;
+  values: FormData;
+  snapshot: ManagedNamespaceDetails;
+}
+
+/** Keeps query-backed server settings separate from the user's unsaved draft. */
+export function useInfoTab(project: { clusters: string[]; namespaces: string[]; id: string }) {
+  const { t } = useTranslation();
+  const client = useQueryClient();
+  const auth = useSyncExternalStore(subscribeManagedNamespaceAuth, getManagedNamespaceAuthState);
+  const clusterName = project.clusters[0];
+  const namespaceName = project.namespaces[0];
+  const singleNamespace = project.clusters.length === 1 && project.namespaces.length === 1;
+  const pendingRefreshes = useRef(new Set<string>());
+  const metadataKey = [
+    'aks-desktop',
+    'managed-namespace',
+    'metadata',
+    auth.generation,
+    clusterName,
+    namespaceName,
+  ] as const;
+  const fetchMetadata = (): Promise<KubeNamespace> =>
+    clusterRequest(`/api/v1/namespaces/${encodeURIComponent(namespaceName)}`, {
+      cluster: clusterName,
+      method: 'GET',
+    });
+  const metadata = useQuery({
+    queryKey: metadataKey,
+    enabled: auth.ready && singleNamespace,
+    queryFn: fetchMetadata,
+  });
+  const target = singleNamespace ? resolveTarget(metadata.data, clusterName, namespaceName) : null;
+  const key = managedNamespaceQueryKey(target, auth.generation);
+  const owner = JSON.stringify(key);
+  const mutationKey = [...key, 'update'];
+  const updating = useIsMutating({ mutationKey, exact: true }) > 0;
+  const query = useQuery({
+    queryKey: key,
+    enabled: auth.ready && target !== null && !updating,
+    queryFn: () => {
+      if (!target) throw new Error('Namespace target is unavailable');
+      return getManagedNamespaceDetails(target);
+    },
+  });
+  const [draft, setDraft] = useState<Draft>();
+  const [actionError, setActionError] = useState<{ owner: string; message: string }>();
+  const currentDraft = draft?.owner === owner ? draft : undefined;
+  const hasChanges = !!currentDraft && !equalSettings(currentDraft.values, currentDraft.baseline);
+  const formData = hasChanges ? currentDraft.values : readForm(query.data);
+  const baseline = hasChanges ? currentDraft.baseline : formData;
+  const validation = validateForm(formData);
+
+  const mutation = useMutation({
+    mutationKey,
+    mutationFn: async (submission: Submission) => {
+      await client.cancelQueries({ queryKey: submission.key, exact: true });
+      const assertCurrentAuth = () => {
+        const currentAuth = getManagedNamespaceAuthState();
+        if (!currentAuth.ready || currentAuth.generation !== submission.generation) {
+          throw new Error(t('Azure account changed. Sign in and try again.'));
+        }
+      };
+      assertCurrentAuth();
+      return updateManagedNamespace({
+        ...submission.target,
+        assertCanUpdate: assertCurrentAuth,
+        ingressPolicy: submission.values.ingress,
+        egressPolicy: submission.values.egress,
+        cpuRequest: submission.values.cpuRequest,
+        cpuLimit: submission.values.cpuLimit,
+        memoryRequest: submission.values.memoryRequest,
+        memoryLimit: submission.values.memoryLimit,
+      });
+    },
+    onSuccess: async (response, submission) => {
+      await client.cancelQueries({ queryKey: submission.key, exact: true });
+      const currentAuth = getManagedNamespaceAuthState();
+      if (!currentAuth.ready || currentAuth.generation !== submission.generation) return;
+      const saved = savedDetails(submission.snapshot, response, submission.values);
+      const confirmedForm = readForm(saved);
+      client.setQueryData(submission.key, saved);
+      setDraft(previous =>
+        previous?.owner === submission.owner
+          ? {
+              owner: submission.owner,
+              baseline: confirmedForm,
+              values: fields.reduce(
+                (values, field) => ({
+                  ...values,
+                  [field]:
+                    previous.values[field] !== submission.values[field]
+                      ? previous.values[field]
+                      : confirmedForm[field],
+                }),
+                confirmedForm
+              ),
+            }
+          : previous
+      );
+    },
   });
 
-  // Fetch managed namespace details from Azure CLI
-  useEffect(() => {
-    let isMounted = true;
-    if (!clusterName || !resourceGroup) {
-      setLoading(false);
-      setError(null);
-      setNamespaceDetails(null);
-      return () => {
-        isMounted = false;
-      };
+  const handleSave = () => {
+    if (client.isMutating({ mutationKey, exact: true })) return;
+    if (
+      !auth.ready ||
+      !target ||
+      !query.data ||
+      !validation.isValid ||
+      !hasChanges ||
+      client.isFetching({ queryKey: metadataKey, exact: true })
+    ) {
+      setActionError({ owner, message: t('Namespace settings are not ready to save.') });
+      return;
     }
-
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        let nsList: string[];
-        try {
-          nsList = await getManagedNamespaces({
-            clusterName,
-            resourceGroup,
-            subscriptionId: subscription,
-          });
-        } catch (e) {
-          console.error(e);
-          if (isMounted) {
-            setError(t('Failed to fetch managed namespaces'));
-            setNamespaceDetails(null);
-          }
-          return;
-        }
-
-        if (nsList.length === 0) {
-          if (isMounted) setNamespaceDetails(null);
-          return;
-        }
-
-        try {
-          const details = await getManagedNamespaceDetails({
-            clusterName,
-            resourceGroup,
-            namespaceName: projectId,
-            subscriptionId: subscription,
-          });
-          if (isMounted) setNamespaceDetails(details);
-        } catch (e) {
-          console.error(e);
-          if (isMounted) {
-            setError(t('Failed to fetch managed namespace details'));
-            setNamespaceDetails(null);
-          }
-        }
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    })();
-
-    return () => {
-      isMounted = false;
+    setActionError(undefined);
+    const submission: Submission = {
+      target,
+      key,
+      owner,
+      generation: auth.generation,
+      values: { ...formData },
+      snapshot: query.data,
     };
-  }, [clusterName, projectId, subscription, resourceGroup]);
-
-  // Pre-populate form when namespace details are fetched
-  useEffect(() => {
-    if (!namespaceDetails) return;
-
-    const quota = namespaceDetails.properties?.defaultResourceQuota;
-    const policy = namespaceDetails.properties?.defaultNetworkPolicy;
-
-    const populated: FormData = {
-      ...DEFAULT_FORM_DATA,
-      ingress: normalizePolicy(policy?.ingress ?? 'AllowSameNamespace'),
-      egress: normalizePolicy(policy?.egress ?? 'AllowAll'),
-      cpuRequest: parseMillicores(quota?.cpuRequest ?? '0m'),
-      cpuLimit: parseMillicores(quota?.cpuLimit ?? '0m'),
-      memoryRequest: parseMiB(quota?.memoryRequest ?? '0Mi'),
-      memoryLimit: parseMiB(quota?.memoryLimit ?? '0Mi'),
-    };
-
-    setFormData(populated);
-    setBaselineFormData(populated);
-  }, [namespaceDetails]);
-
-  const handleFormDataChange = useCallback((updates: Partial<FormData>) => {
-    setFormData(prev => {
-      const next = { ...prev, ...updates };
-
-      const compute = validateComputeQuota({
-        cpuRequest: next.cpuRequest,
-        cpuLimit: next.cpuLimit,
-        memoryRequest: next.memoryRequest,
-        memoryLimit: next.memoryLimit,
-      });
-      const networking = validateNetworkingPolicies({
-        ingress: next.ingress,
-        egress: next.egress,
-      });
-
-      const fieldErrors: Record<string, string[]> = {};
-      if (compute.fieldErrors) Object.assign(fieldErrors, compute.fieldErrors);
-      if (!networking.isValid) fieldErrors.networking = networking.errors;
-
-      setValidation({
-        isValid: compute.isValid && networking.isValid,
-        errors: [...(compute.errors || []), ...(networking.errors || [])],
-        warnings: [],
-        fieldErrors,
-      });
-
-      return next;
+    clusterAction(() => mutation.mutateAsync(submission), {
+      startMessage: t('Updating namespace {{ name }}…', { name: namespaceName }),
+      cancelledMessage: t('Cancelled update of namespace {{ name }}.', { name: namespaceName }),
+      successMessage: t('Updated namespace {{ name }}.', { name: namespaceName }),
+      errorMessage: t('Failed to update namespace {{ name }}.', { name: namespaceName }),
+      startOptions: { autoHideDuration: null },
     });
-  }, []);
+  };
 
-  const hasChanges = useMemo(() => {
-    if (!baselineFormData) return false;
-    const keys: (keyof FormData)[] = [
-      'ingress',
-      'egress',
-      'cpuRequest',
-      'cpuLimit',
-      'memoryRequest',
-      'memoryLimit',
-    ];
-    return keys.some(k => formData[k] !== baselineFormData[k]);
-  }, [baselineFormData, formData]);
-
-  const handleSave = useCallback(() => {
-    if (!resourceGroup || !clusterName || !projectId) return;
-
-    setUpdating(true);
-    clusterAction(
-      async () => {
-        try {
-          await updateManagedNamespace({
-            clusterName,
-            resourceGroup,
-            namespaceName: projectId,
-            ingressPolicy: formData.ingress,
-            egressPolicy: formData.egress,
-            cpuRequest: formData.cpuRequest,
-            cpuLimit: formData.cpuLimit,
-            memoryRequest: formData.memoryRequest,
-            memoryLimit: formData.memoryLimit,
-            subscriptionId: subscription,
-          });
-          setBaselineFormData(formData);
-          setError(null);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
-          throw err;
-        } finally {
-          setUpdating(false);
+  const handleRefresh = () => {
+    if (!auth.ready || !singleNamespace || client.isMutating({ mutationKey, exact: true })) return;
+    const refreshOwner = JSON.stringify(metadataKey);
+    if (pendingRefreshes.current.has(refreshOwner)) return;
+    pendingRefreshes.current.add(refreshOwner);
+    setActionError(undefined);
+    const isCurrentAuth = () => {
+      const current = getManagedNamespaceAuthState();
+      return current.ready && current.generation === auth.generation;
+    };
+    void (async () => {
+      if (!isCurrentAuth()) return;
+      const namespaceRequest = client.fetchQuery({
+        queryKey: metadataKey,
+        queryFn: fetchMetadata,
+        staleTime: 0,
+      });
+      // Invalidate every cached Azure scope of this namespace before labels can switch the key.
+      await client.invalidateQueries({
+        queryKey: [...key.slice(0, -1), { clusterName, namespaceName }],
+        refetchType: 'none',
+      });
+      const namespace = await namespaceRequest;
+      if (!isCurrentAuth()) return;
+      const nextTarget = resolveTarget(namespace, clusterName, namespaceName);
+      if (!nextTarget) return;
+      const nextKey = managedNamespaceQueryKey(nextTarget, auth.generation);
+      if (client.isMutating({ mutationKey: [...nextKey, 'update'], exact: true })) return;
+      await client.fetchQuery({
+        queryKey: nextKey,
+        queryFn: () => getManagedNamespaceDetails(nextTarget),
+      });
+    })()
+      .catch(error => {
+        if (!isCancelledError(error)) {
+          console.error('Failed to refresh managed namespace settings', error);
         }
-      },
-      {
-        startMessage: t('Updating namespace {{ name }}…', { name: projectId }),
-        cancelledMessage: t('Cancelled update of namespace {{ name }}.', { name: projectId }),
-        successMessage: t('Updated namespace {{ name }}.', { name: projectId }),
-        errorMessage: t('Failed to update namespace {{ name }}.', { name: projectId }),
-        startOptions: { autoHideDuration: null },
-      }
-    );
-  }, [resourceGroup, clusterName, projectId, subscription, formData, t]);
+      })
+      .finally(() => pendingRefreshes.current.delete(refreshOwner));
+  };
+
+  const failure = metadata.error ?? query.error;
+  let error: string | null = null;
+  if (!auth.ready) error = t('Sign in to Azure to manage namespace settings.');
+  else if (!singleNamespace) error = t('Select a project with one cluster and one namespace.');
+  else if (failure) {
+    error = `${t('Failed to fetch managed namespace details')}: ${failure.message}`;
+  } else if (metadata.data && !target) {
+    error = t('Managed namespace settings are unavailable for this project.');
+  }
+  const saveError =
+    actionError?.owner === owner
+      ? actionError.message
+      : mutation.variables?.owner === owner
+      ? mutation.error?.message ?? null
+      : null;
 
   return {
-    loading,
+    loading: auth.ready && singleNamespace && !error && !query.data,
+    revalidating: (metadata.isFetching || query.isFetching) && !!query.data,
     updating,
+    resolvingTarget: metadata.isFetching,
+    canRefresh: auth.ready && singleNamespace,
     error,
-    namespaceDetails,
+    saveError,
+    namespaceDetails: auth.ready && target ? query.data ?? null : null,
     formData,
     validation,
     hasChanges,
-    handleFormDataChange,
+    hasRemoteChanges:
+      hasChanges && !!query.data && !equalSettings(readForm(query.data), currentDraft.baseline),
+    handleFormDataChange: (updates: Partial<FormData>) =>
+      setDraft(previous => ({
+        owner,
+        baseline,
+        values: {
+          ...(previous?.owner === owner && !equalSettings(previous.values, previous.baseline)
+            ? previous.values
+            : formData),
+          ...updates,
+        },
+      })),
     handleSave,
+    handleRefresh,
   };
-};
+}

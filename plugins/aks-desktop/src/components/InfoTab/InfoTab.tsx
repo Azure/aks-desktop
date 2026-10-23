@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { Box, Button, CircularProgress, Divider, Typography } from '@mui/material';
+import { Alert, Box, Button, CircularProgress, Divider, Typography } from '@mui/material';
 import React from 'react';
 import { ComputeStep } from '../shared/ComputeStep';
 import { NetworkingStep } from '../shared/NetworkingStep';
@@ -18,7 +18,7 @@ interface InfoTabProps {
     clusters: string[];
     /** Kubernetes namespace names associated with the project; the first entry is used. */
     namespaces: string[];
-    /** The managed namespace name used as the project identifier. */
+    /** Project identifier, which may differ from the namespace name. */
     id: string;
   };
 }
@@ -35,14 +35,20 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
   const { t } = useTranslation();
   const {
     loading,
+    revalidating,
     updating,
+    resolvingTarget,
+    canRefresh,
     error,
+    saveError,
     namespaceDetails,
     formData,
     validation,
     hasChanges,
+    hasRemoteChanges,
     handleFormDataChange,
     handleSave,
+    handleRefresh,
   } = useInfoTab(project);
 
   return (
@@ -57,13 +63,30 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
             height: '100%',
           }}
         >
-          <CircularProgress />
+          <CircularProgress aria-label={t('Loading namespace settings')} />
         </Box>
       )}
-      {!loading && error && <Typography color="error">{error}</Typography>}
+      {!loading && error && (
+        <Alert severity={namespaceDetails ? 'warning' : 'error'} sx={{ mb: 2 }}>
+          {error}
+          <Button onClick={handleRefresh} disabled={!canRefresh || revalidating || updating}>
+            {t('Retry')}
+          </Button>
+        </Alert>
+      )}
+      {saveError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {saveError}
+        </Alert>
+      )}
 
-      {!loading && !error && namespaceDetails && (
+      {!loading && namespaceDetails && (
         <Box>
+          {hasRemoteChanges && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              {t('Settings changed on the server. Your unsaved changes have been kept.')}
+            </Alert>
+          )}
           <Box sx={{ mb: 3 }}>
             <NetworkingStep
               formData={formData}
@@ -79,11 +102,33 @@ const InfoTab: React.FC<InfoTabProps> = ({ project }) => {
               validation={validation}
             />
           </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+              gap: 1,
+              mt: 3,
+            }}
+          >
+            {revalidating && (
+              <Box role="status" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={16} aria-hidden="true" />
+                <Typography variant="body2">{t('Refreshing data in background')}</Typography>
+              </Box>
+            )}
+            <Button
+              variant="outlined"
+              onClick={handleRefresh}
+              disabled={!canRefresh || revalidating || updating}
+              aria-busy={revalidating}
+            >
+              {t('Refresh')}
+            </Button>
             <Button
               variant="contained"
               color="primary"
-              disabled={!project.id || !hasChanges || !validation.isValid || updating}
+              disabled={!hasChanges || !validation.isValid || updating || resolvingTarget}
               onClick={handleSave}
             >
               {updating ? `${t('Updating')}...` : t('Update')}
