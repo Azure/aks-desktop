@@ -47,7 +47,7 @@ test('the installed package is a complete pinned source distribution', () => {
   assert.deepEqual(packageManifest.files, ['source', 'src']);
   assert.equal(packageManifest.repository.url, 'https://github.com/kubernetes-sigs/headlamp.git');
   assert.deepEqual(rootManifest.headlampSource, {
-    revision: '317ccc2009471edd275ad3c38b824a92408a1fba',
+    revision: '7ce01fceac891f6dba09420cb102ad6ba7ecc519',
   });
   assert.deepEqual(packageManifest.headlampSource, {
     ...rootManifest.headlampSource,
