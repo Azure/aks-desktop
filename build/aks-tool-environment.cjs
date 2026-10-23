@@ -85,10 +85,16 @@ function validateCommand(command, args, temporaryDirectory = os.tmpdir()) {
     !/^\d{1,3}\.\d{1,3}\.\d{1,3}-\d{8}$/.test(rest[3] ?? '')
   ) invalid();
   if (args[0] === 'delete') {
+    // Full delete on the AKS Local Overview appends --purge.
+    if (rest.length === 5 && rest[4] === '--purge') return;
     if (rest.length !== 4) invalid();
     return;
   }
-  if (rest.length !== 6 || rest[4] !== '--kubeconfig-out') invalid();
+  // An NVIDIA GPU create appends exactly these arguments after the private kubeconfig path.
+  const gpu = ['--enable-gpu', '--gpu-vendor', 'nvidia'];
+  const withGpu = args[0] === 'create' && rest.length === 6 + gpu.length;
+  if (withGpu && gpu.some((value, index) => rest[6 + index] !== value)) invalid();
+  if (rest.length !== (withGpu ? 6 + gpu.length : 6) || rest[4] !== '--kubeconfig-out') invalid();
   const output = rest[5];
   if (!path.isAbsolute(output) || output.includes('\0')) invalid();
   const root = fs.realpathSync(temporaryDirectory);

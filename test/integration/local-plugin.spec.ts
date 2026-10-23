@@ -310,7 +310,7 @@ it.each([
 });
 
 it.each([
-  ['delete', ...prefix, ...configuration, '--purge'],
+  ['delete', ...prefix, ...configuration, '--purge=true'],
   ['delete', ...prefix, '--name', '../bad', '--k8s-version', '1.36.1-20260701'],
   ['create', ...prefix, ...configuration, '--kubeconfig-out', 'C:\\not-a-private-handoff.yaml'],
   ['kubeconfig', ...prefix, ...configuration, '--kubeconfig-out', 'C:\\not-a-private-handoff.yaml'],
