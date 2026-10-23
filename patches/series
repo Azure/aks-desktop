@@ -2,4 +2,3 @@
 0080 source 0080-headlamp-aks-desktop-host-marker.patch
 7683 source 7683-headlamp-upstream-legacy-github-storage.patch
 7726 source 7726-headlamp-upstream-workload-log-cluster.patch
-7746 source 7746-headlamp-upstream-product-company-name.patch
