@@ -4,9 +4,8 @@
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { ActionButton } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import React from 'react';
-import { trackFeature } from '../../telemetry';
+import { useDispatch } from 'react-redux';
 import { CONTACT_US_URL } from '../../utils/constants/contactUs';
-import { openExternalUrl } from '../../utils/shared/openExternalUrl';
 
 /**
  * App-bar entry point for reaching the AKS Desktop team. Opens the AKS Desktop
@@ -15,6 +14,7 @@ import { openExternalUrl } from '../../utils/shared/openExternalUrl';
  */
 export default function ContactUsButton() {
   const { t } = useTranslation();
+  const dispatch = useDispatch();
 
   return (
     <ActionButton
@@ -31,12 +31,12 @@ export default function ContactUsButton() {
       // action by keyboard at all. The IconButton this renders instead stays
       // focusable, and its aria-label supplies the accessible name.
       onClick={() => {
-        // Attempt the navigation first: openExternalUrl is synchronous, so the
-        // event records a click that was actually acted on. It still cannot
-        // confirm the tab opened — it returns void, and a blocked popup or a
-        // misconfigured redirect both look identical from here.
-        openExternalUrl(CONTACT_US_URL);
-        trackFeature({ feature: 'aksd.feedback', status: 'opened' });
+        window.open(CONTACT_US_URL, '_blank', 'noopener,noreferrer');
+        // AKS's consent-gated Headlamp event observer owns telemetry, not this plugin.
+        dispatch({
+          type: 'headlamp/event',
+          payload: { type: 'aksd.feedback', data: { status: 'opened' } },
+        });
       }}
     />
   );

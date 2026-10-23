@@ -62,12 +62,10 @@ index 95826c17f..5ae6fdf9c 100644
      - name: Test desktop OAuth callbacks
        run: xvfb-run --auto-servernum npm run app:test:e2e -- tests/oauthProvider.spec.ts tests/protocolScheme.spec.ts
      - name: Test external backend token
-@@ -123,6 +123,11 @@ jobs:
-       run: make app-tsc
-     - name: App Windows ${{ matrix.arch }}
-       run: make app-win-${{ matrix.arch }}
-+    - name: Install desktop e2e dependencies
-+      run: npm --prefix app/e2e-tests ci
+@@ -123,6 +123,9 @@ jobs:
+       run: npm --prefix app/e2e-tests ci
+     - name: Test external backend token
+       run: npm run app:test:e2e -- tests/externalBackendToken.spec.ts
 +    - name: Test desktop cluster registration
 +      if: matrix.arch == 'x64'
 +      run: npm run app:test:e2e -- tests/clusterRegistration.spec.ts
@@ -495,15 +493,16 @@ diff --git a/app/e2e-tests/tests/listenerCleanup.spec.ts b/app/e2e-tests/tests/l
 index bd9e45e02..d5ed4574d 100644
 --- a/app/e2e-tests/tests/listenerCleanup.spec.ts
 +++ b/app/e2e-tests/tests/listenerCleanup.spec.ts
-@@ -32,6 +32,7 @@ const runCommandPath = path.resolve(
+@@ -32,7 +32,8 @@ const runCommandPath = path.resolve(
  let electronApp: ElectronApplication;
  let electronPage: Page;
+ let backend: Server;
  let userDataDirectory: string;
 +let commandDirectory: string;
  
  /**
   * Persists consent for the command used by the Electron test.
-@@ -58,12 +59,20 @@ test.describe('desktop listener cleanup', () => {
+@@ -58,6 +59,13 @@ test.describe('desktop listener cleanup', () => {
        write: false,
      });
      userDataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-listener-e2e-'));
@@ -514,19 +513,20 @@ index bd9e45e02..d5ed4574d 100644
 +      const commandPath = path.join(commandDirectory, 'gh');
 +      fs.writeFileSync(commandPath, '#!/bin/sh\nprintf "gh version fixture\\n"\n', { mode: 0o755 });
 +    }
-     electronApp = await _electron.launch({
-       cwd: appPath,
-       executablePath: electronPath,
-       args: ['.', `--user-data-dir=${userDataDirectory}`],
+     backend = createServer((request, response) => {
+       if (request.url === '/config') {
+         response.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+@@ -85,6 +93,7 @@ test.describe('desktop listener cleanup', () => {
        env: {
          ...process.env,
 +        PATH: `${commandDirectory}${path.delimiter}${process.env.PATH || ''}`,
          NODE_ENV: 'development',
          ELECTRON_DEV: 'true',
-       },
+         ELECTRON_START_URL: 'data:text/html,<html></html>',
+         EXTERNAL_SERVER: 'true',
 @@ -132,6 +141,7 @@ test.describe('desktop listener cleanup', () => {
-   test.afterAll(async () => {
-     await electronApp?.close();
+       );
+     }
      fs.rmSync(userDataDirectory, { force: true, recursive: true });
 +    fs.rmSync(commandDirectory, { force: true, recursive: true });
    });
@@ -3116,14 +3116,14 @@ index 0675a46be..08ef65b6f 100644
 --- a/app/electron/main.ts
 +++ b/app/electron/main.ts
 @@ -43,6 +43,7 @@ import {
- import { withBackendMemoryDefaults } from './backendMemory';
- import { resolveBackendToken, waitForExternalBackend } from './backendToken';
+   waitForExternalBackend,
+ } from './backendToken';
  import { createCertificateSetup } from './certificates';
 +import { setupClusterRegistrationHandler } from './cluster-registration';
  import { setupDevelopmentPluginsHandlers } from './developmentPlugins';
  import { startWindowsVMDetection, waitForWindowsVMDetection } from './hardwareAcceleration';
  import i18n from './i18next.config';
-@@ -227,15 +228,19 @@ const appBuildManifestPath = isDev
+@@ -227,8 +228,9 @@ const appBuildManifestPath = isDev
  const legalDocuments = loadLegalDocuments(appBuildManifestPath);
  const protocolScheme = readProtocolScheme(appBuildManifestPath);
  const shouldCheckForUpdates = shouldCheckForAppUpdates(appBuildManifestPath);
@@ -3134,8 +3134,8 @@ index 0675a46be..08ef65b6f 100644
    isDev ? 'development' : 'production'
  );
  
- // make it global so that it doesn't get garbage collected
- let mainWindow: BrowserWindow | null;
+@@ -240,6 +245,9 @@
+ }
  
 -function isFromMainWindowFrame(event: IpcMainEvent, window = mainWindow): boolean {
 +function isFromMainWindowFrame(
