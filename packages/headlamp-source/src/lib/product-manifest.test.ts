@@ -16,7 +16,14 @@ test('creates product configuration with only release plugin sources', () => {
   const template = createProductTemplate({
     version: '1.2.3',
     headlamp: {
-      product: { name: 'example', productName: 'Example' },
+      product: {
+        name: 'example',
+        productName: 'Example',
+        errorReporting: {
+          githubIssueUrl: 'https://github.com/example/product/issues/new?labels=bug',
+          buttonLabel: 'Contact support',
+        },
+      },
       checkForUpdates: false,
       runCommands,
       plugins: [
@@ -38,7 +45,15 @@ test('creates product configuration with only release plugin sources', () => {
   });
 
   assert.deepEqual(template, {
-    product: { name: 'example', productName: 'Example', version: '1.2.3' },
+    product: {
+      name: 'example',
+      productName: 'Example',
+      errorReporting: {
+        githubIssueUrl: 'https://github.com/example/product/issues/new?labels=bug',
+        buttonLabel: 'Contact support',
+      },
+      version: '1.2.3',
+    },
     checkForUpdates: false,
     runCommands,
     plugins: [
