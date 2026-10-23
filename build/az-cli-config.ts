@@ -142,8 +142,8 @@ exec "$SCRIPT_DIR/../python/bin/python3" "$@"
  * to `%USERPROFILE%\.azure\cliextensions` - any extension a user (or an older
  * version of this app) installed there keeps loading and can shadow core
  * commands. This wrapper isolates the bundled CLI in an app-owned
- * `cliextensions` directory, matching the linux/darwin wrapper's naming, then
- * delegates to the renamed original script.
+ * `cliextensions` directory, matching the linux/darwin wrapper's naming, and
+ * invokes Python with explicit unbuffered output so proxy readiness reaches pipes.
  *
  * Resolves its own location via `%~dp0` rather than an absolute path, since
  * the bundle is relocatable and installed elsewhere on the user's machine.
@@ -158,7 +158,8 @@ export function generateWindowsAzWrapperScript(): string {
     'rem cannot shadow core commands added by this bundled version.\r\n' +
     `set "AZURE_EXTENSION_DIR=%~dp0..\\${WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME}"\r\n` +
     '\r\n' +
-    `call "%~dp0${WINDOWS_AZ_CLI_ORIGINAL_FILENAME}" %*\r\n` +
+    'set "AZ_INSTALLER=ZIP"\r\n' +
+    '"%~dp0..\\python.exe" -I -u -B -m azure.cli %*\r\n' +
     'exit /b %ERRORLEVEL%\r\n'
   );
 }

@@ -19,7 +19,6 @@ import {
   resolveAzCliVersion,
   sameExtensionSet,
   WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME,
-  WINDOWS_AZ_CLI_ORIGINAL_FILENAME,
   writeStagedAzCli,
 } from './az-cli-config';
 
@@ -259,13 +258,15 @@ test('the generated Windows wrapper isolates AZURE_EXTENSION_DIR under the CLI d
   assert.doesNotMatch(script, /[A-Za-z]:\\/); // no absolute Windows path baked in
 });
 
-test('the generated Windows wrapper delegates to the renamed original and forwards all arguments', () => {
+test('the generated Windows wrapper runs isolated Python unbuffered and forwards all arguments', () => {
   const script = generateWindowsAzWrapperScript();
 
-  assert.match(script, new RegExp(`call "%~dp0${WINDOWS_AZ_CLI_ORIGINAL_FILENAME}" %\\*`));
+  assert.match(script, /set "AZ_INSTALLER=ZIP"/);
+  assert.match(script, /"%~dp0\.\.\\python\.exe" -I -u -B -m azure\.cli %\*/);
+  assert.doesNotMatch(script, /call .*az-original\.cmd/);
 });
 
-test('the generated Windows wrapper propagates the delegated exit code', () => {
+test('the generated Windows wrapper propagates the Python exit code', () => {
   const script = generateWindowsAzWrapperScript();
 
   assert.match(script, /exit \/b %ERRORLEVEL%/);

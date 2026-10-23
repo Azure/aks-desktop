@@ -889,7 +889,7 @@ index 420e5c109aa8e16e8dbbc2f098d46cd11f9f5283..75d2b1a95791352202ec700ce59d779b
      const validChannels = [
 diff --git a/source/app/electron/proxies.test.ts b/source/app/electron/proxies.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..908c104b69583e30e15b37c7e3d7dc985f2d2d8f
+index 0000000000000000000000000000000000000000..1e53c303fb3accea008e2246b49c48bfb06d424e
 --- /dev/null
 +++ b/source/app/electron/proxies.test.ts
 @@ -0,0 +1,1307 @@
@@ -1098,7 +1098,7 @@ index 0000000000000000000000000000000000000000..908c104b69583e30e15b37c7e3d7dc98
 +        'az.cmd connectedk8s proxy --subscription "00000000-0000-0000-0000-000000000000" --resource-group "rg(prod)" --name "cluster-a" --port "47011"',
 +      ],
 +      options: {
-+        detached: true,
++        detached: false,
 +        shell: false,
 +        windowsHide: true,
 +        windowsVerbatimArguments: true,
@@ -2202,7 +2202,7 @@ index 0000000000000000000000000000000000000000..908c104b69583e30e15b37c7e3d7dc98
 +});
 diff --git a/source/app/electron/proxies.ts b/source/app/electron/proxies.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..0b2b9047f2b06069685cebe4728b01b5e4007a49
+index 0000000000000000000000000000000000000000..58611adab15a03b816398804b48ee9343eb0b435
 --- /dev/null
 +++ b/source/app/electron/proxies.ts
 @@ -0,0 +1,877 @@
@@ -2446,7 +2446,7 @@ index 0000000000000000000000000000000000000000..0b2b9047f2b06069685cebe4728b01b5
 +    return {
 +      command: commandShell,
 +      args: ['/d', '/s', '/c', ['az.cmd', ...windowsProxyArgs].join(' ')],
-+      options: { ...options, windowsVerbatimArguments: true },
++      options: { ...options, detached: false, windowsVerbatimArguments: true },
 +    };
 +  }
 +
