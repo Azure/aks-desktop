@@ -323,7 +323,7 @@ index 0000000000000000000000000000000000000000..06498ae7c4c3a59905895099f9c718a9
 +        'az.cmd connectedk8s proxy --subscription "00000000-0000-0000-0000-000000000000" --resource-group "rg(prod)" --name "cluster-a" --port "47011"',
 +      ],
 +      options: {
-+        detached: true,
++        detached: false,
 +        shell: false,
 +        windowsHide: true,
 +        windowsVerbatimArguments: true,
@@ -2192,7 +2192,7 @@ index 0000000000000000000000000000000000000000..32addd4e234419016390979dae822de4
 +    return {
 +      command: commandShell,
 +      args: ['/d', '/s', '/c', ['az.cmd', ...windowsProxyArgs].join(' ')],
-+      options: { ...options, windowsVerbatimArguments: true },
++      options: { ...options, detached: false, windowsVerbatimArguments: true },
 +    };
 +  }
 +
