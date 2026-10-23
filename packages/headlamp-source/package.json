@@ -1,12 +1,12 @@
 {
   "name": "@headlamp-k8s/headlamp-source",
-  "version": "0.0.0-main.d4c87a8f",
+  "version": "0.0.0-main.317ccc20",
   "description": "Headlamp source assembly and npm build entry points",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/kubernetes-sigs/headlamp.git",
-    "commit": "d4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0"
+    "commit": "317ccc2009471edd275ad3c38b824a92408a1fba"
   },
   "engines": {
     "node": ">=22.22.2",
@@ -31,8 +31,8 @@
     "build:app:mac": "npm --prefix source run app:package:mac",
     "build:app:win": "npm --prefix source run app:package:win",
     "build:app:unpacked": "npm --prefix source run app:build",
-    "build:container": "docker buildx build --pull --platform=local --build-arg HEADLAMP_SOURCE_COMMIT=d4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0 --build-arg HEADLAMP_BUILD_MANIFEST -t ghcr.io/headlamp-k8s/headlamp:0.0.0-main.d4c87a8f -f source/Dockerfile source",
-    "build:plugins-container": "docker buildx build --pull --platform=local -t ghcr.io/headlamp-k8s/plugins:0.0.0-main.d4c87a8f -f source/Dockerfile.plugins source",
+    "build:container": "docker buildx build --pull --platform=local --build-arg HEADLAMP_SOURCE_COMMIT=317ccc2009471edd275ad3c38b824a92408a1fba --build-arg HEADLAMP_BUILD_MANIFEST -t ghcr.io/headlamp-k8s/headlamp:0.0.0-main.317ccc20 -f source/Dockerfile source",
+    "build:plugins-container": "docker buildx build --pull --platform=local -t ghcr.io/headlamp-k8s/plugins:0.0.0-main.317ccc20 -f source/Dockerfile.plugins source",
     "start": "npm --prefix source run start:with-app",
     "start:backend": "npm --prefix source run start:backend",
     "start:frontend": "npm --prefix source run start:frontend",
@@ -57,7 +57,7 @@
     "typescript": "^6.0.3"
   },
   "headlampSource": {
-    "revision": "d4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0",
-    "goVersion": "1.26.8"
+    "revision": "317ccc2009471edd275ad3c38b824a92408a1fba",
+    "goVersion": "1.26.10"
   }
 }

@@ -10,6 +10,23 @@ The numbered files listed in `patches/series` are the patches we review and
 maintain. npm combines them into the tracked
 `patches/headlamp-source@<version>.patch` file.
 
+### Carried patches
+
+The current stack is rebased onto Headlamp main at
+`317ccc2009471edd275ad3c38b824a92408a1fba`:
+
+| Patch | Upstream source | Carried revision |
+| --- | --- | --- |
+| `0071` | [Cluster pre-open hooks and proxy lifecycle, PR #7505](https://github.com/kubernetes-sigs/headlamp/pull/7505) | `91ee02272eeb6cadfcfac1cf89820e1d29a400bb` |
+| `0080` | AKS Desktop compatibility marker | Downstream-only; unchanged |
+| `7683` | [Legacy GitHub token migration, PR #7683](https://github.com/kubernetes-sigs/headlamp/pull/7683) | `1a60fa08ae7651b898a243280f3742d769255134` |
+| `7726` | [Workload log cluster preservation, PR #7726](https://github.com/kubernetes-sigs/headlamp/pull/7726) | `f1dfc690d63ef5e6b20fe56a79696797f6dfa999`; closed without merging, still required |
+
+Patches `0072` (PR #7958), `7685`, `7712`, `7727`, `7731`, `7744`, and
+`7746` are included in this pin and no longer carried. Keep each numbered
+patch refresh or removal in its own commit, followed by the source pin,
+generated aggregate, metadata, and integration-test updates.
+
 ### Update the Headlamp commit
 
 Use a clean Headlamp checkout at the commit to adopt:
@@ -35,8 +52,9 @@ If a numbered patch no longer applies, rebase it as described below. If its
 upstream PR is included in the new commit, remove it from `patches/series` and
 delete its numbered patch before rebuilding the combined patch.
 
-Commit the pin, package metadata, lockfile, series, numbered patches, and
-combined patch together. Never edit the installed package in `node_modules`.
+Keep the pin, package metadata, lockfiles, series, numbered patches, and
+combined patch synchronized in the same PR. Never edit the installed package
+in `node_modules`.
 
 ### Including new PRs as patches
 

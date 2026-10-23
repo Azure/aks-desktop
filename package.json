@@ -160,7 +160,7 @@
     }
   },
   "headlampSource": {
-    "revision": "d4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0"
+    "revision": "317ccc2009471edd275ad3c38b824a92408a1fba"
   },
   "headlamp": {
     "commandEnvironment": "external-tools/aks-tool-environment.cjs",
@@ -1133,8 +1133,8 @@
     "typescript": "^6.0.3"
   },
   "headlampPatch": {
-    "path": "patches/headlamp-source@0.0.0-main.d4c87a8f.patch",
-    "integrity": "sha512-wmdaiS2nP8+jd2phgApjAcUGG4m1TymkYRoEntHPF5mgL8iDQezkRDVHBpJXwy9aZowIZafJx1dtstIS8pbzzw=="
+    "path": "patches/headlamp-source@0.0.0-main.317ccc20.patch",
+    "integrity": "sha512-AJxusq8t19zlwfLHJx+IXVoDKS4gMBXhxSYVtwxTKvozDFnqlvepHwDiscvPeVTVjwN2s3bqMfOo2coAcmWLrw=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
