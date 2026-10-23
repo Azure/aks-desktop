@@ -16,6 +16,7 @@ import {
   PIPELINE_WORKFLOW_FILENAME,
 } from '../constants';
 import type { IssueTracking, PipelineConfig, PRTracking } from '../types';
+import { getAcrBuildFiles } from './acrTasks/acrTaskRunner';
 import {
   generateBranchName,
   getActiveEnvVars,
@@ -28,8 +29,7 @@ import { escapeYamlValue } from './yamlUtils';
 
 /**
  * Creates the setup PR that adds Copilot agent config files to the repo (Step C).
- * Creates a branch, pushes copilot-setup-steps.yml and containerization.agent.md,
- * then opens a PR against the default branch.
+ * Publishes agent configuration and its ACR runtime (when configured), then opens a PR.
  */
 export const createSetupPR = async (
   octokit: Octokit,
@@ -58,6 +58,9 @@ export const createSetupPR = async (
         '### What gets added',
         `- \`${COPILOT_SETUP_STEPS_PATH}\` — environment setup for the agent`,
         `- \`${AGENT_CONFIG_PATH}\` — agent instructions for containerization + AKS deployment`,
+        ...(config.acrLoginServer || config.acrResourceId
+          ? Object.keys(getAcrBuildFiles()).map(path => `- \`${path}\` — ACR Tasks build runtime`)
+          : []),
         '',
         '### What happens after merge',
         'The Copilot Coding Agent will analyze this repository and create a follow-up PR with:',
@@ -119,6 +122,9 @@ export const createPipelineSecrets = async (
 
   if (config.acrLoginServer || config.acrResourceId) {
     secrets.AZURE_ACR_NAME = deriveAcrName(config);
+  }
+  if (config.acrResourceId) {
+    secrets.AZURE_ACR_RESOURCE_ID = config.acrResourceId;
   }
 
   const envVars = getActiveEnvVars(config);
