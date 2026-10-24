@@ -1,7 +1,7 @@
 diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/local-cluster-registration.test.ts
 --- a/app/electron/local-cluster-registration.test.ts
 +++ b/app/electron/local-cluster-registration.test.ts
-@@ -61,14 +61,17 @@ function credentials(identity = 'public-test-certificate') {
+@@ -65,14 +65,17 @@ function credentials(identity = 'public-test-certificate') {
    });
  }
  function preparation(result: ClusterRegistrationResult) {
@@ -21,7 +21,7 @@ diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/loca
  }
  
  describe('local registration handoff', () => {
-@@ -143,7 +146,7 @@ describe('local registration handoff', () => {
+@@ -140,7 +143,7 @@ describe('local registration handoff', () => {
      ).resolves.toEqual({
        success: true,
        message: 'Local cluster compatibility contract.',
@@ -30,7 +30,7 @@ diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/loca
      });
      expect(hardenDirectory).not.toHaveBeenCalled();
      expect(persist).not.toHaveBeenCalled();
-@@ -180,7 +183,7 @@ describe('local registration handoff', () => {
+@@ -177,7 +180,7 @@ describe('local registration handoff', () => {
      try {
        await expect(call({ action: 'capabilities' })).resolves.toMatchObject({
          success: true,
@@ -46,18 +46,18 @@ diff --git a/app/electron/local-cluster-registration.ts b/app/electron/local-clu
  type LocalRequest =
    | { action: 'inspect' | 'capabilities' }
    | ({ action: 'prepare'; consent: true; distro: typeof LOCAL_DISTRO } & LocalConfiguration)
--  | { action: 'register' | 'discard' | 'verify-delete'; token: string }
+-  | { action: 'register' | 'discard'; token: string }
 +  | { action: 'register'; token: string; context?: string }
-+  | { action: 'discard' | 'verify-delete'; token: string }
++  | { action: 'discard'; token: string }
 +  | { action: 'readiness'; reference: string }
    | {
-       action: 'prepare-delete' | 'forget';
+       action: 'forget';
        reference: string;
-@@ -83,9 +85,22 @@ export function isLocalRequest(value: unknown): value is LocalRequest {
+@@ -84,9 +86,22 @@ export function isLocalRequest(value: unknown): value is LocalRequest {
    if (!isRecord(value) || typeof value.action !== 'string') return false;
    const only = (keys: string[]) => Object.keys(value).every(key => keys.includes(key));
    if (value.action === 'inspect' || value.action === 'capabilities') return only(['action']);
--  if (['register', 'discard', 'verify-delete'].includes(value.action)) {
+-  if (['register', 'discard'].includes(value.action)) {
 +  if (value.action === 'register') {
 +    return (
 +      only(['action', 'token', 'context']) &&
@@ -65,7 +65,7 @@ diff --git a/app/electron/local-cluster-registration.ts b/app/electron/local-clu
 +      (value.context === undefined || typeof value.context === 'string')
 +    );
 +  }
-+  if (['discard', 'verify-delete'].includes(value.action)) {
++  if (value.action === 'discard') {
      return only(['action', 'token']) && isToken(value.token);
    }
 +  if (value.action === 'readiness') {
@@ -77,7 +77,18 @@ diff --git a/app/electron/local-cluster-registration.ts b/app/electron/local-clu
    if (value.consent !== true || value.distro !== LOCAL_DISTRO) return false;
    if (value.action === 'prepare') {
      return (
-@@ -252,9 +267,29 @@ export function createLocalClusterRegistrationProvider(
+@@ -225,10 +240,6 @@ export function createLocalClusterRegistrationProvider(
+       ...new Set([...(options.kubeconfigPaths ?? resolveKubeconfigPaths)(), ...managed]),
+     ].filter(candidate => path.resolve(candidate) !== managedPath());
+   };
+-  const prepared = (lease: Lease) => ({
+-    token: lease.token,
+-    kubeconfigPath: lease.kubeconfigPath,
+-  });
+ 
+   return {
+     id: LOCAL_PROVIDER,
+@@ -248,9 +259,29 @@ export function createLocalClusterRegistrationProvider(
          return {
            success: true,
            message: 'Local cluster compatibility contract.',
@@ -108,7 +119,7 @@ diff --git a/app/electron/local-cluster-registration.ts b/app/electron/local-clu
        if (requestInFlight) {
          return {
            success: false,
-@@ -279,12 +314,18 @@ export function createLocalClusterRegistrationProvider(
+@@ -275,12 +306,18 @@ export function createLocalClusterRegistrationProvider(
              return {
                success: true,
                message: 'Private credential destination prepared.',
@@ -127,4 +138,4 @@ diff --git a/app/electron/local-cluster-registration.ts b/app/electron/local-clu
 +            }
              const imported = managedTarget();
              if (
-               lease.target &&
+               lease.persisted &&

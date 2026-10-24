@@ -3946,10 +3946,10 @@ index 0000000000000000000000000000000000000000..d37d1df46fa4232609ea3f4a6885dba7
 +}
 diff --git a/source/app/electron/local-cluster-registration.test.ts b/source/app/electron/local-cluster-registration.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..3837511454855cc8c48290b10c79eb2943ab3d71
+index 0000000000000000000000000000000000000000..e9929365354ad29d2e7539f704820f5eb196bcce
 --- /dev/null
 +++ b/source/app/electron/local-cluster-registration.test.ts
-@@ -0,0 +1,502 @@
+@@ -0,0 +1,445 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -3980,7 +3980,11 @@ index 0000000000000000000000000000000000000000..3837511454855cc8c48290b10c79eb29
 +  createLocalClusterRegistrationProvider,
 +  isLocalRequest,
 +} from './local-cluster-registration';
-+import { LOCAL_CONFIG_FILE, readRegisteredLocalTarget } from './local-kubeconfig';
++import {
++  LOCAL_CONFIG_FILE,
++  normalizeLocalKubeconfig,
++  readRegisteredLocalTarget,
++} from './local-kubeconfig';
 +
 +vi.mock('./secureStorage', () => ({ isTrustedDocumentUrl: vi.fn() }));
 +
@@ -4075,18 +4079,11 @@ index 0000000000000000000000000000000000000000..3837511454855cc8c48290b10c79eb29
 +    expect(result.success).toBe(true);
 +    return readRegisteredLocalTarget(fs.readFileSync(destination, 'utf8'));
 +  }
-+  async function verifyTarget(reference: string, fingerprint: string, identity?: string) {
-+    const prepared = preparation(
-+      await call({
-+        action: 'prepare-delete',
-+        reference,
-+        name: configuration.name,
-+        credentialFingerprint: fingerprint,
-+        ...consent,
-+      })
-+    );
-+    fs.writeFileSync(prepared.kubeconfigPath, credentials(identity));
-+    return { prepared, result: await call({ action: 'verify-delete', token: prepared.token }) };
++  async function pendingTarget() {
++    const target = (await call({ action: 'inspect' })).data?.target;
++    if (!target || typeof target !== 'object' || !('name' in target) || target.name !== 'demo') {
++      throw new Error('Expected pending target');
++    }
 +  }
 +
 +  it('advertises the versioned contract without CLI tools or file mutations', async () => {
@@ -4161,7 +4158,7 @@ index 0000000000000000000000000000000000000000..3837511454855cc8c48290b10c79eb29
 +    const result = await call({ action: 'register', token: prepared.token });
 +    expect(result).toMatchObject({
 +      success: true,
-+      data: { target: { contextName: 'aksedge-demo', registered: true } },
++      data: { target: { contextName: 'demo', registered: true } },
 +    });
 +    expect(persist.mock.calls[0][1]).toEqual([destination, normalConfig]);
 +    expect(fs.readFileSync(normalConfig, 'utf8')).toBe(before);
@@ -4284,82 +4281,28 @@ index 0000000000000000000000000000000000000000..3837511454855cc8c48290b10c79eb29
 +    fs.writeFileSync(prepared.kubeconfigPath, credentials());
 +    persist.mockRejectedValueOnce(new Error('fixture persistence failure'));
 +    await call({ action: 'register', token: prepared.token });
-+    const inspected = await call({ action: 'inspect' });
-+    const target = inspected.data?.target;
-+    if (
-+      !target ||
-+      typeof target !== 'object' ||
-+      !('credentialFingerprint' in target) ||
-+      typeof target.credentialFingerprint !== 'string'
-+    )
-+      throw new Error('Expected pending target');
-+    const { result } = await verifyTarget(prepared.token, target.credentialFingerprint);
-+    expect(result.success).toBe(true);
++    await pendingTarget();
 +    expect(
-+      await call({
-+        action: 'forget',
-+        reference: prepared.token,
-+        name: 'demo',
-+        credentialFingerprint: target.credentialFingerprint,
-+        ...consent,
-+      })
++      await call({ action: 'forget', reference: prepared.token, name: 'demo', ...consent })
 +    ).toMatchObject({ success: true });
 +    expect(fs.existsSync(prepared.kubeconfigPath)).toBe(false);
 +    expect(fs.existsSync(destination)).toBe(false);
 +  });
 +
-+  it('refuses changed live credentials and removes no Desktop entry', async () => {
-+    const target = await importFixture();
++  it('refuses to forget another cluster name and removes no Desktop entry', async () => {
++    await importFixture();
 +    const before = fs.readFileSync(destination, 'utf8');
-+    const { result } = await verifyTarget(
-+      'registered',
-+      target.credentialFingerprint,
-+      'another-certificate'
-+    );
-+    expect(result).toMatchObject({ success: false, data: { code: 'identity-mismatch' } });
 +    expect(
-+      await call({
-+        action: 'forget',
-+        reference: 'registered',
-+        name: 'demo',
-+        credentialFingerprint: target.credentialFingerprint,
-+        ...consent,
-+      })
-+    ).toMatchObject({ success: false });
++      await call({ action: 'forget', reference: 'registered', name: 'other', ...consent })
++    ).toMatchObject({ success: false, data: { code: 'identity-mismatch' } });
 +    expect(fs.readFileSync(destination, 'utf8')).toBe(before);
 +  });
 +
-+  it('binds removal to the exact verified source bytes and never deletes another config', async () => {
-+    const target = await importFixture();
++  it('forgets only the managed file and never deletes another config', async () => {
++    await importFixture();
 +    const before = fs.readFileSync(normalConfig, 'utf8');
-+    expect((await verifyTarget('registered', target.credentialFingerprint)).result.success).toBe(
-+      true
-+    );
-+    fs.appendFileSync(destination, '\n# independently changed\n');
 +    expect(
-+      await call({
-+        action: 'forget',
-+        reference: 'registered',
-+        name: 'demo',
-+        credentialFingerprint: target.credentialFingerprint,
-+        ...consent,
-+      })
-+    ).toMatchObject({
-+      success: false,
-+      data: { code: 'identity-mismatch' },
-+    });
-+    expect(fs.existsSync(destination)).toBe(true);
-+    expect((await verifyTarget('registered', target.credentialFingerprint)).result.success).toBe(
-+      true
-+    );
-+    expect(
-+      await call({
-+        action: 'forget',
-+        reference: 'registered',
-+        name: 'demo',
-+        credentialFingerprint: target.credentialFingerprint,
-+        ...consent,
-+      })
++      await call({ action: 'forget', reference: 'registered', name: 'demo', ...consent })
 +    ).toMatchObject({ success: true });
 +    expect(fs.existsSync(destination)).toBe(false);
 +    expect(fs.readFileSync(normalConfig, 'utf8')).toBe(before);
@@ -4389,23 +4332,11 @@ index 0000000000000000000000000000000000000000..3837511454855cc8c48290b10c79eb29
 +    fs.writeFileSync(prepared.kubeconfigPath, credentials());
 +    persist.mockRejectedValueOnce(new Error('fixture persistence failure'));
 +    await call({ action: 'register', token: prepared.token });
-+    const inspected = await call({ action: 'inspect' });
-+    const target = inspected.data?.target;
-+    if (
-+      !target ||
-+      typeof target !== 'object' ||
-+      !('credentialFingerprint' in target) ||
-+      typeof target.credentialFingerprint !== 'string'
-+    )
-+      throw new Error('Expected pending target');
-+    expect((await verifyTarget(prepared.token, target.credentialFingerprint)).result.success).toBe(
-+      true
-+    );
++    await pendingTarget();
 +    const request = {
 +      action: 'forget' as const,
 +      reference: prepared.token,
 +      name: 'demo',
-+      credentialFingerprint: target.credentialFingerprint,
 +      ...consent,
 +    };
 +    const remove = vi.spyOn(fs, 'rmdirSync').mockImplementationOnce(() => {
@@ -4425,12 +4356,24 @@ index 0000000000000000000000000000000000000000..3837511454855cc8c48290b10c79eb29
 +  it('refuses an unrelated file at the managed destination and refuses context collisions', async () => {
 +    const prepared = await prepareCreate();
 +    fs.writeFileSync(prepared.kubeconfigPath, credentials());
-+    fs.writeFileSync(normalConfig, 'contexts:\n- name: aksedge-demo\n  context: {}\n');
++    fs.writeFileSync(normalConfig, 'contexts:\n- name: demo\n  context: {}\n');
 +    expect(await call({ action: 'register', token: prepared.token })).toMatchObject({
 +      success: false,
 +      data: { code: 'collision' },
 +    });
 +    expect(persist).not.toHaveBeenCalled();
++    fs.writeFileSync(normalConfig, 'contexts: []\n');
++    const sameMetadata = normalizeLocalKubeconfig(
++      credentials('another-certificate'),
++      configuration,
++      'registered'
++    ).contents;
++    fs.writeFileSync(destination, sameMetadata);
++    expect(await call({ action: 'register', token: prepared.token })).toMatchObject({
++      success: false,
++      data: { code: 'already-exists' },
++    });
++    expect(fs.readFileSync(destination, 'utf8')).toBe(sameMetadata);
 +    fs.writeFileSync(destination, credentials());
 +    const before = fs.readFileSync(destination, 'utf8');
 +    expect(await call({ action: 'inspect' })).toMatchObject({ success: false });
@@ -4454,10 +4397,10 @@ index 0000000000000000000000000000000000000000..3837511454855cc8c48290b10c79eb29
 +});
 diff --git a/source/app/electron/local-cluster-registration.ts b/source/app/electron/local-cluster-registration.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e3b451f75
+index 0000000000000000000000000000000000000000..ad559eb6fc3891b38a901d64685a0cc925261533
 --- /dev/null
 +++ b/source/app/electron/local-cluster-registration.ts
-@@ -0,0 +1,480 @@
+@@ -0,0 +1,418 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -4474,7 +4417,7 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 + * limitations under the License.
 + */
 +
-+import { createHash, randomUUID } from 'node:crypto';
++import { randomUUID } from 'node:crypto';
 +import fs from 'node:fs';
 +import os from 'node:os';
 +import path from 'node:path';
@@ -4504,13 +4447,12 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +  | { action: 'inspect' | 'capabilities' }
 +  | ({ action: 'prepare'; consent: true; distro: typeof LOCAL_DISTRO } & LocalConfiguration)
 +  | { action: 'register'; token: string; context?: string }
-+  | { action: 'discard' | 'verify-delete'; token: string }
++  | { action: 'discard'; token: string }
 +  | { action: 'readiness'; reference: string }
 +  | {
-+      action: 'prepare-delete' | 'forget';
++      action: 'forget';
 +      reference: string;
 +      name: string;
-+      credentialFingerprint: string;
 +      consent: true;
 +      distro: typeof LOCAL_DISTRO;
 +    };
@@ -4519,11 +4461,13 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +  token: string;
 +  directory: string;
 +  kubeconfigPath: string;
-+  kind: 'create' | 'verify';
++  kind: 'create';
 +  configuration: LocalConfiguration;
 +  reference: string;
 +  target?: LocalTarget;
 +  fileRemoved?: boolean;
++  /** Set once `register` persisted this lease's credentials; only then is a retry adopted. */
++  persisted?: boolean;
 +}
 +
 +interface LocalProviderOptions {
@@ -4552,7 +4496,7 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +      (value.context === undefined || typeof value.context === 'string')
 +    );
 +  }
-+  if (['discard', 'verify-delete'].includes(value.action)) {
++  if (value.action === 'discard') {
 +    return only(['action', 'token']) && isToken(value.token);
 +  }
 +  if (value.action === 'readiness') {
@@ -4569,13 +4513,11 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +    );
 +  }
 +  return (
-+    (value.action === 'prepare-delete' || value.action === 'forget') &&
-+    only(['action', 'consent', 'distro', 'reference', 'name', 'credentialFingerprint']) &&
++    value.action === 'forget' &&
++    only(['action', 'consent', 'distro', 'reference', 'name']) &&
 +    (value.reference === 'registered' || isToken(value.reference)) &&
 +    typeof value.name === 'string' &&
-+    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value.name) &&
-+    typeof value.credentialFingerprint === 'string' &&
-+    /^[a-f0-9]{64}$/.test(value.credentialFingerprint)
++    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value.name)
 +  );
 +}
 +
@@ -4588,7 +4530,6 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +  const hardenFile = options.hardenFile ?? enforcePrivateFilePermissions;
 +  const persist = options.persist ?? mergeKubeconfigTransaction;
 +  let requestInFlight = false;
-+  let deletionPermit: { reference: string; digest: string; target: LocalTarget } | undefined;
 +
 +  const managedPath = () => {
 +    const directory = options.kubeconfigDirectory();
@@ -4676,21 +4617,19 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +    leaseDirectory(lease);
 +    return lease;
 +  };
-+  const source = (reference: string) => {
-+    let contents: string;
-+    let target: LocalTarget;
++  const source = (reference: string): LocalTarget => {
 +    if (reference === 'registered') {
-+      contents = readPrivateKubeconfig(managedPath());
-+      target = readRegisteredLocalTarget(contents);
-+    } else {
-+      const lease = findLease(reference);
-+      if (lease.kind !== 'create' || !lease.target) {
-+        throw new LocalHandoffError('identity-mismatch');
-+      }
-+      contents = readPrivateKubeconfig(lease.kubeconfigPath);
-+      target = normalizeLocalKubeconfig(contents, lease.configuration, reference).target;
++      return readRegisteredLocalTarget(readPrivateKubeconfig(managedPath()));
 +    }
-+    return { target, digest: createHash('sha256').update(contents).digest('hex') };
++    const lease = findLease(reference);
++    if (lease.kind !== 'create' || !lease.target) {
++      throw new LocalHandoffError('identity-mismatch');
++    }
++    return normalizeLocalKubeconfig(
++      readPrivateKubeconfig(lease.kubeconfigPath),
++      lease.configuration,
++      reference
++    ).target;
 +  };
 +  const collisionPaths = () => {
 +    const directory = path.dirname(managedPath());
@@ -4704,10 +4643,6 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +      ...new Set([...(options.kubeconfigPaths ?? resolveKubeconfigPaths)(), ...managed]),
 +    ].filter(candidate => path.resolve(candidate) !== managedPath());
 +  };
-+  const prepared = (lease: Lease) => ({
-+    token: lease.token,
-+    kubeconfigPath: lease.kubeconfigPath,
-+  });
 +
 +  return {
 +    id: LOCAL_PROVIDER,
@@ -4788,11 +4723,11 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +            }
 +            const imported = managedTarget();
 +            if (
++              lease.persisted &&
 +              lease.target &&
 +              imported &&
 +              imported.name === lease.target.name &&
-+              imported.kubernetesVersion === lease.target.kubernetesVersion &&
-+              imported.credentialFingerprint === lease.target.credentialFingerprint
++              imported.kubernetesVersion === lease.target.kubernetesVersion
 +            ) {
 +              discard(lease);
 +              return {
@@ -4807,15 +4742,8 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +              lease.token
 +            );
 +            lease.target = normalized.target;
-+            const existing = managedTarget();
-+            if (
-+              existing &&
-+              (existing.name !== normalized.target.name ||
-+                existing.kubernetesVersion !== normalized.target.kubernetesVersion ||
-+                existing.credentialFingerprint !== normalized.target.credentialFingerprint)
-+            ) {
-+              throw new LocalHandoffError('already-exists');
-+            }
++            // With no credential fingerprint, an entry this lease did not persist is never adopted.
++            if (managedTarget()) throw new LocalHandoffError('already-exists');
 +            fs.mkdirSync(path.dirname(managedPath()), { recursive: true, mode: 0o700 });
 +            const others = collisionPaths();
 +            for (const file of others) {
@@ -4829,10 +4757,12 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +              }
 +            }
 +            await persist(normalized.contents, [managedPath(), ...others]);
++            lease.persisted = true;
 +            const target = managedTarget();
 +            if (
 +              !target ||
-+              target.credentialFingerprint !== normalized.target.credentialFingerprint
++              target.name !== normalized.target.name ||
++              target.kubernetesVersion !== normalized.target.kubernetesVersion
 +            ) {
 +              throw new LocalHandoffError('storage');
 +            }
@@ -4847,73 +4777,25 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +            discard(findLease(request.token));
 +            return { success: true, message: 'Temporary credential handoff removed.' };
 +          }
-+          case 'prepare-delete': {
-+            deletionPermit = undefined;
-+            const current = source(request.reference);
-+            if (
-+              current.target.name !== request.name ||
-+              current.target.credentialFingerprint !== request.credentialFingerprint
-+            ) {
-+              throw new LocalHandoffError('identity-mismatch');
-+            }
-+            const lease = allocate('verify', current.target, request.reference);
-+            lease.target = current.target;
-+            return {
-+              success: true,
-+              message: 'Private identity check prepared.',
-+              data: prepared(lease),
-+            };
-+          }
-+          case 'verify-delete': {
-+            const lease = findLease(request.token);
-+            if (lease.kind !== 'verify' || !lease.target) {
-+              throw new LocalHandoffError('identity-mismatch');
-+            }
-+            const fetched = normalizeLocalKubeconfig(
-+              readPrivateKubeconfig(lease.kubeconfigPath),
-+              lease.configuration,
-+              lease.reference
-+            ).target;
-+            const current = source(lease.reference);
-+            if (
-+              fetched.credentialFingerprint !== lease.target.credentialFingerprint ||
-+              current.target.credentialFingerprint !== lease.target.credentialFingerprint ||
-+              current.target.name !== lease.target.name ||
-+              current.target.kubernetesVersion !== lease.target.kubernetesVersion
-+            ) {
-+              throw new LocalHandoffError('identity-mismatch');
-+            }
-+            discard(lease);
-+            deletionPermit = {
-+              reference: lease.reference,
-+              digest: current.digest,
-+              target: current.target,
-+            };
-+            return { success: true, message: 'The current guest credential identity matches.' };
-+          }
 +          case 'forget': {
 +            const pendingLease =
 +              request.reference === 'registered' ? undefined : findLease(request.reference);
 +            // After an unlink succeeded, a retry may only remove the now-empty private directory.
-+            const current =
-+              pendingLease?.fileRemoved && deletionPermit?.reference === request.reference
-+                ? deletionPermit
-+                : source(request.reference);
-+            if (
-+              current.target.name !== request.name ||
-+              current.target.credentialFingerprint !== request.credentialFingerprint ||
-+              deletionPermit?.reference !== request.reference ||
-+              deletionPermit.digest !== current.digest
-+            ) {
-+              throw new LocalHandoffError('identity-mismatch');
++            if (pendingLease?.fileRemoved) {
++              if (pendingLease.target?.name !== request.name) {
++                throw new LocalHandoffError('identity-mismatch');
++              }
++              discard(pendingLease);
++              return {
++                success: true,
++                message: 'Only the matching local Desktop entry was removed.',
++              };
 +            }
++            const current = source(request.reference);
++            if (current.name !== request.name) throw new LocalHandoffError('identity-mismatch');
 +            if (request.reference === 'registered') {
 +              for (const lease of leases.values()) {
-+                if (
-+                  lease.kind === 'create' &&
-+                  lease.target?.name === current.target.name &&
-+                  lease.target.credentialFingerprint === current.target.credentialFingerprint
-+                ) {
++                if (lease.kind === 'create' && lease.target?.name === current.name) {
 +                  discard(lease);
 +                }
 +              }
@@ -4921,7 +4803,6 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +            } else {
 +              discard(findLease(request.reference));
 +            }
-+            deletionPermit = undefined;
 +            return { success: true, message: 'Only the matching local Desktop entry was removed.' };
 +          }
 +        }
@@ -4940,10 +4821,10 @@ index 0000000000000000000000000000000000000000..b64dfeaf63124e74c0d8aaca8a4c7b4e
 +}
 diff --git a/source/app/electron/local-kubeconfig.test.ts b/source/app/electron/local-kubeconfig.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..2d1719c7dc20033b73922ad0cc11baa9145d27bd
+index 0000000000000000000000000000000000000000..05f7f8e6466137a4393f44c8682457d2506bb4ba
 --- /dev/null
 +++ b/source/app/electron/local-kubeconfig.test.ts
-@@ -0,0 +1,236 @@
+@@ -0,0 +1,237 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -4960,7 +4841,6 @@ index 0000000000000000000000000000000000000000..2d1719c7dc20033b73922ad0cc11baa9
 + * limitations under the License.
 + */
 +
-+import { createHash } from 'node:crypto';
 +import fs from 'node:fs';
 +import os from 'node:os';
 +import path from 'node:path';
@@ -4998,7 +4878,7 @@ index 0000000000000000000000000000000000000000..2d1719c7dc20033b73922ad0cc11baa9
 +          extensions: [
 +            {
 +              name: 'context_info',
-+              extension: { provider: 'baremetal.aksarc.microsoft.com', unwanted: 'dropped' },
++              extension: { provider: 'baremetal.aksarc.microsoft.com' },
 +            },
 +          ],
 +        },
@@ -5069,28 +4949,34 @@ index 0000000000000000000000000000000000000000..2d1719c7dc20033b73922ad0cc11baa9
 +});
 +
 +describe('private local credentials', () => {
-+  it('normalizes local names, drops Arc classification and returns no secret in public metadata', () => {
-+    const normalized = normalizeLocalKubeconfig(yaml.stringify(config()), configuration, 'lease');
++  it('keeps the CLI names and context_info, adds local metadata and returns no secret in public metadata', () => {
++    const value = config();
++    const context: { extensions: unknown[] } = value.contexts[0].context;
++    context.extensions = [
++      { name: 'other', extension: { keep: true } },
++      {
++        name: 'context_info',
++        extension: { provider: 'baremetal.aksarc.microsoft.com', note: 'kept', name: 'spoofed' },
++      },
++    ];
++    const normalized = normalizeLocalKubeconfig(yaml.stringify(value), configuration, 'lease');
 +    const parsed = yaml.parse(normalized.contents);
-+    expect(parsed['current-context']).toBe('aksedge-demo');
-+    expect(parsed.contexts[0].context).toMatchObject({
-+      cluster: 'aksedge-demo',
-+      user: 'aksedge-demo-admin',
-+    });
++    expect(parsed['current-context']).toBe('demo');
++    expect(parsed.contexts[0].name).toBe('demo');
++    expect(parsed.contexts[0].context).toMatchObject({ cluster: 'demo', user: 'admin' });
 +    expect(parsed.contexts[0].context.extensions).toEqual([
++      { name: 'other', extension: { keep: true } },
 +      {
 +        name: 'context_info',
 +        extension: {
-+          provider: 'aksedge-local',
++          provider: 'baremetal.aksarc.microsoft.com',
++          note: 'kept',
 +          distro: 'Ubuntu-24.04',
 +          ...configuration,
-+          credentialFingerprint: createHash('sha256')
-+            .update(Buffer.from(certificate, 'base64'))
-+            .digest('hex'),
 +        },
 +      },
 +    ]);
-+    expect(normalized.contents).not.toContain('baremetal.aksarc.microsoft.com');
++    expect(normalized.target.contextName).toBe('demo');
 +    expect(parsed.clusters[0].cluster['insecure-skip-tls-verify']).toBe(true);
 +    expect(JSON.stringify(normalized.target)).not.toContain(key);
 +    expect(JSON.stringify(normalized.target)).not.toContain(certificate);
@@ -5128,7 +5014,7 @@ index 0000000000000000000000000000000000000000..2d1719c7dc20033b73922ad0cc11baa9
 +    }
 +  );
 +
-+  it('rejects mismatched cluster names, malformed base64 and changed ownership metadata', () => {
++  it('rejects mismatched cluster names, malformed base64 and changed local metadata', () => {
 +    const value = config();
 +    expect(() =>
 +      normalizeLocalKubeconfig(yaml.stringify(value), { ...configuration, name: 'other' }, 'lease')
@@ -5139,26 +5025,22 @@ index 0000000000000000000000000000000000000000..2d1719c7dc20033b73922ad0cc11baa9
 +    );
 +    const normalized = normalizeLocalKubeconfig(yaml.stringify(config()), configuration, 'lease');
 +    expect(() =>
-+      readRegisteredLocalTarget(normalized.contents.replace('aksedge-local', 'azure'))
++      readRegisteredLocalTarget(normalized.contents.replace('Ubuntu-24.04', 'Ubuntu-22.04'))
 +    ).toThrow('identity-mismatch');
 +    expect(() =>
 +      readRegisteredLocalTarget(
-+        normalized.contents.replace(normalized.target.credentialFingerprint, 'a'.repeat(64))
++        normalized.contents.replace(/("distro": "Ubuntu-24.04"\s+"name": )"demo"/, '$1"other"')
 +      )
 +    ).toThrow('identity-mismatch');
 +  });
 +
 +  it('rejects an existing context even if its connection settings appear identical', () => {
 +    const normalized = normalizeLocalKubeconfig(yaml.stringify(config()), configuration, 'lease');
-+    expect(() => assertNoLocalContextCollision('aksedge-demo', normalized.contents)).toThrow(
-+      'collision'
-+    );
++    expect(() => assertNoLocalContextCollision('demo', normalized.contents)).toThrow('collision');
 +    expect(() =>
 +      assertNoLocalContextCollision('another-context', normalized.contents)
 +    ).not.toThrow();
-+    expect(() => assertNoLocalContextCollision('aksedge-demo', '[ invalid: yaml')).toThrow(
-+      'collision'
-+    );
++    expect(() => assertNoLocalContextCollision('demo', '[ invalid: yaml')).toThrow('collision');
 +  });
 +
 +  it('bounds file reads and refuses directories, empty files and multiply linked credentials', () => {
@@ -5182,10 +5064,10 @@ index 0000000000000000000000000000000000000000..2d1719c7dc20033b73922ad0cc11baa9
 +});
 diff --git a/source/app/electron/local-kubeconfig.ts b/source/app/electron/local-kubeconfig.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..5dfc7f3d271f45ae2e04c396226c5c4b7767766f
+index 0000000000000000000000000000000000000000..a7121df70629e51c9485fe18fb6bc6c2c849a1ea
 --- /dev/null
 +++ b/source/app/electron/local-kubeconfig.ts
-@@ -0,0 +1,295 @@
+@@ -0,0 +1,318 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -5202,7 +5084,6 @@ index 0000000000000000000000000000000000000000..5dfc7f3d271f45ae2e04c396226c5c4b
 + * limitations under the License.
 + */
 +
-+import { createHash } from 'node:crypto';
 +import fs from 'node:fs';
 +import { isIP } from 'node:net';
 +import path from 'node:path';
@@ -5239,7 +5120,6 @@ index 0000000000000000000000000000000000000000..5dfc7f3d271f45ae2e04c396226c5c4b
 +export interface LocalTarget extends LocalConfiguration {
 +  reference: string;
 +  contextName: string;
-+  credentialFingerprint: string;
 +  registered: boolean;
 +}
 +
@@ -5333,16 +5213,27 @@ index 0000000000000000000000000000000000000000..5dfc7f3d271f45ae2e04c396226c5c4b
 +  return value;
 +}
 +
-+function certificateFingerprint(config: Record<string, unknown>): string {
++function validateCredentials(config: Record<string, unknown>): Record<string, unknown> {
 +  const user = section(config, 'users', 'user');
-+  const certificate = certificateData(user['client-certificate-data']);
++  certificateData(user['client-certificate-data']);
 +  certificateData(user['client-key-data']);
 +  if (
 +    Object.keys(user).some(key => key !== 'client-certificate-data' && key !== 'client-key-data')
 +  ) {
 +    throw new LocalHandoffError('invalid-credentials');
 +  }
-+  return createHash('sha256').update(Buffer.from(certificate, 'base64')).digest('hex');
++  return user;
++}
++
++function named(config: Record<string, unknown>, collection: string): Record<string, unknown> {
++  const values = config[collection];
++  if (!Array.isArray(values) || values.length !== 1 || !isRecord(values[0])) {
++    throw new LocalHandoffError('invalid-credentials');
++  }
++  if (typeof values[0].name !== 'string' || values[0].name === '') {
++    throw new LocalHandoffError('invalid-credentials');
++  }
++  return values[0];
 +}
 +
 +function localServer(value: unknown): string {
@@ -5376,7 +5267,10 @@ index 0000000000000000000000000000000000000000..5dfc7f3d271f45ae2e04c396226c5c4b
 +  return server.origin;
 +}
 +
-+/** Strips the CLI's Arc classification and keeps only inline credentials and local metadata. */
++/**
++ * Keeps the CLI's entry names and its `context_info`, validates the inline credentials and the
++ * local server, and adds the metadata AKS Desktop reads back: distro, name and Kubernetes version.
++ */
 +export function normalizeLocalKubeconfig(
 +  contents: string,
 +  configuration: LocalConfiguration,
@@ -5386,10 +5280,18 @@ index 0000000000000000000000000000000000000000..5dfc7f3d271f45ae2e04c396226c5c4b
 +  if (config['current-context'] !== configuration.name) {
 +    throw new LocalHandoffError('identity-mismatch');
 +  }
++  const clusterName = named(config, 'clusters').name as string;
++  const userName = named(config, 'users').name as string;
++  const originalContext = section(config, 'contexts', 'context');
++  if (
++    named(config, 'contexts').name !== configuration.name ||
++    originalContext.cluster !== clusterName ||
++    originalContext.user !== userName
++  ) {
++    throw new LocalHandoffError('identity-mismatch');
++  }
 +  const originalCluster = section(config, 'clusters', 'cluster');
-+  const user = section(config, 'users', 'user');
-+  const credentialFingerprint = certificateFingerprint(config);
-+  const contextName = `aksedge-${configuration.name}`;
++  const user = validateCredentials(config);
 +  const cluster: Record<string, unknown> = { server: localServer(originalCluster.server) };
 +  if (originalCluster['insecure-skip-tls-verify'] === true) {
 +    // Preserve, but do not strengthen or hide, the existing CLI's demo-only TLS behavior.
@@ -5399,41 +5301,44 @@ index 0000000000000000000000000000000000000000..5dfc7f3d271f45ae2e04c396226c5c4b
 +      originalCluster['certificate-authority-data']
 +    );
 +  }
++  const extensions = Array.isArray(originalContext.extensions)
++    ? originalContext.extensions.filter(isRecord)
++    : [];
++  const cliContextInfo = extensions.find(value => value.name === 'context_info')?.extension;
 +  const target: LocalTarget = {
 +    name: configuration.name,
 +    kubernetesVersion: configuration.kubernetesVersion,
 +    reference,
-+    contextName,
-+    credentialFingerprint,
++    contextName: configuration.name,
 +    registered: reference === 'registered',
 +  };
 +  const normalized = {
 +    apiVersion: 'v1',
 +    kind: 'Config',
-+    clusters: [{ name: contextName, cluster }],
-+    users: [{ name: `${contextName}-admin`, user }],
++    clusters: [{ name: clusterName, cluster }],
++    users: [{ name: userName, user }],
 +    contexts: [
 +      {
-+        name: contextName,
++        name: configuration.name,
 +        context: {
-+          cluster: contextName,
-+          user: `${contextName}-admin`,
++          cluster: clusterName,
++          user: userName,
 +          extensions: [
++            ...extensions.filter(value => value.name !== 'context_info'),
 +            {
 +              name: 'context_info',
 +              extension: {
-+                provider: LOCAL_PROVIDER,
++                ...(isRecord(cliContextInfo) ? cliContextInfo : {}),
 +                distro: LOCAL_DISTRO,
 +                name: target.name,
 +                kubernetesVersion: target.kubernetesVersion,
-+                credentialFingerprint,
 +              },
 +            },
 +          ],
 +        },
 +      },
 +    ],
-+    'current-context': contextName,
++    'current-context': configuration.name,
 +  };
 +  return {
 +    contents: yaml.stringify(normalized, { lineWidth: 0, defaultStringType: 'QUOTE_DOUBLE' }),
@@ -5441,6 +5346,7 @@ index 0000000000000000000000000000000000000000..5dfc7f3d271f45ae2e04c396226c5c4b
 +  };
 +}
 +
++/** Reads the target back from the managed file; the file itself identifies the local cluster. */
 +export function readRegisteredLocalTarget(contents: string): LocalTarget {
 +  const config = parseCredentials(contents);
 +  const context = section(config, 'contexts', 'context');
@@ -5450,21 +5356,20 @@ index 0000000000000000000000000000000000000000..5dfc7f3d271f45ae2e04c396226c5c4b
 +  const metadata: unknown = matches.length === 1 ? matches[0].extension : undefined;
 +  if (
 +    !isRecord(metadata) ||
-+    metadata.provider !== LOCAL_PROVIDER ||
 +    metadata.distro !== LOCAL_DISTRO ||
 +    !isLocalConfiguration(metadata) ||
-+    metadata.credentialFingerprint !== certificateFingerprint(config) ||
-+    config['current-context'] !== `aksedge-${metadata.name}`
++    named(config, 'contexts').name !== metadata.name ||
++    config['current-context'] !== metadata.name
 +  ) {
 +    throw new LocalHandoffError('identity-mismatch');
 +  }
++  validateCredentials(config);
 +  localServer(section(config, 'clusters', 'cluster').server);
 +  return {
 +    name: metadata.name,
 +    kubernetesVersion: metadata.kubernetesVersion,
 +    reference: 'registered',
-+    contextName: `aksedge-${metadata.name}`,
-+    credentialFingerprint: certificateFingerprint(config),
++    contextName: metadata.name,
 +    registered: true,
 +  };
 +}
@@ -11922,21 +11827,24 @@ index 0000000000000000000000000000000000000000..b964be6949352998991476d3545b1592
 +  );
 +}
 diff --git a/source/frontend/src/components/App/Home/ClusterContextMenu.tsx b/source/frontend/src/components/App/Home/ClusterContextMenu.tsx
-index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..1b63540167ddd95d2f65a29681527012a95a1537 100644
+index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..054352382b1f63544b13da23f1eb8483347ebcb7 100644
 --- a/source/frontend/src/components/App/Home/ClusterContextMenu.tsx
 +++ b/source/frontend/src/components/App/Home/ClusterContextMenu.tsx
-@@ -64,6 +64,10 @@ export default function ClusterContextMenu({
+@@ -64,6 +64,13 @@ export default function ClusterContextMenu({
  
    const kubeconfigOrigin = cluster.meta_data?.origin?.kubeconfig;
    const deleteFromKubeconfig = cluster.meta_data?.source === 'kubeconfig';
-+  // AKS Desktop's local cluster: Delete must run the AKS Local plugin's lifecycle Delete, which the
-+  // plugin adds to this menu, not only remove the kubeconfig entry.
++  // AKS Desktop's local cluster, identified by the private kubeconfig it was loaded from
++  // (`kubeconfigs/aksedge-local.yaml` in the config directory): Delete must run the AKS Local
++  // plugin's lifecycle Delete, which the plugin adds to this menu, not only remove the entry.
 +  const isLocalClusterContext =
-+    cluster.meta_data?.extensions?.context_info?.provider === 'aksedge-local';
++    typeof kubeconfigOrigin === 'string' &&
++    kubeconfigOrigin.split(/[\\/]/).slice(-2).join('/').toLowerCase() ===
++      'kubeconfigs/aksedge-local.yaml';
  
    function removeCluster(cluster: Cluster) {
      const clusterID = cluster.meta_data?.clusterID;
-@@ -164,7 +168,7 @@ export default function ClusterContextMenu({
+@@ -164,7 +171,7 @@ export default function ClusterContextMenu({
          >
            <ListItemText>{t('translation|Settings')}</ListItemText>
          </MenuItem>

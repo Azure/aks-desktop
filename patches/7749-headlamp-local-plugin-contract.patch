@@ -1,9 +1,9 @@
 diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/local-cluster-registration.test.ts
-index 10c59ab..3d75cf5 100644
+index c1e1192..60b41b1 100644
 --- a/app/electron/local-cluster-registration.test.ts
 +++ b/app/electron/local-cluster-registration.test.ts
-@@ -134,6 +134,66 @@ describe('local registration handoff', () => {
-     return { prepared, result: await call({ action: 'verify-delete', token: prepared.token }) };
+@@ -131,6 +131,66 @@ describe('local registration handoff', () => {
+     }
    }
  
 +  it('advertises the versioned contract without CLI tools or file mutations', async () => {
@@ -70,7 +70,7 @@ index 10c59ab..3d75cf5 100644
      const before = fs.readFileSync(normalConfig, 'utf8');
      const prepared = await prepareCreate();
 diff --git a/app/electron/local-cluster-registration.ts b/app/electron/local-cluster-registration.ts
-index 3d9d1d2..7002667 100644
+index 261da0b..c925255 100644
 --- a/app/electron/local-cluster-registration.ts
 +++ b/app/electron/local-cluster-registration.ts
 @@ -41,7 +41,7 @@ import {
@@ -80,18 +80,18 @@ index 3d9d1d2..7002667 100644
 -  | { action: 'inspect' }
 +  | { action: 'inspect' | 'capabilities' }
    | ({ action: 'prepare'; consent: true; distro: typeof LOCAL_DISTRO } & LocalConfiguration)
-   | { action: 'register' | 'discard' | 'verify-delete'; token: string }
+   | { action: 'register' | 'discard'; token: string }
    | {
-@@ -82,7 +82,7 @@ const isToken = (value: unknown): value is string =>
+@@ -83,7 +83,7 @@ const isToken = (value: unknown): value is string =>
  export function isLocalRequest(value: unknown): value is LocalRequest {
    if (!isRecord(value) || typeof value.action !== 'string') return false;
    const only = (keys: string[]) => Object.keys(value).every(key => keys.includes(key));
 -  if (value.action === 'inspect') return only(['action']);
 +  if (value.action === 'inspect' || value.action === 'capabilities') return only(['action']);
-   if (['register', 'discard', 'verify-delete'].includes(value.action)) {
+   if (['register', 'discard'].includes(value.action)) {
      return only(['action', 'token']) && isToken(value.token);
    }
-@@ -248,6 +248,13 @@ export function createLocalClusterRegistrationProvider(
+@@ -244,6 +244,13 @@ export function createLocalClusterRegistrationProvider(
            data: { code: 'unsupported' },
          };
        }

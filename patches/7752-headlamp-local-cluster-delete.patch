@@ -1,18 +1,21 @@
 diff --git a/frontend/src/components/App/Home/ClusterContextMenu.tsx b/frontend/src/components/App/Home/ClusterContextMenu.tsx
 --- a/frontend/src/components/App/Home/ClusterContextMenu.tsx
 +++ b/frontend/src/components/App/Home/ClusterContextMenu.tsx
-@@ -64,6 +64,10 @@ export default function ClusterContextMenu({
+@@ -64,6 +64,13 @@ export default function ClusterContextMenu({
  
    const kubeconfigOrigin = cluster.meta_data?.origin?.kubeconfig;
    const deleteFromKubeconfig = cluster.meta_data?.source === 'kubeconfig';
-+  // AKS Desktop's local cluster: Delete must run the AKS Local plugin's lifecycle Delete, which the
-+  // plugin adds to this menu, not only remove the kubeconfig entry.
++  // AKS Desktop's local cluster, identified by the private kubeconfig it was loaded from
++  // (`kubeconfigs/aksedge-local.yaml` in the config directory): Delete must run the AKS Local
++  // plugin's lifecycle Delete, which the plugin adds to this menu, not only remove the entry.
 +  const isLocalClusterContext =
-+    cluster.meta_data?.extensions?.context_info?.provider === 'aksedge-local';
++    typeof kubeconfigOrigin === 'string' &&
++    kubeconfigOrigin.split(/[\\/]/).slice(-2).join('/').toLowerCase() ===
++      'kubeconfigs/aksedge-local.yaml';
  
    function removeCluster(cluster: Cluster) {
      const clusterID = cluster.meta_data?.clusterID;
-@@ -164,19 +168,20 @@ export default function ClusterContextMenu({
+@@ -164,19 +171,20 @@ export default function ClusterContextMenu({
          >
            <ListItemText>{t('translation|Settings')}</ListItemText>
          </MenuItem>
