@@ -1,8 +1,8 @@
 diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/local-cluster-registration.test.ts
-index c1e1192..60b41b1 100644
+index 15a46f1..9051237 100644
 --- a/app/electron/local-cluster-registration.test.ts
 +++ b/app/electron/local-cluster-registration.test.ts
-@@ -131,6 +131,66 @@ describe('local registration handoff', () => {
+@@ -152,6 +152,66 @@ describe('local registration handoff', () => {
      }
    }
  

@@ -1,7 +1,7 @@
 diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/local-cluster-registration.test.ts
 --- a/app/electron/local-cluster-registration.test.ts
 +++ b/app/electron/local-cluster-registration.test.ts
-@@ -65,14 +65,17 @@ function credentials(identity = 'public-test-certificate') {
+@@ -86,14 +86,17 @@ function credentials(identity = 'public-test-certificate', metadata = true) {
    });
  }
  function preparation(result: ClusterRegistrationResult) {
@@ -21,7 +21,7 @@ diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/loca
  }
  
  describe('local registration handoff', () => {
-@@ -140,7 +143,7 @@ describe('local registration handoff', () => {
+@@ -161,7 +164,7 @@ describe('local registration handoff', () => {
      ).resolves.toEqual({
        success: true,
        message: 'Local cluster compatibility contract.',
@@ -30,7 +30,7 @@ diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/loca
      });
      expect(hardenDirectory).not.toHaveBeenCalled();
      expect(persist).not.toHaveBeenCalled();
-@@ -177,7 +180,7 @@ describe('local registration handoff', () => {
+@@ -198,7 +201,7 @@ describe('local registration handoff', () => {
      try {
        await expect(call({ action: 'capabilities' })).resolves.toMatchObject({
          success: true,

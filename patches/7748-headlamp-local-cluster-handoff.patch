@@ -109,10 +109,10 @@ index 14c25f0b97d6664f38f6b14da14d9d8116ac30ae..f3e16e773393e7eb051ccd7e879cacb4
  
 diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/local-cluster-registration.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..c1e11920d91cedd8199cf0b176e1a9721b59a673
+index 0000000000000000000000000000000000000000..15a46f10654a1b2629453cc87d35d0a85521898e
 --- /dev/null
 +++ b/app/electron/local-cluster-registration.test.ts
-@@ -0,0 +1,382 @@
+@@ -0,0 +1,403 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -154,7 +154,7 @@ index 0000000000000000000000000000000000000000..c1e11920d91cedd8199cf0b176e1a972
 +const configuration = { name: 'demo', kubernetesVersion: '1.36.1-20260701' };
 +const consent = { consent: true as const, distro: 'Ubuntu-24.04' as const };
 +const runtime = { resourcesPath: 'unused', tools: { cli: 'unused' } };
-+function credentials(identity = 'public-test-certificate') {
++function credentials(identity = 'public-test-certificate', metadata = true) {
 +  return yaml.stringify({
 +    apiVersion: 'v1',
 +    kind: 'Config',
@@ -164,7 +164,28 @@ index 0000000000000000000000000000000000000000..c1e11920d91cedd8199cf0b176e1a972
 +        cluster: { server: 'https://localhost:6443', 'insecure-skip-tls-verify': true },
 +      },
 +    ],
-+    contexts: [{ name: 'demo', context: { cluster: 'demo', user: 'admin' } }],
++    contexts: [
++      {
++        name: 'demo',
++        context: {
++          cluster: 'demo',
++          user: 'admin',
++          ...(metadata && {
++            extensions: [
++              {
++                name: 'context_info',
++                extension: {
++                  provider: 'baremetal.aksarc.microsoft.com',
++                  distro: 'Ubuntu-24.04',
++                  ...configuration,
++                  distribution: 'K8s',
++                },
++              },
++            ],
++          }),
++        },
++      },
++    ],
 +    users: [
 +      {
 +        name: 'admin',
@@ -474,7 +495,7 @@ index 0000000000000000000000000000000000000000..c1e11920d91cedd8199cf0b176e1a972
 +      data: { code: 'already-exists' },
 +    });
 +    expect(fs.readFileSync(destination, 'utf8')).toBe(sameMetadata);
-+    fs.writeFileSync(destination, credentials());
++    fs.writeFileSync(destination, credentials('public-test-certificate', false));
 +    const before = fs.readFileSync(destination, 'utf8');
 +    expect(await call({ action: 'inspect' })).toMatchObject({ success: false });
 +    expect(fs.readFileSync(destination, 'utf8')).toBe(before);
@@ -877,10 +898,10 @@ index 0000000000000000000000000000000000000000..261da0bb19ec31ffb104b87a6a0c27c7
 +}
 diff --git a/app/electron/local-kubeconfig.test.ts b/app/electron/local-kubeconfig.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..05f7f8e6466137a4393f44c8682457d2506bb4ba
+index 0000000000000000000000000000000000000000..5553eb87ca2df86350bfd37f60d4bf0b317a0755
 --- /dev/null
 +++ b/app/electron/local-kubeconfig.test.ts
-@@ -0,0 +1,237 @@
+@@ -0,0 +1,242 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -913,6 +934,13 @@ index 0000000000000000000000000000000000000000..05f7f8e6466137a4393f44c8682457d2
 +vi.mock('./secureStorage', () => ({ isTrustedDocumentUrl: vi.fn() }));
 +
 +const configuration = { name: 'demo', kubernetesVersion: '1.36.1-20260701' };
++// What the CLI records in context_info for the requested cluster.
++const cliContextInfo = {
++  provider: 'baremetal.aksarc.microsoft.com',
++  distro: 'Ubuntu-24.04',
++  ...configuration,
++  distribution: 'K8s',
++};
 +const certificate = Buffer.from('synthetic-public-certificate').toString('base64');
 +const key = Buffer.from('synthetic-test-key-not-a-real-credential').toString('base64');
 +function config() {
@@ -934,7 +962,7 @@ index 0000000000000000000000000000000000000000..05f7f8e6466137a4393f44c8682457d2
 +          extensions: [
 +            {
 +              name: 'context_info',
-+              extension: { provider: 'baremetal.aksarc.microsoft.com' },
++              extension: { ...cliContextInfo } as Record<string, unknown>,
 +            },
 +          ],
 +        },
@@ -1005,33 +1033,19 @@ index 0000000000000000000000000000000000000000..05f7f8e6466137a4393f44c8682457d2
 +});
 +
 +describe('private local credentials', () => {
-+  it('keeps the CLI names and context_info, adds local metadata and returns no secret in public metadata', () => {
++  it('keeps the CLI names and context_info unchanged and returns no secret in public metadata', () => {
 +    const value = config();
 +    const context: { extensions: unknown[] } = value.contexts[0].context;
 +    context.extensions = [
++      { name: 'context_info', extension: { ...cliContextInfo, note: 'kept' } },
 +      { name: 'other', extension: { keep: true } },
-+      {
-+        name: 'context_info',
-+        extension: { provider: 'baremetal.aksarc.microsoft.com', note: 'kept', name: 'spoofed' },
-+      },
 +    ];
 +    const normalized = normalizeLocalKubeconfig(yaml.stringify(value), configuration, 'lease');
 +    const parsed = yaml.parse(normalized.contents);
 +    expect(parsed['current-context']).toBe('demo');
 +    expect(parsed.contexts[0].name).toBe('demo');
 +    expect(parsed.contexts[0].context).toMatchObject({ cluster: 'demo', user: 'admin' });
-+    expect(parsed.contexts[0].context.extensions).toEqual([
-+      { name: 'other', extension: { keep: true } },
-+      {
-+        name: 'context_info',
-+        extension: {
-+          provider: 'baremetal.aksarc.microsoft.com',
-+          note: 'kept',
-+          distro: 'Ubuntu-24.04',
-+          ...configuration,
-+        },
-+      },
-+    ]);
++    expect(parsed.contexts[0].context.extensions).toEqual(context.extensions);
 +    expect(normalized.target.contextName).toBe('demo');
 +    expect(parsed.clusters[0].cluster['insecure-skip-tls-verify']).toBe(true);
 +    expect(JSON.stringify(normalized.target)).not.toContain(key);
@@ -1075,6 +1089,18 @@ index 0000000000000000000000000000000000000000..05f7f8e6466137a4393f44c8682457d2
 +    expect(() =>
 +      normalizeLocalKubeconfig(yaml.stringify(value), { ...configuration, name: 'other' }, 'lease')
 +    ).toThrow('identity-mismatch');
++    // A CLI that does not record the requested cluster, or records another one, is rejected.
++    for (const extension of [
++      { provider: 'baremetal.aksarc.microsoft.com' },
++      { ...cliContextInfo, kubernetesVersion: '1.35.5-20260701' },
++      { ...cliContextInfo, distro: 'Ubuntu-22.04' },
++    ]) {
++      const other = config();
++      other.contexts[0].context.extensions[0].extension = extension;
++      expect(() => normalizeLocalKubeconfig(yaml.stringify(other), configuration, 'lease')).toThrow(
++        'identity-mismatch'
++      );
++    }
 +    value.users[0].user['client-key-data'] = 'not base64';
 +    expect(() => normalizeLocalKubeconfig(yaml.stringify(value), configuration, 'lease')).toThrow(
 +      'invalid-credentials'
@@ -1120,10 +1146,10 @@ index 0000000000000000000000000000000000000000..05f7f8e6466137a4393f44c8682457d2
 +});
 diff --git a/app/electron/local-kubeconfig.ts b/app/electron/local-kubeconfig.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..a7121df70629e51c9485fe18fb6bc6c2c849a1ea
+index 0000000000000000000000000000000000000000..ed09204b1e2ad46444d405fd8d09f7b80237f69b
 --- /dev/null
 +++ b/app/electron/local-kubeconfig.ts
-@@ -0,0 +1,318 @@
+@@ -0,0 +1,317 @@
 +/*
 + * Copyright 2025 The Kubernetes Authors
 + *
@@ -1325,7 +1351,8 @@ index 0000000000000000000000000000000000000000..a7121df70629e51c9485fe18fb6bc6c2
 +
 +/**
 + * Keeps the CLI's entry names and its `context_info`, validates the inline credentials and the
-+ * local server, and adds the metadata AKS Desktop reads back: distro, name and Kubernetes version.
++ * local server, and checks that the CLI recorded the requested cluster (distro, name and Kubernetes
++ * version) in `context_info`. AKS Desktop stores the CLI's metadata unchanged and adds none.
 + */
 +export function normalizeLocalKubeconfig(
 +  contents: string,
@@ -1360,7 +1387,16 @@ index 0000000000000000000000000000000000000000..a7121df70629e51c9485fe18fb6bc6c2
 +  const extensions = Array.isArray(originalContext.extensions)
 +    ? originalContext.extensions.filter(isRecord)
 +    : [];
-+  const cliContextInfo = extensions.find(value => value.name === 'context_info')?.extension;
++  const contextInfo = extensions.filter(value => value.name === 'context_info');
++  const cliContextInfo: unknown = contextInfo.length === 1 ? contextInfo[0].extension : undefined;
++  if (
++    !isRecord(cliContextInfo) ||
++    cliContextInfo.distro !== LOCAL_DISTRO ||
++    cliContextInfo.name !== configuration.name ||
++    cliContextInfo.kubernetesVersion !== configuration.kubernetesVersion
++  ) {
++    throw new LocalHandoffError('identity-mismatch');
++  }
 +  const target: LocalTarget = {
 +    name: configuration.name,
 +    kubernetesVersion: configuration.kubernetesVersion,
@@ -1379,18 +1415,7 @@ index 0000000000000000000000000000000000000000..a7121df70629e51c9485fe18fb6bc6c2
 +        context: {
 +          cluster: clusterName,
 +          user: userName,
-+          extensions: [
-+            ...extensions.filter(value => value.name !== 'context_info'),
-+            {
-+              name: 'context_info',
-+              extension: {
-+                ...(isRecord(cliContextInfo) ? cliContextInfo : {}),
-+                distro: LOCAL_DISTRO,
-+                name: target.name,
-+                kubernetesVersion: target.kubernetesVersion,
-+              },
-+            },
-+          ],
++          extensions,
 +        },
 +      },
 +    ],
