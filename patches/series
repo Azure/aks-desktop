@@ -9,3 +9,9 @@
 7731 source 7731-headlamp-upstream-electron-build-timings.patch
 7744 source 7744-headlamp-upstream-aks-cluster-registration.patch
 7746 source 7746-headlamp-upstream-product-company-name.patch
+7747 source 7747-headlamp-product-command-executable.patch
+7748 source 7748-headlamp-local-cluster-handoff.patch
+7749 source 7749-headlamp-local-plugin-contract.patch
+7750 source 7750-headlamp-background-cluster-refresh.patch
+7751 source 7751-headlamp-local-plugin-contract-v2.patch
+7752 source 7752-headlamp-local-cluster-delete.patch

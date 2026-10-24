@@ -1,0 +1,333 @@
+diff --git a/app/electron/main.ts b/app/electron/main.ts
+index 08ef65b6f5fc9547181ae8c86f795db43b793c33..8beb4735f884c357a345ea0aeab09558c72c0d47 100644
+--- a/app/electron/main.ts
++++ b/app/electron/main.ts
+@@ -76,6 +76,7 @@ import {
+   applyCommandEnvironment,
+   environmentOverrides,
+   removeRunCmdConsent,
++  resolveCommandExecutable,
+   runScript,
+   setupRunCmdHandlers,
+ } from './runCmd';
+@@ -701,6 +702,14 @@ class PluginManagerEventListeners {
+ 
+ let shellEnvironmentPromise: Promise<NodeJS.ProcessEnv> | null = null;
+ 
++export function getProductCommandExecutable(command: string): string | undefined {
++  return resolveCommandExecutable(
++    command,
++    loadBuildManifest(appBuildManifestPath),
++    isDev ? path.resolve(__dirname, '../resources') : process.resourcesPath
++  );
++}
++
+ /** Returns the cached login-shell changes merged with the current process environment. */
+ export async function getShellEnvironment(): Promise<NodeJS.ProcessEnv> {
+   if (!shellEnvironmentPromise) {
+diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
+index c9f153bfe05a6be4ce823bb636c25a9152a35c5f..453ef95458207929a267b948eb3de2254d8b99be 100644
+--- a/app/electron/runCmd.test.ts
++++ b/app/electron/runCmd.test.ts
+@@ -25,6 +25,7 @@ const {
+   defaultPluginsDirMock,
+   defaultUserPluginsDirMock,
+   getShellEnvironmentMock,
++  getProductCommandExecutableMock,
+   preparePluginExecutableMock,
+   preparePluginScriptMock,
+   removePreparedPluginExecutableMock,
+@@ -36,6 +37,7 @@ const {
+   defaultPluginsDirMock: vi.fn(() => '/plugins/default'),
+   defaultUserPluginsDirMock: vi.fn(() => '/plugins/user'),
+   getShellEnvironmentMock: vi.fn(),
++  getProductCommandExecutableMock: vi.fn(),
+   preparePluginExecutableMock: vi.fn(),
+   preparePluginScriptMock: vi.fn(),
+   removePreparedPluginExecutableMock: vi.fn(),
+@@ -81,6 +83,7 @@ const shellEnvironment = { PATH: '/opt/homebrew/bin:/usr/bin', SHELL: '/bin/zsh'
+ 
+ vi.mock('./main', () => ({
+   getShellEnvironment: getShellEnvironmentMock,
++  getProductCommandExecutable: getProductCommandExecutableMock,
+ }));
+ 
+ import {
+@@ -91,6 +94,7 @@ import {
+   environmentOverrides,
+   handleRunCommand,
+   removeRunCmdConsent,
++  resolveCommandExecutable,
+   revokeRunCmdCapabilities,
+   setupRunCmdHandlers,
+   systemCommandEnvironment,
+@@ -759,6 +763,7 @@ describe('handleRunCommand', () => {
+     defaultUserPluginsDirMock.mockReturnValue('/plugins/user');
+     getShellEnvironmentMock.mockReset();
+     getShellEnvironmentMock.mockResolvedValue(shellEnvironment);
++    getProductCommandExecutableMock.mockReset();
+     spawnMock.mockReset();
+     preparePluginExecutableMock.mockReset();
+     preparePluginExecutableMock.mockImplementation(
+@@ -832,6 +837,52 @@ describe('handleRunCommand', () => {
+     consoleError.mockRestore();
+   });
+ 
++  it('spawns the resolved product executable only after authorization', async () => {
++    const executable = path.resolve('resources', 'example.exe');
++    getProductCommandExecutableMock.mockReturnValue(executable);
++    const data = {
++      id: 'product-command',
++      command: 'gh',
++      args: ['auth', 'token'],
++      options: {},
++      permissionSecrets: { 'runCmd-gh': 99 },
++    };
++    const window = { id: 1 } as Parameters<typeof handleRunCommand>[2];
++    await handleRunCommand(fakeEvent, data, window, { 'runCmd-gh': 99 });
++    expect(getProductCommandExecutableMock).toHaveBeenCalledWith('gh');
++    expect(spawnMock).toHaveBeenCalledWith(executable, data.args, expect.any(Object));
++
++    getProductCommandExecutableMock.mockClear();
++    spawnMock.mockClear();
++    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
++    await handleRunCommand(fakeEvent, data, window, { 'runCmd-gh': 1 });
++    expect(getProductCommandExecutableMock).not.toHaveBeenCalled();
++    expect(spawnMock).not.toHaveBeenCalled();
++    error.mockRestore();
++  });
++
++  it('does not fall back to PATH after product executable verification fails', async () => {
++    getProductCommandExecutableMock.mockImplementation(() => {
++      throw new Error('integrity');
++    });
++    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
++    await handleRunCommand(
++      fakeEvent,
++      {
++        id: 'product-command',
++        command: 'gh',
++        args: ['auth', 'token'],
++        options: {},
++        permissionSecrets: { 'runCmd-gh': 99 },
++      },
++      { id: 1 } as Parameters<typeof handleRunCommand>[2],
++      { 'runCmd-gh': 99 }
++    );
++    expect(spawnMock).not.toHaveBeenCalled();
++    expect(sentMessages).toContainEqual(['command-exit', 'product-command', -1]);
++    error.mockRestore();
++  });
++
+   it('removes plugin directories from legacy command PATH lookup', async () => {
+     getShellEnvironmentMock.mockResolvedValueOnce({
+       PATH: ['/plugins/user/attacker/bin', '/usr/local/bin', '/plugins/default/tool/bin'].join(
+@@ -2419,6 +2470,56 @@ describe('setupRunCmdHandlers', () => {
+ });
+ 
+ describe('app-owned command environment', () => {
++  it('confines optional product executable resolution to app-owned resources', () => {
++    const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'command resolver-')));
++    const resources = path.join(directory, 'resources');
++    fs.mkdirSync(path.join(resources, '.plugins'), { recursive: true });
++    fs.writeFileSync(path.join(resources, 'example.exe'), 'fixture');
++    fs.writeFileSync(path.join(resources, '.plugins', 'plugin.exe'), 'fixture');
++    fs.writeFileSync(path.join(directory, 'outside.exe'), 'fixture');
++    fs.writeFileSync(
++      path.join(resources, 'environment.cjs'),
++      'exports.resolveExecutable = (command, manifest) => manifest.executable;'
++    );
++    const manifest = {
++      commandEnvironment: 'environment.cjs',
++      executable: path.join(resources, 'example.exe'),
++    };
++    try {
++      expect(resolveCommandExecutable('example', manifest, resources)).toBe(manifest.executable);
++      expect(resolveCommandExecutable('other', {}, resources)).toBeUndefined();
++      expect(
++        resolveCommandExecutable('other', { commandEnvironment: 'environment.cjs' }, resources)
++      ).toBeUndefined();
++      for (const executable of [
++        'example.exe',
++        42,
++        null,
++        {},
++        resources,
++        path.join(directory, 'outside.exe'),
++        path.join(resources, '.plugins', 'plugin.exe'),
++      ]) {
++        expect(() =>
++          resolveCommandExecutable('example', { ...manifest, executable }, resources)
++        ).toThrow();
++      }
++      for (const [index, source] of [
++        'exports.resolveExecutable = async () => "example.exe";',
++        'exports.resolveExecutable = () => { throw new Error("integrity"); };',
++        'exports.resolveExecutable = "example.exe";',
++      ].entries()) {
++        const module = `invalid-${index}.cjs`;
++        fs.writeFileSync(path.join(resources, module), source);
++        expect(() =>
++          resolveCommandExecutable('example', { commandEnvironment: module }, resources)
++        ).toThrow();
++      }
++    } finally {
++      fs.rmSync(directory, { recursive: true, force: true });
++    }
++  });
++
+   it('uses a resource callback after shell setup without mutating its input', () => {
+     const directory = fs.realpathSync(
+       fs.mkdtempSync(path.join(os.tmpdir(), 'command environment-'))
+@@ -2495,6 +2596,7 @@ describe('command consent', () => {
+     vi.mocked(loadSettings).mockReturnValue({ confirmedCommands: {} });
+     getShellEnvironmentMock.mockReset();
+     getShellEnvironmentMock.mockResolvedValue(shellEnvironment);
++    getProductCommandExecutableMock.mockReset();
+     spawnMock.mockReset();
+     spawnMock.mockReturnValue(
+       Object.assign(new EventEmitter(), {
+@@ -2513,6 +2615,7 @@ describe('command consent', () => {
+     await handleRunCommand(fakeEvent, eventData, fakeMainWindow, permissionSecrets);
+ 
+     expect(showMessageBoxSyncMock).toHaveBeenCalled();
++    expect(getProductCommandExecutableMock).not.toHaveBeenCalled();
+     expect(spawnMock).not.toHaveBeenCalled();
+     expect(fakeEvent.sender.send).toHaveBeenCalledWith('command-exit', 'test-id', -3);
+   });
+diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
+index bd4966b804d85722239504eb1a718dd7f210742a..1f692d4d31342037994f10efb2f57b9edf55248d 100644
+--- a/app/electron/runCmd.ts
++++ b/app/electron/runCmd.ts
+@@ -319,23 +319,12 @@ export async function verifyPluginCommandPolicies(
+   return verifiedPolicies;
+ }
+ 
+-/**
+- * Applies an optional app-owned environment callback, never a renderer/plugin supplied module.
+- *
+- * @param environment - Merged process and login-shell environment; the callback receives a copy.
+- * @param manifest - Trusted application build manifest selecting the optional commandEnvironment module.
+- * @param resourcesDirectory - App resources root used to resolve and confine the callback module.
+- * @returns A copy of the callback's environment, or a copy of the input when no module is configured.
+- * @throws When the module is invalid or outside app-owned resources, the callback throws, or its
+- * return value is not a synchronous environment object.
+- */
+-export function applyCommandEnvironment(
+-  environment: NodeJS.ProcessEnv,
++function loadCommandEnvironmentModule(
+   manifest: Record<string, unknown>,
+   resourcesDirectory: string
+-): NodeJS.ProcessEnv {
++): { callbacks: Record<string, unknown>; root: string } | undefined {
+   const modulePath = manifest.commandEnvironment;
+-  if (modulePath === undefined) return { ...environment };
++  if (modulePath === undefined) return undefined;
+   if (
+     typeof modulePath !== 'string' ||
+     !modulePath.endsWith('.cjs') ||
+@@ -356,11 +345,31 @@ export function applyCommandEnvironment(
+   ) {
+     throw new Error('commandEnvironment must be an app-owned resource');
+   }
+-  const { configureEnvironment } = require(canonical);
++  return { callbacks: require(canonical), root };
++}
++
++/**
++ * Applies an optional app-owned environment callback, never a renderer/plugin supplied module.
++ *
++ * @param environment - Merged process and login-shell environment; the callback receives a copy.
++ * @param manifest - Trusted application build manifest selecting the optional commandEnvironment module.
++ * @param resourcesDirectory - App resources root used to resolve and confine the callback module.
++ * @returns A copy of the callback's environment, or a copy of the input when no module is configured.
++ * @throws When the module is invalid or outside app-owned resources, the callback throws, or its
++ * return value is not a synchronous environment object.
++ */
++export function applyCommandEnvironment(
++  environment: NodeJS.ProcessEnv,
++  manifest: Record<string, unknown>,
++  resourcesDirectory: string
++): NodeJS.ProcessEnv {
++  const loaded = loadCommandEnvironmentModule(manifest, resourcesDirectory);
++  if (!loaded) return { ...environment };
++  const { configureEnvironment } = loaded.callbacks;
+   if (typeof configureEnvironment !== 'function') {
+     throw new Error('commandEnvironment must export configureEnvironment');
+   }
+-  const result = configureEnvironment({ ...environment }, manifest, root);
++  const result = configureEnvironment({ ...environment }, manifest, loaded.root);
+   if (
+     !result ||
+     typeof result !== 'object' ||
+@@ -373,6 +382,43 @@ export function applyCommandEnvironment(
+   return { ...result };
+ }
+ 
++/**
++ * Resolves an already-authorized command through an optional app-owned callback.
++ * The product verifies its executable; core confines the result to app-owned resources.
++ *
++ * @param command - Authorized command name, not a renderer-supplied executable path.
++ * @param manifest - Trusted application build manifest selecting the optional callback module.
++ * @param resourcesDirectory - App-owned resource root.
++ * @returns The canonical executable, or undefined to preserve existing command lookup.
++ * @throws When resolution fails, returns an invalid value, or escapes app-owned resources.
++ */
++export function resolveCommandExecutable(
++  command: string,
++  manifest: Record<string, unknown>,
++  resourcesDirectory: string
++): string | undefined {
++  const loaded = loadCommandEnvironmentModule(manifest, resourcesDirectory);
++  if (!loaded || loaded.callbacks.resolveExecutable === undefined) return undefined;
++  const { resolveExecutable } = loaded.callbacks;
++  if (typeof resolveExecutable !== 'function') {
++    throw new Error('commandEnvironment resolveExecutable must be a function');
++  }
++  const result: unknown = resolveExecutable(command, manifest, loaded.root);
++  if (result === undefined) return undefined;
++  if (typeof result !== 'string' || result.includes('\0') || !path.isAbsolute(result)) {
++    throw new Error('resolveExecutable must return an absolute resource path synchronously');
++  }
++  const canonical = fs.realpathSync(result);
++  if (
++    !isPathWithin(loaded.root, canonical) ||
++    isPathWithin(path.join(loaded.root, '.plugins'), canonical) ||
++    !fs.statSync(canonical).isFile()
++  ) {
++    throw new Error('resolveExecutable must select an app-owned resource');
++  }
++  return canonical;
++}
++
+ /** Returns only values changed by shell initialization. */
+ export function environmentOverrides(
+   environment: NodeJS.ProcessEnv,
+@@ -1020,9 +1066,13 @@ export async function handleRunCommand(
+   }
+ 
+   let shellEnvironment = process.env;
++  let productExecutable: string | undefined;
+   try {
+-    const { getShellEnvironment } = await import('./main');
++    const { getShellEnvironment, getProductCommandExecutable } = await import('./main');
+     shellEnvironment = await getShellEnvironment();
++    if (commandData.command !== 'scriptjs' && !capabilityGrant?.executable) {
++      productExecutable = getProductCommandExecutable(commandData.command);
++    }
+   } catch (error) {
+     console.error(
+       'Command environment unavailable',
+@@ -1157,7 +1207,10 @@ export async function handleRunCommand(
+   const command =
+     commandData.command === 'scriptjs'
+       ? process.execPath
+-      : preparedPluginExecutable ?? pluginExecutable?.executable ?? commandData.command;
++      : preparedPluginExecutable ??
++        pluginExecutable?.executable ??
++        productExecutable ??
++        commandData.command;
+   const args =
+     commandData.command === 'scriptjs'
+       ? [preparedPluginScript ?? (scriptPath as string), ...commandData.args.slice(1)]

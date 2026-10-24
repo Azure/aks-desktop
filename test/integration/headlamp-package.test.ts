@@ -90,9 +90,11 @@ test('the install workflow owns and verifies the Headlamp patch', () => {
   assert.equal(lockEntry.version, VERSION);
   assert.equal(lockEntry.resolved, 'file:packages/headlamp-source');
   const patch = fs.readFileSync(path.join(ROOT_DIR, patchPath));
+  const composedPatch = composePatchSeries(ROOT_DIR);
   assert.equal(
-    patch.equals(composePatchSeries(ROOT_DIR)),
-    true
+    patch.equals(composedPatch),
+    true,
+    `stored patch length ${patch.length}, composed patch length ${composedPatch.length}`
   );
   assert.doesNotMatch(
     patch.toString('utf8'),
@@ -149,6 +151,20 @@ test('the Headlamp loader gates development plugins through the hardened preload
     preload,
     /getDevelopmentPluginsEnabled: \(\) => ipcRenderer\.invoke\('get-development-plugins'\)/
   );
+});
+
+test('cluster discovery keeps polling while the desktop renderer is hidden', () => {
+  const layout = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'frontend', 'src', 'components', 'App', 'Layout.tsx'),
+    'utf8'
+  );
+  const clusterFetchQuery = layout.match(
+    /useQuery\(\{[\s\S]*?queryKey:\s*\['cluster-fetch'\][\s\S]*?\n\s*\}\);/
+  )?.[0];
+
+  assert.ok(clusterFetchQuery, 'expected the cluster-fetch query in Layout.tsx');
+  assert.match(clusterFetchQuery, /refetchInterval:[\s\S]*CLUSTER_FETCH_INTERVAL/);
+  assert.match(clusterFetchQuery, /refetchIntervalInBackground:\s*true/);
 });
 
 test('the patched Headlamp source exposes provider-scoped cluster registration', () => {
@@ -606,7 +622,8 @@ test('AKS product policy owns development and production command grants', () => 
   );
   assert.equal(aksDesktop.capabilities, undefined);
   assert.equal(aksDesktopManifest.headlamp.runCommands, undefined);
-  const policies: any[] = rootManifest.headlamp.runCommands;
+  assert.equal(rootManifest.headlamp.runCommands.length, 6);
+  const policies: any[] = rootManifest.headlamp.runCommands.slice(0, 4);
   assert.deepEqual(
     policies.map(policy => ({
       environment: policy.environment,
@@ -679,6 +696,56 @@ test('AKS product policy owns development and production command grants', () => 
       ],
     },
   ]);
+});
+
+test('standalone local plugin owns its CLI without adding a shipped plugin or public catalog grant', () => {
+  const policies: any[] = rootManifest.headlamp.runCommands.slice(4);
+  assert.deepEqual(policies.map(policy => policy.environment), ['development', 'production']);
+  assert.deepEqual(policies[0].commands, policies[1].commands);
+  for (const policy of policies) {
+    assert.deepEqual(policy.targets, ['win32-x64']);
+    assert.equal(policy.pluginLocation, 'development');
+    assert.deepEqual(policy.plugins, [
+      { bundleName: 'aksedge', packageName: '@headlamp-k8s/aksedge' },
+    ]);
+    assert.equal(policy.approvedCommands, undefined);
+    assert.equal(policy.artifactHub, undefined);
+    assert.deepEqual(policy.pluginExecutables, [{ tool: 'aks-desktop' }]);
+    assert.deepEqual(policy.clusterRegistrationProviders, [
+      { id: 'aksedge-local', type: 'aksedge-local', tools: {} },
+    ]);
+    assert.deepEqual(
+      policy.commands.map((grant: any) => [
+        grant.tool,
+        grant.args.slice(0, 2).join(' '),
+        !!grant.allowTrailingArgs,
+      ]),
+      [
+        ['aks-desktop', 'cluster get-versions', false],
+        ['aks-desktop', 'cluster show', false],
+        ['aks-desktop', 'cluster create', true],
+        ['aks-desktop', 'cluster delete', true],
+      ]
+    );
+  }
+  assert.doesNotMatch(JSON.stringify(rootManifest.headlamp.plugins), /aksedge/);
+  assert.doesNotMatch(JSON.stringify(rootManifest.headlamp.build.externalTools), /aksedge/);
+  assert.doesNotMatch(JSON.stringify(rootManifest.config.externalTools), /aksedge/);
+  assert.doesNotMatch(
+    JSON.stringify(rootManifest.headlamp.runCommands.slice(0, 4)),
+    /aksedge/
+  );
+  // The local CLI is `aks-desktop`, which is also the shipped plugin's name, so match the tool.
+  assert.ok(
+    !rootManifest.headlamp.build.externalTools.some((tool: any) => tool.id === 'aks-desktop')
+  );
+  assert.equal(rootManifest.config.externalTools['aks-desktop'], undefined);
+  assert.ok(
+    !rootManifest.headlamp.runCommands
+      .slice(0, 4)
+      .flatMap((policy: any) => [...(policy.commands ?? []), ...(policy.approvedCommands ?? [])])
+      .some((grant: any) => grant.tool === 'aks-desktop')
+  );
 });
 
 test('container builds do not require repository metadata', () => {

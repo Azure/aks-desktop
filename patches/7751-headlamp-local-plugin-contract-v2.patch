@@ -1,0 +1,141 @@
+diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/local-cluster-registration.test.ts
+--- a/app/electron/local-cluster-registration.test.ts
++++ b/app/electron/local-cluster-registration.test.ts
+@@ -86,14 +86,17 @@ function credentials(identity = 'public-test-certificate', metadata = true) {
+   });
+ }
+ function preparation(result: ClusterRegistrationResult) {
++  const kubeconfigPath =
++    (result.data?.mergeTarget as { path?: unknown } | undefined)?.path ??
++    result.data?.kubeconfigPath;
+   if (
+     !result.success ||
+     typeof result.data?.token !== 'string' ||
+-    typeof result.data.kubeconfigPath !== 'string'
++    typeof kubeconfigPath !== 'string'
+   ) {
+     throw new Error('Fixture expected a successful preparation');
+   }
+-  return { token: result.data.token, kubeconfigPath: result.data.kubeconfigPath };
++  return { token: result.data.token, kubeconfigPath };
+ }
+ 
+ describe('local registration handoff', () => {
+@@ -161,7 +164,7 @@ describe('local registration handoff', () => {
+     ).resolves.toEqual({
+       success: true,
+       message: 'Local cluster compatibility contract.',
+-      data: { contract: 'aksedge-local', version: 1, platform: 'win32', arch: 'x64' },
++      data: { contract: 'aksedge-local', version: 2, platform: 'win32', arch: 'x64' },
+     });
+     expect(hardenDirectory).not.toHaveBeenCalled();
+     expect(persist).not.toHaveBeenCalled();
+@@ -198,7 +201,7 @@ describe('local registration handoff', () => {
+     try {
+       await expect(call({ action: 'capabilities' })).resolves.toMatchObject({
+         success: true,
+-        data: { contract: 'aksedge-local', version: 1 },
++        data: { contract: 'aksedge-local', version: 2 },
+       });
+       await expect(call({ action: 'inspect' })).resolves.toMatchObject({
+         success: false,
+diff --git a/app/electron/local-cluster-registration.ts b/app/electron/local-cluster-registration.ts
+--- a/app/electron/local-cluster-registration.ts
++++ b/app/electron/local-cluster-registration.ts
+@@ -43,7 +43,9 @@ import {
+ type LocalRequest =
+   | { action: 'inspect' | 'capabilities' }
+   | ({ action: 'prepare'; consent: true; distro: typeof LOCAL_DISTRO } & LocalConfiguration)
+-  | { action: 'register' | 'discard'; token: string }
++  | { action: 'register'; token: string; context?: string }
++  | { action: 'discard'; token: string }
++  | { action: 'readiness'; reference: string }
+   | {
+       action: 'forget';
+       reference: string;
+@@ -84,9 +86,22 @@ export function isLocalRequest(value: unknown): value is LocalRequest {
+   if (!isRecord(value) || typeof value.action !== 'string') return false;
+   const only = (keys: string[]) => Object.keys(value).every(key => keys.includes(key));
+   if (value.action === 'inspect' || value.action === 'capabilities') return only(['action']);
+-  if (['register', 'discard'].includes(value.action)) {
++  if (value.action === 'register') {
++    return (
++      only(['action', 'token', 'context']) &&
++      isToken(value.token) &&
++      (value.context === undefined || typeof value.context === 'string')
++    );
++  }
++  if (value.action === 'discard') {
+     return only(['action', 'token']) && isToken(value.token);
+   }
++  if (value.action === 'readiness') {
++    return (
++      only(['action', 'reference']) &&
++      (value.reference === 'registered' || isToken(value.reference))
++    );
++  }
+   if (value.consent !== true || value.distro !== LOCAL_DISTRO) return false;
+   if (value.action === 'prepare') {
+     return (
+@@ -225,10 +240,6 @@ export function createLocalClusterRegistrationProvider(
+       ...new Set([...(options.kubeconfigPaths ?? resolveKubeconfigPaths)(), ...managed]),
+     ].filter(candidate => path.resolve(candidate) !== managedPath());
+   };
+-  const prepared = (lease: Lease) => ({
+-    token: lease.token,
+-    kubeconfigPath: lease.kubeconfigPath,
+-  });
+ 
+   return {
+     id: LOCAL_PROVIDER,
+@@ -248,9 +259,29 @@ export function createLocalClusterRegistrationProvider(
+         return {
+           success: true,
+           message: 'Local cluster compatibility contract.',
+-          data: { contract: LOCAL_PROVIDER, version: 1, platform: 'win32', arch: 'x64' },
++          data: { contract: LOCAL_PROVIDER, version: 2, platform: 'win32', arch: 'x64' },
+         };
+       }
++      if (request.action === 'readiness') {
++        // Read-only, so it bypasses the busy guard. POC: a loaded managed entry is
++        // reported usable without probing the cluster API server.
++        try {
++          if (request.reference !== 'registered') findLease(request.reference);
++          const loaded = request.reference === 'registered' && managedTarget() !== null;
++          return {
++            success: true,
++            message: 'Local cluster readiness.',
++            data: { loaded, usable: loaded },
++          };
++        } catch (error) {
++          const code = error instanceof LocalHandoffError ? error.code : 'storage';
++          return {
++            success: false,
++            message: `Local cluster handoff failed (${code}).`,
++            data: { code },
++          };
++        }
++      }
+       if (requestInFlight) {
+         return {
+           success: false,
+@@ -275,12 +306,18 @@ export function createLocalClusterRegistrationProvider(
+             return {
+               success: true,
+               message: 'Private credential destination prepared.',
+-              data: prepared(lease),
++              data: {
++                token: lease.token,
++                mergeTarget: { path: lease.kubeconfigPath, context: lease.configuration.name },
++              },
+             };
+           }
+           case 'register': {
+             const lease = findLease(request.token);
+             if (lease.kind !== 'create') throw new LocalHandoffError('identity-mismatch');
++            if (request.context !== undefined && request.context !== lease.configuration.name) {
++              throw new LocalHandoffError('identity-mismatch');
++            }
+             const imported = managedTarget();
+             if (
+               lease.persisted &&
