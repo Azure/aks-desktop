@@ -60,39 +60,45 @@ function withAksToolPaths(environment, manifest, resourcesDirectory, platform = 
 }
 
 function validateCommand(command, args, temporaryDirectory = os.tmpdir()) {
-  if (command !== 'aksedge') return;
+  if (command !== 'aks-desktop') return;
   const invalid = () => {
-    throw new Error('The aksedge request is outside the Windows local-cluster POC contract');
+    throw new Error('The aks-desktop request is outside the Windows local-cluster POC contract');
   };
   if (!Array.isArray(args) || args.some(value => typeof value !== 'string')) invalid();
-  if (args.length === 2 && args[0] === 'versions' && args[1] === '--json') return;
-  const prefix = [
+  if (args[0] !== 'cluster') invalid();
+  const subcommand = args[1];
+  if (args.length === 3 && subcommand === 'get-versions' && args[2] === '--json') return;
+  // create takes the full local topology; show and delete accept only the flags that find the
+  // guest (aks-desktop cmd/aks-desktop/flags.go, newScopedFlags).
+  const guest = ['--json', '--driver', 'wsl', '--distro', 'Ubuntu-24.04', '--reach', 'shared'];
+  const local = [
     '--json', '--driver', 'wsl', '--distro', 'Ubuntu-24.04',
     '--distribution', 'K8s', '--cni', 'cilium', '--reach', 'shared',
     '--wsl-stable-ip', 'off',
   ];
-  if (!['status', 'create', 'kubeconfig', 'delete'].includes(args[0])) invalid();
-  if (prefix.some((value, index) => args[index + 1] !== value)) invalid();
-  const rest = args.slice(prefix.length + 1);
-  if (args[0] === 'status') {
+  if (!['show', 'create', 'delete'].includes(subcommand)) invalid();
+  const prefix = subcommand === 'create' ? local : guest;
+  if (prefix.some((value, index) => args[index + 2] !== value)) invalid();
+  const rest = args.slice(prefix.length + 2);
+  if (subcommand === 'show') {
     if (rest.length !== 0) invalid();
     return;
   }
-  if (
-    rest[0] !== '--name' ||
-    !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(rest[1] ?? '') ||
-    rest[2] !== '--k8s-version' ||
-    !/^\d{1,3}\.\d{1,3}\.\d{1,3}-\d{8}$/.test(rest[3] ?? '')
-  ) invalid();
-  if (args[0] === 'delete') {
+  if (rest[0] !== '--name' || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(rest[1] ?? '')) {
+    invalid();
+  }
+  if (subcommand === 'delete') {
     // Full delete on the AKS Local Overview appends --purge.
-    if (rest.length === 5 && rest[4] === '--purge') return;
-    if (rest.length !== 4) invalid();
+    if (rest.length === 3 && rest[2] === '--purge') return;
+    if (rest.length !== 2) invalid();
     return;
+  }
+  if (rest[2] !== '--k8s-version' || !/^\d{1,3}\.\d{1,3}\.\d{1,3}-\d{8}$/.test(rest[3] ?? '')) {
+    invalid();
   }
   // An NVIDIA GPU create appends exactly these arguments after the private kubeconfig path.
   const gpu = ['--enable-gpu', '--gpu-vendor', 'nvidia'];
-  const withGpu = args[0] === 'create' && rest.length === 6 + gpu.length;
+  const withGpu = rest.length === 6 + gpu.length;
   if (withGpu && gpu.some((value, index) => rest[6 + index] !== value)) invalid();
   if (rest.length !== (withGpu ? 6 + gpu.length : 6) || rest[4] !== '--kubeconfig-out') invalid();
   const output = rest[5];

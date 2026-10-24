@@ -84,6 +84,7 @@ const identity = {
   packageName: '@headlamp-k8s/aksedge',
   bundleName: 'aksedge',
 };
+const guest = ['--json', '--driver', 'wsl', '--distro', 'Ubuntu-24.04', '--reach', 'shared'];
 const prefix = [
   '--json',
   '--driver',
@@ -110,7 +111,7 @@ let roots: Record<'development' | 'user' | 'shipped', string>;
 let consent: Record<string, boolean>;
 
 function consentKey(args: string[]) {
-  return `run-command-consent:v2:${JSON.stringify([identity, 'aksedge', args])}`;
+  return `run-command-consent:v2:${JSON.stringify([identity, 'aks-desktop', args])}`;
 }
 
 beforeEach(() => {
@@ -135,7 +136,7 @@ beforeEach(() => {
   );
   const source = '/* synthetic standalone plugin fixture */';
   fs.writeFileSync(path.join(bundle, 'main.js'), source);
-  executable = path.join(bundle, 'bin', 'aksedge.exe');
+  executable = path.join(bundle, 'bin', 'aks-desktop.exe');
   fs.writeFileSync(executable, 'Not an executable: all process creation is mocked.');
   const environmentDirectory = path.join(resources, 'external-tools');
   fs.mkdirSync(environmentDirectory);
@@ -201,7 +202,7 @@ async function invoke(
     { sender, senderFrame: sender.mainFrame } as Parameters<typeof handleRunCommand>[0],
     {
       id: 'mock-operation',
-      command: 'aksedge',
+      command: 'aks-desktop',
       args,
       options,
       permissionSecrets: {},
@@ -226,9 +227,9 @@ it('uses the exact developer binary, empty provider tools, native validation, an
     resourcesPath: resources,
     tools: {},
   });
-  const args = ['versions', '--json'];
+  const args = ['cluster', 'get-versions', '--json'];
   const send = await invoke(args);
-  expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aksedge', args, true);
+  expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-desktop', args, true);
   expect(mocks.spawn).toHaveBeenCalledExactlyOnceWith(
     executable,
     args,
@@ -275,14 +276,14 @@ it('does not inherit command authority in the managed user inventory', async () 
 
 it('never substitutes PATH or a product executable when the declared binary is absent', async () => {
   fs.unlinkSync(executable);
-  const send = await invoke(['versions', '--json']);
+  const send = await invoke(['cluster', 'get-versions', '--json']);
   expect(send).toHaveBeenCalledWith('command-exit', 'mock-operation', -2);
   expect(mocks.spawn).not.toHaveBeenCalled();
 });
 
 it('requires native consent and persists a user denial in the mocked settings only', async () => {
   consent = {};
-  const send = await invoke(['versions', '--json']);
+  const send = await invoke(['cluster', 'get-versions', '--json']);
   expect(mocks.dialog).toHaveBeenCalledOnce();
   expect(mocks.saveSettings).toHaveBeenCalledOnce();
   expect(send).toHaveBeenCalledWith('command-exit', 'mock-operation', -3);
@@ -291,17 +292,17 @@ it('requires native consent and persists a user denial in the mocked settings on
 });
 
 it('honors saved denial even when other operations have approval', async () => {
-  consent[consentKey(['versions', '--json'])] = false;
-  const send = await invoke(['versions', '--json']);
+  consent[consentKey(['cluster', 'get-versions', '--json'])] = false;
+  const send = await invoke(['cluster', 'get-versions', '--json']);
   expect(send).toHaveBeenCalledWith('command-exit', 'mock-operation', -3);
   expect(mocks.dialog).not.toHaveBeenCalled();
   expect(mocks.spawn).not.toHaveBeenCalled();
 });
 
 it.each([
-  ['versions', '--json', '--unexpected'],
-  ['status', ...prefix, '--name', 'demo'],
-  ['status', ...prefix.map(value => (value === 'Ubuntu-24.04' ? 'Ubuntu' : value))],
+  ['cluster', 'get-versions', '--json', '--unexpected'],
+  ['cluster', 'show', ...guest, '--name', 'demo'],
+  ['cluster', 'show', ...guest.map(value => (value === 'Ubuntu-24.04' ? 'Ubuntu' : value))],
 ])('rejects arguments outside the product grant: %j', async (...args) => {
   const send = await invoke(args);
   expect(send).toHaveBeenCalledWith('command-exit', 'mock-operation', -2);
@@ -310,20 +311,27 @@ it.each([
 });
 
 it.each([
-  ['delete', ...prefix, ...configuration, '--purge=true'],
-  ['delete', ...prefix, '--name', '../bad', '--k8s-version', '1.36.1-20260701'],
-  ['create', ...prefix, ...configuration, '--kubeconfig-out', 'C:\\not-a-private-handoff.yaml'],
-  ['kubeconfig', ...prefix, ...configuration, '--kubeconfig-out', 'C:\\not-a-private-handoff.yaml'],
+  ['cluster', 'delete', ...guest, '--name', 'demo', '--purge=true'],
+  ['cluster', 'delete', ...guest, '--name', '../bad'],
+  ['cluster', 'delete', ...guest, ...configuration],
+  [
+    'cluster',
+    'create',
+    ...prefix,
+    ...configuration,
+    '--kubeconfig-out',
+    'C:\\not-a-private-handoff.yaml',
+  ],
 ])('enforces full native validation after the variable-argument grant: %j', async (...args) => {
   const send = await invoke(args);
-  expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aksedge', args, true);
+  expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-desktop', args, true);
   expect(send).toHaveBeenCalledWith('command-exit', 'mock-operation', -1);
   expect(mocks.spawn).not.toHaveBeenCalled();
 });
 
-it.each(['create', 'kubeconfig'])(
-  'accepts only the native private-file shape for %s',
-  async command => {
+it.each([[], ['--enable-gpu', '--gpu-vendor', 'nvidia']])(
+  'accepts only the native private-file shape for create %j',
+  async (...gpu) => {
     privateDirectory = path.join(
       fs.realpathSync(os.tmpdir()),
       `aksedge-kubeconfig-${crypto.randomUUID()}`
@@ -331,9 +339,9 @@ it.each(['create', 'kubeconfig'])(
     fs.mkdirSync(privateDirectory);
     const output = path.join(privateDirectory, 'credentials.yaml');
     fs.writeFileSync(output, '');
-    const args = [command, ...prefix, ...configuration, '--kubeconfig-out', output];
+    const args = ['cluster', 'create', ...prefix, ...configuration, '--kubeconfig-out', output, ...gpu];
     await invoke(args);
-    expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aksedge', args, true);
+    expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-desktop', args, true);
     expect(mocks.spawn).toHaveBeenCalledExactlyOnceWith(
       executable,
       args,
@@ -348,7 +356,7 @@ it('rejects renderer spawn overrides, revoked capabilities, and untrusted docume
     [{}, trustedUrl, true],
     [{}, 'https://untrusted.invalid', false],
   ] as const) {
-    await invoke(['versions', '--json'], options, url, revoked);
+    await invoke(['cluster', 'get-versions', '--json'], options, url, revoked);
   }
   expect(mocks.environment).not.toHaveBeenCalled();
   expect(mocks.executable).not.toHaveBeenCalled();

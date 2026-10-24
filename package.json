@@ -1102,35 +1102,32 @@
         "pluginLocation": "development",
         "approvedCommands": [
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "args": [
-              "versions",
+              "cluster",
+              "get-versions",
               "--json"
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "args": [
-              "status",
+              "cluster",
+              "show",
               "--json",
               "--driver",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
               "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
+              "shared"
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "allowTrailingArgs": true,
             "args": [
+              "cluster",
               "create",
               "--json",
               "--driver",
@@ -1148,43 +1145,18 @@
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "allowTrailingArgs": true,
             "args": [
-              "kubeconfig",
-              "--json",
-              "--driver",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
-              "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
-            ]
-          },
-          {
-            "tool": "aksedge",
-            "allowTrailingArgs": true,
-            "args": [
+              "cluster",
               "delete",
               "--json",
               "--driver",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
               "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
+              "shared"
             ]
           },
           {
@@ -1225,7 +1197,7 @@
         ],
         "pluginExecutables": [
           {
-            "tool": "aksedge"
+            "tool": "aks-desktop"
           }
         ],
         "clusterRegistrationProviders": [
@@ -1237,35 +1209,32 @@
         ],
         "commands": [
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "args": [
-              "versions",
+              "cluster",
+              "get-versions",
               "--json"
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "args": [
-              "status",
+              "cluster",
+              "show",
               "--json",
               "--driver",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
               "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
+              "shared"
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "allowTrailingArgs": true,
             "args": [
+              "cluster",
               "create",
               "--json",
               "--driver",
@@ -1283,43 +1252,18 @@
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "allowTrailingArgs": true,
             "args": [
-              "kubeconfig",
-              "--json",
-              "--driver",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
-              "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
-            ]
-          },
-          {
-            "tool": "aksedge",
-            "allowTrailingArgs": true,
-            "args": [
+              "cluster",
               "delete",
               "--json",
               "--driver",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
               "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
+              "shared"
             ]
           },
           {
@@ -1361,35 +1305,32 @@
         "pluginLocation": "development",
         "approvedCommands": [
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "args": [
-              "versions",
+              "cluster",
+              "get-versions",
               "--json"
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "args": [
-              "status",
+              "cluster",
+              "show",
               "--json",
               "--driver",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
               "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
+              "shared"
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "allowTrailingArgs": true,
             "args": [
+              "cluster",
               "create",
               "--json",
               "--driver",
@@ -1407,43 +1348,18 @@
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "allowTrailingArgs": true,
             "args": [
-              "kubeconfig",
-              "--json",
-              "--driver",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
-              "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
-            ]
-          },
-          {
-            "tool": "aksedge",
-            "allowTrailingArgs": true,
-            "args": [
+              "cluster",
               "delete",
               "--json",
               "--driver",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
               "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
+              "shared"
             ]
           },
           {
@@ -1484,7 +1400,7 @@
         ],
         "pluginExecutables": [
           {
-            "tool": "aksedge"
+            "tool": "aks-desktop"
           }
         ],
         "clusterRegistrationProviders": [
@@ -1496,35 +1412,32 @@
         ],
         "commands": [
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "args": [
-              "versions",
+              "cluster",
+              "get-versions",
               "--json"
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "args": [
-              "status",
+              "cluster",
+              "show",
               "--json",
               "--driver",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
               "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
+              "shared"
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "allowTrailingArgs": true,
             "args": [
+              "cluster",
               "create",
               "--json",
               "--driver",
@@ -1542,43 +1455,18 @@
             ]
           },
           {
-            "tool": "aksedge",
+            "tool": "aks-desktop",
             "allowTrailingArgs": true,
             "args": [
-              "kubeconfig",
-              "--json",
-              "--driver",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
-              "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
-            ]
-          },
-          {
-            "tool": "aksedge",
-            "allowTrailingArgs": true,
-            "args": [
+              "cluster",
               "delete",
               "--json",
               "--driver",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
-              "K8s",
-              "--cni",
-              "cilium",
               "--reach",
-              "shared",
-              "--wsl-stable-ip",
-              "off"
+              "shared"
             ]
           },
           {

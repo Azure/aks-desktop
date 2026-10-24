@@ -710,18 +710,21 @@ test('standalone local plugin owns its CLI without adding a shipped plugin or pu
     ]);
     assert.equal(policy.approvedCommands, undefined);
     assert.equal(policy.artifactHub, undefined);
-    assert.deepEqual(policy.pluginExecutables, [{ tool: 'aksedge' }]);
+    assert.deepEqual(policy.pluginExecutables, [{ tool: 'aks-desktop' }]);
     assert.deepEqual(policy.clusterRegistrationProviders, [
       { id: 'aksedge-local', type: 'aksedge-local', tools: {} },
     ]);
     assert.deepEqual(
-      policy.commands.map((grant: any) => [grant.tool, grant.args[0], !!grant.allowTrailingArgs]),
+      policy.commands.map((grant: any) => [
+        grant.tool,
+        grant.args.slice(0, 2).join(' '),
+        !!grant.allowTrailingArgs,
+      ]),
       [
-        ['aksedge', 'versions', false],
-        ['aksedge', 'status', false],
-        ['aksedge', 'create', true],
-        ['aksedge', 'kubeconfig', true],
-        ['aksedge', 'delete', true],
+        ['aks-desktop', 'cluster get-versions', false],
+        ['aks-desktop', 'cluster show', false],
+        ['aks-desktop', 'cluster create', true],
+        ['aks-desktop', 'cluster delete', true],
       ]
     );
   }
@@ -731,6 +734,17 @@ test('standalone local plugin owns its CLI without adding a shipped plugin or pu
   assert.doesNotMatch(
     JSON.stringify(rootManifest.headlamp.runCommands.slice(0, 4)),
     /aksedge/
+  );
+  // The local CLI is `aks-desktop`, which is also the shipped plugin's name, so match the tool.
+  assert.ok(
+    !rootManifest.headlamp.build.externalTools.some((tool: any) => tool.id === 'aks-desktop')
+  );
+  assert.equal(rootManifest.config.externalTools['aks-desktop'], undefined);
+  assert.ok(
+    !rootManifest.headlamp.runCommands
+      .slice(0, 4)
+      .flatMap((policy: any) => [...(policy.commands ?? []), ...(policy.approvedCommands ?? [])])
+      .some((grant: any) => grant.tool === 'aks-desktop')
   );
 });
 
