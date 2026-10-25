@@ -72,7 +72,13 @@ test('uses native paths and the verified CLI for install, build and distribution
   assert.equal(path.dirname(install.args[2]), temp);
   assert.deepEqual(install.args.slice(3), ['--no-save', '--ignore-scripts', '--no-audit', '--no-fund', 'npm@12.0.1']);
   assert.deepEqual(version.args, ['--version']);
-  assert.deepEqual(commands.map(c => c.args), [['ci'], ['run', 'build:win-ci'], ['run', 'test:distribution']]);
+  assert.deepEqual(commands.map(c => c.args), [
+    ['ci'],
+    ['run', 'build:win-ci'],
+    ['run', 'test:distribution'],
+    ['run', 'build:win:arm64', '--', '--reuse-prepared-assets'],
+    ['run', 'test:post-build'],
+  ]);
   const installedCli = path.join(install.args[2], 'node_modules', 'npm', 'bin', 'npm-cli.js');
   for (const call of [version, ...commands]) {
     assert.equal(call.cli, installedCli);
@@ -81,7 +87,7 @@ test('uses native paths and the verified CLI for install, build and distribution
   assert.deepEqual(fs.readdirSync(temp), []);
 });
 
-for (const phase of ['install', 'ci', 'build:win-ci', 'test:distribution']) {
+for (const phase of ['install', 'ci', 'build:win-ci', 'test:distribution', 'build:win:arm64', 'test:post-build']) {
   test(`preserves failure status and stops subsequent commands when ${phase} fails`, t => {
     const { run, temp } = fixture(t);
     const result = run({ FAIL_AT: phase });
@@ -110,7 +116,7 @@ test('nested bare npm commands resolve the pinned CLI rather than the original P
   const { run } = fixture(t);
   const result = run({ NESTED_NPM: '1' });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.calls.filter(c => c.args[0] === '--version').length, 3);
+  assert.equal(result.calls.filter(c => c.args[0] === '--version').length, 5);
 });
 
 for (const [failAt, expected] of [['ci', 23], ['', 0]]) {

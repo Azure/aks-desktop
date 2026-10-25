@@ -28,7 +28,10 @@ The Windows pipeline now runs the dependency-free regression suite, then
 3. Installs the pin using `process.execPath` plus the bootstrap CLI, without
    passing temporary paths through Git Bash argument conversion.
 4. Checks that the new CLI exists and reports the expected version.
-5. Runs `ci`, `build:win-ci`, and `test:distribution` through Node and that CLI.
+5. Runs `ci`, `build:win-ci` (x64), and `test:distribution` through Node and that
+   CLI, then `build:win:arm64 -- --reuse-prepared-assets` and `test:post-build`.
+   The x64 release host checks the ARM64 bundle without launching its application;
+   the native Windows ARM64 CI job runs full distribution validation.
    A **native child-process PATH**, with the platform delimiter and existing key
    casing, also selects pinned npm/Node for nested bare commands. It is never
    exported back into Bash or persisted with `task.prependpath`.
@@ -37,8 +40,9 @@ The Windows pipeline now runs the dependency-free regression suite, then
    build result. The agent retains responsibility for its temporary workspace.
 
 The registry/pip proxy settings, package-manager/Node/Go pins, localization,
-lockfile, macOS/Linux workflows, distribution checks, ESRP signing, asset names
-and publication steps are unchanged. No new dependency is needed before `ci`.
+lockfile, macOS/Linux workflows, ESRP signing and asset names are unchanged.
+Both Windows installers are collected for signing and publication.
+No new dependency is needed before `ci`.
 
 ## Verification and remaining gate
 

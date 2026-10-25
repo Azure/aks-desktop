@@ -41,6 +41,11 @@ The default build targets the host architecture. Release targets can also be
 built explicitly with `npm run build:linux:arm64`, `npm run build:mac:arm64`,
 or `npm run build:win:arm64` on the corresponding host platform.
 
+Windows ARM64 packages contain native ARM64 Electron and backend binaries.
+The bundled Azure CLI and its Python runtime remain x64 and use Windows 11
+ARM64's x64 emulation. The Windows release pipeline builds and signs both
+x64 and ARM64 installers; native ARM64 CI validates application startup.
+
 ### Build output
 
 The AKS tool setup stages `build/aks-tool-environment.cjs` beside the bundled CLI.
