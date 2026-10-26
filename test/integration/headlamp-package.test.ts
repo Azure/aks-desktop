@@ -47,11 +47,11 @@ test('the installed package is a complete pinned source distribution', () => {
   assert.deepEqual(packageManifest.files, ['source', 'src']);
   assert.equal(packageManifest.repository.url, 'https://github.com/kubernetes-sigs/headlamp.git');
   assert.deepEqual(rootManifest.headlampSource, {
-    revision: 'd4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0',
+    revision: '7ce01fceac891f6dba09420cb102ad6ba7ecc519',
   });
   assert.deepEqual(packageManifest.headlampSource, {
     ...rootManifest.headlampSource,
-    goVersion: '1.26.8',
+    goVersion: '1.26.10',
   });
   for (const file of [
     'package.json',
@@ -727,7 +727,7 @@ test('frontend identity comes from package and product metadata', () => {
     );
     assert.equal(result.status, 0, result.stderr);
     const environment = fs.readFileSync(outputPath, 'utf8');
-    assert.match(environment, /^REACT_APP_HEADLAMP_VERSION='0\.45\.0'$/m);
+    assert.match(environment, /^REACT_APP_HEADLAMP_VERSION='0\.46\.0'$/m);
     assert.match(
       environment,
       /^REACT_APP_HEADLAMP_GIT_VERSION='0123456789abcdef'$/m

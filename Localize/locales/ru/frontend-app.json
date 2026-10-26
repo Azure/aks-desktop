@@ -55,10 +55,5 @@
   "Development plugins run local code and may request command access. Only enable this mode if you trust every plugin in the development plugins directory.": "",
   "Enable": "Включить",
   "Enable Plugin Development Mode?": "",
-  "Plugin Development Mode": "",
-  "Another process is running": "Выполняется другой процесс",
-  "Continue": "Продолжить",
-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "Не удалось завершить другой запущенный процесс, идентификаторы процессов: {{ process_list }}. Остановите этот процесс и перезапустите приложение.",
-  "Failed to quit the other running process": "Не удалось прервать другой запущенный процесс",
-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "Похоже, другой процесс уже запущен. Хотите продолжить (другой процесс будет прерван автоматически) или выйти?"
+  "Plugin Development Mode": ""
 }

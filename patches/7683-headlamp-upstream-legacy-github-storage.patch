@@ -1,3 +1,283 @@
+From c8e90a98d05126ad27c6b6e7ce79eca6a8b7a090 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 16 Sep 2026 11:27:16 +0300
+Subject: [PATCH 1/3] app: secureStorage.test: e2e-tests: Cover legacy token
+ upgrades
+
+Existing scoped-storage tests do not cover tokens saved by earlier AKS
+Desktop releases. Specify trusted migration, ciphertext preservation,
+quota boundaries, failed-write recovery, and legacy-token retirement so
+the implementation can be reviewed against upgrade behavior.
+
+Exercise the production storage handlers and preload in real Electron
+with a disposable profile and synthetic encrypted token. Check namespace
+denial, restart persistence, and sign-out without a real GitHub account.
+Keep fixture setup isolated from the full application and clean its files
+even when compilation, launch, or shutdown fails.
+---
+ .../fixtures/secureStorageMigrationMain.ts    |  50 ++++
+ .../tests/pluginSecureStorage.spec.ts         | 171 ++++++++++++--
+ app/electron/secureStorage.test.ts            | 220 +++++++++++++++++-
+ 3 files changed, 414 insertions(+), 27 deletions(-)
+ create mode 100644 app/e2e-tests/fixtures/secureStorageMigrationMain.ts
+
+diff --git a/app/e2e-tests/fixtures/secureStorageMigrationMain.ts b/app/e2e-tests/fixtures/secureStorageMigrationMain.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4e635bc1eef064100fbf5d552e34a21ffdff6831
+--- /dev/null
++++ b/app/e2e-tests/fixtures/secureStorageMigrationMain.ts
+@@ -0,0 +1,50 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { app, BrowserWindow, safeStorage } from 'electron';
++import fs from 'node:fs';
++import path from 'node:path';
++import { pathToFileURL } from 'node:url';
++import { setupSecureStorageHandlers } from '../../electron/secureStorage';
++
++const profile = process.env.HEADLAMP_STORAGE_TEST_PROFILE;
++const preload = process.env.HEADLAMP_STORAGE_TEST_PRELOAD;
++const page = process.env.HEADLAMP_STORAGE_TEST_PAGE;
++if (!profile || !preload || !page) throw new Error('Missing secure-storage fixture paths');
++
++app.setPath('userData', profile);
++void app.whenReady().then(async () => {
++  const storagePath = path.join(profile, 'secure-storage.json');
++  if (!fs.existsSync(storagePath) && safeStorage.isEncryptionAvailable()) {
++    fs.writeFileSync(
++      storagePath,
++      JSON.stringify({
++        'aks-desktop:github-auth': safeStorage
++          .encryptString('synthetic-refresh-token')
++          .toString('base64'),
++      }),
++      { mode: 0o600 }
++    );
++  }
++  const window = new BrowserWindow({
++    show: false,
++    webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
++  });
++  const url = pathToFileURL(page).href;
++  setupSecureStorageHandlers(window, url);
++  await window.loadURL(url);
++});
++app.on('window-all-closed', () => app.quit());
+diff --git a/app/e2e-tests/tests/pluginSecureStorage.spec.ts b/app/e2e-tests/tests/pluginSecureStorage.spec.ts
+index 874134a8384a772eacc5046065f939179160d83d..bb30d0b401236ac30a8bf69166524e3dc76ab445 100644
+--- a/app/e2e-tests/tests/pluginSecureStorage.spec.ts
++++ b/app/e2e-tests/tests/pluginSecureStorage.spec.ts
+@@ -15,46 +15,61 @@
+  */
+ 
+ import { expect, test } from '@playwright/test';
++import { buildSync } from 'esbuild';
+ import fs from 'node:fs';
+ import os from 'node:os';
+ import path from 'node:path';
+ import { _electron, ElectronApplication, Page } from 'playwright';
++import type { SecureStorageBridge } from '../../../frontend/src/plugin/secureStorage';
++
++/** Renderer bridge used by the isolated Electron fixture. */
++type StorageTestWindow = typeof window & {
++  desktopApi: {
++    secureStorage: SecureStorageBridge & {
++      register: (namespaces: string[]) => Promise<Record<string, string>>;
++    };
++  };
++};
+ 
+ const electronExecutable = process.platform === 'win32' ? 'electron.cmd' : 'electron';
+ const electronPath = path.resolve(__dirname, `../../node_modules/.bin/${electronExecutable}`);
+ const appPath = path.resolve(__dirname, '../../');
+ 
+-let electronApp: ElectronApplication;
+-let electronPage: Page;
+-let userDataDirectory: string;
++test.describe('plugin secure storage', () => {
++  let electronApp: ElectronApplication;
++  let electronPage: Page;
++  let userDataDirectory: string;
+ 
+-test.beforeAll(async () => {
+-  userDataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-secure-storage-e2e-'));
+-  electronApp = await _electron.launch({
+-    cwd: appPath,
+-    executablePath: electronPath,
+-    args: ['.', `--user-data-dir=${userDataDirectory}`],
+-    env: {
+-      ...process.env,
+-      NODE_ENV: 'development',
+-      ELECTRON_DEV: 'true',
+-    },
++  test.beforeAll(async () => {
++    userDataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-secure-storage-e2e-'));
++    electronApp = await _electron.launch({
++      cwd: appPath,
++      executablePath: electronPath,
++      args: ['.', `--user-data-dir=${userDataDirectory}`],
++      env: {
++        ...process.env,
++        NODE_ENV: 'development',
++        ELECTRON_DEV: 'true',
++      },
++    });
++    electronPage = await electronApp.firstWindow();
++    await electronPage.waitForLoadState('load');
+   });
+-  electronPage = await electronApp.firstWindow();
+-  await electronPage.waitForLoadState('load');
+-});
+ 
+-test.afterAll(async () => {
+-  await electronApp?.close();
+-  if (userDataDirectory) {
+-    fs.rmSync(userDataDirectory, { recursive: true, force: true });
+-  }
+-});
++  test.afterAll(async () => {
++    await electronApp?.close();
++    if (userDataDirectory) {
++      fs.rmSync(userDataDirectory, { recursive: true, force: true });
++    }
++  });
+ 
+-test.describe('plugin secure storage', () => {
+   test('rejects an unknown capability across the Electron bridge', async () => {
+     const result = await electronPage.evaluate(async () => {
+-      return window.desktopApi.secureStorage.save('invalid-capability', 'token', 'value');
++      return (window as StorageTestWindow).desktopApi.secureStorage.save(
++        'invalid-capability',
++        'token',
++        'value'
++      );
+     });
+ 
+     expect(result).toEqual({
+@@ -63,3 +78,109 @@ test.describe('plugin secure storage', () => {
+     });
+   });
+ });
++
++test('migrates legacy GitHub storage across Electron restart and sign-out', async () => {
++  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'headlamp-storage-migration-e2e-'));
++  let application: ElectronApplication | undefined;
++  try {
++    const profile = path.join(directory, 'profile');
++    fs.mkdirSync(profile);
++    const main = path.join(directory, 'main.cjs');
++    const preload = path.join(directory, 'preload.cjs');
++    const pageFile = path.join(directory, 'index.html');
++    fs.writeFileSync(
++      pageFile,
++      '<!doctype html><html><body>Storage migration fixture</body></html>'
++    );
++    for (const [entry, outfile] of [
++      [path.resolve(__dirname, '../fixtures/secureStorageMigrationMain.ts'), main],
++      [path.resolve(appPath, 'electron/preload.ts'), preload],
++    ]) {
++      buildSync({
++        entryPoints: [entry],
++        outfile,
++        bundle: true,
++        external: ['electron'],
++        platform: 'node',
++        format: 'cjs',
++        target: 'node20',
++      });
++    }
++    const environment: Record<string, string> = {
++      ...Object.fromEntries(
++        Object.entries(process.env).filter(
++          (entry): entry is [string, string] => typeof entry[1] === 'string'
++        )
++      ),
++      HEADLAMP_STORAGE_TEST_PROFILE: profile,
++      HEADLAMP_STORAGE_TEST_PRELOAD: preload,
++      HEADLAMP_STORAGE_TEST_PAGE: pageFile,
++    };
++    delete environment.ELECTRON_RUN_AS_NODE;
++    /**
++     * Restarts the fixture against the same persisted profile.
++     * @returns Remote handles to the scoped storage operations in the new renderer.
++     */
++    async function launchStorage() {
++      await application?.close();
++      application = await _electron.launch({
++        executablePath: require('electron'),
++        args: [main],
++        env: environment,
++      });
++      const encryptionAvailable = await application.evaluate(
++        ({ safeStorage }) =>
++          safeStorage.isEncryptionAvailable() &&
++          (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text')
++      );
++      test.skip(!encryptionAvailable, 'An OS-backed Electron encryption service is required');
++      const page = await application.firstWindow();
++      await page.waitForLoadState('load');
++      return page.evaluateHandle(async () => {
++        const bridge = (window as StorageTestWindow).desktopApi.secureStorage;
++        const capabilities = await bridge.register(['shipped--aks-desktop', 'user--aks-desktop']);
++        const key = 'aks-desktop:github-auth';
++        const shipped = capabilities['shipped--aks-desktop'];
++        return {
++          load: () => bridge.load(shipped, key),
++          remove: () => bridge.delete(shipped, key),
++          denied: () =>
++            Promise.all([
++              bridge.load('shipped--aks-desktop', key),
++              bridge.load(capabilities['user--aks-desktop'], key),
++            ]),
++        };
++      });
++    }
++
++    const storagePath = path.join(profile, 'secure-storage.json');
++    const token = { success: true, value: 'synthetic-refresh-token' };
++    let storage = await launchStorage();
++    const before = fs.readFileSync(storagePath, 'utf8');
++    expect(await storage.evaluate(api => api.denied())).toEqual([
++      { success: false, error: 'Invalid secure storage capability' },
++      { success: true, value: null },
++    ]);
++    expect(fs.readFileSync(storagePath, 'utf8')).toBe(before);
++    expect(await storage.evaluate(api => api.load())).toEqual(token);
++    expect(JSON.parse(fs.readFileSync(storagePath, 'utf8'))).toEqual({
++      'shipped--aks-desktop:aks-desktop:github-auth': JSON.parse(before)['aks-desktop:github-auth'],
++    });
++    expect(fs.readFileSync(storagePath, 'utf8')).not.toContain(token.value);
++
++    storage = await launchStorage();
++    expect(await storage.evaluate(api => api.load())).toEqual(token);
++    expect(await storage.evaluate(api => api.remove())).toEqual({ success: true });
++    expect(JSON.parse(fs.readFileSync(storagePath, 'utf8'))).toEqual({});
++
++    storage = await launchStorage();
++    expect(await storage.evaluate(api => api.load())).toEqual({ success: true, value: null });
++    expect(JSON.parse(fs.readFileSync(storagePath, 'utf8'))).toEqual({});
++  } finally {
++    try {
++      await application?.close();
++    } finally {
++      fs.rmSync(directory, { recursive: true, force: true });
++    }
++  }
++});
 diff --git a/app/electron/secureStorage.test.ts b/app/electron/secureStorage.test.ts
 index 5049372a888d0cb3788d7e8fd9ff7a054349d3e7..a209b875ad1113da7c862dca96eb52355e24db1a 100644
 --- a/app/electron/secureStorage.test.ts
@@ -250,6 +530,31 @@ index 5049372a888d0cb3788d7e8fd9ff7a054349d3e7..a209b875ad1113da7c862dca96eb5235
    it('revokes capabilities while a new main-frame document is loading', () => {
      const listeners = new Map<string, (...args: unknown[]) => void>();
      const trustedStartUrl = 'file:///trusted/headlamp/index.html';
+
+From c7b7809f975b42844bde1c68ddc21feb9601644d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Tue, 15 Sep 2026 19:09:09 +0300
+Subject: [PATCH 2/3] app: secureStorage: Migrate legacy AKS GitHub tokens
+
+Plugin-scoped storage cannot read the global key used by older AKS
+Desktop releases, which would force upgraded users to authenticate again.
+Keep the upgrade inside the main-process storage boundary instead of
+exposing legacy global storage to renderer plugins.
+
+Allow only the shipped AKS namespace and exact GitHub key to migrate.
+Reuse existing ciphertext, prefer a scoped token that already exists,
+and check the prospective snapshot against entry and namespace limits.
+Decrypt before persisting so unavailable keys or failed writes leave the
+original file recoverable. Retire the legacy copy on save and delete as
+well, preventing sign-out from reviving an older token.
+
+This is the narrow compatibility mapping carried as patch 0101 by AKS
+Desktop. It adds no configurable mapping or renderer capability and does
+not depend on the separate cluster pre-open feature.
+---
+ app/electron/secureStorage.ts | 48 ++++++++++++++++++++++++++++++-----
+ 1 file changed, 42 insertions(+), 6 deletions(-)
+
 diff --git a/app/electron/secureStorage.ts b/app/electron/secureStorage.ts
 index 7a6ce832755838335ed56c52dcad7909cfae047b..52a524da572e1c340768114adc3b850fe2811ed5 100644
 --- a/app/electron/secureStorage.ts
@@ -341,3 +646,33 @@ index 7a6ce832755838335ed56c52dcad7909cfae047b..52a524da572e1c340768114adc3b850f
        writeSecureStorageFile(this.storagePath, data);
        return { success: true };
      } catch {
+
+From 0b633519017a1fe6cbf7bc13e8b6dbdbb31d4b56 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Tue, 22 Sep 2026 10:54:59 +0300
+Subject: [PATCH 3/3] .github: app: Run secure storage migration E2E on macOS
+
+The migration spec was listed in Playwright configuration but no required CI
+command selected it. Linux may also skip it without an OS-backed encryption
+service.
+
+Install desktop E2E dependencies in the macOS app job and run the focused
+migration, restart, namespace-denial, and sign-out scenario.
+---
+ .github/workflows/app.yml | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/.github/workflows/app.yml b/.github/workflows/app.yml
+index f6539d17358302b5da0aa5c85236452df69e92d6..669f703427ebe1d02ec7277aae4d810fb6c5a97d 100644
+--- a/.github/workflows/app.yml
++++ b/.github/workflows/app.yml
+@@ -165,5 +165,9 @@ jobs:
+     - name: App Mac
+       run: |
+         make app-mac
++    - name: Install desktop e2e dependencies
++      run: npm --prefix app/e2e-tests ci
++    - name: Test plugin secure storage migration
++      run: npm run app:test:e2e -- tests/pluginSecureStorage.spec.ts --grep "migrates legacy GitHub"
+     - name: Verify Mac build
+       run: npm run app:verify-build-mac
