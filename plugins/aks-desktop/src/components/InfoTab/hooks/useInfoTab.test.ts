@@ -333,15 +333,14 @@ describe('useInfoTab', () => {
       await result.current.handleSave();
     });
 
-    expect(mockUpdateManagedNamespace).toHaveBeenCalledWith(
-      expect.objectContaining({
-        clusterName: 'my-cluster',
-        resourceGroup: 'rg-prod',
-        namespaceName: 'my-project',
-        ingressPolicy: 'DenyAll',
-        subscriptionId: 'sub-123',
-      })
-    );
+    expect(mockUpdateManagedNamespace).toHaveBeenCalledTimes(1);
+    expect(mockUpdateManagedNamespace).toHaveBeenCalledWith({
+      clusterName: 'my-cluster',
+      resourceGroup: 'rg-prod',
+      namespaceName: 'my-project',
+      ingressPolicy: 'DenyAll',
+      subscriptionId: 'sub-123',
+    });
     // Baseline advances so hasChanges resets
     expect(result.current.hasChanges).toBe(false);
   });

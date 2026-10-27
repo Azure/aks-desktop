@@ -264,12 +264,25 @@ export const useInfoTab = (project: {
             clusterName,
             resourceGroup,
             namespaceName: projectId,
-            ingressPolicy: formData.ingress,
-            egressPolicy: formData.egress,
-            cpuRequest: formData.cpuRequest,
-            cpuLimit: formData.cpuLimit,
-            memoryRequest: formData.memoryRequest,
-            memoryLimit: formData.memoryLimit,
+            ...(baselineFormData === null || formData.ingress !== baselineFormData.ingress
+              ? { ingressPolicy: formData.ingress }
+              : {}),
+            ...(baselineFormData === null || formData.egress !== baselineFormData.egress
+              ? { egressPolicy: formData.egress }
+              : {}),
+            ...(baselineFormData === null || formData.cpuRequest !== baselineFormData.cpuRequest
+              ? { cpuRequest: formData.cpuRequest }
+              : {}),
+            ...(baselineFormData === null || formData.cpuLimit !== baselineFormData.cpuLimit
+              ? { cpuLimit: formData.cpuLimit }
+              : {}),
+            ...(baselineFormData === null ||
+            formData.memoryRequest !== baselineFormData.memoryRequest
+              ? { memoryRequest: formData.memoryRequest }
+              : {}),
+            ...(baselineFormData === null || formData.memoryLimit !== baselineFormData.memoryLimit
+              ? { memoryLimit: formData.memoryLimit }
+              : {}),
             subscriptionId: subscription,
           });
           setBaselineFormData(formData);
@@ -289,7 +302,7 @@ export const useInfoTab = (project: {
         startOptions: { autoHideDuration: null },
       }
     );
-  }, [resourceGroup, clusterName, projectId, subscription, formData, t]);
+  }, [resourceGroup, clusterName, projectId, subscription, formData, baselineFormData, t]);
 
   return {
     loading,
