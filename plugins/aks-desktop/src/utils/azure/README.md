@@ -16,20 +16,21 @@ This directory contains the Azure integration layer for AKS Desktop. Azure resou
 
 ### Domain Modules
 
-| Module                     | Responsibility                                                               |
-| -------------------------- | ---------------------------------------------------------------------------- |
-| `az-auth.ts`               | Login flows and status checks                                                |
-| `az-resource-providers.ts` | Subscription resource-provider registration                                  |
-| `az-subscriptions.ts`      | Subscriptions and resource groups                                            |
-| `az-clusters.ts`           | AKS cluster listing (Resource Graph optimized), status, capabilities, addons |
-| `az-resource-graph.ts`     | ARM Resource Graph queries for clusters, counts, and managed namespaces      |
-| `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                     |
-| `az-namespace-access.ts`   | Namespace role assignments and access verification                           |
-| `az-identity.ts`           | Role assignments, scope building, and kubelet identity lookup                |
-| `az-managed-identities.ts` | Managed identity CRUD                                                        |
-| `az-ad.ts`                 | Microsoft Graph Entra user search and identifier resolution                  |
-| `az-acr.ts`                | Container registry creation, listing, and image discovery                    |
-| `az-federation.ts`         | Federated credentials for GitHub Actions and Kubernetes OIDC                 |
+| Module                           | Responsibility                                                               |
+| -------------------------------- | ---------------------------------------------------------------------------- |
+| `az-auth.ts`                     | Login flows and status checks                                                |
+| `az-resource-providers.ts`       | Subscription resource-provider registration                                  |
+| `az-subscriptions.ts`            | Subscriptions and resource groups                                            |
+| `az-clusters.ts`                 | AKS cluster listing (Resource Graph optimized), status, capabilities, addons |
+| `az-resource-graph.ts`           | ARM Resource Graph queries for clusters, counts, and managed namespaces      |
+| `az-namespaces.ts`               | Managed namespace CRUD with polling for async operations                     |
+| `az-managed-namespace-update.ts` | Typed REST namespace reads and lossless updates with bounded polling         |
+| `az-namespace-access.ts`         | Namespace role assignments and access verification                           |
+| `az-identity.ts`                 | Role assignments, scope building, and kubelet identity lookup                |
+| `az-managed-identities.ts`       | Managed identity CRUD                                                        |
+| `az-ad.ts`                       | Microsoft Graph Entra user search and identifier resolution                  |
+| `az-acr.ts`                      | Container registry creation, listing, and image discovery                    |
+| `az-federation.ts`               | Federated credentials for GitHub Actions and Kubernetes OIDC                 |
 
 ### Orchestration Modules
 
@@ -316,6 +317,29 @@ name. Verification does not call Graph.
 
 The resource operations are HTTP-only. Production still uses the shared,
 CLI-backed account, cloud, and token helpers during the authentication migration.
+
+### Managed namespace updates
+
+`getManagedNamespaceDetails` and `updateManagedNamespace` use the managed namespace
+GET/PUT API version `2026-01-01`. Updates first read the existing resource and
+preserve unrelated writable quotas, network policies, labels, annotations,
+adoption/deletion policies, location, and ARM tags. A failed initial read aborts
+the update. Read-only identity/status fields are not sent back in the PUT body.
+
+Quota inputs remain numeric millicores for CPU and MiB for memory, serialized as
+`m` and `Mi` quantities. Explicit zero is an update; an omitted value leaves the
+existing setting unchanged. Project labels merge over existing labels rather
+than replacing them. Native namespace labels remain Kubernetes API operations.
+
+`noWait` returns after the service accepts the PUT; otherwise the helper waits
+for operation completion and reads the final namespace. Errors and conflicts
+are surfaced rather than replaying a failed PUT or reporting accepted work as
+completed. Default token acquisition remains CLI-backed through `az-token.ts`;
+the migrated resource operations themselves use HTTP.
+
+When Azure supplies an ETag, the update sends it as `If-Match`. Server-side
+enforcement still needs live verification; without an ETag the read/modify/write
+sequence cannot prevent a concurrent update from being overwritten.
 
 ## Adding a New Function
 
