@@ -73,7 +73,28 @@ No circular dependencies. `az-cli-core.ts` is the single hub — every domain mo
 
 Use `azRequest`/`azListAll` from `az-http.ts` for Azure REST calls. Tokens come from `azCliCredential` unless a `credential` is passed.
 
+Subscription-bound credentials select the CLI account with `--subscription`,
+never both `--subscription` and `--tenant`. An explicit tenant must be a GUID
+matching the token response; tenant-only, unbound credentials still accept tenant
+domains. Tokens are cached separately by subscription, tenant and audience.
+
 Live tests (`*.live.test.ts`) compare REST results with `az` and require a logged-in `az`: `AZ_LIVE_TESTS=1 npx vitest run --project unit live.test`.
+
+Role creation uses ARM 2022-04-01 PUT requests, typed User/Group/ServicePrincipal
+object IDs, scoped role-definition lookup and deterministic SHA-256 UUIDv8 names.
+Writes remain sequential with per-role results. A RoleAssignmentExists conflict
+is successful only after confirming the principal, principal type, definition and
+exact scope match. No directory lookup is performed for known IDs.
+Namespace role creation resolves the managed namespace through ARM; native
+namespace absence remains distinct from denied/error responses. Existing CLI
+role-list operations remain temporarily allowed, but CLI creation is no longer granted.
+
+Run `AZ_LIVE_TESTS=1 npm run test:unit -- az-role-assignments.live.test.ts`.
+The default Cloud Native Tools subscription needs group/identity creation and
+role-assignment write permission. The test creates a fresh tagged group and
+identity, assigns only a Reader role inside that group, verifies idempotency
+through REST, and observes cleanup in `finally`, including failures.
+See [live test setup and inventory](../../../../../test/live/README.md).
 
 ## Adding a New Function
 

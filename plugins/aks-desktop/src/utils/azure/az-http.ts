@@ -7,6 +7,7 @@ import type { TokenCredential } from '@azure/identity';
 import { debugLog, getErrorMessage } from './az-cli-core';
 import { azCliCredential, withAbort } from './az-token';
 
+/** Default ARM origin; callers select sovereign/custom clouds with endpoint/scope. */
 export const ARM_ENDPOINT = 'https://management.azure.com';
 
 const DEFAULT_TIMEOUT_MS = 60 * 1000; // 1 minute
@@ -16,11 +17,14 @@ const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 // HTTP methods that are safe to retry.
 const RETRYABLE_METHODS = new Set(['GET', 'HEAD']);
 
+/** Supported HTTP methods; only GET/HEAD receive automatic transport retries. */
 export type AzHttpMethod = 'GET' | 'HEAD' | 'PUT' | 'PATCH' | 'POST' | 'DELETE';
 
+/** One authenticated request, including its whole retry/acquisition timeout budget. */
 export interface AzRequestOptions {
   /** Absolute HTTPS URL, or a path relative to `endpoint`. */
   url: string;
+  /** HTTP method; defaults to GET. Writes are never automatically retried. */
   method?: AzHttpMethod;
   /** Value of the `api-version` query parameter. */
   apiVersion?: string;
@@ -34,6 +38,7 @@ export interface AzRequestOptions {
   tenantId?: string;
   /** Token source. Defaults to `azCliCredential`. */
   credential?: TokenCredential;
+  /** Caller cancellation, combined with timeoutMs for authentication, fetch and backoff. */
   signal?: AbortSignal;
   /** Request timeout. Defaults to 1 minute. */
   timeoutMs?: number;
@@ -41,12 +46,21 @@ export interface AzRequestOptions {
   maxRetries?: number;
 }
 
+/** HTTP/transport/response-validation failure with optional Azure correlation metadata. */
 export class AzureRequestError extends Error {
+  /** HTTP status when a response was received. */
   readonly status?: number;
+  /** ARM/Graph/registry/provider error code, if supplied by the service. */
   readonly code?: string;
+  /** Service request identifier useful for support diagnostics. */
   readonly requestId?: string;
+  /** Azure correlation identifier, when present in response headers. */
   readonly correlationId?: string;
 
+  /**
+   * @param message - Service or client validation diagnostic.
+   * @param details - Optional HTTP status, service code and correlation identifiers.
+   */
   constructor(
     message: string,
     details: { status?: number; code?: string; requestId?: string; correlationId?: string } = {}
@@ -123,7 +137,7 @@ function errorFromResponse(response: Response, text: string): AzureRequestError 
     const body = JSON.parse(text);
     // Error body shapes: ARM and Graph use `{ error: { code, message } }`,
     // container registries use `{ errors: [{ code, message }] }`.
-    const err = body?.error ?? body?.errors?.[0];
+    const err = body?.error ?? body?.errors?.[0] ?? body;
     code = typeof err?.code === 'string' ? err.code : undefined;
     message = typeof err?.message === 'string' ? err.message : undefined;
   } catch {
@@ -159,6 +173,11 @@ function retryDelayMs(response: Response | undefined, attempt: number): number {
   return Math.min(1000 * 2 ** attempt, MAX_RETRY_DELAY_MS);
 }
 
+/**
+ * @param ms - Delay before the next retry.
+ * @param signal - Request-wide cancellation/deadline signal.
+ * @returns After the delay, or rejects with the abort reason before then.
+ */
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(signal.reason);
@@ -177,6 +196,9 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 /**
  * Creates a signal that aborts when the caller's `signal` aborts or after `timeoutMs`.
  * `dispose` stops the timer and removes the listener.
+ * @param signal - Optional caller signal, including already-aborted signals.
+ * @param timeoutMs - Total request/acquisition/retry budget in milliseconds.
+ * @returns The linked signal and a disposer that must run on every completion path.
  */
 function linkSignal(signal: AbortSignal | undefined, timeoutMs: number) {
   const controller = new AbortController();
@@ -196,7 +218,14 @@ function linkSignal(signal: AbortSignal | undefined, timeoutMs: number) {
   };
 }
 
-/** Sends an authenticated Azure REST request and returns status, headers, and parsed JSON. */
+/**
+ * Sends authenticated HTTP with GET/HEAD-only retries and one timeout budget.
+ * @typeParam T - Expected JSON response-body shape.
+ * @param options - Destination, method/body, credential and retry/deadline controls.
+ * @returns Status, headers and parsed data; data is undefined for empty/HEAD responses.
+ * @throws {AzureRequestError} For URL, HTTP, transport or response-JSON failures.
+ * Credential rejections and the caller/deadline abort reason also propagate.
+ */
 export async function azRequestRaw<T>(options: AzRequestOptions): Promise<AzResponse<T>> {
   const method = options.method ?? 'GET';
   const url = resolveUrl(options);
@@ -269,12 +298,24 @@ export async function azRequestRaw<T>(options: AzRequestOptions): Promise<AzResp
   }
 }
 
-/** Sends an authenticated Azure REST request and returns the parsed JSON body, if any. */
+/**
+ * @typeParam T - Expected JSON response-body shape.
+ * @param options - Same request/authentication/retry contract as azRequestRaw.
+ * @returns Parsed JSON, or undefined for a successful response without a body.
+ * @throws Failures from azRequestRaw, including credentials and cancellation.
+ */
 export async function azRequest<T>(options: AzRequestOptions): Promise<T | undefined> {
   return (await azRequestRaw<T>(options)).data;
 }
 
-/** Gets every item in an ARM collection, following same-origin `nextLink` pages. */
+/**
+ * Collects ARM value items while following same-origin nextLink pages.
+ * @typeParam T - Item shape inside each page's value array.
+ * @param options - GET request/authentication options reused per page; timeoutMs is
+ * per request, while a caller signal can impose one budget across the entire list.
+ * @returns All items in service order, without partial success on a failed later page.
+ * @throws For invalid value arrays, untrusted nextLink origins or propagated request failures.
+ */
 export async function azListAll<T>(
   options: Omit<AzRequestOptions, 'method' | 'body'>
 ): Promise<T[]> {
