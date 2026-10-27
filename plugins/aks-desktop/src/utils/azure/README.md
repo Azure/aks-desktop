@@ -95,6 +95,12 @@ are surfaced rather than replaying a failed PUT or reporting accepted work as
 completed. Default token acquisition remains CLI-backed through `az-token.ts`;
 the migrated resource operations themselves use HTTP.
 
+Reads and updates resolve the selected subscription's account with read-only
+`az account show --subscription`, or the current account when no subscription is
+provided. The resolved tenant is used for every resource and polling request;
+the CLI default account is not changed. Failed account resolution aborts before
+requesting a token or sending a resource request.
+
 When Azure supplies an ETag, the update sends it as `If-Match`. Server-side
 enforcement still needs live verification; without an ETag the read/modify/write
 sequence cannot prevent a concurrent update from being overwritten.
