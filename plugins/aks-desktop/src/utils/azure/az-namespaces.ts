@@ -1,6 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 import { debugLog, getErrorMessage, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
+import {
+  deleteManagedNamespaceViaRest,
+  type ManagedNamespaceDeleteOptions,
+} from './az-managed-namespace-delete';
 
 export async function getManagedNamespaces(options: {
   clusterName: string;
@@ -340,63 +344,16 @@ export async function checkNamespaceStatus(
   }
 }
 
-export async function deleteManagedNamespace(options: {
-  clusterName: string;
-  resourceGroup: string;
-  namespaceName: string;
-  subscriptionId: string;
-}): Promise<{ success: boolean; stdout: string; stderr: string; error?: string }> {
-  const { clusterName, resourceGroup, namespaceName, subscriptionId } = options;
-
-  try {
-    const result = await runCommandAsync('az', [
-      'aks',
-      'namespace',
-      'delete',
-      '--cluster-name',
-      clusterName,
-      '--resource-group',
-      resourceGroup,
-      '--name',
-      namespaceName,
-      '--subscription',
-      subscriptionId,
-      '--output',
-      'json',
-    ]);
-
-    if (result.stderr && needsRelogin(result.stderr)) {
-      return {
-        success: false,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        error: 'Authentication required. Please log in to Azure CLI: az login',
-      };
-    }
-
-    if (result.stderr && isAzError(result.stderr)) {
-      return {
-        success: false,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        error: `Failed to delete managed namespace: ${result.stderr}`,
-      };
-    }
-
-    return {
-      success: true,
-      stdout: result.stdout,
-      stderr: result.stderr,
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return {
-      success: false,
-      stdout: '',
-      stderr: '',
-      error: `Failed to delete managed namespace: ${errorMessage}`,
-    };
-  }
+/**
+ * @param options - Managed namespace coordinates and optional shared deadline/auth overrides.
+ * @returns The REST deletion result after observed completion/absence, preserving
+ * Keep/Delete policy. Expected failures resolve with success=false and error;
+ * stdout/stderr remain empty for compatibility with existing callers.
+ */
+export async function deleteManagedNamespace(
+  options: ManagedNamespaceDeleteOptions
+): Promise<{ success: boolean; stdout: string; stderr: string; error?: string }> {
+  return deleteManagedNamespaceViaRest(options);
 }
 
 export async function createManagedNamespace(options: {

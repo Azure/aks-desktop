@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const mockClusterAction = vi.hoisted(() => vi.fn());
 const mockApiGet = vi.hoisted(() => vi.fn());
+const mockApiEndpointGet = vi.hoisted(() => vi.fn());
+const mockCancelNamespaceFetch = vi.hoisted(() => vi.fn());
 const mockApiEndpointDelete = vi.hoisted(() => vi.fn());
 const mockApiEndpointPut = vi.hoisted(() => vi.fn());
 const mockDeleteManagedNamespace = vi.hoisted(() => vi.fn());
@@ -19,6 +21,7 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
       Namespace: {
         apiGet: mockApiGet,
         apiEndpoint: {
+          get: mockApiEndpointGet,
           delete: mockApiEndpointDelete,
           put: mockApiEndpointPut,
         },
@@ -26,6 +29,10 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
     },
   },
   useTranslation: () => ({ t: (s: string) => s }),
+}));
+
+vi.mock('@kinvolk/headlamp-plugin/lib/ApiProxy', () => ({
+  apply: vi.fn(),
 }));
 
 vi.mock('../../../utils/azure/az-namespaces', () => ({
@@ -58,6 +65,7 @@ function makeMockNs(labels: Record<string, string>, name = 'test-ns') {
 }
 
 const aksLabels = {
+  'kubernetes.azure.com/managedByArm': 'true',
   'headlamp.dev/project-id': 'test-project',
   'headlamp.dev/project-managed-by': 'aks-desktop',
   'aks-desktop/project-subscription': 'sub-123',
@@ -103,6 +111,17 @@ async function executeClusterAction() {
 function setupApiGet(ns: ReturnType<typeof makeMockNs>) {
   mockApiGet.mockImplementation((successCb: Function) => {
     return () => successCb(ns);
+  });
+  mockApiEndpointGet.mockImplementation((_name, success) => {
+    queueMicrotask(() => success(ns.jsonData));
+    return Promise.resolve(mockCancelNamespaceFetch);
+  });
+}
+
+function setupRefetchError(error: unknown) {
+  mockApiEndpointGet.mockImplementationOnce((_name, _success, failure) => {
+    queueMicrotask(() => failure(error));
+    return Promise.resolve(mockCancelNamespaceFetch);
   });
 }
 
@@ -210,6 +229,18 @@ describe('useProjectDeletion', () => {
   test('AKS managed with deleteNamespaces=false: calls ARM delete then removes labels', async () => {
     const ns = makeMockNs(aksLabels);
     setupApiGet(ns);
+    const freshNs = {
+      metadata: {
+        name: 'test-ns',
+        resourceVersion: 'updated-after-arm',
+        annotations: { retained: 'annotation' },
+        labels: { ...aksLabels, retained: 'label' },
+      },
+    };
+    mockApiEndpointGet.mockImplementationOnce((_name, success) => {
+      queueMicrotask(() => success(freshNs));
+      return Promise.resolve(mockCancelNamespaceFetch);
+    });
     mockDeleteManagedNamespace.mockResolvedValue({ success: true });
     mockApiEndpointPut.mockResolvedValue(undefined);
 
@@ -219,17 +250,140 @@ describe('useProjectDeletion', () => {
     await executeClusterAction();
 
     expect(mockDeleteManagedNamespace).toHaveBeenCalled();
-    expect(mockApiEndpointPut).toHaveBeenCalledWith(
-      expect.objectContaining({
-        metadata: expect.objectContaining({
-          labels: expect.not.objectContaining({
-            'headlamp.dev/project-id': expect.anything(),
-          }),
-        }),
-      }),
+    expect(mockApiEndpointGet).toHaveBeenCalledWith(
+      'test-ns',
+      expect.any(Function),
+      expect.any(Function),
       {},
       'test-cluster'
     );
+    expect(mockApiEndpointGet.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mockDeleteManagedNamespace.mock.invocationCallOrder[0]
+    );
+    expect(mockCancelNamespaceFetch).toHaveBeenCalledTimes(1);
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    expect(mockApiEndpointPut).toHaveBeenCalledWith(
+      {
+        metadata: {
+          name: 'test-ns',
+          resourceVersion: 'updated-after-arm',
+          annotations: { retained: 'annotation' },
+          labels: {
+            'kubernetes.azure.com/managedByArm': 'true',
+            retained: 'label',
+          },
+        },
+      },
+      {},
+      'test-cluster'
+    );
+  });
+
+  test('treats a 404 label-removal refetch after ARM Delete policy as completed', async () => {
+    const ns = makeMockNs(aksLabels);
+    setupApiGet(ns);
+    setupRefetchError({ status: 404 });
+    mockDeleteManagedNamespace.mockResolvedValue({ success: true });
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, false, vi.fn());
+    await expect(executeClusterAction()).resolves.toBeUndefined();
+    expect(mockDeleteManagedNamespace).toHaveBeenCalledTimes(1);
+    expect(mockApiEndpointPut).not.toHaveBeenCalled();
+    expect(mockApiEndpointDelete).not.toHaveBeenCalled();
+    expect(mockCancelNamespaceFetch).toHaveBeenCalledTimes(1);
+    expect(mockTrackAksFeature).toHaveBeenCalledWith('aksd.project-delete', 'succeeded');
+  });
+
+  test.each([401, 403, 500])('surfaces HTTP %i from a label-removal refetch', async status => {
+    const ns = makeMockNs(aksLabels);
+    setupApiGet(ns);
+    setupRefetchError({ status });
+    mockDeleteManagedNamespace.mockResolvedValue({ success: true });
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, false, vi.fn());
+    await expect(executeClusterAction()).rejects.toMatchObject({
+      status,
+      message: expect.stringContaining('Failed to fetch namespace'),
+    });
+    expect(mockApiEndpointPut).not.toHaveBeenCalled();
+    expect(mockCancelNamespaceFetch).toHaveBeenCalledTimes(1);
+    expect(mockTrackAksFeature).toHaveBeenCalledWith('aksd.project-delete', 'failed');
+    expect(mockTrackAksFeature).not.toHaveBeenCalledWith('aksd.project-delete', 'succeeded');
+  });
+
+  test('surfaces a non-HTTP label-removal refetch error instead of assuming absence', async () => {
+    setupApiGet(makeMockNs(aksLabels));
+    setupRefetchError(new Error('connection lost'));
+    mockDeleteManagedNamespace.mockResolvedValue({ success: true });
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, false, vi.fn());
+    await expect(executeClusterAction()).rejects.toThrow('connection lost');
+    expect(mockApiEndpointPut).not.toHaveBeenCalled();
+    expect(mockCancelNamespaceFetch).toHaveBeenCalledTimes(1);
+    expect(mockTrackAksFeature).toHaveBeenCalledWith('aksd.project-delete', 'failed');
+  });
+
+  test('continues processing other project namespaces after a 404 refetch', async () => {
+    const removed = makeMockNs(aksLabels, 'removed');
+    const retained = makeMockNs(aksLabels, 'retained');
+    mockApiGet.mockImplementation(
+      (success: (value: typeof removed) => void, name: string) => () => {
+        success(name === 'removed' ? removed : retained);
+      }
+    );
+    mockApiEndpointGet.mockImplementation((name, success, failure) => {
+      queueMicrotask(() => {
+        if (name === 'removed') failure({ status: 404 });
+        else success(retained.jsonData);
+      });
+      return Promise.resolve(mockCancelNamespaceFetch);
+    });
+    mockDeleteManagedNamespace.mockResolvedValue({ success: true });
+    mockApiEndpointPut.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(
+      { ...baseProject, namespaces: ['removed', 'retained'] },
+      false,
+      vi.fn()
+    );
+    await executeClusterAction();
+    expect(mockDeleteManagedNamespace).toHaveBeenCalledTimes(2);
+    expect(mockApiEndpointPut).toHaveBeenCalledTimes(1);
+    expect(mockApiEndpointPut.mock.calls[0][0].metadata.name).toBe('retained');
+    expect(mockCancelNamespaceFetch).toHaveBeenCalledTimes(2);
+  });
+
+  test('native AKS project ownership without the ARM marker never invokes ARM deletion', async () => {
+    const ns = makeMockNs({
+      ...arcLabels,
+      'aks-desktop/project-subscription': 'sub-123',
+      'aks-desktop/project-resource-group': 'rg-test',
+    });
+    setupApiGet(ns);
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, true, vi.fn());
+    await executeClusterAction();
+    expect(ns.delete).toHaveBeenCalled();
+    expect(mockDeleteManagedNamespace).not.toHaveBeenCalled();
+  });
+
+  test('unprojects an imported namespace without deleting its ARM resource', async () => {
+    const ns = makeMockNs({ ...aksLabels, 'headlamp.dev/project-managed-by': 'headlamp' });
+    setupApiGet(ns);
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, false, vi.fn());
+    await executeClusterAction();
+    expect(ns.patch).toHaveBeenCalled();
+    expect(mockDeleteManagedNamespace).not.toHaveBeenCalled();
+  });
+
+  test('accepts a Kubernetes 404 after ARM Delete policy completion', async () => {
+    setupApiGet(makeMockNs(aksLabels));
+    mockDeleteManagedNamespace.mockResolvedValue({ success: true });
+    mockApiEndpointDelete.mockRejectedValue({ status: 404 });
+    const { result } = renderHook(() => useProjectDeletion());
+    result.current.handleDelete(baseProject, true, vi.fn());
+    await expect(executeClusterAction()).resolves.toBeUndefined();
   });
 
   test('AKS managed: throws when ARM deletion fails', async () => {
@@ -245,6 +399,7 @@ describe('useProjectDeletion', () => {
 
   test('AKS managed: throws when required Azure labels are missing', async () => {
     const ns = makeMockNs({
+      'kubernetes.azure.com/managedByArm': 'true',
       'headlamp.dev/project-managed-by': 'aks-desktop',
       // (Missing resource group and subscription labels)
     });

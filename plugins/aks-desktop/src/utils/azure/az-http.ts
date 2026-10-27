@@ -140,7 +140,7 @@ function errorFromResponse(response: Response, text: string): AzureRequestError 
     const body = JSON.parse(text);
     // Error body shapes: ARM and Graph use `{ error: { code, message } }`,
     // container registries use `{ errors: [{ code, message }] }`.
-    const err = body?.error ?? body?.errors?.[0];
+    const err = body?.error ?? body?.errors?.[0] ?? body;
     code = typeof err?.code === 'string' ? err.code : undefined;
     message = typeof err?.message === 'string' ? err.message : undefined;
   } catch {
@@ -161,13 +161,12 @@ function errorFromResponse(response: Response, text: string): AzureRequestError 
  * Calculates how long to wait before the next retry. If the response has a `Retry-After`
  * header, its value is used. Otherwise, the delay starts at 1 second and doubles with each
  * attempt, up to `MAX_RETRY_DELAY_MS`.
- * @param response - The response that triggered the retry, or `undefined` if the request
- * failed with a network error.
+ * @param headers - Response headers, or undefined after a network error.
  * @param attempt - The zero-based number of the attempt that just failed.
  * @returns The delay in milliseconds, which is never negative.
  */
-function retryDelayMs(response: Response | undefined, attempt: number): number {
-  const header = response?.headers.get('retry-after');
+function retryDelayMs(headers: Headers | undefined, attempt: number): number {
+  const header = headers?.get('retry-after');
   if (header) {
     const seconds = Number(header);
     const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now();
@@ -177,11 +176,21 @@ function retryDelayMs(response: Response | undefined, attempt: number): number {
 }
 
 /**
- * @param ms - Delay before the next retry.
- * @param signal - Request-wide cancellation/deadline signal.
- * @returns After the delay, or rejects with the abort reason before then.
+ * Waits for transport retries or long-running operation polling using the same
+ * Retry-After seconds/date parsing and abort cleanup.
+ * @param headers - Latest response headers; absent/invalid Retry-After uses backoff.
+ * @param signal - Shared cancellation/deadline signal; abort clears the delay timer.
+ * @param attempt - Zero-based retry attempt, defaulting to zero for a one-second
+ * polling fallback. Backoff caps at one minute; explicit Retry-After is not capped.
+ * @returns After the delay, removing the abort listener on completion.
+ * @throws The signal's abort reason if already aborted or cancelled while waiting.
  */
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
+export function waitForAzureRetry(
+  headers: Headers | undefined,
+  signal: AbortSignal,
+  attempt = 0
+): Promise<void> {
+  const ms = retryDelayMs(headers, attempt);
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(signal.reason);
     const onAbort = () => {
@@ -295,7 +304,7 @@ export async function azRequestRaw<T>(options: AzRequestOptions): Promise<AzResp
       }
 
       await response?.body?.cancel().catch(() => undefined);
-      await sleep(retryDelayMs(response, attempt), linked.signal);
+      await waitForAzureRetry(response?.headers, linked.signal, attempt);
     }
   } finally {
     linked.dispose();
