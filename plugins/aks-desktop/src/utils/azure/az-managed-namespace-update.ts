@@ -17,6 +17,7 @@ const WRITABLE_PROPERTIES = [
   'deletePolicy',
 ] as const;
 type Policy = 'AllowAll' | 'AllowSameNamespace' | 'DenyAll';
+type PollTarget = { url: string; kind: 'operation' | 'location' | 'resource' };
 
 /** Scope of a single AKS managed namespace. */
 export interface ManagedNamespaceScope {
@@ -236,10 +237,7 @@ function operationError(message: string, response: AzResponse<unknown>): AzureRe
   );
 }
 
-function continuation(
-  response: AzResponse<unknown>,
-  base: string
-): { url: string; operation: boolean } | undefined {
+function continuation(response: AzResponse<unknown>, base: string): PollTarget | undefined {
   const asyncUrl = response.headers.get('azure-asyncoperation');
   const location = asyncUrl ?? response.headers.get('location');
   if (!location) return undefined;
@@ -252,7 +250,7 @@ function continuation(
   if (next.origin !== ARM_ENDPOINT || next.username || next.password) {
     throw operationError('Refusing untrusted managed namespace operation URL', response);
   }
-  return { url: next.href, operation: Boolean(asyncUrl) };
+  return { url: next.href, kind: asyncUrl ? 'operation' : 'location' };
 }
 
 function delay(response: AzResponse<unknown>, signal: AbortSignal): Promise<void> {
@@ -322,12 +320,20 @@ export async function updateManagedNamespaceResource(
     let pending = response.status === 202 || Boolean(next);
     if (putState !== undefined)
       pending = state(response.data, false, response) !== 'succeeded' || pending;
-    next ??= { url, operation: false };
+    next ??= { url, kind: 'resource' };
     while (pending) {
       await delay(response, signal);
       response = await request(next.url, tenantId, signal);
+      if (
+        next.kind === 'location' &&
+        response.data === undefined &&
+        [200, 204].includes(response.status)
+      ) {
+        break;
+      }
       // Location polling may return an operation status or a resource body.
-      const operation = next.operation || (object(response.data) && 'status' in response.data);
+      const operation =
+        next.kind === 'operation' || (object(response.data) && 'status' in response.data);
       pending =
         !operation && response.status === 202 && response.data === undefined
           ? true
