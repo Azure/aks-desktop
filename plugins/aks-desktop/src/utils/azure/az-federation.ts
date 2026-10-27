@@ -3,7 +3,8 @@
 // Federated credential CLI functions (GitHub Actions OIDC and K8s service account federation).
 
 import { K8S_DNS_LABEL_PATTERN } from '../kubernetes/k8sNames';
-import { debugLog, isValidGuid, runAzCommand } from './az-cli-core';
+import { debugLog, getErrorMessage, isValidGuid, runAzCommand } from './az-cli-core';
+import { type AksClusterReadOptions, getManagedClusterDetails } from './az-managed-clusters';
 import { isValidAzResourceName, isValidGitHubName } from './az-validation';
 
 /** Shared helper: runs `az identity federated-credential create` with dedup handling. */
@@ -101,11 +102,21 @@ export async function createFederatedCredential(options: {
   });
 }
 
-export async function getAksOidcIssuerUrl(options: {
-  clusterName: string;
-  resourceGroup: string;
-  subscriptionId: string;
-}): Promise<{ success: boolean; issuerUrl?: string; error?: string }> {
+/**
+ * Verifies both the OIDC issuer URL and workload identity before returning an issuer.
+ * @param options - Managed AKS coordinates and shared REST/authentication overrides.
+ * @returns A resolved success/issuerUrl or failure/error result. Missing OIDC,
+ * missing workload identity, and both missing produce distinct enablement diagnostics.
+ * Read/authentication/cancellation failures are also returned, not thrown.
+ */
+export async function getAksOidcIssuerUrl(options: AksClusterReadOptions): Promise<{
+  /** Whether required federation features and an issuer URL were found. */
+  success: boolean;
+  /** ARM issuerURL, present only when workload identity is also enabled. */
+  issuerUrl?: string;
+  /** Invalid-input, lookup or feature-enablement diagnostic. */
+  error?: string;
+}> {
   const { clusterName, resourceGroup, subscriptionId } = options;
 
   if (!isValidGuid(subscriptionId)) {
@@ -115,64 +126,33 @@ export async function getAksOidcIssuerUrl(options: {
     return { success: false, error: 'Invalid cluster name or resource group format' };
   }
 
-  const query =
-    '{issuerUrl: oidcIssuerProfile.issuerUrl, workloadIdentityEnabled: securityProfile.workloadIdentity.enabled}';
+  try {
+    const { properties } = await getManagedClusterDetails(options);
+    const issuerUrl = properties.oidcIssuerProfile?.issuerURL;
+    const workloadIdentityEnabled = properties.securityProfile?.workloadIdentity?.enabled;
 
-  const result = await runAzCommand(
-    [
-      'aks',
-      'show',
-      '--name',
-      clusterName,
-      '--resource-group',
-      resourceGroup,
-      '--subscription',
-      subscriptionId,
-      '--query',
-      query,
-      '-o',
-      'json',
-    ],
-    'Getting AKS OIDC issuer URL and workload identity status:',
-    'get AKS OIDC issuer URL',
-    stdout => {
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout.trim());
-      } catch (e) {
-        throw new Error(
-          `Unexpected output from AKS OIDC issuer query: ${e instanceof Error ? e.message : e}`
-        );
-      }
-      const issuerUrl = parsed.issuerUrl;
-      const workloadIdentityEnabled = parsed.workloadIdentityEnabled;
-
-      if (!issuerUrl && !workloadIdentityEnabled) {
-        throw new Error(
-          'Cluster does not have OIDC issuer or workload identity enabled. Enable both with: az aks update --name <cluster> --resource-group <rg> --enable-oidc-issuer --enable-workload-identity'
-        );
-      }
-
-      if (!issuerUrl) {
-        throw new Error(
-          'Cluster does not have OIDC issuer enabled. Enable it with: az aks update --name <cluster> --resource-group <rg> --enable-oidc-issuer'
-        );
-      }
-
-      if (!workloadIdentityEnabled) {
-        throw new Error(
-          'Cluster does not have workload identity enabled. Enable it with: az aks update --name <cluster> --resource-group <rg> --enable-workload-identity'
-        );
-      }
-
-      return issuerUrl as string;
+    if (!issuerUrl && !workloadIdentityEnabled) {
+      throw new Error(
+        'Cluster does not have OIDC issuer or workload identity enabled. Enable both with: az aks update --name <cluster> --resource-group <rg> --enable-oidc-issuer --enable-workload-identity'
+      );
     }
-  );
 
-  if (!result.success) {
-    return { success: false, error: result.error };
+    if (!issuerUrl) {
+      throw new Error(
+        'Cluster does not have OIDC issuer enabled. Enable it with: az aks update --name <cluster> --resource-group <rg> --enable-oidc-issuer'
+      );
+    }
+
+    if (!workloadIdentityEnabled) {
+      throw new Error(
+        'Cluster does not have workload identity enabled. Enable it with: az aks update --name <cluster> --resource-group <rg> --enable-workload-identity'
+      );
+    }
+
+    return { success: true, issuerUrl };
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error) };
   }
-  return { success: true, issuerUrl: result.data };
 }
 
 /** Simple 32-bit hash for generating short deterministic suffixes. */

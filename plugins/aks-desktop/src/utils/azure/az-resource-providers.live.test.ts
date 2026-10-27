@@ -2,9 +2,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { spawn } from 'node:child_process';
-import { basename } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
+import { createAzureLiveAuthBridge } from '../test/azureLiveAuthBridge';
 import {
   AZURE_LIVE_TEST_TIMEOUT,
   azureLiveEnabled,
@@ -93,33 +92,8 @@ describe.runIf(azureLiveEnabled)(
     });
 
     test('uses the real subscription-bound account and configured public-cloud audience without injected credentials', async () => {
-      let tokenRequests = 0;
-      let cloudReads = 0;
-      /**
-       * @param executable - Production helper's resolved az executable.
-       * @param args - Authentication/configuration arguments, never resource commands.
-       * @returns A real child process replacing only Electron's native command bridge.
-       */
-      const bridge = (executable: string, args: string[]) => {
-        if (!['az', 'az.cmd'].includes(basename(executable).toLowerCase())) {
-          throw new Error('Only Azure authentication/configuration commands are permitted');
-        }
-        if (args[0] === 'account' && args[1] === 'get-access-token') {
-          expect(args[args.indexOf('--subscription') + 1]).toBe(context.subscriptionId);
-          expect(args).not.toContain('--tenant');
-          tokenRequests++;
-        } else if (args[0] === 'cloud' && args[1] === 'show') {
-          expect(args[args.indexOf('--name') + 1]).toBe('AzureCloud');
-          cloudReads++;
-        } else {
-          throw new Error('Resource-specific Azure CLI commands are forbidden in REST E2E tests');
-        }
-        const child = spawn(executable, args, { shell: process.platform === 'win32' });
-        child.stdout.setEncoding('utf8');
-        child.stderr.setEncoding('utf8');
-        return child;
-      };
-      vi.stubGlobal('pluginRunCommand', bridge);
+      const bridge = createAzureLiveAuthBridge(context.subscriptionId);
+      vi.stubGlobal('pluginRunCommand', bridge.runCommand);
       try {
         await withAzureTestResourceGroup('provider-account', context, async run => {
           const cloud = await getAzureCloudEndpoints('AzureCloud');
@@ -144,8 +118,8 @@ describe.runIf(azureLiveEnabled)(
           expect(actualClaims.oid).toBe(expectedClaims.oid);
           expect(actualClaims.tid).toBe(run.tenantId);
           expect(actualClaims.aud).toBe(cloud.scope.slice(0, -'/.default'.length));
-          expect(tokenRequests).toBe(1);
-          expect(cloudReads).toBe(1);
+          expect(bridge.tokenRequests).toBe(1);
+          expect(bridge.cloudReads).toBe(1);
           const provider = await azRequest<{ namespace: string; registrationState: string }>({
             ...run,
             url: `/subscriptions/${run.subscriptionId}/providers/Microsoft.ContainerService`,

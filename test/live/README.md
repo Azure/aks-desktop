@@ -27,6 +27,33 @@ Sovereign/custom-cloud mappings remain covered by unit tests. No real accounts i
 those clouds are used or claimed as live-validated; they are outside the permitted
 Cloud Native Tools live-validation scope.
 
+Run the managed cluster detail suite with a fresh AKS cluster:
+
+```sh
+AZ_LIVE_TESTS=1 npm --prefix plugins/aks-desktop run test:unit -- az-managed-clusters.live.test.ts
+```
+
+The suite checks cluster identity/type, SKU, readiness/version and every projected
+capability against the actual ARM profiles. It compares the kubelet object ID
+with the raw identity profile and requires a real HTTPS OIDC issuer plus enabled
+workload identity, not just a success flag.
+
+Detail consumers omit injected credentials and exercise production subscription
+authentication and configured-cloud lookup through the shared
+`azureLiveAuthBridge`, also reused by the provider live suite. The adapter permits
+only selected-account public ARM token acquisition and read-only cloud metadata,
+never resource CLI operations or other accounts/clouds. All consumers must reuse
+one token acquisition and one metadata read. REST setup/cleanup retain the real
+fixture credential; no token output or Azure responses are mocked.
+
+Non-public configured-cloud defaults, explicit/injected overrides and cancellation
+are separately tested in `az-managed-clusters-auth.test.ts`. Stopped/failed states, missing
+profiles, malformed/Arc responses and denied reads are covered by unit tests,
+without deliberately damaging or reconfiguring a real cluster.
+The shared AKS fixture gives the initial PUT and subsequent polling the remaining
+20-minute provisioning budget, rather than a separate 60-second transport cap.
+Timing regressions cover a two-minute initial PUT and exact remaining poll time.
+
 Each test creates a fresh resource group named
 `aksd-rest-e2e-<suite>-<UTC timestamp>-<random ID>`. Tags record the test suite,
 run ID and creation time. AKS node groups use the same name with `-nodes`.

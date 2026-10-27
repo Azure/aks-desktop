@@ -41,6 +41,14 @@ afterEach(() => {
 });
 
 describe('azRequest', () => {
+  test('preserves flat ContainerService provider errors', async () => {
+    mocks.fetch.mockResolvedValue(json(400, { code: 'InvalidParameter', message: 'invalid pool' }));
+    await expect(azRequest({ url: '/cluster', credential })).rejects.toMatchObject({
+      code: 'InvalidParameter',
+      status: 400,
+      message: expect.stringContaining('invalid pool'),
+    });
+  });
   test('resolves ARM paths, appends api-version, and authenticates', async () => {
     mocks.fetch.mockResolvedValue(json(200, { id: 'x' }));
 
