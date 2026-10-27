@@ -98,6 +98,7 @@ not copied into the generated runtime manifest.
 | `product.productName` | Yes | User-visible product name. |
 | `product.appId` | By desktop build | Application identifier used by Electron packaging. |
 | `product.artifactName` | By desktop build | Artifact filename template. Electron builder substitutions such as `${version}`, `${os}`, `${arch}`, and `${ext}` are supported. |
+| `product.errorReporting` | No | Crash-report action configuration. `githubIssueUrl` is the full GitHub issue creation URL and may include query parameters such as `labels`; optional `buttonLabel` replaces Headlamp's translated default. |
 | `product.protocols` | No | Protocol registration metadata. `name` is the display name and `schemes` lists handled URI schemes. |
 | `checkForUpdates` | No | Whether the packaged application checks for updates. |
 | `legalDocuments` | No | Legal document descriptors. Each entry has an `id`, display `title`, and packaged `file` name. |

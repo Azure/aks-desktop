@@ -173,6 +173,10 @@
       "companyName": "Microsoft",
       "appId": "com.microsoft.aksdesktop",
       "artifactName": "aks-desktop-${version}-${os}-${arch}.${ext}",
+      "errorReporting": {
+        "githubIssueUrl": "https://github.com/Azure/aks-desktop/issues/new?labels=bug",
+        "buttonLabel": "Contact us"
+      },
       "protocols": {
         "name": "AKS Desktop",
         "schemes": [
@@ -1134,7 +1138,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
-    "integrity": "sha512-Vykazxxa6YBsLtVlwg/j3hHMnERmpiv8q2aCMYUEvfSWRGtG5X6Mn8TkYdwnIIMCd1oPX377a4yz9Wl5BvAyGw=="
+    "integrity": "sha512-BOwesgetnnU9vyaLnURQDKpvx9xgoMyRjc576a52NPXsEm5CeyAfcXuWmwV/ZpIJlNFTQk2b55ed/gR5uIOMZw=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [

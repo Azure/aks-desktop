@@ -36,7 +36,7 @@ index fa00908c390aaba0604a60a96a8bdbaab5f96f14..9c9fb000fa84028a71a2919ee8f6071b
    ],
    "legalDocuments": [
 diff --git a/source/app/app-build-manifest.schema.json b/source/app/app-build-manifest.schema.json
-index f2e956d753b17ede4a33b7328f382460214e45c5..d55d7d39d6904c62dce9c496430a9d20aaa164e8 100644
+index f2e956d753b17ede4a33b7328f382460214e45c5..b102020964491e2539fcaca71af769511f5d5149 100644
 --- a/source/app/app-build-manifest.schema.json
 +++ b/source/app/app-build-manifest.schema.json
 @@ -26,6 +26,11 @@
@@ -51,6 +51,32 @@ index f2e956d753b17ede4a33b7328f382460214e45c5..d55d7d39d6904c62dce9c496430a9d20
      "commandSets": {
        "type": "object",
        "description": "Reusable named command grant arrays. A runCommands policy composes one or more with commandSets instead of repeating commands.",
+@@ -45,6 +50,25 @@
+       "properties": {
+         "name": { "type": "string" },
+         "productName": { "type": "string" },
++        "errorReporting": {
++          "type": "object",
++          "description": "Product-specific GitHub crash-reporting destination and button text.",
++          "properties": {
++            "githubIssueUrl": {
++              "type": "string",
++              "minLength": 1,
++              "pattern": "^https?://",
++              "description": "Full GitHub issue creation URL. Existing query parameters, such as labels, are preserved."
++            },
++            "buttonLabel": {
++              "type": "string",
++              "minLength": 1,
++              "description": "Product-owned label for the crash-report button."
++            }
++          },
++          "required": ["githubIssueUrl"],
++          "additionalProperties": false
++        },
+         "companyName": {
+           "type": "string",
+           "description": "Company attribution used for Windows and macOS metadata and the Linux vendor field."
 diff --git a/source/app/e2e-tests/fixtures/secureStorageMigrationMain.ts b/source/app/e2e-tests/fixtures/secureStorageMigrationMain.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..4e635bc1eef064100fbf5d552e34a21ffdff6831
@@ -107,6 +133,38 @@ index 0000000000000000000000000000000000000000..4e635bc1eef064100fbf5d552e34a21f
 +  await window.loadURL(url);
 +});
 +app.on('window-all-closed', () => app.quit());
+diff --git a/source/app/e2e-tests/tests/buildManifestProduct.spec.ts b/source/app/e2e-tests/tests/buildManifestProduct.spec.ts
+index cd3a3e13a3083b063cba07ff94ebb08e9561c419..35d9bc40982d825443dc709cca45a20b334f1090 100644
+--- a/source/app/e2e-tests/tests/buildManifestProduct.spec.ts
++++ b/source/app/e2e-tests/tests/buildManifestProduct.spec.ts
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright 2026 The Kubernetes Authors
++ * Copyright 2025 The Kubernetes Authors
+  *
+  * Licensed under the Apache License, Version 2.0 (the "License");
+  * you may not use this file except in compliance with the License.
+@@ -81,6 +81,10 @@ test('custom product metadata reaches the frontend environment', () => {
+       product: {
+         productName: 'C# $HOME Desktop',
+         version: '1.2.3=build',
++        errorReporting: {
++          githubIssueUrl: 'https://github.com/example/product/issues/new?labels=bug',
++          buttonLabel: 'Contact support',
++        },
+       },
+     })
+   );
+@@ -112,6 +116,9 @@ test('custom product metadata reaches the frontend environment', () => {
+       REACT_APP_HEADLAMP_GIT_VERSION: '0123456789abcdef=source',
+       REACT_APP_HEADLAMP_PRODUCT_NAME: 'C# $HOME Desktop',
+       REACT_APP_HEADLAMP_PRODUCT_VERSION: '1.2.3=build',
++      REACT_APP_HEADLAMP_ERROR_REPORT_GITHUB_URL:
++        'https://github.com/example/product/issues/new?labels=bug',
++      REACT_APP_HEADLAMP_ERROR_REPORT_BUTTON_LABEL: 'Contact support',
+     });
+   } finally {
+     fs.rmSync(manifestDirectory, { recursive: true, force: true });
 diff --git a/source/app/e2e-tests/tests/listenerCleanup.spec.ts b/source/app/e2e-tests/tests/listenerCleanup.spec.ts
 index b4cb323329c256ac31b2f0fa5eecf48274352ee2..4aaa21c69f96a1c20cc45b1b3b3205a9c50f2ef0 100644
 --- a/source/app/e2e-tests/tests/listenerCleanup.spec.ts
@@ -4105,10 +4163,57 @@ index 6fec43fd49dc7de94ec5091c780f19b50bf81e1b..47366b42925d015b57f529b7557c8b8f
  
  ▸ **registerCustomCreateProject**(`customCreateProject`): `void`
 diff --git a/source/docs/development/app.md b/source/docs/development/app.md
-index ec74e51034a14022cbcefdcf7921022df1e9cc84..9aa3f38dd0da8b350ad4358bc7e62bc5936f7a37 100644
+index ec74e51034a14022cbcefdcf7921022df1e9cc84..5db9837305450e3166aaf044ecbb5653ac543914 100644
 --- a/source/docs/development/app.md
 +++ b/source/docs/development/app.md
-@@ -263,6 +263,21 @@ The optional `platforms` array accepts `linux`, `mac`, and `win`. An entry witho
+@@ -154,6 +154,12 @@ retain the values from `app/package.json`.
+ to the packaged resources directory. Declare the same file in `resources` so
+ Electron Builder copies it into the package.
+ 
++`product.errorReporting` optionally configures the generic error page's crash
++report action. Set `githubIssueUrl` to the full GitHub issue creation URL;
++existing query parameters such as `labels` or `template` are preserved when
++Headlamp adds the crash title and diagnostic body. Set `buttonLabel` to replace
++the translated **Open Issue on GitHub** label with product-owned text.
++
+ For example:
+ 
+ ```json
+@@ -163,7 +169,11 @@ For example:
+     "productName": "Example Desktop",
+     "companyName": "Example Company",
+     "version": "1.2.3",
+-    "trayIcon": "assets/example-tray.png"
++    "trayIcon": "assets/example-tray.png",
++    "errorReporting": {
++      "githubIssueUrl": "https://github.com/example/product/issues/new?labels=bug",
++      "buttonLabel": "Contact support"
++    }
+   },
+   "resources": {
+     "common": [{ "from": "./example-tray.png", "to": "assets/example-tray.png" }]
+@@ -204,13 +214,13 @@ docker buildx build \
+ 
+ The manifest must remain available throughout the frontend and app packaging
+ steps. An unreadable manifest, a non-object `product`, non-string
+-`productName`/`version` fields, or values containing newlines stop the frontend
+-build rather than silently using an inconsistent product identity. Electron
+-packaging additionally rejects a non-string `companyName`. The frontend
+-environment generator also rejects values containing both a single quote and a
+-backtick when they additionally contain either a double quote or a literal
+-backslash-`n`/backslash-`r` sequence, because no dotenv quote delimiter can
+-represent them without changing the value.
++`productName`/`version` fields, invalid `errorReporting` fields, or values
++containing newlines stop the frontend build rather than silently using
++inconsistent product metadata. Electron packaging additionally rejects a
++non-string `companyName`. The frontend environment generator also rejects values
++containing both a single quote and a backtick when they additionally contain
++either a double quote or a literal backslash-`n`/backslash-`r` sequence, because
++no dotenv quote delimiter can represent them without changing the value.
+ 
+ ### Build manifest resources
+ 
+@@ -263,6 +273,21 @@ The optional `platforms` array accepts `linux`, `mac`, and `win`. An entry witho
  is missing, escapes the resources directory, is a directory or symbolic link,
  or does not match its declared digest.
  
@@ -4130,6 +4235,31 @@ index ec74e51034a14022cbcefdcf7921022df1e9cc84..9aa3f38dd0da8b350ad4358bc7e62bc5
  ## Development workflow
  
  The typical development workflow for the desktop app:
+diff --git a/source/docs/development/frontend.md b/source/docs/development/frontend.md
+index 293148351a580db24b4e0c87c135652523cc5cb2..064beecd279618d9e492104197659752751c334f 100644
+--- a/source/docs/development/frontend.md
++++ b/source/docs/development/frontend.md
+@@ -46,12 +46,14 @@ for the `HEADLAMP_BUILD_MANIFEST` and `HEADLAMP_SOURCE_COMMIT` configuration.
+ Products that build Headlamp can customize the generic error and not-found
+ pages with these build-time environment variables:
+ 
+-| Environment variable                        | Default                           | Description                                           |
+-| ------------------------------------------- | --------------------------------- | ----------------------------------------------------- |
+-| `REACT_APP_HEADLAMP_ERROR_PAGE_TITLE`       | `Uh-oh! Something went wrong.`    | Title for the generic error page.                     |
+-| `REACT_APP_HEADLAMP_ERROR_PAGE_GRAPHIC`     | Headlamp broken illustration      | URL or public path of the generic error page graphic. |
+-| `REACT_APP_HEADLAMP_NOT_FOUND_PAGE_TITLE`   | `Whoops! This page doesn't exist` | Title for the not-found page.                         |
+-| `REACT_APP_HEADLAMP_NOT_FOUND_PAGE_GRAPHIC` | Headlamp 404 illustration         | URL or public path of the not-found page graphic.     |
++| Environment variable                           | Default                           | Description                                           |
++| ---------------------------------------------- | --------------------------------- | ----------------------------------------------------- |
++| `REACT_APP_HEADLAMP_ERROR_PAGE_TITLE`          | `Uh-oh! Something went wrong.`    | Title for the generic error page.                     |
++| `REACT_APP_HEADLAMP_ERROR_PAGE_GRAPHIC`        | Headlamp broken illustration      | URL or public path of the generic error page graphic. |
++| `REACT_APP_HEADLAMP_ERROR_REPORT_GITHUB_URL`   | Headlamp GitHub issue form        | Full GitHub issue creation URL for crash reports.     |
++| `REACT_APP_HEADLAMP_ERROR_REPORT_BUTTON_LABEL` | `Open Issue on GitHub`            | Product-owned crash-report button label.              |
++| `REACT_APP_HEADLAMP_NOT_FOUND_PAGE_TITLE`      | `Whoops! This page doesn't exist` | Title for the not-found page.                         |
++| `REACT_APP_HEADLAMP_NOT_FOUND_PAGE_GRAPHIC`    | Headlamp 404 illustration         | URL or public path of the not-found page graphic.     |
+ 
+ Set the variables in `frontend/.env` or in the environment used to start or
+ build the frontend. Restart the development server or rebuild the frontend
 diff --git a/source/docs/development/plugins/functionality/index.md b/source/docs/development/plugins/functionality/index.md
 index a9f9ce75021825b683f7a7e7dc9751b7af322c2e..33f73657373aeab8e6165868ac76a497394187ba 100644
 --- a/source/docs/development/plugins/functionality/index.md
@@ -4230,6 +4360,84 @@ index 0000000000000000000000000000000000000000..67fe3f25d8499025ef6a31ef9f85abe8
 +  ).toHaveCount(0);
 +  await expect(page.locator("main > *").first()).toBeVisible();
 +});
+diff --git a/source/frontend/make-env.js b/source/frontend/make-env.js
+index b95aa7002971393ded8cec87d17ed0c2da3e966f..cb3d793f3042a7fd4c995f7c63fe691a1bea5ee8 100644
+--- a/source/frontend/make-env.js
++++ b/source/frontend/make-env.js
+@@ -24,9 +24,14 @@ import path from 'path';
+ /**
+  * Product fields exposed to the frontend build.
+  *
++ * @typedef {object} ErrorReportingInfo
++ * @property {string} githubIssueUrl Full GitHub issue creation URL.
++ * @property {string} [buttonLabel] Product-owned crash-report button label.
++ *
+  * @typedef {object} ProductInfo
+  * @property {string} [productName] Display name for the product.
+  * @property {string} [version] Product version shown by the frontend.
++ * @property {ErrorReportingInfo} [errorReporting] Product-specific crash-reporting configuration.
+  */
+ 
+ const frontendDirectory = path.dirname(fileURLToPath(import.meta.url));
+@@ -71,6 +76,41 @@ function validateProductInfo(manifest) {
+       throw new TypeError(`Build manifest product.${field} must be a string`);
+     }
+   }
++  if (product.errorReporting !== undefined) {
++    const errorReporting = product.errorReporting;
++    if (!errorReporting || typeof errorReporting !== 'object' || Array.isArray(errorReporting)) {
++      throw new TypeError('Build manifest product.errorReporting must be an object');
++    }
++    if (
++      typeof errorReporting.githubIssueUrl !== 'string' ||
++      !errorReporting.githubIssueUrl.trim()
++    ) {
++      throw new TypeError(
++        'Build manifest product.errorReporting.githubIssueUrl must be a non-empty string'
++      );
++    }
++    let issueUrl;
++    try {
++      issueUrl = new URL(errorReporting.githubIssueUrl);
++    } catch {
++      throw new TypeError(
++        'Build manifest product.errorReporting.githubIssueUrl must be a valid URL'
++      );
++    }
++    if (issueUrl.protocol !== 'https:' && issueUrl.protocol !== 'http:') {
++      throw new TypeError(
++        'Build manifest product.errorReporting.githubIssueUrl must use HTTP or HTTPS'
++      );
++    }
++    if (
++      errorReporting.buttonLabel !== undefined &&
++      (typeof errorReporting.buttonLabel !== 'string' || !errorReporting.buttonLabel.trim())
++    ) {
++      throw new TypeError(
++        'Build manifest product.errorReporting.buttonLabel must be a non-empty string'
++      );
++    }
++  }
+   return product;
+ }
+ 
+@@ -115,6 +155,16 @@ const envContents = {
+   REACT_APP_HEADLAMP_GIT_VERSION: readGitVersion(),
+   REACT_APP_HEADLAMP_PRODUCT_NAME: productInfo.productName || appInfo.productName,
+   ...(productVersion ? { REACT_APP_HEADLAMP_PRODUCT_VERSION: productVersion } : {}),
++  ...(productInfo.errorReporting
++    ? {
++        REACT_APP_HEADLAMP_ERROR_REPORT_GITHUB_URL: productInfo.errorReporting.githubIssueUrl,
++        ...(productInfo.errorReporting.buttonLabel
++          ? {
++              REACT_APP_HEADLAMP_ERROR_REPORT_BUTTON_LABEL: productInfo.errorReporting.buttonLabel,
++            }
++          : {}),
++      }
++    : {}),
+   REACT_APP_ENABLE_REACT_QUERY_DEVTOOLS: 'false',
+   REACT_APP_HEADLAMP_SIDEBAR_DEFAULT_OPEN: 'true',
+ };
 diff --git a/source/frontend/src/components/App/ClusterLayout.tsx b/source/frontend/src/components/App/ClusterLayout.tsx
 new file mode 100644
 index 0000000000000000000000000000000000000000..a03e34c3b7f4ddc90401d6c8e597425c5c324b72
@@ -5689,6 +5897,276 @@ index 9b216514c4a7e19247da2630fc35e7343f210cf6..5db234cfe1af2d3c126442eb4ea997fd
    );
  
    const showOnRoute = React.useMemo(() => {
+diff --git a/source/frontend/src/components/common/ErrorPage/ErrorPage.test.tsx b/source/frontend/src/components/common/ErrorPage/ErrorPage.test.tsx
+index 5b1f634c85888b656363157af301107d5505e5d8..fcdefb872c335d1afaa454c1dcb16140e6f6f016 100644
+--- a/source/frontend/src/components/common/ErrorPage/ErrorPage.test.tsx
++++ b/source/frontend/src/components/common/ErrorPage/ErrorPage.test.tsx
+@@ -140,11 +140,15 @@ describe('ErrorComponent', () => {
+     await user.click(screen.getByRole('button', { name: /Error Details$/ }));
+     await user.click(screen.getByRole('button', { name: /Open Issue on GitHub$/ }));
+ 
+-    const issueUrl = decodeURIComponent(open.mock.calls[0][0] as string);
+-    expect(issueUrl).toContain('Crash Report: Request failed');
+-    expect(issueUrl).toContain('... (truncated)');
+-    expect(issueUrl).toContain('Headlamp Version\n');
+-    expect(issueUrl).toContain('Git Commit\n');
++    const issueUrl = new URL(open.mock.calls[0][0] as string);
++    expect(issueUrl.origin + issueUrl.pathname).toBe(
++      'https://github.com/kubernetes-sigs/headlamp/issues/new'
++    );
++    expect(issueUrl.searchParams.get('labels')).toBe('kind/bug');
++    expect(issueUrl.searchParams.get('title')).toContain('Crash Report: Request failed');
++    expect(issueUrl.searchParams.get('body')).toContain('... (truncated)');
++    expect(issueUrl.searchParams.get('body')).toContain('Headlamp Version\n');
++    expect(issueUrl.searchParams.get('body')).toContain('Git Commit\n');
+     expect(mockEnqueueSnackbar).toHaveBeenCalledWith(
+       'translation|Unable to open GitHub. Please check your popup blocker settings or copy the error details manually.',
+       { variant: 'warning' }
+@@ -163,11 +167,57 @@ describe('ErrorComponent', () => {
+     await user.click(screen.getByRole('button', { name: /Error Details$/ }));
+     await user.click(screen.getByRole('button', { name: /Open Issue on GitHub$/ }));
+ 
+-    const issueUrl = decodeURIComponent(open.mock.calls[0][0] as string);
+-    expect(issueUrl).toContain('Crash Report: Application Error');
+-    expect(issueUrl).toContain('An error occurred in the application');
+-    expect(issueUrl).toContain('Headlamp Version\n1.2.3');
+-    expect(issueUrl).toContain('Git Commit\nabc123');
++    const issueUrl = new URL(open.mock.calls[0][0] as string);
++    expect(issueUrl.searchParams.get('title')).toContain('Crash Report: Application Error');
++    expect(issueUrl.searchParams.get('body')).toContain('An error occurred in the application');
++    expect(issueUrl.searchParams.get('body')).toContain('Headlamp Version\n1.2.3');
++    expect(issueUrl.searchParams.get('body')).toContain('Git Commit\nabc123');
+     expect(mockEnqueueSnackbar).not.toHaveBeenCalled();
+   });
++
++  it.each(['github.com/example/product/issues/new', 'file:///tmp/product/issues/new'])(
++    'warns instead of opening an invalid product issue URL: %s',
++    async issueUrl => {
++      const user = userEvent.setup();
++      const open = vi.spyOn(window, 'open').mockReturnValue(window);
++      vi.stubEnv('REACT_APP_HEADLAMP_ERROR_REPORT_GITHUB_URL', issueUrl);
++      const error = new Error('Product failed');
++      error.stack = 'Product stack';
++
++      render(<ErrorComponent error={error} />);
++      await user.click(screen.getByRole('button', { name: /Error Details$/ }));
++      await user.click(screen.getByRole('button', { name: /Open Issue on GitHub$/ }));
++
++      expect(open).not.toHaveBeenCalled();
++      expect(mockEnqueueSnackbar).toHaveBeenCalledWith(
++        'translation|Unable to open GitHub. Please check your popup blocker settings or copy the error details manually.',
++        { variant: 'warning' }
++      );
++    }
++  );
++
++  it('uses the product-configured GitHub issue URL and button label', async () => {
++    const user = userEvent.setup();
++    const open = vi.spyOn(window, 'open').mockReturnValue(window);
++    vi.stubEnv(
++      'REACT_APP_HEADLAMP_ERROR_REPORT_GITHUB_URL',
++      'https://github.com/example/product/issues/new?labels=product-bug&template=crash.yml'
++    );
++    vi.stubEnv('REACT_APP_HEADLAMP_ERROR_REPORT_BUTTON_LABEL', 'Contact us');
++    const error = new Error('Product failed');
++    error.stack = 'Product stack';
++
++    render(<ErrorComponent error={error} />);
++    await user.click(screen.getByRole('button', { name: /Error Details$/ }));
++    await user.click(screen.getByRole('button', { name: 'Contact us' }));
++
++    const issueUrl = new URL(open.mock.calls[0][0] as string);
++    expect(issueUrl.origin + issueUrl.pathname).toBe(
++      'https://github.com/example/product/issues/new'
++    );
++    expect(issueUrl.searchParams.get('labels')).toBe('product-bug');
++    expect(issueUrl.searchParams.get('template')).toBe('crash.yml');
++    expect(issueUrl.searchParams.get('title')).toBe('Crash Report: Product failed');
++    expect(issueUrl.searchParams.get('body')).toContain('Product stack');
++  });
+ });
+diff --git a/source/frontend/src/components/common/ErrorPage/ErrorPage.tsx b/source/frontend/src/components/common/ErrorPage/ErrorPage.tsx
+index a4dc3f7cec4024287744e43d01419e9f86f8e147..199a3e976d228a3940c8ae06ea6e5b511aee2ff1 100644
+--- a/source/frontend/src/components/common/ErrorPage/ErrorPage.tsx
++++ b/source/frontend/src/components/common/ErrorPage/ErrorPage.tsx
+@@ -31,6 +31,8 @@ import headlampBrokenImage from '../../../assets/headlamp-broken.svg';
+ import {
+   getErrorPageGraphic,
+   getErrorPageTitle,
++  getErrorReportButtonLabel,
++  getErrorReportGitHubUrl,
+   getVersion,
+ } from '../../../helpers/getProductInfo';
+ 
+@@ -56,9 +58,10 @@ export interface ErrorComponentProps {
+ 
+ const MAX_STACK_LENGTH = 1000;
+ const MAX_TITLE_LENGTH = 100;
+-const GITHUB_REPO_URL = 'https://github.com/kubernetes-sigs/headlamp';
++const DEFAULT_GITHUB_ISSUE_URL =
++  'https://github.com/kubernetes-sigs/headlamp/issues/new?labels=kind/bug';
+ 
+-function handleOpenGitHubIssue(
++function handleOpenIssue(
+   error: Error,
+   t: (key: string) => string,
+   enqueueSnackbar: (
+@@ -67,6 +70,13 @@ function handleOpenGitHubIssue(
+   ) => void
+ ) {
+   const version = getVersion();
++  const showOpenWarning = () =>
++    enqueueSnackbar(
++      t(
++        'translation|Unable to open GitHub. Please check your popup blocker settings or copy the error details manually.'
++      ),
++      { variant: 'warning' }
++    );
+ 
+   // Truncate stack trace to prevent URL length limits
+   const truncatedStack =
+@@ -79,35 +89,43 @@ function handleOpenGitHubIssue(
+     .replace(/[\r\n]+/g, ' ') // Replace newlines with spaces
+     .substring(0, MAX_TITLE_LENGTH); // Limit title length
+ 
+-  const issueTitle = encodeURIComponent(`Crash Report: ${sanitizedMessage}`);
+-  const issueBody = encodeURIComponent(
++  const issueTitle = `Crash Report: ${sanitizedMessage}`;
++  const issueBody =
+     `## Crash Summary\n${error.message || 'An error occurred in the application'}\n\n` +
+-      `## Error Stack\n\`\`\`\n${truncatedStack}\n\`\`\`\n\n` +
+-      `## Headlamp Version\n${version.VERSION || 'Unknown'}\n\n` +
+-      `## Git Commit\n${version.GIT_VERSION || 'Unknown'}\n\n` +
+-      `## System Information\n` +
+-      `- User Agent: ${navigator.userAgent}\n` +
+-      `- Platform: ${navigator.platform}\n` +
+-      `- Language: ${navigator.language}\n\n` +
+-      `## Additional Context\n<!-- Please add any additional context about the crash here -->`
+-  );
+-  const githubUrl = `${GITHUB_REPO_URL}/issues/new?title=${issueTitle}&body=${issueBody}&labels=kind/bug`;
++    `## Error Stack\n\`\`\`\n${truncatedStack}\n\`\`\`\n\n` +
++    `## Headlamp Version\n${version.VERSION || 'Unknown'}\n\n` +
++    `## Git Commit\n${version.GIT_VERSION || 'Unknown'}\n\n` +
++    `## System Information\n` +
++    `- User Agent: ${navigator.userAgent}\n` +
++    `- Platform: ${navigator.platform}\n` +
++    `- Language: ${navigator.language}\n\n` +
++    `## Additional Context\n<!-- Please add any additional context about the crash here -->`;
++  let githubUrl: URL;
++  try {
++    githubUrl = new URL(getErrorReportGitHubUrl()?.trim() || DEFAULT_GITHUB_ISSUE_URL);
++  } catch {
++    showOpenWarning();
++    return;
++  }
++  if (githubUrl.protocol !== 'https:' && githubUrl.protocol !== 'http:') {
++    showOpenWarning();
++    return;
++  }
++  githubUrl.searchParams.set('title', issueTitle);
++  githubUrl.searchParams.set('body', issueBody);
+ 
+   // Handle popup blocker - window.open returns null if blocked
+-  const newWindow = window.open(githubUrl, '_blank');
++  const newWindow = window.open(githubUrl.toString(), '_blank');
+   if (!newWindow) {
+-    enqueueSnackbar(
+-      t(
+-        'translation|Unable to open GitHub. Please check your popup blocker settings or copy the error details manually.'
+-      ),
+-      { variant: 'warning' }
+-    );
++    showOpenWarning();
+   }
+ }
+ 
+ export default function ErrorComponent(props: ErrorComponentProps) {
+   const { t } = useTranslation();
+   const { enqueueSnackbar } = useSnackbar();
++  const errorReportButtonLabel =
++    getErrorReportButtonLabel()?.trim() || t('translation|Open Issue on GitHub');
+   const {
+     title = getErrorPageTitle('error') || t('Uh-oh! Something went wrong.'),
+     message = '',
+@@ -186,9 +204,9 @@ export default function ErrorComponent(props: ErrorComponentProps) {
+                   </Button>
+                   <Button
+                     color="primary"
+-                    onClick={() => handleOpenGitHubIssue(error, t, enqueueSnackbar)}
++                    onClick={() => handleOpenIssue(error, t, enqueueSnackbar)}
+                   >
+-                    {t('translation|Open Issue on GitHub')}
++                    {errorReportButtonLabel}
+                   </Button>
+                 </Box>
+                 <Typography
+diff --git a/source/frontend/src/helpers/getProductInfo.test.ts b/source/frontend/src/helpers/getProductInfo.test.ts
+index acf615d09709252a0535057192e4423f4c07bf6f..aa2b04154481044bfbf7526be722a286d00cbcf4 100644
+--- a/source/frontend/src/helpers/getProductInfo.test.ts
++++ b/source/frontend/src/helpers/getProductInfo.test.ts
+@@ -15,7 +15,13 @@
+  */
+ 
+ import { afterEach, describe, expect, it, vi } from 'vitest';
+-import { getDisplayVersion, getProductName, getProductVersion } from './getProductInfo';
++import {
++  getDisplayVersion,
++  getErrorReportButtonLabel,
++  getErrorReportGitHubUrl,
++  getProductName,
++  getProductVersion,
++} from './getProductInfo';
+ 
+ describe('getProductName', () => {
+   afterEach(() => {
+@@ -84,3 +90,22 @@ describe('getDisplayVersion', () => {
+     expect(getDisplayVersion()).toBe('0.35.0');
+   });
+ });
++
++describe('error reporting configuration', () => {
++  afterEach(() => {
++    vi.unstubAllEnvs();
++  });
++
++  it('returns the configured GitHub issue URL and button label', () => {
++    vi.stubEnv(
++      'REACT_APP_HEADLAMP_ERROR_REPORT_GITHUB_URL',
++      'https://github.com/example/product/issues/new?labels=bug'
++    );
++    vi.stubEnv('REACT_APP_HEADLAMP_ERROR_REPORT_BUTTON_LABEL', 'Contact support');
++
++    expect(getErrorReportGitHubUrl()).toBe(
++      'https://github.com/example/product/issues/new?labels=bug'
++    );
++    expect(getErrorReportButtonLabel()).toBe('Contact support');
++  });
++});
+diff --git a/source/frontend/src/helpers/getProductInfo.ts b/source/frontend/src/helpers/getProductInfo.ts
+index ed55355b6d2fd33590fe9eae8435b093c3085bb9..aec0b101ee2bcf731eb9751705b390e274b1be0d 100644
+--- a/source/frontend/src/helpers/getProductInfo.ts
++++ b/source/frontend/src/helpers/getProductInfo.ts
+@@ -44,6 +44,20 @@ export function getDisplayVersion(): string | undefined {
+   return getProductVersion()?.trim() || getVersion().VERSION;
+ }
+ 
++/**
++ * @returns The product-configured GitHub issue creation URL for crash reports.
++ */
++export function getErrorReportGitHubUrl(): string | undefined {
++  return import.meta.env.REACT_APP_HEADLAMP_ERROR_REPORT_GITHUB_URL;
++}
++
++/**
++ * @returns The product-configured crash-report button label.
++ */
++export function getErrorReportButtonLabel(): string | undefined {
++  return import.meta.env.REACT_APP_HEADLAMP_ERROR_REPORT_BUTTON_LABEL;
++}
++
+ /** A page that supports product-configured error content. */
+ export type ProductErrorPage = 'error' | 'notFound';
+ 
 diff --git a/source/frontend/src/i18n/locales/ar/translation.json b/source/frontend/src/i18n/locales/ar/translation.json
 index 94451618b4ddeca0db2b000f7b1a6a76076fce60..17aad4c31045539083dd742723c38651cd0a8345 100644
 --- a/source/frontend/src/i18n/locales/ar/translation.json
@@ -6191,6 +6669,59 @@ index b250ccb2e303f9c4b723ef38a34691453ed4a14b..0f67cf57c30580e99626fc0e4c9e44ed
  }
  
  export { useCluster, useConnectApi, useSelectedClusters } from './api/v1/hooks';
+diff --git a/source/frontend/src/make-env.test.js b/source/frontend/src/make-env.test.js
+index 5872df095f9e61b7caac974004c54185a70a4969..9f921e1bf93df8d23bec9e10091999cd63825844 100644
+--- a/source/frontend/src/make-env.test.js
++++ b/source/frontend/src/make-env.test.js
+@@ -182,6 +182,10 @@ test('uses custom product metadata and the source commit', async () => {
+       product: {
+         version: '1.2.3',
+         productName: 'Example Desktop',
++        errorReporting: {
++          githubIssueUrl: 'https://github.com/example/product/issues/new?labels=bug',
++          buttonLabel: 'Contact support',
++        },
+       },
+     },
+     sourceCommit: '0123456789abcdef',
+@@ -192,6 +196,9 @@ test('uses custom product metadata and the source commit', async () => {
+     REACT_APP_HEADLAMP_GIT_VERSION: '0123456789abcdef',
+     REACT_APP_HEADLAMP_PRODUCT_NAME: 'Example Desktop',
+     REACT_APP_HEADLAMP_PRODUCT_VERSION: '1.2.3',
++    REACT_APP_HEADLAMP_ERROR_REPORT_GITHUB_URL:
++      'https://github.com/example/product/issues/new?labels=bug',
++    REACT_APP_HEADLAMP_ERROR_REPORT_BUTTON_LABEL: 'Contact support',
+   });
+ });
+ 
+@@ -248,6 +255,27 @@ test.each([
+   ['a non-object product', { product: 'Example Desktop' }],
+   ['a non-string version', { product: { version: 123 } }],
+   ['a non-string product name', { product: { productName: ['Example Desktop'] } }],
++  ['a non-object error-reporting value', { product: { errorReporting: [] } }],
++  [
++    'an error-reporting value without a GitHub issue URL',
++    { product: { errorReporting: { buttonLabel: 'Contact support' } } },
++  ],
++  ['an invalid GitHub issue URL', { product: { errorReporting: { githubIssueUrl: 'not a URL' } } }],
++  [
++    'a non-HTTP GitHub issue URL',
++    { product: { errorReporting: { githubIssueUrl: 'file:///tmp/issues' } } },
++  ],
++  [
++    'an empty error-reporting button label',
++    {
++      product: {
++        errorReporting: {
++          githubIssueUrl: 'https://github.com/example/product/issues/new',
++          buttonLabel: ' ',
++        },
++      },
++    },
++  ],
+ ])('rejects %s', async (_description, manifest) => {
+   await expect(createEnv({ manifest, sourceCommit: 'source-commit' })).rejects.toThrow();
+ });
 diff --git a/source/frontend/src/plugin/__snapshots__/pluginLib.snapshot b/source/frontend/src/plugin/__snapshots__/pluginLib.snapshot
 index 13483d9e8dff20ba2f1a143b0b9d381de81ba701..b57c69fcb20487f39c1210741ed3230f273190ae 100644
 --- a/source/frontend/src/plugin/__snapshots__/pluginLib.snapshot
