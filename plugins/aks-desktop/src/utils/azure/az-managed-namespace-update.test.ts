@@ -384,6 +384,78 @@ describe('managed namespace REST update', () => {
     expect(mocks.fetch).toHaveBeenCalledTimes(5);
   });
 
+  test.each([200, 204])(
+    'completes a bodyless Location HTTP %i with a final successful namespace GET',
+    async status => {
+      mocks.fetch
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(json(202, undefined, { location: '/operations/op' }))
+        .mockResolvedValueOnce(json(status))
+        .mockResolvedValueOnce(json(200, resource()));
+      const result = updateManagedNamespace(scope).catch(error => error);
+      await vi.runAllTimersAsync();
+      expect(await result).toEqual(resource());
+      expect(mocks.fetch).toHaveBeenCalledTimes(4);
+      expect(request(2).url).toContain('/operations/op');
+      expect(request(3).url).toBe(request(0).url);
+      expect(request(3).method).toBe('GET');
+    }
+  );
+
+  test.each([200, 204])(
+    'does not treat bodyless Location HTTP %i as success when the final namespace failed',
+    async status => {
+      const failed = resource();
+      failed.properties.provisioningState = 'Failed';
+      mocks.fetch
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(json(202, undefined, { location: '/operations/op' }))
+        .mockResolvedValueOnce(json(status))
+        .mockResolvedValueOnce(json(200, failed));
+      const result = updateManagedNamespace(scope).catch(error => error);
+      await vi.runAllTimersAsync();
+      expect(await result).toMatchObject({
+        message: expect.stringContaining('operation Failed'),
+      });
+      expect(mocks.fetch).toHaveBeenCalledTimes(4);
+      expect(request(3).url).toBe(request(0).url);
+    }
+  );
+
+  test('propagates a final GET failure after a bodyless Location completion', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { location: '/operations/op' }))
+      .mockResolvedValueOnce(json(204))
+      .mockResolvedValueOnce(json(404, { error: { code: 'Gone', message: 'gone' } }));
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.runAllTimersAsync();
+    expect(await result).toMatchObject({ status: 404, code: 'Gone' });
+    expect(mocks.fetch).toHaveBeenCalledTimes(4);
+  });
+
+  test.each([
+    ['azure-asyncoperation', 200],
+    ['azure-asyncoperation', 204],
+    ['resource', 200],
+    ['resource', 204],
+  ] as const)('rejects a bodyless %s HTTP %i poll as malformed', async (kind, status) => {
+    const updating = resource();
+    updating.properties.provisioningState = 'Updating';
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(201, updating, kind === 'resource' ? {} : { [kind]: '/operations/op' })
+      )
+      .mockResolvedValueOnce(json(status));
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.runAllTimersAsync();
+    expect(await result).toMatchObject({
+      message: expect.stringContaining('Malformed operation status'),
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+  });
+
   test('does not silently select a subscription if explicit scope is blank', async () => {
     await expect(updateManagedNamespace({ ...scope, subscriptionId: '' })).rejects.toThrow(
       /requires subscription/

@@ -95,6 +95,11 @@ are surfaced rather than replaying a failed PUT or reporting accepted work as
 completed. Default token acquisition remains CLI-backed through `az-token.ts`;
 the migrated resource operations themselves use HTTP.
 
+An empty HTTP 200 or 204 from a `Location` poll ends polling, not success
+verification: the final namespace GET must still confirm `Succeeded`. Empty
+HTTP 202 responses remain pending, while operation-status and resource polls
+still require their expected response bodies.
+
 Reads and updates resolve the selected subscription's account with read-only
 `az account show --subscription`, or the current account when no subscription is
 provided. The resolved tenant is used for every resource and polling request;
