@@ -2,12 +2,19 @@
 // Licensed under the Apache 2.0.
 
 import { getLoginStatus } from './az-auth';
+import { getAzureCloudEndpoints } from './az-cloud';
 import type { AzRequestOptions, AzResponse } from './az-http';
-import { ARM_ENDPOINT, azRequestRaw, AzureRequestError } from './az-http';
-import { withAbort } from './az-token';
+import {
+  azRequestRaw,
+  AzureRequestError,
+  createAzureRequestSignal,
+  waitForAzureRetry,
+} from './az-http';
+import { getSubscriptionCredential, withAbort } from './az-token';
 
 const API_VERSION = '2026-01-01';
 const UPDATE_TIMEOUT_MS = 10 * 60 * 1000;
+const MIN_TOKEN_LIFETIME_MS = 60_000;
 const WRITABLE_PROPERTIES = [
   'labels',
   'annotations',
@@ -17,6 +24,7 @@ const WRITABLE_PROPERTIES = [
   'deletePolicy',
 ] as const;
 type Policy = 'AllowAll' | 'AllowSameNamespace' | 'DenyAll';
+type PollTarget = { url: string; kind: 'operation' | 'location' | 'resource' };
 
 /** Scope of a single AKS managed namespace. */
 export interface ManagedNamespaceScope {
@@ -115,34 +123,140 @@ function validateResource(value: unknown): ManagedNamespaceResource {
   return value as ManagedNamespaceResource;
 }
 
-async function resourceUrl(options: ManagedNamespaceScope): Promise<string> {
-  let subscription = options.subscriptionId;
-  if (subscription === undefined) {
-    const account = await withAbort(() => getLoginStatus(), options.signal);
-    if (!account.isLoggedIn || !account.subscriptionId) {
-      throw new AzureRequestError(
-        account.error ?? 'No current Azure subscription; supply subscriptionId'
-      );
-    }
-    subscription = account.subscriptionId;
-  }
-  const segments = [
-    subscription,
-    options.resourceGroup,
-    options.clusterName,
-    options.namespaceName,
-  ];
-  if (segments.some(value => typeof value !== 'string' || !value.trim())) {
+function accountIdentity(account: Awaited<ReturnType<typeof getLoginStatus>>): string {
+  return JSON.stringify([
+    account.isLoggedIn,
+    account.username,
+    account.tenantId,
+    account.subscriptionId?.toLowerCase(),
+    account.environmentName,
+  ]);
+}
+
+async function resourceContext(options: ManagedNamespaceScope) {
+  const names = [options.resourceGroup, options.clusterName, options.namespaceName];
+  if (
+    (options.subscriptionId !== undefined &&
+      (typeof options.subscriptionId !== 'string' || !options.subscriptionId.trim())) ||
+    names.some(value => typeof value !== 'string' || !value.trim())
+  ) {
     throw new AzureRequestError(
       'Managed namespace requires subscription, resource group, cluster and namespace'
     );
   }
-  const [sub, group, cluster, namespace] = segments.map(value => encodeURIComponent(value!));
-  return `${ARM_ENDPOINT}/subscriptions/${sub}/resourceGroups/${group}/providers/Microsoft.ContainerService/managedClusters/${cluster}/managedNamespaces/${namespace}`;
+  const account = await withAbort(() => getLoginStatus(options.subscriptionId), options.signal);
+  if (!account.isLoggedIn || !account.subscriptionId || !account.tenantId) {
+    throw new AzureRequestError(
+      account.error ?? 'No Azure subscription or tenant; sign in to the target subscription'
+    );
+  }
+  const [sub, group, cluster, namespace] = [account.subscriptionId, ...names].map(value =>
+    encodeURIComponent(value)
+  );
+  const cloud = await getAzureCloudEndpoints(account.environmentName, options.signal);
+  const sharedCredential = getSubscriptionCredential(account.subscriptionId);
+  let token = await sharedCredential.getToken([cloud.scope], {
+    tenantId: account.tenantId,
+    abortSignal: options.signal,
+  });
+  const acquireToken = async () => {
+    sharedCredential.clearCache?.(cloud.scope);
+    return sharedCredential.getToken([cloud.scope], {
+      tenantId: account.tenantId,
+      abortSignal: options.signal,
+    });
+  };
+  if (token.expiresOnTimestamp - Date.now() <= MIN_TOKEN_LIFETIME_MS) {
+    token = await acquireToken();
+    if (token.expiresOnTimestamp - Date.now() <= MIN_TOKEN_LIFETIME_MS) {
+      throw new AzureRequestError(
+        'Azure access token expires too soon to start the managed namespace operation'
+      );
+    }
+  }
+  const confirmed = await withAbort(
+    () => getLoginStatus(options.subscriptionId, options.signal),
+    options.signal
+  );
+  if (!confirmed.isLoggedIn || accountIdentity(confirmed) !== accountIdentity(account)) {
+    throw new AzureRequestError(
+      'Azure account changed while preparing the managed namespace request'
+    );
+  }
+  const credential = {
+    async getToken(scopes: string | string[]) {
+      const requested = Array.isArray(scopes) ? scopes : [scopes];
+      if (requested.length !== 1 || requested[0] !== cloud.scope) {
+        throw new AzureRequestError('Managed namespace credential scope changed');
+      }
+      if (token.expiresOnTimestamp - Date.now() <= MIN_TOKEN_LIFETIME_MS) {
+        const refreshedAccount = await withAbort(
+          () => getLoginStatus(options.subscriptionId, options.signal),
+          options.signal
+        );
+        if (
+          !refreshedAccount.isLoggedIn ||
+          accountIdentity(refreshedAccount) !== accountIdentity(account)
+        ) {
+          throw new AzureRequestError(
+            'Azure account changed while the managed namespace operation was running'
+          );
+        }
+        token = await acquireToken();
+        const confirmedRefresh = await withAbort(
+          () => getLoginStatus(options.subscriptionId, options.signal),
+          options.signal
+        );
+        if (
+          !confirmedRefresh.isLoggedIn ||
+          accountIdentity(confirmedRefresh) !== accountIdentity(account)
+        ) {
+          throw new AzureRequestError(
+            'Azure account changed while renewing the managed namespace token'
+          );
+        }
+        if (token.expiresOnTimestamp - Date.now() <= MIN_TOKEN_LIFETIME_MS) {
+          throw new AzureRequestError(
+            'Azure access token could not be renewed for the managed namespace operation'
+          );
+        }
+      }
+      return token;
+    },
+  };
+  return {
+    url: `${cloud.endpoint}/subscriptions/${sub}/resourceGroups/${group}/providers/Microsoft.ContainerService/managedClusters/${cluster}/managedNamespaces/${namespace}`,
+    origin: new URL(cloud.endpoint).origin,
+    tenantId: account.tenantId,
+    scope: cloud.scope,
+    credential,
+    subscriptionId: options.subscriptionId,
+    accountIdentity: accountIdentity(account),
+  };
 }
 
-function request(url: string, signal?: AbortSignal, extra: Partial<AzRequestOptions> = {}) {
-  return azRequestRaw<unknown>({ url, apiVersion: API_VERSION, signal, ...extra });
+async function request(
+  url: string,
+  context: Awaited<ReturnType<typeof resourceContext>> &
+    Partial<Pick<AzRequestOptions, 'timeoutMs'>>,
+  signal?: AbortSignal,
+  extra: Partial<AzRequestOptions> = {}
+) {
+  const account = await withAbort(() => getLoginStatus(context.subscriptionId, signal), signal);
+  if (!account.isLoggedIn || accountIdentity(account) !== context.accountIdentity) {
+    throw new AzureRequestError(
+      'Azure account changed while the managed namespace operation was running'
+    );
+  }
+  return azRequestRaw<unknown>({
+    url,
+    apiVersion: API_VERSION,
+    tenantId: context.tenantId,
+    scope: context.scope,
+    credential: context.credential,
+    signal,
+    ...extra,
+  });
 }
 
 /**
@@ -153,7 +267,13 @@ function request(url: string, signal?: AbortSignal, extra: Partial<AzRequestOpti
 export async function getManagedNamespaceResource(
   options: ManagedNamespaceScope
 ): Promise<ManagedNamespaceResource> {
-  return validateResource((await request(await resourceUrl(options), options.signal)).data);
+  const linked = createAzureRequestSignal(options.signal);
+  try {
+    const context = await resourceContext({ ...options, signal: linked.signal });
+    return validateResource((await request(context.url, context, linked.signal)).data);
+  } finally {
+    linked.dispose();
+  }
 }
 
 function updateBody(current: ManagedNamespaceResource, options: ManagedNamespaceUpdateOptions) {
@@ -172,7 +292,7 @@ function updateBody(current: ManagedNamespaceResource, options: ManagedNamespace
     if (value === undefined) continue;
     if (!Number.isFinite(value) || value < 0)
       throw new AzureRequestError(`Invalid namespace quota: ${key}`);
-    quota[key] = `${value}${key.startsWith('cpu') ? 'm' : 'Mi'}`;
+    quota[key] = `${plainDecimal(value)}${key.startsWith('cpu') ? 'm' : 'Mi'}`;
     properties.defaultResourceQuota = quota;
   }
   for (const [option, key] of [
@@ -191,6 +311,17 @@ function updateBody(current: ManagedNamespaceResource, options: ManagedNamespace
     ...(current.tags === undefined ? {} : { tags: current.tags }),
     properties,
   };
+}
+
+function plainDecimal(value: number): string {
+  const [coefficient, exponent = '0'] = value.toString().split(/e/i);
+  const [integer, fraction = ''] = coefficient.split('.');
+  const digits = `${integer}${fraction}`;
+  const decimalPosition = integer.length + Number(exponent);
+  if (decimalPosition <= 0) return `0.${'0'.repeat(-decimalPosition)}${digits}`;
+  if (decimalPosition >= digits.length)
+    return `${digits}${'0'.repeat(decimalPosition - digits.length)}`;
+  return `${digits.slice(0, decimalPosition)}.${digits.slice(decimalPosition)}`;
 }
 
 function state(value: unknown, operation: boolean, response: AzResponse<unknown>): string {
@@ -232,8 +363,9 @@ function operationError(message: string, response: AzResponse<unknown>): AzureRe
 
 function continuation(
   response: AzResponse<unknown>,
-  base: string
-): { url: string; operation: boolean } | undefined {
+  base: string,
+  origin: string
+): PollTarget | undefined {
   const asyncUrl = response.headers.get('azure-asyncoperation');
   const location = asyncUrl ?? response.headers.get('location');
   if (!location) return undefined;
@@ -243,10 +375,10 @@ function continuation(
   } catch {
     throw operationError('Invalid operation URL', response);
   }
-  if (next.origin !== ARM_ENDPOINT || next.username || next.password) {
+  if (next.origin !== origin || next.username || next.password) {
     throw operationError('Refusing untrusted managed namespace operation URL', response);
   }
-  return { url: next.href, operation: Boolean(asyncUrl) };
+  return { url: next.href, kind: asyncUrl ? 'operation' : 'location' };
 }
 
 function delay(response: AzResponse<unknown>, signal: AbortSignal): Promise<void> {
@@ -295,40 +427,62 @@ export async function updateManagedNamespaceResource(
   );
   const signal = controller.signal;
   try {
-    const url = await resourceUrl({ ...options, signal });
-    const initial = await request(url, signal);
+    const context = await resourceContext({ ...options, signal });
+    const { url, origin } = context;
+    const initial = await request(url, context, signal);
     const current = validateResource(initial.data);
     const etag = initial.headers.get('etag') ?? current.eTag;
-    let response = await request(url, signal, {
+    let response = await request(url, context, signal, {
       method: 'PUT',
       body: updateBody(current, options),
       ...(etag ? { headers: { 'If-Match': etag } } : {}),
     });
-    if (options.noWait) return response.data ?? {};
     if (![200, 201, 202].includes(response.status)) {
       throw operationError('Unexpected managed namespace PUT response', response);
     }
-    let next = continuation(response, url);
     const putState =
       object(response.data) && object(response.data.properties)
         ? response.data.properties.provisioningState
         : undefined;
+    if (putState !== undefined) state(response.data, false, response);
+    if (options.noWait) return response.data ?? {};
+    let next = continuation(response, url, origin);
     let pending = response.status === 202 || Boolean(next);
     if (putState !== undefined)
       pending = state(response.data, false, response) !== 'succeeded' || pending;
-    next ??= { url, operation: false };
+    next ??= { url, kind: 'resource' };
     while (pending) {
       await delay(response, signal);
-      response = await request(next.url, signal);
+      response = await request(next.url, context, signal);
+      if (
+        next.kind === 'location' &&
+        response.data === undefined &&
+        [200, 204].includes(response.status)
+      ) {
+        break;
+      }
       // Location polling may return an operation status or a resource body.
-      const operation = next.operation || (object(response.data) && 'status' in response.data);
-      pending =
-        !operation && response.status === 202 && response.data === undefined
-          ? true
-          : state(response.data, operation, response) !== 'succeeded';
-      if (pending) next = continuation(response, next.url) ?? next;
+      const operation =
+        next.kind === 'operation' || (object(response.data) && 'status' in response.data);
+      if (response.status === 202 && (next.kind === 'location' || !operation)) {
+        if (object(response.data)) {
+          if (typeof response.data.status === 'string') {
+            state(response.data, true, response);
+          }
+          if (
+            object(response.data.properties) &&
+            typeof response.data.properties.provisioningState === 'string'
+          ) {
+            state(response.data, false, response);
+          }
+        }
+        pending = true;
+      } else {
+        pending = state(response.data, operation, response) !== 'succeeded';
+      }
+      if (pending) next = continuation(response, next.url, origin) ?? next;
     }
-    const final = await request(url, signal);
+    const final = await request(url, context, signal);
     const result = validateResource(final.data);
     if (state(result, false, final) !== 'succeeded') {
       throw operationError('Final managed namespace GET did not confirm success', final);

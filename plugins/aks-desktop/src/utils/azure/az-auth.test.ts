@@ -17,6 +17,7 @@ vi.mock('./az-cli-core', () => ({
   isAzError: (stderr: string) => stderr.includes('ERROR: '),
   isCliNotFoundError: (output: string) =>
     output.includes('command not found') || output.includes('Azure CLI (az) command not found'),
+  isValidGuid: (value: string) => /^[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12}$/i.test(value),
   needsRelogin: mocks.needsRelogin,
   runCommandAsync: mocks.runCommandAsync,
 }));
@@ -27,6 +28,7 @@ vi.mock('./az-cli-path', () => ({
 }));
 
 import { getLoginStatus, initiateLogin, login, monitorLoginStatus } from './az-auth';
+import { ARM_SCOPE, getSubscriptionCredential } from './az-token';
 
 describe('getLoginStatus', () => {
   beforeEach(() => {
@@ -56,6 +58,72 @@ describe('getLoginStatus', () => {
       tenantId: 'tenant-id',
       username: 'user@example.com',
     });
+    expect(mocks.runCommandAsync).toHaveBeenCalledWith('az', ['account', 'show', '-o', 'json']);
+  });
+
+  test.each(['cloudName', 'environmentName'])(
+    'retains the selected account cloud from %s',
+    async field => {
+      mocks.runCommandAsync.mockResolvedValue({
+        stdout: JSON.stringify({
+          id: 'other-subscription',
+          tenantId: 'other-tenant',
+          [field]: 'AzureUSGovernment',
+        }),
+        stderr: '',
+      });
+      await expect(getLoginStatus('other-subscription')).resolves.toMatchObject({
+        environmentName: 'AzureUSGovernment',
+      });
+    }
+  );
+
+  test('reads the selected subscription account without changing the default account', async () => {
+    mocks.runCommandAsync.mockResolvedValue({
+      stdout: JSON.stringify({ id: 'other-subscription', tenantId: 'other-tenant' }),
+      stderr: '',
+    });
+
+    await expect(getLoginStatus('other-subscription')).resolves.toMatchObject({
+      isLoggedIn: true,
+      subscriptionId: 'other-subscription',
+      tenantId: 'other-tenant',
+    });
+    expect(mocks.runCommandAsync).toHaveBeenCalledExactlyOnceWith('az', [
+      'account',
+      'show',
+      '-o',
+      'json',
+      '--subscription',
+      'other-subscription',
+    ]);
+  });
+
+  test('selected subscription reads do not replace the observed default account', async () => {
+    const changed = vi.fn();
+    window.addEventListener('azure-account-change', changed);
+    const current = {
+      stdout: JSON.stringify({
+        id: 'default-subscription',
+        tenantId: 'default-tenant',
+        user: { name: 'default@example.com' },
+      }),
+      stderr: '',
+    };
+    try {
+      mocks.runCommandAsync.mockResolvedValue(current);
+      await getLoginStatus();
+      changed.mockClear();
+      mocks.runCommandAsync.mockResolvedValueOnce({
+        stdout: JSON.stringify({ id: 'other-subscription', tenantId: 'other-tenant' }),
+        stderr: '',
+      });
+      await getLoginStatus('other-subscription');
+      await getLoginStatus();
+      expect(changed).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('azure-account-change', changed);
+    }
   });
 
   test('does not trust account output when the command reports a fatal error', async () => {
@@ -260,6 +328,444 @@ describe('getLoginStatus', () => {
     await expect(getLoginStatus()).resolves.toEqual({
       error: 'Failed to parse account information',
       isLoggedIn: false,
+    });
+  });
+
+  test('invalidates only the selected subscription on scoped identity changes and stays in sync with default account switches', async () => {
+    const accountChanged = vi.fn();
+    const subChanged = vi.fn((e: Event) => (e as CustomEvent<{ subscriptionId: string }>).detail);
+    window.addEventListener('azure-account-change', accountChanged);
+    window.addEventListener('azure-subscription-account-change', subChanged);
+    try {
+      mocks.runCommandAsync
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({
+            id: 'default-sub',
+            tenantId: 'tenant-a',
+            cloudName: 'AzureCloud',
+            user: { name: 'user-a@example.com' },
+          }),
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({
+            id: 'sub-other',
+            tenantId: 'tenant-a',
+            cloudName: 'AzureCloud',
+            user: { name: 'user-a@example.com' },
+          }),
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({
+            id: 'sub-other',
+            tenantId: 'tenant-a',
+            cloudName: 'AzureCloud',
+            user: { name: 'user-b@example.com' },
+          }),
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({
+            id: 'default-sub',
+            tenantId: 'tenant-a',
+            cloudName: 'AzureCloud',
+            user: { name: 'user-b@example.com' },
+          }),
+          stderr: '',
+        })
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({
+            id: 'sub-other',
+            tenantId: 'tenant-a',
+            cloudName: 'AzureCloud',
+            user: { name: 'user-a@example.com' },
+          }),
+          stderr: '',
+        });
+
+      await getLoginStatus();
+      accountChanged.mockClear();
+      subChanged.mockClear();
+
+      // First scoped read invalidates only sub-other without emitting global azure-account-change
+      await getLoginStatus('sub-other');
+      expect(accountChanged).not.toHaveBeenCalled();
+      expect(subChanged).toHaveBeenCalledTimes(1);
+      expect(subChanged.mock.results[0].value).toEqual({ subscriptionId: 'sub-other' });
+
+      // Scoped identity change A -> B invalidates sub-other
+      await getLoginStatus('sub-other');
+      expect(accountChanged).not.toHaveBeenCalled();
+      expect(subChanged).toHaveBeenCalledTimes(2);
+
+      // Default account change resets scoped baseline so switching back to A via scoped lookup invalidates again
+      await getLoginStatus();
+      expect(accountChanged).toHaveBeenCalledTimes(1);
+
+      await getLoginStatus('sub-other');
+      expect(subChanged).toHaveBeenCalledTimes(4);
+    } finally {
+      window.removeEventListener('azure-account-change', accountChanged);
+      window.removeEventListener('azure-subscription-account-change', subChanged);
+    }
+  });
+
+  test('invalidates a pre-populated token cache on the first scoped observation without global event', async () => {
+    const accountChanged = vi.fn();
+    const subChanged = vi.fn();
+    window.addEventListener('azure-account-change', accountChanged);
+    window.addEventListener('azure-subscription-account-change', subChanged);
+    mocks.runCommandAsync.mockResolvedValue({
+      stdout: JSON.stringify({
+        id: 'first-scoped-sub',
+        tenantId: 'tenant-a',
+        cloudName: 'AzureCloud',
+        user: { name: 'scoped@example.com' },
+      }),
+      stderr: '',
+    });
+    try {
+      await getLoginStatus('first-scoped-sub');
+      expect(accountChanged).not.toHaveBeenCalled();
+      expect(subChanged).toHaveBeenCalledTimes(1);
+
+      await getLoginStatus('first-scoped-sub');
+      expect(subChanged).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('azure-account-change', accountChanged);
+      window.removeEventListener('azure-subscription-account-change', subChanged);
+    }
+  });
+
+  test('overlapping scoped reads follow the newest observation across a sign-in change', async () => {
+    let releaseOlder!: (value: { stdout: string; stderr: string }) => void;
+    mocks.runCommandAsync
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releaseOlder = resolve;
+          })
+      )
+      .mockResolvedValue({
+        stdout: JSON.stringify({
+          id: 'overlapping-scoped-sub',
+          tenantId: 'new-tenant',
+          cloudName: 'AzureUSGovernment',
+          user: { name: 'new-user@example.com' },
+        }),
+        stderr: '',
+      });
+    const changed = vi.fn();
+    window.addEventListener('azure-subscription-account-change', changed);
+    try {
+      const older = getLoginStatus('overlapping-scoped-sub');
+      const newer = await getLoginStatus('overlapping-scoped-sub');
+      expect(changed).toHaveBeenCalledTimes(1);
+      changed.mockClear();
+
+      releaseOlder({
+        stdout: JSON.stringify({
+          id: 'overlapping-scoped-sub',
+          tenantId: 'old-tenant',
+          cloudName: 'AzureCloud',
+          user: { name: 'old-user@example.com' },
+        }),
+        stderr: '',
+      });
+      await expect(older).resolves.toEqual(newer);
+      expect(changed).not.toHaveBeenCalled();
+
+      await expect(getLoginStatus('overlapping-scoped-sub')).resolves.toEqual(newer);
+      expect(changed).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('azure-subscription-account-change', changed);
+    }
+  });
+
+  test('retires a canceled newer scoped observation so an older lookup does not hang', async () => {
+    let releaseOlder!: (value: { stdout: string; stderr: string }) => void;
+    const hanging = new Promise<{ stdout: string; stderr: string }>(() => {});
+    mocks.runCommandAsync
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releaseOlder = resolve;
+          })
+      )
+      .mockReturnValueOnce(hanging)
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          id: 'cancel-scoped-sub',
+          tenantId: 'tenant-fresh',
+          cloudName: 'AzureCloud',
+          user: { name: 'fresh@example.com' },
+        }),
+        stderr: '',
+      });
+
+    const controller = new AbortController();
+    const older = getLoginStatus('cancel-scoped-sub');
+    const newer = getLoginStatus('cancel-scoped-sub', controller.signal);
+
+    controller.abort(new Error('Cancelled'));
+    await expect(newer).rejects.toThrow('Cancelled');
+
+    releaseOlder({
+      stdout: JSON.stringify({
+        id: 'cancel-scoped-sub',
+        tenantId: 'tenant-a',
+        cloudName: 'AzureCloud',
+        user: { name: 'user@example.com' },
+      }),
+      stderr: '',
+    });
+    await expect(older).resolves.toMatchObject({
+      isLoggedIn: true,
+      subscriptionId: 'cancel-scoped-sub',
+      username: 'fresh@example.com',
+    });
+  });
+
+  test('invalidates cached tokens across uppercase GUID selectors, default-to-scoped switches, and interleaved default changes', async () => {
+    const lowerId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const upperId = lowerId.toUpperCase();
+    const tokenJson = (tok: string) =>
+      JSON.stringify({
+        accessToken: tok,
+        expires_on: Math.floor(Date.now() / 1000) + 3600,
+      });
+    const accountJson = (user: string) =>
+      JSON.stringify({
+        id: lowerId,
+        tenantId: 'tenant-a',
+        cloudName: 'AzureCloud',
+        user: { name: user },
+      });
+
+    // 1. Uppercase selector resolving to lowercase subscription ID invalidates the credential
+    mocks.runCommandAsync
+      .mockResolvedValueOnce({ stdout: accountJson('user-a@example.com'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: tokenJson('tok-a1'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: accountJson('user-b@example.com'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: tokenJson('tok-b1'), stderr: '' });
+
+    await getLoginStatus(upperId);
+    expect(getSubscriptionCredential(upperId)).toBe(getSubscriptionCredential(lowerId));
+    expect((await getSubscriptionCredential(upperId).getToken(ARM_SCOPE)).token).toBe('tok-a1');
+    await getLoginStatus(upperId);
+    expect((await getSubscriptionCredential(lowerId).getToken(ARM_SCOPE)).token).toBe('tok-b1');
+
+    // 2. Omitted-scope read as A -> scoped read as B -> omitted-scope read as A invalidates B's token
+    mocks.runCommandAsync
+      .mockResolvedValueOnce({ stdout: accountJson('user-a@example.com'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: accountJson('user-b@example.com'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: tokenJson('tok-b2'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: accountJson('user-a@example.com'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: tokenJson('tok-a2'), stderr: '' });
+
+    await getLoginStatus();
+    await getLoginStatus(lowerId);
+    expect((await getSubscriptionCredential(lowerId).getToken(ARM_SCOPE)).token).toBe('tok-b2');
+    await getLoginStatus();
+    expect((await getSubscriptionCredential(lowerId).getToken(ARM_SCOPE)).token).toBe('tok-a2');
+
+    // 3. In-flight scoped lookup started as A finishing after default change to B does not restore baseline A
+    let releaseScopedA!: (value: { stdout: string; stderr: string }) => void;
+    mocks.runCommandAsync
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releaseScopedA = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ stdout: accountJson('user-b@example.com'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: accountJson('user-b@example.com'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: tokenJson('tok-b3'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: accountJson('user-a@example.com'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: tokenJson('tok-a3'), stderr: '' });
+
+    const inflightA = getLoginStatus(lowerId);
+    await getLoginStatus();
+    releaseScopedA({ stdout: accountJson('user-a@example.com'), stderr: '' });
+    await inflightA;
+
+    expect((await getSubscriptionCredential(lowerId).getToken(ARM_SCOPE)).token).toBe('tok-b3');
+    await getLoginStatus(lowerId);
+    expect((await getSubscriptionCredential(lowerId).getToken(ARM_SCOPE)).token).toBe('tok-a3');
+
+    // 4. Unchanged default-account observations preserve the identity-bound token
+    mocks.runCommandAsync
+      .mockResolvedValueOnce({ stdout: accountJson('user-a@example.com'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: tokenJson('tok-a4'), stderr: '' })
+      .mockResolvedValueOnce({ stdout: accountJson('user-a@example.com'), stderr: '' });
+
+    await getLoginStatus();
+    expect((await getSubscriptionCredential(lowerId).getToken(ARM_SCOPE)).token).toBe('tok-a4');
+    await getLoginStatus();
+    expect((await getSubscriptionCredential(lowerId).getToken(ARM_SCOPE)).token).toBe('tok-a4');
+  });
+
+  test('retries with active caller signal when a followed scoped or default observation is canceled after older read finishes', async () => {
+    // Scoped: older finishes first -> sees newer pending -> newer cancels -> older retries cleanly
+    let releaseOlderScoped!: (value: { stdout: string; stderr: string }) => void;
+    const hangingScoped = new Promise<{ stdout: string; stderr: string }>(() => {});
+    mocks.runCommandAsync
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releaseOlderScoped = resolve;
+          })
+      )
+      .mockReturnValueOnce(hangingScoped)
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          id: 'retry-scoped-sub',
+          tenantId: 'tenant-a',
+          cloudName: 'AzureCloud',
+          user: { name: 'retried-scoped@example.com' },
+        }),
+        stderr: '',
+      });
+
+    const scopedController = new AbortController();
+    const olderScoped = getLoginStatus('retry-scoped-sub');
+    const newerScoped = getLoginStatus('retry-scoped-sub', scopedController.signal);
+
+    releaseOlderScoped({
+      stdout: JSON.stringify({
+        id: 'retry-scoped-sub',
+        tenantId: 'tenant-a',
+        cloudName: 'AzureCloud',
+        user: { name: 'stale-scoped@example.com' },
+      }),
+      stderr: '',
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    scopedController.abort(new Error('Newer scoped canceled'));
+
+    await expect(newerScoped).rejects.toThrow('Newer scoped canceled');
+    await expect(olderScoped).resolves.toMatchObject({
+      isLoggedIn: true,
+      username: 'retried-scoped@example.com',
+    });
+
+    // Default: older finishes first -> sees newer pending -> newer cancels -> older retries cleanly
+    let releaseOlderDefault!: (value: { stdout: string; stderr: string }) => void;
+    const hangingDefault = new Promise<{ stdout: string; stderr: string }>(() => {});
+    mocks.runCommandAsync
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releaseOlderDefault = resolve;
+          })
+      )
+      .mockReturnValueOnce(hangingDefault)
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          id: 'retry-default-sub',
+          tenantId: 'tenant-a',
+          cloudName: 'AzureCloud',
+          user: { name: 'retried-default@example.com' },
+        }),
+        stderr: '',
+      });
+
+    const defaultController = new AbortController();
+    const olderDefault = getLoginStatus();
+    const newerDefault = getLoginStatus(undefined, defaultController.signal);
+
+    releaseOlderDefault({
+      stdout: JSON.stringify({
+        id: 'retry-default-sub',
+        tenantId: 'tenant-a',
+        cloudName: 'AzureCloud',
+        user: { name: 'stale-default@example.com' },
+      }),
+      stderr: '',
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    defaultController.abort(new Error('Newer default canceled'));
+
+    await expect(newerDefault).rejects.toThrow('Newer default canceled');
+    await expect(olderDefault).resolves.toMatchObject({
+      isLoggedIn: true,
+      username: 'retried-default@example.com',
+    });
+  });
+
+  test('does not publish an older observation after a completed and then canceled newer read', async () => {
+    for (const scoped of [true, false]) {
+      const releases: ((value: { stdout: string; stderr: string }) => void)[] = [];
+      mocks.runCommandAsync.mockImplementation(
+        () =>
+          new Promise(resolve => {
+            releases.push(resolve);
+          })
+      );
+      const controller = new AbortController();
+      const selector = scoped ? `three-read-${scoped}` : undefined;
+      const older = getLoginStatus(selector);
+      const completed = getLoginStatus(selector);
+      releases[1]({
+        stdout: JSON.stringify({
+          id: `fresh-${scoped}`,
+          tenantId: 'tenant-fresh',
+          user: { name: 'fresh@example.com' },
+        }),
+        stderr: '',
+      });
+      await completed;
+      const canceled = getLoginStatus(selector, controller.signal);
+      controller.abort(new Error('canceled newest'));
+      await expect(canceled).rejects.toThrow('canceled newest');
+      releases[0]({
+        stdout: JSON.stringify({
+          id: `stale-${scoped}`,
+          tenantId: 'tenant-stale',
+          user: { name: 'stale@example.com' },
+        }),
+        stderr: '',
+      });
+      await vi.waitFor(() => expect(releases).toHaveLength(4));
+      releases[3]({
+        stdout: JSON.stringify({
+          id: `fresh-${scoped}`,
+          tenantId: 'tenant-fresh',
+          user: { name: 'fresh@example.com' },
+        }),
+        stderr: '',
+      });
+      await expect(older).resolves.toMatchObject({ username: 'fresh@example.com' });
+      mocks.runCommandAsync.mockReset();
+    }
+  });
+
+  test('advances the default generation for an unchanged accepted observation', async () => {
+    const releases: ((value: { stdout: string; stderr: string }) => void)[] = [];
+    mocks.runCommandAsync.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          releases.push(resolve);
+        })
+    );
+    const scoped = getLoginStatus('generation-sub');
+    const sameDefault = getLoginStatus();
+    const sameAccount = {
+      id: 'generation-sub',
+      tenantId: 'generation-tenant',
+      user: { name: 'same@example.com' },
+    };
+    releases[1]({ stdout: JSON.stringify(sameAccount), stderr: '' });
+    await sameDefault;
+    releases[0]({ stdout: JSON.stringify(sameAccount), stderr: '' });
+    await vi.waitFor(() => expect(releases).toHaveLength(3));
+    releases[2]({ stdout: JSON.stringify(sameAccount), stderr: '' });
+    await expect(scoped).resolves.toMatchObject({
+      isLoggedIn: true,
+      subscriptionId: 'generation-sub',
+      tenantId: 'generation-tenant',
+      username: 'same@example.com',
     });
   });
 

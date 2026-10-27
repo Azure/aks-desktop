@@ -131,7 +131,13 @@ export function clearAzureCloudCache(): void {
   graphClouds.clear();
 }
 
+function clearActiveAzureCloudCache(): void {
+  clouds.delete('');
+  graphClouds.delete('');
+}
+
 if (typeof window !== 'undefined') {
   window.addEventListener('azure-auth-update', clearAzureCloudCache);
   window.addEventListener('azure-account-change', clearAzureCloudCache);
+  window.addEventListener('azure-subscription-account-change', clearActiveAzureCloudCache);
 }

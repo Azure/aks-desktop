@@ -14,15 +14,15 @@ import { getAzCommand, getInstallationInstructions } from './az-cli-path';
 
 /** Azure CLI account state used by authentication flows. */
 export interface AzureLoginStatus {
-  /** Whether Azure CLI has a usable current account. */
+  /** Whether Azure CLI has a usable selected account. */
   isLoggedIn: boolean;
   /** Signed-in account name when available. */
   username?: string;
-  /** Current Azure tenant identifier when available. */
+  /** Selected Azure tenant identifier when available. */
   tenantId?: string;
-  /** Current Azure subscription identifier when available. */
+  /** Selected Azure subscription identifier when available. */
   subscriptionId?: string;
-  /** Named CLI cloud containing this account. */
+  /** Named CLI cloud containing the selected account. */
   environmentName?: string;
   /** Whether Azure CLI explicitly requires another login. */
   needsRelogin?: boolean;
@@ -89,13 +89,16 @@ function isCommandFailure(stderr: string): boolean {
 }
 
 /**
- * Reads and validates the current Azure CLI account.
+ * Reads and validates the selected Azure CLI account without changing the default account.
  *
+ * @param subscriptionId - Subscription to inspect; omitted selects the current CLI account.
  * @returns Validated login status. Command and parsing failures are returned in `error`.
  */
-async function readLoginStatus(): Promise<AzureLoginStatus> {
+async function readLoginStatus(subscriptionId?: string): Promise<AzureLoginStatus> {
   try {
-    const { stdout, stderr } = await runCommandAsync('az', ['account', 'show', '-o', 'json']);
+    const args = ['account', 'show', '-o', 'json'];
+    if (subscriptionId !== undefined) args.push('--subscription', subscriptionId);
+    const { stdout, stderr } = await runCommandAsync('az', args);
     const accountOutput = stdout.trim();
     const errorOutput = stderr.trim();
 
@@ -161,32 +164,154 @@ async function readLoginStatus(): Promise<AzureLoginStatus> {
 }
 
 let observedAccount: string | undefined;
+let defaultAccountGeneration = 0;
 let latestAccountObservation: Promise<AzureLoginStatus> | undefined;
+const observedSubscriptionAccounts = new Map<string, string>();
+const latestSubscriptionObservations = new Map<string, Promise<AzureLoginStatus>>();
+const retiredObservations = new WeakSet<Promise<AzureLoginStatus>>();
+
+function accountIdentityKey(status: AzureLoginStatus): string {
+  return JSON.stringify([
+    status.isLoggedIn,
+    status.username,
+    status.tenantId,
+    status.subscriptionId?.toLowerCase(),
+    status.environmentName,
+  ]);
+}
+
+function notifyAccountChange() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('azure-account-change'));
+  }
+}
+
+function notifySubscriptionAccountChange(subscriptionId: string) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('azure-subscription-account-change', {
+        detail: { subscriptionId: subscriptionId.toLowerCase() },
+      })
+    );
+  }
+}
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error(typeof signal.reason === 'string' ? signal.reason : 'Aborted');
+}
 
 /**
  * Reads the current account and invalidates cached authentication on external changes.
- * Overlapping reads follow the newest observation instead of publishing stale results.
+ * Overlapping reads follow the newest active observation instead of publishing stale results.
+ * @param subscriptionId - Optional subscription selector; omitted reads the default CLI account.
+ * @param signal - Optional abort signal to retire canceled observations without blocking peers.
  * @returns Validated account status; lookup failures invalidate the previous context.
  */
-export function getLoginStatus(): Promise<AzureLoginStatus> {
-  const observation: Promise<AzureLoginStatus> = readLoginStatus().then(status => {
-    if (latestAccountObservation && latestAccountObservation !== observation) {
-      return latestAccountObservation;
-    }
-    const identity = JSON.stringify([
-      status.isLoggedIn,
-      status.username,
-      status.tenantId,
-      status.subscriptionId,
-      status.environmentName,
-    ]);
-    if (identity !== observedAccount) {
-      observedAccount = identity;
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('azure-account-change'));
+export function getLoginStatus(
+  subscriptionId?: string,
+  signal?: AbortSignal
+): Promise<AzureLoginStatus> {
+  if (signal?.aborted) {
+    return Promise.reject(abortError(signal));
+  }
+  if (subscriptionId !== undefined) {
+    const selectorKey = subscriptionId.toLowerCase();
+    const startGen = defaultAccountGeneration;
+    let onAbort: (() => void) | undefined;
+    const observation: Promise<AzureLoginStatus> = new Promise<AzureLoginStatus>(
+      (resolve, reject) => {
+        onAbort = () => {
+          retiredObservations.add(observation);
+          reject(abortError(signal!));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        readLoginStatus(subscriptionId).then(status => {
+          if (signal?.aborted) return;
+          const current = latestSubscriptionObservations.get(selectorKey);
+          if (current && current !== observation) {
+            current.then(resolve, err => {
+              if (retiredObservations.has(current) && !signal?.aborted) {
+                getLoginStatus(subscriptionId, signal).then(resolve, reject);
+                return;
+              }
+              reject(err);
+            });
+            return;
+          }
+          if (defaultAccountGeneration !== startGen) {
+            if (latestSubscriptionObservations.get(selectorKey) === observation) {
+              latestSubscriptionObservations.delete(selectorKey);
+            }
+            notifySubscriptionAccountChange(selectorKey);
+            getLoginStatus(subscriptionId, signal).then(resolve, reject);
+            return;
+          }
+          const resolvedKey = (status.subscriptionId ?? subscriptionId).toLowerCase();
+          const identity = accountIdentityKey(status);
+          const previous =
+            observedSubscriptionAccounts.get(resolvedKey) ??
+            observedSubscriptionAccounts.get(selectorKey);
+          observedSubscriptionAccounts.set(resolvedKey, identity);
+          if (previous !== identity) {
+            if (resolvedKey !== selectorKey) {
+              observedSubscriptionAccounts.set(selectorKey, identity);
+              notifySubscriptionAccountChange(selectorKey);
+            }
+            notifySubscriptionAccountChange(resolvedKey);
+          }
+          resolve(status);
+        }, reject);
       }
+    ).finally(() => {
+      if (onAbort) signal?.removeEventListener('abort', onAbort);
+    });
+    latestSubscriptionObservations.set(selectorKey, observation);
+    return observation;
+  }
+
+  let onAbort: (() => void) | undefined;
+  const observation: Promise<AzureLoginStatus> = new Promise<AzureLoginStatus>(
+    (resolve, reject) => {
+      onAbort = () => {
+        retiredObservations.add(observation);
+        reject(abortError(signal!));
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      readLoginStatus().then(status => {
+        if (signal?.aborted) return;
+        const current = latestAccountObservation;
+        if (current && current !== observation) {
+          current.then(resolve, err => {
+            if (retiredObservations.has(current) && !signal?.aborted) {
+              getLoginStatus(undefined, signal).then(resolve, reject);
+              return;
+            }
+            reject(err);
+          });
+          return;
+        }
+        const identity = accountIdentityKey(status);
+        const resolvedKey = status.subscriptionId?.toLowerCase();
+        defaultAccountGeneration += 1;
+        if (identity !== observedAccount) {
+          observedAccount = identity;
+          observedSubscriptionAccounts.clear();
+          notifyAccountChange();
+        }
+        if (resolvedKey) {
+          const previous = observedSubscriptionAccounts.get(resolvedKey);
+          observedSubscriptionAccounts.set(resolvedKey, identity);
+          if (previous !== identity) {
+            notifySubscriptionAccountChange(resolvedKey);
+          }
+        }
+        resolve(status);
+      }, reject);
     }
-    return status;
+  ).finally(() => {
+    if (onAbort) signal?.removeEventListener('abort', onAbort);
   });
   latestAccountObservation = observation;
   return observation;
