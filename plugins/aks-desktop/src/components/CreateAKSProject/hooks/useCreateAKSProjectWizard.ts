@@ -332,7 +332,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   }, [formData.subscription, registrationTenant, registrationCloud, startProviderRegistration]);
 
   useEffect(() => {
-    // Cluster capabilities come from `az aks show`, which does not apply to Arc
+    // Managed AKS detail reads do not apply to Arc
     // (AKS Hybrid & Edge) clusters — skip the fetch for them.
     if (!isArcCluster && formData.cluster && formData.subscription && formData.resourceGroup) {
       clusterCapabilities.fetchCapabilities(

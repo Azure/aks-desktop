@@ -66,6 +66,27 @@ describe('ensureIdentityWithRoles', () => {
     vi.clearAllMocks();
   });
 
+  it('rejects registered Arc clusters before any managed AKS identity or kubelet work', async () => {
+    localStorage.setItem(
+      `cluster_settings.${baseConfig.clusterName}`,
+      JSON.stringify({ clusterType: 'aksarc' })
+    );
+    try {
+      await expect(
+        ensureIdentityWithRoles({
+          ...baseConfig,
+          isPipeline: true,
+          acrResourceId: '/registries/acr',
+        })
+      ).rejects.toThrow('Arc');
+      expect(mockResourceGroupExists).not.toHaveBeenCalled();
+      expect(mockGetKubeletIdentityObjectId).not.toHaveBeenCalled();
+      expect(mockAssignRolesToIdentity).not.toHaveBeenCalled();
+    } finally {
+      localStorage.clear();
+    }
+  });
+
   it('returns identity after ensuring RG, identity, and roles (normal namespace)', async () => {
     setupHappyPath();
 
