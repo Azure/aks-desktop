@@ -166,6 +166,31 @@ live consent or conditional-access behavior in a particular tenant. Public,
 Government, and China Graph routing is tested with mocked cloud configuration;
 this is not a claim of live sovereign-cloud validation.
 
+Role creation uses ARM 2022-04-01 PUT requests, typed User/Group/ServicePrincipal
+object IDs, scoped role-definition lookup and deterministic SHA-256 UUIDv8 names.
+Writes remain sequential with per-role results. A RoleAssignmentExists conflict
+is successful only after confirming the principal, principal type, definition and
+exact scope match. No directory lookup is performed for known IDs.
+Namespace role creation resolves the managed namespace through ARM; native
+namespace absence remains distinct from denied/error responses. Existing CLI
+role-list operations remain temporarily allowed, but CLI creation is no longer granted.
+Production role creation and managed-namespace lookup resolve missing endpoint and
+audience defaults with the cached configured-cloud helper. Explicit overrides win;
+an injected credential retains caller-controlled transport defaults without CLI
+metadata reads. Cloud failures never fall back to public ARM. Sovereign/custom
+defaults are unit-tested; live execution remains Cloud Native Tools/public Azure.
+Both paths share `getAzureRoleTransport`, which reuses the HTTP deadline helper
+to bound cold metadata discovery (60 seconds by default), including cancellation
+and timer cleanup. Existing per-request budgets for later paged reads/writes remain
+unchanged; there is no new whole-batch role timeout.
+
+Run `AZ_LIVE_TESTS=1 npm run test:unit -- az-role-assignments.live.test.ts`.
+The default Cloud Native Tools subscription needs group/identity creation and
+role-assignment write permission. The test creates a fresh tagged group and
+identity, assigns only a Reader role inside that group, verifies idempotency
+through REST, and observes cleanup in `finally`, including failures.
+See [live test setup and inventory](../../../../../test/live/README.md).
+
 ## Adding a New Function
 
 1. **Find the right module.** Match the Azure resource type: subscriptions go in `az-subscriptions.ts`, cluster operations in `az-clusters.ts`, etc.
