@@ -27,6 +27,17 @@ Sovereign/custom-cloud mappings remain covered by unit tests. No real accounts i
 those clouds are used or claimed as live-validated; they are outside the permitted
 Cloud Native Tools live-validation scope.
 
+Run the managed namespace deletion suite with a fresh AKS cluster:
+
+```sh
+AZ_LIVE_TESTS=1 npm --prefix plugins/aks-desktop run test:unit -- az-managed-namespace-delete.live.test.ts
+```
+
+This suite verifies both Keep and Delete policies against the actual Kubernetes
+API using ephemeral admin certificates and CA-verified HTTPS, without kubectl.
+It requires AKS creation/admin-credential permission and incurs temporary compute
+charges. Only run it explicitly on Cloud Native Tools.
+
 Each test creates a fresh resource group named
 `aksd-rest-e2e-<suite>-<UTC timestamp>-<random ID>`. Tags record the test suite,
 run ID and creation time. AKS node groups use the same name with `-nodes`.

@@ -9,7 +9,6 @@ import { trackError } from '../../../telemetry';
 import { trackAksFeature } from '../../../telemetry/aksFeature';
 import { deleteManagedNamespace } from '../../../utils/azure/az-namespaces';
 import {
-  AUTHZ_MODEL_LABEL,
   MANAGED_BY_ARM_LABEL,
   PROJECT_ID_LABEL,
   PROJECT_MANAGED_BY_LABEL,
@@ -17,16 +16,34 @@ import {
   RESOURCE_GROUP_LABEL,
   SUBSCRIPTION_LABEL,
 } from '../../../utils/constants/projectLabels';
-import { getClusterSettings } from '../../../utils/shared/clusterSettings';
 import type { ProjectDefinition } from '../AKSProjectDeleteButton';
+
+/**
+ * @param error - Kubernetes API failure from deletion or post-ARM label refetch.
+ * @returns True only for status=404; permission/server failures must still surface.
+ */
+function isNotFound(error: unknown): boolean {
+  return !!error && typeof error === 'object' && 'status' in error && error.status === 404;
+}
 
 /**
  * Returns a `handleDelete` callback that asynchronously deletes a project and its namespaces
  * Redirects to `/` on success.
+ * @returns The deletion handler. Its immediate return does not imply completion:
+ * clusterAction owns asynchronous progress/error reporting and success navigation.
  */
 export function useProjectDeletion() {
   const { t } = useTranslation();
 
+  /**
+   * @param project - Project identity, namespaces and registered cluster context.
+   * @param deleteNamespaces - Whether to explicitly delete Kubernetes namespaces;
+   * an owned ARM resource's existing Delete policy may remove one even when false.
+   * @param onClose - Invoked immediately after scheduling, not after remote cleanup.
+   * @returns Nothing. Owned ARM namespaces are deleted through REST; native/Arc or
+   * imported projects retain their existing Kubernetes deletion/label-removal paths.
+   * Refetch404 is completed absence; other cleanup failures reach clusterAction.
+   */
   const handleDelete = (
     project: ProjectDefinition,
     deleteNamespaces: boolean,
@@ -53,30 +70,13 @@ export function useProjectDeletion() {
             (ns): ns is Namespace => ns !== null
           );
 
-          // AKS Hybrid & Edge (Arc-connected) clusters have no managed-namespace
-          // (ARM) resource — their projects are plain Kubernetes namespaces created
-          // by applying a manifest. So on these clusters, deletion is a simple
-          // Kubernetes delete (or a label-removal), never an `az aks namespace delete`.
-          //
-          // Decided per namespace from labels on the namespace itself, because they
-          // survive anything local: cluster settings live in localStorage, which is
-          // absent after the kubeconfig moves to another installation while the
-          // namespace persists. Getting this wrong runs `az aks namespace delete`
-          // against a connected cluster. Settings remain the fallback for Arc
-          // projects created before the model label existed.
-          const settingsSayArc = getClusterSettings(project.clusters[0]).clusterType === 'aksarc';
-
           for (const ns of namespaces) {
             const labels = ns.metadata?.labels || {};
             const isAKSManaged = labels[PROJECT_MANAGED_BY_LABEL] === PROJECT_MANAGED_BY_VALUE;
             const nsName = ns.metadata?.name || '';
-            // An Arc project carries the authorization model we stamped; a managed
-            // namespace carries the ARM marker AKS stamps itself.
-            const isArcCluster =
-              labels[MANAGED_BY_ARM_LABEL] !== 'true' &&
-              (!!labels[AUTHZ_MODEL_LABEL] || settingsSayArc);
-
-            if (isAKSManaged && !isArcCluster) {
+            // Only AKS's durable ARM marker authorizes a managed-resource delete.
+            // Project ownership alone also appears on native/Arc namespaces.
+            if (isAKSManaged && labels[MANAGED_BY_ARM_LABEL] === 'true') {
               const resourceGroup = labels[RESOURCE_GROUP_LABEL];
               const subscriptionId = labels[SUBSCRIPTION_LABEL];
 
@@ -100,20 +100,28 @@ export function useProjectDeletion() {
 
               if (deleteNamespaces) {
                 // Delete the Kubernetes namespace
-                await (
-                  K8s.ResourceClasses.Namespace.apiEndpoint as ApiClient<KubeNamespace>
-                ).delete(nsName, {}, project.clusters[0]);
+                try {
+                  await (
+                    K8s.ResourceClasses.Namespace.apiEndpoint as ApiClient<KubeNamespace>
+                  ).delete(nsName, {}, project.clusters[0]);
+                } catch (error) {
+                  // ARM's Delete policy may already have removed the namespace.
+                  if (!isNotFound(error)) throw error;
+                }
               } else {
                 // Re-fetch namespace to get latest resourceVersion after ARM call modified it
-                const freshNs = await new Promise<Namespace>((resolve, reject) => {
+                const freshNs = await new Promise<Namespace | null>((resolve, reject) => {
                   K8s.ResourceClasses.Namespace.apiGet(
                     (ns: Namespace) => resolve(ns),
                     nsName,
                     undefined,
-                    (err: any) => reject(err),
+                    (error: unknown) => (isNotFound(error) ? resolve(null) : reject(error)),
                     { cluster: project.clusters[0] }
                   )();
                 });
+                // ARM's existing Delete policy may remove it even when only
+                // project-label removal was requested.
+                if (!freshNs) continue;
 
                 // Remove project labels from namespace
                 const updatedData = { ...freshNs.jsonData };

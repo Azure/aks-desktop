@@ -9,7 +9,13 @@ const mocks = vi.hoisted(() => ({ execCommand: vi.fn(), fetch: vi.fn() }));
 vi.mock('../shared/runCommandAsync', () => ({ runCommandAsync: mocks.execCommand }));
 vi.mock('./az-cli-path', () => ({ getAzCommand: () => 'az' }));
 
-import { azListAll, azRequest, azRequestRaw, AzureRequestError } from './az-http';
+import {
+  azListAll,
+  azRequest,
+  azRequestRaw,
+  AzureRequestError,
+  waitForAzureRetry,
+} from './az-http';
 
 const credential = {
   getToken: vi.fn<TokenCredential['getToken']>(async () => ({
@@ -40,7 +46,73 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('waitForAzureRetry', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  test.each([
+    { header: undefined, attempt: 0, delay: 1000 },
+    { header: '', attempt: 0, delay: 1000 },
+    { header: 'invalid', attempt: 0, delay: 1000 },
+    { header: undefined, attempt: 2, delay: 4000 },
+    { header: undefined, attempt: 10, delay: 60_000 },
+    { header: '120', attempt: 0, delay: 120_000 },
+    { header: 'Thu, 01 Jan 2026 00:00:03 GMT', attempt: 0, delay: 3000 },
+    { header: 'Wed, 31 Dec 2025 23:59:59 GMT', attempt: 0, delay: 0 },
+    { header: '0', attempt: 0, delay: 0 },
+    { header: '-1', attempt: 0, delay: 0 },
+  ])(
+    'honors $header with retry attempt $attempt for $delay ms',
+    async ({ header, attempt, delay }) => {
+      const headers = header === undefined ? undefined : new Headers({ 'retry-after': header });
+      const controller = new AbortController();
+      const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+      let completed = false;
+      const pending = waitForAzureRetry(headers, controller.signal, attempt).then(() => {
+        completed = true;
+      });
+      if (delay > 0) {
+        await vi.advanceTimersByTimeAsync(delay - 1);
+        expect(completed).toBe(false);
+      }
+      await vi.advanceTimersByTimeAsync(delay > 0 ? 1 : 0);
+      await pending;
+      expect(completed).toBe(true);
+      expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  );
+
+  test('rejects an already-aborted wait without scheduling a timer', async () => {
+    const controller = new AbortController();
+    const reason = new Error('cancelled before polling');
+    controller.abort(reason);
+    await expect(waitForAzureRetry(undefined, controller.signal)).rejects.toBe(reason);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('clears a pending polling timer on cancellation', async () => {
+    const controller = new AbortController();
+    const reason = new Error('cancelled during polling');
+    const pending = waitForAzureRetry(new Headers({ 'retry-after': '120' }), controller.signal);
+    controller.abort(reason);
+    await expect(pending).rejects.toBe(reason);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe('azRequest', () => {
+  test('preserves flat ContainerService provider errors', async () => {
+    mocks.fetch.mockResolvedValue(json(400, { code: 'InvalidParameter', message: 'invalid pool' }));
+    await expect(azRequest({ url: '/cluster', credential })).rejects.toMatchObject({
+      code: 'InvalidParameter',
+      status: 400,
+      message: expect.stringContaining('invalid pool'),
+    });
+  });
   test('resolves ARM paths, appends api-version, and authenticates', async () => {
     mocks.fetch.mockResolvedValue(json(200, { id: 'x' }));
 
