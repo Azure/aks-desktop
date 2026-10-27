@@ -55,10 +55,5 @@
   "Development plugins run local code and may request command access. Only enable this mode if you trust every plugin in the development plugins directory.": "",
   "Enable": "啟用",
   "Enable Plugin Development Mode?": "",
-  "Plugin Development Mode": "",
-  "Another process is running": "另一個程序執行中",
-  "Continue": "繼續",
-  "Could not quit the other running process, PIDs: {{ process_list }}. Please stop that process and relaunch the app.": "無法離開其他執行中的程序，PID: {{ process_list }}。請停止該程序並重新啟動應用程式。",
-  "Failed to quit the other running process": "無法退出其他執行中程序",
-  "Looks like another process is already running. Continue by terminating that process automatically, or quit?": "看起來另一個程序已在執行。您要自動終止該程序並繼續，還是退出?"
+  "Plugin Development Mode": ""
 }

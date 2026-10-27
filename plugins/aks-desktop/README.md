@@ -2,6 +2,10 @@
 
 The AKS Desktop plugin adds Azure and AKS workflows to Headlamp.
 
+Application branding lives in the independent
+[aks-desktop-theme plugin](../aks-desktop-theme/README.md). Without that plugin,
+AKS workflows use Headlamp's default theme, logo, empty state, and Help menu.
+
 ## Command policy
 
 The plugin requests commands through `pluginRunCommand`, but it does not define

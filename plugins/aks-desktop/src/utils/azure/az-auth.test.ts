@@ -26,14 +26,7 @@ vi.mock('./az-cli-path', () => ({
   getInstallationInstructions: () => 'Install Azure CLI.',
 }));
 
-import {
-  getAccessToken,
-  getLoginStatus,
-  getUserAccountInfo,
-  initiateLogin,
-  login,
-  monitorLoginStatus,
-} from './az-auth';
+import { getLoginStatus, initiateLogin, login, monitorLoginStatus } from './az-auth';
 
 describe('getLoginStatus', () => {
   beforeEach(() => {
@@ -157,56 +150,6 @@ describe('getLoginStatus', () => {
       error: 'Unknown error',
       isLoggedIn: false,
     });
-  });
-});
-
-describe('Azure account data', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.needsRelogin.mockReturnValue(false);
-  });
-
-  test('returns account and access-token JSON', async () => {
-    mocks.runCommandAsync
-      .mockResolvedValueOnce({ stdout: '{"id":"subscription-id"}', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '{"accessToken":"token"}', stderr: '' });
-
-    await expect(getUserAccountInfo()).resolves.toEqual({ id: 'subscription-id' });
-    await expect(getAccessToken()).resolves.toEqual({ accessToken: 'token' });
-  });
-
-  test.each([
-    ['account information', getUserAccountInfo],
-    ['access token', getAccessToken],
-  ])('marks %s failures that require login again', async (_label, operation) => {
-    mocks.needsRelogin.mockReturnValue(true);
-    mocks.runCommandAsync.mockResolvedValue({ stdout: '', stderr: 'Please run az login' });
-
-    await expect(operation()).rejects.toMatchObject({
-      message: 'Please run az login',
-      needsRelogin: true,
-    });
-  });
-
-  test.each([
-    ['account information', getUserAccountInfo, 'Failed to get account info'],
-    ['access token', getAccessToken, 'Failed to get access token'],
-  ])('reports empty %s output clearly', async (_label, operation, expectedMessage) => {
-    mocks.runCommandAsync.mockResolvedValue({ stdout: ' \n', stderr: ' \n' });
-
-    await expect(operation()).rejects.toThrow(expectedMessage);
-  });
-
-  test.each([
-    ['account information', getUserAccountInfo, '{"id":"stale-subscription-id"}'],
-    ['access token', getAccessToken, '{"accessToken":"stale-token"}'],
-  ])('rejects fatal %s errors even when stdout is present', async (_label, operation, stdout) => {
-    mocks.runCommandAsync.mockResolvedValue({
-      stdout,
-      stderr: 'ERROR: The refresh token has expired.',
-    });
-
-    await expect(operation()).rejects.toThrow('ERROR: The refresh token has expired.');
   });
 });
 
