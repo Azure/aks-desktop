@@ -1294,7 +1294,7 @@ index 0000000000000000000000000000000000000000..42ceafafc8e8e57bc9d92afe1c04e09f
 +    });
 +  });
 +
-+  it('kills the verified Windows listener after its launcher exits', async () => {
++  it('kills the verified non-detached Windows listener after its launcher exits', async () => {
 +    await withPlatform('win32', async () => {
 +      const child = proxyChild(4242);
 +      spawnMock.mockReturnValue(child);
@@ -1303,7 +1303,7 @@ index 0000000000000000000000000000000000000000..42ceafafc8e8e57bc9d92afe1c04e09f
 +      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
 +      child.stdout.emit('data', "Start sending kubectl requests on 'cluster-a' context\n");
 +      await expect(result).resolves.toEqual({ success: true });
-+
++      expect(spawnMock.mock.calls[0][2]).toMatchObject({ detached: false });
 +      child.emit('exit', 0, null);
 +      spawnMock.mockClear();
 +      const taskkill = new EventEmitter();
@@ -1351,7 +1351,7 @@ index 0000000000000000000000000000000000000000..42ceafafc8e8e57bc9d92afe1c04e09f
 +    });
 +  });
 +
-+  it('retains a Windows proxy when its process identity lookup fails', async () => {
++  it('retains an exited Windows proxy when its listener identity lookup fails', async () => {
 +    await withPlatform('win32', async () => {
 +      const child = proxyChild(4242);
 +      spawnMock.mockReturnValue(child);
@@ -1360,7 +1360,7 @@ index 0000000000000000000000000000000000000000..42ceafafc8e8e57bc9d92afe1c04e09f
 +      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
 +      child.stdout.emit('data', "Start sending kubectl requests on 'cluster-a' context\n");
 +      await expect(first).resolves.toEqual({ success: true });
-+
++      child.emit('exit', 0, null);
 +      execFileMock.mockImplementationOnce((_command, _args, _options, callback) =>
 +        callback(new Error('PowerShell unavailable'), '', '')
 +      );
@@ -2999,7 +2999,7 @@ index 0000000000000000000000000000000000000000..0b2b9047f2b06069685cebe4728b01b5
 +async function terminateChildEntryOnce(entry: ProxyChildEntry): Promise<boolean> {
 +  const { child } = entry;
 +  const launcherExited = childHasExited(child);
-+  if (!entry.group && launcherExited) {
++  if (!entry.group && !entry.windowsProcessIdentity && launcherExited) {
 +    proxyChildren.delete(entry);
 +    return true;
 +  }
@@ -3097,7 +3097,7 @@ index 0000000000000000000000000000000000000000..0b2b9047f2b06069685cebe4728b01b5
 +  child.stderr.on('data', data => {
 +    entry.stderrTail = (entry.stderrTail + data.toString()).slice(-STDERR_TAIL_CHARS);
 +  });
-+  if (!entry.group) {
++  if (!entry.group && process.platform !== 'win32') {
 +    const untrack = () => proxyChildren.delete(entry);
 +    child.once('exit', untrack);
 +    child.once('error', untrack);
