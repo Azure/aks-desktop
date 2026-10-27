@@ -15,7 +15,9 @@ import { isValidAzResourceName } from './az-validation';
  * Retrieves Azure subscriptions and resolves tenant display names.
  *
  * @param refresh - Whether Azure CLI should retrieve current subscriptions from the server.
- * @returns Cached or refreshed subscriptions, including disabled entries and tenant metadata.
+ * @returns Cached/refreshed subscription IDs, names, state, resolved tenant labels
+ * and environmentName normalized from CLI cloudName (or legacy environmentName).
+ * Disabled entries remain included.
  * @throws When Azure CLI returns no subscription payload.
  */
 export async function getSubscriptions(refresh = false): Promise<any[]> {
@@ -30,6 +32,7 @@ export async function getSubscriptions(refresh = false): Promise<any[]> {
     tenant: sub.tenantId,
     tenantName: sub.tenantDisplayName,
     status: sub.state,
+    environmentName: sub.cloudName ?? sub.environmentName,
   }));
   return resolveMissingTenantNames(subscriptions);
 }
