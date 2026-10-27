@@ -164,6 +164,10 @@ export function generateWindowsAzWrapperScript(): string {
   );
 }
 
+export function writeWindowsAzWrapperScript(targetDir: string): void {
+  fs.writeFileSync(path.join(targetDir, 'bin', 'az.cmd'), generateWindowsAzWrapperScript());
+}
+
 export function sameExtensionSet(a: string[] = [], b: string[] = []): boolean {
   if (a.length !== b.length) {
     return false;

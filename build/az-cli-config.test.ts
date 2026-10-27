@@ -20,6 +20,7 @@ import {
   sameExtensionSet,
   WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME,
   writeStagedAzCli,
+  writeWindowsAzWrapperScript,
 } from './az-cli-config';
 
 const tempDirs: string[] = [];
@@ -270,4 +271,20 @@ test('the generated Windows wrapper propagates the Python exit code', () => {
   const script = generateWindowsAzWrapperScript();
 
   assert.match(script, /exit \/b %ERRORLEVEL%/);
+});
+
+test('refreshes a cached Windows wrapper without reinstalling its runtime', () => {
+  const rootDir = createRoot();
+  const staged = { version: '2.77.0', extensions: ['resource-graph', 'alertsmanagement'] };
+  stageAzCli(rootDir, 'win32', staged);
+  const targetDir = azCliTargetDir(rootDir, 'win32');
+  const wrapperPath = azCliBinaryPath(rootDir, 'win32');
+  fs.writeFileSync(wrapperPath, '@echo off\r\ncall "%~dp0az-original.cmd" %*\r\n');
+  fs.writeFileSync(path.join(targetDir, 'python.exe'), 'cached Python runtime');
+
+  writeWindowsAzWrapperScript(targetDir);
+
+  assert.equal(fs.readFileSync(wrapperPath, 'utf8'), generateWindowsAzWrapperScript());
+  assert.equal(fs.readFileSync(path.join(targetDir, 'python.exe'), 'utf8'), 'cached Python runtime');
+  assert.deepEqual(readStagedAzCli(rootDir, 'win32'), staged);
 });
