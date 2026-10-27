@@ -14,13 +14,13 @@ import { getAzCommand, getInstallationInstructions } from './az-cli-path';
 
 /** Azure CLI account state used by authentication flows. */
 export interface AzureLoginStatus {
-  /** Whether Azure CLI has a usable current account. */
+  /** Whether Azure CLI has a usable selected account. */
   isLoggedIn: boolean;
   /** Signed-in account name when available. */
   username?: string;
-  /** Current Azure tenant identifier when available. */
+  /** Selected Azure tenant identifier when available. */
   tenantId?: string;
-  /** Current Azure subscription identifier when available. */
+  /** Selected Azure subscription identifier when available. */
   subscriptionId?: string;
   /** Named CLI cloud containing this account. */
   environmentName?: string;
@@ -89,13 +89,16 @@ function isCommandFailure(stderr: string): boolean {
 }
 
 /**
- * Reads and validates the current Azure CLI account.
+ * Reads and validates the selected Azure CLI account without changing the default account.
  *
+ * @param subscriptionId - Subscription to inspect; omitted selects the current CLI account.
  * @returns Validated login status. Command and parsing failures are returned in `error`.
  */
-async function readLoginStatus(): Promise<AzureLoginStatus> {
+async function readLoginStatus(subscriptionId?: string): Promise<AzureLoginStatus> {
   try {
-    const { stdout, stderr } = await runCommandAsync('az', ['account', 'show', '-o', 'json']);
+    const args = ['account', 'show', '-o', 'json'];
+    if (subscriptionId !== undefined) args.push('--subscription', subscriptionId);
+    const { stdout, stderr } = await runCommandAsync('az', args);
     const accountOutput = stdout.trim();
     const errorOutput = stderr.trim();
 
@@ -168,7 +171,8 @@ let latestAccountObservation: Promise<AzureLoginStatus> | undefined;
  * Overlapping reads follow the newest observation instead of publishing stale results.
  * @returns Validated account status; lookup failures invalidate the previous context.
  */
-export function getLoginStatus(): Promise<AzureLoginStatus> {
+export function getLoginStatus(subscriptionId?: string): Promise<AzureLoginStatus> {
+  if (subscriptionId !== undefined) return readLoginStatus(subscriptionId);
   const observation: Promise<AzureLoginStatus> = readLoginStatus().then(status => {
     if (latestAccountObservation && latestAccountObservation !== observation) {
       return latestAccountObservation;
