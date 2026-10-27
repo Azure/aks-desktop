@@ -26,6 +26,8 @@ export interface AzRequestOptions {
   apiVersion?: string;
   /** JSON request body. */
   body?: unknown;
+  /** Additional headers. Authorization and Content-Type cannot be overridden. */
+  headers?: Record<string, string>;
   /** Base URL for relative paths. Defaults to `ARM_ENDPOINT`. */
   endpoint?: string;
   /** Token scope. Defaults to `<request URL origin>/.default`. */
@@ -198,6 +200,11 @@ function linkSignal(signal: AbortSignal | undefined, timeoutMs: number) {
 
 /** Sends an authenticated Azure REST request and returns status, headers, and parsed JSON. */
 export async function azRequestRaw<T>(options: AzRequestOptions): Promise<AzResponse<T>> {
+  for (const name of Object.keys(options.headers ?? {})) {
+    if (['authorization', 'content-type'].includes(name.toLowerCase())) {
+      throw new AzureRequestError(`Azure request header cannot be overridden: ${name}`);
+    }
+  }
   const method = options.method ?? 'GET';
   const url = resolveUrl(options);
   const scope = options.scope ?? `${url.origin}/.default`;
@@ -216,6 +223,7 @@ export async function azRequestRaw<T>(options: AzRequestOptions): Promise<AzResp
 
       debugLog('[AZ-HTTP]', method, url.origin + url.pathname, `attempt ${attempt + 1}`);
       const headers: Record<string, string> = { Authorization: `Bearer ${accessToken.token}` };
+      Object.assign(headers, options.headers);
       if (options.body !== undefined) headers['Content-Type'] = 'application/json';
 
       let response: Response | undefined;

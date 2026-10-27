@@ -91,6 +91,37 @@ describe('azRequest', () => {
     expect(init.headers['Content-Type']).toBe('application/json');
   });
 
+  test('forwards conditional headers while retaining authenticated JSON headers', async () => {
+    mocks.fetch.mockResolvedValue(json(200, {}));
+    await azRequest({
+      url: '/r',
+      method: 'PUT',
+      body: {},
+      headers: { 'If-Match': '"version"' },
+      credential,
+    });
+    expect(lastRequest().init.headers).toMatchObject({
+      'If-Match': '"version"',
+      'Content-Type': 'application/json',
+    });
+    expect(lastRequest().init.headers.Authorization).toBeDefined();
+  });
+
+  test.each(['Authorization', 'aUtHoRiZaTiOn', 'Content-Type', 'content-type'])(
+    'rejects overriding protected %s before token acquisition',
+    async header => {
+      await expect(
+        azRequest({
+          url: '/r',
+          headers: { [header]: 'override' },
+          credential,
+        })
+      ).rejects.toThrow(/cannot be overridden/);
+      expect(credential.getToken).not.toHaveBeenCalled();
+      expect(mocks.fetch).not.toHaveBeenCalled();
+    }
+  );
+
   test.each([204, 202])('returns undefined for empty %i responses', async status => {
     mocks.fetch.mockResolvedValue(json(status));
     await expect(azRequest({ url: '/r', method: 'DELETE', credential })).resolves.toBeUndefined();

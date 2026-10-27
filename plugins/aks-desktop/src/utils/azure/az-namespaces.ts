@@ -1,6 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 import { debugLog, getErrorMessage, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
+import type {
+  ManagedNamespaceResource,
+  ManagedNamespaceScope,
+  ManagedNamespaceUpdateOptions,
+} from './az-managed-namespace-update';
+import {
+  getManagedNamespaceResource,
+  updateManagedNamespaceResource,
+} from './az-managed-namespace-update';
 
 export async function getManagedNamespaces(options: {
   clusterName: string;
@@ -57,161 +66,26 @@ export async function getManagedNamespaces(options: {
   }
 }
 
-export async function getManagedNamespaceDetails(options: {
-  clusterName: string;
-  resourceGroup: string;
-  namespaceName: string;
-  subscriptionId?: string;
-}): Promise<any> {
-  const { clusterName, resourceGroup, namespaceName, subscriptionId } = options;
-
-  const args = [
-    'aks',
-    'namespace',
-    'show',
-    '--cluster-name',
-    clusterName,
-    '--resource-group',
-    resourceGroup,
-    '--name',
-    namespaceName,
-  ];
-
-  // Add subscription if provided
-  if (subscriptionId) {
-    args.push('--subscription', subscriptionId);
-  }
-
-  args.push('--output', 'json');
-
-  debugLog('Getting managed namespace details:', 'az', args.join(' '));
-
-  const { stdout, stderr } = await runCommandAsync('az', args);
-
-  if (stderr && needsRelogin(stderr)) {
-    throw new Error('Authentication required. Please log in to Azure CLI: az login');
-  }
-
-  if (stderr && isAzError(stderr)) {
-    console.error('Failed to get managed namespace details:', stderr);
-    throw new Error(`Failed to get managed namespace details: ${stderr}`);
-  }
-
-  try {
-    const result = JSON.parse(stdout || '{}');
-
-    // Return the full namespace object which typically includes:
-    // - metadata: { name, labels, annotations, creationTimestamp, resourceVersion }
-    // - spec: { ... }
-    // - status: { ... }
-    return result;
-  } catch (error) {
-    console.error('Failed to parse managed namespace details response:', error);
-    throw new Error(`Failed to parse managed namespace details: ${error}`);
-  }
+/**
+ * Reads a managed namespace as its full ARM resource.
+ * @param options - Cluster, resource group, namespace, optional subscription and cancellation.
+ * @returns Validated full managed namespace ARM resource.
+ */
+export async function getManagedNamespaceDetails(
+  options: ManagedNamespaceScope
+): Promise<ManagedNamespaceResource> {
+  return getManagedNamespaceResource(options);
 }
 
-export async function updateManagedNamespace(options: {
-  clusterName: string;
-  resourceGroup: string;
-  namespaceName: string;
-  cpuRequest?: number; // millicores
-  cpuLimit?: number; // millicores
-  memoryRequest?: number; // MiB
-  memoryLimit?: number; // MiB
-  ingressPolicy?: 'AllowAll' | 'AllowSameNamespace' | 'DenyAll';
-  egressPolicy?: 'AllowAll' | 'AllowSameNamespace' | 'DenyAll';
-  subscriptionId?: string;
-  noWait?: boolean;
-}): Promise<any> {
-  const {
-    clusterName,
-    resourceGroup,
-    namespaceName,
-    cpuRequest,
-    cpuLimit,
-    memoryRequest,
-    memoryLimit,
-    ingressPolicy,
-    egressPolicy,
-    subscriptionId,
-    noWait,
-  } = options;
-
-  const args: string[] = [
-    'aks',
-    'namespace',
-    'update',
-    '--cluster-name',
-    clusterName,
-    '--resource-group',
-    resourceGroup,
-    '--name',
-    namespaceName,
-  ];
-
-  const toMillicores = (v?: number) => (typeof v === 'number' ? `${v}m` : undefined);
-  const toMiB = (v?: number) => (typeof v === 'number' ? `${v}Mi` : undefined);
-
-  const maybePush = (flag: string, value?: string) => {
-    if (value) {
-      args.push(flag, value);
-    }
-  };
-
-  maybePush('--cpu-request', toMillicores(cpuRequest));
-  maybePush('--cpu-limit', toMillicores(cpuLimit));
-  maybePush('--memory-request', toMiB(memoryRequest));
-  maybePush('--memory-limit', toMiB(memoryLimit));
-  maybePush('--ingress-policy', ingressPolicy as string | undefined);
-  maybePush('--egress-policy', egressPolicy as string | undefined);
-
-  // Re-pass existing labels to pass into az namespace update command
-  // so the ARM PUT doesn't wipe them.
-  try {
-    const current = await getManagedNamespaceDetails({
-      clusterName,
-      resourceGroup,
-      namespaceName,
-      subscriptionId,
-    });
-    const labels = current?.properties?.labels ?? current?.labels;
-    const entries = labels && typeof labels === 'object' ? Object.entries(labels) : [];
-    if (entries.length > 0) {
-      args.push('--labels', ...entries.map(([k, v]) => `${k}=${v}`));
-    }
-  } catch (error) {
-    throw new Error(
-      `Failed to read existing namespace labels before update; aborting to avoid wiping labels: ${getErrorMessage(
-        error
-      )}`
-    );
-  }
-
-  if (subscriptionId) {
-    args.push('--subscription', subscriptionId);
-  }
-  if (noWait) {
-    args.push('--no-wait');
-  }
-
-  args.push('--output', 'json');
-
-  const { stdout, stderr } = await runCommandAsync('az', args);
-
-  if (stderr && needsRelogin(stderr)) {
-    throw new Error('Authentication required. Please log in to Azure CLI: az login');
-  }
-  if (stderr && isAzError(stderr)) {
-    throw new Error(`Failed to update managed namespace: ${stderr}`);
-  }
-
-  try {
-    return JSON.parse(stdout || '{}');
-  } catch {
-    // Some updates might not return a body; return empty object on success
-    return {};
-  }
+/**
+ * Updates writable namespace settings without clearing unrelated settings.
+ * @param options - Scope and quota/policy changes or labels merged over existing labels.
+ * @returns Final ARM resource after success, or accepted PUT body when noWait is true.
+ */
+export async function updateManagedNamespace(
+  options: ManagedNamespaceUpdateOptions
+): Promise<unknown> {
+  return updateManagedNamespaceResource(options);
 }
 
 export async function checkNamespaceStatus(
