@@ -1,600 +1,140 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-/**
- * Tests for getClusterCapabilities and enableClusterAddon functions
- */
-
+// REST capability projections are covered in az-managed-clusters.test.ts.
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-interface MockChildProcess {
-  stdout: {
-    on: ReturnType<typeof vi.fn>;
-  };
-  stderr: {
-    on: ReturnType<typeof vi.fn>;
-  };
-  on: ReturnType<typeof vi.fn>;
-}
-
-// Set up the global pluginRunCommand mock before any imports of az-cli
-const mockPluginRunCommand = vi.hoisted(() => vi.fn());
-
-// Make pluginRunCommand available as a global (az-cli.ts uses `declare const pluginRunCommand`)
-vi.stubGlobal('pluginRunCommand', mockPluginRunCommand);
-
-// Mock the headlamp plugin module (used for the type import)
-vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
-  runCommand: mockPluginRunCommand,
-}));
-
+const command = vi.hoisted(() => vi.fn());
+vi.stubGlobal('pluginRunCommand', command);
+vi.mock('@kinvolk/headlamp-plugin/lib', () => ({ runCommand: command }));
 vi.mock('../azure/az-cli-path', () => ({
   getAzCommand: () => 'az',
   getInstallationInstructions: () => 'Install Azure CLI',
 }));
 
-// Import the actual functions under test
-import { enableClusterAddon, getClusterCapabilities } from '../azure/az-clusters';
+import { enableClusterAddon } from '../azure/az-clusters';
 import { getClusterCount } from '../azure/az-resource-graph';
 
-// Test helper function
-const createMockChildProcess = (stdoutData: string, stderrData: string = ''): MockChildProcess => ({
-  stdout: {
-    on: vi.fn((event: string, callback: (data: string) => void) => {
-      if (event === 'data' && stdoutData) {
-        callback(stdoutData);
-      }
-    }),
-  },
-  stderr: {
-    on: vi.fn((event: string, callback: (data: string) => void) => {
-      if (event === 'data' && stderrData) {
-        callback(stderrData);
-      }
-    }),
-  },
-  on: vi.fn((event: string, callback: () => void) => {
-    if (event === 'exit') {
-      callback();
-    }
-  }),
-});
-
-const defaultOptions = {
+const options = {
   subscriptionId: 'test-sub-123',
   resourceGroup: 'test-rg',
   clusterName: 'test-cluster',
 };
+const subscriptionId = '12345678-1234-1234-1234-123456789abc';
 
-describe('getClusterCapabilities', () => {
-  beforeEach(() => {
-    mockPluginRunCommand.mockClear();
-  });
+function processOutput(stdout: string, stderr = '') {
+  return {
+    stdout: {
+      on: vi.fn((event: string, callback: (data: string) => void) => {
+        if (event === 'data') callback(stdout);
+      }),
+    },
+    stderr: {
+      on: vi.fn((event: string, callback: (data: string) => void) => {
+        if (event === 'data') callback(stderr);
+      }),
+    },
+    on: vi.fn((event: string, callback: (code: number) => void) => {
+      if (event === 'exit') callback(0);
+    }),
+  };
+}
 
-  test('parses all capability fields correctly from a full az aks show JSON output', async () => {
-    const fullResponse = JSON.stringify({
-      sku: 'Automatic',
-      aadProfile: { enableAzureRbac: true },
-      azureRbacEnabled: true,
-      networkPolicy: 'cilium',
-      networkPlugin: 'azure',
-      prometheusEnabled: true,
-      containerInsightsEnabled: true,
-      kedaEnabled: true,
-      vpaEnabled: true,
-    });
-
-    const mockProcess = createMockChildProcess(fullResponse);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCapabilities(defaultOptions);
-
-    expect(result).toEqual({
-      sku: 'Automatic',
-      aadEnabled: true,
-      azureRbacEnabled: true,
-      networkPolicy: 'cilium',
-      networkPlugin: 'azure',
-      prometheusEnabled: true,
-      containerInsightsEnabled: true,
-      kedaEnabled: true,
-      vpaEnabled: true,
-      location: null,
-      tier: null,
-      kubernetesVersion: null,
-    });
-  });
-
-  test('parses location, tier, and kubernetesVersion when present in az aks show output', async () => {
-    // The --query projection in getClusterCapabilities flattens sku.name to
-    // `sku`, sku.tier to `tier`, and surfaces `location`/`kubernetesVersion`
-    // at the top level. This test pins the parser to that contract so a
-    // shape regression in az-clusters.ts surfaces here.
-    const response = JSON.stringify({
-      sku: 'Base',
-      tier: 'Standard',
-      location: 'eastus2',
-      kubernetesVersion: '1.29.4',
-      networkPolicy: 'azure',
-      networkPlugin: 'azure',
-      prometheusEnabled: false,
-      containerInsightsEnabled: false,
-      kedaEnabled: false,
-      vpaEnabled: false,
-    });
-
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCapabilities(defaultOptions);
-
-    expect(result.location).toBe('eastus2');
-    expect(result.tier).toBe('Standard');
-    expect(result.kubernetesVersion).toBe('1.29.4');
-  });
-
-  test('returns "none" for missing/null networkPolicy', async () => {
-    const response = JSON.stringify({
-      sku: 'Base',
-      networkPolicy: null,
-      networkPlugin: 'azure',
-      prometheusEnabled: false,
-      containerInsightsEnabled: false,
-      kedaEnabled: false,
-      vpaEnabled: false,
-    });
-
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCapabilities(defaultOptions);
-
-    expect(result.networkPolicy).toBe('none');
-  });
-
-  test('returns "none" for empty string networkPolicy', async () => {
-    const response = JSON.stringify({
-      sku: 'Base',
-      networkPolicy: '',
-      networkPlugin: 'azure',
-      prometheusEnabled: false,
-      containerInsightsEnabled: false,
-      kedaEnabled: false,
-      vpaEnabled: false,
-    });
-
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCapabilities(defaultOptions);
-
-    expect(result.networkPolicy).toBe('none');
-  });
-
-  test('returns null for missing boolean fields (prometheusEnabled, etc.)', async () => {
-    const response = JSON.stringify({
-      sku: 'Base',
-      networkPolicy: null,
-      networkPlugin: null,
-    });
-
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCapabilities(defaultOptions);
-
-    expect(result.prometheusEnabled).toBeNull();
-    expect(result.containerInsightsEnabled).toBeNull();
-    expect(result.kedaEnabled).toBeNull();
-    expect(result.vpaEnabled).toBeNull();
-  });
-
-  test('returns null for sku when missing', async () => {
-    const response = JSON.stringify({
-      networkPolicy: 'cilium',
-      networkPlugin: 'azure',
-    });
-
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCapabilities(defaultOptions);
-
-    expect(result.sku).toBeNull();
-  });
-
-  test('handles auth errors (stderr contains relogin message) by throwing error', async () => {
-    const mockProcess = createMockChildProcess(
-      '',
-      'Interactive authentication is needed. Please run: az login'
-    );
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    await expect(getClusterCapabilities(defaultOptions)).rejects.toThrow(
-      'Authentication required. Please log in to Azure CLI: az login'
-    );
-  });
-
-  test('handles AADSTS700082 relogin error', async () => {
-    const mockProcess = createMockChildProcess('', 'AADSTS700082: The refresh token has expired');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    await expect(getClusterCapabilities(defaultOptions)).rejects.toThrow(
-      'Authentication required. Please log in to Azure CLI: az login'
-    );
-  });
-
-  test('handles command errors (stderr contains ERROR) by throwing error', async () => {
-    const mockProcess = createMockChildProcess(
-      '',
-      'ERROR: (ResourceNotFound) The Resource was not found.'
-    );
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    await expect(getClusterCapabilities(defaultOptions)).rejects.toThrow(
-      'Failed to get cluster capabilities'
-    );
-  });
-
-  test('handles command errors (stderr contains ERROR: prefix) by throwing error', async () => {
-    const mockProcess = createMockChildProcess('', 'ERROR: something went wrong');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    await expect(getClusterCapabilities(defaultOptions)).rejects.toThrow(
-      'Failed to get cluster capabilities'
-    );
-  });
-
-  test('treats stderr with lowercase error (no ERROR: prefix) as success when valid stdout', async () => {
-    const response = JSON.stringify({
-      sku: 'Base',
-      networkPolicy: 'calico',
-      networkPlugin: 'azure',
-      prometheusEnabled: true,
-      containerInsightsEnabled: false,
-      kedaEnabled: false,
-      vpaEnabled: false,
-    });
-
-    const mockProcess = createMockChildProcess(
-      response,
-      'WARNING: The behavior of this command has been altered due to an error in the config'
-    );
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCapabilities(defaultOptions);
-
-    expect(result.sku).toBe('Base');
-    expect(result.networkPolicy).toBe('calico');
-    expect(result.prometheusEnabled).toBe(true);
-  });
-
-  test('handles JSON parse errors by throwing error', async () => {
-    const mockProcess = createMockChildProcess('not valid json {{{');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    await expect(getClusterCapabilities(defaultOptions)).rejects.toThrow(
-      'Failed to parse cluster capabilities'
-    );
-  });
-
-  test('handles empty stdout by throwing parse error', async () => {
-    const mockProcess = createMockChildProcess('');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    await expect(getClusterCapabilities(defaultOptions)).rejects.toThrow(
-      'Failed to parse cluster capabilities'
-    );
-  });
-
-  test('preserves false boolean values (does not coerce to null)', async () => {
-    const response = JSON.stringify({
-      sku: 'Base',
-      networkPolicy: 'calico',
-      networkPlugin: 'azure',
-      prometheusEnabled: false,
-      containerInsightsEnabled: false,
-      kedaEnabled: false,
-      vpaEnabled: false,
-    });
-
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCapabilities(defaultOptions);
-
-    expect(result.prometheusEnabled).toBe(false);
-    expect(result.containerInsightsEnabled).toBe(false);
-    expect(result.kedaEnabled).toBe(false);
-    expect(result.vpaEnabled).toBe(false);
-  });
-
-  test('passes correct arguments to az CLI', async () => {
-    const response = JSON.stringify({
-      sku: 'Base',
-      networkPolicy: null,
-      networkPlugin: 'azure',
-      prometheusEnabled: false,
-      containerInsightsEnabled: false,
-      kedaEnabled: false,
-      vpaEnabled: false,
-    });
-
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    await getClusterCapabilities(defaultOptions);
-
-    expect(mockPluginRunCommand).toHaveBeenCalledWith(
-      'az',
-      expect.arrayContaining([
-        'aks',
-        'show',
-        '--subscription',
-        'test-sub-123',
-        '--resource-group',
-        'test-rg',
-        '--name',
-        'test-cluster',
-        '--output',
-        'json',
-      ]),
-      expect.anything()
-    );
-  });
-});
+beforeEach(() => command.mockReset());
 
 describe('enableClusterAddon', () => {
-  beforeEach(() => {
-    mockPluginRunCommand.mockClear();
-  });
-
-  test('calls az aks update with --enable-azure-monitor-metrics for azure-monitor-metrics addon', async () => {
-    const mockProcess = createMockChildProcess('');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    await enableClusterAddon({ ...defaultOptions, addon: 'azure-monitor-metrics' });
-
-    expect(mockPluginRunCommand).toHaveBeenCalledWith(
+  test.each([
+    ['azure-monitor-metrics', '--enable-azure-monitor-metrics'],
+    ['keda', '--enable-keda'],
+    ['vpa', '--enable-vpa'],
+  ] as const)('retains the %s CLI write', async (addon, flag) => {
+    command.mockReturnValue(processOutput(''));
+    expect(await enableClusterAddon({ ...options, addon })).toEqual({ success: true });
+    expect(command).toHaveBeenCalledWith(
       'az',
       expect.arrayContaining([
         'aks',
         'update',
         '--subscription',
-        'test-sub-123',
+        options.subscriptionId,
         '--resource-group',
-        'test-rg',
+        options.resourceGroup,
         '--name',
-        'test-cluster',
-        '--enable-azure-monitor-metrics',
+        options.clusterName,
+        flag,
         '--no-wait',
       ]),
       expect.anything()
     );
   });
 
-  test('calls az aks update with --enable-keda for keda addon', async () => {
-    const mockProcess = createMockChildProcess('');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
+  test.each([
+    'Interactive authentication is needed. Please run: az login',
+    'AADSTS50173: Token expired',
+  ])('reports authentication failures: %s', async stderr => {
+    command.mockReturnValue(processOutput('', stderr));
+    expect(await enableClusterAddon({ ...options, addon: 'keda' })).toMatchObject({
+      success: false,
+      error: expect.stringContaining('Authentication required'),
+    });
+  });
 
-    await enableClusterAddon({ ...defaultOptions, addon: 'keda' });
+  test.each([
+    'ERROR: (ResourceNotFound) The Resource was not found.',
+    'WARNING: something changed\nERROR: operation failed',
+  ])('reports CLI write failures: %s', async stderr => {
+    command.mockReturnValue(processOutput('', stderr));
+    expect(await enableClusterAddon({ ...options, addon: 'keda' })).toMatchObject({
+      success: false,
+      error: expect.stringContaining('Failed to enable addons'),
+    });
+  });
 
-    expect(mockPluginRunCommand).toHaveBeenCalledWith(
+  test.each([
+    'WARNING: The behavior of this command has been altered.',
+    'WARNING: The behavior has changed due to an error in the config',
+  ])('does not fail writes for warnings: %s', async stderr => {
+    command.mockReturnValue(processOutput('', stderr));
+    expect(await enableClusterAddon({ ...options, addon: 'keda' })).toEqual({ success: true });
+  });
+
+  test('combines multiple addons in one CLI write', async () => {
+    command.mockReturnValue(processOutput(''));
+    expect(
+      await enableClusterAddon({ ...options, addon: ['azure-monitor-metrics', 'keda'] })
+    ).toEqual({ success: true });
+    expect(command).toHaveBeenCalledTimes(1);
+    expect(command).toHaveBeenCalledWith(
       'az',
-      expect.arrayContaining(['--enable-keda']),
+      expect.arrayContaining(['--enable-azure-monitor-metrics', '--enable-keda', '--no-wait']),
       expect.anything()
     );
   });
 
-  test('calls az aks update with --enable-vpa for vpa addon', async () => {
-    const mockProcess = createMockChildProcess('');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    await enableClusterAddon({ ...defaultOptions, addon: 'vpa' });
-
-    expect(mockPluginRunCommand).toHaveBeenCalledWith(
-      'az',
-      expect.arrayContaining(['--enable-vpa']),
-      expect.anything()
-    );
-  });
-
-  test('returns { success: true } on successful execution', async () => {
-    const mockProcess = createMockChildProcess('');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await enableClusterAddon({ ...defaultOptions, addon: 'keda' });
-
-    expect(result).toEqual({ success: true });
-  });
-
-  test('returns error on auth failure (needsRelogin)', async () => {
-    const mockProcess = createMockChildProcess(
-      '',
-      'Interactive authentication is needed. Please run: az login'
-    );
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await enableClusterAddon({ ...defaultOptions, addon: 'keda' });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Authentication required');
-  });
-
-  test('returns error on AADSTS50173 auth failure', async () => {
-    const mockProcess = createMockChildProcess('', 'AADSTS50173: Token expired');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await enableClusterAddon({ ...defaultOptions, addon: 'vpa' });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Authentication required');
-  });
-
-  test('returns error on command failure (stderr with ERROR)', async () => {
-    const mockProcess = createMockChildProcess(
-      '',
-      'ERROR: (ResourceNotFound) The Resource was not found.'
-    );
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await enableClusterAddon({
-      ...defaultOptions,
-      addon: 'azure-monitor-metrics',
+  test('rejects an empty addon selection', async () => {
+    expect(await enableClusterAddon({ ...options, addon: [] })).toMatchObject({
+      success: false,
+      error: expect.stringContaining('No addons specified'),
     });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Failed to enable addons');
-  });
-
-  test('ignores warnings in stderr (WARNING: only)', async () => {
-    const mockProcess = createMockChildProcess(
-      '',
-      'WARNING: The behavior of this command has been altered.'
-    );
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await enableClusterAddon({ ...defaultOptions, addon: 'keda' });
-
-    expect(result).toEqual({ success: true });
-  });
-
-  test('treats stderr with lowercase error (no ERROR: prefix) as success', async () => {
-    const mockProcess = createMockChildProcess(
-      '',
-      'WARNING: The behavior of this command has been altered due to an error in the config'
-    );
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await enableClusterAddon({ ...defaultOptions, addon: 'keda' });
-
-    expect(result).toEqual({ success: true });
-  });
-
-  test('returns error when stderr has both WARNING: and ERROR:', async () => {
-    const mockProcess = createMockChildProcess(
-      '',
-      'WARNING: something changed\nERROR: operation failed'
-    );
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await enableClusterAddon({ ...defaultOptions, addon: 'keda' });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
-  });
-
-  test('accepts an array of addons and produces a single CLI command with multiple --enable flags', async () => {
-    const mockProcess = createMockChildProcess('');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await enableClusterAddon({
-      ...defaultOptions,
-      addon: ['azure-monitor-metrics', 'keda'],
-    });
-
-    expect(result).toEqual({ success: true });
-    expect(mockPluginRunCommand).toHaveBeenCalledTimes(1);
-    expect(mockPluginRunCommand).toHaveBeenCalledWith(
-      'az',
-      expect.arrayContaining([
-        'aks',
-        'update',
-        '--enable-azure-monitor-metrics',
-        '--enable-keda',
-        '--no-wait',
-      ]),
-      expect.anything()
-    );
-  });
-
-  test('returns error for empty addon array', async () => {
-    const result = await enableClusterAddon({
-      ...defaultOptions,
-      addon: [],
-    });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('No addons specified');
+    expect(command).not.toHaveBeenCalled();
   });
 });
 
 describe('getClusterCount', () => {
-  const validSubscriptionId = '12345678-1234-1234-1234-123456789abc';
-
-  beforeEach(() => {
-    mockPluginRunCommand.mockClear();
+  test.each([{ Count: 5 }, { count_: 3 }, { Count: 0 }])('reads %j', async row => {
+    command.mockReturnValue(processOutput(JSON.stringify({ data: [row] })));
+    expect(await getClusterCount(subscriptionId)).toBe('Count' in row ? row.Count : row.count_);
   });
-
-  test('returns cluster count from Count field', async () => {
-    const response = JSON.stringify({ data: [{ Count: 5 }] });
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(5);
+  test.each(['not-a-guid', ''])('rejects invalid subscriptions: %s', async id => {
+    expect(await getClusterCount(id)).toBe(-1);
+    expect(command).not.toHaveBeenCalled();
   });
-
-  test('returns cluster count from count_ field', async () => {
-    const response = JSON.stringify({ data: [{ count_: 3 }] });
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(3);
-  });
-
-  test('returns -1 for invalid subscription ID format', async () => {
-    const result = await getClusterCount('not-a-guid');
-
-    expect(result).toBe(-1);
-    expect(mockPluginRunCommand).not.toHaveBeenCalled();
-  });
-
-  test('returns -1 for empty subscription ID', async () => {
-    const result = await getClusterCount('');
-
-    expect(result).toBe(-1);
-    expect(mockPluginRunCommand).not.toHaveBeenCalled();
-  });
-
-  test('returns -1 when Azure CLI returns ERROR:', async () => {
-    const mockProcess = createMockChildProcess('', 'ERROR: Resource graph query failed');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(-1);
-  });
-
-  test('returns -1 when response has no data', async () => {
-    const response = JSON.stringify({ data: [] });
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(-1);
-  });
-
-  test('returns -1 for malformed JSON response', async () => {
-    const mockProcess = createMockChildProcess('not valid json');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(-1);
-  });
-
-  test('returns 0 when count is zero', async () => {
-    const response = JSON.stringify({ data: [{ Count: 0 }] });
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(0);
+  test.each([
+    ['', 'ERROR: Resource graph query failed'],
+    ['{"data":[]}', ''],
+    ['not valid json', ''],
+  ])('retains indeterminate results for invalid output', async (stdout, stderr) => {
+    command.mockReturnValue(processOutput(stdout, stderr));
+    expect(await getClusterCount(subscriptionId)).toBe(-1);
   });
 });

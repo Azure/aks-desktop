@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { debugLog, isAzError, needsRelogin, runAzCommand, runCommandAsync } from './az-cli-core';
+import { type AksClusterReadOptions, getManagedClusterDetails } from './az-managed-clusters';
 import { getClusterResourceGroupViaGraph, getClustersViaGraph } from './az-resource-graph';
 import { getSubscriptions } from './az-subscriptions';
 
@@ -189,121 +190,59 @@ export async function getConnectedClusters(subscriptionId: string): Promise<any[
   return clusters;
 }
 
-export async function getAksClusterStatus(options: {
-  subscriptionId: string;
-  resourceGroup: string;
-  clusterName: string;
-}): Promise<{
+/**
+ * @param options - Managed AKS coordinates and shared REST/authentication overrides.
+ * @returns Observed provisioning, power and version values with Unknown fallbacks.
+ * ready is true only for the pair Succeeded/Running, never provisioning alone.
+ * @throws Propagated detail-read, credential or cancellation failures.
+ */
+export async function getAksClusterStatus(options: AksClusterReadOptions): Promise<{
+  /** ARM provisioning state, or Unknown when missing/empty. */
   provisioningState: string;
+  /** Observed power code, or Unknown when missing/empty. */
   powerState: string;
+  /** ARM Kubernetes version, or Unknown when missing/empty. */
   kubernetesVersion: string;
+  /** Whether both provisioning and power permit using the cluster. */
   ready: boolean;
 }> {
-  const { subscriptionId, resourceGroup, clusterName } = options;
-
-  const args = [
-    'aks',
-    'show',
-    '--subscription',
-    subscriptionId,
-    '--resource-group',
-    resourceGroup,
-    '--name',
-    clusterName,
-    '--output',
-    'json',
-  ];
-
-  debugLog('Checking AKS cluster status:', 'az', args.join(' '));
-
-  const { stdout, stderr } = await runCommandAsync('az', args);
-
-  if (stderr && needsRelogin(stderr)) {
-    throw new Error('Authentication required. Please log in to Azure CLI: az login');
-  }
-
-  if (stderr && isAzError(stderr)) {
-    console.error('Failed to get cluster status:', stderr);
-    throw new Error(`Failed to get cluster status: ${stderr}`);
-  }
-
-  try {
-    const result = JSON.parse(stdout);
-    const provisioningState = result.provisioningState || 'Unknown';
-    const powerState = result.powerState?.code || 'Unknown';
-    const kubernetesVersion = result.kubernetesVersion || 'Unknown';
-    const ready = provisioningState === 'Succeeded' && powerState === 'Running';
-
-    debugLog(
-      `Cluster status: provisioningState=${provisioningState}, powerState=${powerState}, ready=${ready}`
-    );
-
-    return {
-      provisioningState,
-      powerState,
-      kubernetesVersion,
-      ready,
-    };
-  } catch (error) {
-    console.error('Failed to parse cluster status response:', error);
-    throw new Error(`Failed to parse cluster status: ${error}`);
-  }
+  const { properties } = await getManagedClusterDetails(options);
+  const provisioningState = properties.provisioningState || 'Unknown';
+  const powerState = properties.powerState?.code || 'Unknown';
+  return {
+    provisioningState,
+    powerState,
+    kubernetesVersion: properties.kubernetesVersion || 'Unknown',
+    ready: provisioningState === 'Succeeded' && powerState === 'Running',
+  };
 }
 
-export async function getClusterCapabilities(options: {
-  subscriptionId: string;
-  resourceGroup: string;
-  clusterName: string;
-}): Promise<ClusterCapabilities> {
-  const { subscriptionId, resourceGroup, clusterName } = options;
-
-  const args = [
-    'aks',
-    'show',
-    '--subscription',
-    subscriptionId,
-    '--resource-group',
-    resourceGroup,
-    '--name',
-    clusterName,
-    '--query',
-    '{sku:sku.name,tier:sku.tier,location:location,kubernetesVersion:kubernetesVersion,aadProfile:aadProfile,azureRbacEnabled:aadProfile.enableAzureRbac,networkPolicy:networkProfile.networkPolicy,networkPlugin:networkProfile.networkPlugin,prometheusEnabled:azureMonitorProfile.metrics.enabled,containerInsightsEnabled:addonProfiles.omsagent.enabled,kedaEnabled:workloadAutoScalerProfile.keda.enabled,vpaEnabled:workloadAutoScalerProfile.verticalPodAutoscaler.enabled}',
-    '--output',
-    'json',
-  ];
-
-  const { stdout, stderr } = await runCommandAsync('az', args);
-
-  if (stderr && needsRelogin(stderr)) {
-    throw new Error('Authentication required. Please log in to Azure CLI: az login');
-  }
-
-  if (stderr && isAzError(stderr)) {
-    console.error('Failed to get cluster capabilities:', stderr);
-    throw new Error(`Failed to get cluster capabilities: ${stderr}`);
-  }
-
-  try {
-    const result = JSON.parse(stdout);
-    return {
-      sku: (result.sku as ClusterCapabilities['sku']) || null,
-      aadEnabled: result.aadProfile !== null && result.aadProfile !== undefined,
-      azureRbacEnabled: result.azureRbacEnabled ?? null,
-      networkPolicy: (result.networkPolicy as ClusterCapabilities['networkPolicy']) || 'none',
-      networkPlugin: (result.networkPlugin as ClusterCapabilities['networkPlugin']) || null,
-      prometheusEnabled: result.prometheusEnabled ?? null,
-      containerInsightsEnabled: result.containerInsightsEnabled ?? null,
-      kedaEnabled: result.kedaEnabled ?? null,
-      vpaEnabled: result.vpaEnabled ?? null,
-      location: typeof result.location === 'string' ? result.location : null,
-      tier: typeof result.tier === 'string' ? result.tier : null,
-      kubernetesVersion:
-        typeof result.kubernetesVersion === 'string' ? result.kubernetesVersion : null,
-    };
-  } catch (error) {
-    console.error('Failed to parse cluster capabilities response:', error);
-    throw new Error(`Failed to parse cluster capabilities: ${error}`);
-  }
+/**
+ * @param options - Managed AKS coordinates and shared REST/authentication overrides.
+ * @returns UI capabilities projected from nested ARM profiles. False flags stay
+ * false; missing feature flags become null, missing AAD profile means aadEnabled=false,
+ * and missing/empty networkPolicy becomes none. SKU remains top-level metadata.
+ * @throws Propagated detail-read, credential or cancellation failures.
+ */
+export async function getClusterCapabilities(
+  options: AksClusterReadOptions
+): Promise<ClusterCapabilities> {
+  const { properties, sku, location } = await getManagedClusterDetails(options);
+  return {
+    sku: sku?.name || null,
+    tier: typeof sku?.tier === 'string' ? sku.tier : null,
+    location: typeof location === 'string' ? location : null,
+    kubernetesVersion:
+      typeof properties.kubernetesVersion === 'string' ? properties.kubernetesVersion : null,
+    aadEnabled: properties.aadProfile !== null && properties.aadProfile !== undefined,
+    azureRbacEnabled: properties.aadProfile?.enableAzureRBAC ?? null,
+    networkPolicy: properties.networkProfile?.networkPolicy || 'none',
+    networkPlugin: properties.networkProfile?.networkPlugin || null,
+    prometheusEnabled: properties.azureMonitorProfile?.metrics?.enabled ?? null,
+    containerInsightsEnabled: properties.addonProfiles?.omsagent?.enabled ?? null,
+    kedaEnabled: properties.workloadAutoScalerProfile?.keda?.enabled ?? null,
+    vpaEnabled: properties.workloadAutoScalerProfile?.verticalPodAutoscaler?.enabled ?? null,
+  };
 }
 
 export type AddonKey = 'azure-monitor-metrics' | 'keda' | 'vpa';

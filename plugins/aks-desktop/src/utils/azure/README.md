@@ -73,7 +73,25 @@ No circular dependencies. `az-cli-core.ts` is the single hub — every domain mo
 
 Use `azRequest`/`azListAll` from `az-http.ts` for Azure REST calls. Tokens come from `azCliCredential` unless a `credential` is passed.
 
+Subscription-bound credentials select the CLI account with `--subscription`,
+never both `--subscription` and `--tenant`. An explicit tenant must be a GUID
+matching the token response; tenant-only, unbound credentials still accept tenant
+domains. Tokens are cached separately by subscription, tenant and audience.
+
 Live tests (`*.live.test.ts`) compare REST results with `az` and require a logged-in `az`: `AZ_LIVE_TESTS=1 npx vitest run --project unit live.test`.
+
+Managed AKS status, capabilities, kubelet identity and OIDC/workload-identity
+checks share the typed ARM detail read in `az-managed-clusters.ts` (2026-01-01).
+The response retains top-level SKU and nested properties; Arc callers are excluded.
+Credentials, tenant, cloud endpoint, audience, timeout and cancellation can be injected.
+
+Run `AZ_LIVE_TESTS=1 npm run test:unit -- az-managed-clusters.live.test.ts`
+from this plugin directory. The E2E test creates an Entra-enabled AKS cluster in a
+uniquely tagged run group and cleans both it and its node group in `finally`.
+It defaults to Cloud Native Tools, `eastus2`, and one `Standard_D2as_v6` node;
+`AZ_LIVE_SUBSCRIPTION`, `AZ_LIVE_LOCATION` and `AZ_LIVE_AKS_VM_SIZE` override these.
+Only authentication uses CLI; all setup, verification and cleanup use REST.
+See [live test setup and inventory](../../../../../test/live/README.md).
 
 ## Adding a New Function
 
