@@ -12,7 +12,9 @@ import {
   PROJECT_MANAGED_BY_LABEL,
   PROJECT_MANAGED_BY_VALUE,
   RESOURCE_GROUP_LABEL,
+  SUBSCRIPTION_LABEL,
 } from '../constants/projectLabels';
+import { getClusterSettings } from './clusterSettings';
 
 type ProjectRef = { namespaces: string[]; clusters: string[] };
 
@@ -54,7 +56,31 @@ export const isAksProject = ({ project }: { project: ProjectRef }): Promise<bool
     );
   });
 
-/** Checks if the given single-cluster, single-namespace project has AKS Desktop resource group context. */
+/**
+ * Whether namespace labels identify an AKS Desktop managed-namespace settings target.
+ * Legacy AKS namespaces remain eligible; known Arc targets have no managed-namespace API.
+ * The ARM marker takes precedence over Arc authorization labels or local cluster settings.
+ */
+export function supportsManagedNamespaceSettings(
+  labels: Record<string, string>,
+  clusterName: string
+): boolean {
+  if (
+    !clusterName ||
+    labels[PROJECT_MANAGED_BY_LABEL] !== PROJECT_MANAGED_BY_VALUE ||
+    !labels[RESOURCE_GROUP_LABEL] ||
+    !labels[SUBSCRIPTION_LABEL]
+  ) {
+    return false;
+  }
+
+  const isKnownArcTarget =
+    labels[MANAGED_BY_ARM_LABEL] !== 'true' &&
+    (!!labels[AUTHZ_MODEL_LABEL] || getClusterSettings(clusterName).clusterType === 'aksarc');
+  return !isKnownArcTarget;
+}
+
+/** Checks whether a single-cluster, single-namespace project supports managed-namespace settings. */
 export const isAksProjectWithResourceGroup = async ({
   project,
 }: {
@@ -62,11 +88,13 @@ export const isAksProjectWithResourceGroup = async ({
 }): Promise<boolean> => {
   if (project.namespaces.length !== 1 || project.clusters.length !== 1) return false;
 
-  const labels = await getNamespaceLabels(project.namespaces[0], project.clusters[0]);
+  const namespaceName = project.namespaces[0];
+  const clusterName = project.clusters[0];
+  if (!namespaceName || !clusterName) return false;
+
+  const labels = await getNamespaceLabels(namespaceName, clusterName);
   if (!labels) return false;
-  return (
-    labels[PROJECT_MANAGED_BY_LABEL] === PROJECT_MANAGED_BY_VALUE && !!labels[RESOURCE_GROUP_LABEL]
-  );
+  return supportsManagedNamespaceSettings(labels, clusterName);
 };
 
 /**

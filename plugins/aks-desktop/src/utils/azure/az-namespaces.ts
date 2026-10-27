@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 import { debugLog, getErrorMessage, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
+import type { ManagedNamespaceDetails } from './managedNamespaceQueries';
 
 export async function getManagedNamespaces(options: {
   clusterName: string;
@@ -62,7 +63,7 @@ export async function getManagedNamespaceDetails(options: {
   resourceGroup: string;
   namespaceName: string;
   subscriptionId?: string;
-}): Promise<any> {
+}): Promise<ManagedNamespaceDetails> {
   const { clusterName, resourceGroup, namespaceName, subscriptionId } = options;
 
   const args = [
@@ -123,7 +124,9 @@ export async function updateManagedNamespace(options: {
   egressPolicy?: 'AllowAll' | 'AllowSameNamespace' | 'DenyAll';
   subscriptionId?: string;
   noWait?: boolean;
-}): Promise<any> {
+  /** Synchronously throws if the captured operation is no longer authorized. */
+  assertCanUpdate: () => void;
+}): Promise<ManagedNamespaceDetails> {
   const {
     clusterName,
     resourceGroup,
@@ -136,6 +139,7 @@ export async function updateManagedNamespace(options: {
     egressPolicy,
     subscriptionId,
     noWait,
+    assertCanUpdate,
   } = options;
 
   const args: string[] = [
@@ -197,6 +201,7 @@ export async function updateManagedNamespace(options: {
 
   args.push('--output', 'json');
 
+  assertCanUpdate();
   const { stdout, stderr } = await runCommandAsync('az', args);
 
   if (stderr && needsRelogin(stderr)) {

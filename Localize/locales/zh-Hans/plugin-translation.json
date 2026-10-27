@@ -289,7 +289,6 @@
   "Failed to fetch deployment status": "未能提取部署状态",
   "Failed to fetch deployments": "无法提取部署",
   "Failed to fetch managed namespace details": "未能提取托管命名空间详细信息",
-  "Failed to fetch managed namespaces": "未能提取托管命名空间",
   "Failed to fetch metrics from Prometheus": "未能从 Prometheus 提取指标",
   "Failed to fetch pod status": "未能提取 Pod 状态",
   "Failed to fetch service status": "未能提取服务状态",
@@ -749,5 +748,13 @@
   "Failed to save the selected cluster scope: {{message}}": "",
   "A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.": "",
   "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": "",
-  "Browse and import existing AKS Projects": ""
+  "Browse and import existing AKS Projects": "",
+  "Azure account changed. Sign in and try again.": "",
+  "Loading namespace settings": "",
+  "Managed namespace settings are unavailable for this project.": "",
+  "Namespace settings are not ready to save.": "",
+  "Refreshing data in background": "",
+  "Select a project with one cluster and one namespace.": "",
+  "Settings changed on the server. Your unsaved changes have been kept.": "",
+  "Sign in to Azure to manage namespace settings.": ""
 }
