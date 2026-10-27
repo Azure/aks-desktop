@@ -420,9 +420,12 @@ describe('useImportAKSProjects', () => {
     await waitFor(() => expect(result.current.importing).toBe(false));
 
     expect(mockApplyProjectLabels).toHaveBeenCalledTimes(1);
-    expect(mockApplyProjectLabels).toHaveBeenCalledWith(
-      expect.objectContaining({ namespaceName: 'ns-1', clusterName: 'cl' })
-    );
+    expect(mockApplyProjectLabels).toHaveBeenCalledWith({
+      namespaceName: 'ns-1',
+      clusterName: 'cl',
+      subscriptionId: 'sub',
+      resourceGroup: 'rg',
+    });
   });
 
   test('skips applyProjectLabels for already-project namespaces', async () => {
@@ -438,17 +441,33 @@ describe('useImportAKSProjects', () => {
 
   test('marks namespace failed and continues when applyProjectLabels throws', async () => {
     mockRegisteredClusters = new Set(['cl']);
-    mockApplyProjectLabels.mockRejectedValue(new Error('label error'));
+    mockApplyProjectLabels
+      .mockRejectedValueOnce(new Error('PUT failed: HTTP 403 Forbidden'))
+      .mockResolvedValueOnce(undefined);
     const { result } = renderHook(() => useImportAKSProjects());
-    const ns = makeNamespace('ns-1', 'cl', 'rg', 'sub', false);
+    const failed = makeNamespace('ns-1', 'cl', 'rg', 'sub', false);
+    const converted = makeNamespace('ns-2', 'cl', 'rg', 'sub', false);
+    const existingProject = makeNamespace('ns-3', 'cl', 'rg', 'sub', true);
 
     // non-project namespace triggers ConversionDialog first; confirm to run processImport
-    act(() => result.current.handleImportClick([makeSelection(ns)]));
+    act(() =>
+      result.current.handleImportClick([failed, converted, existingProject].map(makeSelection))
+    );
     act(() => result.current.handleConversionConfirm());
     await waitFor(() => expect(result.current.importing).toBe(false));
 
     expect(result.current.importResults![0].success).toBe(false);
     expect(result.current.importResults![0].message).toContain('Failed to convert namespace');
+    expect(result.current.importResults!.map(item => [item.namespace, item.success])).toEqual([
+      ['ns-1 (cl)', false],
+      ['ns-2 (cl)', true],
+      ['ns-3 (cl)', true],
+    ]);
+    expect(mockApplyProjectLabels).toHaveBeenCalledTimes(2);
+    expect(mockApplyProjectLabels.mock.calls.map(([options]) => options.namespaceName)).toEqual([
+      'ns-1',
+      'ns-2',
+    ]);
   });
 
   // -------------------------------------------------------------------------
