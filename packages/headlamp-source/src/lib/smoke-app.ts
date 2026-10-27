@@ -295,4 +295,5 @@ module.exports = {
   reserveReadinessPort,
   resolvePackagedExecutable,
   smoke,
+  terminateProcessTree,
 };

@@ -9,6 +9,7 @@ export default defineConfig({
   outputDir: './test-results',
   timeout: 120_000,
   expect: { timeout: 20_000 },
+  use: { trace: 'retain-on-failure' },
   workers: 1,
   retries: 0,
   reporter: 'list',

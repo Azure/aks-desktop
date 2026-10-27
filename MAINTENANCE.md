@@ -75,6 +75,7 @@ The current stack is rebased onto Headlamp main at
 | `0080` | AKS Desktop compatibility marker | Downstream-only; unchanged |
 | `7683` | [Legacy GitHub token migration, PR #7683](https://github.com/kubernetes-sigs/headlamp/pull/7683) | `1a60fa08ae7651b898a243280f3742d769255134` |
 | `8147` | [Private GitHub browser OAuth, PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147) | `1146185af190ec0d0426f81f06f5d664bc8d1c3d` |
+| `8329` | [Activity renderer test timer isolation, kubernetes-sigs/headlamp#8329](https://github.com/kubernetes-sigs/headlamp/pull/8329) | `6f0a49b49cd701b10408e19c8c5d820636e6e8f5` |
 
 Patches `0072` (PR #7958), `7685`, `7712`, `7726`, `7727`, `7731`, `7744`, and
 `7746` are included in this pin and no longer carried. Keep each numbered

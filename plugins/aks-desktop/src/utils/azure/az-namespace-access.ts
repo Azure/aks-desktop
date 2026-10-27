@@ -1,10 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { quoteForPlatform } from '../shared/quoteForPlatform';
-import { debugLog, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
-import { buildArcNamespaceScope, buildConnectedClusterScope } from './az-identity';
+import { debugLog, getErrorMessage, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
+import {
+  buildArcNamespaceScope,
+  buildConnectedClusterScope,
+  getManagedNamespaceResourceId,
+  type PrincipalType,
+} from './az-identity';
 import { checkNamespaceStatus } from './az-namespaces';
+import { type AzureRoleRequestOptions, createAzureRoleAssignment } from './az-role-assignments';
 
 export async function checkNamespaceExists(
   clusterName: string,
@@ -24,143 +29,59 @@ export async function checkNamespaceExists(
   return { exists: result.status !== 'notfound', stdout: result.stdout, stderr: result.stderr };
 }
 
-export async function createNamespaceRoleAssignment(options: {
-  clusterName: string;
-  resourceGroup: string;
-  namespaceName: string;
-  assigneeObjectId: string;
-  role: string;
-  subscriptionId?: string;
-}): Promise<{ success: boolean; stdout: string; stderr: string; error?: string }> {
-  const { clusterName, resourceGroup, namespaceName, assigneeObjectId, role, subscriptionId } =
-    options;
-
-  // Strip quotes from role if present (they may have been added for Windows)
-  let cleanRole = role.trim();
-  if (
-    (cleanRole.startsWith('"') && cleanRole.endsWith('"')) ||
-    (cleanRole.startsWith("'") && cleanRole.endsWith("'"))
-  ) {
-    cleanRole = cleanRole.slice(1, -1);
+/**
+ * Resolves a managed AKS namespace through REST, then grants a known Entra object access.
+ * @param options - Namespace coordinates, role, principal and optional REST overrides.
+ * @returns A resolved success/failure result. stdout contains assignment JSON when
+ * available, stderr is empty, and error carries validation, lookup or write failures.
+ * Known namespace absence does not create an assignment. Expected failures do not reject.
+ */
+export async function createNamespaceRoleAssignment(
+  options: AzureRoleRequestOptions & {
+    /** Managed AKS resource name, never an Arc cluster. */
+    clusterName: string;
+    /** Resource group containing that AKS cluster. */
+    resourceGroup: string;
+    /** Managed namespace resource name used to resolve the exact assignment scope. */
+    namespaceName: string;
+    /** Known Entra object GUID; no directory lookup is performed. */
+    assigneeObjectId: string;
+    /** Role name, definition GUID or definition ARM ID. */
+    role: string;
+    /** Required at runtime; omission produces a failure instead of using CLI defaults. */
+    subscriptionId?: string;
+    /** Defaults to User; callers can explicitly grant Group or ServicePrincipal access. */
+    principalType?: PrincipalType;
   }
-
-  // On Windows, role names with spaces need double quotes for shell execution
-  const finalRole = quoteForPlatform(cleanRole);
-
+): Promise<{
+  /** Whether namespace resolution and role creation/verified reuse succeeded. */
+  success: boolean;
+  /** Assignment JSON when returned, otherwise an empty string. */
+  stdout: string;
+  /** Always empty for this REST-backed operation; inspect error for failures. */
+  stderr: string;
+  /** Diagnostic when success is false. */
+  error?: string;
+}> {
   try {
-    // First, get the resource ID of the managed namespace
-    const namespaceArgs = [
-      'aks',
-      'namespace',
-      'show',
-      '--cluster-name',
-      clusterName,
-      '--resource-group',
-      resourceGroup,
-      '--name',
-      namespaceName,
-      '--query',
-      'id',
-      '--output',
-      'tsv',
-    ];
-
-    if (subscriptionId) {
-      namespaceArgs.push('--subscription', subscriptionId);
+    if (!options.subscriptionId) throw new Error('Subscription ID is required');
+    const namespace = await getManagedNamespaceResourceId({
+      ...options,
+      subscriptionId: options.subscriptionId,
+    });
+    if (!namespace.success || !namespace.resourceId) {
+      throw new Error(namespace.error || 'Failed to resolve managed namespace');
     }
-
-    debugLog('Getting namespace resource ID:', 'az', namespaceArgs.join(' '));
-
-    const { stdout: namespaceStdout, stderr: namespaceStderr } = await runCommandAsync(
-      'az',
-      namespaceArgs
-    );
-
-    if (namespaceStderr && needsRelogin(namespaceStderr)) {
-      return {
-        success: false,
-        stdout: namespaceStdout,
-        stderr: namespaceStderr,
-        error: 'Azure login required',
-      };
-    }
-
-    if (namespaceStderr && isAzError(namespaceStderr)) {
-      return {
-        success: false,
-        stdout: namespaceStdout,
-        stderr: namespaceStderr,
-        error: 'Failed to resolve namespace',
-      };
-    }
-
-    const namespaceResourceId = namespaceStdout.trim();
-    if (!namespaceResourceId) {
-      return {
-        success: false,
-        stdout: namespaceStdout,
-        stderr: namespaceStderr,
-        error: 'Failed to resolve namespace',
-      };
-    }
-
-    // Now create the role assignment
-    const roleArgs = [
-      'role',
-      'assignment',
-      'create',
-      '--assignee-object-id',
-      assigneeObjectId,
-      '--assignee-principal-type',
-      'User',
-      '--role',
-      finalRole,
-      '--scope',
-      namespaceResourceId,
-    ];
-
-    if (subscriptionId) {
-      roleArgs.push('--subscription', subscriptionId);
-    }
-
-    roleArgs.push('--output', 'json');
-
-    debugLog('Creating role assignment:', 'az', roleArgs.join(' '));
-
-    const { stdout: roleStdout, stderr: roleStderr } = await runCommandAsync('az', roleArgs);
-
-    if (roleStderr && needsRelogin(roleStderr)) {
-      return {
-        success: false,
-        stdout: roleStdout,
-        stderr: roleStderr,
-        error: 'Azure login required',
-      };
-    }
-
-    if (roleStderr && isAzError(roleStderr)) {
-      debugLog('Failed to create role assignment:', roleStderr);
-      return {
-        success: false,
-        stdout: roleStdout,
-        stderr: roleStderr,
-        error: 'Failed to create role assignment',
-      };
-    }
-
-    return {
-      success: true,
-      stdout: roleStdout,
-      stderr: roleStderr,
-    };
+    const assignment = await createAzureRoleAssignment({
+      ...options,
+      subscriptionId: options.subscriptionId,
+      scope: namespace.resourceId,
+      principalId: options.assigneeObjectId,
+      principalType: options.principalType ?? 'User',
+    });
+    return { success: true, stdout: assignment ? JSON.stringify(assignment) : '', stderr: '' };
   } catch (error) {
-    debugLog('Failed to create role assignment:', error);
-    return {
-      success: false,
-      stdout: '',
-      stderr: '',
-      error: 'Failed to create role assignment',
-    };
+    return { success: false, stdout: '', stderr: '', error: getErrorMessage(error) };
   }
 }
 
