@@ -119,6 +119,57 @@ it('does not let a late refresh save credentials or reconnect after disconnect',
   expect(storage.save).not.toHaveBeenCalled();
 });
 
+it.each(['account-b-refresh', 'refresh-token'])(
+  'isolates a pending refresh across disconnect and reconnect with %s',
+  async refreshToken => {
+    const accountARefresh = deferred<OAuthCallbackResult>();
+    const accountBRefresh = deferred<OAuthCallbackResult>();
+    bridge.refreshGitHubOAuth
+      .mockReturnValueOnce(accountARefresh.promise)
+      .mockReturnValueOnce(accountBRefresh.promise);
+    const view = renderHook(useAuth);
+    await settle();
+    await act(() => vi.advanceTimersByTimeAsync(55 * 60000));
+    expect(bridge.refreshGitHubOAuth).toHaveBeenCalledWith('refresh-token');
+
+    await act(async () => {
+      await view.result.current.reset();
+      await view.result.current.startOAuth();
+      await callbacks[0]({
+        success: true,
+        ...tokens(),
+        accessToken: 'account-b-access',
+        refreshToken,
+      });
+    });
+    await settle();
+    await act(() => vi.advanceTimersByTimeAsync(55 * 60000));
+    expect(bridge.refreshGitHubOAuth).toHaveBeenCalledTimes(2);
+    expect(bridge.refreshGitHubOAuth).toHaveBeenLastCalledWith(refreshToken);
+
+    accountARefresh.resolve({ success: true, ...tokens(), accessToken: 'late-account-a' });
+    await settle();
+    expect(view.result.current.authState.token).toBe('account-b-access');
+    expect(JSON.parse(disk!)).toMatchObject({ accessToken: 'account-b-access', refreshToken });
+
+    // A's finalizer must not evict B's pending refresh; B's next check shares it.
+    await act(() => vi.advanceTimersByTimeAsync(5 * 60000));
+    expect(bridge.refreshGitHubOAuth).toHaveBeenCalledTimes(2);
+    accountBRefresh.resolve({
+      success: true,
+      ...tokens(),
+      accessToken: 'refreshed-account-b',
+      refreshToken: 'rotated-account-b-refresh',
+    });
+    await settle();
+    expect(view.result.current.authState.token).toBe('refreshed-account-b');
+    expect(JSON.parse(disk!)).toMatchObject({
+      accessToken: 'refreshed-account-b',
+      refreshToken: 'rotated-account-b-refresh',
+    });
+  }
+);
+
 it('finishes an already-started credential save before deleting it on disconnect', async () => {
   disk = null;
   const write = deferred<boolean>();

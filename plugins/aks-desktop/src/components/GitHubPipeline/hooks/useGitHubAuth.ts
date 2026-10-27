@@ -74,18 +74,26 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
     authTokenRef.current = authState.token;
   }, [authState.token]);
 
-  // Mutex for token refresh: ensures only one refresh request is in-flight at a time.
-  // Concurrent callers share the same promise to avoid consuming single-use refresh tokens twice.
-  const refreshInFlightRef = useRef<Promise<TokenResponse> | null>(null);
+  // Share refreshes only within the same auth epoch and token so a pending request
+  // cannot supply another session's credentials or consume a single-use token twice.
+  const refreshInFlightRef = useRef<{
+    epoch: number;
+    refreshToken: string;
+    promise: Promise<TokenResponse>;
+  } | null>(null);
 
   const deduplicatedRefresh = useCallback((refreshToken: string): Promise<TokenResponse> => {
-    if (refreshInFlightRef.current) {
-      return refreshInFlightRef.current;
+    const epoch = authEpoch;
+    const inFlight = refreshInFlightRef.current;
+    if (inFlight?.epoch === epoch && inFlight.refreshToken === refreshToken) {
+      return inFlight.promise;
     }
     const promise = refreshAccessToken(refreshToken).finally(() => {
-      refreshInFlightRef.current = null;
+      if (refreshInFlightRef.current?.promise === promise) {
+        refreshInFlightRef.current = null;
+      }
     });
-    refreshInFlightRef.current = promise;
+    refreshInFlightRef.current = { epoch, refreshToken, promise };
     return promise;
   }, []);
 
