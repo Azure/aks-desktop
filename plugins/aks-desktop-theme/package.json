@@ -1,0 +1,60 @@
+{
+  "name": "aks-desktop-theme",
+  "version": "0.10.0",
+  "description": "AKS Desktop theme and branding for Headlamp",
+  "scripts": {
+    "start": "headlamp-plugin start",
+    "build": "headlamp-plugin build",
+    "format": "headlamp-plugin format",
+    "lint": "headlamp-plugin lint",
+    "package": "headlamp-plugin package",
+    "tsc": "headlamp-plugin tsc",
+    "test": "vitest run -c vitest.config.ts",
+    "i18n": "headlamp-plugin i18n"
+  },
+  "prettier": "@headlamp-k8s/eslint-config/prettier-config",
+  "eslintConfig": {
+    "extends": [
+      "@headlamp-k8s",
+      "prettier",
+      "plugin:jsx-a11y/recommended"
+    ]
+  },
+  "overrides": {
+    "typescript": "5.6.2",
+    "react": "^18.3.1",
+    "react-redux": "^9.1.0"
+  },
+  "devDependencies": {
+    "@kinvolk/headlamp-plugin": "^0.13.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.0",
+    "jsdom": "^24.1.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vitest": "^3.2.4"
+  },
+  "headlamp": {
+    "i18n": [
+      "en",
+      "de",
+      "es",
+      "fr",
+      "it",
+      "ja",
+      "id",
+      "ko",
+      "pt-BR",
+      "ru",
+      "zh-Hans",
+      "zh-Hant",
+      "cs",
+      "nl",
+      "hu",
+      "pt-PT",
+      "pl",
+      "sv",
+      "tr"
+    ]
+  }
+}

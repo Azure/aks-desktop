@@ -24,6 +24,11 @@
           "OutputPath": "Localize\\locales"
         },
         {
+          "SourceFile": "Localize\\locales\\en\\aks-desktop-theme-translation.json",
+          "CopyOption": "LangIDOnPath",
+          "OutputPath": "Localize\\locales"
+        },
+        {
           "SourceFile": "Localize\\locales\\en\\ai-assistant-translation.json",
           "CopyOption": "LangIDOnPath",
           "OutputPath": "Localize\\locales"

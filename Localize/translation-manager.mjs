@@ -92,6 +92,12 @@ const SOURCES = [
     namespaces: ["translation"],
   },
   {
+    name: "aks-desktop-theme",
+    sourceDir: localPluginLocales("aks-desktop-theme"),
+    replaceDir: localPluginLocales("aks-desktop-theme"),
+    namespaces: ["translation"],
+  },
+  {
     name: "ai-assistant",
     sourceDir: packagedPluginLocales("ai-assistant"),
     replaceDir: packagedPluginLocales("ai-assistant"),

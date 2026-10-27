@@ -158,6 +158,23 @@ jobs:
       - name: Validate packaged application
         run: npm run test:distribution -- ${{ matrix.distribution-args }}
 
+      - name: Validate packaged theme and reload behavior (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run test:packaged-theme
+
+      - name: Validate packaged theme and reload behavior
+        if: runner.os != 'Linux'
+        run: npm run test:packaged-theme
+
+      - name: Upload packaged theme test diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: packaged-theme-${{ runner.os }}-${{ runner.arch }}
+          path: test/packaged/test-results
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Reinstall after application assembly
         run: |
           npm install --no-audit --no-fund
@@ -199,7 +216,7 @@ jobs:
             changed_plugins=$(printf '%s\n' "$changed_files" | grep '^plugins/' | awk -F/ '{print $2}' | sort -u)
           fi
 
-          TRANSLATION_PLUGINS=(aks-desktop plugin-catalog)
+          TRANSLATION_PLUGINS=(aks-desktop aks-desktop-theme plugin-catalog)
           plugin_dirs=()
           has_translation_plugins=false
 
@@ -360,6 +377,7 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             plugins/aks-desktop/package-lock.json
+            plugins/aks-desktop-theme/package-lock.json
             plugins/plugin-catalog/package-lock.json
 
       - name: Install dependencies
@@ -372,6 +390,10 @@ jobs:
 
       - name: Generate English locale (aks-desktop)
         working-directory: plugins/aks-desktop
+        run: npm run i18n
+
+      - name: Generate English locale (aks-desktop-theme)
+        working-directory: plugins/aks-desktop-theme
         run: npm run i18n
 
       - name: Generate English locale (plugin-catalog)

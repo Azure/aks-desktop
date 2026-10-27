@@ -46,6 +46,7 @@ describe('TELEMETRY_EVENT_ALLOWLIST', () => {
   it('matches the documented plugin-owned allowlist verbatim', () => {
     expect([...TELEMETRY_EVENT_ALLOWLIST].sort()).toEqual(
       [
+        'aksd.feedback',
         'headlamp.create-resource',
         'headlamp.delete-resource',
         'headlamp.delete-resources',
@@ -81,15 +82,16 @@ describe('registerReduxCallback', () => {
       data: {
         plugins: [
           { name: 'aks-desktop', isEnabled: true },
+          { name: 'aks-desktop-theme', isEnabled: true },
           { name: 'third-party', isEnabled: true },
           { name: 'disabled-one', isEnabled: false },
         ],
       },
     } as unknown as HeadlampEvent);
     expect(trackPluginsLoaded).toHaveBeenCalledWith({
-      totalCount: 3,
-      enabledCount: 2,
-      knownEnabledIds: ['aks-desktop'],
+      totalCount: 4,
+      enabledCount: 3,
+      knownEnabledIds: ['aks-desktop', 'aks-desktop-theme'],
       thirdPartyCount: 1,
     });
   });
@@ -175,6 +177,28 @@ describe('registerReduxCallback', () => {
       status: 'confirmed',
       resourceKind: 'Pod',
     });
+  });
+
+  it('forwards theme feedback events through the live consent gate', () => {
+    let enabled = false;
+    registerReduxCallback(() => enabled);
+    const callback = registerHeadlampEventCallback.mock.calls[0][0];
+    const event: HeadlampEvent = { type: 'aksd.feedback', data: { status: 'opened' } };
+
+    callback(event);
+    expect(trackFeature).not.toHaveBeenCalled();
+
+    enabled = true;
+    callback(event);
+    expect(trackFeature).toHaveBeenCalledExactlyOnceWith({
+      feature: 'aksd.feedback',
+      status: 'opened',
+      resourceKind: undefined,
+    });
+
+    enabled = false;
+    callback(event);
+    expect(trackFeature).toHaveBeenCalledTimes(1);
   });
 
   it('drops an event whose type is not on the allowlist', () => {

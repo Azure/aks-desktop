@@ -9,17 +9,18 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  openExternalUrl: vi.fn(),
-  trackFeature: vi.fn(),
+  dispatch: vi.fn(),
 }));
 
-vi.mock('../../utils/shared/openExternalUrl', () => ({
-  openExternalUrl: mocks.openExternalUrl,
-}));
-
-vi.mock('../../telemetry', () => ({
-  trackFeature: mocks.trackFeature,
-}));
+vi.mock('react-redux', async () => {
+  const actual = await vi.importActual<typeof import('react-redux')>('react-redux');
+  return {
+    ...actual,
+    useDispatch: Object.assign(() => mocks.dispatch, {
+      withTypes: () => () => mocks.dispatch,
+    }),
+  };
+});
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -33,12 +34,13 @@ import { CONTACT_US_URL } from '../../utils/constants/contactUs';
 import ContactUsButton from './ContactUsButton';
 
 beforeEach(() => {
-  mocks.openExternalUrl.mockClear();
-  mocks.trackFeature.mockClear();
+  vi.spyOn(window, 'open').mockImplementation(() => null);
+  mocks.dispatch.mockClear();
 });
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 describe('ContactUsButton', () => {
@@ -50,23 +52,23 @@ describe('ContactUsButton', () => {
   it('opens the contact URL when clicked', () => {
     render(<ContactUsButton />);
     fireEvent.click(screen.getByRole('button', { name: /contact us/i }));
-    expect(mocks.openExternalUrl).toHaveBeenCalledWith(CONTACT_US_URL);
+    expect(window.open).toHaveBeenCalledWith(CONTACT_US_URL, '_blank', 'noopener,noreferrer');
   });
 
   it('tracks the click', () => {
     render(<ContactUsButton />);
     fireEvent.click(screen.getByRole('button', { name: /contact us/i }));
-    expect(mocks.trackFeature).toHaveBeenCalledWith({
-      feature: 'aksd.feedback',
-      status: 'opened',
+    expect(mocks.dispatch).toHaveBeenCalledWith({
+      type: 'headlamp/event',
+      payload: { type: 'aksd.feedback', data: { status: 'opened' } },
     });
   });
 
   it('attempts navigation before recording the event', () => {
     render(<ContactUsButton />);
     fireEvent.click(screen.getByRole('button', { name: /contact us/i }));
-    expect(mocks.openExternalUrl.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.trackFeature.mock.invocationCallOrder[0]
+    expect(vi.mocked(window.open).mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.dispatch.mock.invocationCallOrder[0]
     );
   });
 
@@ -105,7 +107,7 @@ describe('ContactUsButton', () => {
       expect(button).toHaveFocus();
 
       fireEvent.click(button);
-      expect(mocks.openExternalUrl).toHaveBeenCalledWith(CONTACT_US_URL);
+      expect(window.open).toHaveBeenCalledWith(CONTACT_US_URL, '_blank', 'noopener,noreferrer');
     });
   });
 });
