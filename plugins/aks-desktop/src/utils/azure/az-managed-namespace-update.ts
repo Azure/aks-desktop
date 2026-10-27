@@ -135,17 +135,28 @@ function accountIdentity(account: Awaited<ReturnType<typeof getLoginStatus>>): s
 
 async function resourceContext(options: ManagedNamespaceScope) {
   const names = [options.resourceGroup, options.clusterName, options.namespaceName];
+  const isDotSegment = (value: string) => value.trim() === '.' || value.trim() === '..';
   if (
     (options.subscriptionId !== undefined &&
-      (typeof options.subscriptionId !== 'string' || !options.subscriptionId.trim())) ||
-    names.some(value => typeof value !== 'string' || !value.trim())
+      (typeof options.subscriptionId !== 'string' ||
+        !options.subscriptionId.trim() ||
+        isDotSegment(options.subscriptionId))) ||
+    names.some(value => typeof value !== 'string' || !value.trim() || isDotSegment(value))
   ) {
     throw new AzureRequestError(
       'Managed namespace requires subscription, resource group, cluster and namespace'
     );
   }
-  const account = await withAbort(() => getLoginStatus(options.subscriptionId), options.signal);
-  if (!account.isLoggedIn || !account.subscriptionId || !account.tenantId) {
+  const account = await withAbort(
+    () => getLoginStatus(options.subscriptionId, options.signal),
+    options.signal
+  );
+  if (
+    !account.isLoggedIn ||
+    !account.subscriptionId ||
+    isDotSegment(account.subscriptionId) ||
+    !account.tenantId
+  ) {
     throw new AzureRequestError(
       account.error ?? 'No Azure subscription or tenant; sign in to the target subscription'
     );
@@ -254,6 +265,7 @@ async function request(
     tenantId: context.tenantId,
     scope: context.scope,
     credential: context.credential,
+    timeoutMs: context.timeoutMs,
     signal,
     ...extra,
   });
@@ -335,9 +347,11 @@ function state(value: unknown, operation: boolean, response: AzResponse<unknown>
   if (typeof raw !== 'string' || !raw.trim())
     throw operationError('Malformed operation status', response);
   const status = raw.toLowerCase();
+  if (['failed', 'canceled', 'cancelled'].includes(status)) {
+    throw operationError(`Managed namespace operation ${raw}`, response);
+  }
   if (status === 'succeeded') return status;
-  if (['inprogress', 'running', 'accepted', 'creating', 'updating'].includes(status)) return status;
-  throw operationError(`Managed namespace operation ${raw}`, response);
+  return status;
 }
 
 function operationError(message: string, response: AzResponse<unknown>): AzureRequestError {
@@ -381,30 +395,6 @@ function continuation(
   return { url: next.href, kind: asyncUrl ? 'operation' : 'location' };
 }
 
-function delay(response: AzResponse<unknown>, signal: AbortSignal): Promise<void> {
-  const header = response.headers.get('retry-after');
-  const seconds = header === null ? NaN : Number(header);
-  const milliseconds =
-    header === null
-      ? NaN
-      : Number.isFinite(seconds)
-      ? seconds * 1000
-      : Date.parse(header) - Date.now();
-  const ms = Number.isFinite(milliseconds) ? Math.max(0, milliseconds) : 1000;
-  return new Promise((resolve, reject) => {
-    const abort = () => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', abort);
-      resolve();
-    }, ms);
-    if (signal.aborted) abort();
-    else signal.addEventListener('abort', abort, { once: true });
-  });
-}
-
 /**
  * Merges writable settings into a fresh GET and submits one ARM PUT.
  * If ARM returns an ETag, it is forwarded as If-Match; enforcement by this API is not guaranteed.
@@ -427,7 +417,10 @@ export async function updateManagedNamespaceResource(
   );
   const signal = controller.signal;
   try {
-    const context = await resourceContext({ ...options, signal });
+    const context = {
+      ...(await resourceContext({ ...options, signal })),
+      timeoutMs: UPDATE_TIMEOUT_MS,
+    };
     const { url, origin } = context;
     const initial = await request(url, context, signal);
     const current = validateResource(initial.data);
@@ -452,7 +445,7 @@ export async function updateManagedNamespaceResource(
       pending = state(response.data, false, response) !== 'succeeded' || pending;
     next ??= { url, kind: 'resource' };
     while (pending) {
-      await delay(response, signal);
+      await waitForAzureRetry(response.headers, signal);
       response = await request(next.url, context, signal);
       if (
         next.kind === 'location' &&
@@ -482,12 +475,12 @@ export async function updateManagedNamespaceResource(
       }
       if (pending) next = continuation(response, next.url, origin) ?? next;
     }
-    const final = await request(url, context, signal);
-    const result = validateResource(final.data);
-    if (state(result, false, final) !== 'succeeded') {
-      throw operationError('Final managed namespace GET did not confirm success', final);
+    for (;;) {
+      const final = await request(url, context, signal);
+      const result = validateResource(final.data);
+      if (state(result, false, final) === 'succeeded') return result;
+      await waitForAzureRetry(final.headers, signal);
     }
-    return result;
   } finally {
     clearTimeout(timeout);
     options.signal?.removeEventListener('abort', abort);
