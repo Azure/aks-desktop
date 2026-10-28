@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   route: vi.fn(),
   sidebar: vi.fn(),
   filter: vi.fn(),
+  homeFilter: vi.fn(),
   appbar: vi.fn(),
 }));
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
@@ -19,6 +20,7 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   registerRoute: mocks.route,
   registerSidebarEntry: mocks.sidebar,
   registerSidebarEntryFilter: mocks.filter,
+  registerHomeSidebarEntryFilter: mocks.homeFilter,
   registerAppBarAction: mocks.appbar,
   useTranslation: () => ({ t: (text: string) => text }),
 }));
@@ -46,6 +48,8 @@ describe('native route registration', () => {
     registerUpgradeInsights();
     expect(mocks.route).not.toHaveBeenCalled();
     expect(mocks.appbar).not.toHaveBeenCalled();
+    expect(mocks.filter).not.toHaveBeenCalled();
+    expect(mocks.homeFilter).not.toHaveBeenCalled();
   });
   it('registers global HOME without a Kubernetes context and a cluster route', () => {
     registerUpgradeInsights();
@@ -64,10 +68,9 @@ describe('native route registration', () => {
       })
     );
   });
-  it('hides both sidebar entries while disabled and re-evaluates live preview changes', () => {
+  it('filters cluster navigation separately and re-evaluates live preview changes', () => {
     registerUpgradeInsights();
     const filter = mocks.filter.mock.calls[0][0];
-    expect(filter({ name: 'upgrade-insights-home' })).toBeNull();
     expect(filter({ name: 'upgrade-insights-cluster' })).toBeNull();
     expect(filter({ name: 'azure-profile' })).toEqual({ name: 'azure-profile' });
     const Navigation = mocks.appbar.mock.calls[0][0];
@@ -76,6 +79,32 @@ describe('native route registration', () => {
     mocks.enabled = true;
     view.rerender(<Navigation />);
     expect(mocks.sidebar.mock.calls.length).toBeGreaterThan(before);
-    expect(filter({ name: 'upgrade-insights-home' })).toEqual({ name: 'upgrade-insights-home' });
+    expect(filter({ name: 'upgrade-insights-cluster' })).toEqual({
+      name: 'upgrade-insights-cluster',
+    });
+    mocks.enabled = false;
+    view.rerender(<Navigation />);
+    expect(filter({ name: 'upgrade-insights-cluster' })).toBeNull();
+  });
+
+  it('hides HOME navigation by default and updates its dedicated filter when preview changes', () => {
+    registerUpgradeInsights();
+    expect(mocks.homeFilter).toHaveBeenCalledTimes(1);
+    const filter = mocks.homeFilter.mock.calls[0][0];
+    expect(filter({ name: 'upgrade-insights-home' })).toBeNull();
+    expect(filter({ name: 'azure-profile' })).toEqual({ name: 'azure-profile' });
+    const Navigation = mocks.appbar.mock.calls[0][0];
+    const view = render(<Navigation />);
+    expect(mocks.sidebar).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'upgrade-insights-home', sidebar: 'HOME' })
+    );
+    mocks.enabled = true;
+    view.rerender(<Navigation />);
+    expect(filter({ name: 'upgrade-insights-home' })).toEqual({
+      name: 'upgrade-insights-home',
+    });
+    mocks.enabled = false;
+    view.rerender(<Navigation />);
+    expect(filter({ name: 'upgrade-insights-home' })).toBeNull();
   });
 });

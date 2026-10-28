@@ -4,6 +4,7 @@
 import {
   Headlamp,
   registerAppBarAction,
+  registerHomeSidebarEntryFilter,
   registerRoute,
   registerSidebarEntry,
   registerSidebarEntryFilter,
@@ -42,11 +43,12 @@ function NavigationSync() {
 
 export function registerUpgradeInsights() {
   if (!Headlamp.isRunningAsApp()) return;
-  registerSidebarEntryFilter(entry =>
+  const filter: Parameters<typeof registerSidebarEntryFilter>[0] = entry =>
     entry.name.startsWith('upgrade-insights-') && !previewFeaturesStore.get()?.upgradeInsights
       ? null
-      : entry
-  );
+      : entry;
+  registerSidebarEntryFilter(filter);
+  registerHomeSidebarEntryFilter(filter);
   registerAppBarAction(() => <NavigationSync />);
   registerRoute({
     path: '/azure/upgrade-insights',
