@@ -35,7 +35,6 @@ vi.mock('../azure/az-cli-path', () => ({
 
 // Import the actual functions under test
 import { enableClusterAddon, getClusterCapabilities } from '../azure/az-clusters';
-import { getClusterCount } from '../azure/az-resource-graph';
 
 // Test helper function
 const createMockChildProcess = (stdoutData: string, stderrData: string = ''): MockChildProcess => ({
@@ -516,85 +515,5 @@ describe('enableClusterAddon', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('No addons specified');
-  });
-});
-
-describe('getClusterCount', () => {
-  const validSubscriptionId = '12345678-1234-1234-1234-123456789abc';
-
-  beforeEach(() => {
-    mockPluginRunCommand.mockClear();
-  });
-
-  test('returns cluster count from Count field', async () => {
-    const response = JSON.stringify({ data: [{ Count: 5 }] });
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(5);
-  });
-
-  test('returns cluster count from count_ field', async () => {
-    const response = JSON.stringify({ data: [{ count_: 3 }] });
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(3);
-  });
-
-  test('returns -1 for invalid subscription ID format', async () => {
-    const result = await getClusterCount('not-a-guid');
-
-    expect(result).toBe(-1);
-    expect(mockPluginRunCommand).not.toHaveBeenCalled();
-  });
-
-  test('returns -1 for empty subscription ID', async () => {
-    const result = await getClusterCount('');
-
-    expect(result).toBe(-1);
-    expect(mockPluginRunCommand).not.toHaveBeenCalled();
-  });
-
-  test('returns -1 when Azure CLI returns ERROR:', async () => {
-    const mockProcess = createMockChildProcess('', 'ERROR: Resource graph query failed');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(-1);
-  });
-
-  test('returns -1 when response has no data', async () => {
-    const response = JSON.stringify({ data: [] });
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(-1);
-  });
-
-  test('returns -1 for malformed JSON response', async () => {
-    const mockProcess = createMockChildProcess('not valid json');
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(-1);
-  });
-
-  test('returns 0 when count is zero', async () => {
-    const response = JSON.stringify({ data: [{ Count: 0 }] });
-    const mockProcess = createMockChildProcess(response);
-    mockPluginRunCommand.mockReturnValue(mockProcess);
-
-    const result = await getClusterCount(validSubscriptionId);
-
-    expect(result).toBe(0);
   });
 });

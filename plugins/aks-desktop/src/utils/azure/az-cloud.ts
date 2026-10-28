@@ -31,26 +31,28 @@ function configuredHttpsUrl(value: unknown): string {
 /**
  * Reads local CLI cloud configuration without switching the active cloud.
  * @param cloudName - Registered cloud name from the selected account's environmentName.
+ *   Omit to use the CLI's active cloud.
  * @param signal - Optional cancellation of this caller's wait, not the shared CLI process.
  * @returns Cached ARM endpoint and exact token scope; account changes invalidate the cache.
  * @throws For invalid names, CLI/configuration failures or cancellation. Failed
  * lookups are not cached and never fall back to public Azure.
  */
 export function getAzureCloudEndpoints(
-  cloudName: string,
+  cloudName?: string,
   signal?: AbortSignal
 ): Promise<AzureCloudEndpoints> {
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(cloudName)) {
+  if (cloudName !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(cloudName)) {
     return Promise.reject(new Error('Invalid Azure cloud name'));
   }
+  const key = cloudName ?? '';
   return withAbort(() => {
-    let cloud = clouds.get(cloudName);
+    let cloud = clouds.get(key);
     if (!cloud) {
       cloud = (async () => {
         const result = await runAzCommand<AzureCloudEndpoints>(
-          ['cloud', 'show', '--name', cloudName, '--output', 'json'],
+          ['cloud', 'show', ...(cloudName ? ['--name', cloudName] : []), '--output', 'json'],
           'Reading Azure cloud endpoints:',
-          `read Azure cloud ${cloudName}`,
+          `read Azure cloud ${cloudName ?? '(active)'}`,
           stdout => {
             const config: {
               endpoints?: { resourceManager?: unknown; activeDirectoryResourceId?: unknown };
@@ -64,13 +66,15 @@ export function getAzureCloudEndpoints(
           }
         );
         if (!result.success || !result.data) {
-          throw new Error(result.error ?? `Azure cloud ${cloudName} returned no endpoints`);
+          throw new Error(
+            result.error ?? `Azure cloud ${cloudName ?? '(active)'} returned no endpoints`
+          );
         }
         return result.data;
       })();
-      clouds.set(cloudName, cloud);
+      clouds.set(key, cloud);
       cloud.catch(() => {
-        if (clouds.get(cloudName) === cloud) clouds.delete(cloudName);
+        if (clouds.get(key) === cloud) clouds.delete(key);
       });
     }
     return cloud;
