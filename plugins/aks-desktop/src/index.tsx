@@ -51,6 +51,7 @@ import ScalingCard from './components/Scaling/ScalingCard';
 import ScalingTab from './components/Scaling/ScalingTab';
 import TelemetryBoot from './components/TelemetryBoot';
 import { TelemetryErrorBoundary } from './components/TelemetryErrorBoundary';
+import { registerUpgradeInsights } from './components/UpgradeInsights/navigation';
 import { setConsentPredicate, setTelemetryEnabled } from './telemetry';
 import { registerReduxCallback } from './telemetry/setup';
 import type { ProjectDefinition } from './types/project';
@@ -88,6 +89,7 @@ function ConfigurePipelineHeaderAction(
 
 // add azure related components only if running as app
 if (Headlamp.isRunningAsApp()) {
+  registerUpgradeInsights();
   setTelemetryEnabled(isTelemetryEnabled());
 
   // Give direct producers the same live predicate the Redux bridge gets, so
