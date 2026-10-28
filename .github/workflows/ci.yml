@@ -149,6 +149,7 @@ jobs:
           build/package-target.test.ts
           build/azure-cli-config.test.ts
           build/start-development.test.ts
+          build/wait-for-backend.test.ts
           build/windows-zip-extraction.test.ts
           packages/headlamp-source/src/lib/bundle-plugins.test.ts
           packages/headlamp-source/src/lib/smoke-app.test.ts
