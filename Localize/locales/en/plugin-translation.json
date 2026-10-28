@@ -1013,5 +1013,13 @@
   "Upgrade Insights is disabled. Enable it in AKS Desktop Preview Features settings.": "Upgrade Insights is disabled. Enable it in AKS Desktop Preview Features settings.",
   "Upgrade strategy: {{strategy}}": "Upgrade strategy: {{strategy}}",
   "Use inventory order on current page": "Use inventory order on current page",
-  "Version support: {{status}}": "Version support: {{status}}"
+  "Version support: {{status}}": "Version support: {{status}}",
+  "Component compatibility": "Component compatibility",
+  "Compute quota": "Compute quota",
+  "Disruption budgets": "Disruption budgets",
+  "Node image freshness": "Node image freshness",
+  "Removed APIs": "Removed APIs",
+  "Subnet IP capacity": "Subnet IP capacity",
+  "Unknown issue": "Unknown issue",
+  "Version support": "Version support"
 }

@@ -22,6 +22,7 @@ export interface InsightScopeDetailsProps {
  */
 export default function InsightScopeDetails({ name, result }: InsightScopeDetailsProps) {
   const { t } = useTranslation();
+  const labels = issueLabels(t);
   const issues = result.evaluation?.detectedIssues ?? [];
   const window = result.context?.nextMaintenanceWindow;
   return (
@@ -90,7 +91,7 @@ export default function InsightScopeDetails({ name, result }: InsightScopeDetail
         <Box key={index}>
           <Divider sx={{ my: 1 }} />
           <Typography variant="subtitle1">
-            {t(issueLabels[issue.issueType ?? ''] ?? issue.issueType ?? 'Unknown issue')}
+            {labels[issue.issueType ?? ''] ?? issue.issueType ?? t('Unknown issue')}
           </Typography>
           <Typography>
             {t('Severity: {{severity}}', { severity: issue.severity ?? t('Unknown') })}
