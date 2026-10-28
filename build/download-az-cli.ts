@@ -63,6 +63,7 @@ const {
   windowsZipExtraction,
   windowsZipListing,
 } = require('./windows-zip-extraction.ts');
+const { runWindowsBatch } = require('./windows-batch.ts');
 const EXTERNAL_TOOLS_DIR = path.join(HEADLAMP_APP_DIR, 'resources', 'external-tools');
 const AZ_CLI_DIR = path.join(EXTERNAL_TOOLS_DIR, 'az-cli');
 const TEMP_DIR = path.join(os.tmpdir(), `az-cli-download-${process.pid}`);
@@ -177,10 +178,12 @@ if (
     );
 
     const versionData = JSON.parse(
-      execFileSync(azWrapperPath, ['version', '--output', 'json'], {
-        encoding: 'utf8',
-        timeout: 120000,
-      })
+      CURRENT_PLATFORM === 'win32'
+        ? runWindowsBatch(azWrapperPath, ['version', '--output', 'json'], { timeout: 120000 })
+        : execFileSync(azWrapperPath, ['version', '--output', 'json'], {
+            encoding: 'utf8',
+            timeout: 120000,
+          })
     );
     if (azureCliVersionDataMatchesTarget(target, versionData)) {
       verifyExtensionCache(
