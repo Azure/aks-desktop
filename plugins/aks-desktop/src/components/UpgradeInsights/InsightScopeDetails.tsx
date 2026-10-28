@@ -7,7 +7,20 @@ import React from 'react';
 import { issueLabels, type Scope } from '../../types/upgradeInsights';
 import { formatTime, safeDocumentationUrl } from './domain';
 
-export default function InsightScopeDetails({ name, result }: { name: string; result: Scope }) {
+/** One scope from a stored evaluation, never a merged or live readiness result. */
+export interface InsightScopeDetailsProps {
+  /** Scope display name, usually Control plane or an inventory pool name. */
+  name: string;
+  /** Stored source versions, evaluation, and maintenance context for this scope. */
+  result: Scope;
+}
+
+/**
+ * Present reported risks and informational remediation without mutating affected resources.
+ * @param props Scope name and its original stored evaluation payload.
+ * @returns Scope context, issue/resource details, and allowlisted HTTPS documentation links.
+ */
+export default function InsightScopeDetails({ name, result }: InsightScopeDetailsProps) {
   const { t } = useTranslation();
   const issues = result.evaluation?.detectedIssues ?? [];
   const window = result.context?.nextMaintenanceWindow;

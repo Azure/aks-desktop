@@ -3,6 +3,7 @@
 
 import type { Cluster, ClusterRecord, Insight, Issue, Scope } from '../../types/upgradeInsights';
 
+/** Conservative snapshot classification; Ready is neither an upgrade nor a physical-capacity guarantee. */
 export type Readiness =
   | 'Blocked'
   | 'Review warnings'
@@ -11,6 +12,7 @@ export type Readiness =
   | 'Not evaluated'
   | 'Unavailable';
 
+/** Ascending risk-priority ordering used only to sort the currently loaded page. */
 export const readinessOrder: Record<Readiness, number> = {
   Blocked: 0,
   Unavailable: 1,
@@ -20,6 +22,11 @@ export const readinessOrder: Record<Readiness, number> = {
   Ready: 5,
 };
 
+/**
+ * Project one stored insight into its own evaluated scopes without merging other resources.
+ * @param insight Stored standalone or combined evaluation.
+ * @returns Display-name/result pairs, preserving the original per-scope snapshot payloads.
+ */
 export function scopes(insight: Insight): { name: string; result: Scope }[] {
   const p = insight.properties;
   if (p.upgradeType === 'ControlPlaneAndAgentPools') {
@@ -34,6 +41,11 @@ export function scopes(insight: Insight): { name: string; result: Scope }[] {
   return [{ name: p.agentPoolName ?? 'Control plane', result: p }];
 }
 
+/**
+ * Flatten a stored evaluation's issues while retaining their originating scopes.
+ * @param insight Optional stored evaluation; absence contributes no reported issues.
+ * @returns Items with a rendering key derived from resource/scope/index, scope display name, and original issue.
+ */
 export function issuesFor(insight?: Insight): { key: string; scope: string; issue: Issue }[] {
   if (!insight) return [];
   return scopes(insight).flatMap(({ name, result }) =>
@@ -45,6 +57,12 @@ export function issuesFor(insight?: Insight): { key: string; scope: string; issu
   );
 }
 
+/**
+ * Select the combined evaluation used for inventory readiness without mixing standalone checks.
+ * @param record Cluster and its independent stored evaluations.
+ * @returns An undated combined result conservatively preferred over dated results, otherwise the
+ * most recently evaluated combined result, or undefined when none exists.
+ */
 export function latestCombined(record: ClusterRecord): Insight | undefined {
   const combined = record.insights.filter(
     i => i.properties.upgradeType === 'ControlPlaneAndAgentPools'
@@ -63,6 +81,13 @@ export function latestCombined(record: ClusterRecord): Insight | undefined {
   );
 }
 
+/**
+ * Assess snapshot age, service expiry, scope timestamps, and source-version comparability.
+ * @param insight Stored evaluation whose timestamps and source versions are inspected.
+ * @param cluster Current inventory metadata against which the stored source is compared.
+ * @param now Current epoch time in milliseconds; injectable for deterministic freshness checks.
+ * @returns A translation-key warning for the first freshness problem, or undefined when checks pass.
+ */
 export function freshness(
   insight: Insight,
   cluster: Cluster,
@@ -126,6 +151,13 @@ export function freshness(
   }
 }
 
+/**
+ * Classify one stored evaluation without interpreting missing or unfamiliar data as Ready.
+ * @param insight Optional stored evaluation, independent of other overlapping resources.
+ * @param cluster Current source versions and pool coverage needed to assess completeness.
+ * @param now Epoch time in milliseconds used for freshness checks.
+ * @returns A conservative snapshot state, not permission to upgrade or a reservation of capacity.
+ */
 export function readiness(
   insight: Insight | undefined,
   cluster: Cluster,
@@ -185,10 +217,20 @@ export function readiness(
   return 'Ready';
 }
 
+/**
+ * Derive inventory readiness from the latest combined snapshot, preserving read failures.
+ * @param record Cluster inventory, stored evaluations, and any insight-read error.
+ * @returns Unavailable on a read error, otherwise the selected combined snapshot's readiness.
+ */
 export function recordReadiness(record: ClusterRecord): Readiness {
   return record.error ? 'Unavailable' : readiness(latestCombined(record), record.cluster);
 }
 
+/**
+ * Restrict server-provided remediation links to approved HTTPS documentation hosts.
+ * @param value Untrusted optional URL from an insight's recommended actions.
+ * @returns A normalized allowlisted URL without credentials or unusual ports, otherwise undefined.
+ */
 export function safeDocumentationUrl(value?: string): string | undefined {
   if (!value) return;
   try {
@@ -207,6 +249,11 @@ export function safeDocumentationUrl(value?: string): string | undefined {
   }
 }
 
+/**
+ * Format a parseable timestamp using the viewer's locale and local time zone.
+ * @param value Optional server-provided timestamp.
+ * @returns Localized date/time text, or undefined so the caller can translate its unavailable label.
+ */
 export function formatTime(value?: string): string | undefined {
   if (!value || !Number.isFinite(Date.parse(value))) return;
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
@@ -214,11 +261,21 @@ export function formatTime(value?: string): string | undefined {
   );
 }
 
+/**
+ * Quote a CSV cell and neutralize spreadsheet formula prefixes, including leading whitespace.
+ * @param value Raw display or API text to include in a local export.
+ * @returns A double-quoted CSV field with embedded quotes escaped and risky prefixes apostrophe-prefixed.
+ */
 export function csvCell(value: string): string {
   const safe = /^\s*[=+\-@]|^[\t\r\n]/.test(value) ? `'${value}` : value;
   return `"${safe.replace(/"/g, '""')}"`;
 }
 
+/**
+ * Convert a rejected value to displayable error data without replacing failure with success.
+ * @param error Error instance or arbitrary rejected value.
+ * @returns The Error message when available, otherwise the value's string representation.
+ */
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

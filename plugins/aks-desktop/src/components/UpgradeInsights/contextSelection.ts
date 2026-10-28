@@ -7,6 +7,10 @@ import { getClusterSettings } from '../../utils/shared/clusterSettings';
 /**
  * Registration metadata can narrow the choices, but does not contain a complete
  * ARM identity. Even one candidate needs explicit selection; never match names.
+ * @param clusters Reachable managed-cluster inventory from the selected subscriptions.
+ * @param contextName Optional key for persisted registration metadata, not an ARM resource name.
+ * @returns Candidates narrowed by complete subscription/resource-group metadata, all candidates
+ * when that metadata is absent, or no candidates for an Arc-connected context.
  */
 export function contextCandidates(clusters: Cluster[], contextName?: string): Cluster[] {
   if (!contextName) return clusters;

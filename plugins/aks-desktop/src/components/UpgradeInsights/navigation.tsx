@@ -16,6 +16,10 @@ import { previewFeaturesStore } from '../PluginSettings/previewFeaturesStore';
 import { TelemetryErrorBoundary } from '../TelemetryErrorBoundary';
 import UpgradeInsightsPage from './UpgradeInsightsPage';
 
+/**
+ * Synchronize translated sidebar entries when preview configuration changes during a session.
+ * @returns Null; this app-bar registration supplies no visible app-bar control.
+ */
 function NavigationSync() {
   const { t } = useTranslation();
   const { upgradeInsights } = usePreviewFeatures();
@@ -41,6 +45,10 @@ function NavigationSync() {
   return null;
 }
 
+/**
+ * Register desktop-only Home/context routes and their separate live preview-aware sidebar filters.
+ * @returns No value; browser deployments receive no registrations.
+ */
 export function registerUpgradeInsights() {
   if (!Headlamp.isRunningAsApp()) return;
   const filter: Parameters<typeof registerSidebarEntryFilter>[0] = entry =>

@@ -27,21 +27,46 @@ import GenerateInsight from './GenerateInsight';
 import InsightScopeDetails from './InsightScopeDetails';
 import { useSnapshotClock } from './useSnapshotClock';
 
+/**
+ * Identify a stored evaluation within the current cluster's selection list.
+ * @param insight Stored resource whose ARM ID may be absent in a read response.
+ * @returns The resource ID when present, otherwise its resource name.
+ */
 const insightKey = (insight: Insight) => insight.id ?? insight.name;
 
+/** Read and generation coordination for one explicitly selected managed cluster. */
+export interface ClusterDetailsProps {
+  /** Authoritative cluster identity and inventory versions used to interpret the snapshots. */
+  cluster: Cluster;
+  /** Provider belonging to the current authenticated subscription selection. */
+  provider: InsightsProvider;
+  /** Change token for re-reading stored insights; cache invalidation is controlled by the caller. */
+  refresh: number;
+  /**
+   * Lock parent selection/edit controls while generation is in flight.
+   * @param busy Whether a confirmed generation request is active.
+   * @returns No value.
+   */
+  onBusyChange: (busy: boolean) => void;
+  /**
+   * Notify the workspace after a generated resource has been verified and selected locally.
+   * @returns No value.
+   */
+  onGenerated: () => void;
+}
+
+/**
+ * Display independent stored evaluations, per-scope findings, freshness, and confirmed generation.
+ * @param props Selected cluster and callbacks coordinating reads and generation with its workspace.
+ * @returns Cluster metadata, stored snapshot details, raw response, and the generation form.
+ */
 export default function ClusterDetails({
   cluster,
   provider,
   refresh,
   onBusyChange,
   onGenerated,
-}: {
-  cluster: Cluster;
-  provider: InsightsProvider;
-  refresh: number;
-  onBusyChange: (busy: boolean) => void;
-  onGenerated: () => void;
-}) {
+}: ClusterDetailsProps) {
   const { t } = useTranslation();
   useSnapshotClock();
   const [insights, setInsights] = useState<Insight[]>([]);
@@ -86,6 +111,11 @@ export default function ClusterDetails({
   const effectiveScope = selectedScopes.some(s => s.name === scope) ? scope : '';
   const freshnessWarning = insight && freshness(insight, cluster);
 
+  /**
+   * Select the verified evaluation before notifying the workspace to refresh its inventory view.
+   * @param next Generated insight whose exact persisted resource has already been verified.
+   * @returns No value.
+   */
   function generated(next: Insight) {
     setInsights(items => [next, ...items.filter(i => insightKey(i) !== insightKey(next))]);
     setSelectedKey(insightKey(next));
