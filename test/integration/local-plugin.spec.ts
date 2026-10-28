@@ -83,23 +83,21 @@ const identity = {
   packageName: '@headlamp-k8s/developer-cluster',
   bundleName: 'developer-cluster',
 };
-const guest = ['--json', '--driver', 'wsl', '--distro', 'Ubuntu-24.04', '--reach', 'shared'];
+const guest = ['--json', '--provider', 'wsl', '--distro', 'Ubuntu-24.04'];
 const prefix = [
   '--json',
-  '--driver',
+  '--provider',
   'wsl',
   '--distro',
   'Ubuntu-24.04',
-  '--distribution',
+  '--kubernetes-distribution',
   'K8s',
-  '--cni',
-  'cilium',
-  '--reach',
+  '--agent-connectivity',
   'shared',
-  '--wsl-stable-ip',
+  '--wsl-control-plane-ip',
   'off',
 ];
-const configuration = ['--name', 'demo', '--k8s-version', 'v1.36.1'];
+const configuration = ['--name', 'demo', '--kubernetes-version', 'v1.36.1'];
 let temporaryRoot: string;
 let resources: string;
 let executable: string;
@@ -302,6 +300,7 @@ it.each([
   ['cluster', 'delete', ...guest, '--name', '../bad', '--prune-kubeconfig'],
   ['cluster', 'delete', ...guest, ...configuration],
   ['cluster', 'create', ...prefix, ...configuration, '--kubeconfig-out', 'C:\\kubeconfig.yaml'],
+  ['cluster', 'create', ...prefix, ...configuration, '--merge'],
 ])('enforces full native validation after the variable-argument grant: %j', async (...args) => {
   const send = await invoke(args);
   expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-desktop', args, true);
@@ -310,9 +309,9 @@ it.each([
 });
 
 it.each([[], ['--enable-gpu', '--gpu-vendor', 'nvidia']])(
-  'accepts only the default-kubeconfig merge shape for create %j',
+  'accepts only the default-kubeconfig create shape %j',
   async (...gpu) => {
-    const args = ['cluster', 'create', ...prefix, ...configuration, '--merge', ...gpu];
+    const args = ['cluster', 'create', ...prefix, ...configuration, ...gpu];
     await invoke(args);
     expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-desktop', args, true);
     expect(mocks.spawn).toHaveBeenCalledExactlyOnceWith(

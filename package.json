@@ -1126,12 +1126,10 @@
               "cluster",
               "show",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
-              "Ubuntu-24.04",
-              "--reach",
-              "shared"
+              "Ubuntu-24.04"
             ]
           },
           {
@@ -1141,17 +1139,15 @@
               "cluster",
               "create",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
+              "--kubernetes-distribution",
               "K8s",
-              "--cni",
-              "cilium",
-              "--reach",
+              "--agent-connectivity",
               "shared",
-              "--wsl-stable-ip",
+              "--wsl-control-plane-ip",
               "off"
             ]
           },
@@ -1162,12 +1158,10 @@
               "cluster",
               "delete",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
-              "Ubuntu-24.04",
-              "--reach",
-              "shared"
+              "Ubuntu-24.04"
             ]
           },
           {
@@ -1226,12 +1220,10 @@
               "cluster",
               "show",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
-              "Ubuntu-24.04",
-              "--reach",
-              "shared"
+              "Ubuntu-24.04"
             ]
           },
           {
@@ -1241,17 +1233,15 @@
               "cluster",
               "create",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
+              "--kubernetes-distribution",
               "K8s",
-              "--cni",
-              "cilium",
-              "--reach",
+              "--agent-connectivity",
               "shared",
-              "--wsl-stable-ip",
+              "--wsl-control-plane-ip",
               "off"
             ]
           },
@@ -1262,12 +1252,10 @@
               "cluster",
               "delete",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
-              "Ubuntu-24.04",
-              "--reach",
-              "shared"
+              "Ubuntu-24.04"
             ]
           },
           {
@@ -1322,12 +1310,10 @@
               "cluster",
               "show",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
-              "Ubuntu-24.04",
-              "--reach",
-              "shared"
+              "Ubuntu-24.04"
             ]
           },
           {
@@ -1337,17 +1323,15 @@
               "cluster",
               "create",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
+              "--kubernetes-distribution",
               "K8s",
-              "--cni",
-              "cilium",
-              "--reach",
+              "--agent-connectivity",
               "shared",
-              "--wsl-stable-ip",
+              "--wsl-control-plane-ip",
               "off"
             ]
           },
@@ -1358,12 +1342,10 @@
               "cluster",
               "delete",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
-              "Ubuntu-24.04",
-              "--reach",
-              "shared"
+              "Ubuntu-24.04"
             ]
           },
           {
@@ -1422,12 +1404,10 @@
               "cluster",
               "show",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
-              "Ubuntu-24.04",
-              "--reach",
-              "shared"
+              "Ubuntu-24.04"
             ]
           },
           {
@@ -1437,17 +1417,15 @@
               "cluster",
               "create",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
               "Ubuntu-24.04",
-              "--distribution",
+              "--kubernetes-distribution",
               "K8s",
-              "--cni",
-              "cilium",
-              "--reach",
+              "--agent-connectivity",
               "shared",
-              "--wsl-stable-ip",
+              "--wsl-control-plane-ip",
               "off"
             ]
           },
@@ -1458,12 +1436,10 @@
               "cluster",
               "delete",
               "--json",
-              "--driver",
+              "--provider",
               "wsl",
               "--distro",
-              "Ubuntu-24.04",
-              "--reach",
-              "shared"
+              "Ubuntu-24.04"
             ]
           },
           {

@@ -69,11 +69,11 @@ function validateCommand(command, args) {
   if (args.length === 3 && subcommand === 'get-versions' && args[2] === '--json') return;
   // create takes the full local topology; show and delete accept only the flags that find the
   // guest (aks-desktop cmd/aks-desktop/flags.go, newScopedFlags).
-  const guest = ['--json', '--driver', 'wsl', '--distro', 'Ubuntu-24.04', '--reach', 'shared'];
+  const guest = ['--json', '--provider', 'wsl', '--distro', 'Ubuntu-24.04'];
   const local = [
-    '--json', '--driver', 'wsl', '--distro', 'Ubuntu-24.04',
-    '--distribution', 'K8s', '--cni', 'cilium', '--reach', 'shared',
-    '--wsl-stable-ip', 'off',
+    '--json', '--provider', 'wsl', '--distro', 'Ubuntu-24.04',
+    '--kubernetes-distribution', 'K8s', '--agent-connectivity', 'shared',
+    '--wsl-control-plane-ip', 'off',
   ];
   if (!['show', 'create', 'delete'].includes(subcommand)) invalid();
   const prefix = subcommand === 'create' ? local : guest;
@@ -94,14 +94,13 @@ function validateCommand(command, args) {
     if (rest.length !== 3) invalid();
     return;
   }
-  if (rest[2] !== '--k8s-version' || !/^v\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(rest[3] ?? '')) {
+  if (rest[2] !== '--kubernetes-version' || !/^v\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(rest[3] ?? '')) {
     invalid();
   }
-  // The CLI merges the credentials into the default kubeconfig; an NVIDIA GPU create appends
-  // exactly these arguments after --merge.
-  if (rest[4] !== '--merge') invalid();
+  // Create merges the credentials into the default kubeconfig without a flag; an NVIDIA GPU
+  // create appends exactly these arguments.
   const gpu = ['--enable-gpu', '--gpu-vendor', 'nvidia'];
-  const extra = rest.slice(5);
+  const extra = rest.slice(4);
   if (extra.length === 0) return;
   if (extra.length !== gpu.length || gpu.some((value, index) => extra[index] !== value)) invalid();
 }

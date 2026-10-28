@@ -74,7 +74,7 @@ async function unusedPort(): Promise<number> {
   return address.port;
 }
 
-// The AKS Desktop CLI owns the user's default kubeconfig: `cluster create --merge` adds the
+// The AKS Desktop CLI owns the user's default kubeconfig: `cluster create` adds the
 // cluster's context and `cluster delete --prune-kubeconfig` removes it, each by an atomic
 // temp-file rename. The backend must follow both, including removals and an all-null file.
 it.each([true, false])(
@@ -204,7 +204,7 @@ it.each([true, false])(
         await expect.poll(() => logs, { timeout: 5000 }).toContain('kubeconfig not found');
       }
 
-      // cluster create --merge
+      // cluster create
       writeKubeconfigAtomically(kubeconfig, fixture([...baseNames, 'dev-cluster']));
       await waitForNames([...baseNames, 'dev-cluster']);
 
