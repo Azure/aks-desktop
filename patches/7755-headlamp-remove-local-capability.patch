@@ -1,0 +1,213 @@
+diff --git a/app/electron/cluster-registration.test.ts b/app/electron/cluster-registration.test.ts
+index 9f1f7eb6ea6ecd97b1399befc4f73c9b01b66fcb..0fa6d1f0a5417ea1f53a8e44310581f846e6b4c5 100644
+--- a/app/electron/cluster-registration.test.ts
++++ b/app/electron/cluster-registration.test.ts
+@@ -1276,9 +1276,9 @@ describe('cluster registration startup wiring', () => {
+     expect(handlerSetup).toBeLessThan(rendererLoad);
+     const registrationSetup = mainSource.slice(handlerSetup, rendererLoad);
+     expect(registrationSetup).toContain('privatePluginCapabilities?.authorizeClusterRegistration');
+-    expect(registrationSetup).toContain(
+-      '[...clusterRegistrationProviders, createLocalClusterRegistrationProvider()]'
+-    );
++    expect(registrationSetup).toContain('      clusterRegistrationProviders\n    );');
++    // AKS Local reads its contexts and the platform itself, so no local provider is registered.
++    expect(mainSource).not.toContain('local-cluster-registration');
+     // The CLI writes local clusters to the user's kubeconfig, so the server loads no extra file.
+     const serverSetup = mainSource.slice(mainSource.indexOf('function startServer('), handlerSetup);
+     expect(serverSetup).toContain("serverArgs.concat(['--kubeconfig', args.kubeconfig])");
+diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/local-cluster-registration.test.ts
+deleted file mode 100644
+index a30d839ddbc1b2ab08da8e4d0239af7aef6bae25..0000000000000000000000000000000000000000
+--- a/app/electron/local-cluster-registration.test.ts
++++ /dev/null
+@@ -1,98 +0,0 @@
+-/*
+- * Copyright 2025 The Kubernetes Authors
+- *
+- * Licensed under the Apache License, Version 2.0 (the "License");
+- * you may not use this file except in compliance with the License.
+- * You may obtain a copy of the License at
+- *
+- * http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
+-
+-import fs from 'node:fs';
+-import os from 'node:os';
+-import path from 'node:path';
+-import { describe, expect, it, vi } from 'vitest';
+-import { registerCluster } from './cluster-registration';
+-import {
+-  createLocalClusterRegistrationProvider,
+-  isLocalRequest,
+-} from './local-cluster-registration';
+-
+-vi.mock('./secureStorage', () => ({ isTrustedDocumentUrl: vi.fn() }));
+-
+-const runtime = { resourcesPath: 'unused', tools: { cli: 'unused' } };
+-
+-describe('local cluster capability', () => {
+-  const provider = createLocalClusterRegistrationProvider({ platform: 'win32', arch: 'x64' });
+-
+-  it('advertises the versioned contract without CLI tools', async () => {
+-    expect(isLocalRequest({ action: 'capabilities' })).toBe(true);
+-    expect(isLocalRequest({ action: 'capabilities', command: 'create' })).toBe(false);
+-    await expect(
+-      provider.register({ action: 'capabilities' }, { resourcesPath: 'unused', tools: {} })
+-    ).resolves.toEqual({
+-      success: true,
+-      message: 'Local cluster compatibility contract.',
+-      data: { contract: 'aksedge-local', version: 3, platform: 'win32', arch: 'x64' },
+-    });
+-  });
+-
+-  it.each([
+-    ['linux', 'x64'],
+-    ['win32', 'arm64'],
+-  ] as const)('rejects the compatibility probe on %s/%s', async (platform, arch) => {
+-    const unsupported = createLocalClusterRegistrationProvider({ platform, arch });
+-    await expect(unsupported.register({ action: 'capabilities' }, runtime)).resolves.toMatchObject({
+-      success: false,
+-      data: { code: 'unsupported' },
+-    });
+-  });
+-
+-  it('preserves public metadata through the generic dispatcher without changing existing provider results', async () => {
+-    expect(
+-      await registerCluster('aksedge-local', { action: 'capabilities' }, runtime, [provider])
+-    ).toEqual({
+-      success: true,
+-      message: 'Local cluster compatibility contract.',
+-      data: { contract: 'aksedge-local', version: 3, platform: 'win32', arch: 'x64' },
+-    });
+-    const register = vi
+-      .fn()
+-      .mockResolvedValue({ success: true, message: 'Existing provider result' });
+-    const existing = { ...provider, id: 'existing', register };
+-    expect(
+-      await registerCluster('existing', { action: 'capabilities' }, runtime, [existing])
+-    ).toEqual({
+-      success: true,
+-      message: 'Existing provider result',
+-    });
+-    for (const data of [null, [], 'unexpected']) {
+-      register.mockResolvedValueOnce({ success: true, message: 'fixture', data });
+-      expect(
+-        await registerCluster('existing', { action: 'capabilities' }, runtime, [existing])
+-      ).toMatchObject({
+-        success: false,
+-      });
+-    }
+-  });
+-
+-  it('rejects the removed registration actions, extra options and non-string actions', () => {
+-    for (const value of [
+-      { action: ['capabilities'] },
+-      { action: 'capabilities', path: 'C:\\arbitrary' },
+-      { action: 'inspect' },
+-      { action: 'prepare', name: 'demo', kubernetesVersion: '1.36.1-20260701' },
+-      { action: 'register', token: 'f0000000-0000-4000-8000-000000000000' },
+-      { action: 'readiness', reference: 'registered' },
+-      { action: 'discard', token: 'f0000000-0000-4000-8000-000000000000' },
+-      { action: 'forget', reference: 'registered', name: 'demo' },
+-    ])
+-      expect(isLocalRequest(value)).toBe(false);
+-  });
+-});
+diff --git a/app/electron/local-cluster-registration.ts b/app/electron/local-cluster-registration.ts
+deleted file mode 100644
+index 2f10348219b30555f14a0f92a5aab00d42b8e250..0000000000000000000000000000000000000000
+--- a/app/electron/local-cluster-registration.ts
++++ /dev/null
+@@ -1,65 +0,0 @@
+-/*
+- * Copyright 2025 The Kubernetes Authors
+- *
+- * Licensed under the Apache License, Version 2.0 (the "License");
+- * you may not use this file except in compliance with the License.
+- * You may obtain a copy of the License at
+- *
+- * http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
+-
+-import { ClusterRegistrationProvider } from './cluster-registration';
+-
+-/** The AKS Local plugin's host capability (`aksedge-local`). */
+-export const LOCAL_PROVIDER = 'aksedge-local';
+-
+-type LocalRequest = { action: 'capabilities' };
+-
+-interface LocalProviderOptions {
+-  platform?: NodeJS.Platform;
+-  arch?: string;
+-}
+-
+-const isRecord = (value: unknown): value is Record<string, unknown> =>
+-  typeof value === 'object' && value !== null && !Array.isArray(value);
+-
+-export function isLocalRequest(value: unknown): value is LocalRequest {
+-  return isRecord(value) && value.action === 'capabilities' && Object.keys(value).length === 1;
+-}
+-
+-/**
+- * The AKS Local compatibility handshake (contract version 3). The AKS Desktop CLI merges the
+- * cluster's context into the user's kubeconfig and prunes it on delete, so Desktop keeps no
+- * credentials, files or registration for local clusters: it only grants the CLI commands.
+- */
+-export function createLocalClusterRegistrationProvider(
+-  options: LocalProviderOptions = {}
+-): ClusterRegistrationProvider<LocalRequest> {
+-  return {
+-    id: LOCAL_PROVIDER,
+-    validateOptions: isLocalRequest,
+-    async register() {
+-      if (
+-        (options.platform ?? process.platform) !== 'win32' ||
+-        (options.arch ?? process.arch) !== 'x64'
+-      ) {
+-        return {
+-          success: false,
+-          message: 'Local clusters require Windows x64.',
+-          data: { code: 'unsupported' },
+-        };
+-      }
+-      return {
+-        success: true,
+-        message: 'Local cluster compatibility contract.',
+-        data: { contract: LOCAL_PROVIDER, version: 3, platform: 'win32', arch: 'x64' },
+-      };
+-    },
+-  };
+-}
+diff --git a/app/electron/main.ts b/app/electron/main.ts
+index 0f28a2a42e6448695df8b6bf7eba20a2da6f6ce1..c811aec70860c57d23d9aa21c515778f77cbaa82 100644
+--- a/app/electron/main.ts
++++ b/app/electron/main.ts
+@@ -61,7 +61,6 @@ import {
+   readLegalDocument,
+ } from './legal-documents';
+ import { runListPluginsCommand } from './list-plugins';
+-import { createLocalClusterRegistrationProvider } from './local-cluster-registration';
+ import MCPClient from './mcp/MCPClient';
+ import { AppMenu, menusToTemplate } from './menu';
+ import { filterUserOwnedPids } from './ownedProcesses';
+@@ -1757,7 +1756,7 @@ function startElectron() {
+       appBuildManifest,
+       isDev ? path.join(__dirname, '..', 'resources') : process.resourcesPath,
+       startUrl,
+-      [...clusterRegistrationProviders, createLocalClusterRegistrationProvider()]
++      clusterRegistrationProviders
+     );
+ 
+     applyZoom();

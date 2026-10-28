@@ -142,6 +142,52 @@ test('rejects malformed product resource groups', () => {
   );
 });
 
+test('omits target-constrained tools and grants together before resolving tool files', context => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'target-manifest-'));
+  context.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const packageDir = path.join(rootDir, 'headlamp-source');
+  const toolFile = path.join(packageDir, 'source', 'app', 'resources', 'example.exe');
+  const grant = { tool: 'example', args: ['versions'], targets: ['win32-x64'] };
+  fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({
+    version: '1.0.0',
+    headlamp: {
+      product: { name: 'example', productName: 'Example' },
+      plugins: [],
+      runCommands: [{
+        commands: [grant],
+        approvedCommands: [grant],
+        clusterRegistrationProviders: [{ id: 'example', targets: ['win32-x64'] }],
+      }],
+      build: {
+        resources: [],
+        externalTools: [{
+          id: 'example',
+          targets: ['win32-x64'],
+          platforms: { win32: { file: 'resources/example.exe', path: 'example.exe' } },
+        }],
+      },
+    },
+  }));
+  for (const [platform, arch] of [['linux', 'x64'], ['darwin', 'arm64'], ['win32', 'arm64']]) {
+    const { manifest } = createManifest({ rootDir, packageDir, platform, arch });
+    assert.deepEqual(manifest['external-tools'], []);
+    assert.deepEqual(manifest.verify, []);
+    assert.deepEqual(manifest.runCommands[0], {
+      commands: [], approvedCommands: [], clusterRegistrationProviders: [],
+    });
+  }
+  assert.throws(
+    () => createManifest({ rootDir, packageDir, platform: 'win32', arch: 'x64' }),
+    /Required bundled tool is missing/
+  );
+  fs.mkdirSync(path.dirname(toolFile), { recursive: true });
+  fs.writeFileSync(toolFile, 'synthetic tool');
+  const { manifest } = createManifest({ rootDir, packageDir, platform: 'win32', arch: 'x64' });
+  assert.deepEqual(manifest.runCommands[0].commands, [{ tool: 'example', args: ['versions'] }]);
+  assert.equal(manifest['external-tools'][0].targets, undefined);
+  assert.equal(manifest.verify[0].sha256, createHash('sha256').update('synthetic tool').digest('hex'));
+});
+
 for (const [platform, platformKey, extension] of [
   ['darwin', 'mac', 'icns'],
   ['win32', 'win', 'ico'],
