@@ -204,14 +204,16 @@ export function getSubscriptionCredential(subscriptionId: string): AzCliCredenti
   return credential;
 }
 
+/** Clears cached tokens for the default and all subscription-bound credentials. */
+export function clearAzureTokenCaches(): void {
+  azCliCredential.clearCache();
+  for (const credential of subscriptionCredentials.values()) credential.clearCache();
+}
+
 // Clears cache when user logs in or logs out inside the app.
 if (typeof window !== 'undefined') {
-  const clearTokens = () => {
-    azCliCredential.clearCache();
-    for (const credential of subscriptionCredentials.values()) credential.clearCache();
-  };
-  window.addEventListener('azure-auth-update', clearTokens);
-  window.addEventListener('azure-account-change', clearTokens);
+  window.addEventListener('azure-auth-update', clearAzureTokenCaches);
+  window.addEventListener('azure-account-change', clearAzureTokenCaches);
 }
 
 /**
