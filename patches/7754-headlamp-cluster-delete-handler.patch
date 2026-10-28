@@ -1,0 +1,269 @@
+diff --git a/docs/development/plugins/functionality/index.md b/docs/development/plugins/functionality/index.md
+index 33f73657373aeab8e6165868ac76a497394187ba..a1c030d70c5378c20a626a1d06b3bf1e219a5417 100644
+--- a/docs/development/plugins/functionality/index.md
++++ b/docs/development/plugins/functionality/index.md
+@@ -202,6 +202,15 @@ report status text through `reportProgress`.
+ 
+ - API reference: [registerClusterProviderPreOpen](../../api/modules/plugin_registry#registerclusterproviderpreopen)
+ 
++### Cluster Delete Handlers
++
++A plugin that manages a cluster's lifecycle can take over Delete in the Home
++page's cluster action menu with `registerClusterProviderDeleteHandler`. For each
++cluster the handler's `owns` function accepts, Delete opens the plugin's dialog
++named by `dialog`, registered with `registerClusterProviderDialog`, instead of
++removing the cluster from the kubeconfig. The first registered handler that owns
++a cluster is used; other clusters keep Headlamp's Delete.
++
+ ### Route
+ 
+ Show a component in the main area at a given URL with
+diff --git a/frontend/src/components/App/Home/ClusterContextMenu.tsx b/frontend/src/components/App/Home/ClusterContextMenu.tsx
+index 5b76d405de2ca16bbe4dd65f42b50f300c7e0854..bed9993b205d75ec069b8ce65dc192c2b4a4a272 100644
+--- a/frontend/src/components/App/Home/ClusterContextMenu.tsx
++++ b/frontend/src/components/App/Home/ClusterContextMenu.tsx
+@@ -31,11 +31,29 @@ import { deleteCluster } from '../../../lib/k8s/api/v1/clusterApi';
+ import { Cluster } from '../../../lib/k8s/cluster';
+ import { createRouteURL } from '../../../lib/router/createRouteURL';
+ import { useId } from '../../../lib/util';
++import { ClusterDeleteHandler } from '../../../redux/clusterProviderSlice';
+ import { setConfig } from '../../../redux/configSlice';
+ import { useTypedSelector } from '../../../redux/hooks';
+ import { ConfirmDialog } from '../../common/ConfirmDialog';
+ import ErrorBoundary from '../../common/ErrorBoundary/ErrorBoundary';
+ 
++/**
++ * The dialog of the first plugin delete handler that owns the cluster, or null when no plugin
++ * owns it. A handler that throws owns nothing.
++ */
++function findPluginDeleteDialog(handlers: ClusterDeleteHandler[], cluster: Cluster): string | null {
++  for (const handler of handlers) {
++    try {
++      if (handler.owns(cluster)) {
++        return handler.dialog;
++      }
++    } catch (err) {
++      console.error('Cluster delete handler failed', err);
++    }
++  }
++  return null;
++}
++
+ interface ClusterContextMenuProps {
+   /** The cluster for the context menu to act on. */
+   cluster: Cluster;
+@@ -58,19 +76,15 @@ export default function ClusterContextMenu({
+   const [openConfirmDialog, setOpenConfirmDialog] = React.useState<string | null>(null);
+   const dialogs = useTypedSelector(state => state.clusterProvider.dialogs);
+   const menuItems = useTypedSelector(state => state.clusterProvider.menuItems);
++  const deleteHandlers = useTypedSelector(state => state.clusterProvider.deleteHandlers);
+   const isDynamicClusterEnabled = useTypedSelector(state => state.config.isDynamicClusterEnabled);
+   const allowKubeconfigChanges = useTypedSelector(state => state.config.allowKubeconfigChanges);
+   const { enqueueSnackbar } = useSnackbar();
+ 
+   const kubeconfigOrigin = cluster.meta_data?.origin?.kubeconfig;
+   const deleteFromKubeconfig = cluster.meta_data?.source === 'kubeconfig';
+-  // The AKS Local cluster, identified by the context_info the AKS Desktop CLI records on its
+-  // context (bare-metal provider on the local WSL distro): Delete must run the AKS Local plugin's
+-  // lifecycle Delete, which the plugin adds to this menu, not only remove the entry.
+-  const contextInfo = cluster.meta_data?.extensions?.context_info;
+-  const isLocalClusterContext =
+-    contextInfo?.provider === 'baremetal.aksarc.microsoft.com' &&
+-    contextInfo?.distro === 'Ubuntu-24.04';
++  // A plugin that owns this cluster handles its Delete with the plugin's own dialog.
++  const pluginDeleteDialog = findPluginDeleteDialog(deleteHandlers, cluster);
+ 
+   function removeCluster(cluster: Cluster) {
+     const clusterID = cluster.meta_data?.clusterID;
+@@ -171,20 +185,20 @@ export default function ClusterContextMenu({
+         >
+           <ListItemText>{t('translation|Settings')}</ListItemText>
+         </MenuItem>
+-        {!isLocalClusterContext &&
+-          ((cluster.meta_data?.source === 'dynamic_cluster' &&
++        {(pluginDeleteDialog !== null ||
++          (cluster.meta_data?.source === 'dynamic_cluster' &&
+             (helpers.isElectron() || isDynamicClusterEnabled)) ||
+-            (cluster.meta_data?.source === 'kubeconfig' &&
+-              (helpers.isElectron() || allowKubeconfigChanges))) && (
+-            <MenuItem
+-              onClick={() => {
+-                setOpenConfirmDialog('deleteDynamic');
+-                handleMenuClose();
+-              }}
+-            >
+-              <ListItemText>{t('translation|Delete')}</ListItemText>
+-            </MenuItem>
+-          )}
++          (cluster.meta_data?.source === 'kubeconfig' &&
++            (helpers.isElectron() || allowKubeconfigChanges))) && (
++          <MenuItem
++            onClick={() => {
++              setOpenConfirmDialog(pluginDeleteDialog ?? 'deleteDynamic');
++              handleMenuClose();
++            }}
++          >
++            <ListItemText>{t('translation|Delete')}</ListItemText>
++          </MenuItem>
++        )}
+         {menuItems.map((Item, index) => {
+           return (
+             <Item
+diff --git a/frontend/src/components/App/Home/ClusterTable.test.tsx b/frontend/src/components/App/Home/ClusterTable.test.tsx
+index a49a4ad2193bd16fd791c1a2f112ac1ac7959b4b..209ea7a07ba86d7b3fffef20eb8b68026a4d90b5 100644
+--- a/frontend/src/components/App/Home/ClusterTable.test.tsx
++++ b/frontend/src/components/App/Home/ClusterTable.test.tsx
+@@ -70,6 +70,7 @@ vi.mock('../../../redux/hooks', () => ({
+         clusterStatuses: [],
+         dialogs: [],
+         menuItems: ClusterMenuItems,
++        deleteHandlers: [],
+         clusterEmptyState: ClusterEmptyState,
+       },
+       config: {
+diff --git a/frontend/src/components/App/Home/index.stories.tsx b/frontend/src/components/App/Home/index.stories.tsx
+index 182cf702c90656f4af2b4f85cca2c36004de3366..33869ffbc88d7db35d6d1e6e0e786ddba553daf2 100644
+--- a/frontend/src/components/App/Home/index.stories.tsx
++++ b/frontend/src/components/App/Home/index.stories.tsx
+@@ -46,6 +46,7 @@ const ourState = {
+   clusterProvider: {
+     dialogs: {},
+     menuItems: [],
++    deleteHandlers: [],
+     clusterProviders: [],
+     clusterStatuses: [],
+   },
+diff --git a/frontend/src/plugin/registry.tsx b/frontend/src/plugin/registry.tsx
+index afe480a42e867a614cad1fdd2b0ab5ff26700ed6..a72b3b7af0284e448456cd361669c66dada7e65e 100644
+--- a/frontend/src/plugin/registry.tsx
++++ b/frontend/src/plugin/registry.tsx
+@@ -69,8 +69,10 @@ import {
+ import {
+   addAddClusterProvider,
+   addClusterStatus,
++  addDeleteHandler,
+   addDialog,
+   addMenuItem,
++  ClusterDeleteHandler,
+   ClusterEmptyStateComponent,
+   ClusterPreOpenHook,
+   clusterPreOpenHooksChanged,
+@@ -81,7 +83,11 @@ import {
+   setClusterEmptyState,
+ } from '../redux/clusterProviderSlice';
+ import { registerClusterPreOpenHook } from './clusterPreOpen';
+-export type { ClusterPreOpenContext, ClusterPreOpenHook } from '../redux/clusterProviderSlice';
++export type {
++  ClusterDeleteHandler,
++  ClusterPreOpenContext,
++  ClusterPreOpenHook,
++} from '../redux/clusterProviderSlice';
+ import {
+   addEventCallback,
+   ClusterSettingsViewLoadedEvent,
+@@ -1046,6 +1052,44 @@ export function registerClusterProviderDialog(item: DialogComponent) {
+   store.dispatch(addDialog(item));
+ }
+ 
++/**
++ * Route Delete in the Home page's cluster action menu to a plugin's dialog.
++ *
++ * Headlamp's Delete removes a cluster from the kubeconfig. A plugin that manages
++ * a cluster's lifecycle can claim that cluster's Delete instead: the menu then
++ * opens the plugin's dialog (registered with `registerClusterProviderDialog`)
++ * for every cluster `owns` returns true for. The first registered handler that
++ * owns a cluster is used; a handler that throws owns nothing.
++ *
++ * @param handler - Which clusters the plugin owns, and the dialog that deletes them.
++ * @returns Nothing.
++ *
++ * @example
++ *
++ * ```tsx
++ * import {
++ *   registerClusterProviderDeleteHandler,
++ *   registerClusterProviderDialog,
++ * } from '@kinvolk/headlamp-plugin/lib';
++ *
++ * registerClusterProviderDeleteHandler({
++ *   owns: cluster =>
++ *     cluster.meta_data?.extensions?.context_info?.provider === 'minikube.sigs.k8s.io',
++ *   dialog: 'deleteMinikube',
++ * });
++ * registerClusterProviderDialog(({ cluster, openConfirmDialog, setOpenConfirmDialog }) => (
++ *   <DeleteMinikube
++ *     cluster={cluster}
++ *     open={openConfirmDialog === 'deleteMinikube'}
++ *     onClose={() => setOpenConfirmDialog('')}
++ *   />
++ * ));
++ * ```
++ */
++export function registerClusterProviderDeleteHandler(handler: ClusterDeleteHandler) {
++  store.dispatch(addDeleteHandler(handler));
++}
++
+ /**
+  * For adding a card to the Add Cluster page in the providers list.
+  * @param item - The iformation to add to the Add Cluster page.
+diff --git a/frontend/src/redux/clusterProviderSlice.ts b/frontend/src/redux/clusterProviderSlice.ts
+index 66b9ecd6a7dffd7f0f19bb4a6d996594ff86ae06..2cc500ba4853dde4a9dd711eaedd2323a14c19b8 100644
+--- a/frontend/src/redux/clusterProviderSlice.ts
++++ b/frontend/src/redux/clusterProviderSlice.ts
+@@ -93,6 +93,21 @@ export interface ClusterPreOpenContext {
+  */
+ export type ClusterPreOpenHook = (context: ClusterPreOpenContext) => Promise<void>;
+ 
++/**
++ * A plugin's claim on the Delete action of the clusters it manages.
++ *
++ * For a cluster that `owns` returns true for, the Delete item in the Home page's
++ * cluster action menu opens the plugin's dialog named `dialog` (registered with
++ * `registerClusterProviderDialog`) instead of removing the cluster from the
++ * kubeconfig.
++ */
++export interface ClusterDeleteHandler {
++  /** Whether the plugin handles Delete for this cluster entry. */
++  owns: (cluster: any) => boolean;
++  /** The `openConfirmDialog` value that opens the plugin's delete dialog. */
++  dialog: string;
++}
++
+ /** State owned by one active cluster pre-open run. */
+ export interface ClusterPreparingState {
+   /** Unique identifier that prevents an abandoned run from mutating a newer run. */
+@@ -120,6 +135,8 @@ export interface ClusterProviderSliceState {
+   dialogs: DialogComponent[];
+   /** Menu items that can be rendered by the application, on the Home page in the cluster action menu. */
+   menuItems: MenuItemComponent[];
++  /** Plugins that handle Delete in the cluster action menu, in registration order. */
++  deleteHandlers: ClusterDeleteHandler[];
+   /** Cluster providers for the Add Cluster page. */
+   clusterProviders: ClusterProviderInfo[];
+   /** Cluster statuses for the Home page. */
+@@ -141,6 +158,7 @@ export interface ClusterProviderSliceState {
+ export const initialState: ClusterProviderSliceState = {
+   menuItems: [],
+   dialogs: [],
++  deleteHandlers: [],
+   clusterProviders: [],
+   clusterStatuses: [],
+   clusterEmptyState: null,
+@@ -158,6 +176,9 @@ const clusterProviderSlice = createSlice({
+     addMenuItem(state, action: PayloadAction<MenuItemComponent>) {
+       state.menuItems.push(action.payload);
+     },
++    addDeleteHandler(state, action: PayloadAction<ClusterDeleteHandler>) {
++      state.deleteHandlers.push(action.payload);
++    },
+     addAddClusterProvider(state, action: PayloadAction<ClusterProviderInfo>) {
+       state.clusterProviders.push(action.payload);
+     },
+@@ -201,6 +222,7 @@ const clusterProviderSlice = createSlice({
+ export const {
+   addDialog,
+   addMenuItem,
++  addDeleteHandler,
+   addAddClusterProvider,
+   addClusterStatus,
+   setClusterEmptyState,

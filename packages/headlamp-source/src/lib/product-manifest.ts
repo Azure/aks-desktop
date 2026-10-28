@@ -4,15 +4,17 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+const { selectBuildTarget, targetArchitecture } = require('./build-target-selection.ts');
 
 /**
  * Creates runtime product metadata from consumer configuration.
  *
  * @param project - Parsed consumer package manifest.
  * @param platform - Runtime platform whose product display name is selected.
+ * @param arch - Runtime architecture used to filter target-constrained grants.
  * @returns Product metadata with consumer-only plugin source fields removed.
  */
-function createProductTemplate(project: any, platform = process.platform) {
+function createProductTemplate(project: any, platform = process.platform, arch = targetArchitecture()) {
   if (!project?.headlamp?.product || !Array.isArray(project.headlamp.plugins)) {
     throw new Error('package.json must declare headlamp.product and headlamp.plugins');
   }
@@ -26,6 +28,16 @@ function createProductTemplate(project: any, platform = process.platform) {
     template.product.productName = productName;
   }
   template.product.version = project.version;
+  if (Array.isArray(template.runCommands)) {
+    template.runCommands = selectBuildTarget(template.runCommands, platform, arch);
+    for (const policy of template.runCommands) {
+      for (const field of ['commands', 'approvedCommands', 'clusterRegistrationProviders']) {
+        if (Array.isArray(policy[field])) {
+          policy[field] = selectBuildTarget(policy[field], platform, arch);
+        }
+      }
+    }
+  }
   template.plugins = plugins
     .filter(plugin => plugin.archive !== undefined || plugin.file !== undefined)
     .map(({ source: _source, ...plugin }) => plugin);

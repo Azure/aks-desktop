@@ -1,0 +1,1870 @@
+diff --git a/app/electron/cluster-registration.test.ts b/app/electron/cluster-registration.test.ts
+index 4e19ab074b258e2051d81c1f73f4f22629b315ef..d965e4cc7616222aed822c625bf8fbcad34624fe 100644
+--- a/app/electron/cluster-registration.test.ts
++++ b/app/electron/cluster-registration.test.ts
+@@ -1104,6 +1104,39 @@ describe('cluster registration providers', () => {
+     ).resolves.toEqual({ success: true, message: 'registered' });
+   });
+ 
++  it('returns public metadata from a native provider', async () => {
++    const data = { target: { reference: 'example', registered: true } };
++    const provider: ClusterRegistrationProvider<Record<string, never>> = {
++      id: 'metadata',
++      validateOptions: (options): options is Record<string, never> =>
++        typeof options === 'object' && options !== null,
++      register: async () => ({ success: true, message: 'registered', data }),
++    };
++
++    await expect(
++      registerCluster('metadata', {}, { resourcesPath: '/resources', tools: {} }, [provider])
++    ).resolves.toEqual({ success: true, message: 'registered', data });
++  });
++
++  it.each([null, [], 'not-an-object', 42, true])(
++    'rejects malformed public provider metadata (%j)',
++    async data => {
++      const provider: ClusterRegistrationProvider<Record<string, never>> = {
++        id: 'metadata',
++        validateOptions: (options): options is Record<string, never> =>
++          typeof options === 'object' && options !== null,
++        register: vi.fn().mockResolvedValue({ success: true, message: 'registered', data }),
++      };
++
++      await expect(
++        registerCluster('metadata', {}, { resourcesPath: '/resources', tools: {} }, [provider])
++      ).resolves.toEqual({
++        success: false,
++        message: "Cluster registration provider 'metadata' returned an invalid result.",
++      });
++    }
++  );
++
+   it('preserves nonempty KUBECONFIG components verbatim', () => {
+     const first = `${path.sep}tmp${path.sep} leading`;
+     const second = `${path.sep}tmp${path.sep}trailing `;
+@@ -1234,12 +1267,27 @@ describe('cluster registration startup wiring', () => {
+   it('installs the handler before loading the renderer', () => {
+     const mainSource = fs.readFileSync(path.join(__dirname, 'main.ts'), 'utf8');
+     expect(mainSource).toMatch(
+-      /import \{ setupClusterRegistrationHandler \} from '\.\/cluster-registration';/
++      /import\s*\{[^}]*\bsetupClusterRegistrationHandler\b[^}]*\}\s*from '\.\/cluster-registration';/
+     );
+     const handlerSetup = mainSource.indexOf('    setupClusterRegistrationHandler(');
+     const rendererLoad = mainSource.indexOf('    mainWindow.loadURL(startUrl)');
+     expect(handlerSetup).toBeGreaterThan(-1);
++    expect(rendererLoad).toBeGreaterThan(-1);
+     expect(handlerSetup).toBeLessThan(rendererLoad);
++    const registrationSetup = mainSource.slice(handlerSetup, rendererLoad);
++    expect(registrationSetup).toContain('privatePluginCapabilities?.authorizeClusterRegistration');
++    expect(registrationSetup).toContain('...clusterRegistrationProviders');
++    expect(registrationSetup).toContain('createLocalClusterRegistrationProvider({');
++    expect(registrationSetup).toContain('kubeconfigDirectory: defaultKubeConfigsDir');
++    expect(registrationSetup).toContain('kubeconfigPaths: () =>');
++    expect(registrationSetup).toContain(
++      'withLocalKubeconfigPath(args.kubeconfig, defaultKubeConfigsDir())'
++    );
++    const serverSetup = mainSource.slice(mainSource.indexOf('function startServer('), handlerSetup);
++    expect(serverSetup).toContain(
++      'const kubeconfig = withLocalKubeconfigPath(args.kubeconfig, defaultKubeConfigsDir())'
++    );
++    expect(serverSetup).toContain("serverArgs.concat(['--kubeconfig', kubeconfig])");
+     expect(mainSource).not.toContain("await import('./cluster-registration')");
+   });
+ });
+diff --git a/app/electron/cluster-registration.ts b/app/electron/cluster-registration.ts
+index 14c25f0b97d6664f38f6b14da14d9d8116ac30ae..f3e16e773393e7eb051ccd7e879cacb43fcb98c4 100644
+--- a/app/electron/cluster-registration.ts
++++ b/app/electron/cluster-registration.ts
+@@ -70,6 +70,8 @@ export interface ClusterRegistrationResult {
+   success: boolean;
+   /** User-facing success or failure detail. */
+   message: string;
++  /** Provider-defined public metadata. Never return credentials or kubeconfig contents. */
++  data?: Record<string, unknown>;
+ }
+ 
+ interface NamedKubeConfigEntry {
+@@ -1111,7 +1113,11 @@ export async function registerCluster(
+     result === null ||
+     Array.isArray(result) ||
+     typeof (result as Record<string, unknown>).success !== 'boolean' ||
+-    typeof (result as Record<string, unknown>).message !== 'string'
++    typeof (result as Record<string, unknown>).message !== 'string' ||
++    ((result as ClusterRegistrationResult).data !== undefined &&
++      (typeof (result as ClusterRegistrationResult).data !== 'object' ||
++        (result as ClusterRegistrationResult).data === null ||
++        Array.isArray((result as ClusterRegistrationResult).data)))
+   ) {
+     return {
+       success: false,
+@@ -1121,6 +1127,9 @@ export async function registerCluster(
+   return {
+     success: (result as ClusterRegistrationResult).success,
+     message: (result as ClusterRegistrationResult).message,
++    ...((result as ClusterRegistrationResult).data === undefined
++      ? {}
++      : { data: (result as ClusterRegistrationResult).data }),
+   };
+ }
+ 
+diff --git a/app/electron/local-cluster-registration.test.ts b/app/electron/local-cluster-registration.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..15a46f10654a1b2629453cc87d35d0a85521898e
+--- /dev/null
++++ b/app/electron/local-cluster-registration.test.ts
+@@ -0,0 +1,403 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import yaml from 'yaml';
++import {
++  ClusterRegistrationResult,
++  mergeKubeconfigTransaction,
++  registerCluster,
++} from './cluster-registration';
++import {
++  createLocalClusterRegistrationProvider,
++  isLocalRequest,
++} from './local-cluster-registration';
++import {
++  LOCAL_CONFIG_FILE,
++  normalizeLocalKubeconfig,
++  readRegisteredLocalTarget,
++} from './local-kubeconfig';
++
++vi.mock('./secureStorage', () => ({ isTrustedDocumentUrl: vi.fn() }));
++
++const configuration = { name: 'demo', kubernetesVersion: '1.36.1-20260701' };
++const consent = { consent: true as const, distro: 'Ubuntu-24.04' as const };
++const runtime = { resourcesPath: 'unused', tools: { cli: 'unused' } };
++function credentials(identity = 'public-test-certificate', metadata = true) {
++  return yaml.stringify({
++    apiVersion: 'v1',
++    kind: 'Config',
++    clusters: [
++      {
++        name: 'demo',
++        cluster: { server: 'https://localhost:6443', 'insecure-skip-tls-verify': true },
++      },
++    ],
++    contexts: [
++      {
++        name: 'demo',
++        context: {
++          cluster: 'demo',
++          user: 'admin',
++          ...(metadata && {
++            extensions: [
++              {
++                name: 'context_info',
++                extension: {
++                  provider: 'baremetal.aksarc.microsoft.com',
++                  distro: 'Ubuntu-24.04',
++                  ...configuration,
++                  distribution: 'K8s',
++                },
++              },
++            ],
++          }),
++        },
++      },
++    ],
++    users: [
++      {
++        name: 'admin',
++        user: {
++          'client-certificate-data': Buffer.from(identity).toString('base64'),
++          'client-key-data': Buffer.from('synthetic-test-key-not-a-real-credential').toString(
++            'base64'
++          ),
++        },
++      },
++    ],
++    'current-context': 'demo',
++  });
++}
++function preparation(result: ClusterRegistrationResult) {
++  if (
++    !result.success ||
++    typeof result.data?.token !== 'string' ||
++    typeof result.data.kubeconfigPath !== 'string'
++  ) {
++    throw new Error('Fixture expected a successful preparation');
++  }
++  return { token: result.data.token, kubeconfigPath: result.data.kubeconfigPath };
++}
++
++describe('local registration handoff', () => {
++  let root: string;
++  let destination: string;
++  let normalConfig: string;
++  let provider: ReturnType<typeof createLocalClusterRegistrationProvider>;
++  const hardenDirectory = vi.fn<(directory: string) => void>();
++  const hardenFile = vi.fn<(file: string) => void>();
++  const persist = vi.fn<typeof mergeKubeconfigTransaction>();
++  const call = (request: Parameters<typeof provider.register>[0]) =>
++    provider.register(request, runtime);
++  const prepareCreate = async () =>
++    preparation(await call({ action: 'prepare', ...configuration, ...consent }));
++
++  beforeEach(() => {
++    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'local-handoff-')));
++    destination = path.join(root, 'desktop', LOCAL_CONFIG_FILE);
++    normalConfig = path.join(root, 'normal-config');
++    fs.writeFileSync(
++      normalConfig,
++      'apiVersion: v1\nkind: Config\ncontexts: []\nclusters: []\nusers: []\n'
++    );
++    hardenDirectory.mockReset();
++    hardenFile.mockReset().mockImplementation(file => {
++      expect(fs.statSync(file).size).toBe(0);
++    });
++    persist.mockReset().mockImplementation(mergeKubeconfigTransaction);
++    provider = createLocalClusterRegistrationProvider({
++      kubeconfigDirectory: () => path.dirname(destination),
++      temporaryDirectory: root,
++      kubeconfigPaths: () => [normalConfig],
++      hardenDirectory,
++      hardenFile,
++      persist,
++      platform: 'win32',
++      arch: 'x64',
++    });
++  });
++  afterEach(() => {
++    vi.restoreAllMocks();
++    fs.rmSync(root, { recursive: true, force: true });
++  });
++
++  async function importFixture() {
++    const prepared = await prepareCreate();
++    fs.writeFileSync(prepared.kubeconfigPath, credentials());
++    const result = await call({ action: 'register', token: prepared.token });
++    expect(result.success).toBe(true);
++    return readRegisteredLocalTarget(fs.readFileSync(destination, 'utf8'));
++  }
++  async function pendingTarget() {
++    const target = (await call({ action: 'inspect' })).data?.target;
++    if (!target || typeof target !== 'object' || !('name' in target) || target.name !== 'demo') {
++      throw new Error('Expected pending target');
++    }
++  }
++
++  it('hardens an empty private handoff before writing and uses shared persistence without changing normal config', async () => {
++    const before = fs.readFileSync(normalConfig, 'utf8');
++    const prepared = await prepareCreate();
++    expect(hardenDirectory).toHaveBeenCalledWith(path.dirname(prepared.kubeconfigPath));
++    expect(hardenFile).toHaveBeenCalledWith(prepared.kubeconfigPath);
++    expect(hardenDirectory.mock.invocationCallOrder[0]).toBeLessThan(
++      hardenFile.mock.invocationCallOrder[0]
++    );
++    fs.writeFileSync(prepared.kubeconfigPath, credentials());
++    const result = await call({ action: 'register', token: prepared.token });
++    expect(result).toMatchObject({
++      success: true,
++      data: { target: { contextName: 'demo', registered: true } },
++    });
++    expect(persist.mock.calls[0][1]).toEqual([destination, normalConfig]);
++    expect(fs.readFileSync(normalConfig, 'utf8')).toBe(before);
++    expect(fs.existsSync(path.dirname(prepared.kubeconfigPath))).toBe(false);
++    expect(JSON.stringify(result)).not.toContain('client-key');
++    expect(await call({ action: 'prepare', ...configuration, ...consent })).toMatchObject({
++      success: false,
++      data: { code: 'already-exists' },
++    });
++  });
++
++  it('preserves public metadata through the generic dispatcher without changing existing provider results', async () => {
++    expect(
++      await registerCluster('aksedge-local', { action: 'inspect' }, runtime, [provider])
++    ).toEqual({
++      success: true,
++      message: 'Local target inspected.',
++      data: { target: null },
++    });
++    const register = vi
++      .fn()
++      .mockResolvedValue({ success: true, message: 'Existing provider result' });
++    const existing = { ...provider, id: 'existing', register };
++    expect(await registerCluster('existing', { action: 'inspect' }, runtime, [existing])).toEqual({
++      success: true,
++      message: 'Existing provider result',
++    });
++    for (const data of [null, [], 'unexpected']) {
++      register.mockResolvedValueOnce({ success: true, message: 'fixture', data });
++      expect(
++        await registerCluster('existing', { action: 'inspect' }, runtime, [existing])
++      ).toMatchObject({
++        success: false,
++      });
++    }
++  });
++
++  it('rejects unknown valid-looking tokens and cleans failed initial permission setup', async () => {
++    expect(
++      await call({ action: 'register', token: 'f0000000-0000-4000-8000-000000000000' })
++    ).toMatchObject({
++      success: false,
++      data: { code: 'identity-mismatch' },
++    });
++    hardenFile.mockImplementationOnce(() => {
++      throw new Error('SECRET');
++    });
++    const result = await call({ action: 'prepare', ...configuration, ...consent });
++    expect(result).toMatchObject({ success: false, data: { code: 'storage' } });
++    expect(JSON.stringify(result)).not.toContain('SECRET');
++    expect(fs.readdirSync(root).filter(name => name.startsWith('aksedge-kubeconfig-'))).toEqual([]);
++  });
++
++  it('blocks concurrent preparations', async () => {
++    await prepareCreate();
++    expect(await call({ action: 'prepare', ...configuration, ...consent })).toMatchObject({
++      success: false,
++      data: { code: 'busy' },
++    });
++  });
++
++  it('refuses unsupported hosts before touching any credentials', async () => {
++    const unsupported = createLocalClusterRegistrationProvider({
++      kubeconfigDirectory: () => path.dirname(destination),
++      hardenDirectory,
++      hardenFile,
++      platform: 'win32',
++      arch: 'arm64',
++    });
++    expect(await unsupported.register({ action: 'inspect' }, runtime)).toMatchObject({
++      success: false,
++      data: { code: 'unsupported' },
++    });
++    expect(hardenDirectory).not.toHaveBeenCalled();
++    expect(hardenFile).not.toHaveBeenCalled();
++  });
++
++  it('serializes in-flight native requests before allocating private output', async () => {
++    const prepared = await prepareCreate();
++    fs.writeFileSync(prepared.kubeconfigPath, credentials());
++    hardenFile.mockClear();
++    let complete: () => void = () => undefined;
++    persist.mockImplementationOnce(async (...args) => {
++      await new Promise<void>(resolve => {
++        complete = resolve;
++      });
++      return mergeKubeconfigTransaction(...args);
++    });
++    const pending = call({ action: 'register', token: prepared.token });
++    expect(await call({ action: 'prepare', ...configuration, ...consent })).toMatchObject({
++      success: false,
++      data: { code: 'busy' },
++    });
++    expect(hardenFile).not.toHaveBeenCalled();
++    complete();
++    expect(await pending).toMatchObject({ success: true });
++  });
++
++  it('keeps a failed import available for retry without running create again', async () => {
++    const prepared = await prepareCreate();
++    fs.writeFileSync(prepared.kubeconfigPath, credentials());
++    persist.mockRejectedValueOnce(new Error('SECRET path and credential'));
++    expect(await call({ action: 'register', token: prepared.token })).toMatchObject({
++      success: false,
++      data: { code: 'storage' },
++    });
++    expect(fs.existsSync(prepared.kubeconfigPath)).toBe(true);
++    expect(await call({ action: 'inspect' })).toMatchObject({
++      success: true,
++      data: { target: { reference: prepared.token, registered: false } },
++    });
++    expect(await call({ action: 'register', token: prepared.token })).toMatchObject({
++      success: true,
++    });
++    expect(hardenFile).toHaveBeenCalledTimes(1);
++  });
++
++  it('allows a validated pending target to be removed even when import failed', async () => {
++    const prepared = await prepareCreate();
++    fs.writeFileSync(prepared.kubeconfigPath, credentials());
++    persist.mockRejectedValueOnce(new Error('fixture persistence failure'));
++    await call({ action: 'register', token: prepared.token });
++    await pendingTarget();
++    expect(
++      await call({ action: 'forget', reference: prepared.token, name: 'demo', ...consent })
++    ).toMatchObject({ success: true });
++    expect(fs.existsSync(prepared.kubeconfigPath)).toBe(false);
++    expect(fs.existsSync(destination)).toBe(false);
++  });
++
++  it('refuses to forget another cluster name and removes no Desktop entry', async () => {
++    await importFixture();
++    const before = fs.readFileSync(destination, 'utf8');
++    expect(
++      await call({ action: 'forget', reference: 'registered', name: 'other', ...consent })
++    ).toMatchObject({ success: false, data: { code: 'identity-mismatch' } });
++    expect(fs.readFileSync(destination, 'utf8')).toBe(before);
++  });
++
++  it('forgets only the managed file and never deletes another config', async () => {
++    await importFixture();
++    const before = fs.readFileSync(normalConfig, 'utf8');
++    expect(
++      await call({ action: 'forget', reference: 'registered', name: 'demo', ...consent })
++    ).toMatchObject({ success: true });
++    expect(fs.existsSync(destination)).toBe(false);
++    expect(fs.readFileSync(normalConfig, 'utf8')).toBe(before);
++  });
++
++  it('retries private cleanup after persistence succeeded and the temp file was already unlinked', async () => {
++    const prepared = await prepareCreate();
++    fs.writeFileSync(prepared.kubeconfigPath, credentials());
++    const remove = vi.spyOn(fs, 'rmdirSync').mockImplementationOnce(() => {
++      throw new Error('fixture cleanup failure');
++    });
++    expect(await call({ action: 'register', token: prepared.token })).toMatchObject({
++      success: false,
++      data: { code: 'cleanup' },
++    });
++    expect(fs.existsSync(destination)).toBe(true);
++    expect(fs.existsSync(prepared.kubeconfigPath)).toBe(false);
++    remove.mockRestore();
++    expect(await call({ action: 'register', token: prepared.token })).toMatchObject({
++      success: true,
++    });
++    expect(persist).toHaveBeenCalledTimes(1);
++  });
++
++  it('retries pending-target removal after unlink without removing a newly appeared file', async () => {
++    const prepared = await prepareCreate();
++    fs.writeFileSync(prepared.kubeconfigPath, credentials());
++    persist.mockRejectedValueOnce(new Error('fixture persistence failure'));
++    await call({ action: 'register', token: prepared.token });
++    await pendingTarget();
++    const request = {
++      action: 'forget' as const,
++      reference: prepared.token,
++      name: 'demo',
++      ...consent,
++    };
++    const remove = vi.spyOn(fs, 'rmdirSync').mockImplementationOnce(() => {
++      throw new Error('fixture cleanup failure');
++    });
++    expect(await call(request)).toMatchObject({ success: false, data: { code: 'cleanup' } });
++    expect(fs.existsSync(prepared.kubeconfigPath)).toBe(false);
++    remove.mockRestore();
++    fs.writeFileSync(prepared.kubeconfigPath, 'independently created file');
++    expect(await call(request)).toMatchObject({ success: false, data: { code: 'cleanup' } });
++    expect(fs.readFileSync(prepared.kubeconfigPath, 'utf8')).toBe('independently created file');
++    fs.unlinkSync(prepared.kubeconfigPath);
++    expect(await call(request)).toMatchObject({ success: true });
++    expect(fs.existsSync(path.dirname(prepared.kubeconfigPath))).toBe(false);
++  });
++
++  it('refuses an unrelated file at the managed destination and refuses context collisions', async () => {
++    const prepared = await prepareCreate();
++    fs.writeFileSync(prepared.kubeconfigPath, credentials());
++    fs.writeFileSync(normalConfig, 'contexts:\n- name: demo\n  context: {}\n');
++    expect(await call({ action: 'register', token: prepared.token })).toMatchObject({
++      success: false,
++      data: { code: 'collision' },
++    });
++    expect(persist).not.toHaveBeenCalled();
++    fs.writeFileSync(normalConfig, 'contexts: []\n');
++    const sameMetadata = normalizeLocalKubeconfig(
++      credentials('another-certificate'),
++      configuration,
++      'registered'
++    ).contents;
++    fs.writeFileSync(destination, sameMetadata);
++    expect(await call({ action: 'register', token: prepared.token })).toMatchObject({
++      success: false,
++      data: { code: 'already-exists' },
++    });
++    expect(fs.readFileSync(destination, 'utf8')).toBe(sameMetadata);
++    fs.writeFileSync(destination, credentials('public-test-certificate', false));
++    const before = fs.readFileSync(destination, 'utf8');
++    expect(await call({ action: 'inspect' })).toMatchObject({ success: false });
++    expect(fs.readFileSync(destination, 'utf8')).toBe(before);
++  });
++
++  it('rejects unknown tokens, extra options, alternate distributions and non-string actions', () => {
++    expect(isLocalRequest({ action: 'inspect' })).toBe(true);
++    expect(isLocalRequest({ action: 'prepare', ...configuration, ...consent })).toBe(true);
++    for (const value of [
++      { action: ['inspect'] },
++      { action: ['register'], token: 'f0000000-0000-4000-8000-000000000000' },
++      { action: 'inspect', path: 'C:\\arbitrary' },
++      { action: 'prepare', ...configuration, ...consent, distro: 'PersonalUbuntu' },
++      { action: 'prepare', ...configuration, ...consent, consent: false },
++      { action: 'discard', token: '..' },
++      { action: 'register', token: 'f0000000-0000-4000-8000-000000000000', kubeconfig: 'SECRET' },
++    ])
++      expect(isLocalRequest(value)).toBe(false);
++  });
++});
+diff --git a/app/electron/local-cluster-registration.ts b/app/electron/local-cluster-registration.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..261da0bb19ec31ffb104b87a6a0c27c735f919e3
+--- /dev/null
++++ b/app/electron/local-cluster-registration.ts
+@@ -0,0 +1,374 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { randomUUID } from 'node:crypto';
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import {
++  ClusterRegistrationProvider,
++  enforcePrivateDirectoryPermissions,
++  enforcePrivateFilePermissions,
++  mergeKubeconfigTransaction,
++  resolveKubeconfigPaths,
++} from './cluster-registration';
++import {
++  assertNoLocalContextCollision,
++  isLocalConfiguration,
++  isRecord,
++  LOCAL_CONFIG_FILE,
++  LOCAL_DISTRO,
++  LOCAL_PROVIDER,
++  LocalConfiguration,
++  LocalHandoffError,
++  LocalTarget,
++  normalizeLocalKubeconfig,
++  readPrivateKubeconfig,
++  readRegisteredLocalTarget,
++} from './local-kubeconfig';
++
++type LocalRequest =
++  | { action: 'inspect' }
++  | ({ action: 'prepare'; consent: true; distro: typeof LOCAL_DISTRO } & LocalConfiguration)
++  | { action: 'register' | 'discard'; token: string }
++  | {
++      action: 'forget';
++      reference: string;
++      name: string;
++      consent: true;
++      distro: typeof LOCAL_DISTRO;
++    };
++
++interface Lease {
++  token: string;
++  directory: string;
++  kubeconfigPath: string;
++  kind: 'create';
++  configuration: LocalConfiguration;
++  reference: string;
++  target?: LocalTarget;
++  fileRemoved?: boolean;
++  /** Set once `register` persisted this lease's credentials; only then is a retry adopted. */
++  persisted?: boolean;
++}
++
++interface LocalProviderOptions {
++  kubeconfigDirectory: () => string;
++  temporaryDirectory?: string;
++  kubeconfigPaths?: () => string[];
++  hardenDirectory?: (directory: string) => void;
++  hardenFile?: (file: string) => void;
++  persist?: typeof mergeKubeconfigTransaction;
++  platform?: NodeJS.Platform;
++  arch?: string;
++}
++
++const isToken = (value: unknown): value is string =>
++  typeof value === 'string' &&
++  /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
++
++export function isLocalRequest(value: unknown): value is LocalRequest {
++  if (!isRecord(value) || typeof value.action !== 'string') return false;
++  const only = (keys: string[]) => Object.keys(value).every(key => keys.includes(key));
++  if (value.action === 'inspect') return only(['action']);
++  if (['register', 'discard'].includes(value.action)) {
++    return only(['action', 'token']) && isToken(value.token);
++  }
++  if (value.consent !== true || value.distro !== LOCAL_DISTRO) return false;
++  if (value.action === 'prepare') {
++    return (
++      only(['action', 'consent', 'distro', 'name', 'kubernetesVersion']) &&
++      isLocalConfiguration(value)
++    );
++  }
++  return (
++    value.action === 'forget' &&
++    only(['action', 'consent', 'distro', 'reference', 'name']) &&
++    (value.reference === 'registered' || isToken(value.reference)) &&
++    typeof value.name === 'string' &&
++    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value.name)
++  );
++}
++
++/** A capability-scoped file handoff, not an operation journal or process controller. */
++export function createLocalClusterRegistrationProvider(
++  options: LocalProviderOptions
++): ClusterRegistrationProvider<LocalRequest> {
++  const leases = new Map<string, Lease>();
++  const hardenDirectory = options.hardenDirectory ?? enforcePrivateDirectoryPermissions;
++  const hardenFile = options.hardenFile ?? enforcePrivateFilePermissions;
++  const persist = options.persist ?? mergeKubeconfigTransaction;
++  let requestInFlight = false;
++
++  const managedPath = () => {
++    const directory = options.kubeconfigDirectory();
++    if (!path.isAbsolute(directory)) throw new LocalHandoffError('storage');
++    return path.join(directory, LOCAL_CONFIG_FILE);
++  };
++  const managedTarget = (): LocalTarget | null => {
++    try {
++      return readRegisteredLocalTarget(readPrivateKubeconfig(managedPath()));
++    } catch (error) {
++      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
++      throw error;
++    }
++  };
++  const leaseDirectory = (lease: Lease) => {
++    if (fs.realpathSync(lease.directory) !== lease.directory) {
++      throw new LocalHandoffError('identity-mismatch');
++    }
++  };
++  const discard = (lease: Lease) => {
++    try {
++      leaseDirectory(lease);
++      if (!lease.fileRemoved) {
++        try {
++          fs.unlinkSync(lease.kubeconfigPath);
++        } catch (error) {
++          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
++        }
++        lease.fileRemoved = true;
++      }
++      fs.rmdirSync(lease.directory);
++      leases.delete(lease.token);
++    } catch {
++      throw new LocalHandoffError('cleanup');
++    }
++  };
++  const allocate = (
++    kind: Lease['kind'],
++    configuration: LocalConfiguration,
++    reference = ''
++  ): Lease => {
++    if (leases.size >= 2 || [...leases.values()].some(lease => lease.kind === kind)) {
++      throw new LocalHandoffError('busy');
++    }
++    const token = randomUUID();
++    const directory = path.join(
++      options.temporaryDirectory ?? os.tmpdir(),
++      `aksedge-kubeconfig-${token}`
++    );
++    fs.mkdirSync(directory, { mode: 0o700 });
++    const kubeconfigPath = path.join(directory, 'credentials.yaml');
++    let createdFile = false;
++    try {
++      hardenDirectory(directory);
++      fs.closeSync(fs.openSync(kubeconfigPath, 'wx', 0o600));
++      createdFile = true;
++      hardenFile(kubeconfigPath);
++      const canonicalDirectory = fs.realpathSync(directory);
++      const lease: Lease = {
++        token,
++        directory: canonicalDirectory,
++        kubeconfigPath: path.join(canonicalDirectory, 'credentials.yaml'),
++        kind,
++        configuration: {
++          name: configuration.name,
++          kubernetesVersion: configuration.kubernetesVersion,
++        },
++        reference: reference || token,
++      };
++      leases.set(token, lease);
++      return lease;
++    } catch {
++      try {
++        if (createdFile) fs.unlinkSync(kubeconfigPath);
++        fs.rmdirSync(directory);
++      } catch {
++        throw new LocalHandoffError('cleanup');
++      }
++      throw new LocalHandoffError('storage');
++    }
++  };
++  const findLease = (token: string): Lease => {
++    const lease = leases.get(token);
++    if (!lease) throw new LocalHandoffError('identity-mismatch');
++    leaseDirectory(lease);
++    return lease;
++  };
++  const source = (reference: string): LocalTarget => {
++    if (reference === 'registered') {
++      return readRegisteredLocalTarget(readPrivateKubeconfig(managedPath()));
++    }
++    const lease = findLease(reference);
++    if (lease.kind !== 'create' || !lease.target) {
++      throw new LocalHandoffError('identity-mismatch');
++    }
++    return normalizeLocalKubeconfig(
++      readPrivateKubeconfig(lease.kubeconfigPath),
++      lease.configuration,
++      reference
++    ).target;
++  };
++  const collisionPaths = () => {
++    const directory = path.dirname(managedPath());
++    const entries = fs.readdirSync(directory, { withFileTypes: true });
++    const managed = entries
++      .filter(
++        entry => entry.name !== LOCAL_CONFIG_FILE && (entry.isFile() || entry.isSymbolicLink())
++      )
++      .map(entry => path.join(directory, entry.name));
++    return [
++      ...new Set([...(options.kubeconfigPaths ?? resolveKubeconfigPaths)(), ...managed]),
++    ].filter(candidate => path.resolve(candidate) !== managedPath());
++  };
++  const prepared = (lease: Lease) => ({
++    token: lease.token,
++    kubeconfigPath: lease.kubeconfigPath,
++  });
++
++  return {
++    id: LOCAL_PROVIDER,
++    validateOptions: isLocalRequest,
++    async register(request) {
++      if (
++        (options.platform ?? process.platform) !== 'win32' ||
++        (options.arch ?? process.arch) !== 'x64'
++      ) {
++        return {
++          success: false,
++          message: 'Local clusters require Windows x64.',
++          data: { code: 'unsupported' },
++        };
++      }
++      if (requestInFlight) {
++        return {
++          success: false,
++          message: 'A native handoff is already in progress.',
++          data: { code: 'busy' },
++        };
++      }
++      requestInFlight = true;
++      try {
++        switch (request.action) {
++          case 'inspect': {
++            const pending = [...leases.values()].find(lease => lease.kind === 'create')?.target;
++            return {
++              success: true,
++              message: 'Local target inspected.',
++              data: { target: managedTarget() ?? pending ?? null },
++            };
++          }
++          case 'prepare': {
++            if (managedTarget()) throw new LocalHandoffError('already-exists');
++            const lease = allocate('create', request);
++            return {
++              success: true,
++              message: 'Private credential destination prepared.',
++              data: prepared(lease),
++            };
++          }
++          case 'register': {
++            const lease = findLease(request.token);
++            if (lease.kind !== 'create') throw new LocalHandoffError('identity-mismatch');
++            const imported = managedTarget();
++            if (
++              lease.persisted &&
++              lease.target &&
++              imported &&
++              imported.name === lease.target.name &&
++              imported.kubernetesVersion === lease.target.kubernetesVersion
++            ) {
++              discard(lease);
++              return {
++                success: true,
++                message: 'Local credentials imported into Desktop.',
++                data: { target: imported },
++              };
++            }
++            const normalized = normalizeLocalKubeconfig(
++              readPrivateKubeconfig(lease.kubeconfigPath),
++              lease.configuration,
++              lease.token
++            );
++            lease.target = normalized.target;
++            // With no credential fingerprint, an entry this lease did not persist is never adopted.
++            if (managedTarget()) throw new LocalHandoffError('already-exists');
++            fs.mkdirSync(path.dirname(managedPath()), { recursive: true, mode: 0o700 });
++            const others = collisionPaths();
++            for (const file of others) {
++              try {
++                assertNoLocalContextCollision(
++                  normalized.target.contextName,
++                  fs.readFileSync(file, 'utf8')
++                );
++              } catch (error) {
++                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
++              }
++            }
++            await persist(normalized.contents, [managedPath(), ...others]);
++            lease.persisted = true;
++            const target = managedTarget();
++            if (
++              !target ||
++              target.name !== normalized.target.name ||
++              target.kubernetesVersion !== normalized.target.kubernetesVersion
++            ) {
++              throw new LocalHandoffError('storage');
++            }
++            discard(lease);
++            return {
++              success: true,
++              message: 'Local credentials imported into Desktop.',
++              data: { target },
++            };
++          }
++          case 'discard': {
++            discard(findLease(request.token));
++            return { success: true, message: 'Temporary credential handoff removed.' };
++          }
++          case 'forget': {
++            const pendingLease =
++              request.reference === 'registered' ? undefined : findLease(request.reference);
++            // After an unlink succeeded, a retry may only remove the now-empty private directory.
++            if (pendingLease?.fileRemoved) {
++              if (pendingLease.target?.name !== request.name) {
++                throw new LocalHandoffError('identity-mismatch');
++              }
++              discard(pendingLease);
++              return {
++                success: true,
++                message: 'Only the matching local Desktop entry was removed.',
++              };
++            }
++            const current = source(request.reference);
++            if (current.name !== request.name) throw new LocalHandoffError('identity-mismatch');
++            if (request.reference === 'registered') {
++              for (const lease of leases.values()) {
++                if (lease.kind === 'create' && lease.target?.name === current.name) {
++                  discard(lease);
++                }
++              }
++              fs.unlinkSync(managedPath());
++            } else {
++              discard(findLease(request.reference));
++            }
++            return { success: true, message: 'Only the matching local Desktop entry was removed.' };
++          }
++        }
++      } catch (error) {
++        const code = error instanceof LocalHandoffError ? error.code : 'storage';
++        return {
++          success: false,
++          message: `Local cluster handoff failed (${code}).`,
++          data: { code },
++        };
++      } finally {
++        requestInFlight = false;
++      }
++    },
++  };
++}
+diff --git a/app/electron/local-kubeconfig.test.ts b/app/electron/local-kubeconfig.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5553eb87ca2df86350bfd37f60d4bf0b317a0755
+--- /dev/null
++++ b/app/electron/local-kubeconfig.test.ts
+@@ -0,0 +1,242 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import fs from 'node:fs';
++import os from 'node:os';
++import path from 'node:path';
++import { afterEach, describe, expect, it, vi } from 'vitest';
++import yaml from 'yaml';
++import {
++  assertNoLocalContextCollision,
++  normalizeLocalKubeconfig,
++  readPrivateKubeconfig,
++  readRegisteredLocalTarget,
++  withLocalKubeconfigPath,
++} from './local-kubeconfig';
++
++vi.mock('./secureStorage', () => ({ isTrustedDocumentUrl: vi.fn() }));
++
++const configuration = { name: 'demo', kubernetesVersion: '1.36.1-20260701' };
++// What the CLI records in context_info for the requested cluster.
++const cliContextInfo = {
++  provider: 'baremetal.aksarc.microsoft.com',
++  distro: 'Ubuntu-24.04',
++  ...configuration,
++  distribution: 'K8s',
++};
++const certificate = Buffer.from('synthetic-public-certificate').toString('base64');
++const key = Buffer.from('synthetic-test-key-not-a-real-credential').toString('base64');
++function config() {
++  return {
++    apiVersion: 'v1',
++    kind: 'Config',
++    clusters: [
++      {
++        name: 'demo',
++        cluster: { server: 'https://localhost:6443', 'insecure-skip-tls-verify': true },
++      },
++    ],
++    contexts: [
++      {
++        name: 'demo',
++        context: {
++          cluster: 'demo',
++          user: 'admin',
++          extensions: [
++            {
++              name: 'context_info',
++              extension: { ...cliContextInfo } as Record<string, unknown>,
++            },
++          ],
++        },
++      },
++    ],
++    users: [
++      { name: 'admin', user: { 'client-certificate-data': certificate, 'client-key-data': key } },
++    ],
++    'current-context': 'demo',
++  };
++}
++afterEach(() => {
++  vi.restoreAllMocks();
++  vi.unstubAllEnvs();
++});
++
++describe('local kubeconfig discovery paths', () => {
++  const directory = path.join(os.tmpdir(), 'local-discovery-paths');
++  const managed = path.join(directory, 'aksedge-local.yaml');
++  const first = path.join(directory, 'first config');
++  const second = path.join(directory, 'second config');
++  const resolve = (configured?: string) =>
++    withLocalKubeconfigPath(configured, directory, 'win32', 'x64')?.split(path.delimiter);
++
++  it('preserves explicit paths and appends the private store without touching files', () => {
++    vi.stubEnv('HEADLAMP_CONFIG_KUBECONFIG', 'unused-prefixed-path');
++    vi.stubEnv('KUBECONFIG', 'unused-environment-path');
++    const read = vi.spyOn(fs, 'readFileSync');
++    const write = vi.spyOn(fs, 'writeFileSync');
++    expect(resolve([first, second].join(path.delimiter))).toEqual([first, second, managed]);
++    expect(read).not.toHaveBeenCalled();
++    expect(write).not.toHaveBeenCalled();
++  });
++
++  it('preserves the backend-specific environment override before KUBECONFIG', () => {
++    vi.stubEnv('HEADLAMP_CONFIG_KUBECONFIG', first);
++    vi.stubEnv('KUBECONFIG', second);
++    expect(resolve()).toEqual([first, managed]);
++  });
++
++  it('preserves all KUBECONFIG entries when no explicit override is set', () => {
++    vi.stubEnv('HEADLAMP_CONFIG_KUBECONFIG', '');
++    vi.stubEnv('KUBECONFIG', [first, second].join(path.delimiter));
++    expect(resolve()).toEqual([first, second, managed]);
++  });
++
++  it('retains the ordinary home kubeconfig fallback', () => {
++    vi.stubEnv('HEADLAMP_CONFIG_KUBECONFIG', '');
++    vi.stubEnv('KUBECONFIG', '');
++    expect(resolve()).toEqual([path.join(os.homedir(), '.kube', 'config'), managed]);
++  });
++
++  it('does not duplicate the managed file under Windows case-insensitive identity', () => {
++    expect(resolve([first, managed.toUpperCase()].join(path.delimiter))).toEqual([
++      first,
++      managed.toUpperCase(),
++    ]);
++  });
++
++  it.each([
++    ['linux', 'x64'],
++    ['darwin', 'arm64'],
++    ['win32', 'arm64'],
++  ] as const)('does not change %s/%s discovery', (platform, arch) => {
++    expect(withLocalKubeconfigPath(first, directory, platform, arch)).toBe(first);
++    expect(withLocalKubeconfigPath(undefined, directory, platform, arch)).toBeUndefined();
++  });
++});
++
++describe('private local credentials', () => {
++  it('keeps the CLI names and context_info unchanged and returns no secret in public metadata', () => {
++    const value = config();
++    const context: { extensions: unknown[] } = value.contexts[0].context;
++    context.extensions = [
++      { name: 'context_info', extension: { ...cliContextInfo, note: 'kept' } },
++      { name: 'other', extension: { keep: true } },
++    ];
++    const normalized = normalizeLocalKubeconfig(yaml.stringify(value), configuration, 'lease');
++    const parsed = yaml.parse(normalized.contents);
++    expect(parsed['current-context']).toBe('demo');
++    expect(parsed.contexts[0].name).toBe('demo');
++    expect(parsed.contexts[0].context).toMatchObject({ cluster: 'demo', user: 'admin' });
++    expect(parsed.contexts[0].context.extensions).toEqual(context.extensions);
++    expect(normalized.target.contextName).toBe('demo');
++    expect(parsed.clusters[0].cluster['insecure-skip-tls-verify']).toBe(true);
++    expect(JSON.stringify(normalized.target)).not.toContain(key);
++    expect(JSON.stringify(normalized.target)).not.toContain(certificate);
++    expect(readRegisteredLocalTarget(normalized.contents)).toEqual({
++      ...normalized.target,
++      reference: 'registered',
++      registered: true,
++    });
++  });
++
++  it.each([
++    'http://localhost:6443',
++    'https://example.com:6443',
++    'https://8.8.8.8:6443',
++    'https://localhost:443',
++    'https://user:password@localhost:6443',
++    'https://localhost:6443/path',
++    'https://localhost:6443?token=x',
++  ])('rejects a non-local or unexpected endpoint (%s)', server => {
++    const value = config();
++    value.clusters[0].cluster.server = server;
++    expect(() => normalizeLocalKubeconfig(yaml.stringify(value), configuration, 'lease')).toThrow(
++      'invalid-credentials'
++    );
++  });
++
++  it.each(['exec', 'auth-provider', 'token', 'client-key', 'client-certificate'])(
++    'rejects executable, external-file or alternate auth (%s)',
++    field => {
++      const value = config();
++      Object.assign(value.users[0].user, { [field]: 'not allowed' });
++      expect(() => normalizeLocalKubeconfig(yaml.stringify(value), configuration, 'lease')).toThrow(
++        'invalid-credentials'
++      );
++    }
++  );
++
++  it('rejects mismatched cluster names, malformed base64 and changed local metadata', () => {
++    const value = config();
++    expect(() =>
++      normalizeLocalKubeconfig(yaml.stringify(value), { ...configuration, name: 'other' }, 'lease')
++    ).toThrow('identity-mismatch');
++    // A CLI that does not record the requested cluster, or records another one, is rejected.
++    for (const extension of [
++      { provider: 'baremetal.aksarc.microsoft.com' },
++      { ...cliContextInfo, kubernetesVersion: '1.35.5-20260701' },
++      { ...cliContextInfo, distro: 'Ubuntu-22.04' },
++    ]) {
++      const other = config();
++      other.contexts[0].context.extensions[0].extension = extension;
++      expect(() => normalizeLocalKubeconfig(yaml.stringify(other), configuration, 'lease')).toThrow(
++        'identity-mismatch'
++      );
++    }
++    value.users[0].user['client-key-data'] = 'not base64';
++    expect(() => normalizeLocalKubeconfig(yaml.stringify(value), configuration, 'lease')).toThrow(
++      'invalid-credentials'
++    );
++    const normalized = normalizeLocalKubeconfig(yaml.stringify(config()), configuration, 'lease');
++    expect(() =>
++      readRegisteredLocalTarget(normalized.contents.replace('Ubuntu-24.04', 'Ubuntu-22.04'))
++    ).toThrow('identity-mismatch');
++    expect(() =>
++      readRegisteredLocalTarget(
++        normalized.contents.replace(/("distro": "Ubuntu-24.04"\s+"name": )"demo"/, '$1"other"')
++      )
++    ).toThrow('identity-mismatch');
++  });
++
++  it('rejects an existing context even if its connection settings appear identical', () => {
++    const normalized = normalizeLocalKubeconfig(yaml.stringify(config()), configuration, 'lease');
++    expect(() => assertNoLocalContextCollision('demo', normalized.contents)).toThrow('collision');
++    expect(() =>
++      assertNoLocalContextCollision('another-context', normalized.contents)
++    ).not.toThrow();
++    expect(() => assertNoLocalContextCollision('demo', '[ invalid: yaml')).toThrow('collision');
++  });
++
++  it('bounds file reads and refuses directories, empty files and multiply linked credentials', () => {
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'local-credentials-'));
++    const file = path.join(root, 'credentials.yaml');
++    try {
++      fs.writeFileSync(file, '');
++      expect(() => readPrivateKubeconfig(file)).toThrow('invalid-credentials');
++      expect(() => readPrivateKubeconfig(root)).toThrow('invalid-credentials');
++      fs.writeFileSync(file, yaml.stringify(config()));
++      expect(readPrivateKubeconfig(file)).toContain('current-context');
++      fs.linkSync(file, path.join(root, 'linked'));
++      expect(() => readPrivateKubeconfig(file)).toThrow('invalid-credentials');
++      fs.unlinkSync(path.join(root, 'linked'));
++      fs.writeFileSync(file, Buffer.alloc(1024 * 1024 + 1));
++      expect(() => readPrivateKubeconfig(file)).toThrow('invalid-credentials');
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true });
++    }
++  });
++});
+diff --git a/app/electron/local-kubeconfig.ts b/app/electron/local-kubeconfig.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ed09204b1e2ad46444d405fd8d09f7b80237f69b
+--- /dev/null
++++ b/app/electron/local-kubeconfig.ts
+@@ -0,0 +1,317 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import fs from 'node:fs';
++import { isIP } from 'node:net';
++import path from 'node:path';
++import yaml from 'yaml';
++import { resolveKubeconfigPaths, validateGeneratedKubeconfig } from './cluster-registration';
++
++export const LOCAL_PROVIDER = 'aksedge-local';
++export const LOCAL_DISTRO = 'Ubuntu-24.04';
++export const LOCAL_CONFIG_FILE = 'aksedge-local.yaml';
++
++export function withLocalKubeconfigPath(
++  configuredPath: string | undefined,
++  directory: string,
++  platform: NodeJS.Platform = process.platform,
++  arch: string = process.arch
++): string | undefined {
++  if (platform !== 'win32' || arch !== 'x64') return configuredPath;
++  const paths = resolveKubeconfigPaths(
++    configuredPath || process.env.HEADLAMP_CONFIG_KUBECONFIG || process.env.KUBECONFIG
++  );
++  const managedPath = path.join(directory, LOCAL_CONFIG_FILE);
++  const identity = (file: string) => path.resolve(file).toLowerCase();
++  if (!paths.some(file => identity(file) === identity(managedPath))) {
++    paths.push(managedPath);
++  }
++  return paths.join(path.delimiter);
++}
++
++export interface LocalConfiguration {
++  name: string;
++  kubernetesVersion: string;
++}
++
++export interface LocalTarget extends LocalConfiguration {
++  reference: string;
++  contextName: string;
++  registered: boolean;
++}
++
++export type LocalErrorCode =
++  | 'unsupported'
++  | 'busy'
++  | 'already-exists'
++  | 'invalid-credentials'
++  | 'identity-mismatch'
++  | 'collision'
++  | 'storage'
++  | 'cleanup';
++
++export class LocalHandoffError extends Error {
++  constructor(public readonly code: LocalErrorCode) {
++    super(`Local cluster handoff failed (${code}).`);
++  }
++}
++
++export function isRecord(value: unknown): value is Record<string, unknown> {
++  return typeof value === 'object' && value !== null && !Array.isArray(value);
++}
++
++export function isLocalConfiguration(value: unknown): value is LocalConfiguration {
++  return (
++    isRecord(value) &&
++    typeof value.name === 'string' &&
++    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value.name) &&
++    typeof value.kubernetesVersion === 'string' &&
++    /^\d{1,3}\.\d{1,3}\.\d{1,3}-\d{8}$/.test(value.kubernetesVersion)
++  );
++}
++
++export function readPrivateKubeconfig(filePath: string): string {
++  const stat = fs.lstatSync(filePath);
++  if (!stat.isFile() || stat.nlink !== 1 || stat.size < 1 || stat.size > 1024 * 1024) {
++    throw new LocalHandoffError('invalid-credentials');
++  }
++  const descriptor = fs.openSync(filePath, 'r');
++  try {
++    const opened = fs.fstatSync(descriptor);
++    if (
++      opened.ino !== stat.ino ||
++      opened.dev !== stat.dev ||
++      opened.size !== stat.size ||
++      opened.nlink !== 1 ||
++      !opened.isFile()
++    ) {
++      throw new LocalHandoffError('invalid-credentials');
++    }
++    const buffer = Buffer.alloc(stat.size + 1);
++    const length = fs.readSync(descriptor, buffer, 0, buffer.length, 0);
++    if (length !== stat.size || fs.fstatSync(descriptor).size !== stat.size) {
++      throw new LocalHandoffError('invalid-credentials');
++    }
++    return buffer.subarray(0, length).toString('utf8');
++  } finally {
++    fs.closeSync(descriptor);
++  }
++}
++
++function parseCredentials(contents: string): Record<string, unknown> {
++  try {
++    validateGeneratedKubeconfig(contents);
++    const config: unknown = yaml.parse(contents);
++    if (!isRecord(config)) throw new Error();
++    return config;
++  } catch {
++    throw new LocalHandoffError('invalid-credentials');
++  }
++}
++
++function section(config: Record<string, unknown>, collection: string, key: string) {
++  const values = config[collection];
++  if (!Array.isArray(values) || values.length !== 1 || !isRecord(values[0])) {
++    throw new LocalHandoffError('invalid-credentials');
++  }
++  const value = values[0][key];
++  if (!isRecord(value)) throw new LocalHandoffError('invalid-credentials');
++  return value;
++}
++
++function certificateData(value: unknown): string {
++  if (
++    typeof value !== 'string' ||
++    value.length === 0 ||
++    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
++  ) {
++    throw new LocalHandoffError('invalid-credentials');
++  }
++  return value;
++}
++
++function validateCredentials(config: Record<string, unknown>): Record<string, unknown> {
++  const user = section(config, 'users', 'user');
++  certificateData(user['client-certificate-data']);
++  certificateData(user['client-key-data']);
++  if (
++    Object.keys(user).some(key => key !== 'client-certificate-data' && key !== 'client-key-data')
++  ) {
++    throw new LocalHandoffError('invalid-credentials');
++  }
++  return user;
++}
++
++function named(config: Record<string, unknown>, collection: string): Record<string, unknown> {
++  const values = config[collection];
++  if (!Array.isArray(values) || values.length !== 1 || !isRecord(values[0])) {
++    throw new LocalHandoffError('invalid-credentials');
++  }
++  if (typeof values[0].name !== 'string' || values[0].name === '') {
++    throw new LocalHandoffError('invalid-credentials');
++  }
++  return values[0];
++}
++
++function localServer(value: unknown): string {
++  if (typeof value !== 'string') throw new LocalHandoffError('invalid-credentials');
++  let server: URL;
++  try {
++    server = new URL(value);
++  } catch {
++    throw new LocalHandoffError('invalid-credentials');
++  }
++  const host = server.hostname;
++  const octets = host.split('.').map(Number);
++  const privateIPv4 =
++    isIP(host) === 4 &&
++    (octets[0] === 10 ||
++      octets[0] === 127 ||
++      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
++      (octets[0] === 192 && octets[1] === 168));
++  if (
++    server.protocol !== 'https:' ||
++    server.port !== '6443' ||
++    server.username ||
++    server.password ||
++    server.search ||
++    server.hash ||
++    (server.pathname !== '' && server.pathname !== '/') ||
++    (!privateIPv4 && host !== 'localhost' && host !== '[::1]')
++  ) {
++    throw new LocalHandoffError('invalid-credentials');
++  }
++  return server.origin;
++}
++
++/**
++ * Keeps the CLI's entry names and its `context_info`, validates the inline credentials and the
++ * local server, and checks that the CLI recorded the requested cluster (distro, name and Kubernetes
++ * version) in `context_info`. AKS Desktop stores the CLI's metadata unchanged and adds none.
++ */
++export function normalizeLocalKubeconfig(
++  contents: string,
++  configuration: LocalConfiguration,
++  reference: string
++): { contents: string; target: LocalTarget } {
++  const config = parseCredentials(contents);
++  if (config['current-context'] !== configuration.name) {
++    throw new LocalHandoffError('identity-mismatch');
++  }
++  const clusterName = named(config, 'clusters').name as string;
++  const userName = named(config, 'users').name as string;
++  const originalContext = section(config, 'contexts', 'context');
++  if (
++    named(config, 'contexts').name !== configuration.name ||
++    originalContext.cluster !== clusterName ||
++    originalContext.user !== userName
++  ) {
++    throw new LocalHandoffError('identity-mismatch');
++  }
++  const originalCluster = section(config, 'clusters', 'cluster');
++  const user = validateCredentials(config);
++  const cluster: Record<string, unknown> = { server: localServer(originalCluster.server) };
++  if (originalCluster['insecure-skip-tls-verify'] === true) {
++    // Preserve, but do not strengthen or hide, the existing CLI's demo-only TLS behavior.
++    cluster['insecure-skip-tls-verify'] = true;
++  } else {
++    cluster['certificate-authority-data'] = certificateData(
++      originalCluster['certificate-authority-data']
++    );
++  }
++  const extensions = Array.isArray(originalContext.extensions)
++    ? originalContext.extensions.filter(isRecord)
++    : [];
++  const contextInfo = extensions.filter(value => value.name === 'context_info');
++  const cliContextInfo: unknown = contextInfo.length === 1 ? contextInfo[0].extension : undefined;
++  if (
++    !isRecord(cliContextInfo) ||
++    cliContextInfo.distro !== LOCAL_DISTRO ||
++    cliContextInfo.name !== configuration.name ||
++    cliContextInfo.kubernetesVersion !== configuration.kubernetesVersion
++  ) {
++    throw new LocalHandoffError('identity-mismatch');
++  }
++  const target: LocalTarget = {
++    name: configuration.name,
++    kubernetesVersion: configuration.kubernetesVersion,
++    reference,
++    contextName: configuration.name,
++    registered: reference === 'registered',
++  };
++  const normalized = {
++    apiVersion: 'v1',
++    kind: 'Config',
++    clusters: [{ name: clusterName, cluster }],
++    users: [{ name: userName, user }],
++    contexts: [
++      {
++        name: configuration.name,
++        context: {
++          cluster: clusterName,
++          user: userName,
++          extensions,
++        },
++      },
++    ],
++    'current-context': configuration.name,
++  };
++  return {
++    contents: yaml.stringify(normalized, { lineWidth: 0, defaultStringType: 'QUOTE_DOUBLE' }),
++    target,
++  };
++}
++
++/** Reads the target back from the managed file; the file itself identifies the local cluster. */
++export function readRegisteredLocalTarget(contents: string): LocalTarget {
++  const config = parseCredentials(contents);
++  const context = section(config, 'contexts', 'context');
++  const extensions = context.extensions;
++  if (!Array.isArray(extensions)) throw new LocalHandoffError('identity-mismatch');
++  const matches = extensions.filter(value => isRecord(value) && value.name === 'context_info');
++  const metadata: unknown = matches.length === 1 ? matches[0].extension : undefined;
++  if (
++    !isRecord(metadata) ||
++    metadata.distro !== LOCAL_DISTRO ||
++    !isLocalConfiguration(metadata) ||
++    named(config, 'contexts').name !== metadata.name ||
++    config['current-context'] !== metadata.name
++  ) {
++    throw new LocalHandoffError('identity-mismatch');
++  }
++  validateCredentials(config);
++  localServer(section(config, 'clusters', 'cluster').server);
++  return {
++    name: metadata.name,
++    kubernetesVersion: metadata.kubernetesVersion,
++    reference: 'registered',
++    contextName: metadata.name,
++    registered: true,
++  };
++}
++
++export function assertNoLocalContextCollision(contextName: string, contents: string): void {
++  let config: unknown;
++  try {
++    config = yaml.parse(contents);
++  } catch {
++    throw new LocalHandoffError('collision');
++  }
++  if (!isRecord(config) || !Array.isArray(config.contexts)) return;
++  if (config.contexts.some(value => isRecord(value) && value.name === contextName)) {
++    throw new LocalHandoffError('collision');
++  }
++}
+diff --git a/app/electron/main.ts b/app/electron/main.ts
+index 456d5e7d7aa475cd09987c4abfeacb7efb71be23..fadf1e1d930b8b91c0986929b19bd2bb0648800c 100644
+--- a/app/electron/main.ts
++++ b/app/electron/main.ts
+@@ -48,7 +48,11 @@ import {
+   waitForExternalBackend,
+ } from './backendToken';
+ import { createCertificateSetup } from './certificates';
+-import { setupClusterRegistrationHandler } from './cluster-registration';
++import {
++  clusterRegistrationProviders,
++  resolveKubeconfigPaths,
++  setupClusterRegistrationHandler,
++} from './cluster-registration';
+ import { setupDevelopmentPluginsHandlers } from './developmentPlugins';
+ import { startWindowsVMDetection, waitForWindowsVMDetection } from './hardwareAcceleration';
+ import i18n from './i18next.config';
+@@ -58,6 +62,8 @@ import {
+   readLegalDocument,
+ } from './legal-documents';
+ import { runListPluginsCommand } from './list-plugins';
++import { createLocalClusterRegistrationProvider } from './local-cluster-registration';
++import { withLocalKubeconfigPath } from './local-kubeconfig';
+ import MCPClient from './mcp/MCPClient';
+ import { AppMenu, menusToTemplate } from './menu';
+ import { filterUserOwnedPids } from './ownedProcesses';
+@@ -789,11 +795,15 @@ class PluginManagerEventListeners {
+ 
+ let shellEnvironmentPromise: Promise<NodeJS.ProcessEnv> | null = null;
+ 
+-export function getProductCommandExecutable(command: string): string | undefined {
++export function getProductCommandExecutable(
++  command: string,
++  args: readonly string[] = []
++): string | undefined {
+   return resolveCommandExecutable(
+     command,
+     loadBuildManifest(appBuildManifestPath),
+-    isDev ? path.resolve(__dirname, '../resources') : process.resourcesPath
++    isDev ? path.resolve(__dirname, '../resources') : process.resourcesPath,
++    args
+   );
+ }
+ 
+@@ -889,8 +899,9 @@ async function startServer(
+     '--app-name',
+     app.getName(),
+   ];
+-  if (!!args.kubeconfig) {
+-    serverArgs = serverArgs.concat(['--kubeconfig', args.kubeconfig]);
++  const kubeconfig = withLocalKubeconfigPath(args.kubeconfig, defaultKubeConfigsDir());
++  if (kubeconfig) {
++    serverArgs = serverArgs.concat(['--kubeconfig', kubeconfig]);
+   }
+ 
+   let buildManifest: Record<string, any> = {};
+@@ -1746,7 +1757,17 @@ function startElectron() {
+       privatePluginCapabilities?.authorizeClusterRegistration,
+       appBuildManifest,
+       isDev ? path.join(__dirname, '..', 'resources') : process.resourcesPath,
+-      startUrl
++      startUrl,
++      [
++        ...clusterRegistrationProviders,
++        createLocalClusterRegistrationProvider({
++          kubeconfigDirectory: defaultKubeConfigsDir,
++          kubeconfigPaths: () =>
++            resolveKubeconfigPaths(
++              withLocalKubeconfigPath(args.kubeconfig, defaultKubeConfigsDir())
++            ),
++        }),
++      ]
+     );
+ 
+     applyZoom();
+diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
+index 6d9ea07833d3e3abe8916549dfe2247804206fa0..3ecda70b8a3d1486f5f3a4ae704dff8cafb21d0d 100644
+--- a/app/electron/runCmd.test.ts
++++ b/app/electron/runCmd.test.ts
+@@ -869,7 +869,7 @@ describe('handleRunCommand', () => {
+     };
+     const window = { id: 1 } as Parameters<typeof handleRunCommand>[2];
+     await handleRunCommand(fakeEvent, data, window, { 'runCmd-gh': 99 });
+-    expect(getProductCommandExecutableMock).toHaveBeenCalledWith('gh');
++    expect(getProductCommandExecutableMock).toHaveBeenCalledWith('gh', data.args);
+     expect(spawnMock).toHaveBeenCalledWith(executable, data.args, expect.any(Object));
+ 
+     getProductCommandExecutableMock.mockClear();
+@@ -2774,6 +2774,36 @@ describe('setupRunCmdHandlers', () => {
+ });
+ 
+ describe('app-owned command environment', () => {
++  it('validates an immutable argument copy and fails closed for invalid or asynchronous validators', () => {
++    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'command validation-')));
++    try {
++      const accepted =
++        'exports.validateCommand = (command, args) => { if (command !== "example" || args.join(",") !== "read,--json" || !Object.isFrozen(args)) throw new Error("denied"); };';
++      fs.writeFileSync(path.join(root, 'valid.cjs'), accepted);
++      const args = ['read', '--json'];
++      expect(
++        resolveCommandExecutable('example', { commandEnvironment: 'valid.cjs' }, root, args)
++      ).toBeUndefined();
++      expect(args).toEqual(['read', '--json']);
++      expect(() =>
++        resolveCommandExecutable('example', { commandEnvironment: 'valid.cjs' }, root, ['delete'])
++      ).toThrow();
++      for (const [index, source] of [
++        'exports.validateCommand = true;',
++        'exports.validateCommand = async () => {};',
++        'exports.validateCommand = () => false;',
++        'exports.validateCommand = () => { throw new Error("denied"); };',
++      ].entries()) {
++        const module = `invalid-validator-${index}.cjs`;
++        fs.writeFileSync(path.join(root, module), source);
++        expect(() =>
++          resolveCommandExecutable('example', { commandEnvironment: module }, root, args)
++        ).toThrow();
++      }
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true });
++    }
++  });
+   it('confines optional product executable resolution to app-owned resources', () => {
+     const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'command resolver-')));
+     const resources = path.join(directory, 'resources');
+diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
+index bdf4492e6e5bb2b790d93a4e8e774b447f07c0d4..e0b7d4775ed79b793ac205a80afd47140d4222c2 100644
+--- a/app/electron/runCmd.ts
++++ b/app/electron/runCmd.ts
+@@ -454,16 +454,28 @@ export function applyCommandEnvironment(
+  * @param command - Authorized command name, not a renderer-supplied executable path.
+  * @param manifest - Trusted application build manifest selecting the optional callback module.
+  * @param resourcesDirectory - App-owned resource root.
++ * @param args - Authorized arguments, copied before optional product validation.
+  * @returns The canonical executable, or undefined to preserve existing command lookup.
+  * @throws When resolution fails, returns an invalid value, or escapes app-owned resources.
+  */
+ export function resolveCommandExecutable(
+   command: string,
+   manifest: Record<string, unknown>,
+-  resourcesDirectory: string
++  resourcesDirectory: string,
++  args: readonly string[] = []
+ ): string | undefined {
+   const loaded = loadCommandEnvironmentModule(manifest, resourcesDirectory);
+-  if (!loaded || loaded.callbacks.resolveExecutable === undefined) return undefined;
++  if (!loaded) return undefined;
++  const { validateCommand } = loaded.callbacks;
++  if (validateCommand !== undefined) {
++    if (
++      typeof validateCommand !== 'function' ||
++      validateCommand(command, Object.freeze([...args])) !== undefined
++    ) {
++      throw new Error('validateCommand must accept or throw synchronously');
++    }
++  }
++  if (loaded.callbacks.resolveExecutable === undefined) return undefined;
+   const { resolveExecutable } = loaded.callbacks;
+   if (typeof resolveExecutable !== 'function') {
+     throw new Error('commandEnvironment resolveExecutable must be a function');
+@@ -1140,7 +1152,7 @@ export async function handleRunCommand(
+     const { getShellEnvironment, getProductCommandExecutable } = await import('./main');
+     shellEnvironment = await getShellEnvironment();
+     if (commandData.command !== 'scriptjs' && !capabilityGrant?.executable) {
+-      productExecutable = getProductCommandExecutable(commandData.command);
++      productExecutable = getProductCommandExecutable(commandData.command, commandData.args);
+     }
+   } catch (error) {
+     console.error(
+diff --git a/backend/pkg/kubeconfig/discovery_test.go b/backend/pkg/kubeconfig/discovery_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..80c76d852bea6e58b1512fff98340d93b4abdc66
+--- /dev/null
++++ b/backend/pkg/kubeconfig/discovery_test.go
+@@ -0,0 +1,143 @@
++package kubeconfig_test
++
++import (
++	"context"
++	"errors"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/kubernetes-sigs/headlamp/backend/pkg/kubeconfig"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"k8s.io/client-go/tools/clientcmd"
++	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
++)
++
++func writeDiscoveryConfig(t *testing.T, file, name string) {
++	t.Helper()
++
++	config := clientcmdapi.Config{
++		Clusters: map[string]*clientcmdapi.Cluster{
++			name: {Server: "https://127.0.0.1:65535", InsecureSkipTLSVerify: true},
++		},
++		AuthInfos: map[string]*clientcmdapi.AuthInfo{
++			name: {Token: "synthetic-discovery-test-token"},
++		},
++		Contexts: map[string]*clientcmdapi.Context{
++			name: {Cluster: name, AuthInfo: name},
++		},
++		CurrentContext: name,
++	}
++	require.NoError(t, clientcmd.WriteToFile(config, file))
++}
++
++func TestDiscoveryWithMissingKubeconfigPaths(t *testing.T) {
++	for _, missingFirst := range []bool{false, true} {
++		name := "missing-last"
++		if missingFirst {
++			name = "missing-first"
++		}
++
++		t.Run(name, func(t *testing.T) {
++			root := t.TempDir()
++			existing := filepath.Join(root, "ordinary-config")
++			missing := filepath.Join(root, "private-config")
++			writeDiscoveryConfig(t, existing, "ordinary")
++			paths := []string{existing, missing}
++			if missingFirst {
++				paths = []string{missing, existing}
++			}
++
++			contexts, contextErrors, err := kubeconfig.LoadContextsFromMultipleFiles(
++				strings.Join(paths, string(os.PathListSeparator)), kubeconfig.KubeConfig)
++			require.NoError(t, err)
++			require.Empty(t, contextErrors)
++			require.Len(t, contexts, 1)
++			require.Equal(t, "ordinary", contexts[0].Name)
++			require.Equal(t, existing, contexts[0].KubeConfigPath)
++
++			writeDiscoveryConfig(t, missing, "private")
++			contexts, contextErrors, err = kubeconfig.LoadContextsFromMultipleFiles(
++				strings.Join(paths, string(os.PathListSeparator)), kubeconfig.KubeConfig)
++			require.NoError(t, err)
++			require.Empty(t, contextErrors)
++			require.Len(t, contexts, 2)
++		})
++	}
++}
++
++func TestDiscoveryDoesNotHideAllMissingOrInvalidFiles(t *testing.T) {
++	root := t.TempDir()
++	existing := filepath.Join(root, "ordinary-config")
++	writeDiscoveryConfig(t, existing, "ordinary")
++	missing := filepath.Join(root, "missing-config")
++	missingPaths := strings.Join([]string{missing, missing + "-second"}, string(os.PathListSeparator))
++	_, _, err := kubeconfig.LoadContextsFromMultipleFiles(missingPaths, kubeconfig.KubeConfig)
++	require.ErrorIs(t, err, os.ErrNotExist)
++
++	invalid := filepath.Join(root, "invalid-config")
++	require.NoError(t, os.WriteFile(invalid, []byte("contexts: [invalid"), 0o600))
++
++	for _, invalidPath := range []string{invalid, root} {
++		paths := strings.Join([]string{existing, invalidPath}, string(os.PathListSeparator))
++		_, _, err := kubeconfig.LoadContextsFromMultipleFiles(paths, kubeconfig.KubeConfig)
++		require.Error(t, err)
++		require.False(t, errors.Is(err, os.ErrNotExist))
++	}
++}
++
++func TestDiscoveryWatcherReconcilesUnobservedRemoval(t *testing.T) {
++	for _, ordinaryExists := range []bool{true, false} {
++		name := "ordinary-absent"
++		if ordinaryExists {
++			name = "ordinary-present"
++		}
++
++		t.Run(name, func(t *testing.T) {
++			root := t.TempDir()
++			ordinary := filepath.Join(root, "ordinary-config")
++			private := filepath.Join(root, "private-config")
++			var expected []string
++
++			if ordinaryExists {
++				writeDiscoveryConfig(t, ordinary, "ordinary")
++				expected = append(expected, "ordinary")
++			}
++
++			writeDiscoveryConfig(t, private, "private")
++			paths := strings.Join([]string{ordinary, private}, string(os.PathListSeparator))
++			store := kubeconfig.NewContextStore()
++			require.NoError(t, kubeconfig.LoadAndStoreKubeConfigs(store, paths, kubeconfig.KubeConfig, nil))
++			_, err := store.GetContext("private")
++			require.NoError(t, err)
++
++			// No file event can be observed for a removal before the watch is attached.
++			require.NoError(t, os.Remove(private))
++			ctx, cancel := context.WithCancel(context.Background())
++			stopped := make(chan struct{})
++
++			go func() {
++				defer close(stopped)
++				kubeconfig.LoadAndWatchFiles(ctx, store, paths, kubeconfig.KubeConfig, nil)
++			}()
++
++			t.Cleanup(func() {
++				cancel()
++				<-stopped
++			})
++
++			require.EventuallyWithT(t, func(collect *assert.CollectT) {
++				contexts, err := store.GetContexts()
++				require.NoError(collect, err)
++				var actual []string
++				for _, current := range contexts {
++					actual = append(actual, current.Name)
++				}
++				require.ElementsMatch(collect, expected, actual)
++			}, 20*time.Second, 100*time.Millisecond)
++		})
++	}
++}
+diff --git a/backend/pkg/kubeconfig/kubeconfig.go b/backend/pkg/kubeconfig/kubeconfig.go
+index 99e2ff6b4d8348bd8e19a3d8ec8acdd393f10939..ab8f91be6fbab41389d5cc6cc52160906d184755 100644
+--- a/backend/pkg/kubeconfig/kubeconfig.go
++++ b/backend/pkg/kubeconfig/kubeconfig.go
+@@ -602,10 +602,19 @@ func LoadContextsFromMultipleFiles(kubeConfigs string, source int) ([]Context, [
+ 
+ 	var contextErrors []ContextLoadError
+ 
++	var missingFiles []error
++
+ 	kubeConfigPaths := splitKubeConfigPath(kubeConfigs)
+ 	for _, kubeConfigPath := range kubeConfigPaths {
+ 		kubeConfigContexts, errs, err := LoadContextsFromFile(kubeConfigPath, source)
+ 		if err != nil {
++			// A newly registered file may not exist yet; do not hide readable files.
++			if errors.Is(err, os.ErrNotExist) {
++				missingFiles = append(missingFiles, err)
++
++				continue
++			}
++
+ 			return nil, nil, err
+ 		}
+ 
+@@ -613,6 +622,14 @@ func LoadContextsFromMultipleFiles(kubeConfigs string, source int) ([]Context, [
+ 		contextErrors = append(contextErrors, errs...)
+ 	}
+ 
++	if len(missingFiles) == len(kubeConfigPaths) {
++		return nil, nil, errors.Join(missingFiles...)
++	}
++
++	for _, err := range missingFiles {
++		logger.Log(logger.LevelInfo, nil, err, "skipping absent kubeconfig alongside readable files")
++	}
++
+ 	return contexts, contextErrors, nil
+ }
+ 
+diff --git a/backend/pkg/kubeconfig/watcher.go b/backend/pkg/kubeconfig/watcher.go
+index 34a7e1e5d205a93e7b73b9cc4195d3a36ab40cfb..8d98f70ef2232fb8f3db3ae5f67124acafdf4319 100644
+--- a/backend/pkg/kubeconfig/watcher.go
++++ b/backend/pkg/kubeconfig/watcher.go
+@@ -53,6 +53,12 @@ func LoadAndWatchFiles(
+ 	// add files to watcher
+ 	addFilesToWatcher(watcher, kubeConfigPaths)
+ 
++	// No file event reports a change made before the watch was attached, such as a removed
++	// kubeconfig, so reconcile the store once now.
++	if err := syncContexts(kubeConfigStore, paths, source, ignoreFunc); err != nil {
++		logger.Log(logger.LevelError, nil, err, "watcher: error synchronizing contexts")
++	}
++
+ 	for {
+ 		select {
+ 		case <-ctx.Done():
+@@ -106,9 +112,11 @@ func reAddMissingFiles(
+ 
+ 	logger.Log(logger.LevelInfo, nil, nil, "watcher: re-added missing files")
+ 
+-	err := LoadAndStoreKubeConfigs(kubeConfigStore, existingKubeConfigPaths(paths), source, ignoreFunc)
++	// Atomic replacement can leave a gap before the file watch is reattached, so reconcile
++	// removals as well as additions.
++	err := syncContexts(kubeConfigStore, paths, source, ignoreFunc)
+ 	if err != nil {
+-		logger.Log(logger.LevelError, nil, err, "watcher: error loading kubeconfig files")
++		logger.Log(logger.LevelError, nil, err, "watcher: error synchronizing contexts")
+ 	}
+ }
+ 
+diff --git a/frontend/src/plugin/clusterRegistration.ts b/frontend/src/plugin/clusterRegistration.ts
+index 59c4c0bc59822d683735be44c04ee7c97e51ebf1..b65ee50e4269cfa23bed3888acfb59f87e704a06 100644
+--- a/frontend/src/plugin/clusterRegistration.ts
++++ b/frontend/src/plugin/clusterRegistration.ts
+@@ -20,6 +20,8 @@ export interface ClusterRegistrationResult {
+   success: boolean;
+   /** User-facing success or failure detail. */
+   message: string;
++  /** Provider-defined public metadata. Never credentials or kubeconfig contents. */
++  data?: Record<string, unknown>;
+ }
+ 
+ /**

@@ -634,11 +634,127 @@ index 0facf07617cff7a83d5a0ba9817d408099f5056a..70bacbce3600fd99e59c60556d1257c5
    it('requires schema command arguments to contain a non-whitespace character', () => {
      const schema = JSON.parse(
        fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
+diff --git a/source/app/electron/cluster-registration.test.ts b/source/app/electron/cluster-registration.test.ts
+index 4e19ab074b258e2051d81c1f73f4f22629b315ef..0fa6d1f0a5417ea1f53a8e44310581f846e6b4c5 100644
+--- a/source/app/electron/cluster-registration.test.ts
++++ b/source/app/electron/cluster-registration.test.ts
+@@ -1104,6 +1104,39 @@ describe('cluster registration providers', () => {
+     ).resolves.toEqual({ success: true, message: 'registered' });
+   });
+ 
++  it('returns public metadata from a native provider', async () => {
++    const data = { target: { reference: 'example', registered: true } };
++    const provider: ClusterRegistrationProvider<Record<string, never>> = {
++      id: 'metadata',
++      validateOptions: (options): options is Record<string, never> =>
++        typeof options === 'object' && options !== null,
++      register: async () => ({ success: true, message: 'registered', data }),
++    };
++
++    await expect(
++      registerCluster('metadata', {}, { resourcesPath: '/resources', tools: {} }, [provider])
++    ).resolves.toEqual({ success: true, message: 'registered', data });
++  });
++
++  it.each([null, [], 'not-an-object', 42, true])(
++    'rejects malformed public provider metadata (%j)',
++    async data => {
++      const provider: ClusterRegistrationProvider<Record<string, never>> = {
++        id: 'metadata',
++        validateOptions: (options): options is Record<string, never> =>
++          typeof options === 'object' && options !== null,
++        register: vi.fn().mockResolvedValue({ success: true, message: 'registered', data }),
++      };
++
++      await expect(
++        registerCluster('metadata', {}, { resourcesPath: '/resources', tools: {} }, [provider])
++      ).resolves.toEqual({
++        success: false,
++        message: "Cluster registration provider 'metadata' returned an invalid result.",
++      });
++    }
++  );
++
+   it('preserves nonempty KUBECONFIG components verbatim', () => {
+     const first = `${path.sep}tmp${path.sep} leading`;
+     const second = `${path.sep}tmp${path.sep}trailing `;
+@@ -1234,12 +1267,22 @@ describe('cluster registration startup wiring', () => {
+   it('installs the handler before loading the renderer', () => {
+     const mainSource = fs.readFileSync(path.join(__dirname, 'main.ts'), 'utf8');
+     expect(mainSource).toMatch(
+-      /import \{ setupClusterRegistrationHandler \} from '\.\/cluster-registration';/
++      /import\s*\{[^}]*\bsetupClusterRegistrationHandler\b[^}]*\}\s*from '\.\/cluster-registration';/
+     );
+     const handlerSetup = mainSource.indexOf('    setupClusterRegistrationHandler(');
+     const rendererLoad = mainSource.indexOf('    mainWindow.loadURL(startUrl)');
+     expect(handlerSetup).toBeGreaterThan(-1);
++    expect(rendererLoad).toBeGreaterThan(-1);
+     expect(handlerSetup).toBeLessThan(rendererLoad);
++    const registrationSetup = mainSource.slice(handlerSetup, rendererLoad);
++    expect(registrationSetup).toContain('privatePluginCapabilities?.authorizeClusterRegistration');
++    expect(registrationSetup).toContain('      clusterRegistrationProviders\n    );');
++    // AKS Local reads its contexts and the platform itself, so no local provider is registered.
++    expect(mainSource).not.toContain('local-cluster-registration');
++    // The CLI writes local clusters to the user's kubeconfig, so the server loads no extra file.
++    const serverSetup = mainSource.slice(mainSource.indexOf('function startServer('), handlerSetup);
++    expect(serverSetup).toContain("serverArgs.concat(['--kubeconfig', args.kubeconfig])");
++    expect(mainSource).not.toContain('local-kubeconfig');
+     expect(mainSource).not.toContain("await import('./cluster-registration')");
+   });
+ });
+diff --git a/source/app/electron/cluster-registration.ts b/source/app/electron/cluster-registration.ts
+index 14c25f0b97d6664f38f6b14da14d9d8116ac30ae..f3e16e773393e7eb051ccd7e879cacb43fcb98c4 100644
+--- a/source/app/electron/cluster-registration.ts
++++ b/source/app/electron/cluster-registration.ts
+@@ -70,6 +70,8 @@ export interface ClusterRegistrationResult {
+   success: boolean;
+   /** User-facing success or failure detail. */
+   message: string;
++  /** Provider-defined public metadata. Never return credentials or kubeconfig contents. */
++  data?: Record<string, unknown>;
+ }
+ 
+ interface NamedKubeConfigEntry {
+@@ -1111,7 +1113,11 @@ export async function registerCluster(
+     result === null ||
+     Array.isArray(result) ||
+     typeof (result as Record<string, unknown>).success !== 'boolean' ||
+-    typeof (result as Record<string, unknown>).message !== 'string'
++    typeof (result as Record<string, unknown>).message !== 'string' ||
++    ((result as ClusterRegistrationResult).data !== undefined &&
++      (typeof (result as ClusterRegistrationResult).data !== 'object' ||
++        (result as ClusterRegistrationResult).data === null ||
++        Array.isArray((result as ClusterRegistrationResult).data)))
+   ) {
+     return {
+       success: false,
+@@ -1121,6 +1127,9 @@ export async function registerCluster(
+   return {
+     success: (result as ClusterRegistrationResult).success,
+     message: (result as ClusterRegistrationResult).message,
++    ...((result as ClusterRegistrationResult).data === undefined
++      ? {}
++      : { data: (result as ClusterRegistrationResult).data }),
+   };
+ }
+ 
 diff --git a/source/app/electron/main.ts b/source/app/electron/main.ts
-index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..1d7ce36e24a69e133fa5ce94dd168b3855a9af94 100644
+index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..bc801a458c0412f575d082b6327f77c423b5a8ab 100644
 --- a/source/app/electron/main.ts
 +++ b/source/app/electron/main.ts
-@@ -74,8 +74,11 @@ import {
+@@ -48,7 +48,10 @@ import {
+   waitForExternalBackend,
+ } from './backendToken';
+ import { createCertificateSetup } from './certificates';
+-import { setupClusterRegistrationHandler } from './cluster-registration';
++import {
++  clusterRegistrationProviders,
++  setupClusterRegistrationHandler,
++} from './cluster-registration';
+ import { setupDevelopmentPluginsHandlers } from './developmentPlugins';
+ import { startWindowsVMDetection, waitForWindowsVMDetection } from './hardwareAcceleration';
+ import i18n from './i18next.config';
+@@ -74,10 +77,14 @@ import {
  } from './plugin-management';
  import { readProtocolScheme } from './protocol';
  import { createProtocolHandler } from './protocolHandler';
@@ -649,8 +765,32 @@ index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..1d7ce36e24a69e133fa5ce94dd168b38
 +  applyCommandEnvironment,
    environmentOverrides,
    removeRunCmdConsent,
++  resolveCommandExecutable,
    runScript,
-@@ -795,7 +798,14 @@ export async function getShellEnvironment(): Promise<NodeJS.ProcessEnv> {
+   setupRunCmdHandlers,
+ } from './runCmd';
+@@ -785,6 +792,20 @@ class PluginManagerEventListeners {
+ 
+ let shellEnvironmentPromise: Promise<NodeJS.ProcessEnv> | null = null;
+ 
++export function getProductCommandExecutable(
++  command: string,
++  args: readonly string[] = [],
++  validateOnly = false
++): string | undefined {
++  return resolveCommandExecutable(
++    command,
++    loadBuildManifest(appBuildManifestPath),
++    isDev ? path.resolve(__dirname, '../resources') : process.resourcesPath,
++    args,
++    validateOnly
++  );
++}
++
+ /** Returns the cached login-shell changes merged with the current process environment. */
+ export async function getShellEnvironment(): Promise<NodeJS.ProcessEnv> {
+   if (!shellEnvironmentPromise) {
+@@ -795,7 +816,14 @@ export async function getShellEnvironment(): Promise<NodeJS.ProcessEnv> {
          return {};
        });
    }
@@ -666,7 +806,17 @@ index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..1d7ce36e24a69e133fa5ce94dd168b38
  }
  
  /**
-@@ -1789,6 +1799,8 @@ function startElectron() {
+@@ -1727,7 +1755,8 @@ function startElectron() {
+       privatePluginCapabilities?.authorizeClusterRegistration,
+       appBuildManifest,
+       isDev ? path.join(__dirname, '..', 'resources') : process.resourcesPath,
+-      startUrl
++      startUrl,
++      clusterRegistrationProviders
+     );
+ 
+     applyZoom();
+@@ -1789,6 +1818,8 @@ function startElectron() {
  
      mainWindow.webContents.on('dom-ready', () => {
        const defaultMenu = getDefaultAppMenu();
@@ -675,7 +825,7 @@ index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..1d7ce36e24a69e133fa5ce94dd168b38
        const currentMenu = JSON.parse(JSON.stringify(defaultMenu));
        mainWindow?.webContents.send('currentMenu', currentMenu);
      });
-@@ -1966,13 +1978,13 @@ function startElectron() {
+@@ -1966,13 +1997,13 @@ function startElectron() {
  
      // Also add bundled plugin bin directories to PATH
      const bundledPlugins = path.join(process.resourcesPath, '.plugins');
@@ -691,7 +841,7 @@ index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..1d7ce36e24a69e133fa5ce94dd168b38
      if (userPluginBinDirs.length > 0) {
        addToPath(userPluginBinDirs, 'userPluginBinDirs plugin');
      }
-@@ -2063,26 +2075,31 @@ function startElectron() {
+@@ -2063,26 +2094,31 @@ function startElectron() {
      }
    });
  
@@ -3243,10 +3393,31 @@ index 0000000000000000000000000000000000000000..170a7cf7f7736117f3c2a29133086e55
 +  };
 +}
 diff --git a/source/app/electron/runCmd.test.ts b/source/app/electron/runCmd.test.ts
-index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c216cdc7d3f 100644
+index a4f88fb02eab7eef838ac91f5729daa124e64579..c13c82dd6152cdf93d61701677d6742b6f259603 100644
 --- a/source/app/electron/runCmd.test.ts
 +++ b/source/app/electron/runCmd.test.ts
-@@ -89,6 +89,7 @@ vi.mock('./main', () => ({
+@@ -26,6 +26,7 @@ const {
+   defaultUserPluginsDirMock,
+   getShellEnvironmentMock,
+   pluginManagementPaths,
++  getProductCommandExecutableMock,
+   preparePluginExecutableMock,
+   preparePluginScriptMock,
+   removePreparedPluginExecutableMock,
+@@ -38,6 +39,7 @@ const {
+   defaultUserPluginsDirMock: vi.fn(() => '/plugins/user'),
+   getShellEnvironmentMock: vi.fn(),
+   pluginManagementPaths: { prepared: '/plugins/prepared' },
++  getProductCommandExecutableMock: vi.fn(),
+   preparePluginExecutableMock: vi.fn(),
+   preparePluginScriptMock: vi.fn(),
+   removePreparedPluginExecutableMock: vi.fn(),
+@@ -85,15 +87,18 @@ const shellEnvironment = { PATH: '/opt/homebrew/bin:/usr/bin', SHELL: '/bin/zsh'
+ 
+ vi.mock('./main', () => ({
+   getShellEnvironment: getShellEnvironmentMock,
++  getProductCommandExecutable: getProductCommandExecutableMock,
+ }));
  
  import {
    addRunCmdConsent,
@@ -3254,7 +3425,13 @@ index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c21
    checkPermissionSecret,
    createProductCommandCapabilities,
    environmentOverrides,
-@@ -507,6 +508,22 @@ it('removes plugin-controlled directories from the system command PATH', () => {
+   handleRunCommand,
+   removeRunCmdConsent,
++  resolveCommandExecutable,
+   revokeRunCmdCapabilities,
+   setupRunCmdHandlers,
+   systemCommandEnvironment,
+@@ -507,6 +512,22 @@ it('removes plugin-controlled directories from the system command PATH', () => {
    ).toEqual({ PATH: '/usr/local/bin' });
  });
  
@@ -3277,7 +3454,7 @@ index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c21
  describe('checkPermissionSecret', () => {
    const baseCommandData = {
      id: '1',
-@@ -644,6 +661,25 @@ describe('validateCommandData', () => {
+@@ -644,6 +665,25 @@ describe('validateCommandData', () => {
      ).toBe(false);
    });
  
@@ -3303,10 +3480,64 @@ index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c21
    it('returns false if permissionSecrets is not an object', () => {
      expect(
        validateCommandData({
-@@ -816,6 +852,40 @@ describe('handleRunCommand', () => {
+@@ -743,6 +783,7 @@ describe('handleRunCommand', () => {
+     defaultUserPluginsDirMock.mockReturnValue('/plugins/user');
+     getShellEnvironmentMock.mockReset();
+     getShellEnvironmentMock.mockResolvedValue(shellEnvironment);
++    getProductCommandExecutableMock.mockReset();
+     spawnMock.mockReset();
+     preparePluginExecutableMock.mockReset();
+     preparePluginExecutableMock.mockImplementation(
+@@ -816,6 +857,86 @@ describe('handleRunCommand', () => {
      consoleError.mockRestore();
    });
  
++  it('spawns the resolved product executable only after authorization', async () => {
++    const executable = path.resolve('resources', 'example.exe');
++    getProductCommandExecutableMock.mockReturnValue(executable);
++    const data = {
++      id: 'product-command',
++      command: 'gh',
++      args: ['auth', 'token'],
++      options: {},
++      permissionSecrets: { 'runCmd-gh': 99 },
++    };
++    const window = { id: 1 } as Parameters<typeof handleRunCommand>[2];
++    await handleRunCommand(fakeEvent, data, window, { 'runCmd-gh': 99 });
++    expect(getProductCommandExecutableMock).toHaveBeenCalledWith('gh', data.args);
++    expect(spawnMock).toHaveBeenCalledWith(executable, data.args, expect.any(Object));
++
++    getProductCommandExecutableMock.mockClear();
++    spawnMock.mockClear();
++    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
++    await handleRunCommand(fakeEvent, data, window, { 'runCmd-gh': 1 });
++    expect(getProductCommandExecutableMock).not.toHaveBeenCalled();
++    expect(spawnMock).not.toHaveBeenCalled();
++    error.mockRestore();
++  });
++
++  it('does not fall back to PATH after product executable verification fails', async () => {
++    getProductCommandExecutableMock.mockImplementation(() => {
++      throw new Error('integrity');
++    });
++    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
++    await handleRunCommand(
++      fakeEvent,
++      {
++        id: 'product-command',
++        command: 'gh',
++        args: ['auth', 'token'],
++        options: {},
++        permissionSecrets: { 'runCmd-gh': 99 },
++      },
++      { id: 1 } as Parameters<typeof handleRunCommand>[2],
++      { 'runCmd-gh': 99 }
++    );
++    expect(spawnMock).not.toHaveBeenCalled();
++    expect(sentMessages).toContainEqual(['command-exit', 'product-command', -1]);
++    error.mockRestore();
++  });
++
 +  it('removes plugin directories from legacy command PATH lookup', async () => {
 +    getShellEnvironmentMock.mockResolvedValueOnce({
 +      PATH: ['/plugins/user/attacker/bin', '/usr/local/bin', '/plugins/default/tool/bin'].join(
@@ -3344,7 +3575,7 @@ index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c21
    it('reports exit only after stdout and stderr close', async () => {
      const eventData = {
        id: 'test-id',
-@@ -916,9 +986,8 @@ describe('handleRunCommand', () => {
+@@ -916,9 +1037,8 @@ describe('handleRunCommand', () => {
      consoleError.mockRestore();
    });
  
@@ -3356,7 +3587,7 @@ index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c21
      const eventData = {
        id: 'test-id',
        command: 'gh',
-@@ -930,13 +999,8 @@ describe('handleRunCommand', () => {
+@@ -930,13 +1050,8 @@ describe('handleRunCommand', () => {
      await expect(
        handleRunCommand(fakeEvent, eventData, { id: 1 } as any, { 'runCmd-gh': 99 })
      ).resolves.toBeUndefined();
@@ -3372,7 +3603,7 @@ index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c21
    });
  
    it('runs plugin scripts with the Electron executable', async () => {
-@@ -2231,19 +2295,17 @@ describe('addRunCmdConsent', () => {
+@@ -2231,19 +2346,17 @@ describe('addRunCmdConsent', () => {
      }
    });
  
@@ -3395,7 +3626,7 @@ index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c21
        })
      );
    });
-@@ -2352,7 +2414,7 @@ describe('setupRunCmdHandlers', () => {
+@@ -2352,7 +2465,7 @@ describe('setupRunCmdHandlers', () => {
      expect(ipcMain.on).not.toHaveBeenCalled();
    });
  
@@ -3404,7 +3635,7 @@ index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c21
      const ipcHandlers = new Map<string, (...args: any[]) => void>();
      const webContentsHandlers = new Map<string, (...args: any[]) => void>();
      const send = vi.fn();
-@@ -2368,29 +2430,56 @@ describe('setupRunCmdHandlers', () => {
+@@ -2368,29 +2481,56 @@ describe('setupRunCmdHandlers', () => {
        },
        on: vi.fn(),
      } as any;
@@ -3468,11 +3699,112 @@ index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c21
      expect(ipcMain.handle).toHaveBeenCalledWith(
        'register-plugin-command-capabilities',
        expect.any(Function)
-@@ -2633,6 +2722,79 @@ describe('setupRunCmdHandlers', () => {
+@@ -2633,6 +2773,180 @@ describe('setupRunCmdHandlers', () => {
    });
  });
  
 +describe('app-owned command environment', () => {
++  it('validates plugin arguments without consulting the product executable resolver', () => {
++    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-validation-')));
++    try {
++      fs.writeFileSync(
++        path.join(root, 'environment.cjs'),
++        'exports.validateCommand = (_command, args) => { if (args[0] !== "read") throw new Error("denied"); };' +
++          'exports.resolveExecutable = () => { throw new Error("product resolver called"); };'
++      );
++      const manifest = { commandEnvironment: 'environment.cjs' };
++      expect(resolveCommandExecutable('example', manifest, root, ['read'], true)).toBeUndefined();
++      expect(() => resolveCommandExecutable('example', manifest, root, ['delete'], true)).toThrow(
++        'denied'
++      );
++      expect(() => resolveCommandExecutable('example', manifest, root, ['read'])).toThrow(
++        'product resolver called'
++      );
++    } finally {
++      fs.rmSync(root, { recursive: true });
++    }
++  });
++
++  it('validates an immutable argument copy and fails closed for invalid or asynchronous validators', () => {
++    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'command validation-')));
++    try {
++      const accepted =
++        'exports.validateCommand = (command, args) => { if (command !== "example" || args.join(",") !== "read,--json" || !Object.isFrozen(args)) throw new Error("denied"); };';
++      fs.writeFileSync(path.join(root, 'valid.cjs'), accepted);
++      const args = ['read', '--json'];
++      expect(
++        resolveCommandExecutable('example', { commandEnvironment: 'valid.cjs' }, root, args)
++      ).toBeUndefined();
++      expect(args).toEqual(['read', '--json']);
++      expect(() =>
++        resolveCommandExecutable('example', { commandEnvironment: 'valid.cjs' }, root, ['delete'])
++      ).toThrow();
++      for (const [index, source] of [
++        'exports.validateCommand = true;',
++        'exports.validateCommand = async () => {};',
++        'exports.validateCommand = () => false;',
++        'exports.validateCommand = () => { throw new Error("denied"); };',
++      ].entries()) {
++        const module = `invalid-validator-${index}.cjs`;
++        fs.writeFileSync(path.join(root, module), source);
++        expect(() =>
++          resolveCommandExecutable('example', { commandEnvironment: module }, root, args)
++        ).toThrow();
++      }
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true });
++    }
++  });
++  it('confines optional product executable resolution to app-owned resources', () => {
++    const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'command resolver-')));
++    const resources = path.join(directory, 'resources');
++    fs.mkdirSync(path.join(resources, '.plugins'), { recursive: true });
++    fs.writeFileSync(path.join(resources, 'example.exe'), 'fixture');
++    fs.writeFileSync(path.join(resources, '.plugins', 'plugin.exe'), 'fixture');
++    fs.writeFileSync(path.join(directory, 'outside.exe'), 'fixture');
++    fs.writeFileSync(
++      path.join(resources, 'environment.cjs'),
++      'exports.resolveExecutable = (command, manifest) => manifest.executable;'
++    );
++    const manifest = {
++      commandEnvironment: 'environment.cjs',
++      executable: path.join(resources, 'example.exe'),
++    };
++    try {
++      expect(resolveCommandExecutable('example', manifest, resources)).toBe(manifest.executable);
++      expect(resolveCommandExecutable('other', {}, resources)).toBeUndefined();
++      expect(
++        resolveCommandExecutable('other', { commandEnvironment: 'environment.cjs' }, resources)
++      ).toBeUndefined();
++      for (const executable of [
++        'example.exe',
++        42,
++        null,
++        {},
++        resources,
++        path.join(directory, 'outside.exe'),
++        path.join(resources, '.plugins', 'plugin.exe'),
++      ]) {
++        expect(() =>
++          resolveCommandExecutable('example', { ...manifest, executable }, resources)
++        ).toThrow();
++      }
++      for (const [index, source] of [
++        'exports.resolveExecutable = async () => "example.exe";',
++        'exports.resolveExecutable = () => { throw new Error("integrity"); };',
++        'exports.resolveExecutable = "example.exe";',
++      ].entries()) {
++        const module = `invalid-${index}.cjs`;
++        fs.writeFileSync(path.join(resources, module), source);
++        expect(() =>
++          resolveCommandExecutable('example', { commandEnvironment: module }, resources)
++        ).toThrow();
++      }
++    } finally {
++      fs.rmSync(directory, { recursive: true, force: true });
++    }
++  });
++
 +  it('uses a resource callback after shell setup without mutating its input', () => {
 +    const directory = fs.realpathSync(
 +      fs.mkdtempSync(path.join(os.tmpdir(), 'command environment-'))
@@ -3548,8 +3880,24 @@ index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c21
  describe('command consent', () => {
    const fakeMainWindow = { id: 1 } as any;
    const permissionSecrets = { 'runCmd-gh': 99 };
+@@ -2651,6 +2965,7 @@ describe('command consent', () => {
+     vi.mocked(loadSettings).mockReturnValue({ confirmedCommands: {} });
+     getShellEnvironmentMock.mockReset();
+     getShellEnvironmentMock.mockResolvedValue(shellEnvironment);
++    getProductCommandExecutableMock.mockReset();
+     spawnMock.mockReset();
+     spawnMock.mockReturnValue(
+       Object.assign(new EventEmitter(), {
+@@ -2669,6 +2984,7 @@ describe('command consent', () => {
+     await handleRunCommand(fakeEvent, eventData, fakeMainWindow, permissionSecrets);
+ 
+     expect(showMessageBoxSyncMock).toHaveBeenCalled();
++    expect(getProductCommandExecutableMock).not.toHaveBeenCalled();
+     expect(spawnMock).not.toHaveBeenCalled();
+     expect(fakeEvent.sender.send).toHaveBeenCalledWith('command-exit', 'test-id', -3);
+   });
 diff --git a/source/app/electron/runCmd.ts b/source/app/electron/runCmd.ts
-index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b233860df 100644
+index 5f960e2e2e957eff454e3b2a1203f743da397c00..3cd15f86a97756ad4fcf930eed9f401eb7c1040a 100644
 --- a/source/app/electron/runCmd.ts
 +++ b/source/app/electron/runCmd.ts
 @@ -33,6 +33,7 @@ import {
@@ -3569,27 +3917,16 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
    revokeCapabilities: () => void;
    runCommand: (event: IpcMainEvent, eventData: CommandDataPartial) => Promise<void>;
  };
-@@ -380,6 +381,63 @@ export async function verifyPluginCommandPolicies(
+@@ -380,6 +381,123 @@ export async function verifyPluginCommandPolicies(
    return verifiedPolicies;
  }
  
-+/**
-+ * Applies an optional app-owned environment callback, never a renderer/plugin supplied module.
-+ *
-+ * @param environment - Merged process and login-shell environment; the callback receives a copy.
-+ * @param manifest - Trusted application build manifest selecting the optional commandEnvironment module.
-+ * @param resourcesDirectory - App resources root used to resolve and confine the callback module.
-+ * @returns A copy of the callback's environment, or a copy of the input when no module is configured.
-+ * @throws When the module is invalid or outside app-owned resources, the callback throws, or its
-+ * return value is not a synchronous environment object.
-+ */
-+export function applyCommandEnvironment(
-+  environment: NodeJS.ProcessEnv,
++function loadCommandEnvironmentModule(
 +  manifest: Record<string, unknown>,
 +  resourcesDirectory: string
-+): NodeJS.ProcessEnv {
++): { callbacks: Record<string, unknown>; root: string } | undefined {
 +  const modulePath = manifest.commandEnvironment;
-+  if (modulePath === undefined) return { ...environment };
++  if (modulePath === undefined) return undefined;
 +  if (
 +    typeof modulePath !== 'string' ||
 +    !modulePath.endsWith('.cjs') ||
@@ -3610,11 +3947,31 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
 +  ) {
 +    throw new Error('commandEnvironment must be an app-owned resource');
 +  }
-+  const { configureEnvironment } = require(canonical);
++  return { callbacks: require(canonical), root };
++}
++
++/**
++ * Applies an optional app-owned environment callback, never a renderer/plugin supplied module.
++ *
++ * @param environment - Merged process and login-shell environment; the callback receives a copy.
++ * @param manifest - Trusted application build manifest selecting the optional commandEnvironment module.
++ * @param resourcesDirectory - App resources root used to resolve and confine the callback module.
++ * @returns A copy of the callback's environment, or a copy of the input when no module is configured.
++ * @throws When the module is invalid or outside app-owned resources, the callback throws, or its
++ * return value is not a synchronous environment object.
++ */
++export function applyCommandEnvironment(
++  environment: NodeJS.ProcessEnv,
++  manifest: Record<string, unknown>,
++  resourcesDirectory: string
++): NodeJS.ProcessEnv {
++  const loaded = loadCommandEnvironmentModule(manifest, resourcesDirectory);
++  if (!loaded) return { ...environment };
++  const { configureEnvironment } = loaded.callbacks;
 +  if (typeof configureEnvironment !== 'function') {
 +    throw new Error('commandEnvironment must export configureEnvironment');
 +  }
-+  const result = configureEnvironment({ ...environment }, manifest, root);
++  const result = configureEnvironment({ ...environment }, manifest, loaded.root);
 +  const resultPrototype =
 +    result && typeof result === 'object' ? Object.getPrototypeOf(result) : undefined;
 +  if (
@@ -3630,10 +3987,61 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
 +  return { ...result };
 +}
 +
++/**
++ * Resolves an already-authorized command through an optional app-owned callback.
++ * The product verifies its executable; core confines the result to app-owned resources.
++ *
++ * @param command - Authorized command name, not a renderer-supplied executable path.
++ * @param manifest - Trusted application build manifest selecting the optional callback module.
++ * @param resourcesDirectory - App-owned resource root.
++ * @param args - Authorized arguments, copied before optional product validation.
++ * @param validateOnly - Validate a plugin-owned command without consulting the product resolver.
++ * @returns The canonical executable, or undefined to preserve existing command lookup.
++ * @throws When resolution fails, returns an invalid value, or escapes app-owned resources.
++ */
++export function resolveCommandExecutable(
++  command: string,
++  manifest: Record<string, unknown>,
++  resourcesDirectory: string,
++  args: readonly string[] = [],
++  validateOnly = false
++): string | undefined {
++  const loaded = loadCommandEnvironmentModule(manifest, resourcesDirectory);
++  if (!loaded) return undefined;
++  const { validateCommand } = loaded.callbacks;
++  if (validateCommand !== undefined) {
++    if (
++      typeof validateCommand !== 'function' ||
++      validateCommand(command, Object.freeze([...args])) !== undefined
++    ) {
++      throw new Error('validateCommand must accept or throw synchronously');
++    }
++  }
++  if (validateOnly || loaded.callbacks.resolveExecutable === undefined) return undefined;
++  const { resolveExecutable } = loaded.callbacks;
++  if (typeof resolveExecutable !== 'function') {
++    throw new Error('commandEnvironment resolveExecutable must be a function');
++  }
++  const result: unknown = resolveExecutable(command, manifest, loaded.root);
++  if (result === undefined) return undefined;
++  if (typeof result !== 'string' || result.includes('\0') || !path.isAbsolute(result)) {
++    throw new Error('resolveExecutable must return an absolute resource path synchronously');
++  }
++  const canonical = fs.realpathSync(result);
++  if (
++    !isPathWithin(loaded.root, canonical) ||
++    isPathWithin(path.join(loaded.root, '.plugins'), canonical) ||
++    !fs.statSync(canonical).isFile()
++  ) {
++    throw new Error('resolveExecutable must select an app-owned resource');
++  }
++  return canonical;
++}
++
  /** Returns only values changed by shell initialization. */
  export function environmentOverrides(
    environment: NodeJS.ProcessEnv,
-@@ -524,14 +582,20 @@ export function systemCommandEnvironment(
+@@ -524,14 +642,20 @@ export function systemCommandEnvironment(
    environment: NodeJS.ProcessEnv,
    pluginRoots: PluginRoots = defaultPluginRoots()
  ): NodeJS.ProcessEnv {
@@ -3659,7 +4067,7 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
        .split(path.delimiter)
        .filter(
          directory =>
-@@ -630,12 +694,10 @@ const COMMANDS_WITH_CONSENT = {
+@@ -630,12 +754,10 @@ const COMMANDS_WITH_CONSENT = {
      'scriptjs minikube/manage-minikube.js',
    ],
    headlamp_ai_assistant: ['gh auth', 'az account', 'az cognitiveservices'],
@@ -3672,7 +4080,7 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
  const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
    ['development\0@headlamp-k8s/minikube\0minikube', LEGACY_MINIKUBE_COMMANDS],
    ['development\0@headlamp-k8s/minikube\0headlamp_minikube', LEGACY_MINIKUBE_COMMANDS],
-@@ -658,7 +720,6 @@ const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
+@@ -658,7 +780,6 @@ const LEGACY_CONSENT_PLUGIN_COMMANDS = new Map<string, ReadonlySet<string>>([
      'development\0@headlamp-k8s/ai-assistantprerelease\0headlamp_ai_assistantprerelease',
      LEGACY_AI_ASSISTANT_COMMANDS,
    ],
@@ -3680,7 +4088,7 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
  ]);
  
  /**
-@@ -697,10 +758,6 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
+@@ -697,10 +818,6 @@ export function addRunCmdConsent(pluginInfo: { name: string }): void {
      commands = COMMANDS_WITH_CONSENT.headlamp_ai_assistant;
    }
  
@@ -3691,9 +4099,20 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
    for (const command of commands) {
      if (!settings.confirmedCommands[command]) {
        settings.confirmedCommands[command] = true;
-@@ -1036,7 +1093,12 @@ export async function handleRunCommand(
-     const { getShellEnvironment } = await import('./main');
+@@ -1032,11 +1149,22 @@ export async function handleRunCommand(
+   }
+ 
+   let shellEnvironment = process.env;
++  let productExecutable: string | undefined;
+   try {
+-    const { getShellEnvironment } = await import('./main');
++    const { getShellEnvironment, getProductCommandExecutable } = await import('./main');
      shellEnvironment = await getShellEnvironment();
++    if (commandData.command !== 'scriptjs') {
++      productExecutable = capabilityGrant?.executable
++        ? getProductCommandExecutable(commandData.command, commandData.args, true)
++        : getProductCommandExecutable(commandData.command, commandData.args);
++    }
    } catch (error) {
 -    console.warn('Failed to get shell environment, using process.env:', error);
 +    console.error(
@@ -3705,7 +4124,19 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
    }
  
    // Get the command and args to run. With the correct paths for "scriptjs" commands.
-@@ -1178,7 +1240,7 @@ export async function handleRunCommand(
+@@ -1164,7 +1292,10 @@ export async function handleRunCommand(
+   const command =
+     commandData.command === 'scriptjs'
+       ? process.execPath
+-      : preparedPluginExecutable ?? pluginExecutable?.executable ?? commandData.command;
++      : preparedPluginExecutable ??
++        pluginExecutable?.executable ??
++        productExecutable ??
++        commandData.command;
+   const args =
+     commandData.command === 'scriptjs'
+       ? [preparedPluginScript ?? (scriptPath as string), ...commandData.args.slice(1)]
+@@ -1178,7 +1309,7 @@ export async function handleRunCommand(
        ...commandData.options,
        shell: false,
        env: {
@@ -3714,7 +4145,7 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
            ? systemCommandEnvironment(shellEnvironment, pluginRoots)
            : shellEnvironment),
          ...(commandData.command === 'scriptjs' ? { HEADLAMP_RUN_SCRIPT: 'true' } : {}),
-@@ -1276,6 +1338,11 @@ export interface PrivatePluginCapabilities {
+@@ -1276,6 +1407,11 @@ export interface PrivatePluginCapabilities {
    ): NonNullable<ProductPluginCommandPolicy['clusterRegistrationProviders']>[number] | undefined;
  }
  
@@ -3726,7 +4157,7 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
  /**
   * Sets up the IPC handlers for running commands.
   * Called in the main process to handle 'run-command' events.
-@@ -1316,36 +1383,41 @@ export function setupRunCmdHandlers(
+@@ -1316,36 +1452,41 @@ export function setupRunCmdHandlers(
  
    let capabilityRegistrationAllowed = trustedStartUrl === undefined;
    let capabilityRegistry = new Map<string, RegisteredPluginCommandCapability>();
@@ -3779,7 +4210,7 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
        return [];
      }
      capabilityRegistrationAllowed = false;
-@@ -1372,6 +1444,7 @@ export function setupRunCmdHandlers(
+@@ -1372,6 +1513,7 @@ export function setupRunCmdHandlers(
      (_event, url, _httpResponseCode, _httpStatusText, isMainFrame) => {
        if (isMainFrame) {
          pluginPermissionSecretsSent = false;
@@ -3787,7 +4218,7 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
          capabilityRegistrationAllowed =
            trustedStartUrl === undefined || isTrustedDocumentUrl(url, trustedStartUrl);
          capabilityRegistry.clear();
-@@ -1388,13 +1461,25 @@ export function setupRunCmdHandlers(
+@@ -1388,13 +1530,25 @@ export function setupRunCmdHandlers(
        event,
        eventData,
        mainWindow,
@@ -4190,6 +4621,241 @@ index bd9265880250829f5fd7d556b33fa16b9827c4a2..7a7cc6519e9a57a4aa5cab254bc308df
    const proxyUrls = manifest['proxy-urls'];
    if (proxyUrls !== undefined) {
      if (!Array.isArray(proxyUrls) || proxyUrls.some(pattern => typeof pattern !== 'string')) {
+diff --git a/source/backend/pkg/kubeconfig/discovery_test.go b/source/backend/pkg/kubeconfig/discovery_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..80c76d852bea6e58b1512fff98340d93b4abdc66
+--- /dev/null
++++ b/source/backend/pkg/kubeconfig/discovery_test.go
+@@ -0,0 +1,143 @@
++package kubeconfig_test
++
++import (
++	"context"
++	"errors"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/kubernetes-sigs/headlamp/backend/pkg/kubeconfig"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"k8s.io/client-go/tools/clientcmd"
++	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
++)
++
++func writeDiscoveryConfig(t *testing.T, file, name string) {
++	t.Helper()
++
++	config := clientcmdapi.Config{
++		Clusters: map[string]*clientcmdapi.Cluster{
++			name: {Server: "https://127.0.0.1:65535", InsecureSkipTLSVerify: true},
++		},
++		AuthInfos: map[string]*clientcmdapi.AuthInfo{
++			name: {Token: "synthetic-discovery-test-token"},
++		},
++		Contexts: map[string]*clientcmdapi.Context{
++			name: {Cluster: name, AuthInfo: name},
++		},
++		CurrentContext: name,
++	}
++	require.NoError(t, clientcmd.WriteToFile(config, file))
++}
++
++func TestDiscoveryWithMissingKubeconfigPaths(t *testing.T) {
++	for _, missingFirst := range []bool{false, true} {
++		name := "missing-last"
++		if missingFirst {
++			name = "missing-first"
++		}
++
++		t.Run(name, func(t *testing.T) {
++			root := t.TempDir()
++			existing := filepath.Join(root, "ordinary-config")
++			missing := filepath.Join(root, "private-config")
++			writeDiscoveryConfig(t, existing, "ordinary")
++			paths := []string{existing, missing}
++			if missingFirst {
++				paths = []string{missing, existing}
++			}
++
++			contexts, contextErrors, err := kubeconfig.LoadContextsFromMultipleFiles(
++				strings.Join(paths, string(os.PathListSeparator)), kubeconfig.KubeConfig)
++			require.NoError(t, err)
++			require.Empty(t, contextErrors)
++			require.Len(t, contexts, 1)
++			require.Equal(t, "ordinary", contexts[0].Name)
++			require.Equal(t, existing, contexts[0].KubeConfigPath)
++
++			writeDiscoveryConfig(t, missing, "private")
++			contexts, contextErrors, err = kubeconfig.LoadContextsFromMultipleFiles(
++				strings.Join(paths, string(os.PathListSeparator)), kubeconfig.KubeConfig)
++			require.NoError(t, err)
++			require.Empty(t, contextErrors)
++			require.Len(t, contexts, 2)
++		})
++	}
++}
++
++func TestDiscoveryDoesNotHideAllMissingOrInvalidFiles(t *testing.T) {
++	root := t.TempDir()
++	existing := filepath.Join(root, "ordinary-config")
++	writeDiscoveryConfig(t, existing, "ordinary")
++	missing := filepath.Join(root, "missing-config")
++	missingPaths := strings.Join([]string{missing, missing + "-second"}, string(os.PathListSeparator))
++	_, _, err := kubeconfig.LoadContextsFromMultipleFiles(missingPaths, kubeconfig.KubeConfig)
++	require.ErrorIs(t, err, os.ErrNotExist)
++
++	invalid := filepath.Join(root, "invalid-config")
++	require.NoError(t, os.WriteFile(invalid, []byte("contexts: [invalid"), 0o600))
++
++	for _, invalidPath := range []string{invalid, root} {
++		paths := strings.Join([]string{existing, invalidPath}, string(os.PathListSeparator))
++		_, _, err := kubeconfig.LoadContextsFromMultipleFiles(paths, kubeconfig.KubeConfig)
++		require.Error(t, err)
++		require.False(t, errors.Is(err, os.ErrNotExist))
++	}
++}
++
++func TestDiscoveryWatcherReconcilesUnobservedRemoval(t *testing.T) {
++	for _, ordinaryExists := range []bool{true, false} {
++		name := "ordinary-absent"
++		if ordinaryExists {
++			name = "ordinary-present"
++		}
++
++		t.Run(name, func(t *testing.T) {
++			root := t.TempDir()
++			ordinary := filepath.Join(root, "ordinary-config")
++			private := filepath.Join(root, "private-config")
++			var expected []string
++
++			if ordinaryExists {
++				writeDiscoveryConfig(t, ordinary, "ordinary")
++				expected = append(expected, "ordinary")
++			}
++
++			writeDiscoveryConfig(t, private, "private")
++			paths := strings.Join([]string{ordinary, private}, string(os.PathListSeparator))
++			store := kubeconfig.NewContextStore()
++			require.NoError(t, kubeconfig.LoadAndStoreKubeConfigs(store, paths, kubeconfig.KubeConfig, nil))
++			_, err := store.GetContext("private")
++			require.NoError(t, err)
++
++			// No file event can be observed for a removal before the watch is attached.
++			require.NoError(t, os.Remove(private))
++			ctx, cancel := context.WithCancel(context.Background())
++			stopped := make(chan struct{})
++
++			go func() {
++				defer close(stopped)
++				kubeconfig.LoadAndWatchFiles(ctx, store, paths, kubeconfig.KubeConfig, nil)
++			}()
++
++			t.Cleanup(func() {
++				cancel()
++				<-stopped
++			})
++
++			require.EventuallyWithT(t, func(collect *assert.CollectT) {
++				contexts, err := store.GetContexts()
++				require.NoError(collect, err)
++				var actual []string
++				for _, current := range contexts {
++					actual = append(actual, current.Name)
++				}
++				require.ElementsMatch(collect, expected, actual)
++			}, 20*time.Second, 100*time.Millisecond)
++		})
++	}
++}
+diff --git a/source/backend/pkg/kubeconfig/kubeconfig.go b/source/backend/pkg/kubeconfig/kubeconfig.go
+index 99e2ff6b4d8348bd8e19a3d8ec8acdd393f10939..ed1e2ee5aeaf5a9212bf322e8e89f0a2188230e7 100644
+--- a/source/backend/pkg/kubeconfig/kubeconfig.go
++++ b/source/backend/pkg/kubeconfig/kubeconfig.go
+@@ -602,10 +602,19 @@ func LoadContextsFromMultipleFiles(kubeConfigs string, source int) ([]Context, [
+ 
+ 	var contextErrors []ContextLoadError
+ 
++	var missingFiles []error
++
+ 	kubeConfigPaths := splitKubeConfigPath(kubeConfigs)
+ 	for _, kubeConfigPath := range kubeConfigPaths {
+ 		kubeConfigContexts, errs, err := LoadContextsFromFile(kubeConfigPath, source)
+ 		if err != nil {
++			// A newly registered file may not exist yet; do not hide readable files.
++			if errors.Is(err, os.ErrNotExist) {
++				missingFiles = append(missingFiles, err)
++
++				continue
++			}
++
+ 			return nil, nil, err
+ 		}
+ 
+@@ -613,6 +622,14 @@ func LoadContextsFromMultipleFiles(kubeConfigs string, source int) ([]Context, [
+ 		contextErrors = append(contextErrors, errs...)
+ 	}
+ 
++	if len(missingFiles) == len(kubeConfigPaths) {
++		return nil, nil, errors.Join(missingFiles...)
++	}
++
++	for _, err := range missingFiles {
++		logger.Log(logger.LevelInfo, nil, err, "skipping absent kubeconfig alongside readable files")
++	}
++
+ 	return contexts, contextErrors, nil
+ }
+ 
+@@ -677,7 +694,14 @@ func UnmarshalKubeconfig(data []byte) (map[string]interface{}, error) {
+ 
+ // GetContextsFromKubeconfig gets the contexts from the kubeconfig.
+ func GetContextsFromKubeconfig(kubeconfig map[string]interface{}) ([]interface{}, error) {
+-	rawContexts, ok := kubeconfig["contexts"].([]interface{})
++	value, present := kubeconfig["contexts"]
++	// client-go writes an empty context list as null, for example after the last context is
++	// deleted or pruned; that file has no contexts rather than invalid ones.
++	if present && value == nil {
++		return []interface{}{}, nil
++	}
++
++	rawContexts, ok := value.([]interface{})
+ 	if !ok {
+ 		return nil, DataError{Field: "contexts", Reason: "invalid or missing contexts in kubeconfig"}
+ 	}
+diff --git a/source/backend/pkg/kubeconfig/watcher.go b/source/backend/pkg/kubeconfig/watcher.go
+index 34a7e1e5d205a93e7b73b9cc4195d3a36ab40cfb..8d98f70ef2232fb8f3db3ae5f67124acafdf4319 100644
+--- a/source/backend/pkg/kubeconfig/watcher.go
++++ b/source/backend/pkg/kubeconfig/watcher.go
+@@ -53,6 +53,12 @@ func LoadAndWatchFiles(
+ 	// add files to watcher
+ 	addFilesToWatcher(watcher, kubeConfigPaths)
+ 
++	// No file event reports a change made before the watch was attached, such as a removed
++	// kubeconfig, so reconcile the store once now.
++	if err := syncContexts(kubeConfigStore, paths, source, ignoreFunc); err != nil {
++		logger.Log(logger.LevelError, nil, err, "watcher: error synchronizing contexts")
++	}
++
+ 	for {
+ 		select {
+ 		case <-ctx.Done():
+@@ -106,9 +112,11 @@ func reAddMissingFiles(
+ 
+ 	logger.Log(logger.LevelInfo, nil, nil, "watcher: re-added missing files")
+ 
+-	err := LoadAndStoreKubeConfigs(kubeConfigStore, existingKubeConfigPaths(paths), source, ignoreFunc)
++	// Atomic replacement can leave a gap before the file watch is reattached, so reconcile
++	// removals as well as additions.
++	err := syncContexts(kubeConfigStore, paths, source, ignoreFunc)
+ 	if err != nil {
+-		logger.Log(logger.LevelError, nil, err, "watcher: error loading kubeconfig files")
++		logger.Log(logger.LevelError, nil, err, "watcher: error synchronizing contexts")
+ 	}
+ }
+ 
 diff --git a/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md b/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b065f6620f
@@ -4463,10 +5129,10 @@ index 293148351a580db24b4e0c87c135652523cc5cb2..064beecd279618d9e492104197659752
  Set the variables in `frontend/.env` or in the environment used to start or
  build the frontend. Restart the development server or rebuild the frontend
 diff --git a/source/docs/development/plugins/functionality/index.md b/source/docs/development/plugins/functionality/index.md
-index a9f9ce75021825b683f7a7e7dc9751b7af322c2e..33f73657373aeab8e6165868ac76a497394187ba 100644
+index a9f9ce75021825b683f7a7e7dc9751b7af322c2e..a1c030d70c5378c20a626a1d06b3bf1e219a5417 100644
 --- a/source/docs/development/plugins/functionality/index.md
 +++ b/source/docs/development/plugins/functionality/index.md
-@@ -186,6 +186,22 @@ be shared with workloads or other cluster users.
+@@ -186,6 +186,31 @@ be shared with workloads or other cluster users.
  
  - Example plugin: [How To Use Plugin Secure Storage](https://github.com/kubernetes-sigs/headlamp/tree/main/plugins/examples/secure-storage)
  
@@ -4485,6 +5151,15 @@ index a9f9ce75021825b683f7a7e7dc9751b7af322c2e..33f73657373aeab8e6165868ac76a497
 +report status text through `reportProgress`.
 +
 +- API reference: [registerClusterProviderPreOpen](../../api/modules/plugin_registry#registerclusterproviderpreopen)
++
++### Cluster Delete Handlers
++
++A plugin that manages a cluster's lifecycle can take over Delete in the Home
++page's cluster action menu with `registerClusterProviderDeleteHandler`. For each
++cluster the handler's `owns` function accepts, Delete opens the plugin's dialog
++named by `dialog`, registered with `registerClusterProviderDialog`, instead of
++removing the cluster from the kubeconfig. The first registered handler that owns
++a cluster is used; other clusters keep Headlamp's Delete.
 +
  ### Route
  
@@ -5085,16 +5760,64 @@ index 0000000000000000000000000000000000000000..b964be6949352998991476d3545b1592
 +  );
 +}
 diff --git a/source/frontend/src/components/App/Home/ClusterContextMenu.tsx b/source/frontend/src/components/App/Home/ClusterContextMenu.tsx
-index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..f8bd763a3907d9b8b51baa0485aad423e8e6870a 100644
+index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..bed9993b205d75ec069b8ce65dc192c2b4a4a272 100644
 --- a/source/frontend/src/components/App/Home/ClusterContextMenu.tsx
 +++ b/source/frontend/src/components/App/Home/ClusterContextMenu.tsx
-@@ -164,20 +164,19 @@ export default function ClusterContextMenu({
+@@ -31,11 +31,29 @@ import { deleteCluster } from '../../../lib/k8s/api/v1/clusterApi';
+ import { Cluster } from '../../../lib/k8s/cluster';
+ import { createRouteURL } from '../../../lib/router/createRouteURL';
+ import { useId } from '../../../lib/util';
++import { ClusterDeleteHandler } from '../../../redux/clusterProviderSlice';
+ import { setConfig } from '../../../redux/configSlice';
+ import { useTypedSelector } from '../../../redux/hooks';
+ import { ConfirmDialog } from '../../common/ConfirmDialog';
+ import ErrorBoundary from '../../common/ErrorBoundary/ErrorBoundary';
+ 
++/**
++ * The dialog of the first plugin delete handler that owns the cluster, or null when no plugin
++ * owns it. A handler that throws owns nothing.
++ */
++function findPluginDeleteDialog(handlers: ClusterDeleteHandler[], cluster: Cluster): string | null {
++  for (const handler of handlers) {
++    try {
++      if (handler.owns(cluster)) {
++        return handler.dialog;
++      }
++    } catch (err) {
++      console.error('Cluster delete handler failed', err);
++    }
++  }
++  return null;
++}
++
+ interface ClusterContextMenuProps {
+   /** The cluster for the context menu to act on. */
+   cluster: Cluster;
+@@ -58,12 +76,15 @@ export default function ClusterContextMenu({
+   const [openConfirmDialog, setOpenConfirmDialog] = React.useState<string | null>(null);
+   const dialogs = useTypedSelector(state => state.clusterProvider.dialogs);
+   const menuItems = useTypedSelector(state => state.clusterProvider.menuItems);
++  const deleteHandlers = useTypedSelector(state => state.clusterProvider.deleteHandlers);
+   const isDynamicClusterEnabled = useTypedSelector(state => state.config.isDynamicClusterEnabled);
+   const allowKubeconfigChanges = useTypedSelector(state => state.config.allowKubeconfigChanges);
+   const { enqueueSnackbar } = useSnackbar();
+ 
+   const kubeconfigOrigin = cluster.meta_data?.origin?.kubeconfig;
+   const deleteFromKubeconfig = cluster.meta_data?.source === 'kubeconfig';
++  // A plugin that owns this cluster handles its Delete with the plugin's own dialog.
++  const pluginDeleteDialog = findPluginDeleteDialog(deleteHandlers, cluster);
+ 
+   function removeCluster(cluster: Cluster) {
+     const clusterID = cluster.meta_data?.clusterID;
+@@ -164,20 +185,20 @@ export default function ClusterContextMenu({
          >
            <ListItemText>{t('translation|Settings')}</ListItemText>
          </MenuItem>
 -        {(!menuItems || menuItems.length === 0) &&
 -          ((cluster.meta_data?.source === 'dynamic_cluster' &&
--            (helpers.isElectron() || isDynamicClusterEnabled)) ||
++        {(pluginDeleteDialog !== null ||
++          (cluster.meta_data?.source === 'dynamic_cluster' &&
+             (helpers.isElectron() || isDynamicClusterEnabled)) ||
 -            (cluster.meta_data?.source === 'kubeconfig' &&
 -              (helpers.isElectron() || allowKubeconfigChanges))) && (
 -            <MenuItem
@@ -5106,13 +5829,11 @@ index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..f8bd763a3907d9b8b51baa0485aad423
 -              <ListItemText>{t('translation|Delete')}</ListItemText>
 -            </MenuItem>
 -          )}
-+        {((cluster.meta_data?.source === 'dynamic_cluster' &&
-+          (helpers.isElectron() || isDynamicClusterEnabled)) ||
 +          (cluster.meta_data?.source === 'kubeconfig' &&
 +            (helpers.isElectron() || allowKubeconfigChanges))) && (
 +          <MenuItem
 +            onClick={() => {
-+              setOpenConfirmDialog('deleteDynamic');
++              setOpenConfirmDialog(pluginDeleteDialog ?? 'deleteDynamic');
 +              handleMenuClose();
 +            }}
 +          >
@@ -5123,7 +5844,7 @@ index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..f8bd763a3907d9b8b51baa0485aad423
            return (
              <Item
 diff --git a/source/frontend/src/components/App/Home/ClusterTable.test.tsx b/source/frontend/src/components/App/Home/ClusterTable.test.tsx
-index 746f7d2b74f16b9dedfa262d73c6d606009fada0..a49a4ad2193bd16fd791c1a2f112ac1ac7959b4b 100644
+index 746f7d2b74f16b9dedfa262d73c6d606009fada0..209ea7a07ba86d7b3fffef20eb8b68026a4d90b5 100644
 --- a/source/frontend/src/components/App/Home/ClusterTable.test.tsx
 +++ b/source/frontend/src/components/App/Home/ClusterTable.test.tsx
 @@ -28,6 +28,7 @@ import ClusterTable from './ClusterTable';
@@ -5134,16 +5855,17 @@ index 746f7d2b74f16b9dedfa262d73c6d606009fada0..a49a4ad2193bd16fd791c1a2f112ac1a
  const { dispatchMock } = vi.hoisted(() => ({ dispatchMock: vi.fn() }));
  
  function renderWithTheme(ui: ReactNode) {
-@@ -68,7 +69,7 @@ vi.mock('../../../redux/hooks', () => ({
+@@ -68,7 +69,8 @@ vi.mock('../../../redux/hooks', () => ({
        clusterProvider: {
          clusterStatuses: [],
          dialogs: [],
 -        menuItems: [],
 +        menuItems: ClusterMenuItems,
++        deleteHandlers: [],
          clusterEmptyState: ClusterEmptyState,
        },
        config: {
-@@ -433,6 +434,32 @@ describe('ClusterTable', () => {
+@@ -433,6 +435,32 @@ describe('ClusterTable', () => {
  describe('ClusterContextMenu', () => {
    afterEach(() => {
      vi.clearAllMocks();
@@ -5176,6 +5898,18 @@ index 746f7d2b74f16b9dedfa262d73c6d606009fada0..a49a4ad2193bd16fd791c1a2f112ac1a
    });
  
    it('updates the config before notifying the page after deleting a cluster', async () => {
+diff --git a/source/frontend/src/components/App/Home/index.stories.tsx b/source/frontend/src/components/App/Home/index.stories.tsx
+index 182cf702c90656f4af2b4f85cca2c36004de3366..33869ffbc88d7db35d6d1e6e0e786ddba553daf2 100644
+--- a/source/frontend/src/components/App/Home/index.stories.tsx
++++ b/source/frontend/src/components/App/Home/index.stories.tsx
+@@ -46,6 +46,7 @@ const ourState = {
+   clusterProvider: {
+     dialogs: {},
+     menuItems: [],
++    deleteHandlers: [],
+     clusterProviders: [],
+     clusterStatuses: [],
+   },
 diff --git a/source/frontend/src/components/App/Layout.tsx b/source/frontend/src/components/App/Layout.tsx
 index 4ab18882193eb00e76424d15746276cffc53b0aa..6d903f50a5194eb47111a4c2f71cd45dbe8ee8af 100644
 --- a/source/frontend/src/components/App/Layout.tsx
@@ -7209,6 +7943,19 @@ index 0000000000000000000000000000000000000000..a6c9503fbadc58c8243007d05ebbce08
 +    desktopStartClusterProxy(target, capabilitySecret);
 +  return [['startClusterProxy'], [startClusterProxy]];
 +}
+diff --git a/source/frontend/src/plugin/clusterRegistration.ts b/source/frontend/src/plugin/clusterRegistration.ts
+index 59c4c0bc59822d683735be44c04ee7c97e51ebf1..b65ee50e4269cfa23bed3888acfb59f87e704a06 100644
+--- a/source/frontend/src/plugin/clusterRegistration.ts
++++ b/source/frontend/src/plugin/clusterRegistration.ts
+@@ -20,6 +20,8 @@ export interface ClusterRegistrationResult {
+   success: boolean;
+   /** User-facing success or failure detail. */
+   message: string;
++  /** Provider-defined public metadata. Never credentials or kubeconfig contents. */
++  data?: Record<string, unknown>;
+ }
+ 
+ /**
 diff --git a/source/frontend/src/plugin/index.ts b/source/frontend/src/plugin/index.ts
 index fe3e1166aa7e7952c4951ae661787bcb4fdc9e5f..83f0536969606d0f800c66a8cc46632b0b5dc5c1 100644
 --- a/source/frontend/src/plugin/index.ts
@@ -7628,12 +8375,17 @@ index af944db55faf5a56ea2f06dc3e1d51dcaea78251..c94f441b909b4f74e8ebe2a0aaa9670c
  
  describe('registerAppTheme', () => {
 diff --git a/source/frontend/src/plugin/registry.tsx b/source/frontend/src/plugin/registry.tsx
-index 87eda435e3c75b31f5686641a4b9b310826bad30..afe480a42e867a614cad1fdd2b0ab5ff26700ed6 100644
+index 87eda435e3c75b31f5686641a4b9b310826bad30..a72b3b7af0284e448456cd361669c66dada7e65e 100644
 --- a/source/frontend/src/plugin/registry.tsx
 +++ b/source/frontend/src/plugin/registry.tsx
-@@ -72,12 +72,16 @@ import {
+@@ -69,15 +69,25 @@ import {
+ import {
+   addAddClusterProvider,
+   addClusterStatus,
++  addDeleteHandler,
    addDialog,
    addMenuItem,
++  ClusterDeleteHandler,
    ClusterEmptyStateComponent,
 +  ClusterPreOpenHook,
 +  clusterPreOpenHooksChanged,
@@ -7644,11 +8396,60 @@ index 87eda435e3c75b31f5686641a4b9b310826bad30..afe480a42e867a614cad1fdd2b0ab5ff
    setClusterEmptyState,
  } from '../redux/clusterProviderSlice';
 +import { registerClusterPreOpenHook } from './clusterPreOpen';
-+export type { ClusterPreOpenContext, ClusterPreOpenHook } from '../redux/clusterProviderSlice';
++export type {
++  ClusterDeleteHandler,
++  ClusterPreOpenContext,
++  ClusterPreOpenHook,
++} from '../redux/clusterProviderSlice';
  import {
    addEventCallback,
    ClusterSettingsViewLoadedEvent,
-@@ -1076,6 +1080,43 @@ export interface AppThemeRegistrationOptions {
+@@ -1042,6 +1052,44 @@ export function registerClusterProviderDialog(item: DialogComponent) {
+   store.dispatch(addDialog(item));
+ }
+ 
++/**
++ * Route Delete in the Home page's cluster action menu to a plugin's dialog.
++ *
++ * Headlamp's Delete removes a cluster from the kubeconfig. A plugin that manages
++ * a cluster's lifecycle can claim that cluster's Delete instead: the menu then
++ * opens the plugin's dialog (registered with `registerClusterProviderDialog`)
++ * for every cluster `owns` returns true for. The first registered handler that
++ * owns a cluster is used; a handler that throws owns nothing.
++ *
++ * @param handler - Which clusters the plugin owns, and the dialog that deletes them.
++ * @returns Nothing.
++ *
++ * @example
++ *
++ * ```tsx
++ * import {
++ *   registerClusterProviderDeleteHandler,
++ *   registerClusterProviderDialog,
++ * } from '@kinvolk/headlamp-plugin/lib';
++ *
++ * registerClusterProviderDeleteHandler({
++ *   owns: cluster =>
++ *     cluster.meta_data?.extensions?.context_info?.provider === 'minikube.sigs.k8s.io',
++ *   dialog: 'deleteMinikube',
++ * });
++ * registerClusterProviderDialog(({ cluster, openConfirmDialog, setOpenConfirmDialog }) => (
++ *   <DeleteMinikube
++ *     cluster={cluster}
++ *     open={openConfirmDialog === 'deleteMinikube'}
++ *     onClose={() => setOpenConfirmDialog('')}
++ *   />
++ * ));
++ * ```
++ */
++export function registerClusterProviderDeleteHandler(handler: ClusterDeleteHandler) {
++  store.dispatch(addDeleteHandler(handler));
++}
++
+ /**
+  * For adding a card to the Add Cluster page in the providers list.
+  * @param item - The iformation to add to the Add Cluster page.
+@@ -1076,6 +1124,43 @@ export interface AppThemeRegistrationOptions {
    default?: boolean;
  }
  
@@ -7919,10 +8720,10 @@ index 8bb22bb81bf38426909c01d3b2d51da9473f39ce..2ae1a7d5d895be6333540f6f58014f2f
    const isPackage: Record<string, boolean> = {};
    for (const key in pluginPaths) {
 diff --git a/source/frontend/src/redux/clusterProviderSlice.ts b/source/frontend/src/redux/clusterProviderSlice.ts
-index 19dd642fcd7884403342f7f311e6e9bf796735d9..66b9ecd6a7dffd7f0f19bb4a6d996594ff86ae06 100644
+index 19dd642fcd7884403342f7f311e6e9bf796735d9..2cc500ba4853dde4a9dd711eaedd2323a14c19b8 100644
 --- a/source/frontend/src/redux/clusterProviderSlice.ts
 +++ b/source/frontend/src/redux/clusterProviderSlice.ts
-@@ -49,6 +49,58 @@ export type ClusterEmptyStateComponent = (
+@@ -49,6 +49,73 @@ export type ClusterEmptyStateComponent = (
    props: ClusterEmptyStateProps
  ) => React.ReactElement | null;
  
@@ -7970,6 +8771,21 @@ index 19dd642fcd7884403342f7f311e6e9bf796735d9..66b9ecd6a7dffd7f0f19bb4a6d996594
 + */
 +export type ClusterPreOpenHook = (context: ClusterPreOpenContext) => Promise<void>;
 +
++/**
++ * A plugin's claim on the Delete action of the clusters it manages.
++ *
++ * For a cluster that `owns` returns true for, the Delete item in the Home page's
++ * cluster action menu opens the plugin's dialog named `dialog` (registered with
++ * `registerClusterProviderDialog`) instead of removing the cluster from the
++ * kubeconfig.
++ */
++export interface ClusterDeleteHandler {
++  /** Whether the plugin handles Delete for this cluster entry. */
++  owns: (cluster: any) => boolean;
++  /** The `openConfirmDialog` value that opens the plugin's delete dialog. */
++  dialog: string;
++}
++
 +/** State owned by one active cluster pre-open run. */
 +export interface ClusterPreparingState {
 +  /** Unique identifier that prevents an abandoned run from mutating a newer run. */
@@ -7981,7 +8797,15 @@ index 19dd642fcd7884403342f7f311e6e9bf796735d9..66b9ecd6a7dffd7f0f19bb4a6d996594
  /**
   * Information about a cluster provider, that is shown on the add cluster page.
   */
-@@ -74,6 +126,16 @@ export interface ClusterProviderSliceState {
+@@ -68,20 +135,35 @@ export interface ClusterProviderSliceState {
+   dialogs: DialogComponent[];
+   /** Menu items that can be rendered by the application, on the Home page in the cluster action menu. */
+   menuItems: MenuItemComponent[];
++  /** Plugins that handle Delete in the cluster action menu, in registration order. */
++  deleteHandlers: ClusterDeleteHandler[];
+   /** Cluster providers for the Add Cluster page. */
+   clusterProviders: ClusterProviderInfo[];
+   /** Cluster statuses for the Home page. */
    clusterStatuses: ClusterStatusComponent[];
    /** Optional product-owned replacement for the Home page's empty cluster state. */
    clusterEmptyState: ClusterEmptyStateComponent | null;
@@ -7998,7 +8822,9 @@ index 19dd642fcd7884403342f7f311e6e9bf796735d9..66b9ecd6a7dffd7f0f19bb4a6d996594
  }
  
  export const initialState: ClusterProviderSliceState = {
-@@ -82,6 +144,8 @@ export const initialState: ClusterProviderSliceState = {
+   menuItems: [],
+   dialogs: [],
++  deleteHandlers: [],
    clusterProviders: [],
    clusterStatuses: [],
    clusterEmptyState: null,
@@ -8007,7 +8833,17 @@ index 19dd642fcd7884403342f7f311e6e9bf796735d9..66b9ecd6a7dffd7f0f19bb4a6d996594
  };
  
  const clusterProviderSlice = createSlice({
-@@ -103,6 +167,34 @@ const clusterProviderSlice = createSlice({
+@@ -94,6 +176,9 @@ const clusterProviderSlice = createSlice({
+     addMenuItem(state, action: PayloadAction<MenuItemComponent>) {
+       state.menuItems.push(action.payload);
+     },
++    addDeleteHandler(state, action: PayloadAction<ClusterDeleteHandler>) {
++      state.deleteHandlers.push(action.payload);
++    },
+     addAddClusterProvider(state, action: PayloadAction<ClusterProviderInfo>) {
+       state.clusterProviders.push(action.payload);
+     },
+@@ -103,15 +188,48 @@ const clusterProviderSlice = createSlice({
      setClusterEmptyState(state, action: PayloadAction<ClusterEmptyStateComponent>) {
        state.clusterEmptyState = action.payload;
      },
@@ -8042,7 +8878,10 @@ index 19dd642fcd7884403342f7f311e6e9bf796735d9..66b9ecd6a7dffd7f0f19bb4a6d996594
    },
  });
  
-@@ -112,6 +204,10 @@ export const {
+ export const {
+   addDialog,
+   addMenuItem,
++  addDeleteHandler,
    addAddClusterProvider,
    addClusterStatus,
    setClusterEmptyState,

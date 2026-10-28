@@ -1,0 +1,52 @@
+diff --git a/frontend/src/components/App/Home/ClusterContextMenu.tsx b/frontend/src/components/App/Home/ClusterContextMenu.tsx
+index f8bd763a3907d9b8b51baa0485aad423e8e6870a..054352382b1f63544b13da23f1eb8483347ebcb7 100644
+--- a/frontend/src/components/App/Home/ClusterContextMenu.tsx
++++ b/frontend/src/components/App/Home/ClusterContextMenu.tsx
+@@ -64,6 +64,13 @@ export default function ClusterContextMenu({
+ 
+   const kubeconfigOrigin = cluster.meta_data?.origin?.kubeconfig;
+   const deleteFromKubeconfig = cluster.meta_data?.source === 'kubeconfig';
++  // AKS Desktop's local cluster, identified by the private kubeconfig it was loaded from
++  // (`kubeconfigs/aksedge-local.yaml` in the config directory): Delete must run the AKS Local
++  // plugin's lifecycle Delete, which the plugin adds to this menu, not only remove the entry.
++  const isLocalClusterContext =
++    typeof kubeconfigOrigin === 'string' &&
++    kubeconfigOrigin.split(/[\\/]/).slice(-2).join('/').toLowerCase() ===
++      'kubeconfigs/aksedge-local.yaml';
+ 
+   function removeCluster(cluster: Cluster) {
+     const clusterID = cluster.meta_data?.clusterID;
+@@ -164,19 +171,20 @@ export default function ClusterContextMenu({
+         >
+           <ListItemText>{t('translation|Settings')}</ListItemText>
+         </MenuItem>
+-        {((cluster.meta_data?.source === 'dynamic_cluster' &&
+-          (helpers.isElectron() || isDynamicClusterEnabled)) ||
+-          (cluster.meta_data?.source === 'kubeconfig' &&
+-            (helpers.isElectron() || allowKubeconfigChanges))) && (
+-          <MenuItem
+-            onClick={() => {
+-              setOpenConfirmDialog('deleteDynamic');
+-              handleMenuClose();
+-            }}
+-          >
+-            <ListItemText>{t('translation|Delete')}</ListItemText>
+-          </MenuItem>
+-        )}
++        {!isLocalClusterContext &&
++          ((cluster.meta_data?.source === 'dynamic_cluster' &&
++            (helpers.isElectron() || isDynamicClusterEnabled)) ||
++            (cluster.meta_data?.source === 'kubeconfig' &&
++              (helpers.isElectron() || allowKubeconfigChanges))) && (
++            <MenuItem
++              onClick={() => {
++                setOpenConfirmDialog('deleteDynamic');
++                handleMenuClose();
++              }}
++            >
++              <ListItemText>{t('translation|Delete')}</ListItemText>
++            </MenuItem>
++          )}
+         {menuItems.map((Item, index) => {
+           return (
+             <Item
