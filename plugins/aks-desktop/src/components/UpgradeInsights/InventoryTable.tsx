@@ -28,15 +28,26 @@ import {
 } from './domain';
 import { useSnapshotClock } from './useSnapshotClock';
 
-export default function InventoryTable({
-  records,
-  disabled,
-  onSelect,
-}: {
+/** Current-page readiness data and selection behavior, separate from full inventory pagination. */
+export interface InventoryTableProps {
+  /** Already-loaded page records; counts and risk filters never imply fleet-wide readiness totals. */
   records: ClusterRecord[];
+  /** Disable table filtering, selection, and export while a generation submission is active. */
   disabled: boolean;
+  /**
+   * Select an explicitly chosen inventory resource for the detail view.
+   * @param id Full managed-cluster ARM ID, not its potentially ambiguous display name.
+   * @returns No value.
+   */
   onSelect: (id: string) => void;
-}) {
+}
+
+/**
+ * Filter, rank, and export the latest combined snapshots for the currently loaded inventory page.
+ * @param props Page records and controls coordinated by the readiness workspace.
+ * @returns Page-scoped counts, risk/readiness filters, the cluster table, and CSV export controls.
+ */
+export default function InventoryTable({ records, disabled, onSelect }: InventoryTableProps) {
   const { t } = useTranslation();
   useSnapshotClock();
   const [filter, setFilter] = useState('');
@@ -69,6 +80,10 @@ export default function InventoryTable({
     visible.sort((a, b) => readinessOrder[recordReadiness(a)] - readinessOrder[recordReadiness(b)]);
   }
 
+  /**
+   * Download only the filtered visible page, escaping CSV cells and spreadsheet formula prefixes.
+   * @returns No value; initiates a local CSV download and releases its object URL.
+   */
   function exportPage() {
     const rows = [
       [

@@ -28,17 +28,37 @@ import {
 } from '../../types/upgradeInsights';
 import { errorMessage } from './domain';
 
+/** Confirmed evaluation writes for one explicitly selected ARM cluster. */
+export interface GenerateInsightProps {
+  /** Cluster identity and pool inventory constraining the generation scope. */
+  cluster: Cluster;
+  /** Authenticated provider that stores and verifies the requested evaluation. */
+  provider: InsightsProvider;
+  /**
+   * Receive a generated resource only after its exact stored-resource GET has been verified.
+   * @param insight Verified stored evaluation, not an upgrade execution result.
+   * @returns No value.
+   */
+  onGenerated: (insight: Insight) => void;
+  /**
+   * Coordinate edit locks with the owning page while generation is active.
+   * @param busy Whether submission and verification are in flight.
+   * @returns No value.
+   */
+  onBusyChange: (busy: boolean) => void;
+}
+
+/**
+ * Discover scope-specific targets and require review of the exact insight-generating POST.
+ * @param props Cluster/provider binding and generation lifecycle callbacks.
+ * @returns Scope and target inputs, explicit write confirmation, and progress or verification errors.
+ */
 export default function GenerateInsight({
   cluster,
   provider,
   onGenerated,
   onBusyChange,
-}: {
-  cluster: Cluster;
-  provider: InsightsProvider;
-  onGenerated: (insight: Insight) => void;
-  onBusyChange: (busy: boolean) => void;
-}) {
+}: GenerateInsightProps) {
   const { t } = useTranslation();
   const [scope, setScope] = useState<UpgradeType>('ControlPlaneAndAgentPools');
   const [pool, setPool] = useState('');
@@ -87,6 +107,10 @@ export default function GenerateInsight({
 
   useEffect(() => () => submission.current?.abort(), [provider, cluster.id]);
 
+  /**
+   * Build only a valid request for the current inputs, without writing or starting an upgrade.
+   * @returns A reviewable body, or undefined until the pool and scope-specific target are valid.
+   */
   function buildRequest(): GenerateRequest | undefined {
     if (needsPool && !cluster.pools.some(p => p.name === pool)) return;
     if (scope === 'NodeImage') {
@@ -102,6 +126,10 @@ export default function GenerateInsight({
       : { upgradeType: scope, targetKubernetesVersion: target };
   }
 
+  /**
+   * Submit the confirmed body once, ignoring responses after the owning session is cancelled.
+   * @returns A promise that settles after submission/verification handling; errors remain in the UI.
+   */
   async function generate() {
     if (!pending || submission.current) return;
     const controller = new AbortController();

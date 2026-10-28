@@ -16,16 +16,31 @@ import { isValidGuid } from './az-cli-core';
 import { ARM_ENDPOINT, azRequest, AzureRequestError } from './az-http';
 import { getSubscriptions } from './az-subscriptions';
 
+/** Stable API version for optional fleet and member discovery, independent of insight preview APIs. */
 const FLEET_API_VERSION = '2025-03-01';
+/** Stable API version used to discover control-plane and pool Kubernetes targets. */
 const UPGRADE_PROFILE_API_VERSION = '2024-10-01';
+/** Client cache lifetime in milliseconds, unrelated to a stored evaluation's service expiry. */
 const CACHE_TTL_MS = 60_000;
 
+/** Enabled subscription and tenant binding used by the native authenticated transport. */
 export interface UpgradeInsightSubscription {
+  /** Azure subscription GUID explicitly selected for inventory and insight requests. */
   id: string;
+  /** Account-provided display name shown alongside the subscription ID. */
   name: string;
+  /** Tenant GUID used to obtain authorization for this subscription. */
   tenantId: string;
 }
 
+/**
+ * Injectable ARM request boundary; parsing and stored-resource verification belong to the provider.
+ * @param path ARM path or URL accepted by the transport's origin and subscription checks.
+ * @param method Read-only GET, or POST exclusively for generating a stored evaluation.
+ * @param body Confirmed generation body for POST; omitted for reads.
+ * @param signal Optional cancellation propagated to the native HTTP request.
+ * @returns Unvalidated ARM JSON; authentication, transport, and service errors reject.
+ */
 export type ArmTransport = (
   path: string,
   method: 'GET' | 'POST',
@@ -33,43 +48,93 @@ export type ArmTransport = (
   signal?: AbortSignal
 ) => Promise<unknown>;
 
+/** Account inventory fields required before offering a subscription in the native UI. */
 const subscriptionSchema = z.object({
+  /** Subscription GUID returned by the existing Azure account integration. */
   id: z.string().uuid(),
+  /** Subscription display name. */
   name: z.string(),
+  /** Owning tenant GUID, renamed to tenantId in the public subscription contract. */
   tenant: z.string().uuid(),
+  /** Account state used to exclude subscriptions that are not enabled. */
   status: z.string(),
 });
+/** Managed-cluster response subset needed for identity and source-version comparisons. */
 const clusterSchema = z.object({
+  /** Authoritative managed-cluster ARM identity. */
   id: z.string(),
+  /** Display name, never used to bind a Kubernetes context automatically. */
   name: z.string(),
+  /** Azure region used for inventory filtering. */
   location: z.string(),
+  /** Inventory source versions and optional pool coverage. */
   properties: z.object({
+    /** Configured control-plane version used only when the current version is absent. */
     kubernetesVersion: z.string().optional(),
+    /** Preferred current control-plane version. */
     currentKubernetesVersion: z.string().optional(),
+    /** Pool inventory; null or omitted means coverage is unknown, not an empty cluster. */
     agentPoolProfiles: z
       .array(
         z.object({
+          /** Exact pool identity used by pool-specific profile and insight requests. */
           name: z.string(),
+          /** Configured pool version used when the current version is absent. */
           orchestratorVersion: z.string().optional(),
+          /** Preferred current pool Kubernetes version. */
           currentOrchestratorVersion: z.string().optional(),
+          /** Current node image needed to compare NodeImage evaluations. */
           nodeImageVersion: z.string().optional(),
         })
       )
       .nullish(),
   }),
 });
-const fleetSchema = z.object({ id: z.string(), name: z.string() });
+/** Fleet identity projected into the public cluster membership metadata. */
+const fleetSchema = z.object({
+  /** Full fleet ARM resource ID. */
+  id: z.string(),
+  /** Fleet display name used for presentation and search. */
+  name: z.string(),
+});
+/** Member-to-cluster identity mapping; cluster names alone cannot establish membership. */
 const fleetMemberSchema = z.object({
-  properties: z.object({ clusterResourceId: z.string() }),
+  /** Server-supplied membership association. */
+  properties: z.object({
+    /** Full managed-cluster ARM ID associated with this member. */
+    clusterResourceId: z.string(),
+  }),
 });
+/** Kubernetes version discovery, not a reservation or guarantee of physical capacity. */
 const targetProfileSchema = z.object({
-  upgrades: z.array(z.object({ kubernetesVersion: z.string() })).nullish(),
+  /** Optional available upgrade targets; an omitted list produces no selectable versions. */
+  upgrades: z
+    .array(
+      z.object({
+        /** API-reported Kubernetes version available for this profile. */
+        kubernetesVersion: z.string(),
+      })
+    )
+    .nullish(),
 });
+/** Control-plane profile wrapper returned by the managed-cluster upgradeProfiles endpoint. */
 const upgradeProfileSchema = z.object({
-  properties: z.object({ controlPlaneProfile: targetProfileSchema }),
+  /** Cluster upgrade-profile payload. */
+  properties: z.object({
+    /** Control-plane targets used for standalone and combined evaluations. */
+    controlPlaneProfile: targetProfileSchema,
+  }),
 });
-const agentPoolUpgradeProfileSchema = z.object({ properties: targetProfileSchema });
+/** Pool endpoint response, whose properties directly contain the target profile. */
+const agentPoolUpgradeProfileSchema = z.object({
+  /** Targets belonging to the explicitly requested node pool. */
+  properties: targetProfileSchema,
+});
 
+/**
+ * Discover enabled subscriptions through AKS Desktop's existing Azure account integration.
+ * @returns Validated subscription identities with tenant bindings; account or schema errors reject.
+ */
 export async function getUpgradeInsightSubscriptions(): Promise<UpgradeInsightSubscription[]> {
   const subscriptions = z.array(subscriptionSchema).parse(await getSubscriptions());
   return subscriptions
@@ -81,6 +146,12 @@ export async function getUpgradeInsightSubscriptions(): Promise<UpgradeInsightSu
     }));
 }
 
+/**
+ * Create a native provider whose transport authenticates against each selected subscription's tenant.
+ * @param subscriptions Explicitly selected enabled subscription/tenant bindings.
+ * @returns A fresh provider restricted to Azure public cloud and the selected subscriptions.
+ * @throws If selection identities are invalid; later requests reject disallowed origins or POST paths.
+ */
 export function createUpgradeInsightsProvider(
   subscriptions: UpgradeInsightSubscription[]
 ): ArmProvider {
@@ -110,6 +181,12 @@ export function createUpgradeInsightsProvider(
   );
 }
 
+/**
+ * Validate and encode a managed-cluster ARM identity without inferring one from a display name.
+ * @param cluster Cluster containing the full, unencoded managed-cluster resource ID.
+ * @returns ARM resource path with each segment URL-encoded and separators preserved.
+ * @throws If the ID is not a supported managed-cluster resource path.
+ */
 export function clusterBase(cluster: Cluster): string {
   if (
     !/^\/subscriptions\/[a-f0-9-]{36}\/resourceGroups\/[^/\\?#]+\/providers\/Microsoft\.ContainerService\/managedClusters\/[^/\\?#]+$/i.test(
@@ -124,10 +201,21 @@ export function clusterBase(cluster: Cluster): string {
     .join('/');
 }
 
+/**
+ * Stop follow-up work when a request's owning session has been cancelled.
+ * @param signal Optional cancellation signal to inspect.
+ * @returns No value when the request is still active.
+ * @throws An AbortError when the signal is already aborted.
+ */
 function throwIfAborted(signal?: AbortSignal) {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 }
 
+/**
+ * Normalize object-key order before comparing generated and persisted response properties.
+ * @param value JSON-compatible value to normalize recursively, preserving array order.
+ * @returns A normalized copy of objects and arrays, or the unchanged scalar value.
+ */
 function canonicalJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalJson);
   if (typeof value !== 'object' || value === null) return value;
@@ -138,21 +226,42 @@ function canonicalJson(value: unknown): unknown {
   );
 }
 
+/** ARM-backed stored-readiness provider; evaluations do not reserve capacity or perform upgrades. */
 export class ArmProvider implements InsightsProvider {
+  /** Native response provenance, with no synthetic fallback on request errors. */
   readonly mode = 'live';
+  /** Per-cluster snapshots with client TTL deadlines; callers receive detached copies. */
   private insightCache = new Map<string, { expiresAt: number; insights: Insight[] }>();
+  /** Per-cluster/scope/pool target lists with client TTL deadlines, independent of insight caching. */
   private targetCache = new Map<string, { expiresAt: number; targets: string[] }>();
 
+  /**
+   * Bind an injectable request transport to a non-empty inventory subscription selection.
+   * @param transport ARM request boundary; the native factory adds tenant and endpoint enforcement.
+   * @param subscriptions Subscription GUIDs to enumerate for inventory.
+   * @throws If the subscription selection is empty or contains an invalid GUID.
+   */
   constructor(private transport: ArmTransport, private subscriptions: string[]) {
     if (!subscriptions.length || subscriptions.some(subscription => !isValidGuid(subscription))) {
       throw new Error('Select at least one valid Azure subscription.');
     }
   }
 
+  /**
+   * Clear all cluster insight entries without changing target discovery's separate cache policy.
+   * @returns No value; subsequent reads repopulate snapshots using the normal TTL.
+   */
   invalidateInsights(): void {
     this.insightCache.clear();
   }
 
+  /**
+   * Read up to 100 ARM pages, rejecting loops and continuations outside the selected subscriptions.
+   * @param path Initial ARM collection path.
+   * @param schema Validator applied to every collection value.
+   * @param signal Optional cancellation checked between requests and before returning results.
+   * @returns Parsed collection entries across all trusted pages.
+   */
   private async pages<T>(path: string, schema: z.ZodType<T>, signal?: AbortSignal): Promise<T[]> {
     const result: T[] = [];
     const seen = new Set<string>();
@@ -187,7 +296,17 @@ export class ArmProvider implements InsightsProvider {
     return result;
   }
 
+  /**
+   * Enumerate selected subscriptions in batches, retaining reachable inventory and coverage warnings.
+   * @param signal Optional cancellation for cluster, fleet, and membership requests.
+   * @returns Inventory with separate subscription and fleet warnings; rejects if all subscriptions fail.
+   */
   async listClusters(signal?: AbortSignal): Promise<ClusterInventory> {
+    /**
+     * Read one subscription without treating fleet discovery failure as cluster inventory failure.
+     * @param subscription Subscription GUID to enumerate.
+     * @returns Current cluster metadata, discovered membership identities, and fleet coverage warnings.
+     */
     const load = async (subscription: string) => {
       const values = await this.pages(
         `/subscriptions/${subscription}/providers/Microsoft.ContainerService/managedClusters?api-version=${API_VERSION}`,
@@ -279,6 +398,13 @@ export class ArmProvider implements InsightsProvider {
     return { clusters, warnings, fleetWarnings };
   }
 
+  /**
+   * Read stored evaluations, using a detached copy of a valid 60-second cache entry when allowed.
+   * @param cluster Managed cluster whose independent stored evaluations are requested.
+   * @param signal Optional cancellation for the paginated read.
+   * @param forceRefresh Bypass the current insight cache entry for this read only.
+   * @returns Parsed stored insights; no new evaluation or upgrade is triggered.
+   */
   async listInsights(
     cluster: Cluster,
     signal?: AbortSignal,
@@ -299,6 +425,14 @@ export class ArmProvider implements InsightsProvider {
     return structuredClone(insights);
   }
 
+  /**
+   * Retrieve the exact insight resource within the selected managed-cluster path.
+   * @param cluster Required owner of the insight being read.
+   * @param resourceId Full insight ARM ID, restricted to one child resource of this cluster.
+   * @param signal Optional cancellation for the request and its response processing.
+   * @returns Parsed stored insight; a 404 also invalidates this cluster's cached insight list.
+   * @throws If identity validation, schema parsing, cancellation, or the ARM read fails.
+   */
   async getInsight(cluster: Cluster, resourceId: string, signal?: AbortSignal): Promise<Insight> {
     throwIfAborted(signal);
     const prefix = `${cluster.id}/upgradeInsights/`;
@@ -333,6 +467,14 @@ export class ArmProvider implements InsightsProvider {
     }
   }
 
+  /**
+   * Discover targets from the exact control-plane or pool profile, with a separate 60-second cache.
+   * @param cluster Managed cluster whose upgrade profile is queried.
+   * @param scope Control-plane/combined profile or an exact inventory node-pool identity.
+   * @param signal Optional cancellation for target discovery.
+   * @returns Unique, numerically sorted Kubernetes versions; not a physical-capacity guarantee.
+   * @throws If the pool is absent from inventory or profile validation or the ARM request fails.
+   */
   async listUpgradeTargets(
     cluster: Cluster,
     scope: UpgradeTargetScope,
@@ -377,6 +519,14 @@ export class ArmProvider implements InsightsProvider {
     return structuredClone(targets);
   }
 
+  /**
+   * POST a confirmed evaluation request and verify its scope, target, and exact persisted resource.
+   * @param cluster Managed cluster on which to store the insight, without starting an upgrade.
+   * @param request Exact user-confirmed scope/target body; NodeImage may omit its service-selected target.
+   * @param signal Optional cancellation; a previously accepted POST cannot be undone by aborting.
+   * @returns The GET-verified stored insight, not an upgrade result or a capacity reservation.
+   * @throws On request failure or response/verification mismatch; Azure may already have stored an insight.
+   */
   async generate(
     cluster: Cluster,
     request: GenerateRequest,

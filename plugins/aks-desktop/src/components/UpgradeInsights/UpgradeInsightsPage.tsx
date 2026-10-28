@@ -24,11 +24,20 @@ import {
 import { errorMessage } from './domain';
 import ReadinessWorkspace from './ReadinessWorkspace';
 
+/** Route configuration shared by the Home and selected-context entry points. */
+export interface UpgradeInsightsPageProps {
+  /** Enable registered-context candidate scoping and explicit ARM-resource disambiguation guidance. */
+  requireClusterSelection?: boolean;
+}
+
+/**
+ * Apply the desktop and preview gates before mounting any Azure account or inventory workflow.
+ * @param props Route configuration; Home inventory is the default and needs no Kubernetes context.
+ * @returns A disabled-feature notice or the Azure-authenticated readiness workflow.
+ */
 export default function UpgradeInsightsPage({
   requireClusterSelection = false,
-}: {
-  requireClusterSelection?: boolean;
-}) {
+}: UpgradeInsightsPageProps) {
   const { t } = useTranslation();
   const { upgradeInsights } = usePreviewFeatures();
   if (!Headlamp.isRunningAsApp() || !upgradeInsights) {
@@ -41,7 +50,18 @@ export default function UpgradeInsightsPage({
   return <AuthenticatedPage requireClusterSelection={requireClusterSelection} />;
 }
 
-function AuthenticatedPage({ requireClusterSelection }: { requireClusterSelection: boolean }) {
+/** Context-scoping policy carried through the Azure authentication boundary. */
+interface AuthenticatedPageProps {
+  /** Whether the route should narrow ARM candidates using registered Kubernetes-context metadata. */
+  requireClusterSelection: boolean;
+}
+
+/**
+ * Reset subscription/provider state on auth updates, including updates to the same Azure account.
+ * @param props Route policy retained while account status is checked or login is required.
+ * @returns Account-check progress, the native login link, or a fresh authenticated subscription session.
+ */
+function AuthenticatedPage({ requireClusterSelection }: AuthenticatedPageProps) {
   const { t } = useTranslation();
   const auth = useAzureAuth();
   const contextName = K8s.useCluster();
@@ -87,13 +107,20 @@ function AuthenticatedPage({ requireClusterSelection }: { requireClusterSelectio
   );
 }
 
-function SubscriptionSession({
-  requireClusterSelection,
-  contextName,
-}: {
+/** Selection policy for one authenticated page session; no readiness data is persisted. */
+interface SubscriptionSessionProps {
+  /** Enable registered-context candidate scoping rather than unrestricted Home inventory browsing. */
   requireClusterSelection: boolean;
+  /** Optional registration-settings key, never a substitute for an explicitly selected ARM ID. */
   contextName?: string;
-}) {
+}
+
+/**
+ * Discover subscriptions and create a provider only after the user explicitly applies a selection.
+ * @param props Context policy scoped to the current account and route lifetime.
+ * @returns Subscription selection, actionable discovery errors, and the selected provider's workspace.
+ */
+function SubscriptionSession({ requireClusterSelection, contextName }: SubscriptionSessionProps) {
   const { t } = useTranslation();
   const [subscriptions, setSubscriptions] = useState<UpgradeInsightSubscription[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);

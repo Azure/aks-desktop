@@ -19,19 +19,36 @@ import { contextCandidates } from './contextSelection';
 import InventoryTable from './InventoryTable';
 import { usePageRecords, useReadinessInventory } from './useReadinessInventory';
 
+/** Maximum clusters whose stored evaluations are loaded for one inventory page. */
 const PAGE_SIZE = 10;
 
+/** Inventory and generation coordination within one authenticated subscription selection. */
+export interface ReadinessWorkspaceProps {
+  /** Session-owned data source; replacing it aborts reads from the old provider. */
+  provider: InsightsProvider;
+  /** Enable registered-context scoping and explicit ARM-identity disambiguation guidance. */
+  requireClusterSelection: boolean;
+  /** Optional context registration key used only to narrow inventory candidates. */
+  contextName?: string;
+  /**
+   * Prevent subscription edits in the owning session during generation.
+   * @param busy Whether a confirmed generation request is in flight.
+   * @returns No value.
+   */
+  onBusyChange: (busy: boolean) => void;
+}
+
+/**
+ * Browse reachable inventory and page-scoped readiness without initiating upgrades.
+ * @param props Authenticated data source, optional context policy, and parent edit-lock callback.
+ * @returns Inventory controls, coverage errors/warnings, selected cluster details, and page results.
+ */
 export default function ReadinessWorkspace({
   provider,
   requireClusterSelection,
   contextName,
   onBusyChange,
-}: {
-  provider: InsightsProvider;
-  requireClusterSelection: boolean;
-  contextName?: string;
-  onBusyChange: (busy: boolean) => void;
-}) {
+}: ReadinessWorkspaceProps) {
   const { t } = useTranslation();
   const [refresh, setRefresh] = useState(0);
   const { inventory, loading, error } = useReadinessInventory(provider, refresh);
@@ -83,11 +100,20 @@ export default function ReadinessWorkspace({
   const { records, loading: recordsLoading } = usePageRecords(provider, pageClusters, refresh);
   const selected = candidates.find(c => c.id === selectedId);
 
+  /**
+   * Keep local selection locks and the owning session's subscription locks synchronized.
+   * @param value Whether confirmed generation is in flight.
+   * @returns No value.
+   */
   function changeBusy(value: boolean) {
     setBusy(value);
     onBusyChange(value);
   }
 
+  /**
+   * Invalidate insight snapshots once before re-reading inventory and the visible page.
+   * @returns No value; later pagination resumes the provider's normal cache policy.
+   */
   function refreshReadiness() {
     provider.invalidateInsights();
     setRefresh(n => n + 1);

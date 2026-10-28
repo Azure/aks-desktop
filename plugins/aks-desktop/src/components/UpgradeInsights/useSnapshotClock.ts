@@ -3,7 +3,10 @@
 
 import { useEffect, useState } from 'react';
 
-/** Reassess expiring snapshots even when the user has not interacted with the page. */
+/**
+ * Re-render the owning component every minute so expiring snapshots are reassessed while idle.
+ * @returns No value; the interval is released when the owning component unmounts.
+ */
 export function useSnapshotClock() {
   const [, setTick] = useState(0);
   useEffect(() => {
