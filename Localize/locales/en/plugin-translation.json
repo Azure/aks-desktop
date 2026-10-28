@@ -374,7 +374,6 @@
   "Generated Kubernetes manifests (namespace: {{namespace}})": "Generated Kubernetes manifests (namespace: {{namespace}})",
   "_Generated Kubernetes manifests (namespace: {{namespace}}).comment": "{Locked=\"Kubernetes\"}",
   "Generating deployment files...": "Generating deployment files...",
-  "Get help, share feedback, or reach the AKS Desktop team": "Get help, share feedback, or reach the AKS Desktop team",
   "GitHub account": "GitHub account",
   "_GitHub account.comment": "{Locked=\"GitHub\"}",
   "GitHub authentication required to trigger deployment.": "GitHub authentication required to trigger deployment.",
