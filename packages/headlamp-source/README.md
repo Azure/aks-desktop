@@ -44,7 +44,7 @@ and those consumer integration tests in CI.
 ```json
 {
   "headlampSource": {
-    "revision": "d4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0"
+    "revision": "7ce01fceac891f6dba09420cb102ad6ba7ecc519"
   }
 }
 ```
@@ -98,6 +98,7 @@ not copied into the generated runtime manifest.
 | `product.productName` | Yes | User-visible product name. |
 | `product.appId` | By desktop build | Application identifier used by Electron packaging. |
 | `product.artifactName` | By desktop build | Artifact filename template. Electron builder substitutions such as `${version}`, `${os}`, `${arch}`, and `${ext}` are supported. |
+| `product.errorReporting` | No | Crash-report action configuration. `githubIssueUrl` is the full GitHub issue creation URL and may include query parameters such as `labels`; optional `buttonLabel` replaces Headlamp's translated default. |
 | `product.protocols` | No | Protocol registration metadata. `name` is the display name and `schemes` lists handled URI schemes. |
 | `checkForUpdates` | No | Whether the packaged application checks for updates. |
 | `legalDocuments` | No | Legal document descriptors. Each entry has an `id`, display `title`, and packaged `file` name. |

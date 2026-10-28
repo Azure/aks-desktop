@@ -10,6 +10,23 @@ The numbered files listed in `patches/series` are the patches we review and
 maintain. npm combines them into the tracked
 `patches/headlamp-source@<version>.patch` file.
 
+### Carried patches
+
+The current stack is rebased onto Headlamp main at
+`7ce01fceac891f6dba09420cb102ad6ba7ecc519`:
+
+| Patch | Upstream source | Carried revision |
+| --- | --- | --- |
+| `0071` | [Cluster pre-open hooks and proxy lifecycle, PR #7505](https://github.com/kubernetes-sigs/headlamp/pull/7505) | `91ee02272eeb6cadfcfac1cf89820e1d29a400bb` |
+| `0080` | AKS Desktop compatibility marker | Downstream-only; unchanged |
+| `7683` | [Legacy GitHub token migration, PR #7683](https://github.com/kubernetes-sigs/headlamp/pull/7683) | `1a60fa08ae7651b898a243280f3742d769255134` |
+| `8147` | [Private GitHub browser OAuth, PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147) | `8a4d53fe07e49b9ef8739023f5c9a0a6b9283b10` |
+
+Patches `0072` (PR #7958), `7685`, `7712`, `7726`, `7727`, `7731`, `7744`, and
+`7746` are included in this pin and no longer carried. Keep each numbered
+patch refresh or removal in its own commit, followed by the source pin,
+generated aggregate, metadata, and integration-test updates.
+
 ### Update the Headlamp commit
 
 Use a clean Headlamp checkout at the commit to adopt:
@@ -35,25 +52,26 @@ If a numbered patch no longer applies, rebase it as described below. If its
 upstream PR is included in the new commit, remove it from `patches/series` and
 delete its numbered patch before rebuilding the combined patch.
 
-Commit the pin, package metadata, lockfile, series, numbered patches, and
-combined patch together. Never edit the installed package in `node_modules`.
+Keep the pin, package metadata, lockfiles, series, numbered patches, and
+combined patch synchronized in the same PR. Never edit the installed package
+in `node_modules`.
 
 ### Including new PRs as patches
 
-Choose the next number and export the PR's commits from a clean Headlamp
-worktree. Use the PR's base and head SHAs so original authorship and dates are
-preserved:
+Use the upstream Headlamp PR number, not a local counter, and export its commits
+from a clean Headlamp worktree. Use the PR's base and head SHAs so original
+authorship and dates are preserved:
 
 ```bash
 git -C /path/to/headlamp format-patch --stdout --no-signature \
   <pr-base-sha>..<pr-head-sha> \
-  > patches/0072-headlamp-upstream-<topic>.patch
+  > patches/8095-headlamp-upstream-plugin-menu-reload.patch
 ```
 
 Add the patch to `patches/series` in numeric order:
 
 ```text
-0072 source 0072-headlamp-upstream-<topic>.patch
+8095 source 8095-headlamp-upstream-plugin-menu-reload.patch
 ```
 
 Use `source` for changes applied to Headlamp source. Use `package` only for
@@ -117,6 +135,33 @@ unpacked applications are in
 root's `dist/`. See [build output](README.md#build-output) for each platform's
 installer formats and unpacked paths. Copy artifacts out of this generated
 package before reinstalling dependencies or deleting `node_modules`.
+
+### Trigger 1ES builds
+
+Install the Azure DevOps CLI extension and sign in:
+
+```sh
+az extension add --name azure-devops
+az login
+```
+
+Queue all release builds from the required Git ref:
+
+```sh
+org=https://dev.azure.com/AzureContainerUpstream
+project=Kubernetes
+branch=refs/heads/main
+az pipelines run --organization "$org" --project "$project" --id 1003 --branch "$branch" # Windows
+az pipelines run --organization "$org" --project "$project" --id 1001 --branch "$branch" # Linux
+az pipelines run --organization "$org" --project "$project" --id 1000 --branch "$branch" # macOS
+```
+
+Use `refs/heads/<branch>` for another branch. Each command prints its build ID;
+check it with:
+
+```sh
+az pipelines build show --organization "$org" --project "$project" --id <build-id>
+```
 
 ### macOS release architecture
 
@@ -238,6 +283,12 @@ configuration schema and script API.
 
 ## GitHub desktop authentication verification
 
+The host integration is carried as `8147-headlamp-upstream-github-oauth.patch`,
+exported from [Headlamp PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147)
+(upstream head `15d49f89b`, carried head `8a4d53fe07e49b9ef8739023f5c9a0a6b9283b10`).
+The carried commits are rebased onto the current pin and preceding patches,
+preserving their proxy, command-environment, and quit-cleanup behavior.
+
 AKS Desktop supplies its GitHub App identity through
 `package.json#headlamp.githubOAuth`. Its native-client credential is intentionally
 bundled, while user tokens use plugin-scoped OS-encrypted storage. Browser sign-in
@@ -274,7 +325,7 @@ produces translated files into `Localize/locales/{lang}/`. The
 `Localize/LocProject.json` file configures this pipeline.
 
 The covered sources are the installed Headlamp frontend,
-`plugins/aks-desktop/`, `plugins/plugin-catalog/`, the staged `ai-assistant`
+`plugins/aks-desktop/`, `plugins/aks-desktop-theme/`, `plugins/plugin-catalog/`, the staged `ai-assistant`
 release, and the external `keda`, `cert-manager`, and `prometheus` plugins.
 
 AI Assistant is staged from the pinned GitHub release before collection, and

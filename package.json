@@ -39,6 +39,7 @@
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
     "test:post-build": "tsx ./build/verify-bundled-tools.ts",
     "test:distribution": "npm run test:post-build && npm run headlamp:smoke --",
+    "test:packaged-theme": "tsc -p test/packaged/tsconfig.json && playwright test --config test/packaged/playwright.config.ts",
     "plugin:setup": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run bundle:plugins",
     "plugin:install-releases": "tsx ./build/install-release-plugins.ts",
     "plugin:install": "npm ci --prefix plugins/aks-desktop --prefer-offline --no-audit --no-fund",
@@ -49,6 +50,12 @@
     "plugin:test:all": "cd plugins/aks-desktop && npm run test:all",
     "plugin:format": "cd plugins/aks-desktop && npm run format",
     "plugin:package": "cd plugins/aks-desktop && npm run package",
+    "theme:install": "npm ci --prefix plugins/aks-desktop-theme --prefer-offline --no-audit --no-fund",
+    "theme:build": "cd plugins/aks-desktop-theme && npm run build",
+    "theme:start": "cd plugins/aks-desktop-theme && npm start",
+    "theme:test": "cd plugins/aks-desktop-theme && npm test",
+    "theme:lint": "cd plugins/aks-desktop-theme && npm run lint",
+    "theme:format": "cd plugins/aks-desktop-theme && npm run format",
     "plugin-catalog:install": "npm ci --prefix plugins/plugin-catalog --prefer-offline --no-audit --no-fund",
     "headlamp:manifest": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run manifest:generate",
     "headlamp:frontend-env": "tsx ./build/generate-frontend-environment.ts",
@@ -64,10 +71,10 @@
     "headlamp:install": "tsx ./build/install-headlamp-desktop.ts",
     "headlamp:build": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run build",
     "install:all": "tsx ./build/install-dependencies.ts",
-    "build:all": "npm run headlamp:build && npm run plugin:build",
+    "build:all": "npm run headlamp:build && npm run plugin:build && npm run theme:build",
     "predev": "tsx ./build/prepare-development.ts",
     "dev": "tsx ./build/start-development.ts",
-    "dev:services": "cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json concurrently --kill-others --names \"PLUGIN,BACKEND,FRONTEND,APP\" -c \"cyan,green,yellow,magenta\" \"npm run plugin:start\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:backend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:frontend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:app\"",
+    "dev:services": "cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json concurrently --kill-others --names \"PLUGIN,THEME,BACKEND,FRONTEND,APP\" -c \"cyan,white,green,yellow,magenta\" \"npm run plugin:start\" \"npm run theme:start\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:backend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:frontend\" \"npm --prefix node_modules/@headlamp-k8s/headlamp-source run start:app\"",
     "prepare": "husky",
     "knip": "knip",
     "i18n:collect": "npm run plugin:install-releases && node Localize/translation-manager.mjs collect",
@@ -160,7 +167,7 @@
     }
   },
   "headlampSource": {
-    "revision": "d4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0"
+    "revision": "7ce01fceac891f6dba09420cb102ad6ba7ecc519"
   },
   "headlamp": {
     "commandEnvironment": "external-tools/aks-tool-environment.cjs",
@@ -177,6 +184,10 @@
       "companyName": "Microsoft",
       "appId": "com.microsoft.aksdesktop",
       "artifactName": "aks-desktop-${version}-${os}-${arch}.${ext}",
+      "errorReporting": {
+        "githubIssueUrl": "https://github.com/Azure/aks-desktop/issues/new?labels=bug",
+        "buttonLabel": "Contact us"
+      },
       "protocols": {
         "name": "AKS Desktop",
         "schemes": [
@@ -1107,6 +1118,12 @@
         "enabledByDefault": true
       },
       {
+        "name": "aks-desktop-theme",
+        "packageName": "aks-desktop-theme",
+        "source": "plugins/aks-desktop-theme",
+        "enabledByDefault": true
+      },
+      {
         "name": "ai-assistant",
         "packageName": "@headlamp-k8s/ai-assistant",
         "archive": "https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.1-alpha/headlamp-k8s-ai-assistant-0.4.1-alpha.tar.gz",
@@ -1129,18 +1146,19 @@
   },
   "devDependencies": {
     "@headlamp-k8s/headlamp-source": "file:packages/headlamp-source",
+    "@playwright/test": "1.56.1",
     "@types/node": "^26.1.1",
     "concurrently": "^9.1.2",
     "cross-env": "10.1.0",
     "husky": "^9.0.0",
-    "knip": "^6.24.0",
+    "knip": "^6.29.0",
     "lint-staged": "^17.0.8",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3"
   },
   "headlampPatch": {
-    "path": "patches/headlamp-source@0.0.0-main.d4c87a8f.patch",
-    "integrity": "sha512-ipbN9t0xzSOt0louM4jhDXS0sngyo1I0dnXLGsnJp0c3iWKt4lC10aM237/x5/HwbMKp/+lKGa3tw6hQ5Vw2BQ=="
+    "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
+    "integrity": "sha512-yPjDZIx488ztd+cTHmwG+mIpQU7yAifez3316OAR+WByyBjew+SPFZSozqVt5Ib3fnvf+N5buMOhyOJB4WDYYg=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [

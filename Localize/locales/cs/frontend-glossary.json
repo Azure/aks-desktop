@@ -335,5 +335,12 @@
   "Unable to list the role bindings for this service account.": "",
   "Volume Name": "",
   "Workload": "",
-  "Workloads (scheduling)": ""
+  "Workloads (scheduling)": "",
+  "Composite Pod Groups": "",
+  "Device Classes": "",
+  "Devices (alpha)": "",
+  "Driver": "",
+  "Drivers": "",
+  "Resource Claim Templates": "",
+  "Resource Claims": ""
 }

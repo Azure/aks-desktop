@@ -23,6 +23,7 @@ export function __resetReduxRegistrationForTests(): void {
  * calls trackError directly.
  */
 export const TELEMETRY_EVENT_ALLOWLIST: ReadonlySet<string> = new Set([
+  'aksd.feedback',
   HeadlampEventType.DELETE_RESOURCE,
   HeadlampEventType.DELETE_RESOURCES,
   HeadlampEventType.CREATE_RESOURCE,

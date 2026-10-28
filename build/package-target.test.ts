@@ -312,7 +312,7 @@ test('uses the managed Mac dmgbuild launcher unless the caller overrides it', ()
   );
   assert.equal(
     generated.HEADLAMP_REUSE_PLUGIN_DEPENDENCIES,
-    'aks-desktop,plugin-catalog'
+    'aks-desktop,aks-desktop-theme,plugin-catalog'
   );
 
   const overridden = packageEnvironment(

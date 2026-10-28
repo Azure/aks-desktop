@@ -364,60 +364,6 @@ export async function enableClusterAddon(options: {
   return { success: true };
 }
 
-export async function getAksKubeconfig(options: {
-  subscriptionId: string;
-  resourceGroup: string;
-  clusterName: string;
-  mergeWithExisting?: boolean;
-}): Promise<{
-  success: boolean;
-  message: string;
-  kubeconfigPath?: string;
-}> {
-  const { subscriptionId, resourceGroup, clusterName, mergeWithExisting = true } = options;
-
-  const args = [
-    'aks',
-    'get-credentials',
-    '--subscription',
-    subscriptionId,
-    '--resource-group',
-    resourceGroup,
-    '--name',
-    clusterName,
-  ];
-
-  // Add merge flag if requested (default behavior)
-  if (mergeWithExisting) {
-    args.push('--overwrite-existing');
-  } else {
-    args.push('--file', `~/.kube/config-${clusterName}`);
-  }
-
-  debugLog('Getting AKS kubeconfig:', 'az', args.join(' '));
-
-  const { stderr } = await runCommandAsync('az', args);
-
-  if (stderr && needsRelogin(stderr)) {
-    throw new Error('Authentication required. Please log in to Azure CLI: az login');
-  }
-
-  if (stderr && isAzError(stderr)) {
-    console.error('Failed to get kubeconfig:', stderr);
-    throw new Error(`Failed to get kubeconfig: ${stderr}`);
-  }
-
-  const kubeconfigPath = mergeWithExisting ? '~/.kube/config' : `~/.kube/config-${clusterName}`;
-
-  return {
-    success: true,
-    message: mergeWithExisting
-      ? `Kubeconfig merged successfully. Cluster context '${clusterName}' is now available.`
-      : `Kubeconfig saved to ${kubeconfigPath}`,
-    kubeconfigPath,
-  };
-}
-
 export async function getClusterInfo(clusterName?: string): Promise<{
   clusterName?: string;
   resourceGroup?: string;

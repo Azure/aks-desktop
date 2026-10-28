@@ -11,19 +11,6 @@ import {
 } from './az-cli-core';
 import { isValidAzResourceName } from './az-validation';
 
-export async function getSubscriptionIds(): Promise<string[]> {
-  const { stdout, stderr } = await runCommandAsync('az', [
-    'account',
-    'list',
-    '--query',
-    '[].id',
-    '-o',
-    'tsv',
-  ]);
-  if (!stdout) throw new Error(stderr || 'Failed to get subscription IDs');
-  return stdout.trim().split(/\r?\n/).filter(Boolean);
-}
-
 /**
  * Retrieves Azure subscriptions and resolves tenant display names.
  *
@@ -279,40 +266,5 @@ export async function getLocations(subscriptionId: string): Promise<any[]> {
   } catch (error) {
     console.error('Failed to parse locations response:', error);
     throw new Error('Failed to parse locations response');
-  }
-}
-
-export async function getVmSizes(subscriptionId: string, location: string): Promise<any[]> {
-  debugLog('Fetching VM sizes for location:', location);
-  const { stdout, stderr } = await runCommandAsync('az', [
-    'vm',
-    'list-sizes',
-    '--subscription',
-    subscriptionId,
-    '--location',
-    location,
-    '--query',
-    '[?contains(name, `Standard_D`) || contains(name, `Standard_B`)].{name:name,cores:numberOfCores,memoryInMB:memoryInMB,diskSizeInMB:osDiskSizeInMB}',
-    '-o',
-    'json',
-  ]);
-
-  if (stderr && needsRelogin(stderr)) {
-    throw new Error('Please log in to Azure CLI: az login');
-  }
-
-  if (stderr && isAzError(stderr)) {
-    throw new Error(`Failed to get VM sizes for location ${location}: ${stderr}`);
-  }
-
-  try {
-    const vmSizes = JSON.parse(stdout || '[]');
-    // Filter and sort by cores, then by memory
-    return vmSizes
-      .filter((vm: any) => vm.cores >= 2 && vm.cores <= 32) // Reasonable range for AKS
-      .sort((a: any, b: any) => a.cores - b.cores || a.memoryInMB - b.memoryInMB)
-      .slice(0, 20); // Limit to 20 most common sizes
-  } catch (error) {
-    throw new Error('Failed to parse VM sizes response');
   }
 }

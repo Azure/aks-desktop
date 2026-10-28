@@ -7,6 +7,10 @@ This directory contains the plugins for the AKS desktop application.
 - `aks-desktop/` - The main AKS desktop plugin for Headlamp
   - Contains the TypeScript source code, configuration files, and tests
   - Built and deployed as a Headlamp plugin
+- [aks-desktop-theme/](aks-desktop-theme/README.md) - Optional AKS Desktop presentation and branding
+  - Owns the Azure theme, app and empty-state logos, Help links, and contact action
+  - Enabled in AKS Desktop builds; disable it and reload for Headlamp's default appearance
+  - Independent of the functional AKS plugin; does not run commands or initialize telemetry
 
 AI Assistant is pinned as a verified GitHub release in the root product
 manifest rather than maintained as an in-repository plugin workspace.
@@ -36,7 +40,7 @@ verified, and extracted directly into the same `.plugins` directory.
 Each plugin has its own package.json and can be developed independently:
 
 ```bash
-cd plugins/aks-desktop
+cd plugins/aks-desktop   # or plugins/aks-desktop-theme
 npm install
 npm run start  # For development mode
 npm run build  # For production build

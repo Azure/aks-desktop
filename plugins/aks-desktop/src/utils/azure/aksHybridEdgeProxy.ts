@@ -2,7 +2,8 @@
 // Licensed under the Apache 2.0.
 
 import { ApiProxy } from '@kinvolk/headlamp-plugin/lib';
-import { getErrorMessage, runAzCommand } from './az-cli-core';
+import { getErrorMessage } from './az-cli-core';
+import { azRequest, AzureRequestError } from './az-http';
 import { getStartClusterProxyCapability } from './clusterProxyCapability';
 
 // Proxy lifecycle is owned by the app (main) layer. There is no stop intent:
@@ -215,40 +216,78 @@ export interface ClusterHealth {
 /** ARM API version for the HybridContainerService provisioned-cluster instance. */
 const PROVISIONED_CLUSTER_API_VERSION = '2024-01-01';
 
+/** ARM response containing observed runtime status, not resource provisioning state. */
+interface ProvisionedClusterInstance {
+  /** Properties of the provisioned cluster instance. */
+  properties?: {
+    /** Observed cluster runtime health; fields are validated before reaching callers. */
+    status?: {
+      /** Runtime state reported by the Hybrid Container Service. */
+      currentState?: unknown;
+      /** Runtime failure detail, when available. */
+      errorMessage?: unknown;
+    } | null;
+  } | null;
+}
+
 /**
  * Reads the AKS-Arc cluster's runtime health (`status.currentState` and its
  * `errorMessage`) from the `provisionedClusterInstances/default` resource via
- * `az rest`. This is the "Current state" a user sees in the Azure portal — the
+ * authenticated Azure REST. This is the "Current state" a user sees in the Azure portal — the
  * field that actually goes `Failed` when the cluster is up in ARM but its
  * Kubernetes API isn't reachable.
  *
  * Degrades gracefully: for a generic Arc-connected cluster (no AKS-Arc
  * provisioned instance) the call 404s and this returns `{ currentState: null }`.
+ * Other lookup failures are diagnosed without replacing the caller's reachability error.
+ *
+ * @param target - Azure coordinates of the connected cluster.
+ * @returns Observed runtime health, or unknown health when status cannot be determined.
  */
 export async function getClusterCurrentState(
   target: Pick<ProxyTarget, 'subscriptionId' | 'resourceGroup' | 'clusterName'>
 ): Promise<ClusterHealth> {
   const url =
-    `https://management.azure.com/subscriptions/${target.subscriptionId}` +
-    `/resourceGroups/${target.resourceGroup}` +
-    `/providers/Microsoft.Kubernetes/connectedClusters/${target.clusterName}` +
-    `/providers/Microsoft.HybridContainerService/provisionedClusterInstances/default` +
-    `?api-version=${PROVISIONED_CLUSTER_API_VERSION}`;
+    `/subscriptions/${encodeURIComponent(target.subscriptionId)}` +
+    `/resourceGroups/${encodeURIComponent(target.resourceGroup)}` +
+    `/providers/Microsoft.Kubernetes/connectedClusters/${encodeURIComponent(target.clusterName)}` +
+    '/providers/Microsoft.HybridContainerService/provisionedClusterInstances/default';
 
-  const res = await runAzCommand<ClusterHealth>(
-    ['rest', '--method', 'get', '--url', url, '--query', 'properties.status', '-o', 'json'],
-    '[AKS] Querying cluster current state:',
-    'query cluster current state',
-    stdout => {
-      try {
-        const status = JSON.parse(stdout) as { currentState?: string; errorMessage?: string };
-        return { currentState: status?.currentState ?? null, errorMessage: status?.errorMessage };
-      } catch {
-        return { currentState: null };
+  try {
+    const response = await azRequest<ProvisionedClusterInstance>({
+      url,
+      apiVersion: PROVISIONED_CLUSTER_API_VERSION,
+    });
+    const status = response?.properties?.status;
+    for (const value of [response, response?.properties, status]) {
+      if (
+        value !== undefined &&
+        value !== null &&
+        (typeof value !== 'object' || Array.isArray(value))
+      ) {
+        throw new Error('Malformed cluster runtime health response');
       }
     }
-  );
-  return res.success && res.data ? res.data : { currentState: null };
+    if (
+      (status?.currentState !== undefined &&
+        status.currentState !== null &&
+        typeof status.currentState !== 'string') ||
+      (status?.errorMessage !== undefined &&
+        status.errorMessage !== null &&
+        typeof status.errorMessage !== 'string')
+    ) {
+      throw new Error('Malformed cluster runtime health response');
+    }
+    return {
+      currentState: typeof status?.currentState === 'string' ? status.currentState || null : null,
+      errorMessage: typeof status?.errorMessage === 'string' ? status.errorMessage : undefined,
+    };
+  } catch (error) {
+    if (!(error instanceof AzureRequestError && error.status === 404)) {
+      console.warn('[AKS] Could not read cluster runtime health:', getErrorMessage(error));
+    }
+    return { currentState: null };
+  }
 }
 
 /**
@@ -272,7 +311,7 @@ export async function getClusterCurrentState(
  * @param options.intervalMs - Delay between poll attempts (default 2s).
  * @param options.signal - Cancels verification and any active polling delay.
  * @param options.target - When provided, a Phase-2 (unreachable) failure queries
- *   the cluster's Azure `provisioningState` to explain *why* it's unreachable
+ *   the provisioned instance's runtime `status.currentState` to explain *why* it's unreachable
  *   (e.g. the cluster is in a `Failed` state, not a proxy problem).
  */
 export async function verifyAksHybridEdgeCluster(

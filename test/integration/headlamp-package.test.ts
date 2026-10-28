@@ -47,11 +47,11 @@ test('the installed package is a complete pinned source distribution', () => {
   assert.deepEqual(packageManifest.files, ['source', 'src']);
   assert.equal(packageManifest.repository.url, 'https://github.com/kubernetes-sigs/headlamp.git');
   assert.deepEqual(rootManifest.headlampSource, {
-    revision: 'd4c87a8fa3cc109b3ba992ca12e8eda45f5c77f0',
+    revision: '7ce01fceac891f6dba09420cb102ad6ba7ecc519',
   });
   assert.deepEqual(packageManifest.headlampSource, {
     ...rootManifest.headlampSource,
-    goVersion: '1.26.8',
+    goVersion: '1.26.10',
   });
   for (const file of [
     'package.json',
@@ -755,7 +755,14 @@ test('frontend identity comes from package and product metadata', () => {
     fs.writeFileSync(
       manifestPath,
       JSON.stringify({
-        product: { version: '1.2.3', productName: 'Example Desktop' },
+        product: {
+          version: '1.2.3',
+          productName: 'Example Desktop',
+          errorReporting: {
+            githubIssueUrl: 'https://github.com/example/product/issues/new?labels=bug',
+            buttonLabel: 'Contact support',
+          },
+        },
       })
     );
     const result = spawnSync(
@@ -773,7 +780,7 @@ test('frontend identity comes from package and product metadata', () => {
     );
     assert.equal(result.status, 0, result.stderr);
     const environment = fs.readFileSync(outputPath, 'utf8');
-    assert.match(environment, /^REACT_APP_HEADLAMP_VERSION='0\.45\.0'$/m);
+    assert.match(environment, /^REACT_APP_HEADLAMP_VERSION='0\.46\.0'$/m);
     assert.match(
       environment,
       /^REACT_APP_HEADLAMP_GIT_VERSION='0123456789abcdef'$/m
@@ -786,6 +793,14 @@ test('frontend identity comes from package and product metadata', () => {
       environment,
       /^REACT_APP_HEADLAMP_PRODUCT_VERSION='1\.2\.3'$/m
     );
+    assert.match(
+      environment,
+      /^REACT_APP_HEADLAMP_ERROR_REPORT_GITHUB_URL='https:\/\/github\.com\/example\/product\/issues\/new\?labels=bug'$/m
+    );
+    assert.match(
+      environment,
+      /^REACT_APP_HEADLAMP_ERROR_REPORT_BUTTON_LABEL='Contact support'$/m
+    );
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -793,6 +808,13 @@ test('frontend identity comes from package and product metadata', () => {
 
 test('AKS desktop packages identify Microsoft as the product company', () => {
   assert.equal(rootManifest.headlamp.product.companyName, 'Microsoft');
+});
+
+test('AKS desktop crash reports target the AKS Desktop issue form', () => {
+  assert.deepEqual(rootManifest.headlamp.product.errorReporting, {
+    githubIssueUrl: 'https://github.com/Azure/aks-desktop/issues/new?labels=bug',
+    buttonLabel: 'Contact us',
+  });
 });
 
 for (const [platform, platformKey] of [
@@ -823,6 +845,10 @@ for (const [platform, platformKey] of [
         platform,
       });
       assert.equal(manifest.product.version, version);
+      assert.deepEqual(
+        manifest.product.errorReporting,
+        rootManifest.headlamp.product.errorReporting
+      );
       fs.writeFileSync(manifestPath, JSON.stringify(manifest));
       const result = spawnSync(
         process.execPath,
