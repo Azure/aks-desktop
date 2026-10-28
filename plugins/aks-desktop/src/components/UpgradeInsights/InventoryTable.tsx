@@ -49,6 +49,7 @@ export interface InventoryTableProps {
  */
 export default function InventoryTable({ records, disabled, onSelect }: InventoryTableProps) {
   const { t } = useTranslation();
+  const labels = issueLabels(t);
   useSnapshotClock();
   const [filter, setFilter] = useState('');
   const [category, setCategory] = useState('');
@@ -162,7 +163,7 @@ export default function InventoryTable({ records, disabled, onSelect }: Inventor
           <MenuItem value="">{t('All issue categories')}</MenuItem>
           {categories.map(value => (
             <MenuItem key={value} value={value}>
-              {t(issueLabels[value] ?? value)}
+              {labels[value] ?? value}
             </MenuItem>
           ))}
         </TextField>

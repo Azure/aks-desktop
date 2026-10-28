@@ -317,13 +317,19 @@ export const scopeLabels: Record<UpgradeType, string> = {
   NodeImage: 'Node OS image',
 };
 
-/** Translation keys for known issue categories; unknown server categories keep their own labels. */
-export const issueLabels: Record<string, string> = {
-  PDBConstraint: 'Disruption budgets',
-  SubnetIPExhausted: 'Subnet IP capacity',
-  QuotaExceeded: 'Compute quota',
-  APIBreakingChange: 'Removed APIs',
-  ComponentVersionMismatch: 'Component compatibility',
-  UnsupportedKubernetesVersion: 'Version support',
-  NodeImageOutOfSLA: 'Node image freshness',
-};
+/**
+ * Translates known issue categories with literal keys discoverable by locale extraction.
+ * @param t The current locale's translation function.
+ * @returns Localized labels keyed by API category; unknown categories are intentionally absent.
+ */
+export function issueLabels(t: (key: string) => string): Record<string, string> {
+  return {
+    PDBConstraint: t('Disruption budgets'),
+    SubnetIPExhausted: t('Subnet IP capacity'),
+    QuotaExceeded: t('Compute quota'),
+    APIBreakingChange: t('Removed APIs'),
+    ComponentVersionMismatch: t('Component compatibility'),
+    UnsupportedKubernetesVersion: t('Version support'),
+    NodeImageOutOfSLA: t('Node image freshness'),
+  };
+}

@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { issueLabels } from '../../types/upgradeInsights';
 import { cluster, passed } from './__fixtures__/fixtures';
 import {
   csvCell,
@@ -16,6 +17,23 @@ import {
 
 beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-20T12:15:00Z'));
+});
+
+describe('known issue category translations', () => {
+  it('translates every predefined label and leaves future categories unmapped', () => {
+    const t = vi.fn((key: string) => `localized:${key}`);
+    expect(issueLabels(t)).toEqual({
+      PDBConstraint: 'localized:Disruption budgets',
+      SubnetIPExhausted: 'localized:Subnet IP capacity',
+      QuotaExceeded: 'localized:Compute quota',
+      APIBreakingChange: 'localized:Removed APIs',
+      ComponentVersionMismatch: 'localized:Component compatibility',
+      UnsupportedKubernetesVersion: 'localized:Version support',
+      NodeImageOutOfSLA: 'localized:Node image freshness',
+    });
+    expect(t).toHaveBeenCalledTimes(7);
+    expect(issueLabels(t).FutureServerCategory).toBeUndefined();
+  });
 });
 
 describe('conservative stored readiness', () => {
