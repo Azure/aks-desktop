@@ -15,16 +15,17 @@ import {
   AzTokenError,
   createAzCliCredential,
   getAzToken,
+  getSubscriptionCredential,
 } from './az-token';
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
-function cliToken(token: string, expiresInSeconds = 3600) {
+function cliToken(token: string, expiresInSeconds = 3600, tenant = 't') {
   return {
     stdout: JSON.stringify({
       accessToken: token,
       expires_on: nowSeconds() + expiresInSeconds,
-      tenant: 't',
+      tenant,
       tokenType: 'Bearer',
     }),
     stderr: '',
@@ -34,6 +35,100 @@ function cliToken(token: string, expiresInSeconds = 3600) {
 beforeEach(() => {
   mocks.execCommand.mockReset();
   azCliCredential.clearCache();
+});
+
+describe('subscription credentials', () => {
+  test('keeps the selected subscription account and validates an explicit tenant without combining selectors', async () => {
+    const subscriptionId = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
+    const tenantId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const credential = getSubscriptionCredential(subscriptionId);
+    credential.clearCache();
+    mocks.execCommand.mockResolvedValue(cliToken('tenant-token', 3600, tenantId));
+    await credential.getToken(ARM_SCOPE, { tenantId });
+    expect(mocks.execCommand).toHaveBeenCalledWith('az', [
+      'account',
+      'get-access-token',
+      '--scope',
+      ARM_SCOPE,
+      '-o',
+      'json',
+      '--subscription',
+      subscriptionId,
+    ]);
+    await credential.getToken(ARM_SCOPE, { tenantId });
+    expect(mocks.execCommand).toHaveBeenCalledTimes(1);
+    await credential.getToken(ARM_SCOPE);
+    expect(mocks.execCommand).toHaveBeenLastCalledWith(
+      'az',
+      expect.arrayContaining(['--subscription', subscriptionId])
+    );
+    expect(mocks.execCommand).toHaveBeenCalledTimes(2);
+  });
+
+  test('separates cached accounts in the same tenant using the selected subscription', async () => {
+    const tenantId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const first = getSubscriptionCredential('11111111-2222-3333-4444-555555555555');
+    const second = getSubscriptionCredential('bbbbbbbb-cccc-dddd-eeee-ffffffffffff');
+    first.clearCache();
+    second.clearCache();
+    mocks.execCommand.mockImplementation(async (_command: string, args: string[]) =>
+      cliToken(`account-${args[args.indexOf('--subscription') + 1]}`, 3600, tenantId)
+    );
+    const firstToken = await first.getToken(ARM_SCOPE, { tenantId });
+    const secondToken = await second.getToken(ARM_SCOPE, { tenantId });
+    expect(firstToken.token).not.toBe(secondToken.token);
+    expect(await first.getToken(ARM_SCOPE, { tenantId })).toBe(firstToken);
+    expect(await second.getToken(ARM_SCOPE, { tenantId })).toBe(secondToken);
+    expect(mocks.execCommand).toHaveBeenCalledTimes(2);
+    expect(mocks.execCommand.mock.calls.every(([, args]) => !args.includes('--tenant'))).toBe(true);
+  });
+
+  test.each(['wrong-tenant', undefined])(
+    'rejects a token with unverified tenant %s and permits retry',
+    async returnedTenant => {
+      const credential = getSubscriptionCredential('cccccccc-dddd-eeee-ffff-000000000001');
+      const tenantId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+      credential.clearCache();
+      mocks.execCommand
+        .mockResolvedValueOnce(cliToken('wrong', 3600, returnedTenant ?? ''))
+        .mockResolvedValueOnce(cliToken('correct', 3600, tenantId));
+      await expect(credential.getToken(ARM_SCOPE, { tenantId })).rejects.toThrow(
+        'requested tenant'
+      );
+      expect(await credential.getToken(ARM_SCOPE, { tenantId })).toMatchObject({
+        token: 'correct',
+      });
+      expect(mocks.execCommand).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  test('fails explicitly when a bound tenant cannot be validated as a GUID', async () => {
+    const credential = getSubscriptionCredential('cccccccc-dddd-eeee-ffff-000000000002');
+    await expect(credential.getToken(ARM_SCOPE, { tenantId: 'contoso.com' })).rejects.toThrow(
+      'tenant GUID'
+    );
+    expect(mocks.execCommand).not.toHaveBeenCalled();
+  });
+
+  test('selects and caches authentication per subscription, and clears on account changes', async () => {
+    const first = '11111111-2222-3333-4444-555555555555';
+    const second = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mocks.execCommand.mockResolvedValue(cliToken('selected-token'));
+    const credential = getSubscriptionCredential(first);
+    await credential.getToken(ARM_SCOPE);
+    await getSubscriptionCredential(first).getToken(ARM_SCOPE);
+    expect(mocks.execCommand).toHaveBeenCalledTimes(1);
+    expect(mocks.execCommand).toHaveBeenLastCalledWith(
+      'az',
+      expect.arrayContaining(['--subscription', first])
+    );
+    await getSubscriptionCredential(second).getToken(ARM_SCOPE);
+    expect(mocks.execCommand).toHaveBeenCalledTimes(2);
+    window.dispatchEvent(new CustomEvent('azure-auth-update'));
+    await credential.getToken(ARM_SCOPE);
+    expect(mocks.execCommand).toHaveBeenCalledTimes(3);
+    expect(() => getSubscriptionCredential('invalid')).toThrow('Invalid subscription');
+  });
 });
 
 describe('createAzCliCredential', () => {

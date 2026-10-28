@@ -2,7 +2,14 @@
 // Licensed under the Apache 2.0.
 // Identity-related Azure CLI functions (managed identities, role assignments).
 
-import { debugLog, isValidGuid, runAzCommand } from './az-cli-core';
+import { getErrorMessage, isValidGuid, runAzCommand } from './az-cli-core';
+import { azRequest, AzureRequestError } from './az-http';
+import {
+  type AzureRolePrincipalType,
+  type AzureRoleRequestOptions,
+  createAzureRoleAssignment,
+} from './az-role-assignments';
+import { getSubscriptionCredential } from './az-token';
 import type { ManagedIdentityResult } from './az-validation';
 import { isValidAzResourceName, parseManagedIdentityOutput } from './az-validation';
 
@@ -139,14 +146,29 @@ export function buildArcNamespaceScope(
 
 // --- Role assignment types ---
 
+/** One requested grant; ARM resource scope is distinct from an OAuth audience. */
 export interface RoleAssignment {
+  /** Role name, definition GUID or definition ARM ID. */
   role: string;
+  /** Exact target ARM resource ID, possibly in another accessible subscription. */
   scope: string;
 }
 
+/** Ordered outcomes from a non-atomic sequence of role writes. */
 export interface AssignRolesResult {
+  /** True when every role succeeded; an empty role list also succeeds. */
   success: boolean;
-  results: Array<{ role: string; scope: string; success: boolean; error?: string }>;
+  /** Per-role outcomes in input order; earlier successes are not rolled back. */
+  results: Array<{
+    /** Requested role name or definition ID. */
+    role: string;
+    /** Requested ARM scope. */
+    scope: string;
+    /** Whether creation or verified idempotent reuse succeeded. */
+    success: boolean;
+    /** Failure diagnostic for this role, not for successful roles. */
+    error?: string;
+  }>;
   /** Set on early validation failures (e.g. invalid GUID format). */
   error?: string;
 }
@@ -156,21 +178,30 @@ export interface AssignRolesResult {
  * to be stated explicitly so it does not have to resolve the object ID against
  * the directory — which a tenant may block.
  */
-export type PrincipalType = 'ServicePrincipal' | 'User' | 'Group';
+export type PrincipalType = AzureRolePrincipalType;
 
 /**
  * Assigns multiple Azure RBAC roles to a principal (a managed identity by
  * default, or a user/group when `principalType` says so).
  * Treats `RoleAssignmentExists` as success (idempotent).
  * Roles are assigned sequentially to avoid Azure ARM rate-limiting (429s).
+ * @param options - Known principal, ordered grants and optional REST overrides.
+ * timeoutMs applies per HTTP request, not to the whole role batch.
+ * @returns Resolved aggregate/per-role results. Invalid GUIDs return an empty
+ * result list plus error; individual failures are logged and do not stop later roles.
  */
-export async function assignAzureRoles(options: {
-  principalId: string;
-  subscriptionId: string;
-  roles: RoleAssignment[];
-  /** Defaults to `ServicePrincipal` — the managed-identity case. */
-  principalType?: PrincipalType;
-}): Promise<AssignRolesResult> {
+export async function assignAzureRoles(
+  options: AzureRoleRequestOptions & {
+    /** Entra principal object GUID, not an application/client ID. */
+    principalId: string;
+    /** Caller subscription GUID; each scope selects its own subscription credential. */
+    subscriptionId: string;
+    /** Grants to attempt sequentially, including distinct AKS or Arc role definitions. */
+    roles: RoleAssignment[];
+    /** Defaults to `ServicePrincipal` — the managed-identity case. */
+    principalType?: PrincipalType;
+  }
+): Promise<AssignRolesResult> {
   const { principalId, subscriptionId, roles, principalType = 'ServicePrincipal' } = options;
 
   if (!isValidGuid(subscriptionId) || !isValidGuid(principalId)) {
@@ -184,43 +215,17 @@ export async function assignAzureRoles(options: {
   const results: AssignRolesResult['results'] = [];
 
   for (const { role, scope } of roles) {
-    const result = await runAzCommand(
-      [
-        'role',
-        'assignment',
-        'create',
-        '--assignee-object-id',
-        principalId,
-        '--assignee-principal-type',
-        principalType,
-        '--role',
-        role,
-        '--scope',
-        scope,
-        '--subscription',
-        subscriptionId,
-        '--output',
-        'json',
-      ],
-      `Assigning role "${role}" at scope "${scope}":`,
-      `assign role ${role}`,
-      undefined,
-      stderr => {
-        if (stderr.includes('RoleAssignmentExists')) {
-          debugLog(`Role assignment "${role}" already exists, continuing.`);
-          return { success: true };
-        }
-        return null;
-      }
-    );
-
-    if (!result.success) {
+    try {
+      await createAzureRoleAssignment({ ...options, role, scope, principalType });
+      results.push({ role, scope, success: true });
+    } catch (error) {
+      const message = getErrorMessage(error);
       console.error(
         `[assignAzureRoles] Failed to assign role "${role}" at scope "${scope}":`,
-        result.error
+        message
       );
+      results.push({ role, scope, success: false, error: message });
     }
-    results.push({ role, scope, success: result.success, error: result.error });
   }
 
   return {
@@ -231,58 +236,65 @@ export async function assignAzureRoles(options: {
 
 /**
  * Gets the Azure resource ID for a managed namespace.
+ * @param options - Managed AKS coordinates and optional REST/credential overrides.
+ * @returns success=true with the returned ID, or without an ID for known
+ * ResourceNotFound absence. Denial, malformed responses and other failures resolve
+ * with success=false and error; absence is not inferred from arbitrary errors.
  */
-export async function getManagedNamespaceResourceId(options: {
-  clusterName: string;
-  resourceGroup: string;
-  namespaceName: string;
-  subscriptionId: string;
-}): Promise<{ success: boolean; resourceId?: string; error?: string }> {
+export async function getManagedNamespaceResourceId(
+  options: AzureRoleRequestOptions & {
+    /** Managed AKS resource name; not an Arc cluster name. */
+    clusterName: string;
+    /** Resource group containing the managed AKS resource. */
+    resourceGroup: string;
+    /** Managed namespace resource name to resolve. */
+    namespaceName: string;
+    /** Explicit subscription GUID for both the URL and default credential. */
+    subscriptionId: string;
+  }
+): Promise<{
+  /** Whether lookup succeeded or confirmed known absence. */
+  success: boolean;
+  /** Returned ARM ID; undefined for a native/absent namespace. */
+  resourceId?: string;
+  /** Lookup/validation failure, not a confirmed-absence diagnostic. */
+  error?: string;
+}> {
   const { clusterName, resourceGroup, namespaceName, subscriptionId } = options;
 
   if (!isValidGuid(subscriptionId)) {
     return { success: false, error: 'Invalid subscription ID format' };
   }
 
-  const result = await runAzCommand(
-    [
-      'aks',
-      'namespace',
-      'show',
-      '--cluster-name',
-      clusterName,
-      '--resource-group',
-      resourceGroup,
-      '--name',
-      namespaceName,
-      '--query',
-      'id',
-      '--output',
-      'tsv',
-      '--subscription',
-      subscriptionId,
-    ],
-    'Getting namespace resource ID:',
-    'get managed namespace resource ID',
-    stdout => {
-      const resourceId = stdout.trim();
-      if (!resourceId) {
-        throw new Error('Empty resource ID returned for managed namespace');
-      }
-      return resourceId;
+  const url = `/subscriptions/${encodeURIComponent(
+    subscriptionId
+  )}/resourceGroups/${encodeURIComponent(
+    resourceGroup
+  )}/providers/Microsoft.ContainerService/managedClusters/${encodeURIComponent(
+    clusterName
+  )}/managedNamespaces/${encodeURIComponent(namespaceName)}`;
+  try {
+    const namespace = await azRequest<{ id?: string }>({
+      ...options,
+      scope: options.audience,
+      credential: options.credential ?? getSubscriptionCredential(subscriptionId),
+      url,
+      apiVersion: '2026-01-01',
+    });
+    if (!namespace?.id || decodeURI(namespace.id).toLowerCase() !== decodeURI(url).toLowerCase()) {
+      throw new AzureRequestError('Managed namespace response is missing its expected resource ID');
     }
-  );
-
-  if (!result.success) {
-    // "Not found" is expected for regular (non-managed) namespaces — return
-    // success with no resourceId so callers can distinguish from real errors.
-    const err = result.error ?? '';
-    if (err.includes('ResourceNotFound') || err.includes('not found') || err.includes('(404)')) {
+    return { success: true, resourceId: namespace.id };
+  } catch (error) {
+    if (
+      error instanceof AzureRequestError &&
+      error.status === 404 &&
+      error.code === 'ResourceNotFound'
+    ) {
       return { success: true, resourceId: undefined };
     }
-    return { success: false, error: result.error };
+    return { success: false, error: getErrorMessage(error) };
   }
-  return { success: true, resourceId: result.data };
 }
 
 /**
