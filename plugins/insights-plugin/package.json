@@ -1,10 +1,11 @@
 {
   "name": "insights-plugin",
   "version": "0.3.2",
+  "artifactSha256": "cf64321c60a10d8db666a4dc3fb0a435362400693edf65b2e50cd752cd2703aa",
   "description": "Insights plugin for eBPF-based Observability (based on Inspektor Gadget) (Preview)",
   "scripts": {
-    "build": "bash scripts/download-artifacts.sh",
-    "test": "bash scripts/validate-artifacts.sh",
+    "build": "node --use-env-proxy scripts/download-artifacts.mjs",
+    "test": "node --test scripts/artifacts.test.mjs && node scripts/validate-artifacts.mjs",
     "tsc": "echo 'no-op: no source code'",
     "lint": "echo 'no-op: no source code'",
     "format": "echo 'no-op: no source code'",
