@@ -15,6 +15,22 @@ Please download the latest release for your platform from the [Releases](https:/
 
 ## Development
 
+### Upgrade Insights preview
+
+Enable **Upgrade Insights** in AKS Desktop's **Preview Features** settings
+(off by default), sign in with the existing **Azure Account** flow, and explicitly
+select the subscriptions to inspect. The Home sidebar inventory does not require
+a Kubernetes context. Stored evaluations show upgrade risks and freshness;
+generating an evaluation requires an exact-scope POST confirmation and **never
+starts an upgrade**. This native integration uses preview API
+`2026-08-02-preview` and needs no additional plugin or bridge server.
+
+See the [feature guide](plugins/aks-desktop/src/components/UpgradeInsights/README.md)
+for Azure permissions, safety boundaries, context disambiguation, and prototype
+provenance.
+
+### Building from source
+
 Install Node.js 22.22.2 or newer. npm 10 and newer are supported; the repository
 uses npm 12.0.1 in CI and for lockfile maintenance.
 

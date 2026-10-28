@@ -123,7 +123,7 @@ function errorFromResponse(response: Response, text: string): AzureRequestError 
     const body = JSON.parse(text);
     // Error body shapes: ARM and Graph use `{ error: { code, message } }`,
     // container registries use `{ errors: [{ code, message }] }`.
-    const err = body?.error ?? body?.errors?.[0];
+    const err = body?.error ?? body?.errors?.[0] ?? body;
     code = typeof err?.code === 'string' ? err.code : undefined;
     message = typeof err?.message === 'string' ? err.message : undefined;
   } catch {

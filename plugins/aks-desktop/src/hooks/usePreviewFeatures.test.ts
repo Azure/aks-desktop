@@ -5,7 +5,7 @@ import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../components/PluginSettings/previewFeaturesStore', () => {
-  const PREVIEW_FEATURES_DEFAULTS = { githubPipelines: false };
+  const PREVIEW_FEATURES_DEFAULTS = { githubPipelines: false, upgradeInsights: false };
   let storedConfig: Record<string, unknown> = {};
   return {
     PREVIEW_FEATURES_DEFAULTS,
@@ -37,7 +37,7 @@ describe('usePreviewFeatures', () => {
   it('returns defaults when store is empty', () => {
     const { result } = renderHook(() => usePreviewFeatures());
 
-    expect(result.current).toEqual({ githubPipelines: false });
+    expect(result.current).toEqual({ githubPipelines: false, upgradeInsights: false });
   });
 
   it('returns stored values when present', () => {
@@ -45,6 +45,12 @@ describe('usePreviewFeatures', () => {
 
     const { result } = renderHook(() => usePreviewFeatures());
 
-    expect(result.current).toEqual({ githubPipelines: true });
+    expect(result.current).toEqual({ githubPipelines: true, upgradeInsights: false });
+  });
+
+  it('enables Upgrade Insights independently of GitHub Pipelines', () => {
+    mockStore._setForTest({ upgradeInsights: true });
+    const { result } = renderHook(() => usePreviewFeatures());
+    expect(result.current).toEqual({ githubPipelines: false, upgradeInsights: true });
   });
 });
