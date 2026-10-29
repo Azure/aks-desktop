@@ -27,7 +27,7 @@ import {
   generateUnixAzWrapperScript,
   generateUnixPythonWrapperScript,
   UNIX_AZ_CLI_EXTENSIONS_DIRNAME,
-  generateWindowsAzWrapperScript,
+  writeWindowsAzWrapperScript,
   WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME,
   WINDOWS_AZ_CLI_ORIGINAL_FILENAME,
 } from './az-cli-config';
@@ -136,6 +136,9 @@ if (
   JSON.stringify(existingTarget) === JSON.stringify(stagedTarget)
 ) {
   try {
+    if (target.platform === 'win32') {
+      writeWindowsAzWrapperScript(TARGET_DIR);
+    }
     const runtimeArch = target.cliPackage?.runtimeArch ?? target.arch;
     if (!canInvokePackagedRuntime(target.platform, runtimeArch)) {
       if (target.platform !== 'darwin' || target.arch !== 'arm64' || !pythonPath) {
@@ -841,7 +844,7 @@ async function installAzCliWindows(): Promise<string[]> {
     );
   }
   fs.renameSync(stockAzCmd, originalAzCmd);
-  fs.writeFileSync(stockAzCmd, generateWindowsAzWrapperScript());
+  writeWindowsAzWrapperScript(TARGET_DIR);
   const targetExtensionDir = path.join(TARGET_DIR, WINDOWS_AZ_CLI_EXTENSIONS_DIRNAME);
   const extensionDir = EXTENSION_CACHE_DIR;
   fs.mkdirSync(extensionDir, { recursive: true });

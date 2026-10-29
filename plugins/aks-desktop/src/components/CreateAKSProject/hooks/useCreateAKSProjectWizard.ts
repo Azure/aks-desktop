@@ -175,6 +175,10 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [applicationName, setApplicationName] = useState('');
   const terminalTrackedRef = useRef(false);
+  /** Guards asynchronous completion after the hook's mounted lifetime. */
+  const isMountedRef = useRef(false);
+  /** Monotonic owner token so cancelled attempts cannot clear a newer attempt's UI. */
+  const submissionIdRef = useRef(0);
   const [cliSuggestions, setCliSuggestions] = useState<string[]>([]);
   // Live accessibility of the selected Arc (AKS Hybrid & Edge) cluster, determined
   // by a real Kubernetes API probe rather than a cached Arc heartbeat. `accessible`
@@ -189,6 +193,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   // handleSubmit can await it before creating the namespace. See the comment
   // on the subscription effect below for what this does and doesn't guarantee.
   const registrationRef = useRef<Promise<void> | null>(null);
+  const registrationAbortRef = useRef<AbortController | null>(null);
 
   // Track the 2-second success-dialog delay timer so it can be cleared on unmount,
   // preventing a setState call on an unmounted component (React warning / memory leak).
@@ -200,6 +205,11 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
 
   const { formData, updateFormData } = useFormData();
   const azureResources = useAzureResources();
+  const registrationSubscription = azureResources.subscriptions.find(
+    subscription => subscription.id === formData.subscription
+  );
+  const registrationTenant = registrationSubscription?.tenant;
+  const registrationCloud = registrationSubscription?.environmentName;
   const clusterCapabilities = useClusterCapabilities();
   const namespaceCheck = useNamespaceCheck();
 
@@ -272,34 +282,54 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     };
   }, []);
 
-  useEffect(() => {
-    if (formData.subscription) {
-      azureResources.fetchClusters(formData.subscription);
-
-      // Microsoft.ContainerService must be registered on the selected subscription
-      // before managed namespaces can be created there. The registration itself is
-      // not awaited here — it's idempotent and can be slow — but handleSubmit awaits
-      // this retained promise before creating the namespace. Without `--wait`, the
-      // command completing only means Azure accepted the request; the provider may
-      // still report `Registering`. That's acceptable because the wizard requires an
-      // existing AKS cluster (validators.ts pushes 'Cluster must be selected'), and a
-      // subscription with a live AKS cluster already has the provider registered — so
-      // this is defence-in-depth, not the primary guarantee. The helper never rejects
-      // — it resolves { success: false, error } — so inspect the result rather than
-      // attaching a catch that can never fire.
-      registrationRef.current = registerContainerServiceProvider(formData.subscription).then(
-        result => {
+  /**
+   * @param subscriptionId - Current selection; empty skips provider registration.
+   * @param tenantId - Selected account tenant, when metadata is available.
+   * @param cloudName - Selected CLI cloud; missing metadata defers the request.
+   * @returns A fresh cancellation lifecycle, with its registration promise retained
+   * for submission. Timeout retries replace an aborted lifecycle, never revive it.
+   */
+  const startProviderRegistration = React.useCallback(
+    (subscriptionId: string, tenantId?: string, cloudName?: string) => {
+      const controller = new AbortController();
+      registrationAbortRef.current = controller;
+      registrationRef.current = null;
+      if (subscriptionId && cloudName) {
+        // An existing AKS cluster already requires registration, so acceptance is sufficient.
+        registrationRef.current = registerContainerServiceProvider(subscriptionId, {
+          signal: controller.signal,
+          tenantId,
+          cloudName,
+        }).then(result => {
           if (!result.success) {
             debugLog('Microsoft.ContainerService registration failed:', result.error);
           }
-        }
-      );
+        });
+      } else if (subscriptionId) {
+        debugLog('Waiting for selected subscription cloud metadata before provider registration');
+      }
+      return controller;
+    },
+    []
+  );
+
+  useEffect(() => {
+    const controller = startProviderRegistration(
+      formData.subscription,
+      registrationTenant,
+      registrationCloud
+    );
+    if (formData.subscription) {
+      azureResources.fetchClusters(formData.subscription);
     } else {
-      registrationRef.current = null;
       azureResources.clearClusters();
     }
     clusterCapabilities.clearCapabilities();
-  }, [formData.subscription]);
+    return () => {
+      controller.abort();
+      registrationAbortRef.current?.abort();
+    };
+  }, [formData.subscription, registrationTenant, registrationCloud, startProviderRegistration]);
 
   useEffect(() => {
     // Cluster capabilities come from `az aks show`, which does not apply to Arc
@@ -373,10 +403,11 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     };
   }, [formData.cluster, isArcCluster, isClusterMissing]);
 
-  // Clear the success-dialog delay timer when the hook unmounts so we never call
-  // setState after the component has been removed from the tree.
+  // Track mounted lifetime and cancel the delayed dialog before any late completion.
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       clearTimeout(successTimeoutRef.current);
     };
   }, []);
@@ -451,8 +482,39 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     });
   }, [activeStep]);
 
+  /**
+   * Creates the project using the form and registration lifecycle captured at submission.
+   * @returns Completion of creation, handled failure or cancellation. A successful
+   * attempt schedules the success dialog separately; changing subscription or
+   * unmounting prevents stale work from continuing or reporting success.
+   * Cancellation releases busy/progress state only while mounted and while the
+   * cancelled attempt still owns that state, never over a newer submission.
+   */
   const handleSubmit = async () => {
-    if (!adoptManagedClusterScope()) return;
+    if (!isMountedRef.current || !adoptManagedClusterScope()) return;
+    if (registrationAbortRef.current?.signal.aborted) {
+      startProviderRegistration(formData.subscription, registrationTenant, registrationCloud);
+    }
+    clearTimeout(successTimeoutRef.current);
+    const submissionId = ++submissionIdRef.current;
+    /** @returns Whether this attempt may safely update the mounted wizard's state. */
+    const isCurrentSubmission = () =>
+      isMountedRef.current && submissionIdRef.current === submissionId;
+    /** @returns Nothing; releases only the still-current, mounted attempt's UI. */
+    const resetCancelledState = () => {
+      if (isCurrentSubmission()) {
+        setIsCreating(false);
+        setCreationProgress('');
+      }
+    };
+    const registration = registrationRef.current;
+    const registrationController = registrationAbortRef.current;
+    const registrationSignal = registrationController?.signal;
+    let aborted = registrationSignal?.aborted === true;
+    const onRegistrationAbort = () => {
+      aborted = true;
+    };
+    registrationSignal?.addEventListener('abort', onRegistrationAbort, { once: true });
     let creationTimeoutId: number | undefined;
     let didTimeout = false;
     terminalTrackedRef.current = false;
@@ -471,12 +533,11 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
 
       // Guard flag: set to true if the timeout wins the race so the still-running
       // creationPromise does not continue mutating UI state after an error is shown.
-      let aborted = false;
-
       const timeoutPromise = new Promise((_, reject) => {
         creationTimeoutId = window.setTimeout(() => {
           aborted = true;
           didTimeout = true;
+          registrationController?.abort();
           reject(
             new Error(
               t(
@@ -666,12 +727,12 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
         // Wait for any in-flight Microsoft.ContainerService registration to settle
         // before creating the namespace. Normally a no-op, since registration
         // completes long before the form is filled in. This sits inside the promise
-        // raced against timeoutPromise so a stalled `az provider register` trips the
+        // raced against timeoutPromise so a stalled REST registration trips the
         // creation timeout rather than leaving the wizard stuck in isCreating. Arc
         // clusters return above - they apply a manifest directly and never call the
         // managed-namespace API, so provider registration does not apply to them.
-        if (registrationRef.current) {
-          await registrationRef.current;
+        if (registration) {
+          await registration;
         }
         if (aborted) return;
 
@@ -874,6 +935,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
       });
 
       await Promise.race([creationPromise, timeoutPromise]);
+      if (aborted || !isCurrentSubmission()) return;
 
       terminalTrackedRef.current = true;
       safelyTrackFeature({ feature: 'aksd.project-create', status: 'succeeded' });
@@ -881,10 +943,16 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
       // Store the timer id so the cleanup effect can cancel it if the component
       // unmounts before the 2 seconds elapse, preventing setState on an unmounted component.
       successTimeoutRef.current = window.setTimeout(() => {
+        if (registrationSignal?.aborted) {
+          resetCancelledState();
+          return;
+        }
+        if (!isCurrentSubmission()) return;
         setIsCreating(false);
         setShowSuccessDialog(true);
       }, 2000);
     } catch (error) {
+      if (!isCurrentSubmission() || (registrationSignal?.aborted && !didTimeout)) return;
       terminalTrackedRef.current = true;
       safelyTrackFeature({ feature: 'aksd.project-create', status: 'failed' });
       safelyTrackError({
@@ -930,9 +998,11 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
       setIsCreating(false);
       setCreationProgress('');
     } finally {
+      registrationSignal?.removeEventListener('abort', onRegistrationAbort);
       // Clear the 10-minute guard timer so it cannot fire (and cause an unhandled
       // rejection) after creationPromise has already won the Promise.race.
       clearTimeout(creationTimeoutId);
+      if (aborted && !didTimeout) resetCancelledState();
     }
   };
 

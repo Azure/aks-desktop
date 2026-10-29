@@ -107,6 +107,7 @@ describe('getSubscriptions tenant name resolution', () => {
         tenant: TENANT_A,
         tenantName: 'Microsoft',
         status: 'Enabled',
+        environmentName: undefined,
       },
     ]);
     expect(mockRunCommandAsync).toHaveBeenCalledWith('az', [
@@ -117,6 +118,53 @@ describe('getSubscriptions tenant name resolution', () => {
       '-o',
       'json',
     ]);
+  });
+
+  it('retains the cloud belonging to the selected account without changing the active CLI cloud', async () => {
+    mockAz([
+      {
+        id: 'government-sub',
+        name: 'Government',
+        tenantId: TENANT_A,
+        tenantDisplayName: 'Contoso',
+        state: 'Enabled',
+        cloudName: 'AzureUSGovernment',
+      },
+    ]);
+    expect(await getSubscriptions()).toMatchObject([
+      {
+        id: 'government-sub',
+        environmentName: 'AzureUSGovernment',
+      },
+    ]);
+    expect(mockRunCommandAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefers the current CLI cloudName while retaining legacy environmentName compatibility', async () => {
+    mockAz([
+      {
+        id: 'current-sub',
+        name: 'Current',
+        tenantId: TENANT_A,
+        tenantDisplayName: 'Contoso',
+        state: 'Enabled',
+        cloudName: 'AzureChinaCloud',
+        environmentName: 'AzureCloud',
+      },
+      {
+        id: 'legacy-sub',
+        name: 'Legacy',
+        tenantId: TENANT_A,
+        tenantDisplayName: 'Contoso',
+        state: 'Enabled',
+        environmentName: 'AzureUSGovernment',
+      },
+    ]);
+    expect(await getSubscriptions()).toMatchObject([
+      { id: 'current-sub', environmentName: 'AzureChinaCloud' },
+      { id: 'legacy-sub', environmentName: 'AzureUSGovernment' },
+    ]);
+    expect(mockRunCommandAsync).toHaveBeenCalledTimes(1);
   });
 
   it('resolves a missing tenantDisplayName from az account tenant list', async () => {
