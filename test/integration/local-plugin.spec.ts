@@ -107,7 +107,7 @@ let roots: Record<'development' | 'user' | 'shipped', string>;
 let consent: Record<string, boolean>;
 
 function consentKey(args: string[]) {
-  return `run-command-consent:v2:${JSON.stringify([identity, 'aks-desktop', args])}`;
+  return `run-command-consent:v2:${JSON.stringify([identity, 'aks-devctl', args])}`;
 }
 
 beforeEach(() => {
@@ -131,7 +131,7 @@ beforeEach(() => {
   );
   const source = '/* synthetic standalone plugin fixture */';
   fs.writeFileSync(path.join(bundle, 'main.js'), source);
-  executable = path.join(bundle, 'bin', 'aks-desktop.exe');
+  executable = path.join(bundle, 'bin', 'aks-devctl.exe');
   fs.writeFileSync(executable, 'Not an executable: all process creation is mocked.');
   const environmentDirectory = path.join(resources, 'external-tools');
   fs.mkdirSync(environmentDirectory);
@@ -196,7 +196,7 @@ async function invoke(
     { sender, senderFrame: sender.mainFrame } as Parameters<typeof handleRunCommand>[0],
     {
       id: 'mock-operation',
-      command: 'aks-desktop',
+      command: 'aks-devctl',
       args,
       options,
       permissionSecrets: {},
@@ -214,7 +214,7 @@ async function invoke(
 it('uses the exact developer binary, native validation, and shell-free spawn', async () => {
   const args = ['cluster', 'get-versions', '--json'];
   const send = await invoke(args);
-  expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-desktop', args, true);
+  expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-devctl', args, true);
   expect(mocks.spawn).toHaveBeenCalledExactlyOnceWith(
     executable,
     args,
@@ -303,7 +303,7 @@ it.each([
   ['cluster', 'create', ...prefix, ...configuration, '--merge'],
 ])('enforces full native validation after the variable-argument grant: %j', async (...args) => {
   const send = await invoke(args);
-  expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-desktop', args, true);
+  expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-devctl', args, true);
   expect(send).toHaveBeenCalledWith('command-exit', 'mock-operation', -1);
   expect(mocks.spawn).not.toHaveBeenCalled();
 });
@@ -313,7 +313,7 @@ it.each([[], ['--enable-gpu', '--gpu-vendor', 'nvidia']])(
   async (...gpu) => {
     const args = ['cluster', 'create', ...prefix, ...configuration, ...gpu];
     await invoke(args);
-    expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-desktop', args, true);
+    expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-devctl', args, true);
     expect(mocks.spawn).toHaveBeenCalledExactlyOnceWith(
       executable,
       args,

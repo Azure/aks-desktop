@@ -29,7 +29,7 @@ const backend = path.join(
 
 /**
  * A kubeconfig with one cluster, user and context per name. With no names it is the file client-go
- * writes after `aks-desktop cluster delete --prune-kubeconfig` removes the last context: every
+ * writes after `aks-devctl cluster delete --prune-kubeconfig` removes the last context: every
  * list is null.
  */
 function fixture(names: string[]): string {

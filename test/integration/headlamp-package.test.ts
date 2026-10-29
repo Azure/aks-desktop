@@ -696,7 +696,7 @@ test('standalone local plugin owns its CLI without adding a shipped plugin or pu
     ]);
     assert.equal(policy.approvedCommands, undefined);
     assert.equal(policy.artifactHub, undefined);
-    assert.deepEqual(policy.pluginExecutables, [{ tool: 'aks-desktop' }]);
+    assert.deepEqual(policy.pluginExecutables, [{ tool: 'aks-devctl' }]);
     // The plugin checks the platform itself; AKS Desktop registers no local provider.
     assert.equal(policy.clusterRegistrationProviders, undefined);
     assert.deepEqual(
@@ -706,10 +706,10 @@ test('standalone local plugin owns its CLI without adding a shipped plugin or pu
         !!grant.allowTrailingArgs,
       ]),
       [
-        ['aks-desktop', 'cluster get-versions', false],
-        ['aks-desktop', 'cluster show', false],
-        ['aks-desktop', 'cluster create', true],
-        ['aks-desktop', 'cluster delete', true],
+        ['aks-devctl', 'cluster get-versions', false],
+        ['aks-devctl', 'cluster show', false],
+        ['aks-devctl', 'cluster create', true],
+        ['aks-devctl', 'cluster delete', true],
       ]
     );
   }
@@ -720,16 +720,16 @@ test('standalone local plugin owns its CLI without adding a shipped plugin or pu
     JSON.stringify(rootManifest.headlamp.runCommands.slice(0, 4)),
     /developer-cluster/
   );
-  // The local CLI is `aks-desktop`, which is also the shipped plugin's name, so match the tool.
+  // The local CLI `aks-devctl` is granted only to the Developer Cluster plugin.
   assert.ok(
-    !rootManifest.headlamp.build.externalTools.some((tool: any) => tool.id === 'aks-desktop')
+    !rootManifest.headlamp.build.externalTools.some((tool: any) => tool.id === 'aks-devctl')
   );
-  assert.equal(rootManifest.config.externalTools['aks-desktop'], undefined);
+  assert.equal(rootManifest.config.externalTools['aks-devctl'], undefined);
   assert.ok(
     !rootManifest.headlamp.runCommands
       .slice(0, 4)
       .flatMap((policy: any) => [...(policy.commands ?? []), ...(policy.approvedCommands ?? [])])
-      .some((grant: any) => grant.tool === 'aks-desktop')
+      .some((grant: any) => grant.tool === 'aks-devctl')
   );
 });
 

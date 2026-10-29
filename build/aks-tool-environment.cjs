@@ -59,16 +59,16 @@ function withAksToolPaths(environment, manifest, resourcesDirectory, platform = 
 }
 
 function validateCommand(command, args) {
-  if (command !== 'aks-desktop') return;
+  if (command !== 'aks-devctl') return;
   const invalid = () => {
-    throw new Error('The aks-desktop request is outside the Windows local-cluster POC contract');
+    throw new Error('The aks-devctl request is outside the Windows local-cluster POC contract');
   };
   if (!Array.isArray(args) || args.some(value => typeof value !== 'string')) invalid();
   if (args[0] !== 'cluster') invalid();
   const subcommand = args[1];
   if (args.length === 3 && subcommand === 'get-versions' && args[2] === '--json') return;
   // create takes the full local topology; show and delete accept only the flags that find the
-  // guest (aks-desktop cmd/aks-desktop/flags.go, newScopedFlags).
+  // guest (aks-devctl cmd/aks-devctl/flags.go, newScopedFlags).
   const guest = ['--json', '--provider', 'wsl', '--distro', 'Ubuntu-24.04'];
   const local = [
     '--json', '--provider', 'wsl', '--distro', 'Ubuntu-24.04',

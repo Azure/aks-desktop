@@ -1113,7 +1113,7 @@
         "pluginLocation": "development",
         "approvedCommands": [
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "args": [
               "cluster",
               "get-versions",
@@ -1121,7 +1121,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "args": [
               "cluster",
               "show",
@@ -1133,7 +1133,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "allowTrailingArgs": true,
             "args": [
               "cluster",
@@ -1152,7 +1152,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "allowTrailingArgs": true,
             "args": [
               "cluster",
@@ -1202,12 +1202,12 @@
         ],
         "pluginExecutables": [
           {
-            "tool": "aks-desktop"
+            "tool": "aks-devctl"
           }
         ],
         "commands": [
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "args": [
               "cluster",
               "get-versions",
@@ -1215,7 +1215,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "args": [
               "cluster",
               "show",
@@ -1227,7 +1227,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "allowTrailingArgs": true,
             "args": [
               "cluster",
@@ -1246,7 +1246,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "allowTrailingArgs": true,
             "args": [
               "cluster",
@@ -1297,7 +1297,7 @@
         "pluginLocation": "development",
         "approvedCommands": [
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "args": [
               "cluster",
               "get-versions",
@@ -1305,7 +1305,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "args": [
               "cluster",
               "show",
@@ -1317,7 +1317,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "allowTrailingArgs": true,
             "args": [
               "cluster",
@@ -1336,7 +1336,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "allowTrailingArgs": true,
             "args": [
               "cluster",
@@ -1386,12 +1386,12 @@
         ],
         "pluginExecutables": [
           {
-            "tool": "aks-desktop"
+            "tool": "aks-devctl"
           }
         ],
         "commands": [
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "args": [
               "cluster",
               "get-versions",
@@ -1399,7 +1399,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "args": [
               "cluster",
               "show",
@@ -1411,7 +1411,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "allowTrailingArgs": true,
             "args": [
               "cluster",
@@ -1430,7 +1430,7 @@
             ]
           },
           {
-            "tool": "aks-desktop",
+            "tool": "aks-devctl",
             "allowTrailingArgs": true,
             "args": [
               "cluster",
