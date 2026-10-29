@@ -3,6 +3,7 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AzureSubscription } from '../types';
 
 const mockTrackFeature = vi.hoisted(() => vi.fn());
 const mockTrackError = vi.hoisted(() => vi.fn());
@@ -13,7 +14,10 @@ const mockReviewNamespaceAccess = vi.hoisted(() => vi.fn());
 const mockApplyNamespaceManifest = vi.hoisted(() => vi.fn());
 const mockGetClusterSettings = vi.hoisted(() => vi.fn());
 const mockSetClusterSettings = vi.hoisted(() => vi.fn());
-const mockAzureResourcesState = vi.hoisted(() => ({ clusters: [] as any[] }));
+const mockAzureResourcesState = vi.hoisted(() => ({
+  clusters: [] as any[],
+  subscriptions: [] as AzureSubscription[],
+}));
 const mockClustersConf = vi.hoisted(() => ({
   current: null as Record<string, { name: string }> | null,
 }));
@@ -94,7 +98,7 @@ vi.mock('../../../utils/azure/az-resource-providers', () => ({
 
 vi.mock('./useAzureResources', () => ({
   useAzureResources: () => ({
-    subscriptions: [],
+    subscriptions: mockAzureResourcesState.subscriptions,
     clusters: mockAzureResourcesState.clusters,
     loading: false,
     error: null,
@@ -174,6 +178,14 @@ describe('useCreateAKSProjectWizard', () => {
     mockReviewNamespaceAccess.mockResolvedValue({ allowed: true });
     mockApplyNamespaceManifest.mockResolvedValue({ success: true });
     mockAzureResourcesState.clusters = [];
+    mockAzureResourcesState.subscriptions = ['sub-123', 'sub-456'].map(id => ({
+      id,
+      name: id,
+      tenant: 'test-tenant',
+      tenantName: 'Test tenant',
+      status: 'Enabled',
+      environmentName: 'AzureCloud',
+    }));
     mockClustersConf.current = null;
     mockTrackFeature.mockImplementation(() => {});
     mockTrackError.mockImplementation(() => {});
@@ -496,7 +508,11 @@ describe('useCreateAKSProjectWizard', () => {
 
     renderHook(() => useCreateAKSProjectWizard());
     await waitFor(() => {
-      expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123');
+      expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123', {
+        signal: expect.any(AbortSignal),
+        tenantId: 'test-tenant',
+        cloudName: 'AzureCloud',
+      });
     });
   });
 
@@ -539,7 +555,11 @@ describe('useCreateAKSProjectWizard', () => {
     renderHook(() => useCreateAKSProjectWizard());
 
     await waitFor(() => {
-      expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123');
+      expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123', {
+        signal: expect.any(AbortSignal),
+        tenantId: 'test-tenant',
+        cloudName: 'AzureCloud',
+      });
     });
     expect(debugLog).not.toHaveBeenCalledWith(
       'Microsoft.ContainerService registration failed:',
@@ -573,7 +593,11 @@ describe('useCreateAKSProjectWizard', () => {
 
     // The subscription effect runs synchronously during render and kicks off
     // registration immediately (the promise itself is left unresolved here).
-    expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123');
+    expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123', {
+      signal: expect.any(AbortSignal),
+      tenantId: 'test-tenant',
+      cloudName: 'AzureCloud',
+    });
 
     let submitPromise!: Promise<void>;
     await act(async () => {
@@ -593,6 +617,177 @@ describe('useCreateAKSProjectWizard', () => {
 
     expect(createManagedNamespace).toHaveBeenCalled();
   }, 10000);
+
+  it('does not create a namespace or report success after unmount while registration is pending', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    vi.mocked(registerContainerServiceProvider).mockImplementation(
+      (_subscription, options) =>
+        new Promise(resolve => {
+          options?.signal?.addEventListener(
+            'abort',
+            () =>
+              resolve({
+                success: false,
+                error: 'Registration aborted',
+              }),
+            { once: true }
+          );
+        })
+    );
+    vi.mocked(useFormData).mockReturnValue({
+      formData: {
+        ...defaultFormData,
+        subscription: 'sub-123',
+        ingress: 'AllowAll',
+        egress: 'AllowAll',
+      },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    });
+    const { result, unmount } = renderHook(() => useCreateAKSProjectWizard());
+    let submission!: Promise<void>;
+    await act(async () => {
+      submission = result.current.handleSubmit();
+      await Promise.resolve();
+    });
+    expect(createManagedNamespace).not.toHaveBeenCalled();
+    unmount();
+    await act(async () => {
+      await submission;
+      await vi.advanceTimersByTimeAsync(7000);
+    });
+    expect(createManagedNamespace).not.toHaveBeenCalled();
+    expect(mockTrackFeature).not.toHaveBeenCalledWith({
+      feature: 'aksd.project-create',
+      status: 'succeeded',
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not resume an old submission when subscription changes while registration is pending', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const registrationSignals: AbortSignal[] = [];
+    const registrationResolvers: Array<(result: { success: boolean; error?: string }) => void> = [];
+    vi.mocked(registerContainerServiceProvider).mockImplementation(
+      (_subscription, options) =>
+        new Promise(resolve => {
+          registrationResolvers.push(resolve);
+          if (options?.signal) registrationSignals.push(options.signal);
+          options?.signal?.addEventListener(
+            'abort',
+            () => resolve({ success: false, error: 'Aborted' }),
+            { once: true }
+          );
+        })
+    );
+    const formData: ReturnType<typeof useFormData>['formData'] = {
+      ...defaultFormData,
+      subscription: 'sub-123',
+      ingress: 'AllowAll',
+      egress: 'AllowAll',
+    };
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    });
+    const { result, rerender, unmount } = renderHook(() => useCreateAKSProjectWizard());
+    let submission!: Promise<void>;
+    await act(async () => {
+      submission = result.current.handleSubmit();
+      await Promise.resolve();
+    });
+    formData.subscription = 'sub-456';
+    rerender();
+    await act(async () => {
+      await submission;
+      await vi.advanceTimersByTimeAsync(7000);
+    });
+    expect(registrationSignals[0].aborted).toBe(true);
+    expect(registrationSignals[1].aborted).toBe(false);
+    expect(result.current.isCreating).toBe(false);
+    expect(result.current.creationProgress).toBe('');
+    expect(result.current.creationError).toBeNull();
+    await act(async () => {
+      registrationResolvers[1]({ success: true });
+    });
+    expect(result.current.isCreating).toBe(false);
+    expect(result.current.creationProgress).toBe('');
+    expect(createManagedNamespace).not.toHaveBeenCalled();
+    expect(mockTrackFeature).not.toHaveBeenCalledWith({
+      feature: 'aksd.project-create',
+      status: 'succeeded',
+    });
+    unmount();
+  });
+
+  it('does not clear a newer submission when an older cancelled registration settles late', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    let resolveOldRegistration!: (result: { success: boolean; error?: string }) => void;
+    let resolveNewNamespace!: (result: {
+      success: boolean;
+      stdout: string;
+      stderr: string;
+    }) => void;
+    vi.mocked(registerContainerServiceProvider)
+      .mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveOldRegistration = resolve;
+        })
+      )
+      .mockResolvedValueOnce({ success: true });
+    vi.mocked(createManagedNamespace).mockReturnValue(
+      new Promise(resolve => {
+        resolveNewNamespace = resolve;
+      })
+    );
+    vi.mocked(checkNamespaceExists).mockResolvedValue({ exists: true, stdout: '', stderr: '' });
+    const formData: ReturnType<typeof useFormData>['formData'] = {
+      ...defaultFormData,
+      subscription: 'sub-123',
+      ingress: 'AllowAll',
+      egress: 'AllowAll',
+    };
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    });
+    const { result, rerender, unmount } = renderHook(() => useCreateAKSProjectWizard());
+    let oldSubmission!: Promise<void>;
+    await act(async () => {
+      oldSubmission = result.current.handleSubmit();
+      await Promise.resolve();
+    });
+    formData.subscription = 'sub-456';
+    rerender();
+    let newSubmission!: Promise<void>;
+    await act(async () => {
+      newSubmission = result.current.handleSubmit();
+      await Promise.resolve();
+    });
+    expect(createManagedNamespace).toHaveBeenCalledTimes(1);
+    expect(result.current.isCreating).toBe(true);
+    const progress = result.current.creationProgress;
+    expect(progress).not.toBe('');
+    await act(async () => {
+      resolveOldRegistration({ success: false, error: 'Aborted' });
+      await oldSubmission;
+    });
+    expect(result.current.isCreating).toBe(true);
+    expect(result.current.creationProgress).toBe(progress);
+    await act(async () => {
+      resolveNewNamespace({ success: true, stdout: '', stderr: '' });
+      await vi.advanceTimersByTimeAsync(7000);
+      await newSubmission;
+    });
+    expect(result.current.isCreating).toBe(false);
+    expect(result.current.showSuccessDialog).toBe(true);
+    unmount();
+  });
 
   // A registration promise that settles only after the 10-minute timeout has
   // already failed the submission must not resume the creation path: the
@@ -626,6 +821,9 @@ describe('useCreateAKSProjectWizard', () => {
 
     expect(result.current.creationError).toContain('timed out');
     expect(result.current.isCreating).toBe(false);
+    expect(vi.mocked(registerContainerServiceProvider).mock.calls[0][1]?.signal?.aborted).toBe(
+      true
+    );
 
     // Registration finally settles; the aborted submission must stay dead.
     await act(async () => {
@@ -636,6 +834,253 @@ describe('useCreateAKSProjectWizard', () => {
     expect(createManagedNamespace).not.toHaveBeenCalled();
     expect(result.current.creationProgress).toBe('');
   }, 10000);
+
+  it('retries after a registration timeout with a fresh lifecycle without reviving the timed-out attempt', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    let resolveOldRegistration!: (result: { success: boolean }) => void;
+    vi.mocked(registerContainerServiceProvider)
+      .mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveOldRegistration = resolve;
+        })
+      )
+      .mockResolvedValue({ success: true });
+    vi.mocked(createManagedNamespace).mockResolvedValue({ success: true, stdout: '', stderr: '' });
+    vi.mocked(checkNamespaceExists).mockResolvedValue({ exists: true, stdout: '', stderr: '' });
+    vi.mocked(useFormData).mockReturnValue({
+      formData: {
+        ...defaultFormData,
+        subscription: 'sub-123',
+        ingress: 'AllowAll',
+        egress: 'AllowAll',
+      },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    });
+    const { result, unmount } = renderHook(() => useCreateAKSProjectWizard());
+    await act(async () => {
+      const submission = result.current.handleSubmit();
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 100);
+      await submission;
+    });
+    const oldSignal = vi.mocked(registerContainerServiceProvider).mock.calls[0][1]?.signal;
+    expect(oldSignal?.aborted).toBe(true);
+    expect(result.current.creationError).toContain('timed out');
+    let retry!: Promise<void>;
+    await act(async () => {
+      retry = result.current.handleSubmit();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(registerContainerServiceProvider).toHaveBeenCalledTimes(2);
+    const retrySignal = vi.mocked(registerContainerServiceProvider).mock.calls[1][1]?.signal;
+    expect(retrySignal).not.toBe(oldSignal);
+    expect(retrySignal?.aborted).toBe(false);
+    await act(async () => {
+      resolveOldRegistration({ success: true });
+      await vi.advanceTimersByTimeAsync(7000);
+      await retry;
+    });
+    expect(createManagedNamespace).toHaveBeenCalledTimes(1);
+    expect(oldSignal?.aborted).toBe(true);
+    expect(result.current.isCreating).toBe(false);
+    expect(result.current.creationError).toBeNull();
+    expect(result.current.showSuccessDialog).toBe(true);
+    expect(
+      mockTrackFeature.mock.calls.filter(([event]) => event.status === 'succeeded')
+    ).toHaveLength(1);
+    unmount();
+    expect(retrySignal?.aborted).toBe(true);
+  });
+
+  it('releases busy state when the subscription changes during the success-dialog delay', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    vi.mocked(createManagedNamespace).mockResolvedValue({ success: true, stdout: '', stderr: '' });
+    vi.mocked(checkNamespaceExists).mockResolvedValue({ exists: true, stdout: '', stderr: '' });
+    const formData: ReturnType<typeof useFormData>['formData'] = {
+      ...defaultFormData,
+      subscription: 'sub-123',
+      ingress: 'AllowAll',
+      egress: 'AllowAll',
+    };
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    });
+    const { result, rerender, unmount } = renderHook(() => useCreateAKSProjectWizard());
+    await act(async () => {
+      const submission = result.current.handleSubmit();
+      await vi.advanceTimersByTimeAsync(5000);
+      await submission;
+    });
+    expect(result.current.isCreating).toBe(true);
+    expect(result.current.showSuccessDialog).toBe(false);
+    expect(result.current.creationProgress).not.toBe('');
+    formData.subscription = 'sub-456';
+    rerender();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(result.current.isCreating).toBe(false);
+    expect(result.current.creationProgress).toBe('');
+    expect(result.current.showSuccessDialog).toBe(false);
+    expect(createManagedNamespace).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it('does not let a cancelled success delay clear a newer submission', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    let resolveNewNamespace!: (result: {
+      success: boolean;
+      stdout: string;
+      stderr: string;
+    }) => void;
+    vi.mocked(createManagedNamespace)
+      .mockResolvedValueOnce({ success: true, stdout: '', stderr: '' })
+      .mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveNewNamespace = resolve;
+        })
+      );
+    vi.mocked(checkNamespaceExists).mockResolvedValue({ exists: true, stdout: '', stderr: '' });
+    const formData: ReturnType<typeof useFormData>['formData'] = {
+      ...defaultFormData,
+      subscription: 'sub-123',
+      ingress: 'AllowAll',
+      egress: 'AllowAll',
+    };
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    });
+    const { result, rerender, unmount } = renderHook(() => useCreateAKSProjectWizard());
+    await act(async () => {
+      const submission = result.current.handleSubmit();
+      await vi.advanceTimersByTimeAsync(5000);
+      await submission;
+    });
+    formData.subscription = 'sub-456';
+    rerender();
+    let current!: Promise<void>;
+    await act(async () => {
+      current = result.current.handleSubmit();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const progress = result.current.creationProgress;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(result.current.isCreating).toBe(true);
+    expect(result.current.creationProgress).toBe(progress);
+    expect(result.current.showSuccessDialog).toBe(false);
+    await act(async () => {
+      resolveNewNamespace({ success: true, stdout: '', stderr: '' });
+      await vi.advanceTimersByTimeAsync(7000);
+      await current;
+    });
+    expect(result.current.isCreating).toBe(false);
+    expect(result.current.showSuccessDialog).toBe(true);
+    expect(createManagedNamespace).toHaveBeenCalledTimes(2);
+    unmount();
+  });
+
+  it('cancels the previous subscription registration and cancels on unmount', () => {
+    const formData: ReturnType<typeof useFormData>['formData'] = {
+      ...defaultFormData,
+      subscription: 'sub-123',
+      ingress: 'AllowSameNamespace',
+      egress: 'AllowAll',
+    };
+    vi.mocked(useFormData).mockReturnValue({
+      formData,
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    });
+
+    const { rerender, unmount } = renderHook(() => useCreateAKSProjectWizard());
+    const first = vi.mocked(registerContainerServiceProvider).mock.calls[0][1]?.signal;
+    formData.subscription = 'sub-456';
+    rerender();
+    expect(first?.aborted).toBe(true);
+    const second = vi.mocked(registerContainerServiceProvider).mock.calls[1][1]?.signal;
+    expect(second?.aborted).toBe(false);
+    unmount();
+    expect(second?.aborted).toBe(true);
+  });
+
+  it('does not send an initial public-cloud registration before account metadata loads', () => {
+    mockAzureResourcesState.subscriptions = [];
+    vi.mocked(useFormData).mockReturnValue({
+      formData: {
+        ...defaultFormData,
+        subscription: 'sub-123',
+        ingress: 'AllowAll',
+        egress: 'AllowAll',
+      },
+      updateFormData: vi.fn(),
+      resetFormData: vi.fn(),
+      setFormDataField: vi.fn(),
+    });
+    const { rerender } = renderHook(() => useCreateAKSProjectWizard());
+    expect(registerContainerServiceProvider).not.toHaveBeenCalled();
+    mockAzureResourcesState.subscriptions = [
+      {
+        id: 'sub-123',
+        name: 'Government',
+        tenant: 'government-tenant',
+        tenantName: 'Government tenant',
+        status: 'Enabled',
+        environmentName: 'AzureUSGovernment',
+      },
+    ];
+    rerender();
+    expect(registerContainerServiceProvider).toHaveBeenCalledTimes(1);
+    expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123', {
+      signal: expect.any(AbortSignal),
+      tenantId: 'government-tenant',
+      cloudName: 'AzureUSGovernment',
+    });
+  });
+
+  it.each(['AzureCloud', 'AzureUSGovernment', 'AzureChinaCloud'])(
+    'uses the selected subscription tenant and cloud %s instead of CLI defaults',
+    cloudName => {
+      mockAzureResourcesState.subscriptions = [
+        {
+          id: 'sub-123',
+          name: 'Selected subscription',
+          tenant: 'selected-tenant',
+          tenantName: 'Selected tenant',
+          status: 'Enabled',
+          environmentName: cloudName,
+        },
+      ];
+      vi.mocked(useFormData).mockReturnValue({
+        formData: {
+          ...defaultFormData,
+          subscription: 'sub-123',
+          ingress: 'AllowAll',
+          egress: 'AllowAll',
+        },
+        updateFormData: vi.fn(),
+        resetFormData: vi.fn(),
+        setFormDataField: vi.fn(),
+      });
+      renderHook(() => useCreateAKSProjectWizard());
+      expect(registerContainerServiceProvider).toHaveBeenCalledWith('sub-123', {
+        signal: expect.any(AbortSignal),
+        tenantId: 'selected-tenant',
+        cloudName,
+      });
+    }
+  );
 
   it('handleSubmit success path: sets showSuccessDialog after success and timer', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false });

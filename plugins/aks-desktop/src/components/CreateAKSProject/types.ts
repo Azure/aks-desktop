@@ -6,12 +6,20 @@
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import type { ClusterType } from '../../utils/azure/aks';
 
+/** Subscription/account metadata used for wizard selection and cloud-aware registration. */
 export interface AzureSubscription {
+  /** Azure subscription GUID. */
   id: string;
+  /** Subscription display name. */
   name: string;
+  /** Tenant GUID owning the selected subscription account. */
   tenant: string;
+  /** Resolved tenant display label; the UI can fall back to the tenant GUID when unavailable. */
   tenantName: string;
+  /** Azure subscription state, for example Enabled or Disabled. */
   status: string;
+  /** Named CLI cloud, normalized from cloudName/legacy environmentName for ARM/token routing. */
+  environmentName?: string;
 }
 
 export interface AzureCluster {

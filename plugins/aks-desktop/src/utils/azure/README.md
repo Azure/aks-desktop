@@ -73,7 +73,49 @@ No circular dependencies. `az-cli-core.ts` is the single hub — every domain mo
 
 Use `azRequest`/`azListAll` from `az-http.ts` for Azure REST calls. Tokens come from `azCliCredential` unless a `credential` is passed.
 
-Live tests (`*.live.test.ts`) compare REST results with `az` and require a logged-in `az`: `AZ_LIVE_TESTS=1 npx vitest run --project unit live.test`.
+Subscription-bound credentials select the CLI account with `--subscription`,
+never both `--subscription` and `--tenant`. An explicit tenant must be a GUID
+matching the token response; tenant-only, unbound credentials still accept tenant
+domains. Tokens are cached separately by subscription, tenant and audience.
+
+Live tests (`*.live.test.ts`) verify real ARM results through REST and require a
+logged-in `az` for authentication, not resource-operation parity commands.
+
+Resource-provider registration uses direct REST and requires an explicit selected
+subscription. Success means accepted; pass `waitUntilRegistered: true` to poll for
+completion. An optional signal and timeout bound the entire operation.
+The wizard retains the selected account's tenant and normalizes CLI `cloudName`
+(or legacy `environmentName`) into its internal `environmentName`. Registration
+resolves that named cloud's configured ARM endpoint and token audience, including
+Government, China and custom clouds. Local `az cloud show` metadata is cached per
+cloud and invalidated on account changes; it does not switch the active CLI cloud.
+Metadata failures are reported without falling back to public Azure. Registration
+itself remains REST-only, and the product grants only read-only `cloud show`.
+The token resource is preserved verbatim: a configured trailing slash remains
+before the appended `/.default` (for example, `https://management.core.windows.net//.default`).
+Submission captures that registration's cancellation signal: closing the wizard or
+changing subscriptions cannot resume namespace creation or success handling when
+an aborted registration resolves its failure result.
+After a timeout, retrying in the same subscription starts a fresh registration
+lifecycle; the old attempt remains cancelled. Cancelling during the delayed success
+dialog also releases busy/progress state only for the current, still-mounted attempt.
+
+Run its opt-in E2E test from the plugin directory:
+`AZ_LIVE_TESTS=1 npm run test:unit -- az-resource-providers.live.test.ts`.
+`az` must be available and logged in. The default subscription is Cloud Native
+Tools; `AZ_LIVE_SUBSCRIPTION` may select that same subscription by GUID.
+Each test uses a uniquely prefixed/tagged group with per-test cleanup, including
+failure paths. This idempotently registers Microsoft.ContainerService, so the
+account also needs provider-registration permission. Registration is subscription
+state and is not undone by cleanup. Authentication tokens are cached;
+registration and verification use REST, with no CLI resource calls.
+See [live test setup and inventory](../../../../../test/live/README.md).
+
+The opt-in production-credential E2E case omits a registration credential override,
+executes real account-bound CLI token acquisition, checks tenant/principal/audience
+claims without logging tokens, and verifies registration plus cached reuse.
+Live validation is restricted to Cloud Native Tools/public Azure; sovereign/custom
+routing is unit-tested but is not claimed to have real-account live coverage.
 
 ## Adding a New Function
 
