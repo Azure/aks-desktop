@@ -20,6 +20,8 @@ const ownedDirectory = dirname(fileURLToPath(import.meta.url));
 const registry =
   '/subscriptions/sub-123/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/demo';
 const sha = 'a'.repeat(40);
+const externalDockerfile = '.aksd-acr.Dockerfile';
+const stagingIgnore = `\n${externalDockerfile}\n${externalDockerfile}.dockerignore\n`;
 const fixtures: string[] = [];
 
 // The actual emitted __main__ runs with only its transport, clock and Azure token process replaced.
@@ -46,7 +48,7 @@ config = json.loads(Path(sys.argv[2]).read_text())
 sys.pycache_prefix = None
 script = sys.argv[1]
 sys.argv = [script] + config.get("args", [])
-records = {"requests": [], "tokens": [], "archive": {}, "sleeps": [],
+records = {"requests": [], "tokens": [], "archive": {}, "archive_names": [], "sleeps": [],
            "log_reads": [], "log_bytes": 0}
 clock = [0]
 time.monotonic = lambda: clock[0]
@@ -109,6 +111,7 @@ def open_request(request, timeout=None):
     elif hasattr(body, "read"):
         with tarfile.open(fileobj=body, mode="r:gz") as archive:
             for item in archive:
+                records["archive_names"].append(item.name)
                 records["archive"][item.name] = {
                     "link": item.linkname if item.issym() else None,
                     "content": archive.extractfile(item).read().decode(errors="replace") if item.isfile() else None,
@@ -273,6 +276,7 @@ type Records = {
   requests: Request[];
   tokens: string[][];
   archive: Record<string, { content: string | null; link: string | null }>;
+  archive_names: string[];
   sleeps: number[];
   exit: number;
   log_reads: number[];
@@ -507,6 +511,8 @@ describe('generated ACR Tasks runtime', () => {
     expect(status).toBe(0);
     expect(records.archive['app.txt']).toBeDefined();
     expect(records.archive['keep.txt']).toBeUndefined();
+    expect(records.archive['.dockerignore'].content).toBe('keep.txt\n');
+    expect(records.archive_names.filter(name => name === '.dockerignore')).toHaveLength(1);
     expect(requests(records, '/scheduleRun')[0].body).toMatchObject({
       dockerFilePath: 'docker/prod.Dockerfile',
     });
@@ -625,15 +631,16 @@ describe('generated ACR Tasks runtime', () => {
     expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
     expect(Object.keys(records.archive)).toEqual([
       'index.html',
-      '.aksd-acr/Dockerfile',
-      '.aksd-acr/Dockerfile.dockerignore',
+      externalDockerfile,
+      '.dockerignore',
+      `${externalDockerfile}.dockerignore`,
     ]);
     expect(requests(records, '/scheduleRun')[0].body).toMatchObject({
-      dockerFilePath: '.aksd-acr/Dockerfile',
+      dockerFilePath: externalDockerfile,
     });
   });
 
-  it('keeps the selected ignore override beside a relocated external Dockerfile', () => {
+  it('normalizes an external Dockerfile override for legacy ACR builders and BuildKit', () => {
     const test = fixture({ DOCKER_FILE: 'docker/Buildfile', BUILD_CONTEXT_PATH: 'src/web' });
     const override = 'private.txt\n';
     test.write('docker/Buildfile', 'FROM scratch\nCOPY included.txt /included.txt\n');
@@ -647,12 +654,56 @@ describe('generated ACR Tasks runtime', () => {
     expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
     expect(records.archive['included.txt'].content).toBe('required source');
     expect(records.archive['private.txt']).toBeUndefined();
-    expect(records.archive['.dockerignore'].content).toBe('included.txt\n');
+    expect(records.archive['.dockerignore'].content).toBe(`${override}${stagingIgnore}`);
+    expect(records.archive_names.filter(name => name === '.dockerignore')).toHaveLength(1);
     const payload = requests(records, '/scheduleRun')[0].body;
-    expect(payload).toMatchObject({ dockerFilePath: '.aksd-acr/Dockerfile' });
-    expect(records.archive['.aksd-acr/Dockerfile.dockerignore']?.content).toBe(
-      `${override}\n.aksd-acr\n`
+    expect(payload).toMatchObject({ dockerFilePath: externalDockerfile });
+    expect(records.archive[`${externalDockerfile}.dockerignore`]?.content).toBe(
+      `${override}${stagingIgnore}`
     );
+  });
+
+  it.each(['relative outside context', 'absolute inside context'])(
+    'rejects a selected root-ignore symlink that is %s before upload',
+    kind => {
+      const test = fixture({ DOCKER_FILE: 'docker/Buildfile', BUILD_CONTEXT_PATH: 'src/web' });
+      test.write('docker/Buildfile', 'FROM scratch');
+      test.write('private-ignore', 'checkout-private-marker');
+      test.write('src/web/ignore.rules', 'private.txt\n');
+      symlinkSync(
+        kind === 'relative outside context'
+          ? '../../private-ignore'
+          : join(test.workspace, 'src/web/ignore.rules'),
+        join(test.workspace, 'src/web/.dockerignore')
+      );
+      const { status, stderr, records } = test.run();
+      expect(status).toBe(1);
+      expect(stderr).toContain('Context symlink escapes the build context');
+      expect(requests(records, '/listBuildSourceUploadUrl')).toHaveLength(0);
+      expect(records.archive).toEqual({});
+    }
+  );
+
+  it('normalizes a selected root-ignore symlink whose relative target remains inside the context', () => {
+    const test = fixture({ DOCKER_FILE: 'docker/Buildfile', BUILD_CONTEXT_PATH: 'src/web' });
+    test.write('docker/Buildfile', 'FROM scratch');
+    test.write('src/web/ignore.rules', 'private.txt\n');
+    test.write('src/web/private.txt', 'excluded private file');
+    symlinkSync('ignore.rules', join(test.workspace, 'src/web/.dockerignore'));
+    const { status, stderr, records } = test.run();
+    expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
+    expect(records.archive['.dockerignore'].content).toBe(`private.txt\n${stagingIgnore}`);
+    expect(records.archive['private.txt']).toBeUndefined();
+  });
+
+  it('rejects a selected ignore directory instead of replacing it with an empty file', () => {
+    const test = fixture({ DOCKER_FILE: 'docker/Buildfile', BUILD_CONTEXT_PATH: 'src/web' });
+    test.write('docker/Buildfile', 'FROM scratch');
+    test.write('src/web/.dockerignore/invalid.txt', 'not an ignore file');
+    const { status, stderr, records } = test.run();
+    expect(status).toBe(1);
+    expect(stderr).toContain('Docker ignore path must be a file');
+    expect(requests(records, '/listBuildSourceUploadUrl')).toHaveLength(0);
   });
 
   it.each([
@@ -666,8 +717,8 @@ describe('generated ACR Tasks runtime', () => {
     {
       description: 'specific override',
       root: 'app.txt\n',
-      override: 'private.txt\n!.aksd-acr/**',
-      selected: 'private.txt\n!.aksd-acr/**',
+      override: 'private.txt\n!.aksd-acr.Dockerfile*',
+      selected: 'private.txt\n!.aksd-acr.Dockerfile*',
     },
   ])(
     'excludes external Dockerfile staging from COPY context with $description',
@@ -683,11 +734,27 @@ describe('generated ACR Tasks runtime', () => {
 
       expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
       expect(records.archive['app.txt'].content).toBe('application');
-      expect(records.archive['.aksd-acr/Dockerfile'].content).toContain('COPY . /app/');
-      expect(records.archive['.aksd-acr/Dockerfile.dockerignore']?.content).toBe(
-        `${selected}\n.aksd-acr\n`
+      expect(records.archive[externalDockerfile].content).toContain('COPY . /app/');
+      expect(records.archive[`${externalDockerfile}.dockerignore`]?.content).toBe(
+        `${selected}${stagingIgnore}`
       );
+      expect(records.archive['.dockerignore']?.content).toBe(`${selected}${stagingIgnore}`);
+      expect(records.archive_names.filter(name => name === '.dockerignore')).toHaveLength(1);
+      expect(records.archive_names.some(name => name.startsWith('.aksd-acr/'))).toBe(false);
       expect(records.archive['private.txt']).toBeUndefined();
+    }
+  );
+
+  it.each(['.aksd-acr', externalDockerfile, `${externalDockerfile}.dockerignore`])(
+    'rejects collisions with reserved external staging path %s',
+    name => {
+      const test = fixture({ DOCKER_FILE: 'docker/Buildfile', BUILD_CONTEXT_PATH: 'src/web' });
+      test.write('docker/Buildfile', 'FROM scratch');
+      test.write(`src/web/${name}`, 'existing source');
+      const { status, stderr, records } = test.run();
+      expect(status).toBe(1);
+      expect(stderr).toContain(`Reserved context path ${name} already exists`);
+      expect(requests(records, '/scheduleRun')).toHaveLength(0);
     }
   );
 

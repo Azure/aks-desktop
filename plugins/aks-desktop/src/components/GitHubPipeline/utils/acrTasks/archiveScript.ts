@@ -13,6 +13,13 @@ def inside(path, root):
     return path == root or root in path.parents
 
 
+def symlink_target(path, context, name):
+    target = Path(path).resolve()
+    if os.path.isabs(os.readlink(path)) or not inside(target, context):
+        raise ValueError("Context symlink escapes the build context: " + name)
+    return target
+
+
 def glob_regex(pattern):
     # Match Docker's Linux pattern syntax, including embedded ** and backslash escapes.
     result, kind, cursor = "", "exact", 0
@@ -134,11 +141,19 @@ def create_context(workspace, context_value, dockerfile_value, output, check=lam
     ignore_file = specific_ignore if specific_ignore.is_file() else context / ".dockerignore"
     if not inside(ignore_file.resolve(), workspace):
         raise ValueError("Docker ignore file cannot escape the checkout")
+    if ignore_file.exists() and not ignore_file.is_file():
+        raise ValueError("Docker ignore path must be a file")
+    if ignore_file.is_symlink() and inside(ignore_file, context):
+        symlink_target(ignore_file, context, ignore_file.relative_to(context).as_posix())
     rules = ignore_rules(ignore_file)
     external = not inside(dockerfile, context)
-    docker_name = ".aksd-acr/Dockerfile" if external else dockerfile.relative_to(context).as_posix()
-    if external and os.path.lexists(context / ".aksd-acr"):
-        raise ValueError("Reserved context path .aksd-acr already exists")
+    rewrite_ignore = external or specific_ignore.is_file()
+    # Legacy Docker can retain the empty parent of a force-included Dockerfile in COPY output.
+    docker_name = ".aksd-acr.Dockerfile" if external else dockerfile.relative_to(context).as_posix()
+    if external:
+        for name in (".aksd-acr", docker_name, docker_name + ".dockerignore"):
+            if os.path.lexists(context / name):
+                raise ValueError("Reserved context path " + name + " already exists")
     forced = {docker_name}
     if inside(ignore_file, context):
         forced.add(ignore_file.relative_to(context).as_posix())
@@ -153,14 +168,13 @@ def create_context(workspace, context_value, dockerfile_value, output, check=lam
                 name = prefix + entry.name
                 if ".git" in name.split("/"):
                     continue
+                if rewrite_ignore and name == ".dockerignore":
+                    continue
                 excluded = ignored(name, rules) and name not in forced
                 if entry.is_symlink():
                     if excluded:
                         continue
-                    target = Path(entry.path).resolve()
-                    link = os.readlink(entry.path)
-                    if os.path.isabs(link) or not inside(target, context):
-                        raise ValueError("Context symlink escapes the build context: " + name)
+                    target = symlink_target(entry.path, context, name)
                     if ignored(target.relative_to(context).as_posix(), rules):
                         continue
                     archive.add(entry.path, arcname=name, recursive=False)
@@ -176,11 +190,16 @@ def create_context(workspace, context_value, dockerfile_value, output, check=lam
         walk(context)
         if external:
             archive.add(dockerfile, arcname=docker_name, recursive=False)
-            # Keep staged build files available to the builder, but out of COPY/ADD.
+        if rewrite_ignore:
+            # Legacy ACR builders reapply the root ignore file, not Dockerfile-specific overrides.
             effective_ignore = ignore_file.read_bytes() if ignore_file.is_file() else b""
-            effective_ignore += b"\n.aksd-acr\n"
-            info = tarfile.TarInfo(docker_name + ".dockerignore")
-            info.mode, info.size = 0o644, len(effective_ignore)
-            archive.addfile(info, io.BytesIO(effective_ignore))
+            names = [".dockerignore"]
+            if external:
+                effective_ignore += ("\n" + docker_name + "\n" + docker_name + ".dockerignore\n").encode()
+                names.append(docker_name + ".dockerignore")
+            for name in names:
+                info = tarfile.TarInfo(name)
+                info.mode, info.size = 0o644, len(effective_ignore)
+                archive.addfile(info, io.BytesIO(effective_ignore))
     return docker_name
 `;
