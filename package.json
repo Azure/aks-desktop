@@ -38,6 +38,7 @@
     "test:headlamp-patches": "npm run headlamp:patches -- --check && npm run test:headlamp-package",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
     "test:azure:list": "tsx test/live/list-azure-resources.ts",
+    "test:release-signing": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test build/sign-release.test.ts",
     "test:post-build": "tsx ./build/verify-bundled-tools.ts",
     "test:distribution": "npm run test:post-build && npm run headlamp:smoke --",
     "test:packaged-theme": "tsc -p test/packaged/tsconfig.json && playwright test --config test/packaged/playwright.config.ts",
