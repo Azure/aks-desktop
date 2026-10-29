@@ -72,6 +72,7 @@ beforeEach(async () => {
     refreshGitHubOAuth: vi.fn(),
   };
   Object.assign(window, { desktopApi: bridge });
+  vi.stubGlobal('pluginGitHubOAuth', bridge);
   vi.stubGlobal(
     'fetch',
     vi.fn(
