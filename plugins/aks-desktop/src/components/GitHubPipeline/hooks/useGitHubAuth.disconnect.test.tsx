@@ -26,6 +26,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 let disk: string | null;
+let pauseNextCallback: Promise<void> | null;
 let callbacks: ((result: OAuthCallbackResult) => void)[];
 let useAuth: typeof import('./useGitHubAuth').useGitHubAuth;
 let bridge: {
@@ -36,7 +37,17 @@ let bridge: {
 const settle = () => act(() => vi.advanceTimersByTimeAsync(0));
 beforeEach(async () => {
   vi.resetModules();
-  vi.doMock('react', () => React);
+  pauseNextCallback = null;
+  vi.doMock('react', () => ({
+    ...React,
+    useCallback: (callback: (...args: unknown[]) => unknown, deps: React.DependencyList) =>
+      React.useCallback((...args: unknown[]) => {
+        // Model a future asynchronous boundary before a memoized auth operation starts.
+        const pause = pauseNextCallback;
+        pauseNextCallback = null;
+        return pause ? pause.then(() => callback(...args)) : callback(...args);
+      }, deps),
+  }));
   vi.useFakeTimers();
   vi.clearAllMocks();
   disk = JSON.stringify(tokens());
@@ -169,6 +180,37 @@ it.each(['account-b-refresh', 'refresh-token'])(
     });
   }
 );
+
+it('keys a delayed refresh to the caller session rather than the session when it starts', async () => {
+  const pause = deferred<void>();
+  const oldRefresh = deferred<OAuthCallbackResult>();
+  const newRefresh = deferred<OAuthCallbackResult>();
+  bridge.refreshGitHubOAuth
+    .mockReturnValueOnce(oldRefresh.promise)
+    .mockReturnValueOnce(newRefresh.promise);
+  const view = renderHook(useAuth);
+  await settle();
+  pauseNextCallback = pause.promise;
+  await act(() => vi.advanceTimersByTimeAsync(55 * 60000));
+  expect(bridge.refreshGitHubOAuth).not.toHaveBeenCalled();
+
+  await act(async () => {
+    await view.result.current.reset();
+    await view.result.current.startOAuth();
+    await callbacks[0]({ success: true, ...tokens(), accessToken: 'new-session-access' });
+    pause.resolve();
+  });
+  await settle();
+  // Reusing the same token must not share the old session's delayed request.
+  await act(() => vi.advanceTimersByTimeAsync(55 * 60000));
+  expect(bridge.refreshGitHubOAuth).toHaveBeenCalledTimes(2);
+  newRefresh.resolve({ success: true, ...tokens(), accessToken: 'new-session-refreshed' });
+  await settle();
+  oldRefresh.resolve({ success: true, ...tokens(), accessToken: 'stale-session-access' });
+  await settle();
+  expect(view.result.current.authState.token).toBe('new-session-refreshed');
+  expect(JSON.parse(disk!)).toMatchObject({ accessToken: 'new-session-refreshed' });
+});
 
 it('finishes an already-started credential save before deleting it on disconnect', async () => {
   disk = null;

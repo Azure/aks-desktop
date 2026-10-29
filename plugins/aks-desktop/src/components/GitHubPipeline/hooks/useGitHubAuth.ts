@@ -82,20 +82,22 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
     promise: Promise<TokenResponse>;
   } | null>(null);
 
-  const deduplicatedRefresh = useCallback((refreshToken: string): Promise<TokenResponse> => {
-    const epoch = authEpoch;
-    const inFlight = refreshInFlightRef.current;
-    if (inFlight?.epoch === epoch && inFlight.refreshToken === refreshToken) {
-      return inFlight.promise;
-    }
-    const promise = refreshAccessToken(refreshToken).finally(() => {
-      if (refreshInFlightRef.current?.promise === promise) {
-        refreshInFlightRef.current = null;
+  const deduplicatedRefresh = useCallback(
+    (epoch: number, refreshToken: string): Promise<TokenResponse> => {
+      const inFlight = refreshInFlightRef.current;
+      if (inFlight?.epoch === epoch && inFlight.refreshToken === refreshToken) {
+        return inFlight.promise;
       }
-    });
-    refreshInFlightRef.current = { epoch, refreshToken, promise };
-    return promise;
-  }, []);
+      const promise = refreshAccessToken(refreshToken).finally(() => {
+        if (refreshInFlightRef.current?.promise === promise) {
+          refreshInFlightRef.current = null;
+        }
+      });
+      refreshInFlightRef.current = { epoch, refreshToken, promise };
+      return promise;
+    },
+    []
+  );
 
   const octokit = useMemo(
     () => (authState.token ? createOctokitClient(authState.token) : null),
@@ -117,7 +119,7 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
 
       if (isTokenExpired(expiresAt)) {
         try {
-          const refreshed = await deduplicatedRefresh(storedRefreshToken);
+          const refreshed = await deduplicatedRefresh(epoch, storedRefreshToken);
           if (!current(epoch)) return;
           accessToken = refreshed.accessToken;
           storedRefreshToken = refreshed.refreshToken;
@@ -240,7 +242,7 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
       if (!isTokenExpired(currentExpiresAt)) return;
 
       try {
-        const refreshed = await deduplicatedRefresh(currentRefreshToken);
+        const refreshed = await deduplicatedRefresh(epoch, currentRefreshToken);
         if (!current(epoch)) return;
         const newExpiresAt = new Date(Date.now() + refreshed.expiresIn * 1000).toISOString();
         await writeCredentials(epoch, () =>
