@@ -9,6 +9,7 @@ import test from 'node:test';
 import { createServices, parseAcrRun, validateWorkflow, type Command } from './acr-services';
 import {
   adaptWorkflow,
+  assertScenarioOutcome,
   assertRestWorkflow,
   CONTEXT_PATH,
   GATE_NAME,
@@ -127,10 +128,94 @@ test('evidence redacts SAS queries, bearer tokens and JWTs', () => {
 test('ACR parsing follows ARM run properties and rejects malformed responses', () => {
   const images = [{ repository: 'rest29-test', tag: 'sha' }];
   assert.deepEqual(
-    parseAcrRun({ properties: { runId: 'one', status: 'Succeeded', outputImages: images } }),
+    parseAcrRun({
+      properties: { runId: 'one', status: 'Succeeded', outputImages: images },
+    }),
     { id: 'one', status: 'Succeeded', images }
   );
   assert.throws(() => parseAcrRun({ status: 'Succeeded' }), /properties/);
+});
+
+test('cancellation requires independent remote cancellation and a deployment job with no steps', () => {
+  const acr: AcrRun = { id: 'one', status: 'Canceled', images: [] };
+  const workflow = {
+    id: 1,
+    sha: 'fixture',
+    status: 'completed',
+    conclusion: 'cancelled',
+    url: 'https://github.com/example/sandbox/actions/runs/1',
+  };
+  for (const conclusion of ['skipped', 'cancelled']) {
+    assert.doesNotThrow(() =>
+      assertScenarioOutcome('cancel', acr, workflow, { name: GATE_NAME, conclusion, steps: [] })
+    );
+    assert.throws(() =>
+      assertScenarioOutcome('cancel', acr, workflow, {
+        name: GATE_NAME,
+        conclusion,
+        steps: [GATE_NAME],
+      })
+    );
+  }
+  for (const conclusion of ['success', 'failure', null]) {
+    assert.throws(() =>
+      assertScenarioOutcome('cancel', acr, workflow, { name: GATE_NAME, conclusion, steps: [] })
+    );
+  }
+  assert.throws(() =>
+    assertScenarioOutcome('cancel', { ...acr, status: 'Running' }, workflow, {
+      name: GATE_NAME,
+      conclusion: 'cancelled',
+      steps: [],
+    })
+  );
+  assert.throws(() => assertScenarioOutcome('cancel', acr, workflow, undefined));
+});
+
+test('ordinary outcomes still require the sentinel to run only after a successful build', () => {
+  const workflow = {
+    id: 1,
+    sha: 'fixture',
+    status: 'completed',
+    conclusion: 'success',
+    url: 'https://github.com/example/sandbox/actions/runs/1',
+  };
+  const acr: AcrRun = { id: 'one', status: 'Succeeded', images: [] };
+  for (const scenario of ['success', 'external'] as const) {
+    assert.doesNotThrow(() =>
+      assertScenarioOutcome(scenario, acr, workflow, {
+        name: GATE_NAME,
+        conclusion: 'success',
+        steps: [GATE_NAME],
+      })
+    );
+    assert.throws(() =>
+      assertScenarioOutcome(scenario, acr, workflow, {
+        name: GATE_NAME,
+        conclusion: 'success',
+        steps: [],
+      })
+    );
+  }
+  assert.doesNotThrow(() =>
+    assertScenarioOutcome(
+      'failure',
+      { ...acr, status: 'Failed' },
+      { ...workflow, conclusion: 'failure' },
+      { name: GATE_NAME, conclusion: 'skipped', steps: [] }
+    )
+  );
+});
+
+test('job evidence retains steps instead of trusting a cancelled conclusion alone', async () => {
+  const execute: Command = async () =>
+    JSON.stringify({
+      total_count: 1,
+      jobs: [{ name: GATE_NAME, conclusion: 'cancelled', steps: [{ name: GATE_NAME }] }],
+    });
+  assert.deepEqual(await createServices(config, '/unused', execute).jobs(1), [
+    { name: GATE_NAME, conclusion: 'cancelled', steps: [GATE_NAME] },
+  ]);
 });
 
 for (const changed of [false, true]) {
@@ -150,7 +235,10 @@ for (const changed of [false, true]) {
       assert.ok(responses.length, 'Unexpected publisher request');
       return JSON.stringify(responses.shift());
     };
-    const files = { [WORKFLOW_PATH]: 'generated', 'fixtures/marker.txt': 'fixture' };
+    const files = {
+      [WORKFLOW_PATH]: 'generated',
+      'fixtures/marker.txt': 'fixture',
+    };
     const publish = createServices(config, '/unused', execute).publish(files);
     if (changed) {
       await assert.rejects(publish, /concurrently/);
@@ -196,7 +284,8 @@ test('ARM run requests encode Unicode scope and retain the registry boundary gua
 
 test('preflight uses supported ACR show arguments and the registry subscription', async () => {
   const githubResponses = [
-    { default_branch: 'main' },
+    { default_branch: 'main', permissions: { push: true, admin: false } },
+    { total_count: 0, secrets: [] },
     { object: { sha: 'branch' } },
     { path: WORKFLOW_PATH },
     { state: 'active' },
@@ -209,6 +298,14 @@ test('preflight uses supported ACR show arguments and the registry subscription'
       return JSON.stringify(githubResponses.shift());
     }
     assert.equal(binary, 'az');
+    if (args[0] === 'rest') {
+      assert.equal(args[args.indexOf('--method') + 1], 'GET');
+      assert.equal(
+        args[args.indexOf('--url') + 1],
+        `https://management.azure.com${config.registryId}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01`
+      );
+      return JSON.stringify({ value: [{ actions: ['*'] }] });
+    }
     assert.deepEqual(args, [
       'acr',
       'show',
@@ -223,7 +320,10 @@ test('preflight uses supported ACR show arguments and the registry subscription'
       'json',
     ]);
     registryReads++;
-    return JSON.stringify({ loginServer: config.loginServer, publicNetworkAccess: 'Enabled' });
+    return JSON.stringify({
+      loginServer: config.loginServer,
+      publicNetworkAccess: 'Enabled',
+    });
   };
 
   await createServices(config, '/unused', execute).preflight();
@@ -255,7 +355,10 @@ test('image verification and deletion reject non-E2E image names without executi
     throw new Error('Must not execute');
   };
   const client = createServices(config, '/unused', execute);
-  await assert.rejects(client.deleteImage('production:latest'), /non-E2E/);
+  await assert.rejects(
+    client.deleteImage('production:latest', `sha256:${'a'.repeat(64)}`),
+    /non-E2E/
+  );
   await assert.rejects(client.verifyImage('production:latest'), /non-E2E/);
 });
 
@@ -329,6 +432,8 @@ test(
       ['ignored/drop.txt', marker],
       ['outside-context.txt', marker],
       ['.aksd-acr', marker],
+      ['.aksd-acr.Dockerfile', marker],
+      ['.aksd-acr.Dockerfile.dockerignore', marker],
       ['included.txt', marker],
     ] as const) {
       if (file) await fs.writeFile(path.join(directory, file), 'excluded');

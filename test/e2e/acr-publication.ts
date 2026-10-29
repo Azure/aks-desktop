@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   ACR_BUILD_SCRIPT_PATH,
   getAcrBuildFiles,
@@ -73,7 +73,7 @@ export async function verifyRuntimePublication(
 
   const path = ACR_BUILD_SCRIPT_PATH;
   const current = await read(path);
-  const outdated = '# Outdated runtime fixture for ACR publication acceptance.\n';
+  const outdated = `# Outdated runtime fixture for ACR publication acceptance: ${randomUUID()}\n`;
   let needsRepair = true;
   let failure: unknown;
   try {
@@ -100,6 +100,11 @@ export async function verifyRuntimePublication(
       try {
         const stale = await read(path);
         if (stale.content !== files[path]) {
+          assert.equal(
+            stale.content,
+            outdated,
+            'Runtime changed outside this acceptance check; refusing to overwrite it'
+          );
           await createOrUpdateFile(
             octokit,
             owner,

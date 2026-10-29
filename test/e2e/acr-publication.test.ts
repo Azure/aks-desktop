@@ -216,7 +216,7 @@ test('an accepted outdated write with a lost response is repaired without maskin
   assert.deepEqual(Object.fromEntries(files), bundle);
 });
 
-test('a failed exact-content assertion still fails after successful repair', async () => {
+test('repair refuses to overwrite an unexpected concurrent runtime change', async () => {
   const { octokit, state, files, writes } = fixture();
   let corrupted = false;
   state.afterWrite = call => {
@@ -225,10 +225,15 @@ test('a failed exact-content assertion still fails after successful repair', asy
       corrupted = true;
     }
   };
-  await assert.rejects(verifyRuntimePublication(octokit, config), /Runtime content mismatch/);
+  await assert.rejects(verifyRuntimePublication(octokit, config), error => {
+    assert.ok(error instanceof AggregateError);
+    assert.match(error.errors[0].message, /Runtime content mismatch/);
+    assert.match(error.errors[1].message, /refusing to overwrite/);
+    return true;
+  });
   assert.ok(corrupted);
-  assert.deepEqual(Object.fromEntries(files), bundle);
-  assert.equal(writes.at(-1)?.sha, blobSha('# Still outdated\n'));
+  assert.equal(files.get(target), '# Still outdated\n');
+  assert.equal(writes.length, entries.length * 3 + 1);
 });
 
 test('repair failure explicitly aggregates the original publisher failure', async () => {

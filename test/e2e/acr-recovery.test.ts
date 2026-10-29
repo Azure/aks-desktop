@@ -98,10 +98,16 @@ test('unresolved accepted dispatch fails cleanup and prevents treating the sandb
   assert.deepEqual(actions, []);
 });
 
-test('cleanup still recovers an ACR run after GitHub dispatch discovery times out', async () => {
-  const { client, evidence, actions } = fixture();
+test('GitHub timeout does not consume the separate ACR recovery budget', async () => {
+  const { client, evidence, actions, acr } = fixture();
   client.findWorkflow = async () => undefined;
-  await assert.rejects(cleanupDispatched(client, evidence, new Set(), 5, 0), /Unresolved dispatch/);
+  let reads = 0;
+  client.runs = async () => (++reads < 3 ? [] : [acr]);
+  await assert.rejects(
+    cleanupDispatched(client, evidence, new Set(), 100, 0),
+    /Unresolved dispatch/
+  );
+  assert.equal(reads, 3);
   assert.deepEqual(actions, ['cancel-acr']);
 });
 
@@ -124,10 +130,72 @@ test('terminal test images are removed by exact SHA without changing a failed ve
   const { client, evidence, github, acr, actions } = fixture();
   github.status = 'completed';
   acr.status = 'Succeeded';
-  acr.images = [{ repository: evidence.imageName, tag: evidence.fixtureSha! }];
+  const digest = `sha256:${'b'.repeat(64)}`;
+  acr.images = [{ repository: evidence.imageName, tag: evidence.fixtureSha!, digest }];
   evidence.githubRun = github;
   evidence.acrRun = acr;
   await cleanupDispatched(client, evidence, new Set());
   assert.deepEqual(actions, [`delete:rest29-test:${evidence.fixtureSha}`]);
+  assert.equal(evidence.verdict, 'failed');
+});
+
+test('cleanup refuses image deletion without a run-reported immutable digest', async () => {
+  const { client, evidence, github, acr, actions } = fixture();
+  github.status = 'completed';
+  acr.status = 'Succeeded';
+  acr.images = [{ repository: evidence.imageName, tag: evidence.fixtureSha! }];
+  await assert.rejects(cleanupDispatched(client, evidence, new Set()), /Unresolved dispatch/);
+  assert.ok(!actions.some(action => action.startsWith('delete:')));
+  assert.match(evidence.cleanupErrors.join(), /Missing immutable output digest/);
+});
+
+test('cleanup does not cancel a GitHub run whose fixture identity changed', async () => {
+  const { client, evidence, github, actions } = fixture();
+  github.sha = 'b'.repeat(40);
+  evidence.githubRun = github;
+  await assert.rejects(cleanupDispatched(client, evidence, new Set()), /Unresolved dispatch/);
+  assert.ok(!actions.includes('cancel-github'));
+  assert.ok(actions.includes('cancel-acr'));
+  assert.match(evidence.cleanupErrors.join(), /fixture mismatch/);
+});
+
+test('cleanup never cancels a registry run present before the dispatch', async () => {
+  const { client, evidence, acr, actions } = fixture();
+  evidence.acrRun = acr;
+  await assert.rejects(
+    cleanupDispatched(client, evidence, new Set([acr.id])),
+    /Unresolved dispatch/
+  );
+  assert.ok(!actions.includes('cancel-acr'));
+  assert.match(evidence.cleanupErrors.join(), /pre-dispatch ACR run/);
+});
+
+test('fresh run identity is checked before requesting ACR cancellation', async () => {
+  const { client, evidence, acr, actions } = fixture();
+  evidence.acrRun = acr;
+  client.run = async () => ({ ...acr, id: 'unrelated' });
+  await assert.rejects(cleanupDispatched(client, evidence, new Set()), /Unresolved dispatch/);
+  assert.ok(!actions.includes('cancel-acr'));
+  assert.match(evidence.cleanupErrors.join(), /run mismatch/);
+});
+
+test('unexpected output artifacts are preserved and reported as cleanup errors', async () => {
+  const { client, evidence, github, acr, actions } = fixture();
+  github.status = 'completed';
+  acr.status = 'Succeeded';
+  acr.images = [{ repository: 'unrelated', tag: 'keep', digest: `sha256:${'b'.repeat(64)}` }];
+  evidence.acrRun = acr;
+  await assert.rejects(cleanupDispatched(client, evidence, new Set()), /Unresolved dispatch/);
+  assert.ok(!actions.some(action => action.startsWith('delete:')));
+  assert.match(evidence.cleanupErrors.join(), /unowned artifacts/);
+});
+
+test('recovery records fresh terminal snapshots without changing the failed verdict', async () => {
+  const { client, evidence, github, acr } = fixture();
+  client.workflow = async () => ({ ...github, status: 'completed', conclusion: 'cancelled' });
+  client.run = async () => ({ ...acr, status: 'Canceled' });
+  await cleanupDispatched(client, evidence, new Set());
+  assert.equal(evidence.githubRun?.status, 'completed');
+  assert.equal(evidence.acrRun?.status, 'Canceled');
   assert.equal(evidence.verdict, 'failed');
 });

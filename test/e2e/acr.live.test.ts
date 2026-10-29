@@ -9,8 +9,9 @@ import test from 'node:test';
 import { getAcrBuildFiles } from '../../plugins/aks-desktop/src/components/GitHubPipeline/utils/acrTasks/acrTaskRunner';
 import { createOctokitClient } from '../../plugins/aks-desktop/src/utils/github/github-api';
 import { verifyRuntimePublication } from './acr-publication';
-import { command, createServices, validateWorkflow } from './acr-services';
+import { command, createServices, LiveTestPermissionError, validateWorkflow } from './acr-services';
 import {
+  assertScenarioOutcome,
   cleanupDispatched,
   CONTEXT_PATH,
   GATE_NAME,
@@ -39,6 +40,13 @@ test(
     const config = readConfig(process.env);
     const nonce = randomUUID().slice(0, 8);
     const outputRoot = path.resolve(__dirname, '../../out/acr-e2e', nonce);
+    try {
+      await createServices(config, outputRoot).preflight();
+    } catch (error) {
+      if (!(error instanceof LiveTestPermissionError)) throw error;
+      t.skip(`ACR live tests require additional controller access: ${error.message}`);
+      return;
+    }
     const fixture = async (name: string) =>
       fs.readFile(path.join(__dirname, 'fixtures/acr', name), 'utf8');
     const prepared = await Promise.all(
@@ -68,7 +76,6 @@ test(
     );
     const generatorRevision = (await command('git', ['rev-parse', 'HEAD'])).trim();
     const generatorDirty = (await command('git', ['status', '--porcelain'])).trim().length > 0;
-    await createServices(config, outputRoot).preflight();
     t.diagnostic(`Evidence directory: ${outputRoot}`);
     const publication = {
       generatorRevision,
@@ -117,7 +124,9 @@ test(
     for (const { scenario, imageName, marker, files } of prepared) {
       await t.test(
         scenario,
-        { skip: stop ? 'Unresolved prior dispatch/cleanup; inspect the sandbox' : false },
+        {
+          skip: stop ? 'Unresolved prior dispatch/cleanup; inspect the sandbox' : false,
+        },
         async () => {
           const client = createServices(config, path.join(outputRoot, scenario));
           const evidence: Evidence = {
@@ -133,7 +142,12 @@ test(
           const deadline = Date.now() + 12 * 60_000;
           try {
             evidence.fixtureSha = await client.publish(files);
-            before = new Set((await client.runs()).map(run => run.id));
+            const existing = await client.runs();
+            assert.ok(
+              existing.every(run => isTerminal(run.status)),
+              'Refusing to dispatch while another ACR run is active'
+            );
+            before = new Set(existing.map(run => run.id));
             dispatched = true;
             await client.dispatch();
             evidence.githubRun = await waitFor(
@@ -161,7 +175,7 @@ test(
                 },
                 deadline
               );
-              await client.cancelWorkflow(evidence.githubRun.id);
+              await client.cancelWorkflow(evidence.githubRun.id, evidence.fixtureSha!);
             }
             evidence.acrRun = await waitFor(
               'terminal ACR state',
@@ -175,19 +189,10 @@ test(
               run => run.status === 'completed',
               deadline
             );
-            const expected = {
-              success: ['Succeeded', 'success', 'success'],
-              external: ['Succeeded', 'success', 'success'],
-              failure: ['Failed', 'failure', 'skipped'],
-              cancel: ['Canceled', 'cancelled', 'skipped'],
-            }[scenario];
             const gate = (await client.jobs(evidence.githubRun.id)).find(
               job => job.name === GATE_NAME
             );
-            assert.deepEqual(
-              [evidence.acrRun.status, evidence.githubRun.conclusion, gate?.conclusion],
-              expected
-            );
+            assertScenarioOutcome(scenario, evidence.acrRun, evidence.githubRun, gate);
             const logs = await client.logs(acrId);
             await client.save(evidence, logs);
             if (scenario === 'success' || scenario === 'external') {
@@ -201,7 +206,11 @@ test(
                 logs.includes(`ACR_E2E_SOURCE_OK:${marker}`),
                 'Missing proof that the fixture verified its context, ignore rules and build argument'
               );
-              await client.verifyImage(`${imageName}:${evidence.fixtureSha}`);
+              const output = evidence.acrRun.images.find(
+                image => image.repository === imageName && image.tag === evidence.fixtureSha
+              );
+              assert.ok(output?.digest, 'Missing immutable fixture image digest');
+              await client.verifyImage(`${imageName}:${evidence.fixtureSha}`, output.digest);
             } else {
               assert.equal(
                 evidence.acrRun.images.length,

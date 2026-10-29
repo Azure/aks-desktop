@@ -15,8 +15,11 @@ suite-specific; sharing the opt-in does not make every suite require GitHub.
 Selected-suite configuration is checked before either suite starts.
 
 Normal unit tests and CI never invoke this command. Once selected, missing
-configuration or a failed suite is an error, not a skipped success. Tests run
-sequentially, and a failure stops later suites.
+configuration or a failed suite is an error. ACR tests report an explicit skip
+when the read-only preflight identifies insufficient controller permissions,
+before publishing files or dispatching builds. Skips are not acceptance evidence.
+Transport errors, invalid responses and failures after preflight remain errors.
+Tests run sequentially, and a failure stops later suites.
 
 ## REST parity
 
@@ -57,6 +60,15 @@ API version `2019-04-01`, polls its status, retrieves logs, and cancels unfinish
 work on failure or workflow cancellation. Only a successful remote build permits
 deployment. The selected registry's ARM ID is preferred; legacy name-only
 configuration uses ARM registry discovery, never the cluster's resource group.
+The uploaded root `.dockerignore` is normalized to the selected Dockerfile's
+effective rules when an override or relocated Dockerfile is used. This preserves
+ignore precedence with legacy ACR builders as well as BuildKit; external staging
+files are excluded from `COPY` by both root and Dockerfile-specific rules.
+Relocated Dockerfiles use reserved root-level `.aksd-acr.Dockerfile` and
+`.aksd-acr.Dockerfile.dockerignore` paths, avoiding an empty staging directory
+that legacy Docker can otherwise retain in `COPY .`.
+Normalization preserves the selected ignore file's context-symlink boundary
+checks and rejects directory paths before any source upload.
 
 The existing `azure/login` OIDC setup and `azure/aks-set-context` remain. Token
 acquisition still uses `az account get-access-token`; the resource build itself
@@ -88,6 +100,39 @@ identities, repositories, credentials, or repository secrets.
    named `aksd-acr-e2e` (or `aksd-acr-e2e-<suffix>`). The publishing credential
    needs Contents/Workflows write and Actions read/write. Classic OAuth/PAT
    credentials need `repo` plus `workflow` scopes.
+   The project's dedicated private sandbox is
+   [`Azure/aks-desktop-e2e`](https://github.com/Azure/aks-desktop-e2e); access is
+   restricted to approved collaborators. Do not run these tests in the
+   `Azure/aks-desktop` source repository or overwrite shared production secrets.
+   Repository **Write** access is sufficient; Admin is not required for normal
+   workflow publication, dispatch or repository-secret API access. Fine-grained
+   credentials additionally need the relevant Contents, Workflows, Actions and
+   Secrets permissions.
+
+   An existing repository administrator can grant `illume` direct Write access:
+
+   ```sh
+   gh api --method PUT repos/Azure/aks-desktop-e2e/collaborators/illume \
+     -f permission=push
+   ```
+
+   This sets the direct repository role and may replace an existing direct role;
+   it does not change organization or team memberships. Other collaborators
+   should substitute their approved GitHub login. The test controller can check
+   its effective access without printing credentials:
+
+   ```sh
+   gh api repos/Azure/aks-desktop-e2e --jq .permissions
+   ```
+
+   `push` must be `true`; `admin` may be `false`. The preflight also checks access
+   to repository-secret metadata and effective Azure run read/log/cancel and
+   image read/delete permissions, including separate image data actions for
+   ABAC-enabled registries. It never grants access or probes deletion by
+   modifying a resource. Conditional policies, token permissions not exposed by
+   these reads, and the workflow's separate OIDC identity are still validated
+   by actual execution rather than assumed to work.
+
 3. On its **default branch**, install this harmless dispatch bootstrap at
    `.github/workflows/aksd-acr-e2e.yml` so GitHub recognizes the workflow:
 
@@ -108,6 +153,10 @@ identities, repositories, credentials, or repository secrets.
 4. Set that repository's `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and
    `AZURE_SUBSCRIPTION_ID` secrets for the production `azure/login` OIDC setup.
    Trust the actual subject for the E2E branch; do not use client secrets.
+   New repositories can include immutable owner/repository IDs in that subject;
+   use the exact claim emitted by GitHub instead of assuming the older
+   `repo:owner/name:ref:...` format. Personal repositories may also be rejected
+   by tenant policy even when resource permissions are sufficient.
 5. Reserve a public-cloud ACR in a **dedicated test resource group**, reachable
    from GitHub-hosted runners, with **no concurrent builds**.
    The runner needs Tasks Contributor and appropriate image
@@ -115,7 +164,7 @@ identities, repositories, credentials, or repository secrets.
    [Microsoft's role reference][roles]. `AcrPush` alone does not permit Tasks.
 
 ```sh
-export AKSD_E2E_REPOSITORY=owner/dedicated-sandbox
+export AKSD_E2E_REPOSITORY=Azure/aks-desktop-e2e
 export AKSD_E2E_BRANCH=aksd-acr-e2e
 export AKSD_E2E_ACR_RESOURCE_ID='/subscriptions/<guid>/resourceGroups/<group>/providers/Microsoft.ContainerRegistry/registries/<name>'
 export AKSD_E2E_ACR_LOGIN_SERVER='<name>.azurecr.io'
@@ -123,8 +172,9 @@ export AKSD_E2E_EXCLUSIVE_REGISTRY=1
 npm run test:e2e:azure -- --suite acr
 ```
 
-Before remote writes the tests generate and lint all fixture workflows and check
-the branch, bootstrap, and registry metadata. The workflow uses the same
+Before fixture generation or remote writes, the tests check controller access,
+the branch, bootstrap, and registry metadata. Authorized runs then generate and
+lint all fixture workflows. The workflow uses the same
 generated Python runner files as the product, published unchanged with each
 fixture. The controller rejects any regression back to `az acr build`.
 
@@ -134,6 +184,29 @@ Current suites do not provision Azure resources. The REST suite is read-only;
 the ACR suite reuses an explicitly supplied test registry. It cancels identified
 test work and deletes only its uniquely named test images. It never deletes the
 registry, resource group, identity, role assignments, repository, or branch.
+
+Destructive cleanup fails closed:
+
+- GitHub cancellation re-reads the run and checks its exact fixture commit,
+  dedicated branch, workflow path and dispatch event before sending cancellation.
+- Registry run IDs are validated, and dispatch is refused while another ACR run
+  is active. Multiple newly observed runs remain an error, not permission to
+  cancel unknown work.
+- Image deletion requires the immutable digest reported by that scenario's ACR
+  run. Cleanup checks for unexpected aliases, refuses a moved tag, deletes by
+  digest rather than tag, and verifies both digest and fixture tag are absent.
+  Shared/ambiguous manifests are left for manual inspection with a cleanup error.
+- An explicitly reported missing registry artifact is an idempotent no-op only
+  after absence checks; authorization, transport and service failures are not
+  treated as absence.
+- GitHub and ACR recovery have separate bounded polling budgets. Failure in one
+  cannot consume the other's recovery budget or turn the original test into a pass.
+- Publication recovery repairs only its own unique outdated-file marker. An
+  unexpected concurrent change is preserved and reported, never overwritten.
+
+The registry must still be dedicated and exclusive: tag metadata checks and
+manifest deletion are not an atomic lock against other writers. Do not share it
+with production or concurrently publish additional aliases into test repositories.
 
 Provision the ACR and any disposable identities in a separate, uniquely named
 test resource group rather than a production or shared application group. Record
@@ -171,9 +244,9 @@ The existing unit snapshot still covers the actual deployment job.
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime publication         | The real production publisher installs the bundle, republishes unchanged existing files, and replaces a deliberately outdated artifact using current target-branch SHAs. Every generated file's content and Git blob SHA are checked. |
 | Nested-context success      | ACR and GitHub success; sentinel succeeds; exact fixture-SHA tag resolves to an image digest; unique build-log proof that nested files, build argument, and ignore rules were verified.                                               |
-| External-Dockerfile success | The selected Dockerfile is outside the nested context; its specific ignore file overrides conflicting root rules. The same success checks pass, and staged `.aksd-acr` files cannot enter `COPY .` output.                            |
+| External-Dockerfile success | The selected Dockerfile is outside the nested context; its specific ignore file overrides conflicting root rules. The same success checks pass, and staged `.aksd-acr.Dockerfile*` files cannot enter `COPY .` output.                |
 | Failure                     | ACR `Failed`, GitHub failure, sentinel skipped, missing-file signature in build logs, no output image.                                                                                                                                |
-| Cancellation                | After ACR is `Running`, cancel **GitHub only**; observe ACR `Canceled`, GitHub cancelled and sentinel skipped. No output image from the slow fixture.                                                                                 |
+| Cancellation                | After ACR is `Running`, cancel **GitHub only**; observe ACR `Canceled`, GitHub cancelled and a skipped/cancelled deployment job with no steps. No output image from the slow fixture.                                                 |
 
 Publication runs before billable builds. It uses the production
 `publishAcrBuildFiles` with an authenticated GitHub client, not the test harness's
@@ -187,6 +260,7 @@ the ACR build, then emits a unique success marker only after all checks pass.
 The final image copies that verified context. The controller requires the marker
 in the actual build logs and verifies the image tag/digest through ACR.
 Both success variants share this Dockerfile and additionally reject `.aksd-acr`
+and both `.aksd-acr.Dockerfile*` staging files
 in the copied context. No local Docker daemon, container execution, or registry password is needed.
 The cancellation fixture sleeps five minutes to allow observation.
 

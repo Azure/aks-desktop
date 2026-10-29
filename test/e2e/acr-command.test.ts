@@ -18,6 +18,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const simulateFailure = JSON.parse(args).includes('--offline-fail');
 const mode = JSON.parse(args).find(arg => arg.startsWith('--offline-')) ?? '';
+const diagnostic = {
+  '--offline-denied': 'ERROR: (AuthorizationFailed) private-sensitive-output',
+  '--offline-forbidden': 'gh: Resource not accessible (HTTP 403) private-sensitive-output',
+  '--offline-rate-limit': 'gh: API rate limit exceeded (HTTP 403) private-sensitive-output',
+  '--offline-login': 'To get started, please run: gh auth login private-sensitive-output',
+  '--offline-missing': 'ERROR: MANIFEST_UNKNOWN private-sensitive-output',
+  '--offline-missing-server': 'ERROR: HTTP 500 MANIFEST_UNKNOWN private-sensitive-output',
+  '--offline-missing-cli': 'ERROR: The requested data does not exist. private-sensitive-output',
+  '--offline-missing-cli-server':
+    'ERROR: HTTP 500 The requested data does not exist. private-sensitive-output',
+  '--offline-missing-code': 'ERROR: manifest is not found. private-sensitive-output',
+  '--offline-missing-code-server': 'ERROR: HTTP 500 manifest is not found. private-sensitive-output',
+}[mode] ?? '';
 const nativeSetTimeout = global.setTimeout;
 global.setTimeout = (fn, ms, ...rest) =>
   nativeSetTimeout(fn, ms > 55000 && ms <= 60000 ? 20 : ms, ...rest);
@@ -39,7 +52,7 @@ function child() {
 cp.execFile = (file, argv, options, callback) => {
   launches.push({ launcher: 'execFile', file, args: argv, shell: options.shell ?? false });
   const result = child();
-  process.nextTick(() => callback(null, 'fixture stdout'));
+  process.nextTick(() => callback(diagnostic ? { code: mode.startsWith('--offline-missing-code') ? 3 : 1 } : null, 'fixture stdout', diagnostic));
   return result;
 };
 cp.spawn = (file, argv, options) => {
@@ -53,8 +66,8 @@ cp.spawn = (file, argv, options) => {
       return;
     }
     result.stdout.end('fixture stdout');
-    result.stderr.end();
-    result.emit('close', simulateFailure ? 2 : 0, null);
+    result.stderr.end(diagnostic);
+    result.emit('close', mode.startsWith('--offline-missing-code') ? 3 : simulateFailure || diagnostic ? 2 : 0, null);
   });
   return result;
 };
@@ -69,7 +82,7 @@ cp.spawnSync = (file, argv, options) => {
 const { command } = require('./test/e2e/acr-services.ts');
 command(binary, JSON.parse(args)).then(
   stdout => console.log(JSON.stringify({ stdout, launches })),
-  error => console.log(JSON.stringify({ error: error.message, launches,
+  error => console.log(JSON.stringify({ error: error.message, name: error.name, launches,
     pipesClosed: spawned && [spawned.stdin, spawned.stdout, spawned.stderr].every(pipe => pipe.destroyed) }))
 );
 `;
@@ -157,6 +170,64 @@ test('Windows Azure CLI failures reject with a sanitized diagnostic', async t =>
   assert.equal(result.stdout, undefined);
 });
 
+for (const platform of ['linux', 'win32']) {
+  for (const mode of [
+    '--offline-missing',
+    '--offline-missing-server',
+    '--offline-missing-cli',
+    '--offline-missing-cli-server',
+    '--offline-missing-code',
+    '--offline-missing-code-server',
+  ]) {
+    test(`registry absence is distinguished from service failure (${platform}, ${mode})`, async t => {
+      const result = await launch(t, platform, 'az', [
+        'acr',
+        'repository',
+        'show',
+        '--image',
+        `rest29-owned:${'a'.repeat(40)}`,
+        mode,
+      ]);
+      assert.equal(
+        result.name,
+        mode === '--offline-missing' ||
+          mode === '--offline-missing-cli' ||
+          mode === '--offline-missing-code'
+          ? 'RegistryArtifactNotFoundError'
+          : 'Error'
+      );
+      assert.doesNotMatch(result.error, /private-sensitive-output/);
+    });
+  }
+  test(`repository-level absence is not treated as an image-cleanup no-op (${platform})`, async t => {
+    const result = await launch(t, platform, 'az', [
+      'acr',
+      'repository',
+      'show',
+      '--repository',
+      'rest29-owned',
+      '--offline-missing-code',
+    ]);
+    assert.equal(result.name, 'Error');
+  });
+  for (const mode of [
+    '--offline-denied',
+    '--offline-forbidden',
+    '--offline-rate-limit',
+    '--offline-login',
+  ]) {
+    test(`controller access errors are classified without exposing output (${platform}, ${mode})`, async t => {
+      const result = await launch(t, platform, 'az', ['rest', mode]);
+      assert.equal(
+        result.name,
+        mode === '--offline-rate-limit' ? 'Error' : 'LiveTestPermissionError'
+      );
+      assert.doesNotMatch(result.error, /private-sensitive-output/);
+      assert.match(result.error, /output withheld/);
+    });
+  }
+}
+
 for (const [mode, error] of [
   ['--offline-hang', 'ETIMEDOUT'],
   ['--offline-overflow', 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'],
@@ -209,7 +280,10 @@ test(
         cwd: project,
         encoding: 'utf8',
         timeout: 15_000,
-        env: { ...process.env, PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}` },
+        env: {
+          ...process.env,
+          PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
       }
     );
 
@@ -272,7 +346,10 @@ for (const mode of ['timeout', 'overflow']) {
         cwd: project,
         encoding: 'utf8',
         timeout: 15_000,
-        env: { ...process.env, PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}` },
+        env: {
+          ...process.env,
+          PATH: `${directory}${path.delimiter}${process.env.PATH ?? ''}`,
+        },
       });
       assert.equal(result.status, 0, result.stderr);
       assert.ok(

@@ -52,6 +52,8 @@ export interface AcrRun {
     repository: string;
     /** Published image tag, expected to match the fixture commit SHA. */
     tag: string;
+    /** Immutable output digest, required before destructive image cleanup. */
+    digest?: string;
   }>;
 }
 
@@ -75,6 +77,44 @@ export interface Job {
   name: string;
   /** GitHub job outcome, or `null` before it has concluded. */
   conclusion: string | null;
+  /** Reported step names; an unstarted skipped/cancelled deployment has no steps. */
+  steps: string[];
+}
+
+/**
+ * Verifies service/job outcomes before cleanup can affect cancellation evidence.
+ * @param scenario Acceptance case being checked.
+ * @param acr Terminal ACR run observed independently of cleanup.
+ * @param workflow Completed GitHub workflow.
+ * @param gate Generated deployment dependency job, including whether any steps ran.
+ */
+export function assertScenarioOutcome(
+  scenario: Scenario,
+  acr: AcrRun,
+  workflow: WorkflowRun,
+  gate: Job | undefined
+): void {
+  const expected = {
+    success: ['Succeeded', 'success'],
+    external: ['Succeeded', 'success'],
+    failure: ['Failed', 'failure'],
+    cancel: ['Canceled', 'cancelled'],
+  }[scenario];
+  assert.deepEqual([acr.status, workflow.conclusion], expected);
+  assert.ok(gate, 'Missing generated deployment gate');
+  if (scenario === 'cancel') {
+    assert.ok(
+      gate.conclusion === 'skipped' || gate.conclusion === 'cancelled',
+      'Cancelled builds must not complete deployment'
+    );
+    assert.equal(gate.steps.length, 0, 'Deployment steps ran after cancellation');
+  } else if (scenario === 'failure') {
+    assert.equal(gate.conclusion, 'skipped');
+    assert.equal(gate.steps.length, 0, 'Deployment steps ran after a failed build');
+  } else {
+    assert.equal(gate.conclusion, 'success');
+    assert.ok(gate.steps.includes(GATE_NAME), 'Deployment sentinel did not run');
+  }
 }
 
 /** Mutable scenario evidence, persisted before and after cleanup without changing its verdict. */
@@ -317,7 +357,7 @@ export async function waitForAcrRun(
  * @param client GitHub/ACR recovery operations, scoped to the configured sandbox.
  * @param evidence Mutable evidence with a recorded verdict and published fixture SHA.
  * @param before Registry run IDs captured before dispatch for exclusive-registry correlation.
- * @param budgetMs Shared recovery polling budget in milliseconds; defaults to one minute.
+ * @param budgetMs Recovery polling budget per service in milliseconds; defaults to one minute.
  * @param intervalMs Polling delay in milliseconds; defaults to five seconds.
  * @returns Resolves after both GitHub and ACR recovery have completed.
  * @throws If prerequisite evidence is missing, or an AggregateError if either recovery fails;
@@ -335,7 +375,6 @@ export async function cleanupDispatched(
 ): Promise<void> {
   assert.ok(evidence.verdict, 'Record the verdict before emergency cleanup');
   assert.ok(evidence.fixtureSha, 'Missing dispatched fixture SHA');
-  const deadline = Date.now() + budgetMs;
   const errors: Error[] = [];
   const attempt = async (label: string, action: () => Promise<void>) => {
     try {
@@ -349,6 +388,7 @@ export async function cleanupDispatched(
     }
   };
   await attempt('GitHub recovery', async () => {
+    const deadline = Date.now() + budgetMs;
     const github =
       evidence.githubRun ??
       (await waitFor(
@@ -360,9 +400,13 @@ export async function cleanupDispatched(
       ));
     assert.ok(github);
     evidence.githubRun = github;
-    if ((await client.workflow(github.id)).status !== 'completed') {
-      await client.cancelWorkflow(github.id);
-      await waitFor(
+    const current = await client.workflow(github.id);
+    assert.equal(current.id, github.id, 'GitHub cleanup run mismatch');
+    assert.equal(current.sha, evidence.fixtureSha, 'GitHub cleanup fixture mismatch');
+    evidence.githubRun = current;
+    if (current.status !== 'completed') {
+      await client.cancelWorkflow(github.id, evidence.fixtureSha!);
+      evidence.githubRun = await waitFor(
         'GitHub cancellation',
         () => client.workflow(github.id),
         run => run.status === 'completed',
@@ -372,9 +416,13 @@ export async function cleanupDispatched(
     }
   });
   await attempt('ACR recovery', async () => {
+    const deadline = Date.now() + budgetMs;
     const acr = evidence.acrRun ?? (await waitForAcrRun(client, before, deadline, intervalMs));
+    assert.ok(!before.has(acr.id), 'Refusing cleanup of a pre-dispatch ACR run');
     evidence.acrRun = acr;
-    if (!isTerminal((await client.run(acr.id)).status)) {
+    const current = await client.run(acr.id);
+    assert.equal(current.id, acr.id, 'ACR cleanup run mismatch');
+    if (!isTerminal(current.status)) {
       await client.cancelAcr(acr.id);
       await waitFor(
         'ACR cancellation',
@@ -385,12 +433,20 @@ export async function cleanupDispatched(
       );
     }
     const final = await client.run(acr.id);
-    if (
-      final.images.some(
+    assert.equal(final.id, acr.id, 'ACR cleanup run mismatch');
+    evidence.acrRun = final;
+    assert.ok(
+      final.images.every(
         image => image.repository === evidence.imageName && image.tag === evidence.fixtureSha
-      )
-    ) {
-      await client.deleteImage(`${evidence.imageName}:${evidence.fixtureSha}`);
+      ),
+      'Unexpected run output images; refusing cleanup of unowned artifacts'
+    );
+    const image = final.images.find(
+      image => image.repository === evidence.imageName && image.tag === evidence.fixtureSha
+    );
+    if (image) {
+      assert.ok(image.digest, 'Missing immutable output digest; refusing image cleanup');
+      await client.deleteImage(`${evidence.imageName}:${evidence.fixtureSha}`, image.digest);
     }
   });
   if (errors.length)

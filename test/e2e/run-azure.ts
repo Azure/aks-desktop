@@ -119,7 +119,7 @@ export async function runAzure(
       console.error(`[azure live] ${suite} failed (${result.signal ?? result.code ?? 'unknown'})`);
       return result;
     }
-    console.log(`[azure live] Passed ${suite} suite`);
+    console.log(`[azure live] Completed ${suite} suite; see test results for passes and skips`);
   }
   return { code: 0, signal: null };
 }

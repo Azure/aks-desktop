@@ -174,9 +174,9 @@ test('all runs REST then ACR sequentially and reports progress', async t => {
   assert.deepEqual(await pending, { code: 0, signal: null });
   assert.deepEqual(messages, [
     '[azure live] Starting rest suite',
-    '[azure live] Passed rest suite',
+    '[azure live] Completed rest suite; see test results for passes and skips',
     '[azure live] Starting acr suite',
-    '[azure live] Passed acr suite',
+    '[azure live] Completed acr suite; see test results for passes and skips',
   ]);
 });
 

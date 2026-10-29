@@ -17,6 +17,8 @@ import {
 } from './acr-workflow';
 
 const batchMeta = /[()\][%!^"`<>&|;, *?]/g;
+const digestPattern = /^sha256:[0-9a-f]{64}$/;
+const runIdPattern = /^[a-zA-Z0-9_-]+$/;
 
 function batchArgument(value: string): string {
   assert.doesNotMatch(
@@ -40,6 +42,22 @@ function batchArgument(value: string): string {
  */
 export type Command = (binary: string, args: string[], input?: string) => Promise<string>;
 
+/** A known controller access shortfall that may skip live tests before any mutations. */
+export class LiveTestPermissionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LiveTestPermissionError';
+  }
+}
+
+/** A registry explicitly reported that the requested manifest or repository does not exist. */
+export class RegistryArtifactNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RegistryArtifactNotFoundError';
+  }
+}
+
 /**
  * Runs a CLI with a one-minute deadline and withholds output from failure messages.
  * Windows Azure termination additionally allows up to five seconds for process-tree cleanup.
@@ -51,14 +69,40 @@ export type Command = (binary: string, args: string[], input?: string) => Promis
  */
 export const command: Command = (binary, args, input) =>
   new Promise((resolve, reject) => {
-    const failure = (code: string | number = 'unknown') =>
+    const failure = (code: string | number = 'unknown', diagnostic = '') => {
+      const message = `${binary} ${
+        args[0] ?? ''
+      } failed (code ${code}). Check authentication, permissions, network and tool availability; command output withheld to protect credentials.`;
+      const denied =
+        ['gh', 'az'].includes(binary) &&
+        typeof code === 'number' &&
+        !/rate limit|secondary rate|abuse detection/i.test(diagnostic) &&
+        /HTTP (401|403)\b|\((AuthorizationFailed|AuthorizationPermissionMismatch|Forbidden|Unauthorized|InvalidAuthenticationToken)\)|not logged into any GitHub hosts|Please run:?\s+['"]?(az login|gh auth login)/i.test(
+          diagnostic
+        );
+      // Azure CLI maps registry HTTP 404 responses to resource-not-found exit code 3.
+      const missingArtifact =
+        binary === 'az' &&
+        args[0] === 'acr' &&
+        args[1] === 'repository' &&
+        ['show', 'delete'].includes(args[2]) &&
+        args.includes('--image') &&
+        typeof code === 'number' &&
+        !/HTTP (408|429|5\d\d)\b|timed? out|timeout|rate limit/i.test(diagnostic) &&
+        (code === 3 ||
+          /\b(MANIFEST_UNKNOWN|NAME_UNKNOWN)\b|The requested data does not exist\.|The specified (manifest|tag|repository) does not exist/i.test(
+            diagnostic
+          ));
       reject(
-        new Error(
-          `${binary} ${
-            args[0] ?? ''
-          } failed (code ${code}). Check authentication, permissions, network and tool availability; command output withheld to protect credentials.`
-        )
+        denied
+          ? new LiveTestPermissionError(
+              `${message} Authenticate with the required controller access.`
+            )
+          : missingArtifact
+          ? new RegistryArtifactNotFoundError(message)
+          : new Error(message)
       );
+    };
     const env = { ...process.env, GH_PAGER: 'cat', GIT_TERMINAL_PROMPT: '0' };
     if (process.platform === 'win32' && binary === 'az') {
       const deadline = Date.now() + 60_000;
@@ -96,6 +140,7 @@ export const command: Command = (binary, args, input) =>
         windowsVerbatimArguments: batch,
       });
       const chunks: Buffer[] = [];
+      let diagnostic = '';
       let size = 0;
       let settled = false;
       const finish = (code?: string | number) => {
@@ -103,7 +148,7 @@ export const command: Command = (binary, args, input) =>
         settled = true;
         clearTimeout(timer);
         if (code === undefined) resolve(Buffer.concat(chunks).toString('utf8'));
-        else failure(code);
+        else failure(code, diagnostic);
       };
       const stop = (reason: string) => {
         if (settled) return;
@@ -134,7 +179,9 @@ export const command: Command = (binary, args, input) =>
           chunks.push(chunk);
         }
       });
-      child.stderr?.resume();
+      child.stderr?.on('data', (chunk: Buffer) => {
+        diagnostic = (diagnostic + chunk.toString('utf8')).slice(-8192);
+      });
       child.once('error', (error: NodeJS.ErrnoException) => finish(error.code ?? 'unknown'));
       child.once('close', (code, signal) => {
         if (code === 0) finish();
@@ -153,9 +200,12 @@ export const command: Command = (binary, args, input) =>
         maxBuffer: 16 * 1024 * 1024,
         env,
       },
-      (error, stdout) => {
+      (error, stdout, stderr) => {
         if (error) {
-          failure(error.code);
+          failure(
+            error.code ?? error.signal ?? 'unknown',
+            `${stderr ?? ''}\n${stdout}`.slice(-8192)
+          );
         } else {
           resolve(stdout);
         }
@@ -181,6 +231,58 @@ function nullableText(value: unknown, label: string): string | null {
   return value === null ? null : text(value, label);
 }
 
+function requireAzurePermissions(value: unknown, abac: boolean): void {
+  const permissions = list(record(value, 'Azure permissions').value, 'Azure permissions').map(
+    value => {
+      const permission = record(value, 'Azure permission');
+      const strings = (key: string) =>
+        list(permission[key] ?? [], key).map(value => text(value, key));
+      return {
+        actions: strings('actions'),
+        notActions: strings('notActions'),
+        dataActions: strings('dataActions'),
+        notDataActions: strings('notDataActions'),
+      };
+    }
+  );
+  const matches = (patterns: string[], action: string) =>
+    patterns.some(pattern =>
+      new RegExp(
+        `^${pattern
+          .split('*')
+          .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+          .join('.*')}$`,
+        'i'
+      ).test(action)
+    );
+  const granted = (action: string, data = false) =>
+    permissions.some(
+      permission =>
+        matches(data ? permission.dataActions : permission.actions, action) &&
+        !matches(data ? permission.notDataActions : permission.notActions, action)
+    );
+  const registry = 'Microsoft.ContainerRegistry/registries/';
+  const required = ['read', 'runs/read', 'runs/listLogSasUrl/action', 'runs/cancel/action'];
+  const images = abac
+    ? [
+        'repositories/metadata/read',
+        'repositories/content/read',
+        'repositories/metadata/delete',
+        'repositories/content/delete',
+      ]
+    : ['pull/read', 'artifacts/delete'];
+  const missing = [
+    ...required.filter(action => !granted(registry + action)),
+    ...images.filter(action => !granted(registry + action, abac)),
+  ];
+  if (missing.length) {
+    throw new LiveTestPermissionError(
+      `Azure controller lacks required ACR permissions: ${missing.join(', ')}. ` +
+        'Use an approved controller with run read/log/cancel and test-image read/delete access.'
+    );
+  }
+}
+
 /**
  * Validates an ARM ACR run response and extracts correlation/output-image evidence.
  * @param value Untrusted ACR run response.
@@ -190,14 +292,19 @@ function nullableText(value: unknown, label: string): string | null {
 export function parseAcrRun(value: unknown): AcrRun {
   const run = record(value, 'ACR run');
   const properties = record(run.properties, 'ACR run properties');
+  const identifier = text(properties.runId, 'ACR run ID');
+  assert.match(identifier, runIdPattern, 'Invalid ACR run ID');
   return {
-    id: text(properties.runId, 'ACR run ID'),
+    id: identifier,
     status: text(properties.status, 'ACR run status'),
     images: list(properties.outputImages ?? [], 'ACR output images').map(value => {
       const image = record(value, 'ACR output image');
+      const digest = image.digest == null ? undefined : text(image.digest, 'output image digest');
+      if (digest !== undefined) assert.match(digest, digestPattern, 'Invalid output image digest');
       return {
         repository: text(image.repository, 'image repository'),
         tag: text(image.tag, 'image tag'),
+        ...(digest === undefined ? {} : { digest }),
       };
     }),
   };
@@ -258,17 +365,51 @@ export function createServices(config: Config, outputDir: string, execute: Comma
   const assertImage = (image: string) => {
     assert.match(image, /^rest29-[a-z0-9-]+:[0-9a-f]{40}$/, 'Refusing non-E2E image mutation');
   };
+  const imageMetadata = async (image: string): Promise<Record<string, unknown> | undefined> => {
+    try {
+      return record(
+        JSON.parse(
+          await execute('az', [
+            'acr',
+            'repository',
+            'show',
+            '--name',
+            config.registryName,
+            '--subscription',
+            config.registryId.split('/')[2],
+            '--image',
+            image,
+            '--only-show-errors',
+            '--output',
+            'json',
+          ])
+        ),
+        'registry image'
+      );
+    } catch (error) {
+      if (!(error instanceof RegistryArtifactNotFoundError)) throw error;
+      return undefined;
+    }
+  };
   return {
     /**
-     * Checks the existing sandbox branch, owner-installed workflow and registry public-network setting.
+     * Checks controller access, the sandbox branch/workflow, and registry public-network setting.
      * @returns Resolves when all prerequisites pass; performs no remote writes.
-     * @throws If resources cannot be read, the target is the default branch, the workflow is inactive,
-     * the registry login server differs, or public network access is disabled.
+     * @throws LiveTestPermissionError for known controller permission shortfalls. Other invalid
+     * configuration, response-validation and transport errors remain failures.
      */
     preflight: async () => {
       const metadata = record(await github(repo), 'repository');
       const defaultBranch = text(metadata.default_branch, 'default branch');
       assert.notEqual(config.branch, defaultBranch, 'Never publish fixtures to the default branch');
+      const permissions = record(metadata.permissions, 'repository permissions');
+      if (permissions.push !== true) {
+        assert.equal(permissions.push, false, 'Invalid repository Write permission');
+        throw new LiveTestPermissionError(
+          `GitHub controller needs Write access to ${config.repository}; repository Admin is not required.`
+        );
+      }
+      await github(`${repo}/actions/secrets?per_page=1`);
       await github(`${repo}/git/ref/heads/${config.branch}`);
       // Dispatch discovery requires a workflow file on the default branch, installed by its owner.
       await github(`${repo}/contents/${WORKFLOW_PATH}?ref=${encodeURIComponent(defaultBranch)}`);
@@ -298,6 +439,10 @@ export function createServices(config: Config, outputDir: string, execute: Comma
         registry.publicNetworkAccess,
         'Disabled',
         'Use a registry reachable from GitHub-hosted runners'
+      );
+      requireAzurePermissions(
+        await azure(`${arm}/providers/Microsoft.Authorization/permissions?api-version=2022-04-01`),
+        registry.roleAssignmentMode === 'AbacRepositoryPermissions'
       );
     },
     /**
@@ -387,7 +532,11 @@ export function createServices(config: Config, outputDir: string, execute: Comma
      * @param id GitHub Actions run ID.
      * @returns Current status, conclusion and fixture-correlation metadata.
      */
-    workflow: async (id: number) => parseWorkflowRun(await github(`${repo}/actions/runs/${id}`)),
+    workflow: async (id: number) => {
+      const run = parseWorkflowRun(await github(`${repo}/actions/runs/${id}`));
+      assert.equal(run.id, id, 'GitHub run identity mismatch');
+      return run;
+    },
     /**
      * Reads job outcomes for the build/deployment gate checks.
      * @param id GitHub Actions run ID.
@@ -402,6 +551,9 @@ export function createServices(config: Config, outputDir: string, execute: Comma
         return {
           name: text(job.name, 'job name'),
           conclusion: nullableText(job.conclusion, 'job conclusion'),
+          steps: list(job.steps, 'job steps').map(value =>
+            text(record(value, 'job step').name, 'step name')
+          ),
         };
       });
     },
@@ -426,13 +578,34 @@ export function createServices(config: Config, outputDir: string, execute: Comma
      * @param id Registry-local ACR run ID.
      * @returns Current run status and reported output images.
      */
-    run: async (id: string) => parseAcrRun(await azure(armUrl(`runs/${encodeURIComponent(id)}`))),
+    run: async (id: string) => {
+      assert.match(id, runIdPattern, 'Invalid ACR run ID');
+      const run = parseAcrRun(await azure(armUrl(`runs/${encodeURIComponent(id)}`)));
+      assert.equal(run.id, id, 'ACR run identity mismatch');
+      return run;
+    },
     /**
      * Requests GitHub cancellation without waiting for completion or deleting cloud resources.
      * @param id GitHub Actions run ID.
-     * @returns Resolves when the cancellation request succeeds.
+     * @param fixtureSha Exact fixture commit owned by this scenario.
+     * @returns Resolves after cancellation is requested or the verified run is already completed.
      */
-    cancelWorkflow: async (id: number) => {
+    cancelWorkflow: async (id: number, fixtureSha: string) => {
+      assert.ok(Number.isSafeInteger(id) && id > 0, 'Invalid GitHub run ID');
+      assert.match(fixtureSha, /^[0-9a-f]{40}$/, 'Invalid fixture SHA');
+      const run = record(
+        await github(`${repo}/actions/runs/${id}`),
+        'workflow cancellation target'
+      );
+      assert.equal(run.id, id, 'Refusing cancellation of another run ID');
+      assert.equal(run.head_sha, fixtureSha, 'Refusing cancellation of another fixture');
+      assert.equal(run.head_branch, config.branch, 'Refusing cancellation on another branch');
+      assert.equal(run.path, WORKFLOW_PATH, 'Refusing cancellation of another workflow');
+      assert.equal(run.event, 'workflow_dispatch', 'Refusing cancellation of a non-test event');
+      if (text(run.status, 'workflow status') === 'completed') {
+        console.log(`[ACR cleanup] Workflow ${id} already completed; no cancellation requested`);
+        return;
+      }
       await github(`${repo}/actions/runs/${id}/cancel`, 'POST');
     },
     /**
@@ -441,6 +614,7 @@ export function createServices(config: Config, outputDir: string, execute: Comma
      * @returns Resolves when the cancellation request succeeds.
      */
     cancelAcr: async (id: string) => {
+      assert.match(id, runIdPattern, 'Invalid ACR run ID');
       await azure(armUrl(`runs/${encodeURIComponent(id)}/cancel`), 'POST');
     },
     /**
@@ -450,6 +624,7 @@ export function createServices(config: Config, outputDir: string, execute: Comma
      * @throws If the URL is invalid, the download fails/times out or the log reaches its size limit.
      */
     logs: async (id: string) => {
+      assert.match(id, runIdPattern, 'Invalid ACR run ID');
       const response = record(
         await azure(armUrl(`runs/${encodeURIComponent(id)}/listLogSasUrl`), 'POST'),
         'log URL response'
@@ -471,57 +646,70 @@ export function createServices(config: Config, outputDir: string, execute: Comma
     /**
      * Verifies that an E2E image has a SHA-256 digest in the configured registry.
      * @param image Scenario-owned `rest29-...:<40-character fixture SHA>` image reference.
+     * @param expectedDigest Optional immutable digest reported by the scenario's ACR run.
      * @returns Resolves when registry metadata contains a valid digest; does not pull the image.
      * @throws If the image is not an E2E reference or the metadata lookup/digest check fails.
      */
-    verifyImage: async (image: string) => {
+    verifyImage: async (image: string, expectedDigest?: string) => {
       assertImage(image);
-      const metadata = record(
-        JSON.parse(
+      const metadata = await imageMetadata(image);
+      assert.ok(metadata, 'Expected fixture image is missing');
+      assert.match(text(metadata.digest, 'image digest'), digestPattern, 'Invalid image digest');
+      if (expectedDigest !== undefined) {
+        assert.match(expectedDigest, digestPattern, 'Invalid expected image digest');
+        assert.equal(metadata.digest, expectedDigest, 'Fixture image tag changed');
+      }
+    },
+    /**
+     * Deletes only the run-reported digest, refusing shared aliases and verifying its absence.
+     * @param image Scenario-owned `rest29-...:<40-character fixture SHA>` image reference.
+     * @param expectedDigest Immutable digest reported by the scenario's ACR run.
+     * @returns Resolves after the owned digest and tag are verified absent; the registry remains.
+     * @throws If ownership is ambiguous, other tags share the digest, or verification fails.
+     */
+    deleteImage: async (image: string, expectedDigest: string) => {
+      assertImage(image);
+      assert.match(expectedDigest, digestPattern, 'Invalid owned image digest');
+      const [repository, tag] = image.split(':');
+      const target = `${repository}@${expectedDigest}`;
+      const metadata = await imageMetadata(target);
+      if (metadata) {
+        assert.equal(metadata.digest, expectedDigest, 'Owned image digest mismatch');
+        const tags = list(metadata.tags, 'image tags').map(value => text(value, 'image tag'));
+        assert.ok(
+          tags.every(value => value === tag),
+          'Refusing deletion of a manifest with other tags'
+        );
+        const tagged = await imageMetadata(image);
+        assert.ok(
+          !tagged || tagged.digest === expectedDigest,
+          'Fixture tag changed; refusing deletion'
+        );
+        try {
           await execute('az', [
             'acr',
             'repository',
-            'show',
+            'delete',
             '--name',
             config.registryName,
             '--subscription',
             config.registryId.split('/')[2],
             '--image',
-            image,
+            target,
+            '--yes',
             '--only-show-errors',
-            '--output',
-            'json',
-          ])
-        ),
-        'registry image'
+          ]);
+        } catch (error) {
+          if (!(error instanceof RegistryArtifactNotFoundError)) throw error;
+        }
+      }
+      assert.equal(
+        await imageMetadata(target),
+        undefined,
+        'Owned image digest remains after cleanup'
       );
-      assert.match(
-        text(metadata.digest, 'image digest'),
-        /^sha256:[0-9a-f]{64}$/,
-        'Invalid image digest'
-      );
-    },
-    /**
-     * Explicitly deletes the manifest addressed by an E2E tag, including any other tags on it.
-     * @param image Scenario-owned `rest29-...:<40-character fixture SHA>` image reference.
-     * @returns Resolves after the registry deletion command succeeds; the registry itself remains.
-     * @throws If the image is not an E2E reference or the deletion command fails.
-     */
-    deleteImage: async (image: string) => {
-      assertImage(image);
-      await execute('az', [
-        'acr',
-        'repository',
-        'delete',
-        '--name',
-        config.registryName,
-        '--subscription',
-        config.registryId.split('/')[2],
-        '--image',
-        image,
-        '--yes',
-        '--only-show-errors',
-      ]);
+      assert.equal(await imageMetadata(image), undefined, 'Fixture image tag remains or changed');
+      console.log(`[ACR cleanup] Verified owned image absent: ${image}`);
     },
     /**
      * Writes local evidence and, when supplied, a redacted log; performs no cloud cleanup.
