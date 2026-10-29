@@ -140,8 +140,11 @@ function submitNamespace() {
 }
 
 function goBackOneWizardStep() {
-  const backButtons = screen.getAllByRole('button', { name: 'Back' });
-  fireEvent.click(backButtons[backButtons.length - 1]);
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+}
+
+function clickHeaderBack() {
+  fireEvent.click(screen.getByRole('button', { name: 'Back to home' }));
 }
 
 describe('CreateNamespace telemetry', () => {
@@ -228,6 +231,15 @@ describe('CreateNamespace telemetry', () => {
     expect(mocks.push).toHaveBeenCalledWith('/');
   });
 
+  test('emits cancelled from the accessible header back-to-home control', () => {
+    render(<CreateNamespace />);
+
+    clickHeaderBack();
+
+    expect(mocks.trackAksFeature.mock.calls).toEqual([['aksd.namespace-create', 'cancelled']]);
+    expect(mocks.push.mock.calls).toEqual([['/']]);
+  });
+
   test('does not instrument wizard Back between visible steps', () => {
     render(<CreateNamespace />);
     completeBasics();
@@ -271,6 +283,51 @@ describe('CreateNamespace telemetry', () => {
       ['aksd.namespace-create', 'started'],
       ['aksd.namespace-create', 'succeeded'],
     ]);
+  });
+
+  test.each(['succeeded', 'failed'] as const)(
+    'header Back after %s navigates without emitting cancelled',
+    async status => {
+      if (status === 'succeeded') {
+        mocks.createNamespaceAsProject.mockResolvedValue(undefined);
+      } else {
+        mocks.createNamespaceAsProject.mockRejectedValue(new Error('private failure'));
+      }
+      render(<CreateNamespace />);
+      completeBasics();
+      submitNamespace();
+      await waitFor(() =>
+        expect(mocks.trackAksFeature).toHaveBeenCalledWith('aksd.namespace-create', status)
+      );
+
+      clickHeaderBack();
+
+      expect(mocks.push.mock.calls).toEqual([['/']]);
+      expect(mocks.trackAksFeature.mock.calls).toEqual([
+        ['aksd.namespace-create', 'started'],
+        ['aksd.namespace-create', status],
+      ]);
+    }
+  );
+
+  test('cancels an active attempt from the reachable header Back and ignores late completion', async () => {
+    const attempt = createDeferred<void>();
+    mocks.createNamespaceAsProject.mockReturnValue(attempt.promise);
+    render(<CreateNamespace />);
+    completeBasics();
+    submitNamespace();
+    clickHeaderBack();
+    await act(async () => {
+      attempt.resolve();
+      await attempt.promise;
+    });
+
+    expect(mocks.trackAksFeature.mock.calls).toEqual([
+      ['aksd.namespace-create', 'started'],
+      ['aksd.namespace-create', 'cancelled'],
+    ]);
+    expect(mocks.push.mock.calls).toEqual([['/']]);
+    expect(mocks.setClusterSettings).not.toHaveBeenCalled();
   });
 
   test('clears the success-dialog timer on unmount', async () => {

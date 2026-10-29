@@ -239,6 +239,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "Ad alanı seçili kümede oluşturulacak ve proje olarak ayarlanacak",
   "Regular Kubernetes namespace": "Normal Kubernetes ad alanı",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "Kümede proje etiketleri uygulanmış yeni bir ad alanı oluşturulacak. Proje listenizde hemen görünecek.",
+  "Back to home": "",
   "Create New Namespace": "Yeni Ad Alanı Oluştur",
   "Create a new namespace on an existing cluster and set it up as a project": "Var olan bir kümede yeni bir ad alanı oluşturun ve bunu proje olarak ayarlayın",
   "Creating Namespace": "Ad Alanı Oluşturma",

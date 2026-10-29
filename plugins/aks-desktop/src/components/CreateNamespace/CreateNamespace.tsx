@@ -284,10 +284,25 @@ function CreateNamespaceContent() {
 
   return (
     <PageGrid maxWidth="lg" sx={{ margin: '0 auto' }}>
+      {/*
+        SectionBox's built-in Back button exposes no click callback. Use a
+        local button to route through cancellation handling, with a distinct
+        accessible name from the wizard's step-level Back control.
+      */}
+      <Button
+        variant="text"
+        color="primary"
+        size="small"
+        aria-label={t('Back to home')}
+        onClick={onBack}
+        startIcon={<Icon icon="mdi:chevron-left" height={20} width={20} aria-hidden="true" />}
+        sx={{ alignSelf: 'flex-start' }}
+      >
+        {t('Back')}
+      </Button>
       <SectionBox
         title={t('Create New Namespace')}
         subtitle={t('Create a new namespace on an existing cluster and set it up as a project')}
-        backLink="/"
       >
         <Card elevation={2} sx={{ position: 'relative' }}>
           {/* Loading / Success / Error Overlay */}

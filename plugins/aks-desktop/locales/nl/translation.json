@@ -239,6 +239,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "De naamruimte wordt op het geselecteerde cluster gemaakt en ingesteld als project",
   "Regular Kubernetes namespace": "Standaard Kubernetes-naamruimte",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "Er wordt een nieuwe naamruimte op het cluster gemaakt met toegepaste projectlabels. Deze verschijnt direct in je projectlijst.",
+  "Back to home": "",
   "Create New Namespace": "Nieuwe naamruimte maken",
   "Create a new namespace on an existing cluster and set it up as a project": "Maak een nieuwe naamruimte op een bestaand cluster en stel deze in als project",
   "Creating Namespace": "Naamruimte maken",

@@ -239,6 +239,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "Namnområdet skapas i det valda klustret och konfigureras som ett projekt",
   "Regular Kubernetes namespace": "Vanligt Kubernetes-namnområde",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "Ett nytt namnområde skapas i klustret med projektetiketter tillämpade. Den visas direkt i projektlistan.",
+  "Back to home": "",
   "Create New Namespace": "Skapa nytt namnområde",
   "Create a new namespace on an existing cluster and set it up as a project": "Skapa ett nytt namnområde i ett befintligt kluster och konfigurera det som ett projekt",
   "Creating Namespace": "Skapar namnområde",
