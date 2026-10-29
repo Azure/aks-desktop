@@ -84,7 +84,7 @@
   "Drained node {{name}}.": "{{name}} 노드를 드레이닝했습니다.",
   "Draining node {{name}} cancelled.": "{{name}} 노드의 드레이닝이 취소되었습니다.",
   "Draining node {{name}}…": "{{name}} 노드를 드레이닝하는 중...",
-  "Driver": "Driver",
+  "Driver": "드라이버",
   "Driver Name": "드라이버 이름",
   "Drivers": "Drivers",
   "Duration": "기간",

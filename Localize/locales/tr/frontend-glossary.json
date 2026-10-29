@@ -84,7 +84,7 @@
   "Drained node {{name}}.": "{{name}} düğümü boşaltıldı.",
   "Draining node {{name}} cancelled.": "{{name}} düğümünü boşaltma işlemi iptal edildi.",
   "Draining node {{name}}…": "{{name}} düğümü boşaltılıyor…",
-  "Driver": "Driver",
+  "Driver": "Sürücü",
   "Driver Name": "Sürücü Adı",
   "Drivers": "Drivers",
   "Duration": "Süre",

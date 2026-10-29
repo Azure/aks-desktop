@@ -84,7 +84,7 @@
   "Drained node {{name}}.": "Knooppunt {{name}} is leeg.",
   "Draining node {{name}} cancelled.": "Het leegmaken van het knooppunt {{name}} is geannuleerd.",
   "Draining node {{name}}…": "Knooppunt {{name}} wordt leeggemaakt...",
-  "Driver": "Driver",
+  "Driver": "Stuurprogramma",
   "Driver Name": "Stuurprogrammanaam",
   "Drivers": "Drivers",
   "Duration": "Duur",
