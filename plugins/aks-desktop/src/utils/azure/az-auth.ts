@@ -14,13 +14,13 @@ import { getAzCommand, getInstallationInstructions } from './az-cli-path';
 
 /** Azure CLI account state used by authentication flows. */
 export interface AzureLoginStatus {
-  /** Whether Azure CLI has a usable current account. */
+  /** Whether Azure CLI has a usable selected account. */
   isLoggedIn: boolean;
   /** Signed-in account name when available. */
   username?: string;
-  /** Current Azure tenant identifier when available. */
+  /** Selected Azure tenant identifier when available. */
   tenantId?: string;
-  /** Current Azure subscription identifier when available. */
+  /** Selected Azure subscription identifier when available. */
   subscriptionId?: string;
   /** Whether Azure CLI explicitly requires another login. */
   needsRelogin?: boolean;
@@ -87,13 +87,16 @@ function isCommandFailure(stderr: string): boolean {
 }
 
 /**
- * Reads and validates the current Azure CLI account.
+ * Reads and validates the selected Azure CLI account without changing the default account.
  *
+ * @param subscriptionId - Subscription to inspect; omitted selects the current CLI account.
  * @returns Validated login status. Command and parsing failures are returned in `error`.
  */
-export async function getLoginStatus(): Promise<AzureLoginStatus> {
+export async function getLoginStatus(subscriptionId?: string): Promise<AzureLoginStatus> {
   try {
-    const { stdout, stderr } = await runCommandAsync('az', ['account', 'show', '-o', 'json']);
+    const args = ['account', 'show', '-o', 'json'];
+    if (subscriptionId !== undefined) args.push('--subscription', subscriptionId);
+    const { stdout, stderr } = await runCommandAsync('az', args);
     const accountOutput = stdout.trim();
     const errorOutput = stderr.trim();
 
