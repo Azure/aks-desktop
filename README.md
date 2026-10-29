@@ -31,6 +31,12 @@ npm install
 npm start
 ```
 
+On Windows, this step may be needed: the bundled Azure CLI contains files nested
+deeper than the 260-character path limit allows from a long checkout path. Either
+[enable long paths](https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation#enable-long-paths-in-windows-10-version-1607-and-later)
+or clone to a short directory such as `C:\src\aks-desktop`. Otherwise the build
+stops before extracting and reports how much shorter the path must be.
+
 To build the application after installing dependencies:
 
 ```bash

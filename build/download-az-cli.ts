@@ -54,8 +54,16 @@ const {
   resolveAzureCliTarget,
   verifyRequiredArtifact,
   windowsExtensionInstallArguments,
-  windowsZipExtraction,
 } = require('./azure-cli-config.ts');
+const {
+  longPathsEnabledFromRegQuery,
+  windowsLongPathsQuery,
+  windowsPathLimitMessage,
+  windowsPathLimitViolations,
+  windowsZipExtraction,
+  windowsZipListing,
+} = require('./windows-zip-extraction.ts');
+const { runWindowsBatch } = require('./windows-batch.ts');
 const EXTERNAL_TOOLS_DIR = path.join(HEADLAMP_APP_DIR, 'resources', 'external-tools');
 const AZ_CLI_DIR = path.join(EXTERNAL_TOOLS_DIR, 'az-cli');
 const TEMP_DIR = path.join(os.tmpdir(), `az-cli-download-${process.pid}`);
@@ -173,10 +181,12 @@ if (
     );
 
     const versionData = JSON.parse(
-      execFileSync(azWrapperPath, ['version', '--output', 'json'], {
-        encoding: 'utf8',
-        timeout: 120000,
-      })
+      CURRENT_PLATFORM === 'win32'
+        ? runWindowsBatch(azWrapperPath, ['version', '--output', 'json'], { timeout: 120000 })
+        : execFileSync(azWrapperPath, ['version', '--output', 'json'], {
+            encoding: 'utf8',
+            timeout: 120000,
+          })
     );
     if (azureCliVersionDataMatchesTarget(target, versionData)) {
       verifyExtensionCache(
@@ -340,20 +350,54 @@ function extractTarGz(archivePath: string, outputDir: string): void {
 /**
  * Extract zip file
  */
+function windowsLongPathsEnabled(): boolean {
+  const query = windowsLongPathsQuery();
+  try {
+    return longPathsEnabledFromRegQuery(
+      execFileSync(query.command, query.args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    );
+  } catch {
+    // reg.exe exits non-zero when the value is absent, which Windows treats as disabled.
+    return false;
+  }
+}
+
+/** Fails before extraction when Python could not load the extracted files. */
+function assertWindowsPathsFit(archivePath: string, outputDir: string): void {
+  if (windowsLongPathsEnabled()) {
+    return;
+  }
+  const listing = windowsZipListing(archivePath);
+  const entries = execFileSync(listing.command, listing.args, {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  }).split(/\r?\n/);
+  const violations = windowsPathLimitViolations(entries, outputDir);
+  if (violations.length > 0) {
+    throw new Error(windowsPathLimitMessage(violations, outputDir, `Azure CLI ${AZ_CLI_VERSION}`));
+  }
+}
+
 function extractZip(archivePath: string, outputDir: string): void {
   console.log('Extracting...');
-  fs.mkdirSync(outputDir, { recursive: true });
 
   if (process.platform === 'win32') {
+    const extraction = windowsZipExtraction(archivePath, path.resolve(outputDir));
+    if (!fs.existsSync(extraction.command)) {
+      throw new Error(
+        `Windows tar was not found at ${extraction.command}; Windows 10 version 1803 or later is required`
+      );
+    }
+    assertWindowsPathsFit(archivePath, path.resolve(outputDir));
+    fs.mkdirSync(outputDir, { recursive: true });
     try {
-      // Use PowerShell's Expand-Archive on Windows - it's more reliable than tar for ZIP files
-      const extraction = windowsZipExtraction(archivePath, outputDir);
-      execFileSync(extraction.command, extraction.args, { stdio: 'inherit', env: extraction.env });
+      execFileSync(extraction.command, extraction.args, { stdio: 'inherit' });
     } catch (err) {
       console.error('Failed to extract ZIP.');
       throw err;
     }
   } else {
+    fs.mkdirSync(outputDir, { recursive: true });
     execSync(`unzip -q "${archivePath}" -d "${outputDir}"`, { stdio: 'inherit' });
   }
 }
