@@ -1152,7 +1152,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
-    "integrity": "sha512-JG9zjXKR+BZAE46B7AzNZknAScUYJbwErv2UwAjvrfZ691wygeRqo31M5Fdz9BpRkuqN6TmaC0Q+7WOvEXq31A=="
+    "integrity": "sha512-qiyXVOZCJXk3mPfuS/OCh8vPEUmnJtvKYe3wUG47JY8wjbPiAnagdawWRS5iKcE1QO6yGYtBlR9FbWmJE1NqUQ=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
