@@ -162,6 +162,15 @@ check it with:
 az pipelines build show --organization "$org" --project "$project" --id <build-id>
 ```
 
+### Sign release checksums
+
+After production signing and notarization finish, attach the final artifacts
+to the GitHub release draft and run **Sign release checksums** from `main`.
+The workflow signs the complete attached asset set without rebuilding or
+replacing installers, and leaves publication to the maintainer. See
+[release handoff and download verification](docs/verify-releases.md) for
+reruns, failure recovery, and explicit retrospective signing.
+
 ### macOS release architecture
 
 The AzureContainerUpstream organization currently has no available hosted
