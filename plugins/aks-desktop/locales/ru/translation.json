@@ -251,6 +251,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "Пространство имен будет создано в выбранном кластере и настроено в качестве проекта",
   "Regular Kubernetes namespace": "Обычное пространство имен Kubernetes",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "В кластере будет создано новое пространство имен с примененными метками проектов. Оно сразу появится в вашем списке проектов.",
+  "Back to home": "",
   "Create New Namespace": "Создать пространство имен",
   "Create a new namespace on an existing cluster and set it up as a project": "Создайте новое пространство имен в существующем кластере и настройте его в качестве проекта",
   "Creating Namespace": "Создается пространство имен",

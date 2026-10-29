@@ -251,6 +251,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "Obor názvů se vytvoří ve vybraném clusteru a nastaví se jako projekt",
   "Regular Kubernetes namespace": "Běžný obor názvů Kubernetes",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "V clusteru se vytvoří nový obor názvů s použitými popisky projektu. Zobrazí se okamžitě v seznamu projektů.",
+  "Back to home": "",
   "Create New Namespace": "Vytvořit nový obor názvů",
   "Create a new namespace on an existing cluster and set it up as a project": "Vytvořte nový obor názvů v existujícím clusteru a nastavte ho jako projekt",
   "Creating Namespace": "Vytváří se obor názvů",

@@ -236,6 +236,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "命名空间将在所选群集上创建，并设置为项目",
   "Regular Kubernetes namespace": "常规 Kubernetes 命名空间",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "将在该群集上创建新的命名空间并应用项目标签。它将立即显示在项目列表中。",
+  "Back to home": "",
   "Create New Namespace": "创建新命名空间",
   "Create a new namespace on an existing cluster and set it up as a project": "在现有群集上创建新的命名空间并将其设置为项目",
   "Creating Namespace": "正在创建命名空间",
