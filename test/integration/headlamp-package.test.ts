@@ -692,7 +692,7 @@ test('AKS product policy owns development and production command grants', () => 
   const productGrants: any[] = policies[0].commands;
   assert.equal(productGrants.some(grant => 'command' in grant), false);
   assert.equal(productGrants.some(grant => 'executable' in grant), false);
-  for (const group of ['ad', 'identity', 'provider', 'rest']) {
+  for (const group of ['ad', 'identity', 'rest']) {
     assert.ok(
       productGrants.some(
         grant => grant.tool === 'az' && grant.args[0] === group && grant.allowTrailingArgs

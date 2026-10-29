@@ -37,6 +37,7 @@
     "test:headlamp-package": "npm --prefix packages/headlamp-source run test:package && tsx --test test/integration/headlamp-package.test.ts",
     "test:headlamp-patches": "npm run headlamp:patches -- --check && npm run test:headlamp-package",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
+    "test:azure:list": "tsx test/live/list-azure-resources.ts",
     "test:post-build": "tsx ./build/verify-bundled-tools.ts",
     "test:distribution": "npm run test:post-build && npm run headlamp:smoke --",
     "test:packaged-theme": "tsc -p test/packaged/tsconfig.json && playwright test --config test/packaged/playwright.config.ts",
@@ -397,14 +398,15 @@
           {
             "tool": "az",
             "args": [
-              "provider"
+              "account"
             ],
             "allowTrailingArgs": true
           },
           {
             "tool": "az",
             "args": [
-              "account"
+              "cloud",
+              "show"
             ],
             "allowTrailingArgs": true
           },
@@ -518,6 +520,14 @@
           {
             "tool": "az",
             "args": [
+              "cloud",
+              "show"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
               "ad"
             ],
             "allowTrailingArgs": true
@@ -610,13 +620,6 @@
             "tool": "az",
             "args": [
               "monitor"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "provider"
             ],
             "allowTrailingArgs": true
           },
@@ -794,14 +797,15 @@
           {
             "tool": "az",
             "args": [
-              "provider"
+              "account"
             ],
             "allowTrailingArgs": true
           },
           {
             "tool": "az",
             "args": [
-              "account"
+              "cloud",
+              "show"
             ],
             "allowTrailingArgs": true
           },
@@ -915,6 +919,14 @@
           {
             "tool": "az",
             "args": [
+              "cloud",
+              "show"
+            ],
+            "allowTrailingArgs": true
+          },
+          {
+            "tool": "az",
+            "args": [
               "ad"
             ],
             "allowTrailingArgs": true
@@ -1007,13 +1019,6 @@
             "tool": "az",
             "args": [
               "monitor"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "provider"
             ],
             "allowTrailingArgs": true
           },
@@ -1158,7 +1163,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
-    "integrity": "sha512-yPjDZIx488ztd+cTHmwG+mIpQU7yAifez3316OAR+WByyBjew+SPFZSozqVt5Ib3fnvf+N5buMOhyOJB4WDYYg=="
+    "integrity": "sha512-FlwdQLRIr3Z4pc+fceiwmPE4i8d2zB5Mrb2vHDOwN5A/HJ+Enq/G54RT2nyjiKSgnSA3CsKrzw5hyH6t16gt1g=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [

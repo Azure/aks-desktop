@@ -228,6 +228,15 @@ differ by OS and architecture. Use these target tags:
 - `linux-arm64`: `manylinux_2_17_aarch64`
 - `win32-x64`: `win_amd64`
 
+Security updates must preserve each target's native wheel compatibility. The
+cryptography 49.x and 50.x releases do not publish macOS Intel wheels, so the
+Darwin x64 lock retains cryptography 48.0.1 until a verified compatible artifact
+is available. This is a packaging limitation, not an exemption from its security
+advisories; do not substitute an ARM64 wheel or suppress the findings. Validate
+major OAuthlib updates against the existing requests-oauthlib, msrest, and
+connectedk8s/Kubernetes authentication consumers as well as all five target
+dependency closures.
+
 ```bash
 python3 -m venv /tmp/aks-extension-lock
 resolver=/tmp/aks-extension-lock/bin/python

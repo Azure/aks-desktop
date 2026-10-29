@@ -2800,7 +2800,7 @@ index 420e5c109aa8e16e8dbbc2f098d46cd11f9f5283..ed89dbe224084397f7efdb0dbf1c47c9
      ipcRenderer.invoke('get-legal-documents'),
 diff --git a/source/app/electron/proxies.test.ts b/source/app/electron/proxies.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..908c104b69583e30e15b37c7e3d7dc985f2d2d8f
+index 0000000000000000000000000000000000000000..82f1e819ef12886a55809c13d8d2e1e916d1b0a3
 --- /dev/null
 +++ b/source/app/electron/proxies.test.ts
 @@ -0,0 +1,1307 @@
@@ -3009,7 +3009,7 @@ index 0000000000000000000000000000000000000000..908c104b69583e30e15b37c7e3d7dc98
 +        'az.cmd connectedk8s proxy --subscription "00000000-0000-0000-0000-000000000000" --resource-group "rg(prod)" --name "cluster-a" --port "47011"',
 +      ],
 +      options: {
-+        detached: true,
++        detached: false,
 +        shell: false,
 +        windowsHide: true,
 +        windowsVerbatimArguments: true,
@@ -3968,7 +3968,7 @@ index 0000000000000000000000000000000000000000..908c104b69583e30e15b37c7e3d7dc98
 +    });
 +  });
 +
-+  it('kills the verified Windows listener after its launcher exits', async () => {
++  it('kills the verified non-detached Windows listener after its launcher exits', async () => {
 +    await withPlatform('win32', async () => {
 +      const child = proxyChild(4242);
 +      spawnMock.mockReturnValue(child);
@@ -3977,7 +3977,7 @@ index 0000000000000000000000000000000000000000..908c104b69583e30e15b37c7e3d7dc98
 +      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
 +      child.stdout.emit('data', "Start sending kubectl requests on 'cluster-a' context\n");
 +      await expect(result).resolves.toEqual({ success: true });
-+
++      expect(spawnMock.mock.calls[0][2]).toMatchObject({ detached: false });
 +      child.emit('exit', 0, null);
 +      spawnMock.mockClear();
 +      const taskkill = new EventEmitter();
@@ -4025,7 +4025,7 @@ index 0000000000000000000000000000000000000000..908c104b69583e30e15b37c7e3d7dc98
 +    });
 +  });
 +
-+  it('retains a Windows proxy when its process identity lookup fails', async () => {
++  it('retains an exited Windows proxy when its listener identity lookup fails', async () => {
 +    await withPlatform('win32', async () => {
 +      const child = proxyChild(4242);
 +      spawnMock.mockReturnValue(child);
@@ -4034,7 +4034,7 @@ index 0000000000000000000000000000000000000000..908c104b69583e30e15b37c7e3d7dc98
 +      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
 +      child.stdout.emit('data', "Start sending kubectl requests on 'cluster-a' context\n");
 +      await expect(first).resolves.toEqual({ success: true });
-+
++      child.emit('exit', 0, null);
 +      execFileMock.mockImplementationOnce((_command, _args, _options, callback) =>
 +        callback(new Error('PowerShell unavailable'), '', '')
 +      );
@@ -4113,7 +4113,7 @@ index 0000000000000000000000000000000000000000..908c104b69583e30e15b37c7e3d7dc98
 +});
 diff --git a/source/app/electron/proxies.ts b/source/app/electron/proxies.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..0b2b9047f2b06069685cebe4728b01b5e4007a49
+index 0000000000000000000000000000000000000000..661c4957a91bfb97cb2a4eb2ad4532b7f5dfb090
 --- /dev/null
 +++ b/source/app/electron/proxies.ts
 @@ -0,0 +1,877 @@
@@ -4357,7 +4357,7 @@ index 0000000000000000000000000000000000000000..0b2b9047f2b06069685cebe4728b01b5
 +    return {
 +      command: commandShell,
 +      args: ['/d', '/s', '/c', ['az.cmd', ...windowsProxyArgs].join(' ')],
-+      options: { ...options, windowsVerbatimArguments: true },
++      options: { ...options, detached: false, windowsVerbatimArguments: true },
 +    };
 +  }
 +
@@ -4713,7 +4713,7 @@ index 0000000000000000000000000000000000000000..0b2b9047f2b06069685cebe4728b01b5
 +async function terminateChildEntryOnce(entry: ProxyChildEntry): Promise<boolean> {
 +  const { child } = entry;
 +  const launcherExited = childHasExited(child);
-+  if (!entry.group && launcherExited) {
++  if (!entry.group && !entry.windowsProcessIdentity && launcherExited) {
 +    proxyChildren.delete(entry);
 +    return true;
 +  }
@@ -4811,7 +4811,7 @@ index 0000000000000000000000000000000000000000..0b2b9047f2b06069685cebe4728b01b5
 +  child.stderr.on('data', data => {
 +    entry.stderrTail = (entry.stderrTail + data.toString()).slice(-STDERR_TAIL_CHARS);
 +  });
-+  if (!entry.group) {
++  if (!entry.group && process.platform !== 'win32') {
 +    const untrack = () => proxyChildren.delete(entry);
 +    child.once('exit', untrack);
 +    child.once('error', untrack);

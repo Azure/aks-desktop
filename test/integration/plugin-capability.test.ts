@@ -136,12 +136,15 @@ test('AKS approvals retain main defaults plus scoped directory reads', () => {
     assert.equal(policy.bundleName, 'aks-desktop');
     const prefixes = [
       '--version', 'version', 'login', 'logout', 'config', 'aks', 'connectedk8s',
-      'aksarc', 'extension', 'feature', 'provider', 'account', 'role', 'graph',
+      'aksarc', 'extension', 'feature', 'account', 'cloud', 'role', 'graph',
       'acr', 'group', 'vm', 'alerts-management', 'monitor',
     ];
     assert.deepEqual(policy.approvedCommands, [
       { tool: 'az', args: [] },
-      ...prefixes.map(prefix => ({ tool: 'az', args: [prefix], allowTrailingArgs: true })),
+      ...prefixes.map(prefix => ({
+        tool: 'az', args: prefix === 'cloud' ? ['cloud', 'show'] : [prefix],
+        allowTrailingArgs: true,
+      })),
       { tool: 'kubectl', args: ['top'], allowTrailingArgs: true },
       { tool: 'kubectl', args: ['config'], allowTrailingArgs: true },
       { tool: 'az', args: ['ad', 'user', 'list'], allowTrailingArgs: true },
@@ -154,6 +157,11 @@ test('AKS approvals retain main defaults plus scoped directory reads', () => {
       assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', args), true);
     }
     assert.equal(isRunCommandAllowed(policy.grants, 'az', ['rest']), true);
+    for (const grants of [policy.grants, policy.approvedCommands]) {
+      assert.equal(isRunCommandAllowed(grants, 'az', ['cloud', 'show', '--name', 'AzureUSGovernment']), true);
+      assert.equal(isRunCommandAllowed(grants, 'az', ['cloud', 'set', '--name', 'AzureUSGovernment']), false);
+      assert.equal(isRunCommandAllowed(grants, 'az', ['cloud', 'register', '--name', 'Other']), false);
+    }
     assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', ['rest']), false);
     assert.equal(isRunCommandAllowed(policy.approvedCommands, 'kubectl', ['top', 'nodes']), true);
     assert.equal(isRunCommandAllowed(policy.grants, 'kubectl', ['top', 'nodes']), false);
