@@ -146,7 +146,8 @@ from `COPY` without a synthetic parent directory. Dockerfile aliases use the
 selected name for sidecar lookup/archive identity, validating the resolved target
 separately. Selected targets must stay in the checkout and outside `.git`;
 in-context ignore symlinks must stay relative and inside the context. Invalid
-selected ignore directories/dangling symlinks fail before upload.
+selected ignore directories/dangling symlinks fail before upload instead of
+falling back to context rules.
 
 ## Cleanup and recovery
 

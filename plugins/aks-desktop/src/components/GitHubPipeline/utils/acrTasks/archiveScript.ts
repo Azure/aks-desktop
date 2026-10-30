@@ -143,7 +143,7 @@ def create_context(workspace, context_value, dockerfile_value, output, check=lam
         raise ValueError("Dockerfile cannot be inside .git")
 
     specific_ignore = Path(str(dockerfile) + ".dockerignore")
-    ignore_file = specific_ignore if specific_ignore.is_file() else context / ".dockerignore"
+    ignore_file = specific_ignore if os.path.lexists(specific_ignore) else context / ".dockerignore"
     ignore_target = ignore_file.resolve()
     if not inside(ignore_target, workspace):
         raise ValueError("Docker ignore file cannot escape the checkout")

@@ -519,6 +519,36 @@ describe('generated ACR Tasks runtime', () => {
   });
 
   it.each([
+    { kind: 'directory', context: '.', rootIgnore: false },
+    { kind: 'dangling symlink', context: '.', rootIgnore: true },
+    { kind: 'directory', context: 'src/web', rootIgnore: true },
+    { kind: 'dangling symlink', context: 'src/web', rootIgnore: false },
+  ])(
+    'rejects a $kind Dockerfile sidecar without fallback (context=$context, root=$rootIgnore)',
+    ({ kind, context, rootIgnore }) => {
+      const test = fixture({ DOCKER_FILE: 'docker/Buildfile', BUILD_CONTEXT_PATH: context });
+      const prefix = context === '.' ? '' : `${context}/`;
+      const sidecar = 'docker/Buildfile.dockerignore';
+      test.write('docker/Buildfile', 'FROM scratch\nCOPY . /app\n');
+      test.write(`${prefix}private.txt`, 'private-upload-marker');
+      test.write(`${prefix}public.txt`, 'public source');
+      if (rootIgnore) test.write(`${prefix}.dockerignore`, 'public.txt\n');
+      if (kind === 'directory') {
+        test.write(`${sidecar}/rules`, 'private.txt\n');
+      } else {
+        symlinkSync('missing.rules', join(test.workspace, sidecar));
+      }
+
+      const { status, stderr, records } = test.run();
+
+      expect(status).toBe(1);
+      expect(stderr).toContain('Docker ignore path must be a file');
+      expect(records.requests).toEqual([]);
+      expect(records.archive).toEqual({});
+    }
+  );
+
+  it.each([
     { pattern: '**.pem', excluded: ['private.pem', 'certs/private.pem', 'deep/certs/private.pem'] },
     { pattern: '**private.pem', excluded: ['private.pem', 'certs/private.pem'] },
     { pattern: '**/private?.pem', excluded: ['private1.pem', 'certs/private2.pem'] },
