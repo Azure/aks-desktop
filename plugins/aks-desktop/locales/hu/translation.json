@@ -239,6 +239,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "A névtér létrejön a kiválasztott fürtön, és projektként lesz beállítva",
   "Regular Kubernetes namespace": "Normál Kubernetes-névtér",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "Új névtér jön létre a fürtön, amelyen projektcímkék lesznek alkalmazva. Azonnal megjelenik a projektlistában.",
+  "Back to home": "",
   "Create New Namespace": "Új névtér létrehozása",
   "Create a new namespace on an existing cluster and set it up as a project": "Új névtér létrehozása egy meglévő fürtön, és beállítása projektként",
   "Creating Namespace": "Névtér létrehozása",

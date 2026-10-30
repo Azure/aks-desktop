@@ -244,6 +244,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "O namespace será criado no cluster selecionado e configurado como um projeto",
   "Regular Kubernetes namespace": "Namespace regular do Kubernetes",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "Um novo namespace será criado no cluster com rótulos de projeto aplicados. Ele aparecerá na lista de projetos imediatamente.",
+  "Back to home": "",
   "Create New Namespace": "Criar Novo Namespace",
   "Create a new namespace on an existing cluster and set it up as a project": "Criar um novo namespace em um cluster existente e configurá-lo como um projeto",
   "Creating Namespace": "Criando Namespace",
