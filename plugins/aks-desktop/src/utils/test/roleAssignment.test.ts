@@ -52,25 +52,32 @@ describe('assignRolesToNamespace', () => {
     mockVerifyNamespaceAccess.mockReset();
   });
 
-  test('returns success with empty results when no valid assignments', async () => {
+  test('does not substitute an unresolved UPN for an object ID before Azure writes', async () => {
     const result = await assignRolesToNamespace({
       ...baseOptions,
-      assignments: [{ objectId: '', role: 'Writer' }],
+      assignments: [{ objectId: '', upn: 'alice@contoso.com', role: 'Writer' }],
     });
 
     expect(result.success).toBe(true);
     expect(result.results).toHaveLength(0);
     expect(result.errors).toHaveLength(0);
     expect(mockCreateNamespaceRoleAssignment).not.toHaveBeenCalled();
+    expect(mockVerifyNamespaceAccess).not.toHaveBeenCalled();
   });
 
-  test('assigns 3 roles per user and verifies access', async () => {
+  test('assigns 3 roles and verifies access using the object ID, never the UPN', async () => {
     mockCreateNamespaceRoleAssignment.mockResolvedValue({ success: true });
     mockVerifyNamespaceAccess.mockResolvedValue({ success: true, hasAccess: true });
 
     const result = await assignRolesToNamespace({
       ...baseOptions,
-      assignments: [{ objectId: testObjectId1, role: 'Writer' }],
+      assignments: [
+        {
+          objectId: testObjectId1,
+          upn: 'guest_example.com#EXT#@contoso.onmicrosoft.com',
+          role: 'Writer',
+        },
+      ],
     });
 
     expect(result.success).toBe(true);
