@@ -796,6 +796,69 @@ describe('generated ACR Tasks runtime', () => {
     expect(records.archive['private.txt']).toBeUndefined();
   });
 
+  it.each([
+    {
+      description: 'with an excluded target in the root context',
+      context: '.',
+      dockerfile: 'Dockerfile',
+      excludeTarget: true,
+    },
+    {
+      description: 'with an excluded target in a nested context',
+      context: 'src/web',
+      dockerfile: 'docker/Buildfile',
+      excludeTarget: true,
+    },
+    {
+      description: 'with an included target in the root context',
+      context: '.',
+      dockerfile: 'Dockerfile',
+      excludeTarget: false,
+    },
+  ])('materializes a selected root-ignore symlink $description', input => {
+    const prefix = input.context === '.' ? '' : `${input.context}/`;
+    const test = fixture({
+      DOCKER_FILE: `${prefix}${input.dockerfile}`,
+      BUILD_CONTEXT_PATH: input.context,
+    });
+    const dockerfile = 'FROM scratch\nCOPY . /app\n';
+    const rules = `.dockerignore\n${input.dockerfile}\nprivate.txt\n${
+      input.excludeTarget ? 'ignore.rules\n' : ''
+    }`;
+    test.write(`${prefix}${input.dockerfile}`, dockerfile);
+    test.write(`${prefix}ignore.rules`, rules);
+    test.write(`${prefix}private.txt`, 'private-upload-marker');
+    test.write(`${prefix}public.txt`, 'required public source');
+    symlinkSync('ignore.rules', join(test.workspace, `${prefix}.dockerignore`));
+
+    const { status, stderr, records } = test.run();
+
+    expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
+    expect(records.archive['.dockerignore']).toEqual({ link: null, content: rules });
+    expect(records.archive_names.filter(name => name === '.dockerignore')).toHaveLength(1);
+    expect(records.archive[input.dockerfile]).toEqual({ link: null, content: dockerfile });
+    expect(records.archive['ignore.rules']).toEqual(
+      input.excludeTarget ? undefined : { link: null, content: rules }
+    );
+    expect(records.archive['private.txt']).toBeUndefined();
+    expect(records.archive['public.txt'].content).toBe('required public source');
+    expect(requests(records, '/scheduleRun')[0].body).toMatchObject({
+      dockerFilePath: input.dockerfile,
+    });
+  });
+
+  it('rejects a selected root-ignore symlink with a missing target before upload', () => {
+    const test = fixture();
+    symlinkSync('missing.rules', join(test.workspace, '.dockerignore'));
+
+    const { status, stderr, records } = test.run();
+
+    expect(status).toBe(1);
+    expect(stderr).toContain('Docker ignore path must be a file');
+    expect(requests(records, '/listBuildSourceUploadUrl')).toHaveLength(0);
+    expect(records.archive).toEqual({});
+  });
+
   it('rejects a selected ignore directory instead of replacing it with an empty file', () => {
     const test = fixture({ DOCKER_FILE: 'docker/Buildfile', BUILD_CONTEXT_PATH: 'src/web' });
     test.write('docker/Buildfile', 'FROM scratch');

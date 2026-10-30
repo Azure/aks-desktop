@@ -61,14 +61,16 @@ work on failure or workflow cancellation. Only a successful remote build permits
 deployment. The selected registry's ARM ID is preferred; legacy name-only
 configuration uses ARM registry discovery, never the cluster's resource group.
 The uploaded root `.dockerignore` is normalized to the selected Dockerfile's
-effective rules when an override or relocated Dockerfile is used. This preserves
-ignore precedence with legacy ACR builders as well as BuildKit; external staging
-files are excluded from `COPY` by both root and Dockerfile-specific rules.
+effective rules when an override, relocated Dockerfile, or ignore-file symlink is
+used. The normalized root file is regular even when the selected symlink's target
+is excluded from the context. This preserves ignore precedence with legacy ACR
+builders as well as BuildKit; external staging files are excluded from `COPY` by
+both root and Dockerfile-specific rules.
 Relocated Dockerfiles use reserved root-level `.aksd-acr.Dockerfile` and
 `.aksd-acr.Dockerfile.dockerignore` paths, avoiding an empty staging directory
 that legacy Docker can otherwise retain in `COPY .`.
 Normalization preserves the selected ignore file's context-symlink boundary
-checks and rejects directory paths before any source upload.
+checks and rejects directory paths and dangling symlinks before any source upload.
 For a selected Dockerfile symlink, sidecar lookup uses the selected filename,
 not the resolved target filename. The target is validated separately and its
 contents are archived under the selected name, or the reserved staging name

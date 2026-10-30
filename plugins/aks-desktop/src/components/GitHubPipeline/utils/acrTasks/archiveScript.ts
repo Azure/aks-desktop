@@ -149,13 +149,13 @@ def create_context(workspace, context_value, dockerfile_value, output, check=lam
         raise ValueError("Docker ignore file cannot escape the checkout")
     if ".git" in ignore_target.relative_to(workspace).parts:
         raise ValueError("Docker ignore file cannot be inside .git")
-    if ignore_file.exists() and not ignore_file.is_file():
+    if os.path.lexists(ignore_file) and not ignore_file.is_file():
         raise ValueError("Docker ignore path must be a file")
     if ignore_file.is_symlink() and inside(ignore_file, context):
         symlink_target(ignore_file, context, ignore_file.relative_to(context).as_posix())
     rules = ignore_rules(ignore_file)
     external = not inside(dockerfile, context)
-    rewrite_ignore = external or specific_ignore.is_file()
+    rewrite_ignore = external or specific_ignore.is_file() or ignore_file.is_symlink()
     # Legacy Docker can retain the empty parent of a force-included Dockerfile in COPY output.
     docker_name = ".aksd-acr.Dockerfile" if external else dockerfile.relative_to(context).as_posix()
     if external:
