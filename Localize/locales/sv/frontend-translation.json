@@ -159,7 +159,7 @@
   "Clear Selection": "Rensa val",
   "Client Config: Service": "Klientkonfiguration: tjänst",
   "Client Config: URL": "Klientkonfiguration: webbadress",
-  "Clipboard is not available. This can happen when Headlamp is served over an insecure (non-HTTPS) connection.": "Clipboard is not available. This can happen when Headlamp is served over an insecure (non-HTTPS) connection.",
+  "Clipboard is not available. This can happen when Headlamp is served over an insecure (non-HTTPS) connection.": "Urklipp är inte tillgängligt. Detta kan inträffa när Headlamp hanteras via en osäker (icke-HTTPS)-anslutning.",
   "Close": "Stäng",
   "Close All": "Stäng alla",
   "Cluster": "Kluster",
