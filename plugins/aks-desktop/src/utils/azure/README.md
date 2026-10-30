@@ -117,6 +117,31 @@ claims without logging tokens, and verifies registration plus cached reuse.
 Live validation is restricted to Cloud Native Tools/public Azure; sovereign/custom
 routing is unit-tested but is not claimed to have real-account live coverage.
 
+Managed namespace deletion uses ARM 2026-01-01 DELETE, follows trusted operation
+URLs and Retry-After, and waits for both operation completion and resource absence.
+One deadline/cancellation signal covers all requests and polling.
+The transport shares this deadline budget, including throttled GET retries with
+long `Retry-After` delays, rather than imposing a separate one-minute cutoff.
+Transport retries and deletion polling reuse `waitForAzureRetry` for seconds/date
+`Retry-After` parsing and abortable waits. Without a valid header, deletion polling
+waits one second; transport retries use capped exponential backoff. Explicit server
+delays are not capped, but still stop at the shared cancellation/deadline.
+Keep/Delete policy is honored, never overwritten. Only positively ARM-marked,
+AKS-owned namespaces take this path; native/Arc and imported projects retain their
+native deletion or label-removal paths.
+Namespace names must match the existing Kubernetes DNS-label validator before any
+authentication or HTTP request; dot segments cannot retarget the DELETE. A 404
+when refetching labels after ARM deletion also completes successfully, while
+authorization and server errors still fail.
+
+Run `AZ_LIVE_TESTS=1 npm run test:unit -- az-managed-namespace-delete.live.test.ts`.
+The E2E suite creates a fresh AKS cluster in Cloud Native Tools, exercises Keep and
+Delete policies, and verifies actual Kubernetes namespace retention/deletion using
+ephemeral admin certificates and CA-verified direct HTTPS (no kubectl or resource
+CLI calls). The account needs AKS creation/admin-credential permission.
+All run-owned groups/resources are cleaned in per-test `finally`, including failures.
+See [live test setup and inventory](../../../../../test/live/README.md).
+
 ## Adding a New Function
 
 1. **Find the right module.** Match the Azure resource type: subscriptions go in `az-subscriptions.ts`, cluster operations in `az-clusters.ts`, etc.
