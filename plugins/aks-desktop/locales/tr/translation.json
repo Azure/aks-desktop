@@ -746,5 +746,13 @@
   "{{minutes}} min ago": "{{minutes}} dakika önce",
   "{{hours}}h ago": "{{hours}} saat önce",
   "{{days}}d ago": "{{days}} gün önce",
-  "{{weeks}}w ago": "{{weeks}} hafta önce"
+  "{{weeks}}w ago": "{{weeks}} hafta önce",
+  "Connect GitHub from the project header to continue.": "",
+  "GitHub disconnect failed": "",
+  "Disconnecting GitHub...": "",
+  "GitHub account": "",
+  "Disconnect removes saved GitHub credentials from this app only. Repositories and deployments are kept.": "",
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Retry disconnect": "",
+  "Disconnect GitHub": ""
 }

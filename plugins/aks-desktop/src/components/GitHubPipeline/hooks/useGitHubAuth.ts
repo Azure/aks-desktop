@@ -25,7 +25,32 @@ const INITIAL_AUTH_STATE: GitHubAuthState = {
   expiresAt: null,
   username: null,
   error: null,
+  isDisconnecting: false,
+  disconnectError: null,
 };
+
+// Invalidate auth work only; already-running pipeline operations may finish.
+let authEpoch = 0;
+let signedOut = false;
+let disconnectError: string | null = null;
+let disconnectTask: Promise<void> | null = null;
+let credentialWrites: Promise<void> = Promise.resolve();
+const DISCONNECT_EVENT = 'github-auth-disconnect';
+const current = (epoch: number) => epoch === authEpoch && !signedOut;
+const disconnectedState = (): GitHubAuthState => ({
+  ...INITIAL_AUTH_STATE,
+  isRestoring: false,
+  isDisconnecting: disconnectTask !== null,
+  disconnectError,
+});
+
+function writeCredentials(epoch: number, write: () => Promise<unknown>): Promise<void> {
+  const operation = credentialWrites.then(async () => {
+    if (current(epoch)) await write();
+  });
+  credentialWrites = operation.catch(() => {});
+  return operation;
+}
 
 export interface UseGitHubAuthResult {
   authState: GitHubAuthState;
@@ -39,7 +64,9 @@ export interface UseGitHubAuthResult {
  * and Octokit client derivation.
  */
 export const useGitHubAuth = (): UseGitHubAuthResult => {
-  const [authState, setAuthState] = useState<GitHubAuthState>(INITIAL_AUTH_STATE);
+  const [authState, setAuthState] = useState<GitHubAuthState>(() =>
+    signedOut ? disconnectedState() : INITIAL_AUTH_STATE
+  );
   const isAuthorizingRef = useRef(false);
 
   const authTokenRef = useRef<string | null>(null);
@@ -47,20 +74,30 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
     authTokenRef.current = authState.token;
   }, [authState.token]);
 
-  // Mutex for token refresh: ensures only one refresh request is in-flight at a time.
-  // Concurrent callers share the same promise to avoid consuming single-use refresh tokens twice.
-  const refreshInFlightRef = useRef<Promise<TokenResponse> | null>(null);
+  // Share refreshes only within the same auth epoch and token so a pending request
+  // cannot supply another session's credentials or consume a single-use token twice.
+  const refreshInFlightRef = useRef<{
+    epoch: number;
+    refreshToken: string;
+    promise: Promise<TokenResponse>;
+  } | null>(null);
 
-  const deduplicatedRefresh = useCallback((refreshToken: string): Promise<TokenResponse> => {
-    if (refreshInFlightRef.current) {
-      return refreshInFlightRef.current;
-    }
-    const promise = refreshAccessToken(refreshToken).finally(() => {
-      refreshInFlightRef.current = null;
-    });
-    refreshInFlightRef.current = promise;
-    return promise;
-  }, []);
+  const deduplicatedRefresh = useCallback(
+    (epoch: number, refreshToken: string): Promise<TokenResponse> => {
+      const inFlight = refreshInFlightRef.current;
+      if (inFlight?.epoch === epoch && inFlight.refreshToken === refreshToken) {
+        return inFlight.promise;
+      }
+      const promise = refreshAccessToken(refreshToken).finally(() => {
+        if (refreshInFlightRef.current?.promise === promise) {
+          refreshInFlightRef.current = null;
+        }
+      });
+      refreshInFlightRef.current = { epoch, refreshToken, promise };
+      return promise;
+    },
+    []
+  );
 
   const octokit = useMemo(
     () => (authState.token ? createOctokitClient(authState.token) : null),
@@ -69,7 +106,10 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
 
   useEffect(() => {
     const restoreSession = async () => {
+      if (signedOut) return;
+      const epoch = authEpoch;
       const stored = await loadTokens();
+      if (!current(epoch)) return;
       if (!stored) {
         setAuthState(prev => ({ ...prev, isRestoring: false }));
         return;
@@ -79,17 +119,18 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
 
       if (isTokenExpired(expiresAt)) {
         try {
-          const refreshed = await deduplicatedRefresh(storedRefreshToken);
+          const refreshed = await deduplicatedRefresh(epoch, storedRefreshToken);
+          if (!current(epoch)) return;
           accessToken = refreshed.accessToken;
           storedRefreshToken = refreshed.refreshToken;
           expiresAt = new Date(Date.now() + refreshed.expiresIn * 1000).toISOString();
-          await saveTokens({
-            accessToken,
-            refreshToken: storedRefreshToken,
-            expiresAt,
-          });
+          await writeCredentials(epoch, () =>
+            saveTokens({ accessToken, refreshToken: storedRefreshToken, expiresAt })
+          );
+          if (!current(epoch)) return;
           window.dispatchEvent(new Event('github-auth-update'));
         } catch (error) {
+          if (!current(epoch)) return;
           console.error(
             'Failed to refresh GitHub token:',
             error instanceof Error ? error.message : 'Unknown error'
@@ -102,6 +143,7 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
       try {
         const client = createOctokitClient(accessToken);
         const user = await getCurrentUser(client);
+        if (!current(epoch)) return;
         setAuthState(prev => ({
           ...prev,
           isAuthenticated: true,
@@ -113,6 +155,7 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
         }));
         window.dispatchEvent(new Event('github-auth-update'));
       } catch (error) {
+        if (!current(epoch)) return;
         console.error(
           'Failed to restore GitHub session:',
           error instanceof Error ? error.message : 'Unknown error'
@@ -127,6 +170,8 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
   // Listen for OAuth callback from the Electron main process
   useEffect(() => {
     const unsubscribe = onOAuthCallback(async result => {
+      const epoch = authEpoch;
+      if (!current(epoch)) return;
       if (!result.success || !result.accessToken || !result.refreshToken || !result.expiresAt) {
         isAuthorizingRef.current = false;
         setAuthState(prev => ({
@@ -138,11 +183,13 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
       }
 
       const { accessToken, refreshToken, expiresAt } = result;
-      await saveTokens({ accessToken, refreshToken, expiresAt });
+      await writeCredentials(epoch, () => saveTokens({ accessToken, refreshToken, expiresAt }));
+      if (!current(epoch)) return;
 
       try {
         const client = createOctokitClient(accessToken);
         const user = await getCurrentUser(client);
+        if (!current(epoch)) return;
         setAuthState(prev => ({
           ...prev,
           isAuthenticated: true,
@@ -158,8 +205,10 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
         window.dispatchEvent(new Event('github-auth-update'));
         isAuthorizingRef.current = false;
       } catch (userErr) {
+        if (!current(epoch)) return;
         isAuthorizingRef.current = false;
-        await clearTokens();
+        await writeCredentials(epoch, clearTokens);
+        if (!current(epoch)) return;
         console.error('OAuth callback: failed to fetch current user:', userErr);
         setAuthState(prev => ({
           ...prev,
@@ -185,19 +234,25 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
 
     const REFRESH_CHECK_INTERVAL_MS = 5 * 60 * 1000;
     const intervalId = setInterval(async () => {
+      const epoch = authEpoch;
+      if (!current(epoch)) return;
       const currentExpiresAt = expiresAtRef.current;
       const currentRefreshToken = refreshTokenRef.current;
       if (!currentExpiresAt || !currentRefreshToken) return;
       if (!isTokenExpired(currentExpiresAt)) return;
 
       try {
-        const refreshed = await deduplicatedRefresh(currentRefreshToken);
+        const refreshed = await deduplicatedRefresh(epoch, currentRefreshToken);
+        if (!current(epoch)) return;
         const newExpiresAt = new Date(Date.now() + refreshed.expiresIn * 1000).toISOString();
-        await saveTokens({
-          accessToken: refreshed.accessToken,
-          refreshToken: refreshed.refreshToken,
-          expiresAt: newExpiresAt,
-        });
+        await writeCredentials(epoch, () =>
+          saveTokens({
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken,
+            expiresAt: newExpiresAt,
+          })
+        );
+        if (!current(epoch)) return;
         setAuthState(prev => ({
           ...prev,
           token: refreshed.accessToken,
@@ -206,13 +261,16 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
         }));
         window.dispatchEvent(new Event('github-auth-update'));
       } catch (error) {
+        if (!current(epoch)) return;
         console.error(
           'Proactive token refresh failed:',
           error instanceof Error ? error.message : 'Unknown error'
         );
         // Another tree may have refreshed — wait briefly then check storage.
         await new Promise(resolve => setTimeout(resolve, 2_000));
+        if (!current(epoch)) return;
         const stored = await loadTokens();
+        if (!current(epoch)) return;
         if (stored?.accessToken && stored?.expiresAt && !isTokenExpired(stored.expiresAt)) {
           setAuthState(prev => ({
             ...prev,
@@ -243,9 +301,10 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
   // the change from secure storage here.
   useEffect(() => {
     const handleAuthUpdate = async () => {
-      if (isAuthorizingRef.current) return;
-
+      if (isAuthorizingRef.current || signedOut) return;
+      const epoch = authEpoch;
       const stored = await loadTokens();
+      if (!current(epoch)) return;
       if (!stored) {
         // Tokens cleared by another tree — sign out.
         // But if this instance already holds a valid token (e.g. it just
@@ -264,6 +323,7 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
       try {
         const client = createOctokitClient(stored.accessToken);
         const user = await getCurrentUser(client);
+        if (!current(epoch)) return;
         setAuthState(prev => ({
           ...prev,
           isAuthenticated: true,
@@ -284,8 +344,21 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
     return () => window.removeEventListener('github-auth-update', handleAuthUpdate);
   }, []);
 
+  useEffect(() => {
+    const onDisconnect = () => {
+      isAuthorizingRef.current = false;
+      authTokenRef.current = null;
+      setAuthState(disconnectedState());
+    };
+    window.addEventListener(DISCONNECT_EVENT, onDisconnect);
+    if (signedOut) onDisconnect();
+    return () => window.removeEventListener(DISCONNECT_EVENT, onDisconnect);
+  }, []);
+
   const startOAuth = useCallback(async () => {
-    if (isAuthorizingRef.current) return;
+    if (isAuthorizingRef.current || disconnectTask || disconnectError) return;
+    signedOut = false;
+    const epoch = authEpoch;
     isAuthorizingRef.current = true;
     try {
       setAuthState(prev => ({
@@ -295,6 +368,7 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
       }));
       await startBrowserOAuth();
     } catch (error) {
+      if (!current(epoch)) return;
       isAuthorizingRef.current = false;
       console.error('Failed to start browser OAuth:', error);
       setAuthState(prev => ({
@@ -305,11 +379,27 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
     }
   }, []);
 
-  const reset = useCallback(async () => {
-    isAuthorizingRef.current = false;
-    await clearTokens();
-    setAuthState({ ...INITIAL_AUTH_STATE, isRestoring: false });
-    window.dispatchEvent(new Event('github-auth-update'));
+  const reset = useCallback(() => {
+    if (disconnectTask) return disconnectTask;
+    signedOut = true;
+    authEpoch++;
+    disconnectError = null;
+    // Delete after any native save already in progress; queued stale saves skip themselves.
+    disconnectTask = credentialWrites
+      .then(async () => {
+        try {
+          if (!(await clearTokens())) throw new Error('Deletion failed');
+        } catch {
+          disconnectError = 'Saved GitHub credentials could not be removed. Retry disconnect.';
+        }
+      })
+      .finally(() => {
+        disconnectTask = null;
+        window.dispatchEvent(new Event(DISCONNECT_EVENT));
+      });
+    credentialWrites = disconnectTask;
+    window.dispatchEvent(new Event(DISCONNECT_EVENT));
+    return disconnectTask;
   }, []);
 
   return { authState, octokit, startOAuth, reset };

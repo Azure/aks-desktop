@@ -110,16 +110,8 @@ export function PipelineDeployDialog({
                 </Box>
               </Alert>
             ) : (
-              <Alert
-                severity="warning"
-                sx={{ mb: 2 }}
-                action={
-                  <Button color="inherit" size="small" onClick={gitHubAuth.startOAuth}>
-                    {t('Sign in')}
-                  </Button>
-                }
-              >
-                {t('GitHub authentication required to trigger deployment.')}
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                {t('Connect GitHub from the project header to continue.')}
               </Alert>
             ))}
           {result === 'success' && (

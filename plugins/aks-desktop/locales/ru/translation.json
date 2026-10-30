@@ -770,5 +770,13 @@
   "{{minutes}} min ago": "{{minutes}} мин. назад",
   "{{hours}}h ago": "{{hours}} ч назад",
   "{{days}}d ago": "{{days}}\u00a0дн. назад",
-  "{{weeks}}w ago": "{{weeks}} нед. назад"
+  "{{weeks}}w ago": "{{weeks}} нед. назад",
+  "Connect GitHub from the project header to continue.": "",
+  "GitHub disconnect failed": "",
+  "Disconnecting GitHub...": "",
+  "GitHub account": "",
+  "Disconnect removes saved GitHub credentials from this app only. Repositories and deployments are kept.": "",
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Retry disconnect": "",
+  "Disconnect GitHub": ""
 }
