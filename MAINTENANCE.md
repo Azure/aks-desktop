@@ -20,6 +20,7 @@ The current stack is rebased onto Headlamp main at
 | `0071` | [Cluster pre-open hooks and proxy lifecycle, PR #7505](https://github.com/kubernetes-sigs/headlamp/pull/7505) | `91ee02272eeb6cadfcfac1cf89820e1d29a400bb` |
 | `0080` | AKS Desktop compatibility marker | Downstream-only; unchanged |
 | `7683` | [Legacy GitHub token migration, PR #7683](https://github.com/kubernetes-sigs/headlamp/pull/7683) | `1a60fa08ae7651b898a243280f3742d769255134` |
+| `8147` | [Private GitHub browser OAuth, PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147) | `8a4d53fe07e49b9ef8739023f5c9a0a6b9283b10` |
 
 Patches `0072` (PR #7958), `7685`, `7712`, `7726`, `7727`, `7731`, `7744`, and
 `7746` are included in this pin and no longer carried. Keep each numbered
@@ -288,6 +289,41 @@ and run `npm run test:headlamp-package` after changing the list.
 
 See the [source package reference](packages/headlamp-source/README.md) for the
 configuration schema and script API.
+
+## GitHub desktop authentication verification
+
+The host integration is carried as `8147-headlamp-upstream-github-oauth.patch`,
+exported from [Headlamp PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147)
+(upstream head `15d49f89b`, carried head `8a4d53fe07e49b9ef8739023f5c9a0a6b9283b10`).
+The carried commits are rebased onto the current pin and preceding patches,
+preserving their proxy, command-environment, and quit-cleanup behavior.
+
+AKS Desktop supplies its GitHub App identity through
+`package.json#headlamp.githubOAuth`. Its native-client credential is intentionally
+bundled, while user tokens use plugin-scoped OS-encrypted storage. Browser sign-in
+uses S256 PKCE. Only the provenance-verified AKS development/shipped plugin policies
+receive the private OAuth capability; token results are not broadcast to other
+plugins. Host changes belong in the numbered Headlamp patch series, not generated
+source copies. See the [configuration contract](packages/headlamp-source/README.md#githuboauth).
+
+After building a distribution, verify both paths with a separate test profile:
+
+1. Confirm with the GitHub App owner that `aks-desktop://oauth/callback` is
+   registered and expiring user access tokens are enabled. Development additionally
+   needs `http://localhost:48321/oauth/callback`. Registration settings are external
+   prerequisites, not evidence that a particular packaged build works.
+2. With no cached GitHub credentials, enable GitHub Pipeline preview and connect
+   GitHub. Confirm authorization opens in the system browser, returns to this app,
+   and the connected identity appears. Restart and confirm encrypted credentials
+   reload without another authorization.
+3. Leave that profile running until the access token reaches the refresh window
+   (the plugin uses a five-minute safety buffer). Perform another GitHub operation
+   and confirm it succeeds without browser authorization. Restart and verify the
+   rotated credentials also reload. Do not expose tokens in logs or screenshots.
+4. Record the package version, platform, and results separately for fresh sign-in
+   and refresh. Automated IPC tests with mocked GitHub responses do not substitute
+   for these live packaged checks. Callback routing to another installed app is
+   tracked separately in #458.
 
 ## Translations
 

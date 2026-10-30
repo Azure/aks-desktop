@@ -109,6 +109,41 @@ Additional product-manifest fields supported by Headlamp may be placed under
 `headlamp`; they are copied to the generated manifest unless they are the
 consumer-only `build` field.
 
+### `githubOAuth`
+
+Optional GitHub App browser sign-in configuration. Omit it for products that do
+not use GitHub authentication. The desktop host implements authorization-code
+exchange and refresh; consumers supply their own application identity.
+
+| Field | Required when configured | Description |
+| --- | --- | --- |
+| `githubOAuth.clientId` | Yes | GitHub App client ID (not its numeric app ID). |
+| `githubOAuth.clientSecret` | Yes | GitHub App public/native-client credential used for code exchange and refresh. |
+
+These values are copied into the packaged product manifest. A credential shipped
+in a desktop app is extractable and must not be treated as a confidential
+server-side secret. User access and refresh tokens remain separate and should be
+persisted through the existing plugin-scoped encrypted storage API.
+
+The GitHub App registration must allow the product's
+`<protocol-scheme>://oauth/callback` URL. Development uses
+`http://localhost:48321/oauth/callback`, with the listener bound only to loopback.
+The app must issue expiring user access tokens and refresh tokens. Permissions
+come from the GitHub App registration, not OAuth scopes supplied by a plugin.
+Authorization uses per-flow S256 PKCE, binding the authorization code to a verifier
+held only by the desktop host. The verifier is not sent in the browser URL.
+
+OAuth access also requires `githubOAuth: true` on the exact plugin's `runCommands`
+policy. The default is no grant; user-installed plugin policies cannot request it.
+The loader verifies plugin provenance and injects a private `pluginGitHubOAuth`
+facade with `startGitHubOAuth`, `onGitHubOAuthCallback` (returning an unsubscribe
+function), and `refreshGitHubOAuth`. Tokens return through capability-authorized
+requests and this facade's local listeners, never a global callback event. The
+old unrestricted methods on `window.desktopApi` are not available. Products must
+update consumers to use the injected facade rather than falling back to a global
+bridge. Like existing private plugin capabilities, this limits direct privileged
+API access; it does not sandbox plugins that share a JavaScript realm.
+
 ### `build`
 
 | Field | Required | Description |

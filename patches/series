@@ -3,3 +3,4 @@
 7683 source 7683-headlamp-upstream-legacy-github-storage.patch
 8025 source 8025-headlamp-upstream-error-reporting-config.patch
 8095 source 8095-headlamp-upstream-plugin-menu-reload.patch
+8147 source 8147-headlamp-upstream-github-oauth.patch

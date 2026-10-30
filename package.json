@@ -172,6 +172,10 @@
   },
   "headlamp": {
     "commandEnvironment": "external-tools/aks-tool-environment.cjs",
+    "githubOAuth": {
+      "clientId": "Iv23liWWbvrfIrA6WWj5",
+      "clientSecret": "5a066cc6ca8d2c6f201c45f24f2f4e62905b5d95"
+    },
     "proxy-urls": [
       "https://artifacthub.io/api/v1/packages/*"
     ],
@@ -315,6 +319,7 @@
       {
         "environment": "development",
         "pluginLocation": "development",
+        "githubOAuth": true,
         "approvedCommands": [
           {
             "tool": "az",
@@ -713,6 +718,7 @@
       {
         "environment": "production",
         "pluginLocation": "shipped",
+        "githubOAuth": true,
         "approvedCommands": [
           {
             "tool": "az",
@@ -1157,7 +1163,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
-    "integrity": "sha512-qiyXVOZCJXk3mPfuS/OCh8vPEUmnJtvKYe3wUG47JY8wjbPiAnagdawWRS5iKcE1QO6yGYtBlR9FbWmJE1NqUQ=="
+    "integrity": "sha512-FlwdQLRIr3Z4pc+fceiwmPE4i8d2zB5Mrb2vHDOwN5A/HJ+Enq/G54RT2nyjiKSgnSA3CsKrzw5hyH6t16gt1g=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
