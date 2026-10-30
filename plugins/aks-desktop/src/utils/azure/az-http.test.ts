@@ -131,6 +131,22 @@ describe('azRequest', () => {
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
 
+  test('preserves bare AKS preview error bodies and request diagnostics', async () => {
+    mocks.fetch.mockResolvedValue(
+      json(
+        403,
+        { code: 'FeatureNotEnabled', message: 'Upgrade Insights preview is not enabled' },
+        { 'x-ms-request-id': 'preview-request' }
+      )
+    );
+    await expect(azRequest({ url: '/r', credential })).rejects.toMatchObject({
+      status: 403,
+      code: 'FeatureNotEnabled',
+      requestId: 'preview-request',
+      message: expect.stringContaining('Upgrade Insights preview is not enabled'),
+    });
+  });
+
   test('parses ACR-style error arrays and non-JSON error bodies', async () => {
     mocks.fetch.mockResolvedValueOnce(
       json(404, { errors: [{ code: 'NAME_UNKNOWN', message: 'repo missing' }] })

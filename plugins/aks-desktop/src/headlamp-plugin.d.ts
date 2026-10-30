@@ -16,6 +16,11 @@ declare module '@kinvolk/headlamp-plugin/lib/CommonComponents' {
 // the runtime plugin lib, but the pinned `@kinvolk/headlamp-plugin` types do not
 // declare it yet. Remove this block once the published types include it.
 declare module '@kinvolk/headlamp-plugin/lib' {
+  // The pinned Headlamp runtime exports this API ahead of the published SDK.
+  export function registerHomeSidebarEntryFilter(
+    filter: Parameters<typeof import('@kinvolk/headlamp-plugin/lib').registerSidebarEntryFilter>[0]
+  ): void;
+
   /** Context passed to a pre-open hook when a cluster is about to be opened. */
   export interface ClusterPreOpenContext {
     /** The name of the cluster being opened. */
