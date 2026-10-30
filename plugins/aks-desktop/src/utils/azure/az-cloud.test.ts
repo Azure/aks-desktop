@@ -12,8 +12,8 @@ import { registerContainerServiceProvider } from './az-resource-providers';
 const credential = {
   getToken: vi.fn(async () => ({ token: 'test-token', expiresOnTimestamp: Date.now() + 3600_000 })),
 };
-const metadata = (resourceManager: string, activeDirectoryResourceId: string) => ({
-  stdout: JSON.stringify({ endpoints: { resourceManager, activeDirectoryResourceId } }),
+const metadata = (resourceManager: string, activeDirectoryResourceId: string, name?: string) => ({
+  stdout: JSON.stringify({ name, endpoints: { resourceManager, activeDirectoryResourceId } }),
   stderr: '',
 });
 beforeEach(() => {
@@ -80,6 +80,7 @@ describe('selected account Azure cloud registration', () => {
   ])('preserves the configured audience exactly when forming its scope: %s', async audience => {
     mocks.command.mockResolvedValue(metadata('https://management.azure.com/', audience));
     expect(await getAzureCloudEndpoints('ConfiguredAudience')).toEqual({
+      name: 'ConfiguredAudience',
       endpoint: 'https://management.azure.com',
       scope: `${audience}/.default`,
     });
@@ -153,14 +154,29 @@ describe('selected account Azure cloud registration', () => {
 
   test('reads the active CLI cloud when no cloud name is given', async () => {
     mocks.command.mockResolvedValue(
-      metadata('https://management.chinacloudapi.cn/', 'https://management.core.chinacloudapi.cn/')
+      metadata(
+        'https://management.chinacloudapi.cn/',
+        'https://management.core.chinacloudapi.cn/',
+        'AzureChinaCloud'
+      )
     );
     expect(await getAzureCloudEndpoints()).toEqual({
+      name: 'AzureChinaCloud',
       endpoint: 'https://management.chinacloudapi.cn',
       scope: 'https://management.core.chinacloudapi.cn//.default',
     });
     expect(mocks.command).toHaveBeenCalledWith('az', ['cloud', 'show', '--output', 'json']);
   });
+
+  test.each([undefined, '--bad'])(
+    'rejects an active cloud with a missing or invalid name: %s',
+    async name => {
+      mocks.command.mockResolvedValue(
+        metadata('https://management.azure.com/', 'https://management.core.windows.net/', name)
+      );
+      await expect(getAzureCloudEndpoints()).rejects.toThrow('Azure cloud name');
+    }
+  );
 
   test('invalidates cached local cloud metadata after an account change', async () => {
     mocks.command.mockResolvedValue(

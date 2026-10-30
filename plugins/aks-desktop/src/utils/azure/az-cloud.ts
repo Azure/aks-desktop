@@ -4,14 +4,17 @@
 import { runAzCommand } from './az-cli-core';
 import { withAbort } from './az-token';
 
-/** Request destination and token scope from one named CLI cloud configuration. */
+/** Name, request destination and token scope from one CLI cloud configuration. */
 interface AzureCloudEndpoints {
+  /** Registered CLI cloud name, such as AzureCloud or AzureUSGovernment. */
+  name: string;
   /** ARM base URL, with its final slash removed for request-path composition. */
   endpoint: string;
   /** Configured token resource plus `/.default`; preserves any resource trailing slash. */
   scope: string;
 }
 
+const CLOUD_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const clouds = new Map<string, Promise<AzureCloudEndpoints>>();
 
 /**
@@ -33,7 +36,8 @@ function configuredHttpsUrl(value: unknown): string {
  * @param cloudName - Registered cloud name from the selected account's environmentName.
  *   Omit to use the CLI's active cloud.
  * @param signal - Optional cancellation of this caller's wait, not the shared CLI process.
- * @returns Cached ARM endpoint and exact token scope; account changes invalidate the cache.
+ * @returns Cached cloud name, ARM endpoint and exact token scope; account changes
+ * invalidate the cache.
  * @throws For invalid names, CLI/configuration failures or cancellation. Failed
  * lookups are not cached and never fall back to public Azure.
  */
@@ -41,7 +45,7 @@ export function getAzureCloudEndpoints(
   cloudName?: string,
   signal?: AbortSignal
 ): Promise<AzureCloudEndpoints> {
-  if (cloudName !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(cloudName)) {
+  if (cloudName !== undefined && !CLOUD_NAME_PATTERN.test(cloudName)) {
     return Promise.reject(new Error('Invalid Azure cloud name'));
   }
   const key = cloudName ?? '';
@@ -55,11 +59,17 @@ export function getAzureCloudEndpoints(
           `read Azure cloud ${cloudName ?? '(active)'}`,
           stdout => {
             const config: {
+              name?: unknown;
               endpoints?: { resourceManager?: unknown; activeDirectoryResourceId?: unknown };
             } = JSON.parse(stdout);
+            const name = cloudName ?? config.name;
+            if (typeof name !== 'string' || !CLOUD_NAME_PATTERN.test(name)) {
+              throw new Error('Azure cloud name is missing or invalid');
+            }
             const endpoint = configuredHttpsUrl(config.endpoints?.resourceManager);
             const audience = configuredHttpsUrl(config.endpoints?.activeDirectoryResourceId);
             return {
+              name,
               endpoint: endpoint.replace(/\/$/, ''),
               scope: `${audience}/.default`,
             };
@@ -81,6 +91,11 @@ export function getAzureCloudEndpoints(
   }, signal);
 }
 
+/** Drops cached cloud metadata so the next lookup re-reads the CLI's active cloud. */
+export function clearAzureCloudCache(): void {
+  clouds.clear();
+}
+
 if (typeof window !== 'undefined') {
-  window.addEventListener('azure-auth-update', () => clouds.clear());
+  window.addEventListener('azure-auth-update', clearAzureCloudCache);
 }
