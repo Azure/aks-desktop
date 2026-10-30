@@ -8,9 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockResolve = vi.hoisted(() => vi.fn());
 const mockSearch = vi.hoisted(() => vi.fn());
-vi.mock('../../../utils/azure/az-ad', () => ({
-  isAzureADLookupUnavailable: (error?: string) =>
-    error?.includes('AADSTS530084') || error?.includes('Authorization_RequestDenied') || false,
+vi.mock('../../../utils/azure/az-ad', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../utils/azure/az-ad')>()),
   resolveAzureADUser: mockResolve,
   searchAzureADUsers: mockSearch,
 }));
@@ -199,14 +198,22 @@ describe('UserSearchField — clearing the field', () => {
     expect(screen.queryByText('Search for a user or remove this entry')).not.toBeInTheDocument();
   });
 
-  it('offers manual entry when Conditional Access blocks directory search', async () => {
+  it.each([
+    'AADSTS530084: Access has been blocked by conditional access token protection.',
+    'AADSTS50076: Multi-factor authentication is required.',
+    'AADSTS65001: The user or administrator has not consented.',
+    'Microsoft Graph request failed (403): Authorization_RequestDenied: Insufficient privileges.',
+    'Microsoft Graph request failed (403): accessDenied: Access is denied.',
+  ])('offers usable manual entry when directory search is blocked: %s', async error => {
     mockSearch.mockResolvedValue({
       success: false,
       users: [],
-      error: 'AADSTS530084: Access has been blocked by conditional access token protection.',
+      error,
     });
+    mockResolve.mockResolvedValue({ success: false, error });
+    const onChange = vi.fn();
 
-    render(<UserSearchField value="" onChange={vi.fn()} label="Assignee" />);
+    render(<UserSearchField value="" onChange={onChange} label="Assignee" />);
     const input = screen.getByRole('combobox');
     fireEvent.change(input, { target: { value: 'alice' } });
 
@@ -215,12 +222,33 @@ describe('UserSearchField — clearing the field', () => {
     expect(screen.getAllByText(/User search is not available/).length).toBeGreaterThan(0);
     expect(screen.queryByText('No users found')).not.toBeInTheDocument();
     expect(screen.queryByText(/User search failed\. Check/)).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: 'alice@contoso.com' } });
+    await waitFor(() => expect(mockResolve).toHaveBeenCalledWith('alice@contoso.com'));
+    expect(onChange).toHaveBeenLastCalledWith({
+      objectId: '',
+      upn: 'alice@contoso.com',
+      displayName: 'alice@contoso.com',
+      upnManuallyEntered: true,
+    });
+
+    const objectId = '00000000-1111-2222-3333-444444444444';
+    fireEvent.change(input, { target: { value: objectId } });
+    await waitFor(() => expect(mockResolve).toHaveBeenLastCalledWith(objectId));
+    expect(onChange).toHaveBeenLastCalledWith({ objectId, preserveExistingUpn: true });
+    expect(input).toHaveValue(objectId);
+    expect(mockSearch).toHaveBeenCalledTimes(1);
   });
 
-  it('offers manual entry when Conditional Access blocks complete-email resolution', async () => {
+  it.each([
+    'AADSTS530084: Access has been blocked by conditional access token protection.',
+    'AADSTS50079: Multi-factor authentication enrollment is required.',
+    'AADSTS65001: The user or administrator has not consented.',
+    'Microsoft Graph request failed (403): Authorization_RequestDenied: Insufficient privileges.',
+  ])('offers manual entry when complete-email resolution is blocked: %s', async error => {
     mockResolve.mockResolvedValue({
       success: false,
-      error: 'AADSTS530084: Access has been blocked by conditional access token protection.',
+      error,
     });
 
     render(<UserSearchField value="" onChange={vi.fn()} label="Assignee" />);
@@ -232,6 +260,60 @@ describe('UserSearchField — clearing the field', () => {
     expect(screen.queryByText(/Sign-in name entered/)).not.toBeInTheDocument();
     expect(screen.queryByText(/User search failed/)).not.toBeInTheDocument();
   });
+
+  it.each([
+    '38927c93-a0fd-4b06-b21a-69b8ed1e208c',
+    'guest_example.com#EXT#@contoso.onmicrosoft.com',
+  ])('resolves a manually entered identifier to both IDs: %s', async identifier => {
+    const user = {
+      id: '38927c93-a0fd-4b06-b21a-69b8ed1e208c',
+      userPrincipalName: 'guest_example.com#EXT#@contoso.onmicrosoft.com',
+      displayName: 'Guest User',
+      mail: null,
+    };
+    mockResolve.mockResolvedValue({ success: true, user });
+    const onChange = vi.fn();
+
+    render(<UserSearchField value="" onChange={onChange} label="Assignee" />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: identifier } });
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith({
+        objectId: user.id,
+        upn: user.userPrincipalName,
+        displayName: user.displayName,
+      })
+    );
+    expect(mockResolve).toHaveBeenCalledWith(identifier);
+    expect(mockSearch).not.toHaveBeenCalled();
+  });
+
+  it.each([null, 'guest@example.com'])(
+    'selects a guest result using its UPN rather than mail (%s)',
+    async mail => {
+      const user = {
+        id: '38927c93-a0fd-4b06-b21a-69b8ed1e208c',
+        userPrincipalName: 'guest_example.com#EXT#@contoso.onmicrosoft.com',
+        displayName: 'Guest User',
+        mail,
+      };
+      mockSearch.mockResolvedValue({ success: true, users: [user] });
+      const onChange = vi.fn();
+
+      render(<UserSearchField value="" onChange={onChange} label="Assignee" />);
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'guest' } });
+      const option = await screen.findByRole('option');
+      expect(option).toHaveTextContent(mail || user.userPrincipalName);
+      fireEvent.click(option);
+
+      expect(onChange).toHaveBeenLastCalledWith({
+        objectId: user.id,
+        upn: user.userPrincipalName,
+        displayName: user.displayName,
+      });
+      expect(mockResolve).not.toHaveBeenCalled();
+    }
+  );
 
   it('keeps a sign-in name as partial input when directory resolution fails', async () => {
     mockResolve.mockResolvedValue({ success: false, error: 'Failed to resolve Azure AD user' });
