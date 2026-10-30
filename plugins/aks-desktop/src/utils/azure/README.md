@@ -23,7 +23,7 @@ This directory contains the Azure CLI integration layer for AKS Desktop. Every A
 | `az-resource-providers.ts` | Subscription resource-provider registration                                  |
 | `az-subscriptions.ts`      | Subscriptions, tenants, resource groups, locations                           |
 | `az-clusters.ts`           | AKS cluster listing (Resource Graph optimized), status, capabilities, addons |
-| `az-resource-graph.ts`     | Azure Resource Graph queries for fast cluster lookups                        |
+| `az-resource-graph.ts`     | Azure Resource Graph queries for clusters, counts, and managed namespaces    |
 | `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                     |
 | `az-namespace-access.ts`   | Namespace role assignments and access verification                           |
 | `az-identity.ts`           | Managed identity CRUD, role assignments, scope building                      |
@@ -55,7 +55,7 @@ az-cli-core.ts  (foundation — runCommandAsync, runAzCommand, error helpers)
     ├── az-extensions.ts
     ├── az-resource-providers.ts
     ├── az-subscriptions.ts ─────────> az-validation.ts
-    ├── az-resource-graph.ts
+    ├── az-resource-graph.ts ────────> az-http.ts
     ├── az-namespaces.ts
     ├── az-namespace-access.ts ──────> az-namespaces.ts
     ├── az-clusters.ts ──────────────> az-resource-graph.ts, az-subscriptions.ts

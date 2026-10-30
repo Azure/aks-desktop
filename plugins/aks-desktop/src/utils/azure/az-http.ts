@@ -42,7 +42,10 @@ export interface AzRequestOptions {
   signal?: AbortSignal;
   /** Request timeout. Defaults to 1 minute. */
   timeoutMs?: number;
-  /** Retry limit for GET and HEAD. Defaults to 3. */
+  /**
+   * Retry limit. Defaults to 3 for GET and HEAD and 0 otherwise.
+   * Set it only for requests that are safe to repeat, such as read-only POST queries.
+   */
   maxRetries?: number;
 }
 
@@ -231,7 +234,8 @@ export async function azRequestRaw<T>(options: AzRequestOptions): Promise<AzResp
   const url = resolveUrl(options);
   const scope = options.scope ?? `${url.origin}/.default`;
   const credential = options.credential ?? azCliCredential;
-  const maxRetries = RETRYABLE_METHODS.has(method) ? options.maxRetries ?? DEFAULT_MAX_RETRIES : 0;
+  const maxRetries =
+    options.maxRetries ?? (RETRYABLE_METHODS.has(method) ? DEFAULT_MAX_RETRIES : 0);
   const linked = linkSignal(options.signal, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 
   try {

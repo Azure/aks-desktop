@@ -5,12 +5,12 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Create mock functions before vi.mock calls
-const mockRunCommandAsync = vi.fn();
+const mockGetManagedNamespaces = vi.fn();
 const mockApiList = vi.fn();
 const mockUseClustersConf = vi.fn();
 
-vi.mock('../utils/azure/az-cli-core', () => ({
-  runCommandAsync: (...args: any[]) => mockRunCommandAsync(...args),
+vi.mock('../utils/azure/az-resource-graph', () => ({
+  getManagedNamespacesViaGraph: (...args: any[]) => mockGetManagedNamespaces(...args),
 }));
 
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
@@ -28,7 +28,7 @@ import { useNamespaceDiscovery } from './useNamespaceDiscovery';
 
 // --- Helpers ---
 
-/** Builds a valid Azure Resource Graph JSON response for managed namespaces. */
+/** Builds a `getManagedNamespacesViaGraph` result for managed namespaces. */
 function buildManagedResponse(
   items: Array<{
     name: string;
@@ -40,17 +40,15 @@ function buildManagedResponse(
   }>
 ) {
   return {
-    stdout: JSON.stringify({
-      data: items.map(item => ({
-        id: item.clusterId,
-        name: item.name,
-        resourceGroup: item.resourceGroup,
-        subscriptionId: item.subscriptionId,
-        labels: item.labels ?? null,
-        provisioningState: item.provisioningState ?? 'Succeeded',
-      })),
-    }),
-    stderr: '',
+    namespaces: items.map(item => ({
+      id: item.clusterId,
+      name: item.name,
+      resourceGroup: item.resourceGroup,
+      subscriptionId: item.subscriptionId,
+      labels: item.labels ?? null,
+      provisioningState: item.provisioningState ?? 'Succeeded',
+    })),
+    errors: [] as string[],
   };
 }
 
@@ -85,20 +83,19 @@ function setupApiListSuccess(namespacesByCluster: Record<string, any[]>) {
 
 describe('useNamespaceDiscovery', () => {
   beforeEach(() => {
-    mockRunCommandAsync.mockReset();
+    mockGetManagedNamespaces.mockReset();
     mockApiList.mockReset();
     mockUseClustersConf.mockReset();
     localStorage.clear();
 
     // Default: no clusters registered, managed namespace discovery returns empty
     mockUseClustersConf.mockReturnValue({});
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
+    mockGetManagedNamespaces.mockResolvedValue(buildManagedResponse([]));
     setupApiListSuccess({});
   });
 
   afterEach(() => {
     cleanup();
-    delete (window as any).desktopApi;
   });
 
   // -----------------------------------------------------------------------
@@ -106,7 +103,7 @@ describe('useNamespaceDiscovery', () => {
   // -----------------------------------------------------------------------
   test('initial state returns loading=true and empty arrays', () => {
     // Make runCommandAsync never resolve so we stay in loading state
-    mockRunCommandAsync.mockReturnValue(new Promise(() => {}));
+    mockGetManagedNamespaces.mockReturnValue(new Promise(() => {}));
 
     const { result } = renderHook(() => useNamespaceDiscovery());
 
@@ -122,7 +119,7 @@ describe('useNamespaceDiscovery', () => {
   // Test 2: Managed namespace discovery via Azure Resource Graph
   // -----------------------------------------------------------------------
   test('discovers managed namespaces via Azure Resource Graph with correct data', async () => {
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'app-ns',
@@ -157,7 +154,7 @@ describe('useNamespaceDiscovery', () => {
   // -----------------------------------------------------------------------
   test('discovers regular namespaces via K8s API with correct data', async () => {
     // Make managed discovery return empty
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
+    mockGetManagedNamespaces.mockResolvedValue(buildManagedResponse([]));
 
     mockUseClustersConf.mockReturnValue({ 'my-cluster': {} });
     setupApiListSuccess({
@@ -185,7 +182,7 @@ describe('useNamespaceDiscovery', () => {
   // -----------------------------------------------------------------------
   test('deduplicates namespaces with managed version winning over regular', async () => {
     // Managed path returns a namespace on my-cluster
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'shared-ns',
@@ -230,7 +227,7 @@ describe('useNamespaceDiscovery', () => {
     ];
 
     // Put system namespaces in managed response
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse(
         systemNamespaces.map(name => ({
           name,
@@ -271,7 +268,7 @@ describe('useNamespaceDiscovery', () => {
       JSON.stringify({ allowedNamespaces: ['imported-ns', 'unlabeled-imported'] })
     );
 
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'imported-ns',
@@ -328,7 +325,7 @@ describe('useNamespaceDiscovery', () => {
       JSON.stringify({ allowedNamespaces: ['labeled-ns'] })
     );
 
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'labeled-ns',
@@ -361,7 +358,7 @@ describe('useNamespaceDiscovery', () => {
   // Test 7: Category assignment based on labels
   // -----------------------------------------------------------------------
   test('assigns needs-import category to labeled namespaces and needs-conversion to unlabeled', async () => {
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'labeled-ns',
@@ -407,7 +404,7 @@ describe('useNamespaceDiscovery', () => {
   // Test 8: needsConversion / needsImport arrays correctly partitioned
   // -----------------------------------------------------------------------
   test('partitions namespaces into needsConversion and needsImport arrays', async () => {
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'import-ns',
@@ -459,7 +456,7 @@ describe('useNamespaceDiscovery', () => {
   // Test 9: Azure Resource Graph failure doesn't crash; regular discovery proceeds
   // -----------------------------------------------------------------------
   test('handles Azure Resource Graph failure gracefully and continues with regular discovery', async () => {
-    mockRunCommandAsync.mockRejectedValue(new Error('az graph query failed'));
+    mockGetManagedNamespaces.mockRejectedValue(new Error('Resource Graph query failed'));
 
     mockUseClustersConf.mockReturnValue({ 'cluster-a': {} });
     setupApiListSuccess({
@@ -482,7 +479,7 @@ describe('useNamespaceDiscovery', () => {
   // Test 10: K8s API failure for one cluster doesn't affect others
   // -----------------------------------------------------------------------
   test('handles K8s API failure for one cluster without affecting others', async () => {
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
+    mockGetManagedNamespaces.mockResolvedValue(buildManagedResponse([]));
 
     mockUseClustersConf.mockReturnValue({ 'cluster-ok': {}, 'cluster-fail': {} });
 
@@ -516,7 +513,7 @@ describe('useNamespaceDiscovery', () => {
   // -----------------------------------------------------------------------
   test('refresh() re-triggers discovery with updated data', async () => {
     // First call returns one namespace
-    mockRunCommandAsync.mockResolvedValueOnce(
+    mockGetManagedNamespaces.mockResolvedValueOnce(
       buildManagedResponse([
         {
           name: 'ns-v1',
@@ -538,7 +535,7 @@ describe('useNamespaceDiscovery', () => {
     expect(result.current.namespaces[0].name).toBe('ns-v1');
 
     // Set up new data for refresh
-    mockRunCommandAsync.mockResolvedValueOnce(
+    mockGetManagedNamespaces.mockResolvedValueOnce(
       buildManagedResponse([
         {
           name: 'ns-v1',
@@ -571,44 +568,10 @@ describe('useNamespaceDiscovery', () => {
   });
 
   // -----------------------------------------------------------------------
-  // Test 12: stderr alone doesn't break when stdout exists
-  // -----------------------------------------------------------------------
-  test('stderr with valid stdout does not prevent managed namespace discovery', async () => {
-    // Azure CLI often writes warnings to stderr even on success.
-    // The hook only throws when stderr is present AND stdout is empty.
-    mockRunCommandAsync.mockResolvedValue({
-      stdout: JSON.stringify({
-        data: [
-          {
-            id: '/subscriptions/s/resourceGroups/rg/providers/Microsoft.ContainerService/managedClusters/c/managedNamespaces/ns1',
-            name: 'ns1',
-            resourceGroup: 'rg',
-            subscriptionId: 's',
-            labels: null,
-            provisioningState: 'Succeeded',
-          },
-        ],
-      }),
-      stderr: 'WARNING: Some deprecation notice',
-    });
-
-    const { result } = renderHook(() => useNamespaceDiscovery());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    // Managed namespace should still be discovered despite stderr warnings
-    expect(result.current.namespaces).toHaveLength(1);
-    expect(result.current.namespaces[0].name).toBe('ns1');
-    expect(result.current.namespaces[0].isManagedNamespace).toBe(true);
-  });
-
-  // -----------------------------------------------------------------------
-  // Test 13: Non-succeeded provisioning state excluded
+  // Test 12: Non-succeeded provisioning state excluded
   // -----------------------------------------------------------------------
   test('excludes managed namespaces with non-succeeded provisioning state', async () => {
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'creating-ns',
@@ -648,55 +611,12 @@ describe('useNamespaceDiscovery', () => {
   });
 
   // -----------------------------------------------------------------------
-  // Test 14: Windows platform quoting
-  // -----------------------------------------------------------------------
-  test('wraps query in double quotes on Windows platform', async () => {
-    (window as any).desktopApi = { platform: 'win32' };
-
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
-
-    const { result } = renderHook(() => useNamespaceDiscovery());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    // Verify runCommandAsync was called with double-quoted query arg
-    expect(mockRunCommandAsync).toHaveBeenCalledWith('az', [
-      'graph',
-      'query',
-      '-q',
-      expect.stringMatching(/^".*"$/), // starts and ends with double quote
-      '--output',
-      'json',
-    ]);
-  });
-
-  test('does not double-quote query on non-Windows platform', async () => {
-    // Ensure no desktopApi (or non-Windows)
-    delete (window as any).desktopApi;
-
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
-
-    const { result } = renderHook(() => useNamespaceDiscovery());
-
-    await waitFor(() => {
-      expect(result.current.loading).toBe(false);
-    });
-
-    // Verify the query argument is NOT wrapped in extra quotes
-    const queryArg = mockRunCommandAsync.mock.calls[0][1][3];
-    expect(queryArg).not.toMatch(/^".*"$/);
-    expect(queryArg).toContain('microsoft.containerservice');
-  });
-
-  // -----------------------------------------------------------------------
   // Additional edge case tests
   // -----------------------------------------------------------------------
 
   test('handles empty clusters configuration (null)', async () => {
     mockUseClustersConf.mockReturnValue(null);
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
+    mockGetManagedNamespaces.mockResolvedValue(buildManagedResponse([]));
 
     const { result } = renderHook(() => useNamespaceDiscovery());
 
@@ -713,7 +633,7 @@ describe('useNamespaceDiscovery', () => {
       JSON.stringify({ allowedNamespaces: ['already-imported', 'unlabeled-imported'] })
     );
 
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
+    mockGetManagedNamespaces.mockResolvedValue(buildManagedResponse([]));
     mockUseClustersConf.mockReturnValue({ 'my-cluster': {} });
     setupApiListSuccess({
       'my-cluster': [
@@ -743,7 +663,7 @@ describe('useNamespaceDiscovery', () => {
   });
 
   test('category assignment for regular namespaces with project labels is needs-import', async () => {
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
+    mockGetManagedNamespaces.mockResolvedValue(buildManagedResponse([]));
     mockUseClustersConf.mockReturnValue({ 'my-cluster': {} });
     setupApiListSuccess({
       'my-cluster': [
@@ -766,7 +686,7 @@ describe('useNamespaceDiscovery', () => {
   });
 
   test('isAksDesktopProject returns false when only one label is present', async () => {
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'partial-label-ns',
@@ -794,7 +714,7 @@ describe('useNamespaceDiscovery', () => {
   });
 
   test('filters out namespaces with malformed resource IDs (empty cluster name)', async () => {
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'orphan-ns',
@@ -826,7 +746,7 @@ describe('useNamespaceDiscovery', () => {
   test('handles localStorage with invalid JSON gracefully', async () => {
     localStorage.setItem('cluster_settings.my-cluster', 'not-valid-json{{{');
 
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
+    mockGetManagedNamespaces.mockResolvedValue(buildManagedResponse([]));
     mockUseClustersConf.mockReturnValue({ 'my-cluster': {} });
     setupApiListSuccess({
       'my-cluster': [buildK8sNamespace('test-ns')],
@@ -844,7 +764,7 @@ describe('useNamespaceDiscovery', () => {
   });
 
   test('filters system namespaces from K8s API results', async () => {
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
+    mockGetManagedNamespaces.mockResolvedValue(buildManagedResponse([]));
     mockUseClustersConf.mockReturnValue({ 'my-cluster': {} });
     setupApiListSuccess({
       'my-cluster': [
@@ -865,7 +785,7 @@ describe('useNamespaceDiscovery', () => {
   });
 
   test('discovers namespaces from multiple registered clusters', async () => {
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
+    mockGetManagedNamespaces.mockResolvedValue(buildManagedResponse([]));
     mockUseClustersConf.mockReturnValue({ 'cluster-a': {}, 'cluster-b': {} });
     setupApiListSuccess({
       'cluster-a': [buildK8sNamespace('ns-a')],
@@ -887,7 +807,7 @@ describe('useNamespaceDiscovery', () => {
   });
 
   test('provisioningState filter is case-insensitive (accepts "succeeded")', async () => {
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'lowercase-ns',
@@ -910,15 +830,31 @@ describe('useNamespaceDiscovery', () => {
     expect(result.current.namespaces[0].name).toBe('lowercase-ns');
   });
 
-  test('stderr-only response with no stdout causes managed path to fail gracefully', async () => {
-    mockRunCommandAsync.mockResolvedValue({
-      stdout: '',
-      stderr: 'ERROR: Please run az login',
+  test('shows the managed namespace error when nothing else is found', async () => {
+    mockGetManagedNamespaces.mockRejectedValue(new Error("Please run 'az login'"));
+
+    const { result } = renderHook(() => useNamespaceDiscovery());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
     });
 
-    mockUseClustersConf.mockReturnValue({ c: {} });
-    setupApiListSuccess({
-      c: [buildK8sNamespace('fallback')],
+    expect(result.current.namespaces).toHaveLength(0);
+    expect(result.current.error).toBe("Please run 'az login'");
+  });
+
+  test('reports tenants that failed while still showing the namespaces found', async () => {
+    mockGetManagedNamespaces.mockResolvedValue({
+      ...buildManagedResponse([
+        {
+          name: 'c/ns1',
+          clusterId:
+            '/subscriptions/s/resourceGroups/rg/providers/Microsoft.ContainerService/managedClusters/c/managedNamespaces/ns1',
+          resourceGroup: 'rg',
+          subscriptionId: 's',
+        },
+      ]),
+      errors: ['Tenant t2: AADSTS50076: MFA required'],
     });
 
     const { result } = renderHook(() => useNamespaceDiscovery());
@@ -927,13 +863,52 @@ describe('useNamespaceDiscovery', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    // Managed path threw due to stderr, but regular discovery continues
-    expect(result.current.namespaces).toHaveLength(1);
-    expect(result.current.namespaces[0].name).toBe('fallback');
+    expect(result.current.namespaces.map(ns => ns.name)).toEqual(['ns1']);
+    expect(result.current.error).toBe(
+      'Could not load managed namespaces from 1 tenant(s): Tenant t2: AADSTS50076: MFA required'
+    );
+  });
+
+  test('cancels the previous Azure request on refresh and on unmount', async () => {
+    const { result, unmount } = renderHook(() => useNamespaceDiscovery());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    const firstSignal: AbortSignal = mockGetManagedNamespaces.mock.calls[0][0];
+    expect(firstSignal.aborted).toBe(false);
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+    const secondSignal: AbortSignal = mockGetManagedNamespaces.mock.calls[1][0];
+    expect(firstSignal.aborted).toBe(true);
+    expect(secondSignal.aborted).toBe(false);
+
+    unmount();
+    expect(secondSignal.aborted).toBe(true);
+  });
+
+  test('skips the K8s fallback when canceled while Azure discovery is pending', async () => {
+    mockUseClustersConf.mockReturnValue({ 'cluster-a': {} });
+    mockGetManagedNamespaces.mockImplementation(
+      (signal: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')));
+        })
+    );
+
+    const { unmount } = renderHook(() => useNamespaceDiscovery());
+    unmount();
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(mockApiList).not.toHaveBeenCalled();
   });
 
   test('extracts namespace name from Resource Graph parent/child format', async () => {
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           // Azure Resource Graph may return nested names as "clusterName/namespaceName"
@@ -959,7 +934,7 @@ describe('useNamespaceDiscovery', () => {
   });
 
   test('handles Resource Graph name without parent prefix', async () => {
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'simple-ns',
@@ -982,7 +957,7 @@ describe('useNamespaceDiscovery', () => {
   });
 
   test('filters system namespaces even with parent/child name format', async () => {
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'my-cluster/kube-system',
@@ -1013,7 +988,7 @@ describe('useNamespaceDiscovery', () => {
 
   test('regular namespaces on managed clusters are not enriched with Azure metadata', async () => {
     // Resource Graph returns one managed namespace on cluster-a
-    mockRunCommandAsync.mockResolvedValue(
+    mockGetManagedNamespaces.mockResolvedValue(
       buildManagedResponse([
         {
           name: 'managed-ns',
@@ -1050,7 +1025,7 @@ describe('useNamespaceDiscovery', () => {
 
   test('does not enrich regular namespaces on clusters without managed namespaces', async () => {
     // No managed namespaces
-    mockRunCommandAsync.mockResolvedValue(buildManagedResponse([]));
+    mockGetManagedNamespaces.mockResolvedValue(buildManagedResponse([]));
 
     mockUseClustersConf.mockReturnValue({ 'standalone-cluster': {} });
     setupApiListSuccess({

@@ -234,6 +234,17 @@ describe('azRequest', () => {
     }
   );
 
+  test('retries other methods only when maxRetries is set explicitly', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(429, {}, { 'retry-after': '0' }))
+      .mockResolvedValueOnce(json(200, { ok: true }));
+
+    await expect(
+      azRequest({ url: '/r', method: 'POST', body: {}, credential, maxRetries: 1 })
+    ).resolves.toEqual({ ok: true });
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
   test('propagates caller cancellation', async () => {
     mocks.fetch.mockImplementation(
       (_url, init: RequestInit) =>

@@ -151,6 +151,17 @@ describe('selected account Azure cloud registration', () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
+  test('reads the active CLI cloud when no cloud name is given', async () => {
+    mocks.command.mockResolvedValue(
+      metadata('https://management.chinacloudapi.cn/', 'https://management.core.chinacloudapi.cn/')
+    );
+    expect(await getAzureCloudEndpoints()).toEqual({
+      endpoint: 'https://management.chinacloudapi.cn',
+      scope: 'https://management.core.chinacloudapi.cn//.default',
+    });
+    expect(mocks.command).toHaveBeenCalledWith('az', ['cloud', 'show', '--output', 'json']);
+  });
+
   test('invalidates cached local cloud metadata after an account change', async () => {
     mocks.command.mockResolvedValue(
       metadata('https://management.azure.com/', 'https://management.core.windows.net/')

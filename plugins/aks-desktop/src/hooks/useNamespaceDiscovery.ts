@@ -3,7 +3,7 @@
 
 import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { runCommandAsync } from '../utils/azure/az-cli-core';
+import { getManagedNamespacesViaGraph } from '../utils/azure/az-resource-graph';
 import {
   PROJECT_ID_LABEL,
   PROJECT_MANAGED_BY_LABEL,
@@ -63,9 +63,6 @@ function isAksDesktopProject(labels: Record<string, string> | null): boolean {
     !!labels[PROJECT_ID_LABEL] && labels[PROJECT_MANAGED_BY_LABEL] === PROJECT_MANAGED_BY_VALUE
   );
 }
-
-// Platform-aware quoting for Azure CLI arguments — see shared module for details.
-import { quoteForPlatform } from '../utils/shared/quoteForPlatform';
 
 function isAlreadyImported(ns: {
   name: string;
@@ -161,6 +158,7 @@ export const useNamespaceDiscovery = (): UseNamespaceDiscoveryReturn => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const latestRequestIdRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const clustersConf = K8s.useClustersConf();
 
   // Produce a stable string key from cluster names so that `discover` (below)
@@ -176,42 +174,31 @@ export const useNamespaceDiscovery = (): UseNamespaceDiscoveryReturn => {
   const discover = useCallback(async () => {
     const requestId = ++latestRequestIdRef.current;
     const isStale = () => latestRequestIdRef.current !== requestId;
+    // If an earlier discover() call is still waiting on Azure, cancel its requests.
+    abortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     setLoading(true);
     setError(null);
     try {
       // --- Path 1: Managed namespaces via Azure Resource Graph ---
       let managedNsError: string | null = null;
+      let managedNsWarning: string | null = null;
       let managedNamespaces: DiscoveredNamespace[] = [];
       let allManagedNamespaces: DiscoveredNamespace[] = [];
       try {
-        const query = `resources | where type =~ 'microsoft.containerservice/managedclusters/managednamespaces' | project id, name, resourceGroup, subscriptionId, labels=properties['labels'], provisioningState=properties['provisioningState']`;
-
-        const { stdout, stderr } = await runCommandAsync('az', [
-          'graph',
-          'query',
-          '-q',
-          quoteForPlatform(query),
-          '--output',
-          'json',
-        ]);
-
-        if (stderr && !stdout) {
-          // Only treat stderr as an error if there's no stdout (i.e., the command truly failed).
-          // Azure CLI often writes warnings to stderr even on success.
-          throw new Error(stderr);
-        }
-
-        let data;
-        try {
-          data = JSON.parse(stdout).data;
-        } catch {
-          throw new Error(`Failed to parse Azure Resource Graph response: ${stdout.slice(0, 200)}`);
+        const { namespaces: data, errors } = await getManagedNamespacesViaGraph(
+          abortController.signal
+        );
+        if (errors.length > 0) {
+          console.warn('Skipped tenants during managed namespace discovery:', errors);
+          managedNsWarning = `Could not load managed namespaces from ${errors.length} tenant(s): ${errors[0]}`;
         }
 
         // Map first, then filter separately so we can deduplicate regular
         // namespaces against ALL managed namespaces (including already-imported ones).
-        allManagedNamespaces = data.map((item: any) => {
+        allManagedNamespaces = data.map(item => {
           // Azure Resource Graph returns nested resource names as "parentName/childName"
           // (e.g., "my-cluster/my-namespace"). Extract only the namespace portion.
           const rawName: string = item.name ?? '';
@@ -259,6 +246,8 @@ export const useNamespaceDiscovery = (): UseNamespaceDiscoveryReturn => {
         managedNsError = err instanceof Error ? err.message : String(err);
       }
 
+      if (isStale() || abortController.signal.aborted) return;
+
       // --- Path 2: Regular namespaces from registered clusters via K8s API ---
       let regularNamespaces: DiscoveredNamespace[] = [];
       try {
@@ -293,6 +282,9 @@ export const useNamespaceDiscovery = (): UseNamespaceDiscoveryReturn => {
 
       if (allNamespaces.length === 0 && managedNsError) {
         setError(managedNsError);
+      } else if (managedNsWarning) {
+        // Some tenants failed, so the list may be incomplete.
+        setError(managedNsWarning);
       }
 
       setNamespaces(allNamespaces);
@@ -309,6 +301,7 @@ export const useNamespaceDiscovery = (): UseNamespaceDiscoveryReturn => {
     discover();
     return () => {
       latestRequestIdRef.current += 1;
+      abortControllerRef.current?.abort();
     };
   }, [discover]);
 
