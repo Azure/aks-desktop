@@ -83,21 +83,10 @@ const identity = {
   packageName: '@headlamp-k8s/developer-cluster',
   bundleName: 'developer-cluster',
 };
-const guest = ['--json', '--provider', 'wsl', '--distro', 'Ubuntu-24.04'];
-const prefix = [
-  '--json',
-  '--provider',
-  'wsl',
-  '--distro',
-  'Ubuntu-24.04',
-  '--kubernetes-distribution',
-  'K8s',
-  '--agent-connectivity',
-  'shared',
-  '--wsl-control-plane-ip',
-  'off',
-];
-const configuration = ['--name', 'demo', '--kubernetes-version', 'v1.36.1'];
+const guest = ['--output', 'json'];
+const prefix = [...guest, '--kubernetes-distribution', 'K8s'];
+const versions = ['cluster', 'get-versions', ...guest];
+const configuration = ['--name', 'demo', '--kubernetes-version', 'v1.36.5'];
 let temporaryRoot: string;
 let resources: string;
 let executable: string;
@@ -212,7 +201,7 @@ async function invoke(
 }
 
 it('uses the exact developer binary, native validation, and shell-free spawn', async () => {
-  const args = ['cluster', 'get-versions', '--json'];
+  const args = versions;
   const send = await invoke(args);
   expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-devctl', args, true);
   expect(mocks.spawn).toHaveBeenCalledExactlyOnceWith(
@@ -261,14 +250,14 @@ it('does not inherit command authority in the managed user inventory', async () 
 
 it('never substitutes PATH or a product executable when the declared binary is absent', async () => {
   fs.unlinkSync(executable);
-  const send = await invoke(['cluster', 'get-versions', '--json']);
+  const send = await invoke(versions);
   expect(send).toHaveBeenCalledWith('command-exit', 'mock-operation', -2);
   expect(mocks.spawn).not.toHaveBeenCalled();
 });
 
 it('requires native consent and persists a user denial in the mocked settings only', async () => {
   consent = {};
-  const send = await invoke(['cluster', 'get-versions', '--json']);
+  const send = await invoke(versions);
   expect(mocks.dialog).toHaveBeenCalledOnce();
   expect(mocks.saveSettings).toHaveBeenCalledOnce();
   expect(send).toHaveBeenCalledWith('command-exit', 'mock-operation', -3);
@@ -277,17 +266,18 @@ it('requires native consent and persists a user denial in the mocked settings on
 });
 
 it('honors saved denial even when other operations have approval', async () => {
-  consent[consentKey(['cluster', 'get-versions', '--json'])] = false;
-  const send = await invoke(['cluster', 'get-versions', '--json']);
+  consent[consentKey(versions)] = false;
+  const send = await invoke(versions);
   expect(send).toHaveBeenCalledWith('command-exit', 'mock-operation', -3);
   expect(mocks.dialog).not.toHaveBeenCalled();
   expect(mocks.spawn).not.toHaveBeenCalled();
 });
 
 it.each([
-  ['cluster', 'get-versions', '--json', '--unexpected'],
+  [...versions, '--unexpected'],
+  ['cluster', 'get-versions', '--json'],
   ['cluster', 'show', ...guest, '--name', 'demo'],
-  ['cluster', 'show', ...guest.map(value => (value === 'Ubuntu-24.04' ? 'Ubuntu' : value))],
+  ['cluster', 'show', '--json', '--provider', 'wsl', '--distro', 'Ubuntu-24.04'],
 ])('rejects arguments outside the product grant: %j', async (...args) => {
   const send = await invoke(args);
   expect(send).toHaveBeenCalledWith('command-exit', 'mock-operation', -2);
@@ -301,6 +291,7 @@ it.each([
   ['cluster', 'delete', ...guest, ...configuration],
   ['cluster', 'create', ...prefix, ...configuration, '--kubeconfig-out', 'C:\\kubeconfig.yaml'],
   ['cluster', 'create', ...prefix, ...configuration, '--merge'],
+  ['cluster', 'create', ...prefix, ...configuration, '--kubeconfig-file', 'C:\\kubeconfig'],
 ])('enforces full native validation after the variable-argument grant: %j', async (...args) => {
   const send = await invoke(args);
   expect(mocks.executable).toHaveBeenCalledExactlyOnceWith('aks-devctl', args, true);
@@ -328,7 +319,7 @@ it('rejects renderer spawn overrides, revoked capabilities, and untrusted docume
     [{}, trustedUrl, true],
     [{}, 'https://untrusted.invalid', false],
   ] as const) {
-    await invoke(['cluster', 'get-versions', '--json'], options, url, revoked);
+    await invoke(versions, options, url, revoked);
   }
   expect(mocks.environment).not.toHaveBeenCalled();
   expect(mocks.executable).not.toHaveBeenCalled();

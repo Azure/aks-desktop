@@ -66,17 +66,19 @@ function validateCommand(command, args) {
   if (!Array.isArray(args) || args.some(value => typeof value !== 'string')) invalid();
   if (args[0] !== 'cluster') invalid();
   const subcommand = args[1];
-  if (args.length === 3 && subcommand === 'get-versions' && args[2] === '--json') return;
-  // create takes the full local topology; show and delete accept only the flags that find the
-  // guest (aks-devctl cmd/aks-devctl/flags.go, newScopedFlags).
-  const guest = ['--json', '--provider', 'wsl', '--distro', 'Ubuntu-24.04'];
-  const local = [
-    '--json', '--provider', 'wsl', '--distro', 'Ubuntu-24.04',
-    '--kubernetes-distribution', 'K8s', '--agent-connectivity', 'shared',
-    '--wsl-control-plane-ip', 'off',
-  ];
+  // Every command asks for JSON Lines. The provider, WSL distro, agent connectivity and
+  // control-plane IP are aks-devctl settings, not flags; create also fixes the distribution.
+  const output = ['--output', 'json'];
+  const local = [...output, '--kubernetes-distribution', 'K8s'];
+  if (
+    args.length === 4 &&
+    subcommand === 'get-versions' &&
+    output.every((value, index) => args[index + 2] === value)
+  ) {
+    return;
+  }
   if (!['show', 'create', 'delete'].includes(subcommand)) invalid();
-  const prefix = subcommand === 'create' ? local : guest;
+  const prefix = subcommand === 'create' ? local : output;
   if (prefix.some((value, index) => args[index + 2] !== value)) invalid();
   const rest = args.slice(prefix.length + 2);
   if (subcommand === 'show') {

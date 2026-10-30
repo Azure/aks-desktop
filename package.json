@@ -1117,7 +1117,8 @@
             "args": [
               "cluster",
               "get-versions",
-              "--json"
+              "--output",
+              "json"
             ]
           },
           {
@@ -1125,11 +1126,8 @@
             "args": [
               "cluster",
               "show",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04"
+              "--output",
+              "json"
             ]
           },
           {
@@ -1138,17 +1136,10 @@
             "args": [
               "cluster",
               "create",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04",
+              "--output",
+              "json",
               "--kubernetes-distribution",
-              "K8s",
-              "--agent-connectivity",
-              "shared",
-              "--wsl-control-plane-ip",
-              "off"
+              "K8s"
             ]
           },
           {
@@ -1157,11 +1148,8 @@
             "args": [
               "cluster",
               "delete",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04"
+              "--output",
+              "json"
             ]
           },
           {
@@ -1211,7 +1199,8 @@
             "args": [
               "cluster",
               "get-versions",
-              "--json"
+              "--output",
+              "json"
             ]
           },
           {
@@ -1219,11 +1208,8 @@
             "args": [
               "cluster",
               "show",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04"
+              "--output",
+              "json"
             ]
           },
           {
@@ -1232,17 +1218,10 @@
             "args": [
               "cluster",
               "create",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04",
+              "--output",
+              "json",
               "--kubernetes-distribution",
-              "K8s",
-              "--agent-connectivity",
-              "shared",
-              "--wsl-control-plane-ip",
-              "off"
+              "K8s"
             ]
           },
           {
@@ -1251,11 +1230,8 @@
             "args": [
               "cluster",
               "delete",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04"
+              "--output",
+              "json"
             ]
           },
           {
@@ -1301,7 +1277,8 @@
             "args": [
               "cluster",
               "get-versions",
-              "--json"
+              "--output",
+              "json"
             ]
           },
           {
@@ -1309,11 +1286,8 @@
             "args": [
               "cluster",
               "show",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04"
+              "--output",
+              "json"
             ]
           },
           {
@@ -1322,17 +1296,10 @@
             "args": [
               "cluster",
               "create",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04",
+              "--output",
+              "json",
               "--kubernetes-distribution",
-              "K8s",
-              "--agent-connectivity",
-              "shared",
-              "--wsl-control-plane-ip",
-              "off"
+              "K8s"
             ]
           },
           {
@@ -1341,11 +1308,8 @@
             "args": [
               "cluster",
               "delete",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04"
+              "--output",
+              "json"
             ]
           },
           {
@@ -1395,7 +1359,8 @@
             "args": [
               "cluster",
               "get-versions",
-              "--json"
+              "--output",
+              "json"
             ]
           },
           {
@@ -1403,11 +1368,8 @@
             "args": [
               "cluster",
               "show",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04"
+              "--output",
+              "json"
             ]
           },
           {
@@ -1416,17 +1378,10 @@
             "args": [
               "cluster",
               "create",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04",
+              "--output",
+              "json",
               "--kubernetes-distribution",
-              "K8s",
-              "--agent-connectivity",
-              "shared",
-              "--wsl-control-plane-ip",
-              "off"
+              "K8s"
             ]
           },
           {
@@ -1435,11 +1390,8 @@
             "args": [
               "cluster",
               "delete",
-              "--json",
-              "--provider",
-              "wsl",
-              "--distro",
-              "Ubuntu-24.04"
+              "--output",
+              "json"
             ]
           },
           {
