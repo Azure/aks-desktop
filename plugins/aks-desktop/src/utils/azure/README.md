@@ -27,7 +27,7 @@ This directory contains the Azure CLI integration layer for AKS Desktop. Every A
 | `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                     |
 | `az-namespace-access.ts`   | Namespace role assignments and access verification                           |
 | `az-identity.ts`           | Managed identity CRUD, role assignments, scope building                      |
-| `az-ad.ts`                 | Azure AD user search                                                         |
+| `az-ad.ts`                 | Microsoft Graph Entra user search and identifier resolution                  |
 | `az-acr.ts`                | Container registry creation, listing, and image discovery                    |
 | `az-federation.ts`         | Federated credentials for GitHub Actions and Kubernetes OIDC                 |
 
@@ -60,7 +60,7 @@ az-cli-core.ts  (foundation — runCommandAsync, runAzCommand, error helpers)
     ├── az-namespace-access.ts ──────> az-namespaces.ts
     ├── az-clusters.ts ──────────────> az-resource-graph.ts, az-subscriptions.ts
     ├── az-identity.ts ──────────────> az-validation.ts
-    ├── az-ad.ts
+    ├── az-ad.ts ────────────────────> az-http.ts
     ├── az-acr.ts ───────────────────> az-validation.ts
     └── az-federation.ts ────────────> az-validation.ts
 
@@ -116,6 +116,41 @@ executes real account-bound CLI token acquisition, checks tenant/principal/audie
 claims without logging tokens, and verifies registration plus cached reuse.
 Live validation is restricted to Cloud Native Tools/public Azure; sovereign/custom
 routing is unit-tested but is not claimed to have real-account live coverage.
+
+### Entra user lookup
+
+`searchAzureADUsers` and `resolveAzureADUser` use the public Microsoft Graph
+`v1.0/users` endpoints through `az-http.ts`, requesting
+`https://graph.microsoft.com/.default` rather than an ARM token. Authentication
+remains CLI-backed through the shared token provider and uses the current CLI
+account, as the previous `az ad user` commands did; these helpers do not change
+the selected account or request directory writes.
+
+Search retains a two-character minimum, prefix matching on display name, mail,
+and UPN, and a maximum of 15 results. Resolution returns both the object ID and
+UPN, including guest UPNs and users without mail: Azure role assignments require
+the object ID, while Kubernetes user subjects require the UPN.
+
+The signed-in identity needs delegated permission to read other users' basic
+profiles, such as `User.ReadBasic.All`, with consent permitted by tenant policy.
+`User.Read` alone is not sufficient for directory search; acquiring a Graph token
+does not grant missing permissions. The helper does not request consent or
+bypass conditional access. Guests may be returned as records, but a guest
+signed-in account cannot use Graph's list-users API.
+
+Directory, consent, and authentication failures remain explicit lookup errors
+so the existing manual-entry UI stays available. Submission requires a
+well-formed object ID and, for native Kubernetes RBAC, a well-formed UPN.
+Missing or invalid required identifiers block submission; a failed Graph lookup
+does not block it when those identifiers have been supplied manually. Directory
+resolution is not required in that case, and the UI preserves a manually entered
+UPN when an object-ID lookup fails. Grant operations still require the caller's
+Azure or Kubernetes authorization; manual entry does not grant directory access.
+
+See the Graph [list users](https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-1.0)
+and [get user](https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0)
+permission requirements. Offline transport and caller tests do not establish
+live consent or conditional-access behavior in a particular tenant.
 
 ## Adding a New Function
 
