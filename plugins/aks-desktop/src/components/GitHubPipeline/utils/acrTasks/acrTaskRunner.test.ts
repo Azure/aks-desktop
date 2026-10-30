@@ -663,6 +663,106 @@ describe('generated ACR Tasks runtime', () => {
     );
   });
 
+  it.each([
+    {
+      description: 'inside the context with an ignored target',
+      context: '.',
+      alias: 'Selected.Dockerfile',
+      target: 'templates/Buildfile',
+      link: 'templates/Buildfile',
+      archived: 'Selected.Dockerfile',
+    },
+    {
+      description: 'outside a nested context',
+      context: 'src/web',
+      alias: 'docker/Selected.Dockerfile',
+      target: 'docker/templates/Buildfile',
+      link: 'templates/Buildfile',
+      archived: externalDockerfile,
+    },
+    {
+      description: 'inside a nested context with a target elsewhere in the checkout',
+      context: 'src/web',
+      alias: 'src/web/Selected.Dockerfile',
+      target: 'docker/Buildfile',
+      link: '../../docker/Buildfile',
+      archived: 'Selected.Dockerfile',
+    },
+  ])('uses the selected Dockerfile alias sidecar $description', input => {
+    const test = fixture({ DOCKER_FILE: input.alias, BUILD_CONTEXT_PATH: input.context });
+    const prefix = input.context === '.' ? '' : `${input.context}/`;
+    const rules = 'private.txt\ntemplates/\n';
+    const contents = 'FROM scratch\nCOPY public.txt /public.txt\n';
+    test.write(input.target, contents);
+    test.write(`${input.target}.dockerignore`, 'public.txt\n');
+    test.write(`${input.alias}.dockerignore`, rules);
+    test.write(`${prefix}.dockerignore`, 'public.txt\n');
+    test.write(`${prefix}private.txt`, 'private-upload-marker');
+    test.write(`${prefix}public.txt`, 'required public source');
+    symlinkSync(input.link, join(test.workspace, input.alias));
+
+    const { status, stderr, records } = test.run();
+
+    expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
+    expect(records.archive['private.txt']).toBeUndefined();
+    expect(records.archive['public.txt'].content).toBe('required public source');
+    expect(records.archive[input.archived]).toEqual({ link: null, content: contents });
+    expect(records.archive['.dockerignore'].content).toBe(
+      `${rules}${input.archived === externalDockerfile ? stagingIgnore : ''}`
+    );
+    expect(
+      Object.values(records.archive)
+        .map(item => item.content)
+        .join('')
+    ).not.toContain('private-upload-marker');
+    expect(requests(records, '/scheduleRun')[0].body).toMatchObject({
+      dockerFilePath: input.archived,
+    });
+  });
+
+  it.each(['outside checkout', 'Git metadata'])(
+    'rejects a selected Dockerfile alias resolving to %s before upload',
+    kind => {
+      const test = fixture({ DOCKER_FILE: 'Selected.Dockerfile' });
+      if (kind === 'outside checkout') {
+        writeFileSync(join(test.directory, 'outside'), 'private checkout-external data');
+      } else {
+        test.write('.git/config', 'private Git metadata');
+      }
+      symlinkSync(
+        kind === 'outside checkout' ? '../outside' : '.git/config',
+        join(test.workspace, 'Selected.Dockerfile')
+      );
+      const { status, records } = test.run();
+      expect(status).toBe(1);
+      expect(requests(records, '/listBuildSourceUploadUrl')).toHaveLength(0);
+      expect(records.archive).toEqual({});
+    }
+  );
+
+  it.each([
+    { alias: 'Selected.Dockerfile', context: '.', link: '.git/config' },
+    { alias: 'docker/Selected.Dockerfile', context: 'src/web', link: '../.git/config' },
+  ])('rejects a selected alias sidecar targeting Git metadata (%s)', input => {
+    const test = fixture({ DOCKER_FILE: input.alias, BUILD_CONTEXT_PATH: input.context });
+    const target = 'templates/Buildfile';
+    test.write(target, 'FROM scratch');
+    test.write(`${target}.dockerignore`, 'public.txt\n');
+    test.write('.git/config', 'private-git-sidecar-marker');
+    test.write('src/web/public.txt', 'public source');
+    mkdirSync(dirname(join(test.workspace, input.alias)), { recursive: true });
+    symlinkSync(
+      input.alias.startsWith('docker/') ? '../templates/Buildfile' : target,
+      join(test.workspace, input.alias)
+    );
+    symlinkSync(input.link, join(test.workspace, `${input.alias}.dockerignore`));
+    const { status, stderr, records } = test.run();
+    expect(status).toBe(1);
+    expect(stderr).toContain('Docker ignore file cannot be inside .git');
+    expect(requests(records, '/listBuildSourceUploadUrl')).toHaveLength(0);
+    expect(records.archive).toEqual({});
+  });
+
   it.each(['relative outside context', 'absolute inside context'])(
     'rejects a selected root-ignore symlink that is %s before upload',
     kind => {

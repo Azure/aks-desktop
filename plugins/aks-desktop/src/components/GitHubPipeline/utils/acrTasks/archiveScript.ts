@@ -127,20 +127,28 @@ def ignored(name, rules):
 def create_context(workspace, context_value, dockerfile_value, output, check=lambda: None):
     workspace = Path(workspace).resolve()
     context = (workspace / context_value).resolve()
-    dockerfile = (workspace / dockerfile_value).resolve()
+    dockerfile = workspace / dockerfile_value
+    # Keep the selected filename; its symlink target can have a different sidecar.
+    dockerfile = dockerfile.parent.resolve() / dockerfile.name
+    dockerfile_target = dockerfile.resolve()
     if not inside(context, workspace) or not context.is_dir():
         raise ValueError("Build context must be a local directory inside the checkout")
     if ".git" in context.relative_to(workspace).parts:
         raise ValueError("Build context cannot be inside .git")
-    if not inside(dockerfile, workspace) or not dockerfile.is_file():
+    if (not inside(dockerfile, workspace) or not inside(dockerfile_target, workspace)
+            or not dockerfile_target.is_file()):
         raise ValueError("Dockerfile must be a file inside the checkout")
-    if ".git" in dockerfile.relative_to(workspace).parts:
+    if (".git" in dockerfile.relative_to(workspace).parts
+            or ".git" in dockerfile_target.relative_to(workspace).parts):
         raise ValueError("Dockerfile cannot be inside .git")
 
     specific_ignore = Path(str(dockerfile) + ".dockerignore")
     ignore_file = specific_ignore if specific_ignore.is_file() else context / ".dockerignore"
-    if not inside(ignore_file.resolve(), workspace):
+    ignore_target = ignore_file.resolve()
+    if not inside(ignore_target, workspace):
         raise ValueError("Docker ignore file cannot escape the checkout")
+    if ".git" in ignore_target.relative_to(workspace).parts:
+        raise ValueError("Docker ignore file cannot be inside .git")
     if ignore_file.exists() and not ignore_file.is_file():
         raise ValueError("Docker ignore path must be a file")
     if ignore_file.is_symlink() and inside(ignore_file, context):
@@ -174,6 +182,10 @@ def create_context(workspace, context_value, dockerfile_value, output, check=lam
                 if entry.is_symlink():
                     if excluded:
                         continue
+                    if not external and name == docker_name:
+                        # The selected Dockerfile must survive even when its target is ignored.
+                        archive.add(dockerfile_target, arcname=name, recursive=False)
+                        continue
                     target = symlink_target(entry.path, context, name)
                     if ignored(target.relative_to(context).as_posix(), rules):
                         continue
@@ -189,7 +201,7 @@ def create_context(workspace, context_value, dockerfile_value, output, check=lam
                     archive.add(entry.path, arcname=name, recursive=False)
         walk(context)
         if external:
-            archive.add(dockerfile, arcname=docker_name, recursive=False)
+            archive.add(dockerfile_target, arcname=docker_name, recursive=False)
         if rewrite_ignore:
             # Legacy ACR builders reapply the root ignore file, not Dockerfile-specific overrides.
             effective_ignore = ignore_file.read_bytes() if ignore_file.is_file() else b""

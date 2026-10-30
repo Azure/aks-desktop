@@ -69,6 +69,12 @@ Relocated Dockerfiles use reserved root-level `.aksd-acr.Dockerfile` and
 that legacy Docker can otherwise retain in `COPY .`.
 Normalization preserves the selected ignore file's context-symlink boundary
 checks and rejects directory paths before any source upload.
+For a selected Dockerfile symlink, sidecar lookup uses the selected filename,
+not the resolved target filename. The target is validated separately and its
+contents are archived under the selected name, or the reserved staging name
+when the selected Dockerfile is outside the context.
+Resolved Dockerfile and ignore-file targets must remain in the checkout and
+outside Git metadata.
 
 The existing `azure/login` OIDC setup and `azure/aks-set-context` remain. Token
 acquisition still uses `az account get-access-token`; the resource build itself
