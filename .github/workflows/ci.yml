@@ -154,6 +154,10 @@ jobs:
           build/windows-zip-extraction.test.ts
           packages/headlamp-source/src/lib/bundle-plugins.test.ts
           packages/headlamp-source/src/lib/smoke-app.test.ts
+          test/e2e/acr-command.test.ts
+          test/e2e/acr-permissions.test.ts
+          test/e2e/acr-cleanup.test.ts
+          test/e2e/run-azure.test.ts
 
       - name: Build application for host platform
         run: npm run build

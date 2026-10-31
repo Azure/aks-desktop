@@ -67,6 +67,8 @@ export interface PipelineConfig {
   acrResourceId?: string;
   /** Login server of the selected ACR (e.g., "myregistry.azurecr.io"). */
   acrLoginServer?: string;
+  /** Non-secret Docker build arguments embedded in generated workflows; omitted means none. */
+  buildArguments?: Record<string, string>;
 }
 
 export interface PRTracking {
