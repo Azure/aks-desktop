@@ -16,6 +16,11 @@ function fixture(t) {
   const temp = path.join(root, "agent temp & quote'");
   fs.mkdirSync(temp);
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ packageManager: 'npm@12.0.1' }));
+  const toolDir = path.join(root, '.config', 'npm');
+  fs.mkdirSync(toolDir, { recursive: true });
+  for (const file of ['package.json', 'package-lock.json']) {
+    fs.copyFileSync(path.join(__dirname, '..', '.config', 'npm', file), path.join(toolDir, file));
+  }
   const trace = path.join(root, 'calls.jsonl');
   const cli = path.join(root, 'bundled npm-cli.cjs');
   // External npm boundary only: use real child processes, paths and files, but
@@ -35,8 +40,11 @@ function fixture(t) {
   fs.writeFileSync(cli, `
     const fs = require('node:fs'), path = require('node:path');
     const args = process.argv.slice(2);
-    fs.appendFileSync(process.env.TRACE, JSON.stringify({ phase: 'bootstrap', args }) + '\\n');
-    if (process.env.FAIL_AT === 'install') process.exit(23);
+    const root = args[args.indexOf('--prefix') + 1];
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+    fs.appendFileSync(process.env.TRACE, JSON.stringify({ phase: 'bootstrap', args, manifest, lock }) + '\\n');
+    if (process.env.FAIL_AT === 'bootstrap') process.exit(23);
     const target = path.join(args[args.indexOf('--prefix') + 1], 'node_modules', 'npm', 'bin', 'npm-cli.js');
     if (!process.env.MISSING_CLI) {
       fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -68,9 +76,12 @@ test('uses native paths and the verified CLI for install, build and distribution
   assert.equal(result.status, 0, result.stderr);
   const [install, version, ...commands] = result.calls;
   assert.equal(install.phase, 'bootstrap');
-  assert.deepEqual(install.args.slice(0, 2), ['install', '--prefix']);
+  assert.deepEqual(install.args.slice(0, 2), ['ci', '--prefix']);
   assert.equal(path.dirname(install.args[2]), temp);
-  assert.deepEqual(install.args.slice(3), ['--no-save', '--ignore-scripts', '--no-audit', '--no-fund', 'npm@12.0.1']);
+  assert.deepEqual(install.args.slice(3), ['--ignore-scripts', '--no-audit', '--no-fund']);
+  for (const [file, contents] of [['package.json', install.manifest], ['package-lock.json', install.lock]]) {
+    assert.deepEqual(contents, JSON.parse(fs.readFileSync(path.join(__dirname, '..', '.config', 'npm', file), 'utf8')));
+  }
   assert.deepEqual(version.args, ['--version']);
   assert.deepEqual(commands.map(c => c.args), [['ci'], ['run', 'build:win-ci'], ['run', 'test:distribution']]);
   const installedCli = path.join(install.args[2], 'node_modules', 'npm', 'bin', 'npm-cli.js');
@@ -81,13 +92,13 @@ test('uses native paths and the verified CLI for install, build and distribution
   assert.deepEqual(fs.readdirSync(temp), []);
 });
 
-for (const phase of ['install', 'ci', 'build:win-ci', 'test:distribution']) {
+for (const phase of ['bootstrap', 'ci', 'build:win-ci', 'test:distribution']) {
   test(`preserves failure status and stops subsequent commands when ${phase} fails`, t => {
     const { run, temp } = fixture(t);
     const result = run({ FAIL_AT: phase });
     assert.equal(result.status, 23, result.stderr);
-    const last = result.calls.at(-1).args;
-    assert.equal(phase === 'install' ? last[0] : (last[1] || last[0]), phase);
+    const last = result.calls.at(-1);
+    assert.equal(phase === 'bootstrap' ? last.phase : (last.args[1] || last.args[0]), phase);
     assert.deepEqual(fs.readdirSync(temp), []);
   });
 }
@@ -101,7 +112,7 @@ for (const [name, env, error] of [
     const result = run(env);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, error);
-    assert.ok(result.calls.every(call => !call.args.includes('ci')));
+    assert.ok(result.calls.every(call => call.phase !== 'pinned' || !call.args.includes('ci')));
     assert.deepEqual(fs.readdirSync(temp), []);
   });
 }
@@ -129,6 +140,39 @@ test('requires an npm lifecycle CLI before creating temporary files', t => {
   const result = run({ npm_execpath: '' });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /npm_execpath/);
+  assert.deepEqual(result.calls, []);
+  assert.deepEqual(fs.readdirSync(temp), []);
+});
+
+test('the bootstrap lock pins the root package manager by version and integrity', () => {
+  const root = path.join(__dirname, '..');
+  const { packageManager } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, '.config', 'npm', 'package.json'), 'utf8'));
+  const lock = JSON.parse(fs.readFileSync(path.join(root, '.config', 'npm', 'package-lock.json'), 'utf8'));
+  assert.equal(`npm@${manifest.dependencies.npm}`, packageManager);
+  assert.deepEqual(lock.packages[''].dependencies, manifest.dependencies);
+  assert.equal(lock.packages['node_modules/npm'].version, manifest.dependencies.npm);
+  assert.match(lock.packages['node_modules/npm'].integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
+});
+
+test('rejects a bootstrap version that differs from packageManager before installing', t => {
+  const { root, run, temp } = fixture(t);
+  fs.writeFileSync(path.join(root, '.config', 'npm', 'package.json'), JSON.stringify({
+    dependencies: { npm: '0.0.0' },
+  }));
+  const result = run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /must match packageManager/);
+  assert.deepEqual(result.calls, []);
+  assert.deepEqual(fs.readdirSync(temp), []);
+});
+
+test('a missing bootstrap lockfile fails before installing and cleans up temporary files', t => {
+  const { root, run, temp } = fixture(t);
+  fs.unlinkSync(path.join(root, '.config', 'npm', 'package-lock.json'));
+  const result = run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /package-lock\.json/);
   assert.deepEqual(result.calls, []);
   assert.deepEqual(fs.readdirSync(temp), []);
 });
