@@ -8,7 +8,6 @@ const mocks = vi.hoisted(() => ({
   getClusters: vi.fn(),
   getConnectedClusters: vi.fn(),
   getSubscriptions: vi.fn(),
-  isExtensionInstalled: vi.fn(),
   setClusterSettings: vi.fn(),
 }));
 
@@ -20,10 +19,6 @@ vi.mock('./az-subscriptions', () => ({ getSubscriptions: mocks.getSubscriptions 
 vi.mock('../shared/clusterSettings', () => ({
   getClusterSettings: mocks.getClusterSettings,
   setClusterSettings: mocks.setClusterSettings,
-}));
-
-vi.mock('./az-extensions', () => ({
-  isExtensionInstalled: mocks.isExtensionInstalled,
 }));
 
 import {
@@ -65,8 +60,7 @@ describe('Azure AKS utilities', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getClusterSettings.mockReturnValue({ allowedNamespaces: ['existing'] });
-    mocks.getConnectedClusters.mockResolvedValue([]);
-    mocks.isExtensionInstalled.mockResolvedValue({ installed: true });
+    mocks.getConnectedClusters.mockResolvedValue({ clusters: [] });
     vi.stubGlobal('registerCluster', registerClusterCapability);
     vi.spyOn(console, 'debug').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -231,17 +225,19 @@ describe('Azure AKS utilities', () => {
         status: 'Succeeded',
       },
     ]);
-    mocks.getConnectedClusters.mockResolvedValue([
-      {
-        name: 'hybrid-edge',
-        resourceGroup: 'arc-rg',
-        location: 'westus',
-        version: '1.31',
-        status: 'Connected',
-        clusterType: 'aksarc',
-        connectivityStatus: 'Connected',
-      },
-    ]);
+    mocks.getConnectedClusters.mockResolvedValue({
+      clusters: [
+        {
+          name: 'hybrid-edge',
+          resourceGroup: 'arc-rg',
+          location: 'westus',
+          version: '1.31',
+          status: 'Connected',
+          clusterType: 'aksarc',
+          connectivityStatus: 'Connected',
+        },
+      ],
+    });
 
     const result = await getAKSClusters('sub-1');
 
@@ -266,6 +262,7 @@ describe('Azure AKS utilities', () => {
     expect(result).toMatchObject({
       success: true,
       clusters: [{ name: 'managed', clusterType: 'aks' }],
+      arcDiscoveryUnavailable: 'connectedk8s failed',
     });
   });
 
@@ -603,30 +600,31 @@ describe('Azure AKS utilities', () => {
     expect(desktopRegisterAKSCluster).toHaveBeenCalledTimes(2);
   });
 
-  test('reports why Arc discovery found nothing when the CLI extension is missing', async () => {
-    // Without this the empty list is indistinguishable from a subscription with
-    // no Arc clusters, and the install guidance sits behind selecting a cluster
-    // that cannot appear.
+  test('reports the Azure error when Arc discovery fails', async () => {
+    mocks.getClusters.mockResolvedValue([
+      { name: 'managed', resourceGroup: 'rg', location: 'eastus', status: 'Succeeded' },
+    ]);
+    mocks.getConnectedClusters.mockResolvedValue({
+      clusters: [],
+      error: 'AuthorizationFailed: denied (HTTP 403, request ID request-1)',
+    });
+
+    const result = await getAKSClusters('sub-a');
+
+    expect(result).toMatchObject({
+      success: true,
+      clusters: [{ name: 'managed', clusterType: 'aks' }],
+      arcDiscoveryUnavailable: 'AuthorizationFailed: denied (HTTP 403, request ID request-1)',
+    });
+  });
+
+  test('says nothing when Arc discovery succeeds', async () => {
     mocks.getClusters.mockResolvedValue([]);
-    mocks.getConnectedClusters.mockResolvedValue([]);
-    mocks.isExtensionInstalled.mockResolvedValue({ installed: false });
+    mocks.getConnectedClusters.mockResolvedValue({ clusters: [] });
 
     const result = await getAKSClusters('sub-a');
 
     expect(result.success).toBe(true);
-    expect(result.arcDiscoveryUnavailable).toBeTruthy();
-  });
-
-  test('says nothing when Arc clusters were found', async () => {
-    mocks.getClusters.mockResolvedValue([]);
-    mocks.getConnectedClusters.mockResolvedValue([
-      { name: 'arc-1', resourceGroup: 'rg', location: 'eastus', clusterType: 'aksarc' },
-    ]);
-
-    const result = await getAKSClusters('sub-a');
-
     expect(result.arcDiscoveryUnavailable).toBeUndefined();
-    // The extension is plainly present if discovery returned clusters — no extra az call.
-    expect(mocks.isExtensionInstalled).not.toHaveBeenCalled();
   });
 });

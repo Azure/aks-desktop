@@ -143,7 +143,7 @@ export interface AzureResourceState {
   loadingClusters: boolean;
   error: string | null;
   clusterError: string | null;
-  arcDiscoveryUnavailable: boolean;
+  arcDiscoveryUnavailable: string | null;
 }
 
 export interface StepProps {
@@ -167,8 +167,8 @@ export interface BasicsStepProps extends StepProps {
   clusterError: string | null;
   /** Error raised while persisting an adopted managed-cluster scope. */
   scopeAdoptionError?: string | null;
-  /** Whether Arc discovery is unavailable because `connectedk8s` is missing. */
-  arcDiscoveryUnavailable?: boolean;
+  /** The Azure error message when AKS Hybrid & Edge clusters could not be listed. */
+  arcDiscoveryUnavailable?: string | null;
   /** Availability state for the requested project namespace. */
   namespaceStatus: NamespaceStatus;
   /**

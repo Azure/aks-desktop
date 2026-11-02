@@ -1,6 +1,5 @@
 import { getClusterSettings, setClusterSettings } from '../shared/clusterSettings';
-import { getClusters, getConnectedClusters } from './az-clusters';
-import { isExtensionInstalled } from './az-extensions';
+import { type ConnectedClusterSummary, getClusters, getConnectedClusters } from './az-clusters';
 import { getSubscriptions as getAzSubscriptions } from './az-subscriptions';
 import { getClusterRegistrationCapability } from './clusterRegistrationCapability';
 
@@ -200,47 +199,25 @@ export async function getAKSClusters(subscriptionId: string): Promise<{
   success: boolean;
   message: string;
   clusters?: AKSCluster[];
-  /**
-   * Why no AKS Hybrid & Edge clusters are listed, when the reason is actionable.
-   *
-   * Arc discovery needs the `connectedk8s` CLI extension and resolves to an empty
-   * list without it — indistinguishable from a subscription that simply has none.
-   * The register dialog's install guidance only runs once an Arc cluster has been
-   * selected, so without this the user on a fresh installation sees no Arc
-   * clusters and has no way to reach the instructions that would fix it.
-   */
+  /** The Azure error message when AKS Hybrid & Edge clusters could not be listed. */
   arcDiscoveryUnavailable?: string;
 }> {
   try {
     const aksClusters = await getClusters(subscriptionId);
 
-    // AKS Hybrid & Edge (Arc-connected) discovery is additive and best-effort: a
-    // failure here must never prevent the managed AKS clusters from listing.
-    // getConnectedClusters already swallows its own errors, but we guard again
-    // so the AKS path is resilient regardless of that contract.
-    let arcClusters: any[] = [];
+    // AKS Hybrid & Edge discovery is best-effort; a failure keeps the managed AKS clusters.
+    let arcClusters: ConnectedClusterSummary[] = [];
+    let arcDiscoveryUnavailable: string | undefined;
     try {
-      arcClusters = await getConnectedClusters(subscriptionId);
+      const arcDiscovery = await getConnectedClusters(subscriptionId);
+      arcClusters = arcDiscovery.clusters;
+      arcDiscoveryUnavailable = arcDiscovery.error;
     } catch (arcError) {
       console.warn(
         'AKS Hybrid & Edge cluster discovery failed; continuing with AKS clusters only:',
         arcError
       );
-    }
-
-    // Only when discovery came up empty is the extension worth checking: an empty
-    // Arc list is the ambiguous case, and this keeps the extra `az` call off the
-    // common path where clusters were found.
-    let arcDiscoveryUnavailable: string | undefined;
-    if (arcClusters.length === 0) {
-      try {
-        const ext = await isExtensionInstalled('connectedk8s');
-        if (!ext.installed) {
-          arcDiscoveryUnavailable = ext.error || 'connectedk8s-extension-missing';
-        }
-      } catch (extError) {
-        console.warn('Could not determine connectedk8s extension state:', extError);
-      }
+      arcDiscoveryUnavailable = arcError instanceof Error ? arcError.message : 'Unknown error';
     }
 
     const clusters = [...aksClusters, ...arcClusters];

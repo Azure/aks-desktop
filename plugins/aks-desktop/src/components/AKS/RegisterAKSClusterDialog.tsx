@@ -426,16 +426,12 @@ export default function RegisterAKSClusterDialog({
       }
 
       setClusters(result.clusters || []);
-      // Without saying so, a missing extension looks like a subscription with no
-      // Arc clusters, and the install guidance sits behind a cluster that cannot
-      // be selected.
-      const arcDiscoveryIssue = result.arcDiscoveryUnavailable;
       setNotice(
-        arcDiscoveryIssue === 'connectedk8s-extension-missing'
-          ? t(
-              'AKS Hybrid & Edge clusters are not listed: the Azure CLI "connectedk8s" extension is required. Install it with: az extension add --name connectedk8s'
-            )
-          : arcDiscoveryIssue || ''
+        result.arcDiscoveryUnavailable
+          ? t('AKS Hybrid & Edge clusters could not be listed: {{message}}', {
+              message: result.arcDiscoveryUnavailable,
+            })
+          : ''
       );
     } catch (err) {
       if (requestId !== clusterRequestIdRef.current) {

@@ -45,7 +45,6 @@
   "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "AKS Desktop 會傳送假名使用資料 (功能使用方式、應用程式版本、作業系統、錯誤類別)，以協助我們改善產品。系統也會包含儲存在此裝置上的隨機假名安裝識別碼，讓我們可以計算來自相同安裝的工作階段。絕不會傳送叢集名稱、命名空間、資源名稱、錯誤訊息或堆疊追蹤。",
   "AKS Hybrid & Edge": "AKS 混合式與邊緣",
   "AKS Hybrid & Edge (Arc-connected)": "AKS 混合式與邊緣 (Arc 連線)",
-  "AKS Hybrid & Edge clusters are not listed: the Azure CLI \"connectedk8s\" extension is required. Install it with: az extension add --name connectedk8s": "未列出 AKS 混合式與邊緣叢集: 需要 Azure CLI \"connectedk8s\" 延伸模組。安裝方式: az extension add --name connectedk8s",
   "AKS Hybrid & Edge proxy is running": "AKS 混合式與邊緣 Proxy 正在執行",
   "AKS Managed": "AKS 管理",
   "AKS Project?": "AKS 專案?",
@@ -746,5 +745,6 @@
   "Failed to save the selected cluster scope: {{message}}": "",
   "A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.": "",
   "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": "",
-  "Browse and import existing AKS Projects": ""
+  "Browse and import existing AKS Projects": "",
+  "AKS Hybrid & Edge clusters could not be listed: {{message}}": ""
 }

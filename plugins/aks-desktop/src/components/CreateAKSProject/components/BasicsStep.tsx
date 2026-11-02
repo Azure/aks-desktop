@@ -397,9 +397,9 @@ export const BasicsStep: React.FC<BasicsStepProps> = props => {
         {arcDiscoveryUnavailable && (
           <ValidationAlert
             type="warning"
-            message={t(
-              'AKS Hybrid & Edge clusters are not listed: the Azure CLI "connectedk8s" extension is required. Install it with: az extension add --name connectedk8s'
-            )}
+            message={t('AKS Hybrid & Edge clusters could not be listed: {{message}}', {
+              message: arcDiscoveryUnavailable,
+            })}
           />
         )}
 
