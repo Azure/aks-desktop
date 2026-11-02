@@ -196,7 +196,7 @@ jobs:
 
       - name: Reinstall after application assembly
         run: |
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm run test:headlamp-patches
 
   find_changed_plugins:
