@@ -75,6 +75,60 @@ describe('getLoginStatus', () => {
     });
   });
 
+  test.each(['cloudName', 'environmentName'])('retains the account cloud from %s', async field => {
+    mocks.runCommandAsync.mockResolvedValue({
+      stdout: JSON.stringify({
+        id: 'subscription-id',
+        tenantId: 'tenant-id',
+        [field]: 'AzureUSGovernment',
+      }),
+      stderr: '',
+    });
+    expect(await getLoginStatus()).toMatchObject({ environmentName: 'AzureUSGovernment' });
+  });
+
+  test('invalidates external identity changes without recursively emitting login events', async () => {
+    const changed = vi.fn();
+    const loginEvent = vi.fn();
+    window.addEventListener('azure-account-change', changed);
+    window.addEventListener('azure-auth-update', loginEvent);
+    let account = {
+      id: 'subscription-a',
+      tenantId: 'tenant-a',
+      cloudName: 'AzureCloud',
+      user: { name: 'first@example.com' },
+    };
+    mocks.runCommandAsync.mockImplementation(async () => ({
+      stdout: JSON.stringify(account),
+      stderr: '',
+    }));
+    try {
+      await getLoginStatus();
+      changed.mockClear();
+      await getLoginStatus();
+      expect(changed).not.toHaveBeenCalled();
+      for (const update of [
+        { user: { name: 'second@example.com' } },
+        { tenantId: 'tenant-b' },
+        { id: 'subscription-b' },
+        { cloudName: 'AzureChinaCloud' },
+      ]) {
+        account = { ...account, ...update };
+        await getLoginStatus();
+      }
+      expect(changed).toHaveBeenCalledTimes(4);
+      mocks.runCommandAsync.mockResolvedValue({ stdout: '', stderr: '' });
+      await getLoginStatus();
+      expect(changed).toHaveBeenCalledTimes(5);
+      await getLoginStatus();
+      expect(changed).toHaveBeenCalledTimes(5);
+      expect(loginEvent).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('azure-account-change', changed);
+      window.removeEventListener('azure-auth-update', loginEvent);
+    }
+  });
+
   test('reports missing Azure CLI output', async () => {
     mocks.runCommandAsync.mockResolvedValue({
       stdout: '',
