@@ -22,7 +22,7 @@ export interface AzureLoginStatus {
   tenantId?: string;
   /** Selected Azure subscription identifier when available. */
   subscriptionId?: string;
-  /** Named CLI cloud containing this account. */
+  /** Named CLI cloud containing the selected account. */
   environmentName?: string;
   /** Whether Azure CLI explicitly requires another login. */
   needsRelogin?: boolean;

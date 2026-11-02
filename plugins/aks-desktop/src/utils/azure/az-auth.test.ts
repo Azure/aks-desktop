@@ -59,6 +59,23 @@ describe('getLoginStatus', () => {
     expect(mocks.runCommandAsync).toHaveBeenCalledWith('az', ['account', 'show', '-o', 'json']);
   });
 
+  test.each(['cloudName', 'environmentName'])(
+    'retains the selected account cloud from %s',
+    async field => {
+      mocks.runCommandAsync.mockResolvedValue({
+        stdout: JSON.stringify({
+          id: 'other-subscription',
+          tenantId: 'other-tenant',
+          [field]: 'AzureUSGovernment',
+        }),
+        stderr: '',
+      });
+      await expect(getLoginStatus('other-subscription')).resolves.toMatchObject({
+        environmentName: 'AzureUSGovernment',
+      });
+    }
+  );
+
   test('reads the selected subscription account without changing the default account', async () => {
     mocks.runCommandAsync.mockResolvedValue({
       stdout: JSON.stringify({ id: 'other-subscription', tenantId: 'other-tenant' }),
