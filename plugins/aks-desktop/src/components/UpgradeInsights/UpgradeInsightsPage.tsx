@@ -2,18 +2,9 @@
 // Licensed under the Apache 2.0.
 
 import { Headlamp, K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import {
-  Alert,
-  Box,
-  Button,
-  Checkbox,
-  CircularProgress,
-  FormControlLabel,
-  Stack,
-  Typography,
-} from '@mui/material';
+import { Alert, Box, Stack, Typography } from '@mui/material';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link as RouterLink, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAzureAuth } from '../../hooks/useAzureAuth';
 import { usePreviewFeatures } from '../../hooks/usePreviewFeatures';
 import {
@@ -23,6 +14,8 @@ import {
 } from '../../utils/azure/upgrade-insights';
 import { errorMessage } from './domain';
 import ReadinessWorkspace from './ReadinessWorkspace';
+import SessionNotice from './SessionNotice';
+import SubscriptionSelection from './SubscriptionSelection';
 
 /** Route configuration shared by the Home and selected-context entry points. */
 export interface UpgradeInsightsPageProps {
@@ -38,14 +31,9 @@ export interface UpgradeInsightsPageProps {
 export default function UpgradeInsightsPage({
   requireClusterSelection = false,
 }: UpgradeInsightsPageProps) {
-  const { t } = useTranslation();
   const { upgradeInsights } = usePreviewFeatures();
   if (!Headlamp.isRunningAsApp() || !upgradeInsights) {
-    return (
-      <Alert severity="info">
-        {t('Upgrade Insights is disabled. Enable it in AKS Desktop Preview Features settings.')}
-      </Alert>
-    );
+    return <SessionNotice state="disabled" />;
   }
   return <AuthenticatedPage requireClusterSelection={requireClusterSelection} />;
 }
@@ -62,7 +50,6 @@ interface AuthenticatedPageProps {
  * @returns Account-check progress, the native login link, or a fresh authenticated subscription session.
  */
 function AuthenticatedPage({ requireClusterSelection }: AuthenticatedPageProps) {
-  const { t } = useTranslation();
   const auth = useAzureAuth();
   const contextName = K8s.useCluster();
   const { pathname } = useLocation();
@@ -83,18 +70,10 @@ function AuthenticatedPage({ requireClusterSelection }: AuthenticatedPageProps) 
   }, [auth]);
 
   if (auth.isChecking || authChanging) {
-    return <CircularProgress aria-label={t('Checking Azure account')} />;
+    return <SessionNotice state="checking" />;
   }
   if (!auth.isLoggedIn) {
-    return (
-      <Stack spacing={2}>
-        <Alert severity="info">{t('Sign in to Azure to view Upgrade Insights.')}</Alert>
-        {auth.error && <Alert severity="error">{auth.error}</Alert>}
-        <Button component={RouterLink} to="/azure/login">
-          {t('Sign in to Azure')}
-        </Button>
-      </Stack>
-    );
+    return <SessionNotice state="signedOut" error={auth.error} />;
   }
   return (
     <SubscriptionSession
@@ -169,50 +148,17 @@ function SubscriptionSession({ requireClusterSelection, contextName }: Subscript
             'Live Azure data. Stored evaluations are snapshots, not a guarantee of upgrade success. Generating an insight stores an evaluation; it never upgrades a cluster.'
           )}
         </Alert>
-        <Typography variant="h6">{t('Choose subscriptions')}</Typography>
-        <Typography variant="body2">
-          {t(
-            'Only explicitly selected subscriptions are queried. No Kubernetes context is required.'
-          )}
-        </Typography>
-        {loading && <CircularProgress aria-label={t('Loading subscriptions')} />}
-        {error && (
-          <Alert
-            severity="error"
-            action={<Button onClick={() => setRetry(n => n + 1)}>{t('Retry')}</Button>}
-          >
-            {t('Could not load subscriptions: {{error}}', { error })}
-          </Alert>
-        )}
-        {!loading && !error && !subscriptions.length && (
-          <Alert severity="warning">{t('No enabled Azure subscriptions are available.')}</Alert>
-        )}
-        <Stack direction="row" flexWrap="wrap">
-          {subscriptions.map(subscription => (
-            <FormControlLabel
-              key={subscription.id}
-              control={
-                <Checkbox
-                  disabled={busy}
-                  checked={selectedIds.includes(subscription.id)}
-                  onChange={(_, checked) =>
-                    setSelectedIds(ids =>
-                      checked ? [...ids, subscription.id] : ids.filter(id => id !== subscription.id)
-                    )
-                  }
-                />
-              }
-              label={`${subscription.name} (${subscription.id})`}
-            />
-          ))}
-        </Stack>
-        <Button
-          variant="contained"
-          disabled={busy || loading || !selectedIds.length || !selectionChanged}
-          onClick={() => setApplied(subscriptions.filter(s => selectedIds.includes(s.id)))}
-        >
-          {t('Load selected subscriptions')}
-        </Button>
+        <SubscriptionSelection
+          subscriptions={subscriptions}
+          selectedIds={selectedIds}
+          loading={loading}
+          error={error}
+          busy={busy}
+          selectionChanged={selectionChanged}
+          onSelectionChange={setSelectedIds}
+          onRetry={() => setRetry(n => n + 1)}
+          onApply={() => setApplied(subscriptions.filter(s => selectedIds.includes(s.id)))}
+        />
         {provider && (
           <ReadinessWorkspace
             key={applied.map(s => s.id).join(',')}

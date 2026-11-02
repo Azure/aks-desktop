@@ -18,7 +18,9 @@ limited to the desktop application.
    pagination. Readiness counts, risk filters, readiness sorting, and CSV export
    apply only to the current page; they are not fleet-wide readiness totals.
    Turning readiness sorting off restores the selected inventory order in both
-   the table and CSV export.
+   the table and CSV export. Polite status messages announce matching-result
+   counts, page-loading completion, and changes to page readiness (including
+   snapshots becoming stale), without moving focus or announcing the entire table.
 5. Select the exact cluster ARM resource to inspect its stored evaluations.
 
 The cluster-sidebar route requires an explicit ARM-resource selection as well.
@@ -102,9 +104,17 @@ cancellation, and account isolation. Mocked tests are not evidence of live API
 availability or a successful production evaluation.
 
 For native visual review, the existing Storybook includes
-**UpgradeInsights/ReadinessInventory → Light / Dark**. These pure-component
-stories use clearly labeled Storybook-only fixtures and make no Azure calls.
-They are not shipped default data or evidence of live API behavior.
+**UpgradeInsights/ReadinessInventory → Light / Dark**, plus **Session** and
+**Workflow** groups. Session covers preview/auth gates and subscription
+selection/loading/errors. Workflow covers inventory/readiness loading, errors,
+partial discovery, pagination, ARM-context disambiguation, stored scope findings,
+remediation links, raw responses, target loading/errors, and generation
+confirmation/submission/verification failure/success. Interactive stories exercise
+selection, pagination, raw-response expansion, and confirmed generation.
+Session stories reuse the same presentational controls as the native page;
+workflow stories use isolated fixture-only providers. All are clearly labeled,
+make no Azure calls, and are not shipped default data or evidence of live API
+behavior. They do not replace a native/live-Azure walkthrough.
 
 ## Provenance
 

@@ -28,8 +28,11 @@ export default function InsightScopeDetails({ name, result }: InsightScopeDetail
   return (
     <Stack spacing={1} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2 }}>
       <Typography variant="h6">
-        {' '}
-        {['Control plane', 'Unnamed pool'].includes(name) ? t(name) : name}
+        {name === 'Control plane'
+          ? t('Control plane')
+          : name === 'Unnamed pool'
+          ? t('Unnamed pool')
+          : name}
       </Typography>
       <Typography>
         {t('Evaluation: {{status}}', { status: result.evaluation?.status ?? t('Not evaluated') })}

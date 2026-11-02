@@ -4,6 +4,7 @@
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
   Alert,
+  Box,
   Button,
   CircularProgress,
   MenuItem,
@@ -12,6 +13,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import React, { useMemo, useState } from 'react';
 import type { InsightsProvider } from '../../types/upgradeInsights';
 import ClusterDetails from './ClusterDetails';
@@ -132,6 +134,15 @@ export default function ReadinessWorkspace({
 
   return (
     <Stack spacing={2}>
+      <Box role="status" aria-live="polite" aria-atomic="true" sx={visuallyHidden}>
+        {loading || recordsLoading
+          ? t('Loading readiness')
+          : t('{{count}} matching clusters. Page {{page}} of {{pages}} loaded.', {
+              count: matched.length,
+              page: currentPage,
+              pages: pageCount,
+            })}
+      </Box>
       <Button disabled={busy || loading || recordsLoading} onClick={refreshReadiness}>
         {t('Refresh inventory and current page')}
       </Button>

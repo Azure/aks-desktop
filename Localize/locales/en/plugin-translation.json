@@ -925,7 +925,6 @@
   "Export filtered page": "Export filtered page",
   "Fleet membership is incomplete. Missing membership is not proof of a standalone cluster.": "Fleet membership is incomplete. Missing membership is not proof of a standalone cluster.",
   "Fleet membership unknown": "Fleet membership unknown",
-  "Forbidden (Storybook fixture)": "Forbidden (Storybook fixture)",
   "Generate a stored evaluation": "Generate a stored evaluation",
   "Generate scope": "Generate scope",
   "Generating and verifying the stored insight. Do not submit again.": "Generating and verifying the stored insight. Do not submit again.",
@@ -1021,5 +1020,11 @@
   "Removed APIs": "Removed APIs",
   "Subnet IP capacity": "Subnet IP capacity",
   "Unknown issue": "Unknown issue",
-  "Version support": "Version support"
+  "Version support": "Version support",
+  "{{count}} matching clusters. Page {{page}} of {{pages}} loaded._one": "{{count}} matching clusters. Page {{page}} of {{pages}} loaded.",
+  "{{count}} matching clusters. Page {{page}} of {{pages}} loaded._other": "{{count}} matching clusters. Page {{page}} of {{pages}} loaded.",
+  "Control plane": "Control plane",
+  "Showing {{count}} of {{total}} clusters on this page. {{readiness}}_one": "Showing {{count}} of {{total}} clusters on this page. {{readiness}}",
+  "Showing {{count}} of {{total}} clusters on this page. {{readiness}}_other": "Showing {{count}} of {{total}} clusters on this page. {{readiness}}",
+  "Unnamed pool": "Unnamed pool"
 }

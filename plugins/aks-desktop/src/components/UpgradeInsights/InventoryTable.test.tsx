@@ -3,21 +3,115 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ClusterInventory } from '../../types/upgradeInsights';
 import { cluster, passed, provider } from './__fixtures__/fixtures';
 import InventoryTable from './InventoryTable';
 import ReadinessWorkspace from './ReadinessWorkspace';
 
+const translation = vi.hoisted(() => ({ ready: true }));
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   useTranslation: () => ({
     t: (text: string, values?: Record<string, unknown>) =>
-      text.replace(/\{\{(\w+)\}\}/g, (_: string, key: string) => String(values?.[key] ?? '')),
+      translation.ready
+        ? text.replace(/\{\{(\w+)\}\}/g, (_: string, key: string) => String(values?.[key] ?? ''))
+        : '',
   }),
 }));
 
+beforeEach(() => {
+  translation.ready = true;
+});
 afterEach(cleanup);
 
 describe('page-scoped readiness inventory', () => {
+  it('keeps exactly five associated column headers when translations initialize', () => {
+    translation.ready = false;
+    const props = {
+      records: [{ cluster, insights: [passed()] }],
+      disabled: false,
+      onSelect: vi.fn(),
+    };
+    const view = render(<InventoryTable {...props} />);
+    const headers = screen.getAllByRole('columnheader');
+    expect(headers).toHaveLength(5);
+    expect(headers.map(header => header.textContent)).toEqual(['', '', '', '', '']);
+
+    translation.ready = true;
+    view.rerender(<InventoryTable {...props} />);
+    const translated = screen.getAllByRole('columnheader');
+    expect(translated).toEqual(headers);
+    expect(translated.map(header => header.textContent)).toEqual([
+      'Cluster',
+      'Region / fleet',
+      'Readiness',
+      'Stored target',
+      'Last evaluated',
+    ]);
+    expect(screen.getAllByRole('cell')).toHaveLength(5);
+  });
+
+  it('announces filtering without putting the table in a live region or moving focus', async () => {
+    render(
+      <InventoryTable
+        records={[
+          { cluster, insights: [passed()] },
+          { cluster: { ...cluster, id: '/unevaluated' }, insights: [] },
+        ]}
+        disabled={false}
+        onSelect={vi.fn()}
+      />
+    );
+    const status = screen.getByRole('status');
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    expect(status.getAttribute('aria-atomic')).toBe('true');
+    expect(status.textContent).toContain('Showing 2 of 2 clusters on this page.');
+    const filter = screen.getByRole('combobox', { name: 'Readiness on current page' });
+    filter.focus();
+    fireEvent.mouseDown(filter);
+    fireEvent.click(await screen.findByRole('option', { name: 'Ready' }));
+    expect(screen.getByRole('status')).toBe(status);
+    expect(status.textContent).toContain('Showing 1 of 2 clusters on this page.');
+    expect(document.activeElement).toBe(filter);
+    expect(screen.getByRole('table').closest('[aria-live]')).toBeNull();
+    fireEvent.mouseDown(filter);
+    fireEvent.click(await screen.findByRole('option', { name: 'Blocked' }));
+    expect(status.textContent).toContain('Showing 0 of 2 clusters on this page.');
+  });
+
+  it('keeps the loading status mounted through completion, search, and pagination', async () => {
+    let resolveInventory!: (value: ClusterInventory) => void;
+    const clusters = Array.from({ length: 11 }, (_, i) => ({
+      ...cluster,
+      id: `${cluster.id}-${i}`,
+      name: `cluster-${String(i).padStart(2, '0')}`,
+    }));
+    const api = provider({
+      listClusters: vi.fn().mockReturnValue(new Promise(resolve => (resolveInventory = resolve))),
+    });
+    render(
+      <ReadinessWorkspace provider={api} requireClusterSelection={false} onBusyChange={vi.fn()} />
+    );
+    const status = screen.getByRole('status');
+    expect(status.textContent).toBe('Loading readiness');
+    await act(async () => resolveInventory({ clusters, warnings: [], fleetWarnings: [] }));
+    expect(status.textContent).toBe('11 matching clusters. Page 1 of 2 loaded.');
+    fireEvent.click(screen.getByRole('button', { name: 'Go to page 2' }));
+    await waitFor(() =>
+      expect(status.textContent).toBe('11 matching clusters. Page 2 of 2 loaded.')
+    );
+    const search = screen.getByRole('textbox', {
+      name: 'Search clusters, subscriptions, regions or fleets',
+    });
+    search.focus();
+    fireEvent.change(search, { target: { value: 'cluster-03' } });
+    await waitFor(() =>
+      expect(status.textContent).toBe('1 matching clusters. Page 1 of 1 loaded.')
+    );
+    expect(document.activeElement).toBe(search);
+    expect(status.getAttribute('aria-live')).toBe('polite');
+  });
+
   it('preserves region ordering for rendering and CSV, and restores it after readiness sorting', async () => {
     const blocked = passed();
     blocked.properties.controlPlane!.evaluation!.detectedIssues = [
@@ -102,9 +196,16 @@ describe('page-scoped readiness inventory', () => {
         />
       );
       expect(screen.getByText('Ready on page: 1')).toBeTruthy();
+      const status = screen.getByRole('status');
+      expect(status.textContent).toContain('Ready on page: 1');
+      act(() => vi.advanceTimersByTime(60_000));
+      expect(status.textContent).toContain('Ready on page: 1');
       act(() => vi.advanceTimersByTime(25 * 60 * 60 * 1000));
       expect(screen.getByText('Ready on page: 0')).toBeTruthy();
       expect(screen.getByText('Re-check required on page: 1')).toBeTruthy();
+      expect(screen.getByRole('status')).toBe(status);
+      expect(status.textContent).toContain('Re-check required on page: 1');
+      expect(status.textContent).not.toContain('Ready on page: 1');
     } finally {
       cleanup();
       vi.useRealTimers();

@@ -3,6 +3,7 @@
 
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import {
+  Box,
   Button,
   Chip,
   MenuItem,
@@ -16,6 +17,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { visuallyHidden } from '@mui/utils';
 import React, { useMemo, useState } from 'react';
 import { type ClusterRecord, issueLabels } from '../../types/upgradeInsights';
 import {
@@ -123,6 +125,18 @@ export default function InventoryTable({ records, disabled, onSelect }: Inventor
 
   return (
     <Stack spacing={2}>
+      <Box role="status" aria-live="polite" aria-atomic="true" sx={visuallyHidden}>
+        {t('Showing {{count}} of {{total}} clusters on this page. {{readiness}}', {
+          count: visible.length,
+          total: records.length,
+          readiness: counts
+            .filter(({ count }) => count > 0)
+            .map(({ status, count }) =>
+              t('{{status}} on page: {{count}}', { status: t(status), count })
+            )
+            .join('; '),
+        })}
+      </Box>
       <Stack
         direction="row"
         spacing={1}
@@ -181,13 +195,13 @@ export default function InventoryTable({ records, disabled, onSelect }: Inventor
           <TableHead>
             <TableRow>
               {[
-                t('Cluster'),
-                t('Region / fleet'),
-                t('Readiness'),
-                t('Stored target'),
-                t('Last evaluated'),
-              ].map(label => (
-                <TableCell key={label}>{label}</TableCell>
+                { id: 'cluster', label: t('Cluster') },
+                { id: 'region', label: t('Region / fleet') },
+                { id: 'readiness', label: t('Readiness') },
+                { id: 'target', label: t('Stored target') },
+                { id: 'evaluated', label: t('Last evaluated') },
+              ].map(({ id, label }) => (
+                <TableCell key={id}>{label}</TableCell>
               ))}
             </TableRow>
           </TableHead>
