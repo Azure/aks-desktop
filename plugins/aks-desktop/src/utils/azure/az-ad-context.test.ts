@@ -259,6 +259,47 @@ describe('Graph account and cloud context', () => {
     }
   );
 
+  test.each(['search', 'resolve'])(
+    'late account read from A cannot replace B after a newer lookup completes (%s)',
+    async operation => {
+      const dispatch = mocks.command.getMockImplementation()!;
+      const accountA = output(account);
+      let release!: (value: ReturnType<typeof output>) => void;
+      let started!: () => void;
+      const waiting = new Promise<void>(resolve => {
+        started = resolve;
+      });
+      mocks.command.mockImplementationOnce(() => {
+        started();
+        return new Promise(resolve => {
+          release = resolve;
+        });
+      });
+      const pendingA =
+        operation === 'search' ? searchAzureADUsers('Alice') : resolveAzureADUser(user.id);
+      await waiting;
+      account = {
+        id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+        tenantId: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+        cloudName: 'AzureUSGovernment',
+        user: { name: 'operator-b@contoso.com' },
+      };
+      mocks.command.mockImplementation(dispatch);
+      expect((await resolveAzureADUser(user.id)).success).toBe(true);
+      expect(tokenCount).toBe(1);
+      release(accountA);
+      expect((await pendingA).success).toBe(true);
+      expect((await searchAzureADUsers('Alice')).success).toBe(true);
+      expect(tokenCount).toBe(1);
+      expect(calls('cloud show')).toHaveLength(1);
+      expect(requests).toHaveLength(3);
+      expect(new Set(requests.map(request => request.authorization)).size).toBe(1);
+      expect(
+        requests.every(request => new URL(request.url).origin === 'https://graph.microsoft.us')
+      ).toBe(true);
+    }
+  );
+
   test('late cloud metadata from A cannot replace the cached B credential', async () => {
     const dispatch = mocks.command.getMockImplementation()!;
     let release!: (value: ReturnType<typeof output>) => void;

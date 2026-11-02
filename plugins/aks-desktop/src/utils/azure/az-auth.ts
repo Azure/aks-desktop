@@ -161,27 +161,35 @@ async function readLoginStatus(): Promise<AzureLoginStatus> {
 }
 
 let observedAccount: string | undefined;
+let latestAccountObservation: Promise<AzureLoginStatus> | undefined;
 
 /**
  * Reads the current account and invalidates cached authentication on external changes.
+ * Overlapping reads follow the newest observation instead of publishing stale results.
  * @returns Validated account status; lookup failures invalidate the previous context.
  */
-export async function getLoginStatus(): Promise<AzureLoginStatus> {
-  const status = await readLoginStatus();
-  const identity = JSON.stringify([
-    status.isLoggedIn,
-    status.username,
-    status.tenantId,
-    status.subscriptionId,
-    status.environmentName,
-  ]);
-  if (identity !== observedAccount) {
-    observedAccount = identity;
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('azure-account-change'));
+export function getLoginStatus(): Promise<AzureLoginStatus> {
+  const observation: Promise<AzureLoginStatus> = readLoginStatus().then(status => {
+    if (latestAccountObservation && latestAccountObservation !== observation) {
+      return latestAccountObservation;
     }
-  }
-  return status;
+    const identity = JSON.stringify([
+      status.isLoggedIn,
+      status.username,
+      status.tenantId,
+      status.subscriptionId,
+      status.environmentName,
+    ]);
+    if (identity !== observedAccount) {
+      observedAccount = identity;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('azure-account-change'));
+      }
+    }
+    return status;
+  });
+  latestAccountObservation = observation;
+  return observation;
 }
 
 /**

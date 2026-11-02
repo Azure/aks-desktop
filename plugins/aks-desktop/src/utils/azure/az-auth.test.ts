@@ -141,6 +141,87 @@ describe('getLoginStatus', () => {
     });
   });
 
+  test.each([
+    {
+      stdout: JSON.stringify({
+        id: 'new-subscription',
+        tenantId: 'new-tenant',
+        cloudName: 'AzureUSGovernment',
+        user: { name: 'new-user@example.com' },
+      }),
+      stderr: '',
+    },
+    { stdout: '', stderr: 'ERROR: Please run az login' },
+  ])('does not publish an older account read after a newer observation: %j', async latest => {
+    let release!: (value: { stdout: string; stderr: string }) => void;
+    mocks.runCommandAsync
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            release = resolve;
+          })
+      )
+      .mockResolvedValue(latest);
+    const changed = vi.fn();
+    window.addEventListener('azure-account-change', changed);
+    try {
+      const older = getLoginStatus();
+      const newer = await getLoginStatus();
+      changed.mockClear();
+      release({
+        stdout: JSON.stringify({
+          id: 'old-subscription',
+          tenantId: 'old-tenant',
+          cloudName: 'AzureCloud',
+          user: { name: 'old-user@example.com' },
+        }),
+        stderr: '',
+      });
+      await expect(older).resolves.toEqual(newer);
+      expect(changed).not.toHaveBeenCalled();
+      await expect(getLoginStatus()).resolves.toEqual(newer);
+      expect(changed).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('azure-account-change', changed);
+    }
+  });
+
+  test('an older account read waits for the newer observation before publishing', async () => {
+    const releases: ((value: { stdout: string; stderr: string }) => void)[] = [];
+    mocks.runCommandAsync.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          releases.push(resolve);
+        })
+    );
+    const changed = vi.fn();
+    const settled = vi.fn();
+    window.addEventListener('azure-account-change', changed);
+    try {
+      const older = getLoginStatus().then(settled);
+      const newer = getLoginStatus();
+      releases[0]({
+        stdout: JSON.stringify({ id: 'pending-old-subscription', tenantId: 'pending-old-tenant' }),
+        stderr: '',
+      });
+      await vi.waitFor(() => {
+        expect(mocks.runCommandAsync).toHaveBeenCalledTimes(2);
+      });
+      expect(settled).not.toHaveBeenCalled();
+      expect(changed).not.toHaveBeenCalled();
+      releases[1]({
+        stdout: JSON.stringify({ id: 'pending-new-subscription', tenantId: 'pending-new-tenant' }),
+        stderr: '',
+      });
+      const status = await newer;
+      await older;
+      expect(settled).toHaveBeenCalledWith(status);
+      expect(changed).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('azure-account-change', changed);
+    }
+  });
+
   test('reports when Azure CLI requires login again', async () => {
     mocks.needsRelogin.mockReturnValue(true);
     mocks.runCommandAsync.mockResolvedValue({ stdout: '', stderr: 'Please run az login' });

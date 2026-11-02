@@ -133,6 +133,9 @@ on the next lookup. Unchanged contexts retain shared token caching and refresh.
 The existing focus/periodic account checks also invalidate token and cloud
 metadata caches when the observed account changes or becomes unavailable, using
 a separate notification that does not trigger another login-status check.
+Overlapping account reads follow the newest observation, including lookup
+failures, so a delayed older result cannot invalidate newer caches or restore
+an earlier Graph context.
 These helpers do not change the selected account or request directory writes.
 
 Search retains a two-character minimum, prefix matching on display name, mail,
