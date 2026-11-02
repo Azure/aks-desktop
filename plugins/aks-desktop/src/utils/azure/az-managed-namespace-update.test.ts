@@ -592,6 +592,62 @@ describe('managed namespace REST update', () => {
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
   });
 
+  test('honors a 90-second transport retry during polling within the update deadline', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { 'azure-asyncoperation': '/operations/op' }))
+      .mockResolvedValueOnce(json(429, { error: { code: 'Throttled' } }, { 'retry-after': '90' }))
+      .mockResolvedValueOnce(json(200, { status: 'Succeeded' }))
+      .mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(89_999);
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toEqual(resource());
+    expect(mocks.fetch).toHaveBeenCalledTimes(5);
+    expect(request(2).url).toBe(request(3).url);
+    expect(request(4).url).toBe(request(0).url);
+  });
+
+  test('bounds a transport retry by the outer deadline rather than a fresh per-poll budget', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(202, undefined, {
+          'azure-asyncoperation': '/operations/op',
+          'retry-after': '590',
+        })
+      )
+      .mockResolvedValueOnce(json(429, undefined, { 'retry-after': '90' }));
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.advanceTimersByTimeAsync(590_000);
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await result).toMatchObject({
+      message: 'Managed namespace update timed out after 10 minutes',
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('cancels a transport retry delay without another request', async () => {
+    const controller = new AbortController();
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { 'azure-asyncoperation': '/operations/op' }))
+      .mockResolvedValueOnce(json(429, undefined, { 'retry-after': '90' }));
+    const result = updateManagedNamespace({ ...scope, signal: controller.signal }).catch(
+      error => error
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    controller.abort(new Error('retry canceled'));
+    expect(await result).toMatchObject({ message: 'retry canceled' });
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   test('bounds the entire update including very long Retry-After', async () => {
     mocks.fetch
       .mockResolvedValueOnce(json(200, resource()))

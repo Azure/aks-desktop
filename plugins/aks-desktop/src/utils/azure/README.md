@@ -220,6 +220,12 @@ are surfaced rather than replaying a failed PUT or reporting accepted work as
 completed. Default token acquisition remains CLI-backed through `az-token.ts`;
 the migrated resource operations themselves use HTTP.
 
+Update requests use the ten-minute transport budget so GET retries can honor
+`Retry-After` values longer than one minute. The outer deadline still bounds the
+entire account/cloud lookup, update, retries, polling, and final read; a late poll
+does not restart that deadline. Caller cancellation also interrupts retry waits.
+Standalone details reads retain the transport's normal request timeout.
+
 An empty HTTP 200 or 204 from a `Location` poll ends polling, not success
 verification: the final namespace GET must still confirm `Succeeded`. Empty
 HTTP 202 responses remain pending, while operation-status and resource polls
