@@ -2,15 +2,72 @@
 // Licensed under the Apache 2.0.
 
 import { isEntraObjectId, isUserPrincipalName } from '../shared/entraIdentifiers';
+import { getLoginStatus } from './az-auth';
 import { getErrorMessage } from './az-cli-core';
+import { getAzureGraphEndpoints } from './az-cloud';
 import { azRequest, AzureRequestError } from './az-http';
+import { type AzCliCredential, createAzCliCredential } from './az-token';
 
 // Preserve the existing search input contract; identifiers resolved below are not restricted.
 const ODATA_SAFE_QUERY_PATTERN = /^[a-zA-Z0-9@._ -]+$/;
-const GRAPH_USERS_URL = 'https://graph.microsoft.com/v1.0/users';
-const GRAPH_SCOPE = 'https://graph.microsoft.com/.default';
 const USER_FIELDS = 'id,displayName,mail,userPrincipalName';
 const SEARCH_LIMIT = 15;
+
+let generation = 0;
+let current: { identity: string; credential: AzCliCredential } | undefined;
+
+function clearContext() {
+  generation++;
+  current?.credential.clearCache();
+  current = undefined;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('azure-auth-update', clearContext);
+  window.addEventListener('azure-account-change', clearContext);
+}
+
+/**
+ * Resolves the selected CLI account before consulting any Graph credential cache.
+ * @returns Named-cloud Graph routing and a credential isolated to the full account identity.
+ * @throws For unavailable/incomplete accounts, invalid clouds or a concurrent account change.
+ */
+async function getAzureGraphContext() {
+  const account = await getLoginStatus();
+  if (!account.isLoggedIn) {
+    clearContext();
+    throw new Error(account.error ?? 'Not logged in to Azure CLI');
+  }
+  if (
+    typeof account.username !== 'string' ||
+    !account.username.trim() ||
+    !account.subscriptionId ||
+    !account.tenantId ||
+    !account.environmentName
+  ) {
+    clearContext();
+    throw new Error('Current Azure CLI account is missing user, subscription, tenant or cloud');
+  }
+
+  const observedGeneration = generation;
+  const { endpoint, scope } = await getAzureGraphEndpoints(account.environmentName);
+  if (observedGeneration !== generation) {
+    throw new Error('Azure CLI account changed during Graph context lookup; retry the lookup');
+  }
+  const identity = JSON.stringify([
+    account.username,
+    account.subscriptionId,
+    account.tenantId,
+    account.environmentName,
+    endpoint,
+    scope,
+  ]);
+  if (current?.identity !== identity) {
+    current?.credential.clearCache();
+    current = { identity, credential: createAzCliCredential(account.subscriptionId) };
+  }
+  return { endpoint, scope, tenantId: account.tenantId, credential: current.credential };
+}
 
 /** Selected Entra user identifiers and basic directory profile. */
 export interface AzureADUser {
@@ -84,18 +141,18 @@ export async function searchAzureADUsers(
   }
 
   const escaped = trimmed.replace(/'/g, "''");
-  const url = new URL(GRAPH_USERS_URL);
-  url.searchParams.set(
-    '$filter',
-    ['displayName', 'mail', 'userPrincipalName']
-      .map(field => `startswith(${field},'${escaped}')`)
-      .join(' or ')
-  );
-  url.searchParams.set('$select', USER_FIELDS);
-  url.searchParams.set('$top', String(SEARCH_LIMIT));
-
   try {
-    const data = await azRequest<{ value?: unknown }>({ url: url.href, scope: GRAPH_SCOPE });
+    const context = await getAzureGraphContext();
+    const url = new URL(`${context.endpoint}/v1.0/users`);
+    url.searchParams.set(
+      '$filter',
+      ['displayName', 'mail', 'userPrincipalName']
+        .map(field => `startswith(${field},'${escaped}')`)
+        .join(' or ')
+    );
+    url.searchParams.set('$select', USER_FIELDS);
+    url.searchParams.set('$top', String(SEARCH_LIMIT));
+    const data = await azRequest<{ value?: unknown }>({ ...context, url: url.href });
     if (!data || !Array.isArray(data.value)) {
       throw new AzureRequestError('Malformed Graph user list response');
     }
@@ -135,13 +192,14 @@ export async function resolveAzureADUser(
   // Graph requires OData key syntax for UPNs beginning with `$`.
   const identifier = trimmed.startsWith('$') ? trimmed.replace(/'/g, "''") : trimmed;
   const encoded = encodeURIComponent(identifier).replace(/'/g, '%27');
-  const url = new URL(
-    trimmed.startsWith('$') ? `${GRAPH_USERS_URL}('${encoded}')` : `${GRAPH_USERS_URL}/${encoded}`
-  );
-  url.searchParams.set('$select', USER_FIELDS);
-
   try {
-    const data = await azRequest<unknown>({ url: url.href, scope: GRAPH_SCOPE });
+    const context = await getAzureGraphContext();
+    const usersUrl = `${context.endpoint}/v1.0/users`;
+    const url = new URL(
+      trimmed.startsWith('$') ? `${usersUrl}('${encoded}')` : `${usersUrl}/${encoded}`
+    );
+    url.searchParams.set('$select', USER_FIELDS);
+    const data = await azRequest<unknown>({ ...context, url: url.href });
     return { success: true, user: parseUser(data) };
   } catch (error) {
     return {

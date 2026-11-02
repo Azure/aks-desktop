@@ -8,7 +8,9 @@ vi.mock('../shared/runCommandAsync', () => ({ runCommandAsync: mocks.command }))
 vi.mock('./az-cli-path', () => ({ getAzCommand: () => 'az' }));
 
 import { isAzureADLookupUnavailable, resolveAzureADUser, searchAzureADUsers } from './az-ad';
-import { azCliCredential } from './az-token';
+
+const subscriptionId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const tenantId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
 const user = {
   id: '11111111-2222-3333-4444-555555555555',
@@ -26,18 +28,28 @@ function requestUrl() {
 }
 
 beforeEach(() => {
-  azCliCredential.clearCache();
+  window.dispatchEvent(new CustomEvent('azure-auth-update'));
   mocks.command.mockReset().mockImplementation(async (_command: string, args: string[]) => {
-    if (args[0] !== 'account' || args[1] !== 'get-access-token') {
-      throw new Error('Resource-specific CLI commands are forbidden');
-    }
-    return {
-      stdout: JSON.stringify({
+    let data: unknown;
+    if (args[0] === 'account' && args[1] === 'show') {
+      data = {
+        id: subscriptionId,
+        tenantId,
+        cloudName: 'AzureCloud',
+        user: { name: 'operator@contoso.com' },
+      };
+    } else if (args[0] === 'cloud' && args[1] === 'show') {
+      data = { endpoints: { microsoftGraphResourceId: 'https://graph.microsoft.com/' } };
+    } else if (args[0] === 'account' && args[1] === 'get-access-token') {
+      data = {
         accessToken: 'offline-graph-token',
         expires_on: Math.floor(Date.now() / 1000) + 3600,
-      }),
-      stderr: '',
-    };
+        tenant: tenantId,
+      };
+    } else {
+      throw new Error('Resource-specific CLI commands are forbidden');
+    }
+    return { stdout: JSON.stringify(data), stderr: '' };
   });
   mocks.fetch.mockReset();
   vi.stubGlobal('fetch', mocks.fetch);
@@ -46,14 +58,22 @@ beforeEach(() => {
 afterEach(() => {
   for (const [command, args] of mocks.command.mock.calls) {
     expect(command).toBe('az');
-    expect(args).toEqual([
-      'account',
-      'get-access-token',
-      '--scope',
-      'https://graph.microsoft.com/.default',
-      '-o',
-      'json',
-    ]);
+    if (args[0] === 'cloud') {
+      expect(args).toEqual(['cloud', 'show', '--name', 'AzureCloud', '--output', 'json']);
+    } else if (args[1] === 'show') {
+      expect(args).toEqual(['account', 'show', '-o', 'json']);
+    } else {
+      expect(args).toEqual([
+        'account',
+        'get-access-token',
+        '--scope',
+        'https://graph.microsoft.com/.default',
+        '-o',
+        'json',
+        '--subscription',
+        subscriptionId,
+      ]);
+    }
   }
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -79,7 +99,7 @@ describe('searchAzureADUsers', () => {
       method: 'GET',
       headers: { Authorization: 'Bearer offline-graph-token' },
     });
-    expect(mocks.command).toHaveBeenCalledTimes(1);
+    expect(mocks.command).toHaveBeenCalledTimes(3);
   });
 
   test.each(['', ' ', 'a', ' a ', "O'Brien", 'test()', 'Ålice', 'a&b'])(
@@ -154,7 +174,7 @@ describe('searchAzureADUsers', () => {
       .mockResolvedValueOnce(json({ value: [user] }));
     expect(await searchAzureADUsers('Alice')).toMatchObject({ success: true, users: [user] });
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
-    expect(mocks.command).toHaveBeenCalledTimes(1);
+    expect(mocks.command).toHaveBeenCalledTimes(3);
   });
 
   test('returns persistent throttling as failure after the shared retry budget', async () => {
@@ -212,7 +232,7 @@ describe('resolveAzureADUser', () => {
         user: guest,
       });
       expect(requestUrl().pathname).toContain('%23EXT%23');
-      expect(mocks.command).toHaveBeenCalledTimes(1);
+      expect(mocks.command).toHaveBeenCalledTimes(4);
     }
   );
 
@@ -269,7 +289,12 @@ describe('lookup errors', () => {
   test.each(['AADSTS530084', 'AADSTS50076', 'AADSTS50079', 'AADSTS65001', 'AADSTS65004'])(
     'keeps CLI-backed Graph token acquisition failures recognizable: %s',
     async code => {
-      mocks.command.mockResolvedValue({ stdout: '', stderr: `${code}: blocked` });
+      const dispatch = mocks.command.getMockImplementation()!;
+      mocks.command.mockImplementation((command: string, args: string[]) =>
+        args[1] === 'get-access-token'
+          ? Promise.resolve({ stdout: '', stderr: `${code}: blocked` })
+          : dispatch(command, args)
+      );
       for (const lookup of [() => searchAzureADUsers('Alice'), () => resolveAzureADUser(user.id)]) {
         const result = await lookup();
         expect(result.success).toBe(false);

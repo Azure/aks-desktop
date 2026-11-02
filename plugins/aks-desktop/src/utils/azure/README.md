@@ -119,12 +119,21 @@ routing is unit-tested but is not claimed to have real-account live coverage.
 
 ### Entra user lookup
 
-`searchAzureADUsers` and `resolveAzureADUser` use the public Microsoft Graph
-`v1.0/users` endpoints through `az-http.ts`, requesting
-`https://graph.microsoft.com/.default` rather than an ARM token. Authentication
-remains CLI-backed through the shared token provider and uses the current CLI
-account, as the previous `az ad user` commands did; these helpers do not change
-the selected account or request directory writes.
+`searchAzureADUsers` and `resolveAzureADUser` use Microsoft Graph
+`v1.0/users` endpoints through `az-http.ts`. Each lookup checks the current CLI
+account and resolves its named cloud's `microsoftGraphResourceId` from local
+`az cloud show` metadata. The endpoint and token audience follow that Graph
+configuration, not the ARM or legacy Azure AD Graph endpoint. Missing or invalid
+configuration fails explicitly without falling back to public Graph.
+
+Authentication remains CLI-backed through the shared token provider. Graph
+credentials are scoped to the observed user, tenant, subscription, and cloud;
+switching accounts externally cannot reuse the previous context's cached token
+on the next lookup. Unchanged contexts retain shared token caching and refresh.
+The existing focus/periodic account checks also invalidate token and cloud
+metadata caches when the observed account changes or becomes unavailable, using
+a separate notification that does not trigger another login-status check.
+These helpers do not change the selected account or request directory writes.
 
 Search retains a two-character minimum, prefix matching on display name, mail,
 and UPN, and a maximum of 15 results. Resolution returns both the object ID and
@@ -150,7 +159,9 @@ Azure or Kubernetes authorization; manual entry does not grant directory access.
 See the Graph [list users](https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-1.0)
 and [get user](https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0)
 permission requirements. Offline transport and caller tests do not establish
-live consent or conditional-access behavior in a particular tenant.
+live consent or conditional-access behavior in a particular tenant. Public,
+Government, and China Graph routing is tested with mocked cloud configuration;
+this is not a claim of live sovereign-cloud validation.
 
 ## Adding a New Function
 
