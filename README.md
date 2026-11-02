@@ -13,6 +13,10 @@ To learn how to get started with AKS desktop, create projects, deploy applicatio
 
 Please download the latest release for your platform from the [Releases](https://github.com/Azure/aks-desktop/releases/latest) page.
 
+When a release includes signed checksums, follow
+[Verifying release downloads](docs/verify-releases.md) to authenticate the
+manifest and check your download.
+
 ## Development
 
 Install Node.js 22.22.2 or newer. npm 10 and newer are supported; the repository
