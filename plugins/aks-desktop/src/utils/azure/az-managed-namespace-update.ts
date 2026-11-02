@@ -149,7 +149,7 @@ async function resourceContext(options: ManagedNamespaceScope) {
 
 function request(
   url: string,
-  context: Awaited<ReturnType<typeof resourceContext>>,
+  context: Pick<AzRequestOptions, 'tenantId' | 'scope' | 'credential' | 'timeoutMs'>,
   signal?: AbortSignal,
   extra: Partial<AzRequestOptions> = {}
 ) {
@@ -159,6 +159,7 @@ function request(
     tenantId: context.tenantId,
     scope: context.scope,
     credential: context.credential,
+    timeoutMs: context.timeoutMs,
     signal,
     ...extra,
   });
@@ -316,7 +317,10 @@ export async function updateManagedNamespaceResource(
   );
   const signal = controller.signal;
   try {
-    const context = await resourceContext({ ...options, signal });
+    const context = {
+      ...(await resourceContext({ ...options, signal })),
+      timeoutMs: UPDATE_TIMEOUT_MS,
+    };
     const { url, origin } = context;
     const initial = await request(url, context, signal);
     const current = validateResource(initial.data);
