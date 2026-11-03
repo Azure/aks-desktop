@@ -1148,7 +1148,7 @@
     "@headlamp-k8s/headlamp-source": "file:packages/headlamp-source",
     "@playwright/test": "1.56.1",
     "@types/node": "^26.1.1",
-    "concurrently": "^9.1.2",
+    "concurrently": "^10.0.6",
     "cross-env": "10.1.0",
     "husky": "^9.0.0",
     "knip": "^6.44.0",
