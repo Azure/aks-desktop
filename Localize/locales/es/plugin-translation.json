@@ -45,7 +45,6 @@
   "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "AKS Desktop envía datos pseudónimos de uso (uso de características, versión de la aplicación, sistema operativo y clases de error) para ayudarnos a mejorar el producto. Se incluye un identificador pseudónimo de instalación aleatorio almacenado en este dispositivo para que se puedan contar las sesiones de la misma instalación. Nunca se envían nombres de clústeres, espacios de nombres, nombres de recursos, mensajes de error ni seguimientos de pila.",
   "AKS Hybrid & Edge": "AKS híbrido y perimetral",
   "AKS Hybrid & Edge (Arc-connected)": "AKS híbrido y perimetral (conectado a Arc)",
-  "AKS Hybrid & Edge clusters are not listed: the Azure CLI \"connectedk8s\" extension is required. Install it with: az extension add --name connectedk8s": "Los clústeres de AKS Hybrid y perimetrales no aparecen en la lista: se necesita la extensión \"connectedk8s\" de la CLI de Azure. Instálelo con: az extension add --name connectedk8s",
   "AKS Hybrid & Edge proxy is running": "Se está ejecutando el proxy de AKS híbrido y perimetral",
   "AKS Managed": "AKS administrado",
   "AKS Project?": "¿Proyecto de AKS?",
@@ -746,5 +745,6 @@
   "Failed to save the selected cluster scope: {{message}}": "",
   "A cluster with a different kind or Azure scope is already registered with this name. Remove it before continuing.": "",
   "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": "",
-  "Browse and import existing AKS Projects": ""
+  "Browse and import existing AKS Projects": "",
+  "AKS Hybrid & Edge clusters could not be listed: {{message}}": ""
 }

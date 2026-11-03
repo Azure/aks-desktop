@@ -200,21 +200,8 @@ describe('RegisterAKSClusterDialog telemetry', () => {
     vi.restoreAllMocks();
   });
 
-  test('shows install guidance when Arc discovery reports the extension missing', async () => {
-    mocks.getAKSClusters.mockResolvedValue({
-      success: true,
-      clusters: [],
-      arcDiscoveryUnavailable: 'connectedk8s-extension-missing',
-    });
-    renderDialog();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Select subscription' }));
-
-    expect(await screen.findByText(/az extension add --name connectedk8s/i)).toBeTruthy();
-  });
-
-  test('shows the runtime reason instead of install guidance when extension checking fails', async () => {
-    const reason = 'Authentication required. Please log in to Azure CLI: az login';
+  test('shows the Azure error when Arc discovery fails', async () => {
+    const reason = 'AuthorizationFailed: denied (HTTP 403, request ID request-1)';
     mocks.getAKSClusters.mockResolvedValue({
       success: true,
       clusters: [],
@@ -224,8 +211,9 @@ describe('RegisterAKSClusterDialog telemetry', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Select subscription' }));
 
-    expect(await screen.findByText(reason)).toBeTruthy();
-    expect(screen.queryByText(/az extension add --name connectedk8s/i)).toBeNull();
+    expect(
+      await screen.findByText(`AKS Hybrid & Edge clusters could not be listed: ${reason}`)
+    ).toBeTruthy();
   });
 
   test('emits started only after required selection validation', async () => {

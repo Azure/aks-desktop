@@ -233,14 +233,15 @@ ClusterError.args = {
   clusterError: 'Failed to load clusters: network timeout',
 };
 
-/** Managed clusters remain usable when the `connectedk8s` extension cannot discover Arc clusters. */
+/** Managed clusters remain usable when AKS Hybrid & Edge clusters cannot be listed. */
 export const ArcDiscoveryUnavailable = Template.bind({});
 ArcDiscoveryUnavailable.args = {
   ...BASE_PROPS,
   formData: { ...BASE_FORM_DATA, subscription: 'sub-123' },
   clusters: CLUSTERS,
   totalClusterCount: CLUSTERS.length,
-  arcDiscoveryUnavailable: true,
+  arcDiscoveryUnavailable:
+    "AuthorizationFailed: The client does not have authorization to perform action 'Microsoft.Kubernetes/connectedClusters/read'. (HTTP 403, request ID 00000000-0000-0000-0000-000000000000)",
 };
 
 /**

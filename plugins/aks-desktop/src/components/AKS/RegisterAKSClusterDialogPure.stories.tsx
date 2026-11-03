@@ -225,7 +225,7 @@ export const ArcDiscoveryUnavailable = Template.bind({});
 ArcDiscoveryUnavailable.args = {
   ...WithClusters.args,
   notice:
-    'AKS Hybrid & Edge clusters are not listed: the Azure CLI "connectedk8s" extension is required.',
+    "AKS Hybrid & Edge clusters could not be listed: AuthorizationFailed: The client does not have authorization to perform action 'Microsoft.Kubernetes/connectedClusters/read'. (HTTP 403, request ID 00000000-0000-0000-0000-000000000000)",
 };
 
 /** An offline Arc cluster is selected so its connectivity warning is visible. */

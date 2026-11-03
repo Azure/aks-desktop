@@ -1,9 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
-import { debugLog, isAzError, needsRelogin, runAzCommand, runCommandAsync } from './az-cli-core';
+import { debugLog, getErrorMessage, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
+import { getAzureCloudEndpoints } from './az-cloud';
+import { azListAll } from './az-http';
 import { getClusterResourceGroupViaGraph, getClustersViaGraph } from './az-resource-graph';
 import { getSubscriptions } from './az-subscriptions';
+import { getSubscriptionCredential } from './az-token';
 
 export async function getClusters(subscriptionId?: string, query?: string): Promise<any[]> {
   const clusters: any[] = [];
@@ -108,85 +111,119 @@ export async function getClusters(subscriptionId?: string, query?: string): Prom
   return clusters;
 }
 
+/** API version for listing `Microsoft.Kubernetes/connectedClusters`. */
+const CONNECTED_CLUSTERS_API_VERSION = '2024-01-01';
+
+/** The fields read from an ARM `Microsoft.Kubernetes/connectedClusters` resource. */
+interface ConnectedClusterResource {
+  id?: string;
+  name?: string;
+  location?: string;
+  kind?: string | null;
+  properties?: {
+    kubernetesVersion?: string;
+    agentVersion?: string;
+    provisioningState?: string;
+    connectivityStatus?: string;
+    distribution?: string;
+    aadProfile?: { enableAzureRBAC?: boolean };
+  };
+}
+
+/** An AKS Hybrid & Edge cluster found in a subscription. */
+export interface ConnectedClusterSummary {
+  name: string;
+  subscription: string;
+  resourceGroup: string;
+  location: string;
+  version: string;
+  status: string;
+  powerState: string;
+  /** Arc agent heartbeat status, such as `Connected`, `Offline` or `Expired`. */
+  connectivityStatus: string;
+  nodeCount: number;
+  clusterType: 'aksarc';
+  /** `true` when the cluster uses Azure RBAC, `false` when it uses Kubernetes RBAC. */
+  azureRbacEnabled: boolean;
+}
+
+/** The AKS Hybrid & Edge clusters found in a subscription, and why listing failed if it did. */
+export interface ConnectedClusterDiscovery {
+  clusters: ConnectedClusterSummary[];
+  /** The Azure error message when the clusters could not be listed. */
+  error?: string;
+}
+
 /**
- * Discovers Arc-connected (AKS Hybrid & Edge / AKS Arc) Kubernetes clusters in a
- * subscription via `az connectedk8s list`.
+ * Reads the resource group name from an ARM resource ID.
+ * @param id - ARM resource ID, such as `/subscriptions/{sub}/resourceGroups/{rg}/providers/...`.
+ * @returns The resource group name, or an empty string when the ID has none.
+ */
+function resourceGroupFromId(id: string | undefined): string {
+  return /\/resourceGroups\/([^/]+)/i.exec(id ?? '')?.[1] ?? '';
+}
+
+/**
+ * Lists the AKS Hybrid & Edge (AKS Arc) clusters in a subscription through ARM REST.
  *
- * Each returned cluster carries a `clusterType: 'aksarc'` discriminator so
- * callers can tell AKS Hybrid & Edge clusters apart from managed AKS clusters.
- *
- * This function is intentionally resilient: if the `connectedk8s` CLI
- * extension is missing, or the call fails for any other reason, it returns an
- * empty list rather than throwing. AKS Hybrid & Edge discovery is additive and must
- * never prevent the standard AKS cluster list from loading.
+ * Only connected clusters with `kind: "ProvisionedCluster"` are returned; other
+ * Arc-enabled Kubernetes clusters are skipped. This function never throws, so a
+ * failure here cannot stop managed AKS clusters from being listed.
  *
  * @param subscriptionId - Azure subscription GUID to query.
- * @returns An array of AKS Hybrid & Edge cluster objects, possibly empty.
+ * @returns The clusters found, plus the error message if the request failed.
  */
-export async function getConnectedClusters(subscriptionId: string): Promise<any[]> {
-  const clusters: any[] = [];
-
-  // AKS Hybrid & Edge discovery is additive and must never block the standard AKS
-  // list, so any failure — missing `connectedk8s` extension, no access, relogin
-  // needed, or non-array/invalid output — resolves to an empty list. runAzCommand
-  // gives us the same relogin/isAzError handling as the other Azure helpers; a
-  // throwing JSON.parse is caught by it and reported as `success: false`.
-  const result = await runAzCommand<any[]>(
-    ['connectedk8s', 'list', '--subscription', subscriptionId, '-o', 'json'],
-    'Listing connectedk8s clusters:',
-    'list AKS Hybrid & Edge clusters',
-    stdout => {
-      if (!stdout) {
-        return [];
-      }
-      const parsed = JSON.parse(stdout);
-      return Array.isArray(parsed) ? parsed : [];
-    }
-  );
-
-  if (!result.success || !result.data) {
-    debugLog('Skipping AKS Hybrid & Edge discovery:', result.error ?? 'no clusters returned');
-    return clusters;
+export async function getConnectedClusters(
+  subscriptionId: string
+): Promise<ConnectedClusterDiscovery> {
+  let resources: ConnectedClusterResource[];
+  try {
+    const { endpoint, scope } = await getAzureCloudEndpoints();
+    resources = await azListAll<ConnectedClusterResource>({
+      endpoint,
+      scope,
+      url: `/subscriptions/${encodeURIComponent(
+        subscriptionId
+      )}/providers/Microsoft.Kubernetes/connectedClusters`,
+      apiVersion: CONNECTED_CLUSTERS_API_VERSION,
+      credential: getSubscriptionCredential(subscriptionId),
+    });
+  } catch (error) {
+    const message = getErrorMessage(error);
+    console.warn('Could not list AKS Hybrid & Edge clusters:', message);
+    return { clusters: [], error: message };
   }
 
-  result.data.forEach((cluster: any) => {
-    // `az connectedk8s list` returns *every* Azure Arc-enabled Kubernetes
-    // cluster, but only AKS-Arc (AKS Hybrid & Edge / baremetal) clusters are
-    // reported with `kind: "ProvisionedCluster"`. Generic Arc-connected
-    // clusters — a kind/k3s/Azure-Local cluster merely attached via
-    // `az connectedk8s connect` — have `kind: null` and are NOT AKS Hybrid &
-    // Edge, so they must not be offered, tagged `aksarc`, badged, or given the
-    // proxy Start action.
-    if (cluster.kind !== 'ProvisionedCluster') {
+  const clusters: ConnectedClusterSummary[] = [];
+  for (const resource of resources) {
+    // Generic Arc-connected clusters have no `ProvisionedCluster` kind and are not AKS clusters.
+    if (resource?.kind !== 'ProvisionedCluster') {
       debugLog(
         'Skipping non-AKS-Arc connected cluster:',
-        cluster.name,
-        `(kind=${cluster.kind ?? 'null'}, distribution=${cluster.distribution ?? ''})`
+        resource?.name,
+        `(kind=${resource?.kind ?? 'null'}, distribution=${
+          resource?.properties?.distribution ?? ''
+        })`
       );
-      return;
+      continue;
     }
+    const properties = resource.properties ?? {};
     clusters.push({
-      name: cluster.name,
+      name: resource.name ?? '',
       subscription: subscriptionId,
-      resourceGroup: cluster.resourceGroup,
-      location: cluster.location,
-      version: cluster.kubernetesVersion || cluster.agentVersion || '',
-      status: cluster.provisioningState || cluster.connectivityStatus || 'Unknown',
-      powerState: cluster.connectivityStatus || 'Unknown',
-      // Arc agent heartbeat status ('Connected' | 'Offline' | 'Expired'…).
-      // Used to disable clusters that can't be reached before the user tries.
-      connectivityStatus: cluster.connectivityStatus || 'Unknown',
+      resourceGroup: resourceGroupFromId(resource.id),
+      location: resource.location ?? '',
+      version: properties.kubernetesVersion || properties.agentVersion || '',
+      status: properties.provisioningState || properties.connectivityStatus || 'Unknown',
+      powerState: properties.connectivityStatus || 'Unknown',
+      connectivityStatus: properties.connectivityStatus || 'Unknown',
       nodeCount: 0,
       clusterType: 'aksarc',
-      // Which authorization model the cluster was created with. `false` (or
-      // absent) means Entra ID auth + native Kubernetes RBAC, so project access
-      // is granted with RoleBindings; `true` means Azure RBAC via the `guard`
-      // webhook, where it is granted with Azure role assignments instead.
-      azureRbacEnabled: cluster.aadProfile?.enableAzureRbac === true,
+      azureRbacEnabled: properties.aadProfile?.enableAzureRBAC === true,
     });
-  });
+  }
 
-  return clusters;
+  return { clusters };
 }
 
 export async function getAksClusterStatus(options: {
@@ -569,12 +606,7 @@ export async function getClusterResourceIdAndGroup(
 
     const item = arr[0] || {};
     const resourceId: string = item.id || '';
-    let resourceGroup: string = item.resourceGroup || '';
-
-    if (!resourceGroup && resourceId) {
-      const match = resourceId.match(/\/resourceGroups\/([^/]+)\//i);
-      if (match && match[1]) resourceGroup = match[1];
-    }
+    const resourceGroup: string = item.resourceGroup || resourceGroupFromId(resourceId);
 
     if (!resourceId) return null;
     return { resourceId, resourceGroup };
