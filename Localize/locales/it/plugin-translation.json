@@ -46,7 +46,7 @@
   "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "Il desktop del servizio Azure Kubernetes invia dati di utilizzo pseudonimi (utilizzo delle funzionalità, versione dell'app, sistema operativo, classi di errore) per contribuire al miglioramento del prodotto. Un identificatore di installazione pseudonimo casuale archiviato in questo dispositivo è incluso in modo che le sessioni della stessa installazione possano essere conteggiate. Non vengono mai inviati nomi di cluster, spazi dei nomi, nomi di risorse, messaggi di errore o analisi dello stack.",
   "AKS Hybrid & Edge": "AKS Hybrid & Edge",
   "AKS Hybrid & Edge (Arc-connected)": "AKS Hybrid & Edge (connesso ad Arc)",
-  "AKS Hybrid & Edge clusters are not listed: the Azure CLI \"connectedk8s\" extension is required. Install it with: az extension add --name connectedk8s": "I cluster AKS Hybrid & Edge non sono elencati: è necessaria l'estensione \"connectedk8s\" dell'interfaccia della riga di comando di Azure. Installarla con: az extension add --name connectedk8s",
+  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "AKS Hybrid & Edge clusters could not be listed: {{message}}",
   "AKS Hybrid & Edge proxy is running": "Il proxy AKS Hybrid & Edge è in esecuzione",
   "AKS Managed": "Gestito dal servizio Azure Kubernetes",
   "AKS Project?": "Progetto del servizio Azure Kubernetes?",

@@ -46,7 +46,7 @@
   "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "AKS Desktop은 제품 개선에 도움이 되도록 가명 사용량 현황 데이터(기능 사용 현황, 앱 버전, 운영 체제, 오류 클래스)를 전송합니다. 이 장치에 저장된 임의의 가명 설치 식별자가 포함되므로 동일한 설치의 세션을 계산할 수 있습니다. 클러스터 이름, 네임스페이스, 리소스 이름, 오류 메시지 또는 스택 추적은 전송하지 않습니다.",
   "AKS Hybrid & Edge": "AKS 하이브리드 및 에지",
   "AKS Hybrid & Edge (Arc-connected)": "AKS 하이브리드 및 에지(Arc 연결)",
-  "AKS Hybrid & Edge clusters are not listed: the Azure CLI \"connectedk8s\" extension is required. Install it with: az extension add --name connectedk8s": "AKS 하이브리드 및 에지 클러스터가 나열되지 않았습니다. Azure CLI \"connectedk8s\" 확장이 필요합니다. 다음을 사용하여 설치: az extension add --name connectedk8s",
+  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "AKS Hybrid & Edge clusters could not be listed: {{message}}",
   "AKS Hybrid & Edge proxy is running": "AKS 하이브리드 및 에지 프록시가 실행되고 있습니다.",
   "AKS Managed": "AKS 관리됨",
   "AKS Project?": "AKS 프로젝트인가요?",

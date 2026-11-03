@@ -46,7 +46,7 @@
   "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "Narzędzie AKS Desktop wysyła anonimowe dane użycia (użycie funkcji, wersja aplikacji, system operacyjny, klasy błędów), aby pomóc nam ulepszyć produkt. Dołączany jest losowy identyfikator instalacji pod pseudonimem przechowywany na tym urządzeniu, aby można było policzyć sesje z tej samej instalacji. Nigdy nie są wysyłane żadne nazwy klastrów, przestrzenie nazw, nazwy zasobów, komunikaty o błędach ani ślady stosu.",
   "AKS Hybrid & Edge": "Hybrydowy i brzegowy środowiska AKS",
   "AKS Hybrid & Edge (Arc-connected)": "Hybrydowy i brzegowy środowiska AKS (połączony z usługą Arc)",
-  "AKS Hybrid & Edge clusters are not listed: the Azure CLI \"connectedk8s\" extension is required. Install it with: az extension add --name connectedk8s": "Klastrów hybrydowych i brzegowych środowiska AKS nie ma na liście: wymagane jest rozszerzenie interfejsu wiersza polecenia platformy Azure „connectedk8s”. Zainstaluj go za pomocą polecenia: az extension add --name connectedk8s",
+  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "AKS Hybrid & Edge clusters could not be listed: {{message}}",
   "AKS Hybrid & Edge proxy is running": "Hybrydowy i brzegowy serwer proxy środowiska AKS jest uruchomiony",
   "AKS Managed": "Zarządzane przez usługę AKS",
   "AKS Project?": "Projekt AKS?",

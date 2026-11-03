@@ -46,7 +46,7 @@
   "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "AKS Desktop, ürünü geliştirmemize yardımcı olmak için bulanıklaştırılmış kullanım verileri (özellik kullanımı, uygulama sürümü, işletim sistemi, hata sınıfları) gönderir. Aynı yüklemedeki oturumların hesaba katılabilmesi için bu cihazda depolanan bir rastgele bulanıklaştırılmış yükleme tanımlayıcısı eklenir. Hiçbir küme adı, ad alanı, kaynak adı, hata iletisi veya yığın izi gönderilmez.",
   "AKS Hybrid & Edge": "AKS Hibrit ve Edge",
   "AKS Hybrid & Edge (Arc-connected)": "AKS Hibrit ve Edge (Arc bağlantılı)",
-  "AKS Hybrid & Edge clusters are not listed: the Azure CLI \"connectedk8s\" extension is required. Install it with: az extension add --name connectedk8s": "AKS Hibrit ve Edge kümeleri listelenmiyor: Azure CLI \"connectedk8s\" uzantısı gereklidir. Şu komutla yükleyin: az extension add --name connectedk8s",
+  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "AKS Hybrid & Edge clusters could not be listed: {{message}}",
   "AKS Hybrid & Edge proxy is running": "AKS Hibrit ve Edge ara sunucusu çalışıyor",
   "AKS Managed": "AKS Tarafından Yönetilen",
   "AKS Project?": "AKS Projesi Mi?",
