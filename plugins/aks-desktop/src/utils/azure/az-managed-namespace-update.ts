@@ -4,7 +4,7 @@
 import { getLoginStatus } from './az-auth';
 import { getAzureCloudEndpoints } from './az-cloud';
 import type { AzRequestOptions, AzResponse } from './az-http';
-import { azRequestRaw, AzureRequestError } from './az-http';
+import { azRequestRaw, AzureRequestError, waitForAzureRetry } from './az-http';
 import { getSubscriptionCredential, withAbort } from './az-token';
 
 const API_VERSION = '2026-01-01';
@@ -271,30 +271,6 @@ function continuation(
   return { url: next.href, kind: asyncUrl ? 'operation' : 'location' };
 }
 
-function delay(response: AzResponse<unknown>, signal: AbortSignal): Promise<void> {
-  const header = response.headers.get('retry-after');
-  const seconds = header === null ? NaN : Number(header);
-  const milliseconds =
-    header === null
-      ? NaN
-      : Number.isFinite(seconds)
-      ? seconds * 1000
-      : Date.parse(header) - Date.now();
-  const ms = Number.isFinite(milliseconds) ? Math.max(0, milliseconds) : 1000;
-  return new Promise((resolve, reject) => {
-    const abort = () => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', abort);
-      resolve();
-    }, ms);
-    if (signal.aborted) abort();
-    else signal.addEventListener('abort', abort, { once: true });
-  });
-}
-
 /**
  * Merges writable settings into a fresh GET and submits one ARM PUT.
  * If ARM returns an ETag, it is forwarded as If-Match; enforcement by this API is not guaranteed.
@@ -344,7 +320,7 @@ export async function updateManagedNamespaceResource(
       pending = state(response.data, false, response) !== 'succeeded' || pending;
     next ??= { url, kind: 'resource' };
     while (pending) {
-      await delay(response, signal);
+      await waitForAzureRetry(response.headers, signal);
       response = await request(next.url, context, signal);
       if (
         next.kind === 'location' &&
