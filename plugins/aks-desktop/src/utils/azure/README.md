@@ -225,6 +225,8 @@ Update requests use the ten-minute transport budget so GET retries can honor
 entire account/cloud lookup, update, retries, polling, and final read; a late poll
 does not restart that deadline. Caller cancellation also interrupts retry waits.
 Standalone details reads retain the transport's normal request timeout.
+Update polling, deletion polling, and transport retries share
+`waitForAzureRetry` for `Retry-After` parsing and abort cleanup.
 
 An empty HTTP 200 or 204 from a `Location` poll ends polling, not success
 verification: the final namespace GET must still confirm `Succeeded`. Empty
