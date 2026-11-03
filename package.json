@@ -409,7 +409,9 @@
           {
             "tool": "az",
             "args": [
-              "role"
+              "role",
+              "assignment",
+              "list"
             ],
             "allowTrailingArgs": true
           },
@@ -629,7 +631,9 @@
           {
             "tool": "az",
             "args": [
-              "role"
+              "role",
+              "assignment",
+              "list"
             ],
             "allowTrailingArgs": true
           },
@@ -807,7 +811,9 @@
           {
             "tool": "az",
             "args": [
-              "role"
+              "role",
+              "assignment",
+              "list"
             ],
             "allowTrailingArgs": true
           },
@@ -1027,7 +1033,9 @@
           {
             "tool": "az",
             "args": [
-              "role"
+              "role",
+              "assignment",
+              "list"
             ],
             "allowTrailingArgs": true
           },

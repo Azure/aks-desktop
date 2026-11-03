@@ -142,7 +142,8 @@ test('AKS approvals retain main defaults plus scoped directory reads', () => {
     assert.deepEqual(policy.approvedCommands, [
       { tool: 'az', args: [] },
       ...prefixes.map(prefix => ({
-        tool: 'az', args: prefix === 'cloud' ? ['cloud', 'show'] : [prefix],
+        tool: 'az',
+        args: prefix === 'cloud' ? ['cloud', 'show'] : prefix === 'role' ? ['role', 'assignment', 'list'] : [prefix],
         allowTrailingArgs: true,
       })),
       { tool: 'kubectl', args: ['top'], allowTrailingArgs: true },

@@ -27,6 +27,40 @@ Sovereign/custom-cloud mappings remain covered by unit tests. No real accounts i
 those clouds are used or claimed as live-validated; they are outside the permitted
 Cloud Native Tools live-validation scope.
 
+Run the role-assignment suite with an isolated group and identity:
+
+```sh
+AZ_LIVE_TESTS=1 npm --prefix plugins/aks-desktop run test:unit -- az-role-assignments.live.test.ts
+```
+
+The suite checks the exact Reader definition, principal type, resource-group
+scope and single-assignment result after repeated creation. It also seeds a
+Reader assignment with a different name at the owned identity's resource scope,
+then verifies reuse of that exact assignment through the real conflict path.
+An inherited resource-group assignment is not accepted as that resource assignment.
+ARM assignment lists can lag creation, so the fixture observes both the first
+group grant and the seeded assignment in REST reads (each with a five-minute
+setup deadline). Production conflict
+handling remains fail-closed if the exact assignment cannot yet be verified;
+an inherited or otherwise nonmatching grant never counts as success.
+
+Migrated role operations omit injected credentials and use production subscription
+credentials and configured-cloud resolution through the shared
+`azureLiveAuthBridge`. It permits only selected-account public ARM token
+acquisition and read-only cloud metadata; resource CLI operations, other accounts
+and other clouds are rejected before spawning. Repeated operations must reuse one
+production token acquisition and one metadata read. Setup and cleanup retain the
+real CLI-bootstrapped REST fixture credential. Assignment-visibility checks use the
+same production credential and configured audience as conflict verification, so a
+different fixture-token view cannot falsely establish readiness. Nothing mocks
+Azure responses or token output. The provider live suite reuses this same bridge.
+
+Non-public cloud defaults, explicit/injected transport overrides and wrong-tenant
+rejection are also covered offline in `az-role-assignments-auth.test.ts`.
+User/Group grants, Arc scopes, cross-subscription
+ACR scopes and denied writes remain unit-tested; this suite does not access other
+subscriptions or create directory users/groups.
+
 Each test creates a fresh resource group named
 `aksd-rest-e2e-<suite>-<UTC timestamp>-<random ID>`. Tags record the test suite,
 run ID and creation time. AKS node groups use the same name with `-nodes`.
