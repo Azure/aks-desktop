@@ -234,6 +234,7 @@
   "The namespace will be created on the selected cluster and set up as a project": "선택한 클러스터에 네임스페이스가 생성되고 프로젝트로 설정됩니다.",
   "Regular Kubernetes namespace": "일반 Kubernetes 네임스페이스",
   "A new namespace will be created on the cluster with project labels applied. It will appear in your project list immediately.": "프로젝트 레이블이 적용된 새 네임스페이스가 클러스터에 생성됩니다. 새 네임스페이스는 프로젝트 목록에 즉시 표시됩니다.",
+  "Back to home": "",
   "Create New Namespace": "새 네임스페이스 만들기",
   "Create a new namespace on an existing cluster and set it up as a project": "기존 클러스터에 새 네임스페이스를 만들고 프로젝트로 설정하세요.",
   "Creating Namespace": "네임스페이스를 만드는 중",
