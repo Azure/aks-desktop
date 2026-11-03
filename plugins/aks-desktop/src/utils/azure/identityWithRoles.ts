@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
+import { getClusterSettings } from '../shared/clusterSettings';
 import {
   assignAzureRoles,
   getKubeletIdentityObjectId,
@@ -13,18 +14,26 @@ import {
   type IdentitySetupStatus,
 } from './identitySetup';
 
+/** Progress phases shared by deploy and pipeline identity-setup UIs. */
 export type RoleAssignmentStatus = IdentitySetupStatus | 'assigning-roles';
 
+/** Ensured identity metadata plus non-fatal node-image-pull warnings. */
 export interface EnsureIdentityWithRolesResult extends IdentitySetupResult {
   /** Non-fatal warnings encountered during setup (e.g. kubelet AcrPull assignment failures). */
   warnings: string[];
 }
 
+/** Managed AKS identity setup inputs; registered Arc clusters are not supported. */
 export interface EnsureIdentityWithRolesConfig {
+  /** Subscription GUID owning the cluster and requested workload identity. */
   subscriptionId: string;
+  /** Resource group containing the managed AKS cluster. */
   resourceGroup: string;
+  /** Group in which the user-assigned identity is ensured. */
   identityResourceGroup: string;
+  /** User-assigned managed identity resource name to find or create. */
   identityName: string;
+  /** Registered managed AKS name, also used to reject persisted Arc settings. */
   clusterName: string;
   /** Full Azure resource ID of the ACR. Omit to skip ACR roles. */
   acrResourceId?: string;
@@ -38,6 +47,7 @@ export interface EnsureIdentityWithRolesConfig {
   isPipeline?: boolean;
   /** Purpose label for the resource group tags (e.g. 'GitHub Actions Identity', 'Workload Identity'). */
   purpose?: string;
+  /** Callback receiving progress phases; it must not throw. */
   onStatusChange: (status: RoleAssignmentStatus) => void;
 }
 
@@ -53,6 +63,10 @@ export interface EnsureIdentityWithRolesConfig {
  *
  * @see https://learn.microsoft.com/en-us/azure/aks/cluster-container-registry-integration
  * @see https://learn.microsoft.com/en-us/azure/aks/use-managed-identity#summary-of-managed-identities
+ * @param config - Identity, namespace/registry context and progress callback.
+ * @returns Identity metadata plus warnings for non-fatal kubelet AcrPull failures.
+ * @throws For registered Arc clusters, missing managed-namespace names,
+ * resource/identity setup failures or required role-assignment failures.
  */
 export async function ensureIdentityWithRoles(
   config: EnsureIdentityWithRolesConfig
@@ -71,6 +85,10 @@ export async function ensureIdentityWithRoles(
     purpose,
     onStatusChange,
   } = config;
+
+  if (getClusterSettings(clusterName).clusterType === 'aksarc') {
+    throw new Error('Managed AKS workload identity setup does not support Arc clusters');
+  }
 
   // Validate managed namespace config upfront
   if (isManagedNamespace && !namespaceName) {

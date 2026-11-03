@@ -2,7 +2,8 @@
 // Licensed under the Apache 2.0.
 // Identity-related Azure CLI functions (managed identities, role assignments).
 
-import { debugLog, isValidGuid, runAzCommand } from './az-cli-core';
+import { debugLog, getErrorMessage, isValidGuid, runAzCommand } from './az-cli-core';
+import { type AksClusterReadOptions, getManagedClusterDetails } from './az-managed-clusters';
 import type { ManagedIdentityResult } from './az-validation';
 import { isValidAzResourceName, parseManagedIdentityOutput } from './az-validation';
 
@@ -298,14 +299,21 @@ export async function getManagedNamespaceResourceId(options: {
  * allows AKS nodes to pull images from that registry without additional credentials.
  * Docs: https://learn.microsoft.com/azure/container-registry/container-registry-roles
  *
- * This function resolves the objectId via:
- *   `az aks show --query identityProfile.kubeletidentity.objectId`
+ * Resolves the object ID from the shared managed AKS REST detail read.
+ *
+ * @param options - Managed AKS coordinates and optional shared REST/authentication overrides.
+ * @returns A resolved result with a validated kubelet objectId, or success=false
+ * and an actionable error for invalid input, read failure or missing/malformed identity.
+ * The control-plane identity is never substituted for the kubelet identity.
  */
-export async function getKubeletIdentityObjectId(options: {
-  subscriptionId: string;
-  resourceGroup: string;
-  clusterName: string;
-}): Promise<{ success: boolean; objectId?: string; error?: string }> {
+export async function getKubeletIdentityObjectId(options: AksClusterReadOptions): Promise<{
+  /** Whether a valid kubelet identity object GUID was obtained. */
+  success: boolean;
+  /** Kubelet Entra object GUID, present only on success. */
+  objectId?: string;
+  /** Validation, lookup or kubelet-configuration diagnostic on failure. */
+  error?: string;
+}> {
   const { subscriptionId, resourceGroup, clusterName } = options;
 
   if (!isValidGuid(subscriptionId)) {
@@ -315,34 +323,13 @@ export async function getKubeletIdentityObjectId(options: {
     return { success: false, error: 'Invalid resource group or cluster name format' };
   }
 
-  const result = await runAzCommand(
-    [
-      'aks',
-      'show',
-      '--name',
-      clusterName,
-      '--resource-group',
-      resourceGroup,
-      '--subscription',
-      subscriptionId,
-      '--query',
-      'identityProfile.kubeletidentity',
-      '--output',
-      'json',
-    ],
-    `getKubeletIdentity(${clusterName})`,
-    `Failed to get kubelet identity for cluster ${clusterName}`,
-    (stdout: string) => {
-      const parsed = JSON.parse(stdout);
-      return parsed;
-    }
-  );
-
-  if (!result.success) {
-    return { success: false, error: result.error ?? 'Failed to get cluster details' };
+  let kubeletIdentity: unknown;
+  try {
+    const cluster = await getManagedClusterDetails(options);
+    kubeletIdentity = cluster.properties.identityProfile?.kubeletidentity;
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error) };
   }
-
-  const kubeletIdentity = result.data;
   if (!kubeletIdentity || typeof kubeletIdentity !== 'object') {
     return {
       success: false,
@@ -354,7 +341,7 @@ export async function getKubeletIdentityObjectId(options: {
   }
 
   // Validate that identityProfile.kubeletidentity.objectId exists
-  const objectId = (kubeletIdentity as Record<string, unknown>).objectId;
+  const objectId = 'objectId' in kubeletIdentity ? kubeletIdentity.objectId : undefined;
   if (!objectId || typeof objectId !== 'string') {
     return {
       success: false,
