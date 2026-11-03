@@ -150,6 +150,9 @@ separately. Selected targets must stay in the checkout and outside `.git`;
 in-context ignore symlinks must stay relative and inside the context. Invalid
 selected ignore directories/dangling symlinks fail before upload instead of
 falling back to context rules.
+Ordinary context symlinks are archived as links without resolving or following
+their targets, including outside-context, absolute, dangling, or cyclic targets.
+Ignore rules apply to the link's own path; target contents are not uploaded.
 
 ## Cleanup and recovery
 

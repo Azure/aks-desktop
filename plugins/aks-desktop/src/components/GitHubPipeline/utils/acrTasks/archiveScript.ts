@@ -186,9 +186,7 @@ def create_context(workspace, context_value, dockerfile_value, output, check=lam
                         # The selected Dockerfile must survive even when its target is ignored.
                         archive.add(dockerfile_target, arcname=name, recursive=False)
                         continue
-                    target = symlink_target(entry.path, context, name)
-                    if ignored(target.relative_to(context).as_posix(), rules):
-                        continue
+                    # Preserve ordinary link text without reading or walking its target.
                     archive.add(entry.path, arcname=name, recursive=False)
                 elif entry.is_dir(follow_symlinks=False):
                     if not excluded:

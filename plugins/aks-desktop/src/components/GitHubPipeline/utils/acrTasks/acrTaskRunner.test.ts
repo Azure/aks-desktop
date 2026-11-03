@@ -487,6 +487,7 @@ describe('generated ACR Tasks runtime', () => {
     const { status, stderr, records } = test.run();
     expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
     expect(records.archive['app-link'].link).toBe('app.txt');
+    expect(records.archive['secret-link'].link).toBe('ignored/private');
     expect(records.archive['cache/keep.txt'].content).toBe('included exception');
     expect(records.archive['.dockerignore']).toBeDefined();
     for (const excluded of [
@@ -496,7 +497,6 @@ describe('generated ACR Tasks runtime', () => {
       'ignored/private',
       '.git/config',
       'deep/.git/config',
-      'secret-link',
     ])
       expect(records.archive[excluded]).toBeUndefined();
   });
@@ -951,7 +951,7 @@ describe('generated ACR Tasks runtime', () => {
     }
   );
 
-  it.each(['context', 'dockerfile', 'symlink'])('rejects checkout/context escapes (%s)', kind => {
+  it.each(['context', 'dockerfile'])('rejects checkout/context escapes (%s)', kind => {
     const test = fixture(
       kind === 'context'
         ? { BUILD_CONTEXT_PATH: '..' }
@@ -960,12 +960,33 @@ describe('generated ACR Tasks runtime', () => {
         : {}
     );
     writeFileSync(join(test.directory, 'outside'), 'outside workspace secret');
-    if (kind === 'symlink') symlinkSync('../../outside', join(test.workspace, 'escape'));
     const { status, stderr, records } = test.run();
     expect(status).toBe(1);
     expect(stderr).toMatch(/inside the checkout|escapes the build context/);
     expect(requests(records, '/scheduleRun')).toHaveLength(0);
   });
+
+  it.each(['../../libs/shared', '/outside/absolute', 'missing', 'self'])(
+    'archives an ordinary context symlink without resolving or following its target: %s',
+    target => {
+      const test = fixture({
+        BUILD_CONTEXT_PATH: 'services/api',
+        DOCKER_FILE: 'services/api/Dockerfile',
+      });
+      test.write('services/api/Dockerfile', 'FROM scratch\nCOPY . /app\n');
+      test.write('services/api/app.txt', 'included');
+      test.write('libs/shared/private.txt', 'outside-context-secret');
+      const name = target === 'self' ? 'self' : 'shared';
+      symlinkSync(target, join(test.workspace, 'services/api', name));
+      const { status, stderr, records } = test.run();
+      expect({ status, stderr }).toEqual({ status: 0, stderr: '' });
+      expect(records.archive[name].link).toBe(target);
+      expect(records.archive[name].content).toBeNull();
+      expect(records.archive['app.txt'].content).toBe('included');
+      expect(JSON.stringify(records.archive)).not.toContain('outside-context-secret');
+      expect(records.archive_names.some(name => name.includes('private.txt'))).toBe(false);
+    }
+  );
 
   it.each(['200', 'location', 'operation-location', 'result'])(
     'follows asynchronous schedule responses (%s)',
