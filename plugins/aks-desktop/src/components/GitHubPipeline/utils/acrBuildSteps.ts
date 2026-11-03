@@ -44,14 +44,14 @@ export function generateAcrBuildSteps(config: AcrBuildStepConfig): Record<string
       id: 'acr_build',
       shell: 'bash',
       env,
-      run: `exec python3 ${ACR_BUILD_SCRIPT_PATH}\n`,
+      run: `exec python3 -I ${ACR_BUILD_SCRIPT_PATH}\n`,
     },
     {
       name: 'Cancel unfinished ACR build',
       if: "always() && steps.acr_build.outcome != 'success'",
       shell: 'bash',
       env: { ...env },
-      run: `exec python3 ${ACR_BUILD_SCRIPT_PATH} --cancel\n`,
+      run: `exec python3 -I ${ACR_BUILD_SCRIPT_PATH} --cancel\n`,
     },
   ];
 }

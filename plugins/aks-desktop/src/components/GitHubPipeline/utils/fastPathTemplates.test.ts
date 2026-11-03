@@ -239,10 +239,10 @@ describe('generateDeployWorkflow', () => {
         })
       );
       expect(build.id).toBe('acr_build');
-      expect(build.run).toBe(`exec python3 ${ACR_BUILD_SCRIPT_PATH}\n`);
+      expect(build.run).toBe(`exec python3 -I ${ACR_BUILD_SCRIPT_PATH}\n`);
       expect(JSON.parse(build.env.BUILD_ARGUMENTS)).toEqual(buildArguments);
       expect(cleanup.if).toBe("always() && steps.acr_build.outcome != 'success'");
-      expect(cleanup.run).toBe(`exec python3 ${ACR_BUILD_SCRIPT_PATH} --cancel\n`);
+      expect(cleanup.run).toBe(`exec python3 -I ${ACR_BUILD_SCRIPT_PATH} --cancel\n`);
       expect(cleanup['continue-on-error']).toBeUndefined();
     });
 

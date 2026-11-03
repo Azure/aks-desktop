@@ -46,7 +46,7 @@ jobs:
           BUILD_CONTEXT_PATH: ./services/api
           BUILD_ARGUMENTS: "{}"
         run: |
-          exec python3 .github/scripts/aksd-acr-build.py
+          exec python3 -I .github/scripts/aksd-acr-build.py
       - name: Cancel unfinished ACR build
         if: always() && steps.acr_build.outcome != 'success'
         shell: bash
@@ -59,7 +59,7 @@ jobs:
           BUILD_CONTEXT_PATH: ./services/api
           BUILD_ARGUMENTS: "{}"
         run: |
-          exec python3 .github/scripts/aksd-acr-build.py --cancel
+          exec python3 -I .github/scripts/aksd-acr-build.py --cancel
   deploy:
     permissions:
       actions: read

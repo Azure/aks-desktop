@@ -137,6 +137,8 @@ logs and cancels unfinished work on failure/cancellation; only success permits
 deployment. Registry ARM IDs are preferred; legacy name lookup never uses the
 cluster's resource group. Builds use HTTP, not `az acr build`, but Azure CLI token
 acquisition, `azure/login` and the product's AKS context setup remain.
+Build and cancellation steps launch Python in isolated mode (`python3 -I`), so
+checkout helpers and `PYTHONPATH` cannot shadow standard-library imports.
 
 Dockerfile-specific ignore rules override context rules. Overrides, relocated
 Dockerfiles and selected ignore symlinks produce a regular root `.dockerignore`,
