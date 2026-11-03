@@ -1026,5 +1026,9 @@
   "Control plane": "Control plane",
   "Showing {{count}} of {{total}} clusters on this page. {{readiness}}_one": "Showing {{count}} of {{total}} clusters on this page. {{readiness}}",
   "Showing {{count}} of {{total}} clusters on this page. {{readiness}}_other": "Showing {{count}} of {{total}} clusters on this page. {{readiness}}",
-  "Unnamed pool": "Unnamed pool"
+  "Unnamed pool": "Unnamed pool",
+  "Blocked": "Blocked",
+  "Re-check required": "Re-check required",
+  "Review warnings": "Review warnings",
+  "Unavailable": "Unavailable"
 }

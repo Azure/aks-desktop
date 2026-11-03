@@ -9,22 +9,65 @@ import { cluster, passed, provider } from './__fixtures__/fixtures';
 import InventoryTable from './InventoryTable';
 import ReadinessWorkspace from './ReadinessWorkspace';
 
-const translation = vi.hoisted(() => ({ ready: true }));
+const translation = vi.hoisted(() => ({ ready: true, labels: {} as Record<string, string> }));
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   useTranslation: () => ({
     t: (text: string, values?: Record<string, unknown>) =>
       translation.ready
-        ? text.replace(/\{\{(\w+)\}\}/g, (_: string, key: string) => String(values?.[key] ?? ''))
+        ? (translation.labels[text] ?? text).replace(/\{\{(\w+)\}\}/g, (_: string, key: string) =>
+            String(values?.[key] ?? '')
+          )
         : '',
   }),
 }));
 
 beforeEach(() => {
   translation.ready = true;
+  translation.labels = {};
 });
 afterEach(cleanup);
 
 describe('page-scoped readiness inventory', () => {
+  it('uses localized readiness labels in rows, counts, announcements, filters, and CSV', async () => {
+    translation.labels = { Blocked: 'localized-blocked', Ready: 'localized-ready' };
+    const blocked = passed();
+    blocked.properties.controlPlane!.evaluation!.detectedIssues = [
+      { issueType: 'PDBConstraint', severity: 'Blocking' },
+    ];
+    const createURL = vi.fn().mockReturnValue('blob:localized');
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createURL });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      render(
+        <InventoryTable
+          records={[
+            { cluster, insights: [blocked] },
+            { cluster: { ...cluster, id: '/ready', name: 'ready-cluster' }, insights: [passed()] },
+          ]}
+          disabled={false}
+          onSelect={vi.fn()}
+        />
+      );
+      expect(within(screen.getByRole('table')).getByText('localized-blocked')).toBeTruthy();
+      expect(screen.getByText('localized-ready on page: 1')).toBeTruthy();
+      expect(screen.getByRole('status').textContent).toContain('localized-blocked on page: 1');
+      fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Readiness on current page' }));
+      fireEvent.click(await screen.findByRole('option', { name: 'localized-blocked' }));
+      expect(screen.queryByRole('button', { name: 'ready-cluster' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Export filtered page' }));
+      const csv = await new Promise<string>(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.readAsText(createURL.mock.calls[0][0]);
+      });
+      expect(csv).toContain('"localized-blocked"');
+      expect(csv).not.toContain('"localized-ready"');
+    } finally {
+      click.mockRestore();
+    }
+  });
+
   it('keeps exactly five associated column headers when translations initialize', () => {
     translation.ready = false;
     const props = {

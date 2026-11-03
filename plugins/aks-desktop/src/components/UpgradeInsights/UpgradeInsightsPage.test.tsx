@@ -116,41 +116,44 @@ describe('native Azure and preview gates', () => {
 });
 
 describe('inventory and account isolation', () => {
-  it('discards the provider and aborts readiness on same-account auth updates', async () => {
-    let resolve!: (value: Insight[]) => void;
-    const first = provider({
-      listInsights: vi.fn().mockReturnValue(
-        new Promise<Insight[]>(done => {
-          resolve = done;
-        })
-      ),
-    });
-    const second = provider();
-    mocks.createProvider.mockReturnValueOnce(first).mockReturnValue(second);
-    const view = renderPage();
-    await loadSubscriptions();
-    await waitFor(() => expect(first.listInsights).toHaveBeenCalled());
-    const signal = vi.mocked(first.listInsights).mock.calls[0][1]!;
-    act(() => window.dispatchEvent(new Event('azure-auth-update')));
-    expect(signal.aborted).toBe(true);
-    expect(screen.queryByText('Choose subscriptions')).toBeNull();
-    // The native hook publishes a new status object even when account fields are unchanged.
-    mocks.auth = { ...mocks.auth };
-    view.rerender(
-      <MemoryRouter>
-        <UpgradeInsightsPage />
-      </MemoryRouter>
-    );
-    const checkbox = await screen.findByRole('checkbox', { name: /Test subscription/ });
-    expect((checkbox as HTMLInputElement).checked).toBe(false);
-    await act(async () => resolve([passed()]));
-    expect(screen.queryByRole('table')).toBeNull();
-    expect(second.listClusters).not.toHaveBeenCalled();
-    await loadSubscriptions();
-    await screen.findByRole('table');
-    expect(mocks.createProvider).toHaveBeenCalledTimes(2);
-    expect(second.listClusters).toHaveBeenCalledTimes(1);
-  });
+  it.each(['azure-auth-update', 'azure-account-change'])(
+    'discards the provider and aborts readiness on %s',
+    async event => {
+      let resolve!: (value: Insight[]) => void;
+      const first = provider({
+        listInsights: vi.fn().mockReturnValue(
+          new Promise<Insight[]>(done => {
+            resolve = done;
+          })
+        ),
+      });
+      const second = provider();
+      mocks.createProvider.mockReturnValueOnce(first).mockReturnValue(second);
+      const view = renderPage();
+      await loadSubscriptions();
+      await waitFor(() => expect(first.listInsights).toHaveBeenCalled());
+      const signal = vi.mocked(first.listInsights).mock.calls[0][1]!;
+      act(() => window.dispatchEvent(new Event(event)));
+      expect(signal.aborted).toBe(true);
+      expect(screen.queryByText('Choose subscriptions')).toBeNull();
+      // The native hook publishes a new status object even when account fields are unchanged.
+      mocks.auth = { ...mocks.auth };
+      view.rerender(
+        <MemoryRouter>
+          <UpgradeInsightsPage />
+        </MemoryRouter>
+      );
+      const checkbox = await screen.findByRole('checkbox', { name: /Test subscription/ });
+      expect((checkbox as HTMLInputElement).checked).toBe(false);
+      await act(async () => resolve([passed()]));
+      expect(screen.queryByRole('table')).toBeNull();
+      expect(second.listClusters).not.toHaveBeenCalled();
+      await loadSubscriptions();
+      await screen.findByRole('table');
+      expect(mocks.createProvider).toHaveBeenCalledTimes(2);
+      expect(second.listClusters).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it('shows partial inventory and fleet warnings explicitly', async () => {
     mocks.createProvider.mockReturnValue(

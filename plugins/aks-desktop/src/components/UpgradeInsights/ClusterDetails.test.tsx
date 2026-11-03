@@ -3,20 +3,40 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArmProvider } from '../../utils/azure/upgrade-insights';
 import { cluster, passed, provider } from './__fixtures__/fixtures';
 import ClusterDetails from './ClusterDetails';
 
+const translation = vi.hoisted(() => ({ labels: {} as Record<string, string> }));
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
   useTranslation: () => ({
     t: (text: string, values?: Record<string, unknown>) =>
-      text.replace(/\{\{(\w+)\}\}/g, (_: string, key: string) => String(values?.[key] ?? '')),
+      (translation.labels[text] ?? text).replace(/\{\{(\w+)\}\}/g, (_: string, key: string) =>
+        String(values?.[key] ?? '')
+      ),
   }),
 }));
+beforeEach(() => {
+  translation.labels = {};
+});
 afterEach(cleanup);
 
 describe('stored insights detail', () => {
+  it('localizes the readiness value inside the stored-readiness template', async () => {
+    translation.labels = { Ready: 'localized-ready' };
+    render(
+      <ClusterDetails
+        cluster={cluster}
+        provider={provider()}
+        refresh={0}
+        onBusyChange={vi.fn()}
+        onGenerated={vi.fn()}
+      />
+    );
+    expect(await screen.findByText('Stored readiness: localized-ready')).toBeTruthy();
+  });
+
   it('reuses the refreshed cache when details are remounted or inventory objects change', async () => {
     const transport = vi.fn(async (path: string) =>
       path.includes('/upgradeProfiles/')

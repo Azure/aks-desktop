@@ -25,6 +25,8 @@ import {
   formatTime,
   issuesFor,
   latestCombined,
+  type Readiness,
+  readinessLabels,
   readinessOrder,
   recordReadiness,
 } from './domain';
@@ -52,11 +54,12 @@ export interface InventoryTableProps {
 export default function InventoryTable({ records, disabled, onSelect }: InventoryTableProps) {
   const { t } = useTranslation();
   const labels = issueLabels(t);
+  const statuses = readinessLabels(t);
   useSnapshotClock();
   const [filter, setFilter] = useState('');
   const [category, setCategory] = useState('');
   const [sortReadiness, setSortReadiness] = useState(false);
-  const counts = Object.keys(readinessOrder).map(status => ({
+  const counts = (Object.keys(readinessOrder) as Readiness[]).map(status => ({
     status,
     count: records.filter(record => recordReadiness(record) === status).length,
   }));
@@ -104,7 +107,7 @@ export default function InventoryTable({ records, disabled, onSelect }: Inventor
           record.cluster.id,
           record.cluster.name,
           record.cluster.location,
-          t(recordReadiness(record)),
+          statuses[recordReadiness(record)],
           insight?.properties.targetKubernetesVersion ?? '',
           insight?.properties.lastEvaluatedAt ?? '',
           record.error ?? '',
@@ -132,7 +135,7 @@ export default function InventoryTable({ records, disabled, onSelect }: Inventor
           readiness: counts
             .filter(({ count }) => count > 0)
             .map(({ status, count }) =>
-              t('{{status}} on page: {{count}}', { status: t(status), count })
+              t('{{status}} on page: {{count}}', { status: statuses[status], count })
             )
             .join('; '),
         })}
@@ -146,7 +149,7 @@ export default function InventoryTable({ records, disabled, onSelect }: Inventor
         {counts.map(({ status, count }) => (
           <Chip
             key={status}
-            label={t('{{status}} on page: {{count}}', { status: t(status), count })}
+            label={t('{{status}} on page: {{count}}', { status: statuses[status], count })}
           />
         ))}
       </Stack>
@@ -162,7 +165,7 @@ export default function InventoryTable({ records, disabled, onSelect }: Inventor
           <MenuItem value="">{t('All readiness states')}</MenuItem>
           {counts.map(({ status }) => (
             <MenuItem key={status} value={status}>
-              {t(status)}
+              {statuses[status]}
             </MenuItem>
           ))}
         </TextField>
@@ -230,7 +233,7 @@ export default function InventoryTable({ records, disabled, onSelect }: Inventor
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    {t(recordReadiness(record))}
+                    {statuses[recordReadiness(record)]}
                     {record.error && <Typography color="error">{record.error}</Typography>}
                   </TableCell>
                   <TableCell>

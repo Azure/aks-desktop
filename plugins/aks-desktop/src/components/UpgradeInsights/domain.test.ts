@@ -10,6 +10,7 @@ import {
   issuesFor,
   latestCombined,
   readiness,
+  readinessLabels,
   recordReadiness,
   safeDocumentationUrl,
   scopes,
@@ -33,6 +34,21 @@ describe('known issue category translations', () => {
     });
     expect(t).toHaveBeenCalledTimes(7);
     expect(issueLabels(t).FutureServerCategory).toBeUndefined();
+  });
+});
+
+describe('client-defined readiness translations', () => {
+  it('translates all six readiness states with literal keys', () => {
+    const t = vi.fn((key: string) => `localized:${key}`);
+    expect(readinessLabels(t)).toEqual({
+      Blocked: 'localized:Blocked',
+      'Review warnings': 'localized:Review warnings',
+      Ready: 'localized:Ready',
+      'Re-check required': 'localized:Re-check required',
+      'Not evaluated': 'localized:Not evaluated',
+      Unavailable: 'localized:Unavailable',
+    });
+    expect(t).toHaveBeenCalledTimes(6);
   });
 });
 

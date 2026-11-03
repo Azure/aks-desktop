@@ -60,7 +60,11 @@ function AuthenticatedPage({ requireClusterSelection }: AuthenticatedPageProps) 
     // Hide and unmount the provider immediately, before the asynchronous auth check finishes.
     const invalidate = () => setAuthChanging(true);
     window.addEventListener('azure-auth-update', invalidate);
-    return () => window.removeEventListener('azure-auth-update', invalidate);
+    window.addEventListener('azure-account-change', invalidate);
+    return () => {
+      window.removeEventListener('azure-auth-update', invalidate);
+      window.removeEventListener('azure-account-change', invalidate);
+    };
   }, []);
   useEffect(() => {
     if (previousAuth.current !== auth) {

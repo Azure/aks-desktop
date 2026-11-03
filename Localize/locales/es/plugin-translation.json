@@ -880,5 +880,9 @@
   "Control plane": "",
   "Showing {{count}} of {{total}} clusters on this page. {{readiness}}_one": "",
   "Showing {{count}} of {{total}} clusters on this page. {{readiness}}_other": "",
-  "Unnamed pool": ""
+  "Unnamed pool": "",
+  "Blocked": "",
+  "Re-check required": "",
+  "Review warnings": "",
+  "Unavailable": ""
 }

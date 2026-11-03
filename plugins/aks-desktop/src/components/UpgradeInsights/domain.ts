@@ -12,6 +12,22 @@ export type Readiness =
   | 'Not evaluated'
   | 'Unavailable';
 
+/**
+ * Translate client-defined readiness states using keys discoverable by locale extraction.
+ * @param t The current locale's translation function.
+ * @returns Localized labels keyed by stable readiness identities used for filtering and sorting.
+ */
+export function readinessLabels(t: (key: string) => string): Record<Readiness, string> {
+  return {
+    Blocked: t('Blocked'),
+    'Review warnings': t('Review warnings'),
+    Ready: t('Ready'),
+    'Re-check required': t('Re-check required'),
+    'Not evaluated': t('Not evaluated'),
+    Unavailable: t('Unavailable'),
+  };
+}
+
 /** Ascending risk-priority ordering used only to sort the currently loaded page. */
 export const readinessOrder: Record<Readiness, number> = {
   Blocked: 0,

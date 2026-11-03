@@ -36,6 +36,10 @@ installation, or separate token entry**. Account/logout events unmount the
 provider immediately, cancel in-flight inventory/detail/target/generation reads,
 and discard subscription selection, readiness, and provider state. A late
 response from an old account cannot populate the new session.
+Account changes detected by the existing focus/periodic CLI checks also invalidate
+the session and trigger a fresh authentication check. The previous account's
+controls remain unmounted until that check finishes; switching accounts requires
+choosing subscriptions again, and logout returns to the sign-in prompt.
 
 ## Readiness is a snapshot
 

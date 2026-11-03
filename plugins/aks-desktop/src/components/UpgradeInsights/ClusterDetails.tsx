@@ -22,7 +22,15 @@ import {
   scopeLabels,
   type UpgradeType,
 } from '../../types/upgradeInsights';
-import { errorMessage, formatTime, freshness, latestCombined, readiness, scopes } from './domain';
+import {
+  errorMessage,
+  formatTime,
+  freshness,
+  latestCombined,
+  readiness,
+  readinessLabels,
+  scopes,
+} from './domain';
 import GenerateInsight from './GenerateInsight';
 import InsightScopeDetails from './InsightScopeDetails';
 import { useSnapshotClock } from './useSnapshotClock';
@@ -68,6 +76,7 @@ export default function ClusterDetails({
   onGenerated,
 }: ClusterDetailsProps) {
   const { t } = useTranslation();
+  const statuses = readinessLabels(t);
   useSnapshotClock();
   const [insights, setInsights] = useState<Insight[]>([]);
   const [selectedKey, setSelectedKey] = useState('');
@@ -186,7 +195,7 @@ export default function ClusterDetails({
       {!loading && insight && (
         <>
           <Typography variant="h6">
-            {t('Stored readiness: {{status}}', { status: t(readiness(insight, cluster)) })}
+            {t('Stored readiness: {{status}}', { status: statuses[readiness(insight, cluster)] })}
           </Typography>
           <Typography>
             {t('Last evaluated: {{time}}', {
