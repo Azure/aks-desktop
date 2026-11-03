@@ -22,6 +22,8 @@ export interface AzureLoginStatus {
   tenantId?: string;
   /** Current Azure subscription identifier when available. */
   subscriptionId?: string;
+  /** Named CLI cloud containing this account. */
+  environmentName?: string;
   /** Whether Azure CLI explicitly requires another login. */
   needsRelogin?: boolean;
   /** Actionable status error when account lookup fails. */
@@ -91,7 +93,7 @@ function isCommandFailure(stderr: string): boolean {
  *
  * @returns Validated login status. Command and parsing failures are returned in `error`.
  */
-export async function getLoginStatus(): Promise<AzureLoginStatus> {
+async function readLoginStatus(): Promise<AzureLoginStatus> {
   try {
     const { stdout, stderr } = await runCommandAsync('az', ['account', 'show', '-o', 'json']);
     const accountOutput = stdout.trim();
@@ -142,6 +144,9 @@ export async function getLoginStatus(): Promise<AzureLoginStatus> {
         username: account.user?.name,
         tenantId: account.tenantId,
         subscriptionId: account.id,
+        ...(typeof (account.cloudName ?? account.environmentName) === 'string'
+          ? { environmentName: account.cloudName ?? account.environmentName }
+          : {}),
       };
     } catch (err) {
       return { isLoggedIn: false, error: 'Failed to parse account information' };
@@ -153,6 +158,38 @@ export async function getLoginStatus(): Promise<AzureLoginStatus> {
       error: getErrorMessage(error),
     };
   }
+}
+
+let observedAccount: string | undefined;
+let latestAccountObservation: Promise<AzureLoginStatus> | undefined;
+
+/**
+ * Reads the current account and invalidates cached authentication on external changes.
+ * Overlapping reads follow the newest observation instead of publishing stale results.
+ * @returns Validated account status; lookup failures invalidate the previous context.
+ */
+export function getLoginStatus(): Promise<AzureLoginStatus> {
+  const observation: Promise<AzureLoginStatus> = readLoginStatus().then(status => {
+    if (latestAccountObservation && latestAccountObservation !== observation) {
+      return latestAccountObservation;
+    }
+    const identity = JSON.stringify([
+      status.isLoggedIn,
+      status.username,
+      status.tenantId,
+      status.subscriptionId,
+      status.environmentName,
+    ]);
+    if (identity !== observedAccount) {
+      observedAccount = identity;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('azure-account-change'));
+      }
+    }
+    return status;
+  });
+  latestAccountObservation = observation;
+  return observation;
 }
 
 /**

@@ -38,6 +38,22 @@ beforeEach(() => {
 });
 
 describe('subscription credentials', () => {
+  test('external account changes invalidate default and subscription token caches', async () => {
+    const bound = getSubscriptionCredential('11111111-2222-3333-4444-555555555555');
+    bound.clearCache();
+    mocks.execCommand.mockResolvedValue(cliToken('before-switch'));
+    await getAzToken();
+    await bound.getToken(ARM_SCOPE);
+    await getAzToken();
+    await bound.getToken(ARM_SCOPE);
+    expect(mocks.execCommand).toHaveBeenCalledTimes(2);
+    window.dispatchEvent(new CustomEvent('azure-account-change'));
+    mocks.execCommand.mockResolvedValue(cliToken('after-switch'));
+    expect((await getAzToken()).token).toBe('after-switch');
+    expect((await bound.getToken(ARM_SCOPE)).token).toBe('after-switch');
+    expect(mocks.execCommand).toHaveBeenCalledTimes(4);
+  });
+
   test('keeps the selected subscription account and validates an explicit tenant without combining selectors', async () => {
     const subscriptionId = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
     const tenantId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';

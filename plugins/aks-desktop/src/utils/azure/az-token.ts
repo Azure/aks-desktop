@@ -206,10 +206,12 @@ export function getSubscriptionCredential(subscriptionId: string): AzCliCredenti
 
 // Clears cache when user logs in or logs out inside the app.
 if (typeof window !== 'undefined') {
-  window.addEventListener('azure-auth-update', () => {
+  const clearTokens = () => {
     azCliCredential.clearCache();
     for (const credential of subscriptionCredentials.values()) credential.clearCache();
-  });
+  };
+  window.addEventListener('azure-auth-update', clearTokens);
+  window.addEventListener('azure-account-change', clearTokens);
 }
 
 /**

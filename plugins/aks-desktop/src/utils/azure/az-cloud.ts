@@ -13,6 +13,7 @@ interface AzureCloudEndpoints {
 }
 
 const clouds = new Map<string, Promise<AzureCloudEndpoints>>();
+const graphClouds = new Map<string, Promise<AzureCloudEndpoints>>();
 
 /**
  * @param value - Untrusted endpoint field read from CLI cloud configuration.
@@ -41,12 +42,35 @@ export function getAzureCloudEndpoints(
   cloudName?: string,
   signal?: AbortSignal
 ): Promise<AzureCloudEndpoints> {
+  return getCloudEndpoints('arm', cloudName, signal);
+}
+
+/**
+ * Resolves Microsoft Graph, not legacy Azure AD Graph, from the named CLI cloud.
+ * @param cloudName - Selected account's cloud; omission reads the active CLI cloud.
+ * @param signal - Optional cancellation of this caller's metadata wait.
+ * @returns Validated Graph endpoint and matching Graph token scope.
+ * @throws For missing/invalid configuration; never defaults to public Graph.
+ */
+export function getAzureGraphEndpoints(
+  cloudName?: string,
+  signal?: AbortSignal
+): Promise<AzureCloudEndpoints> {
+  return getCloudEndpoints('graph', cloudName, signal);
+}
+
+function getCloudEndpoints(
+  service: 'arm' | 'graph',
+  cloudName?: string,
+  signal?: AbortSignal
+): Promise<AzureCloudEndpoints> {
   if (cloudName !== undefined && !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(cloudName)) {
     return Promise.reject(new Error('Invalid Azure cloud name'));
   }
   const key = cloudName ?? '';
+  const cache = service === 'arm' ? clouds : graphClouds;
   return withAbort(() => {
-    let cloud = clouds.get(key);
+    let cloud = cache.get(key);
     if (!cloud) {
       cloud = (async () => {
         const result = await runAzCommand<AzureCloudEndpoints>(
@@ -55,8 +79,18 @@ export function getAzureCloudEndpoints(
           `read Azure cloud ${cloudName ?? '(active)'}`,
           stdout => {
             const config: {
-              endpoints?: { resourceManager?: unknown; activeDirectoryResourceId?: unknown };
+              endpoints?: {
+                resourceManager?: unknown;
+                activeDirectoryResourceId?: unknown;
+                microsoftGraphResourceId?: unknown;
+              };
             } = JSON.parse(stdout);
+            if (service === 'graph') {
+              const endpoint = configuredHttpsUrl(
+                config.endpoints?.microsoftGraphResourceId
+              ).replace(/\/$/, '');
+              return { endpoint, scope: `${endpoint}/.default` };
+            }
             const endpoint = configuredHttpsUrl(config.endpoints?.resourceManager);
             const audience = configuredHttpsUrl(config.endpoints?.activeDirectoryResourceId);
             return {
@@ -72,9 +106,9 @@ export function getAzureCloudEndpoints(
         }
         return result.data;
       })();
-      clouds.set(key, cloud);
+      cache.set(key, cloud);
       cloud.catch(() => {
-        if (clouds.get(key) === cloud) clouds.delete(key);
+        if (cache.get(key) === cloud) cache.delete(key);
       });
     }
     return cloud;
@@ -82,5 +116,10 @@ export function getAzureCloudEndpoints(
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('azure-auth-update', () => clouds.clear());
+  const clearClouds = () => {
+    clouds.clear();
+    graphClouds.clear();
+  };
+  window.addEventListener('azure-auth-update', clearClouds);
+  window.addEventListener('azure-account-change', clearClouds);
 }

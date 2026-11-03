@@ -137,9 +137,17 @@ describe('generateNamespaceManifestYaml', () => {
         { objectId: 'x', upn: 'Someone_gmail.com#EXT#@contoso.onmicrosoft.com', role: 'Writer' },
       ],
     });
-    const name = parseDocs(yaml).find(d => d.kind === 'RoleBinding').metadata.name;
+    const binding = parseDocs(yaml).find(d => d.kind === 'RoleBinding');
+    const name = binding.metadata.name;
     expect(name).toBe('someone-gmail.com-ext-edit-1');
     expect(name).toMatch(/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/);
+    expect(binding.subjects).toEqual([
+      {
+        kind: 'User',
+        name: 'Someone_gmail.com#EXT#@contoso.onmicrosoft.com',
+        apiGroup: 'rbac.authorization.k8s.io',
+      },
+    ]);
   });
 
   it('names the subject by UPN — the object ID would match nothing', () => {

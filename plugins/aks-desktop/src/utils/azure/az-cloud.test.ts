@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ command: vi.fn(), fetch: vi.fn() }));
 vi.mock('../shared/runCommandAsync', () => ({ runCommandAsync: mocks.command }));
 
-import { getAzureCloudEndpoints } from './az-cloud';
+import { getAzureCloudEndpoints, getAzureGraphEndpoints } from './az-cloud';
 import { registerContainerServiceProvider } from './az-resource-providers';
 
 const credential = {
@@ -28,6 +28,80 @@ beforeEach(() => {
   vi.stubGlobal('fetch', mocks.fetch);
 });
 afterEach(() => vi.unstubAllGlobals());
+
+describe('configured Microsoft Graph endpoints', () => {
+  test.each([
+    ['AzureCloud', 'https://graph.microsoft.com/'],
+    ['AzureUSGovernment', 'https://graph.microsoft.us'],
+    ['AzureChinaCloud', 'https://microsoftgraph.chinacloudapi.cn/'],
+  ])('uses %s Graph rather than legacy directory configuration', async (cloud, resource) => {
+    mocks.command.mockResolvedValue({
+      stdout: JSON.stringify({
+        endpoints: {
+          microsoftGraphResourceId: resource,
+          activeDirectoryGraphResourceId: 'https://graph.windows.net/',
+        },
+      }),
+      stderr: '',
+    });
+    const endpoint = resource.replace(/\/$/, '');
+    expect(await getAzureGraphEndpoints(cloud)).toEqual({
+      endpoint,
+      scope: `${endpoint}/.default`,
+    });
+    await getAzureGraphEndpoints(cloud);
+    expect(mocks.command).toHaveBeenCalledTimes(1);
+    expect(mocks.command).toHaveBeenCalledWith('az', [
+      'cloud',
+      'show',
+      '--name',
+      cloud,
+      '--output',
+      'json',
+    ]);
+    window.dispatchEvent(new CustomEvent('azure-account-change'));
+    await getAzureGraphEndpoints(cloud);
+    expect(mocks.command).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([
+    undefined,
+    'http://graph.example/',
+    'https://graph.example/?query=x',
+    'https://graph.example/#fragment',
+    'https://user:password@graph.example/',
+  ])('rejects missing/unsafe Graph configuration %s without public fallback', async resource => {
+    mocks.command.mockResolvedValue({
+      stdout: JSON.stringify({
+        endpoints: {
+          microsoftGraphResourceId: resource,
+          activeDirectoryGraphResourceId: 'https://graph.windows.net/',
+        },
+      }),
+      stderr: '',
+    });
+    await expect(getAzureGraphEndpoints('ConfiguredCloud')).rejects.toThrow();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  test('does not cache failed Graph metadata', async () => {
+    mocks.command
+      .mockResolvedValueOnce({ stdout: '', stderr: 'ERROR: metadata unavailable' })
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          endpoints: { microsoftGraphResourceId: 'https://graph.microsoft.us/' },
+        }),
+        stderr: '',
+      });
+    await expect(getAzureGraphEndpoints('AzureUSGovernment')).rejects.toThrow(
+      'metadata unavailable'
+    );
+    await expect(getAzureGraphEndpoints('AzureUSGovernment')).resolves.toEqual({
+      endpoint: 'https://graph.microsoft.us',
+      scope: 'https://graph.microsoft.us/.default',
+    });
+  });
+});
 
 describe('selected account Azure cloud registration', () => {
   test.each([
