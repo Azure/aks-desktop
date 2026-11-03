@@ -20,6 +20,7 @@ The current stack is rebased onto Headlamp main at
 | `0071` | [Cluster pre-open hooks and proxy lifecycle, PR #7505](https://github.com/kubernetes-sigs/headlamp/pull/7505) | `91ee02272eeb6cadfcfac1cf89820e1d29a400bb` |
 | `0080` | AKS Desktop compatibility marker | Downstream-only; unchanged |
 | `7683` | [Legacy GitHub token migration, PR #7683](https://github.com/kubernetes-sigs/headlamp/pull/7683) | `1a60fa08ae7651b898a243280f3742d769255134` |
+| `8147` | [Private GitHub browser OAuth, PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147) | `1146185af190ec0d0426f81f06f5d664bc8d1c3d` |
 
 Patches `0072` (PR #7958), `7685`, `7712`, `7726`, `7727`, `7731`, `7744`, and
 `7746` are included in this pin and no longer carried. Keep each numbered
@@ -299,6 +300,12 @@ See the [source package reference](packages/headlamp-source/README.md) for the
 configuration schema and script API.
 
 ## GitHub desktop authentication verification
+
+The host integration is carried as `8147-headlamp-upstream-github-oauth.patch`,
+exported from [Headlamp PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147)
+(upstream head `090415e85b1578003dcddfc4cedc73abbca3d186`, carried head `1146185af190ec0d0426f81f06f5d664bc8d1c3d`).
+The carried commits are rebased onto the current pin and preceding patches,
+preserving their proxy, command-environment, and quit-cleanup behavior.
 
 AKS Desktop supplies its GitHub App identity through
 `package.json#headlamp.githubOAuth`. Its native-client credential is intentionally
