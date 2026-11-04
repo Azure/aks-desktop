@@ -27,6 +27,8 @@ function getSecureStorage(): PluginSecureStorage | null {
   return null;
 }
 
+export const isSecureStorageAvailable = (): boolean => getSecureStorage() !== null;
+
 /**
  * Encrypts and persists a value via Electron safeStorage.
  * Returns true on success, false if unavailable or failed.

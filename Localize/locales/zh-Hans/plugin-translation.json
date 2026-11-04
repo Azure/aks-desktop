@@ -747,5 +747,13 @@
   "Cluster {{clusterName}} is already registered with a different cluster kind or Azure scope. Remove and register it again before importing these projects.": "",
   "Browse and import existing AKS Projects": "",
   "AKS Hybrid & Edge clusters could not be listed: {{message}}": "",
-  "Back to home": ""
+  "Back to home": "",
+  "Connect GitHub from the project header to continue.": "",
+  "Disconnect GitHub": "",
+  "Disconnect removes saved GitHub credentials from this app only. Repositories and deployments are kept.": "",
+  "Disconnecting GitHub...": "",
+  "GitHub account": "",
+  "GitHub disconnect failed": "",
+  "Retry disconnect": "",
+  "Saved GitHub credentials could not be removed. Retry disconnect.": ""
 }

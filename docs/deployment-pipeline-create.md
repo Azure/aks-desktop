@@ -111,7 +111,7 @@ There are two ways to start:
 
 ### Step 2 — Connect to GitHub
 
-1. Click **Connect** to begin GitHub authentication
+1. Click **Connect GitHub** in the project header to begin GitHub authentication
 2. A browser window opens to GitHub's authorization page
 3. Review the permissions requested:
    - **Contents** — push workflow and agent config files to your repo
@@ -121,6 +121,12 @@ There are two ways to start:
    - **Actions** — monitor workflow runs
 4. Click **Authorize** in the browser
 5. Return to AKS Desktop — you should see **"Connected as \<your-username\>"**
+
+#### Disconnect GitHub
+
+Click your GitHub username in the project header, then **Disconnect GitHub**. This removes the app's saved GitHub credentials and signs its project views out. If removal fails, use **Retry disconnect**.
+
+Disconnect does not log you out of GitHub in the browser, revoke GitHub permissions, reset saved pipeline configuration, delete resources, or cancel pipeline operations already in progress. Disabling the preview feature is not a sign-out action.
 
 ### Step 3 — Select a repository
 
