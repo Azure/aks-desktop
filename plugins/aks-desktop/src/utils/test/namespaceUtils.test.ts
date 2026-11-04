@@ -32,10 +32,9 @@ vi.mock('@kinvolk/headlamp-plugin/lib/ApiProxy', () => ({
   apply: (...args: any[]) => mockApply(...args),
 }));
 
-// Mock the Azure CLI
-const mockRunCommandAsync = vi.fn();
-vi.mock('../azure/az-cli-core', () => ({
-  runCommandAsync: (...args: any[]) => mockRunCommandAsync(...args),
+const mockUpdateManagedNamespace = vi.hoisted(() => vi.fn());
+vi.mock('../azure/az-namespaces', () => ({
+  updateManagedNamespace: mockUpdateManagedNamespace,
 }));
 
 import {
@@ -194,88 +193,104 @@ describe('applyProjectLabels', () => {
   beforeEach(() => {
     mockGet.mockReset();
     mockPut.mockReset();
-    mockRunCommandAsync.mockReset();
+    mockUpdateManagedNamespace.mockReset();
   });
 
-  describe('managed namespaces (via Azure CLI)', () => {
-    test('applies labels via az aks namespace update', async () => {
-      mockRunCommandAsync.mockResolvedValue({ stdout: '{}', stderr: '' });
+  describe('managed namespaces (via the shared ARM update helper)', () => {
+    const managedOptions = {
+      namespaceName: 'test-ns',
+      clusterName: 'test-cluster',
+      subscriptionId: 'sub-123',
+      resourceGroup: 'rg-test',
+    };
 
-      await applyProjectLabels({
-        namespaceName: 'test-ns',
-        clusterName: 'test-cluster',
-        subscriptionId: 'sub-123',
-        resourceGroup: 'rg-test',
+    test('passes only four label overrides and scope, delegating existing-state merging to the helper', async () => {
+      const currentState = {
+        id: '/subscriptions/sub-123/resourceGroups/rg-test/providers/Microsoft.ContainerService/managedClusters/test-cluster/managedNamespaces/test-ns',
+        properties: {
+          labels: {
+            'existing-label': 'keep',
+            'headlamp.dev/project-id': 'test-ns',
+            'headlamp.dev/project-managed-by': 'aks-desktop',
+            'aks-desktop/project-subscription': 'sub-123',
+            'aks-desktop/project-resource-group': 'rg-test',
+          },
+          annotations: { owner: 'team-a' },
+          defaultResourceQuota: { cpuRequest: '500m', memoryLimit: '512Mi' },
+          defaultNetworkPolicy: { ingress: 'DenyAll', egress: 'AllowAll' },
+        },
+      };
+      mockUpdateManagedNamespace.mockResolvedValue(currentState);
+
+      await expect(applyProjectLabels(managedOptions)).resolves.toBeUndefined();
+
+      expect(mockUpdateManagedNamespace).toHaveBeenCalledTimes(1);
+      expect(mockUpdateManagedNamespace).toHaveBeenCalledWith({
+        ...managedOptions,
+        labels: {
+          'headlamp.dev/project-id': 'test-ns',
+          'headlamp.dev/project-managed-by': 'aks-desktop',
+          'aks-desktop/project-subscription': 'sub-123',
+          'aks-desktop/project-resource-group': 'rg-test',
+        },
       });
-
-      expect(mockRunCommandAsync).toHaveBeenCalledTimes(1);
-      const [cmd, args] = mockRunCommandAsync.mock.calls[0];
-      expect(cmd).toBe('az');
-      expect(args).toContain('namespace');
-      expect(args).toContain('update');
-      expect(args).toContain('--resource-group');
-      expect(args).toContain('rg-test');
-      expect(args).toContain('--cluster-name');
-      expect(args).toContain('test-cluster');
-      expect(args).toContain('--name');
-      expect(args).toContain('test-ns');
-      expect(args).toContain('--subscription');
-      expect(args).toContain('sub-123');
-      expect(args).toContain('--labels');
-
-      // Labels are passed as separate arguments after --labels (space-separated, not comma-joined)
-      const labelsStartIdx = args.indexOf('--labels') + 1;
-      const labelArgs = args.slice(labelsStartIdx);
-      expect(labelArgs).toContain('headlamp.dev/project-id=test-ns');
-      expect(labelArgs).toContain('headlamp.dev/project-managed-by=aks-desktop');
-      expect(labelArgs).toContain('aks-desktop/project-subscription=sub-123');
-      expect(labelArgs).toContain('aks-desktop/project-resource-group=rg-test');
-
-      // Should NOT use the K8s API for managed namespaces
+      // No replacement state, quota/policy defaults or noWait opt-out is supplied.
+      // The helper owns the GET and label merge; the caller must not duplicate it.
       expect(mockGet).not.toHaveBeenCalled();
       expect(mockPut).not.toHaveBeenCalled();
     });
 
-    test('throws when az CLI returns an error', async () => {
-      mockRunCommandAsync.mockResolvedValue({
-        stdout: '',
-        stderr: 'ERROR: Resource not found',
-      });
-
-      await expect(
-        applyProjectLabels({
-          namespaceName: 'test-ns',
-          clusterName: 'test-cluster',
-          subscriptionId: 'sub-123',
-          resourceGroup: 'rg-test',
+    test('waits for the shared helper to finish before completing conversion', async () => {
+      let finishUpdate!: (value: object) => void;
+      mockUpdateManagedNamespace.mockReturnValue(
+        new Promise(resolve => {
+          finishUpdate = resolve;
         })
-      ).rejects.toThrow('ERROR: Resource not found');
+      );
+      const completed = vi.fn();
+      const applying = applyProjectLabels(managedOptions).then(completed);
+
+      expect(mockUpdateManagedNamespace).toHaveBeenCalledTimes(1);
+      await Promise.resolve();
+      expect(completed).not.toHaveBeenCalled();
+
+      finishUpdate({ properties: { provisioningState: 'Succeeded' } });
+      await applying;
+      expect(completed).toHaveBeenCalledTimes(1);
     });
 
-    test('succeeds when stderr contains warnings but no ERROR', async () => {
-      mockRunCommandAsync.mockResolvedValue({
-        stdout: '{}',
-        stderr: 'WARNING: some deprecation notice',
-      });
+    test.each([
+      'GET failed: HTTP 403 Forbidden',
+      'PUT failed: HTTP 409 Conflict',
+      'Operation failed: terminal provisioning failure',
+    ])('propagates helper failure unchanged: %s', async message => {
+      const error = new Error(message);
+      mockUpdateManagedNamespace.mockRejectedValue(error);
 
-      await expect(
-        applyProjectLabels({
-          namespaceName: 'test-ns',
-          clusterName: 'test-cluster',
-          subscriptionId: 'sub-123',
-          resourceGroup: 'rg-test',
-        })
-      ).resolves.toBeUndefined();
+      await expect(applyProjectLabels(managedOptions)).rejects.toBe(error);
+      expect(mockGet).not.toHaveBeenCalled();
+      expect(mockPut).not.toHaveBeenCalled();
     });
   });
 
   describe('regular namespaces (via K8s API)', () => {
-    test('applies project labels via K8s API when no Azure metadata', async () => {
+    test.each([
+      { subscriptionId: '', resourceGroup: '' },
+      { subscriptionId: 'sub-123', resourceGroup: '' },
+      { subscriptionId: '', resourceGroup: 'rg-test' },
+    ])('preserves the full K8s object when Azure scope is incomplete: %j', async scope => {
       const existingNs = {
+        apiVersion: 'v1',
+        kind: 'Namespace',
         metadata: {
           name: 'test-ns',
-          labels: { 'existing-label': 'value' },
+          labels: { 'existing-label': 'value', 'headlamp.dev/project-id': 'old-project' },
+          annotations: { owner: 'team-a' },
+          resourceVersion: '12345',
+          uid: 'namespace-uid',
         },
+        spec: { finalizers: ['kubernetes'] },
+        status: { phase: 'Active' },
       };
       mockGetSuccess(existingNs);
       mockPut.mockResolvedValue({});
@@ -283,11 +298,27 @@ describe('applyProjectLabels', () => {
       await applyProjectLabels({
         namespaceName: 'test-ns',
         clusterName: 'test-cluster',
-        subscriptionId: '',
-        resourceGroup: '',
+        ...scope,
       });
 
       expect(mockPut).toHaveBeenCalledTimes(1);
+      expect(mockGet).toHaveBeenCalledTimes(1);
+      expect(mockPut).toHaveBeenCalledWith(
+        {
+          ...existingNs,
+          metadata: {
+            ...existingNs.metadata,
+            labels: {
+              'existing-label': 'value',
+              'headlamp.dev/project-id': 'test-ns',
+              'headlamp.dev/project-managed-by': 'aks-desktop',
+            },
+          },
+        },
+        {},
+        'test-cluster'
+      );
+      expect(existingNs.metadata.labels['headlamp.dev/project-id']).toBe('old-project');
       const updatedLabels = mockPut.mock.calls[0][0].metadata.labels;
       expect(updatedLabels['existing-label']).toBe('value');
       expect(updatedLabels['headlamp.dev/project-id']).toBe('test-ns');
@@ -296,8 +327,7 @@ describe('applyProjectLabels', () => {
       expect(updatedLabels).not.toHaveProperty('aks-desktop/project-resource-group');
       expect(mockPut.mock.calls[0][2]).toBe('test-cluster');
 
-      // Should NOT use the Azure CLI for regular namespaces
-      expect(mockRunCommandAsync).not.toHaveBeenCalled();
+      expect(mockUpdateManagedNamespace).not.toHaveBeenCalled();
     });
 
     test('handles namespace with no existing labels', async () => {

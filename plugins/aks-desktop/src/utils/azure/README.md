@@ -1,6 +1,6 @@
 # Azure Utilities (`utils/azure/`)
 
-This directory contains the Azure CLI integration layer for AKS Desktop. Every Azure operation — authentication, cluster management, namespace CRUD, identity setup — flows through these modules.
+This directory contains the Azure integration layer for AKS Desktop. Domain modules use the shared HTTP/token helpers for migrated REST operations and the CLI helpers for operations that have not yet migrated.
 
 ## Module Map
 
@@ -16,20 +16,21 @@ This directory contains the Azure CLI integration layer for AKS Desktop. Every A
 
 ### Domain Modules
 
-| Module                     | Responsibility                                                               |
-| -------------------------- | ---------------------------------------------------------------------------- |
-| `az-auth.ts`               | Login flows and status checks                                                |
-| `az-extensions.ts`         | Extension installation, status checks, and Azure CLI configuration           |
-| `az-resource-providers.ts` | Subscription resource-provider registration                                  |
-| `az-subscriptions.ts`      | Subscriptions, tenants, resource groups, locations                           |
-| `az-clusters.ts`           | AKS cluster listing (Resource Graph optimized), status, capabilities, addons |
-| `az-resource-graph.ts`     | Azure Resource Graph queries for clusters, counts, and managed namespaces    |
-| `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                     |
-| `az-namespace-access.ts`   | Namespace role assignments and access verification                           |
-| `az-identity.ts`           | Managed identity CRUD, role assignments, scope building                      |
-| `az-ad.ts`                 | Microsoft Graph Entra user search and identifier resolution                  |
-| `az-acr.ts`                | Container registry creation, listing, and image discovery                    |
-| `az-federation.ts`         | Federated credentials for GitHub Actions and Kubernetes OIDC                 |
+| Module                           | Responsibility                                                               |
+| -------------------------------- | ---------------------------------------------------------------------------- |
+| `az-auth.ts`                     | Login flows and status checks                                                |
+| `az-extensions.ts`               | Extension installation, status checks, and Azure CLI configuration           |
+| `az-resource-providers.ts`       | Subscription resource-provider registration                                  |
+| `az-subscriptions.ts`            | Subscriptions, tenants, resource groups, locations                           |
+| `az-clusters.ts`                 | AKS cluster listing (Resource Graph optimized), status, capabilities, addons |
+| `az-resource-graph.ts`           | Azure Resource Graph queries for clusters, counts, and managed namespaces    |
+| `az-namespaces.ts`               | Managed namespace CRUD with polling for async operations                     |
+| `az-managed-namespace-update.ts` | Typed REST namespace reads and lossless updates with bounded polling         |
+| `az-namespace-access.ts`         | Namespace role assignments and access verification                           |
+| `az-identity.ts`                 | Managed identity CRUD, role assignments, scope building                      |
+| `az-ad.ts`                       | Microsoft Graph Entra user search and identifier resolution                  |
+| `az-acr.ts`                      | Container registry creation, listing, and image discovery                    |
+| `az-federation.ts`               | Federated credentials for GitHub Actions and Kubernetes OIDC                 |
 
 ### Orchestration Modules
 
@@ -199,6 +200,56 @@ ephemeral admin certificates and CA-verified direct HTTPS (no kubectl or resourc
 CLI calls). The account needs AKS creation/admin-credential permission.
 All run-owned groups/resources are cleaned in per-test `finally`, including failures.
 See [live test setup and inventory](../../../../../test/live/README.md).
+
+### Managed namespace updates
+
+`getManagedNamespaceDetails` and `updateManagedNamespace` use the managed namespace
+GET/PUT API version `2026-01-01`. Updates first read the existing resource and
+preserve unrelated writable quotas, network policies, labels, annotations,
+adoption/deletion policies, location, and ARM tags. A failed initial read aborts
+the update. Read-only identity/status fields are not sent back in the PUT body.
+
+Quota inputs remain numeric millicores for CPU and MiB for memory, serialized as
+`m` and `Mi` quantities. Explicit zero is an update; an omitted value leaves the
+existing setting unchanged. Project labels merge over existing labels rather
+than replacing them. Native namespace labels remain Kubernetes API operations.
+
+`noWait` returns after the service accepts the PUT; otherwise the helper waits
+for operation completion and reads the final namespace. Errors and conflicts
+are surfaced rather than replaying a failed PUT or reporting accepted work as
+completed. Default token acquisition remains CLI-backed through `az-token.ts`;
+the migrated resource operations themselves use HTTP.
+
+Update requests use the ten-minute transport budget so GET retries can honor
+`Retry-After` values longer than one minute. The outer deadline still bounds the
+entire account/cloud lookup, update, retries, polling, and final read; a late poll
+does not restart that deadline. Caller cancellation also interrupts retry waits.
+Standalone details reads retain the transport's normal request timeout.
+Update polling, deletion polling, and transport retries share
+`waitForAzureRetry` for `Retry-After` parsing and abort cleanup.
+
+An empty HTTP 200 or 204 from a `Location` poll ends polling, not success
+verification: the final namespace GET must still confirm `Succeeded`. Empty
+HTTP 202 responses remain pending, while operation-status and resource polls
+still require their expected response bodies.
+
+Reads and updates resolve the selected subscription's account with read-only
+`az account show --subscription`, or the current account when no subscription is
+provided. The resolved tenant is used for every resource and polling request;
+the CLI default account is not changed. Failed account resolution aborts before
+requesting a token or sending a resource request.
+
+The credential is bound to the resolved subscription, not just its tenant, so
+other signed-in identities in the same tenant do not supply the request token.
+The selected account's named cloud (or the active CLI cloud when older account
+metadata omits it) supplies both the ARM endpoint and exact token audience.
+Polling URLs must stay on that resolved ARM origin; missing cloud configuration
+fails without falling back to public Azure. Public, Government, China, and custom
+cloud routing is covered offline, not claimed verified against live services.
+
+When Azure supplies an ETag, the update sends it as `If-Match`. Server-side
+enforcement still needs live verification; without an ETag the read/modify/write
+sequence cannot prevent a concurrent update from being overwritten.
 
 ## Adding a New Function
 
