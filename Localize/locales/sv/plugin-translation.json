@@ -87,6 +87,7 @@
   "Azure subscription list updated.": "Azure-prenumerationslistan har uppdaterats.",
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "Med Azure arbetsbelastningsidentitet kan poddar autentisera till Azure-tjänster med hjälp av en hanterad identitet utan att lagra autentiseringsuppgifter. Skapar ett tjänstkonto med federerade autentiseringsuppgifter.",
   "Back": "Tillbaka",
+  "Back to home": "Back to home",
   "Basic": "Grundläggande",
   "Basics": "Grundläggande information",
   "branch": "gren",

@@ -87,6 +87,7 @@
   "Azure subscription list updated.": "Daftar langganan Azure diperbarui.",
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "Azure Workload Identity memungkinkan pod mengautentikasi ke layanan Azure menggunakan identitas terkelola tanpa menyimpan kredensial. Membuat akun layanan dengan kredensial gabungan.",
   "Back": "Kembali",
+  "Back to home": "Back to home",
   "Basic": "Dasar",
   "Basics": "Dasar",
   "branch": "Cabang",

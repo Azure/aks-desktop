@@ -87,6 +87,7 @@
   "Azure subscription list updated.": "Список подписок Azure обновлен.",
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "Удостоверение рабочей нагрузки Azure позволяет pod-объектам проходить проверку подлинности в службах Azure с помощью управляемого удостоверения без хранения учетных данных. Создает учетную запись службы с федеративными учетными данными.",
   "Back": "Назад",
+  "Back to home": "Back to home",
   "Basic": "Базовый",
   "Basics": "Основные",
   "branch": "ветвь",

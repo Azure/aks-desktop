@@ -87,6 +87,7 @@
   "Azure subscription list updated.": "Azure-előfizetések listája frissítve.",
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "Az Azure Számításifeladat-identitás lehetővé teszi, hogy a podok hitelesítő adatok tárolása nélkül hitelesítsék magukat az Azure-szolgáltatásokban felügyelt identitás használatával. Összevont hitelesítő adatokkal rendelkező szolgáltatásfiókot hoz létre.",
   "Back": "Vissza",
+  "Back to home": "Back to home",
   "Basic": "Alapszintű",
   "Basics": "Alapvető beállítások",
   "branch": "ág",

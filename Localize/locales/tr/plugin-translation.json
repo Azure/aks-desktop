@@ -87,6 +87,7 @@
   "Azure subscription list updated.": "Azure abonelik listesi güncellendi.",
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "Azure İş Yükü Kimliği, podların kimlik bilgilerini depolamadan yönetilen bir kimlik kullanarak Azure hizmetlerinde kimlik doğrulaması yapmasına olanak tanır. Federasyon kimlik bilgileriyle bir hizmet hesabı oluşturur.",
   "Back": "Geri",
+  "Back to home": "Back to home",
   "Basic": "Temel",
   "Basics": "Temel Bilgiler",
   "branch": "dallan",

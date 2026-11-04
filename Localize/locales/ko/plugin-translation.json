@@ -87,6 +87,7 @@
   "Azure subscription list updated.": "Azure 구독 목록이 업데이트되었습니다.",
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "Azure 워크로드 ID를 사용하면 Pod가 자격 증명을 저장하지 않고 관리 ID를 사용하여 Azure 서비스에 인증할 수 있습니다. 페더레이션 자격 증명이 포함된 서비스 계정을 생성합니다.",
   "Back": "뒤로",
+  "Back to home": "Back to home",
   "Basic": "기본",
   "Basics": "기본 사항",
   "branch": "분기",

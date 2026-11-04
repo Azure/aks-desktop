@@ -87,6 +87,7 @@
   "Azure subscription list updated.": "Azure 订阅列表已更新。",
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "借助 Azure 工作负载标识，Pod 能够使用托管标识向 Azure 服务进行身份验证，而无需存储凭据。创建使用联合凭据的服务帐户。",
   "Back": "返回",
+  "Back to home": "Back to home",
   "Basic": "基本",
   "Basics": "基本信息",
   "branch": "分支",

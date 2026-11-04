@@ -87,6 +87,7 @@
   "Azure subscription list updated.": "Seznam předplatných Azure byl aktualizován.",
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "Azure Workload Identity umožňuje podům ověřovat se ve službách Azure pomocí spravované identity bez uložení přihlašovacích údajů. Vytvoří účet služby s federovanými přihlašovacími údaji.",
   "Back": "Zpět",
+  "Back to home": "Back to home",
   "Basic": "Základní",
   "Basics": "Základy",
   "branch": "větev",
