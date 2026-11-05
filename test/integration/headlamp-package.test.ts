@@ -760,6 +760,40 @@ test('frontend identity comes from package and product metadata', () => {
   }
 });
 
+test('AKS desktop packaging rejects an empty backend application name', context => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'aks-backend-name-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const { createManifest } = require(
+    path.join(PACKAGE_DIR, 'src', 'lib', 'generate-product-manifest.ts')
+  );
+  const project = structuredClone(rootManifest);
+  project.headlamp.build = {
+    productNames: rootManifest.headlamp.build.productNames,
+    resources: [],
+    externalTools: [],
+  };
+  fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify(project));
+  const { manifest } = createManifest({
+    rootDir: directory,
+    packageDir: HEADLAMP_PACKAGE_DIR,
+    platform: 'linux',
+  });
+  const manifestPath = path.join(directory, 'product.json');
+  manifest.product.backendAppName = '';
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  const result = spawnSync(process.execPath, ['--eval', `
+    require('app-builder-lib/out/util/config/config')
+      .getConfig(process.cwd(), 'electron-builder.config.ts', {})
+      .catch(error => { console.error(error.message); process.exit(1); });
+  `], {
+    cwd: path.join(HEADLAMP_SOURCE_DIR, 'app'),
+    env: { ...process.env, HEADLAMP_BUILD_MANIFEST: manifestPath },
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 1, result.stderr || 'Empty backend name was accepted');
+  assert.match(result.stderr, /Build manifest product\.backendAppName/);
+});
+
 test('AKS desktop packages identify Microsoft as the product company', () => {
   assert.equal(rootManifest.headlamp.product.companyName, 'Microsoft');
 });
@@ -799,6 +833,8 @@ for (const [platform, platformKey] of [
         platform,
       });
       assert.equal(manifest.product.version, version);
+      assert.equal(manifest.product.backendAppName, 'AKS desktop');
+      assert.equal(manifest.product.appId, 'com.microsoft.aksdesktop');
       assert.deepEqual(
         manifest.product.errorReporting,
         rootManifest.headlamp.product.errorReporting
@@ -819,6 +855,7 @@ for (const [platform, platformKey] of [
             const appInfo = new AppInfo({ metadata, config }, undefined, options);
             console.log(JSON.stringify({
               companyName: appInfo.companyName,
+              appId: config.appId,
               copyright: appInfo.copyright,
               productName: appInfo.productName,
               productFilename: appInfo.productFilename,
@@ -845,6 +882,7 @@ for (const [platform, platformKey] of [
       assert.equal(result.status, 0, result.stderr || result.error?.message || 'Version probe failed');
       const effective = JSON.parse(result.stdout);
       assert.equal(effective.companyName, 'Microsoft');
+      assert.equal(effective.appId, 'com.microsoft.aksdesktop');
       assert.match(effective.copyright, /Microsoft/);
       assert.doesNotMatch(effective.copyright, /Kinvolk/i);
       assert.equal(effective.version, version);
