@@ -46,7 +46,7 @@
   "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "AKS デスクトップは、製品の改善に役立てるため、仮名化された使用状況データ (機能の使用状況、アプリのバージョン、OS、エラー クラス) を送信します。同じインストールからのセッションをカウントできるよう、このデバイスに格納されているランダムな仮名化されたインストール識別子も含められます。クラスター名、名前空間、リソース名、エラー メッセージ、スタック トレースは送信されません。",
   "AKS Hybrid & Edge": "AKS ハイブリッドとエッジ",
   "AKS Hybrid & Edge (Arc-connected)": "AKS ハイブリッドとエッジ (Arc 接続済み)",
-  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "AKS Hybrid & Edge clusters could not be listed: {{message}}",
+  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "AKS ハイブリッドとエッジのクラスターを一覧表示できませんでした: {{message}}",
   "AKS Hybrid & Edge proxy is running": "AKS ハイブリッドとエッジ プロキシが実行されています",
   "AKS Managed": "AKS マネージド",
   "AKS Project?": "AKS プロジェクトですか?",

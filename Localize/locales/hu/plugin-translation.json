@@ -46,7 +46,7 @@
   "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "Az AKS Desktop álnevesített használati adatokat (funkcióhasználat, alkalmazásverzió, operációs rendszer, hibaosztályok) küld, hogy segítsen nekünk a termék továbbfejlesztésében. Az eszközön tárolt, véletlenszerűen generált álnevesített telepítési azonosítót is továbbítja, hogy az ugyanahhoz a telepítéshez tartozó munkamenetek száma meghatározható legyen. Soha nem küld fürtneveket, névtereket, erőforrásneveket, hibaüzeneteket vagy hívásláncokat.",
   "AKS Hybrid & Edge": "AKS Hybrid & Edge",
   "AKS Hybrid & Edge (Arc-connected)": "AKS Hybrid és Edge (Arc-hoz csatlakoztatva)",
-  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "AKS Hybrid & Edge clusters could not be listed: {{message}}",
+  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "Az AKS Hybrid & Edge-fürtök listázása nem sikerült: {{message}}",
   "AKS Hybrid & Edge proxy is running": "Az AKS Hybrid & Edge proxy fut",
   "AKS Managed": "AKS által felügyelt",
   "AKS Project?": "AKS-projekt?",

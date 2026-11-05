@@ -46,7 +46,7 @@
   "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "AKS Desktop verzendt pseudonieme gebruiksgegevens (functiegebruik, app-versie, besturingssysteem, foutklassen) om ons te helpen het product te verbeteren. Er wordt een willekeurige pseudonieme installatie-id die op dit apparaat is opgeslagen, opgenomen, zodat sessies van dezelfde installatie kunnen worden geteld. Er worden nooit clusternamen, naamruimten, resourcenamen, foutberichten of stack-traces verzonden.",
   "AKS Hybrid & Edge": "Hybride AKS en Edge",
   "AKS Hybrid & Edge (Arc-connected)": "Hybride AKS en Edge (met Arc verbonden)",
-  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "AKS Hybrid & Edge clusters could not be listed: {{message}}",
+  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "AKS Hybrid & Edge-clusters konden niet worden weergegeven: {{message}}",
   "AKS Hybrid & Edge proxy is running": "Hybride AKS- en Edge-proxy wordt uitgevoerd...",
   "AKS Managed": "Door AKS beheerd",
   "AKS Project?": "AKS-project?",
