@@ -69,7 +69,14 @@ import {
 for (const failPackaging of [false, true]) {
   test(`reports build output only after successful packaging (failure: ${failPackaging})`, t => {
     const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build output-'));
-    t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+    fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
+    const previousVersion = process.env.APP_VERSION;
+    process.env.APP_VERSION = 'ambient';
+    t.after(() => {
+      if (previousVersion === undefined) delete process.env.APP_VERSION;
+      else process.env.APP_VERSION = previousVersion;
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    });
     const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
     const distDir = path.join(sourceDir, 'app', 'dist');
     const targetRecord = path.join(distDir, '.package-target.json');
@@ -86,9 +93,10 @@ for (const failPackaging of [false, true]) {
         messages.push(message);
       }
     });
-    const runStep = (args: string[], cwd: string) => {
+    const runStep = (args: string[], cwd: string, env?: NodeJS.ProcessEnv) => {
       assert.equal(messages.length, 0);
       if (args[1] === 'package') {
+        assert.equal(env?.APP_VERSION, '9.8.7');
         assert.equal(cwd, path.join(sourceDir, 'app'));
         if (failPackaging) throw new Error('packaging failed');
         fs.mkdirSync(distDir, { recursive: true });
@@ -124,6 +132,7 @@ test('stages the newly built backend under the Windows packaging filename', t =>
 
 test('packages installed dependencies once and reports timestamped phase timings', t => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'package timing-'));
+  fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
   t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
   const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
   const appDir = path.join(sourceDir, 'app');
@@ -158,6 +167,7 @@ test('packages installed dependencies once and reports timestamped phase timings
 
 test('reuses architecture-independent assets for a second package target', t => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prepared package-'));
+  fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
   t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
   const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
   const appDir = path.join(sourceDir, 'app');
@@ -170,9 +180,10 @@ test('reuses architecture-independent assets for a second package target', t => 
   packageTarget(
     { platform: process.platform, arch: process.arch },
     rootDir,
-    (args, cwd) => {
+    (args, cwd, env) => {
       commands.push(`${cwd === rootDir ? 'root' : cwd === sourceDir ? 'source' : 'app'}:${args.join(' ')}`);
       if (cwd === appDir && args[1] === 'package:prepared') {
+        assert.equal(env?.APP_VERSION, '9.8.7');
         fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
       }
     },
@@ -197,6 +208,7 @@ test('marks prepared target installs to reuse frontend dependencies', () => {
 
 test('assembles an unpacked app without running distributable packaging', t => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'unpacked app-'));
+  fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
   t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
   const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
   const appDir = path.join(sourceDir, 'app');
@@ -209,9 +221,10 @@ test('assembles an unpacked app without running distributable packaging', t => {
   packageTarget(
     { platform: process.platform, arch: process.arch },
     rootDir,
-    (args, cwd) => {
+    (args, cwd, env) => {
       commands.push(`${cwd === appDir ? 'app' : 'other'}:${args.join(' ')}`);
       if (cwd === appDir && args[1] === 'build') {
+        assert.equal(env?.APP_VERSION, '9.8.7');
         fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
       }
     },
@@ -300,15 +313,32 @@ test('runs the npm JavaScript CLI through Node when available', () => {
   });
 });
 
-test('uses the managed Mac dmgbuild launcher unless the caller overrides it', () => {
+test('sets the consumer version for every target instead of an ambient version', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consumer version-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
+  const ambient = { APP_VERSION: 'ambient', PATH: '/tools' };
+
+  for (const platform of ['linux', 'darwin', 'win32'] as const) {
+    for (const arch of ['x64', 'arm64']) {
+      assert.equal(packageEnvironment({ platform, arch }, rootDir, ambient).APP_VERSION, '9.8.7');
+    }
+  }
+  assert.deepEqual(ambient, { APP_VERSION: 'ambient', PATH: '/tools' });
+});
+
+test('uses the managed Mac dmgbuild launcher unless the caller overrides it', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dmg launcher-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
   const generated = packageEnvironment(
     { platform: 'darwin', arch: 'arm64' },
-    '/workspace',
+    rootDir,
     {}
   );
   assert.equal(
     generated.CUSTOM_DMGBUILD_PATH,
-    path.join('/workspace', 'build', 'dmgbuild-managed-mac.cjs')
+    path.join(rootDir, 'build', 'dmgbuild-managed-mac.cjs')
   );
   assert.equal(
     generated.HEADLAMP_REUSE_PLUGIN_DEPENDENCIES,
@@ -317,12 +347,12 @@ test('uses the managed Mac dmgbuild launcher unless the caller overrides it', ()
 
   const overridden = packageEnvironment(
     { platform: 'darwin', arch: 'arm64' },
-    '/workspace',
+    rootDir,
     { CUSTOM_DMGBUILD_PATH: '/custom/dmgbuild' }
   );
   assert.equal(overridden.CUSTOM_DMGBUILD_PATH, '/custom/dmgbuild');
   assert.equal(
-    packageEnvironment({ platform: 'linux', arch: 'arm64' }, '/workspace', {})
+    packageEnvironment({ platform: 'linux', arch: 'arm64' }, rootDir, {})
       .CUSTOM_DMGBUILD_PATH,
     undefined
   );
