@@ -24,6 +24,23 @@ test('PR and scheduled builds validate Windows ARM64 on a native runner', () => 
   assert.match(scheduled, /run: npm run test:distribution/);
 });
 
+test('PR CI uploads only the ARM64 installer before reinstall can remove it', () => {
+  const ci = workflow('ci.yml');
+  const applicationBuild = ci.split('\n  application-build:')[1].split('\n  find_changed_plugins:')[0];
+  const checkout = applicationBuild.match(/^ {6}- name: Checkout code\n[\s\S]*?(?=\n {6}- name:)/m)?.[0];
+  assert.ok(checkout);
+  assert.match(checkout, /ref: \$\{\{ matrix\.runner == 'windows-11-arm' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/);
+  const upload = applicationBuild.match(/^ {6}- name: Upload Windows ARM64 installer\n[\s\S]*?(?=\n {6}- name:)/m)?.[0];
+  assert.ok(upload, 'the native ARM64 job must retain its installer for the tester');
+  assert.match(upload, /if: github\.event_name == 'pull_request' && runner\.os == 'Windows' && runner\.arch == 'ARM64'/);
+  assert.match(upload, /uses: actions\/upload-artifact@[a-f0-9]{40}/);
+  assert.match(upload, /name: aks-desktop-win-arm64\s/);
+  assert.match(upload, /path: node_modules\/@headlamp-k8s\/headlamp-source\/source\/app\/dist\/aks-desktop-\*-win-arm64\.exe\s/);
+  assert.match(upload, /if-no-files-found: error\s/);
+  assert.match(upload, /retention-days: 7\s/);
+  assert.ok(applicationBuild.indexOf(upload) < applicationBuild.indexOf('      - name: Reinstall after application assembly'));
+});
+
 for (const missing of [undefined, 'x64', 'arm64']) {
   test(`release collection requires both installers (${missing ?? 'both present'})`, {
     skip: process.platform === 'win32',

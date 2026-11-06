@@ -53,8 +53,11 @@ or `npm run build:win:arm64` on the corresponding host platform.
 
 Windows ARM64 packages contain native ARM64 Electron and backend binaries.
 The bundled Azure CLI and its Python runtime remain x64 and use Windows 11
-ARM64's x64 emulation. The Windows release pipeline builds and signs both
-x64 and ARM64 installers; native ARM64 CI validates application startup.
+ARM64's x64 emulation. The Windows release pipeline packages both installers
+and collects them for ESRP signing. Native ARM64 CI checks unpacked application
+startup; the unsigned ARM64 PR installer is available as a build artifact for
+seven days. Installation and normal GUI startup still need an ARM64 owner to
+validate them.
 
 ### Build output
 
