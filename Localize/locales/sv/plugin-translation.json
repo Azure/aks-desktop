@@ -46,7 +46,7 @@
   "AKS Desktop sends pseudonymous usage data (feature usage, app version, OS, error classes) to help us improve the product. A random pseudonymous installation identifier stored on this device is included so sessions from the same installation can be counted. No cluster names, namespaces, resource names, error messages, or stack traces are ever sent.": "AKS Desktop skickar pseudonymiserade användningsdata (funktionsanvändning, appversion, operativsystem, felklasser) för att hjälpa oss att förbättra produkten. En slumpmässig pseudonymiserad installationsidentifierare som lagras på den här enheten ingår, så att sessioner från samma installation kan räknas. Inga klusternamn, namnrymder, resursnamn, felmeddelanden eller stackspårningar skickas någonsin.",
   "AKS Hybrid & Edge": "AKS Hybrid och Edge",
   "AKS Hybrid & Edge (Arc-connected)": "AKS Hybrid och Edge (Arc-ansluten)",
-  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "AKS Hybrid & Edge clusters could not be listed: {{message}}",
+  "AKS Hybrid & Edge clusters could not be listed: {{message}}": "Det gick inte att lista AKS Hybrid & Edge-kluster: {{message}}",
   "AKS Hybrid & Edge proxy is running": "AKS-hybrid och Edge-proxy körs",
   "AKS Managed": "AKS-hanterad",
   "AKS Project?": "AKS-projekt?",

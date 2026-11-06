@@ -87,7 +87,7 @@
   "Azure subscription list updated.": "Azure-abonnementenlijst bijgewerkt.",
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "Met Azure workload-identiteit kunnen pods zich verifiëren bij Azure-services met behulp van een beheerde identiteit zonder referenties op te slaan. Hiermee maak je een serviceaccount met federatieve referenties.",
   "Back": "Vorige",
-  "Back to home": "Back to home",
+  "Back to home": "Terug naar start",
   "Basic": "Basis",
   "Basics": "Basisinformatie",
   "branch": "vertakking",

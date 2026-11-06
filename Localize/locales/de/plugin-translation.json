@@ -87,7 +87,7 @@
   "Azure subscription list updated.": "Die Azure-Abonnementliste wurde aktualisiert.",
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "Azure-Workloadidentität ermöglicht Pods die Authentifizierung bei Azure-Diensten mithilfe einer verwalteten Identität, ohne Anmeldeinformationen zu speichern. Erstellt ein Dienstkonto mit Verbundanmeldeinformationen.",
   "Back": "Zurück",
-  "Back to home": "Back to home",
+  "Back to home": "Zurück zur Startseite",
   "Basic": "Basic",
   "Basics": "Basiseinstellungen",
   "branch": "Branch",

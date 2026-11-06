@@ -87,7 +87,7 @@
   "Azure subscription list updated.": "Zaktualizowano listę subskrypcji platformy Azure.",
   "Azure Workload Identity enables pods to authenticate to Azure services using a managed identity without storing credentials. Creates a service account with federated credentials.": "Tożsamość obciążenia platformy Azure pozwala zasobnikom uwierzytelniać się w usługach platformy Azure za pomocą tożsamości zarządzanej bez przechowywania poświadczeń. Tworzy konto usługi z poświadczeniami federacyjnymi.",
   "Back": "Wstecz",
-  "Back to home": "Back to home",
+  "Back to home": "Powrót do strony głównej",
   "Basic": "Podstawowy",
   "Basics": "Podstawy",
   "branch": "rozgałęzienie",
