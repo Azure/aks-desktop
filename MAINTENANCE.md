@@ -1,5 +1,23 @@
 # Maintenance
 
+## CI npm version
+
+CI installs npm from [`.config/npm/package.json`](.config/npm/package.json)
+and its committed lockfile using `npm ci --ignore-scripts`. Workflows install
+directly into `.config/npm`, outside the root `node_modules` removed by clean
+installs. The native Windows CI wrapper copies the same manifests into its
+existing runner temporary directory.
+The lockfile retains SHA-512 integrity without registry-specific download URLs
+so both the public registry and 1ES package-feed proxies can resolve the tarball.
+
+When changing the root `packageManager`, update the exact npm dependency in
+`.config/npm/package.json` to match, then regenerate its integrity hashes:
+
+```bash
+npm install --prefix .config/npm --package-lock-only --ignore-scripts --no-audit --no-fund --omit-lockfile-registry-resolved --registry=https://registry.npmjs.org
+node --test build/windows-ci.test.cjs
+```
+
 ## Headlamp source
 
 AKS Desktop builds a pinned Headlamp commit from `packages/headlamp-source/`.

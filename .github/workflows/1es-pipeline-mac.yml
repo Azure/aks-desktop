@@ -110,7 +110,7 @@ extends:
               - task: Cache@2
                 displayName: 'Cache npm downloads'
                 inputs:
-                  key: 'npm-download-v2 | "$(Agent.OS)" | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/plugin-catalog/package-lock.json'
+                  key: 'npm-download-v2 | "$(Agent.OS)" | .config/npm/package-lock.json | package-lock.json | packages/headlamp-source/package-lock.json | plugins/aks-desktop/package-lock.json | plugins/plugin-catalog/package-lock.json'
                   restoreKeys: |
                     npm-download-v2 | "$(Agent.OS)" |
                   path: '$(Pipeline.Workspace)/.npm'
@@ -206,10 +206,9 @@ extends:
                   step_started=$SECONDS
                   echo "[build-timing] npm bootstrap started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
-                  npm_root="$(mktemp -d "${AGENT_TEMPDIRECTORY:-${TMPDIR:-/tmp}}/npm.XXXXXX")"
-                  npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
-                  echo "##vso[task.prependpath]$npm_root/node_modules/.bin"
-                  export PATH="$npm_root/node_modules/.bin:$PATH"
+                  npm ci --prefix .config/npm --ignore-scripts --no-audit --no-fund
+                  echo "##vso[task.prependpath]$PWD/.config/npm/node_modules/.bin"
+                  export PATH="$PWD/.config/npm/node_modules/.bin:$PATH"
                   echo "[build-timing] npm bootstrap completed in $((SECONDS - step_started))s"
 
                   step_started=$SECONDS
