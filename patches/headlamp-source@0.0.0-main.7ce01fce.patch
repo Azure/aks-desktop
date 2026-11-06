@@ -45,7 +45,7 @@ index fa00908c390aaba0604a60a96a8bdbaab5f96f14..9c9fb000fa84028a71a2919ee8f6071b
    ],
    "legalDocuments": [
 diff --git a/source/app/app-build-manifest.schema.json b/source/app/app-build-manifest.schema.json
-index f2e956d753b17ede4a33b7328f382460214e45c5..b102020964491e2539fcaca71af769511f5d5149 100644
+index f2e956d753b17ede4a33b7328f382460214e45c5..d9c9b02254189e801278e318f583651f815df599 100644
 --- a/source/app/app-build-manifest.schema.json
 +++ b/source/app/app-build-manifest.schema.json
 @@ -26,6 +26,11 @@
@@ -60,10 +60,15 @@ index f2e956d753b17ede4a33b7328f382460214e45c5..b102020964491e2539fcaca71af76951
      "commandSets": {
        "type": "object",
        "description": "Reusable named command grant arrays. A runCommands policy composes one or more with commandSets instead of repeating commands.",
-@@ -45,6 +50,25 @@
+@@ -45,6 +50,30 @@
        "properties": {
          "name": { "type": "string" },
          "productName": { "type": "string" },
++        "backendAppName": {
++          "type": "string",
++          "pattern": "^[ -~]*[!-~][ -~]*(?![\\s\\S])",
++          "description": "Optional backend application name for Kubernetes user agents and backend-served page titles. Must be non-blank printable ASCII. Defaults to the Electron app name."
++        },
 +        "errorReporting": {
 +          "type": "object",
 +          "description": "Product-specific GitHub crash-reporting destination and button text.",
@@ -591,10 +596,103 @@ index 874134a8384a772eacc5046065f939179160d83d..bb30d0b401236ac30a8bf69166524e3d
 +  }
 +});
 diff --git a/source/app/electron/build-manifest.test.ts b/source/app/electron/build-manifest.test.ts
-index 0facf07617cff7a83d5a0ba9817d408099f5056a..70bacbce3600fd99e59c60556d1257c51c27963c 100644
+index 0facf07617cff7a83d5a0ba9817d408099f5056a..64296c407b2bdce25033177550db8e21bf6af656 100644
 --- a/source/app/electron/build-manifest.test.ts
 +++ b/source/app/electron/build-manifest.test.ts
-@@ -1062,6 +1062,39 @@ describe('build manifest selection', () => {
+@@ -621,6 +621,7 @@ describe('product metadata', () => {
+           name: 'example-desktop',
+           companyName: 'Example Company',
+           productName: 'Example Desktop',
++          backendAppName: 'Example backend',
+           version: '1.2.3',
+           appId: 'io.example.desktop',
+           artifactName: '${name}-${version}.${ext}',
+@@ -660,14 +661,77 @@ describe('product metadata', () => {
+     });
+   });
+ 
+-  it.each(['name', 'companyName', 'productName', 'version', 'appId', 'artifactName', 'trayIcon'])(
+-    'rejects a non-string product.%s',
+-    field => {
+-      expect(() => applyProductMetadata({}, { product: { [field]: 1 } })).toThrow(
+-        `Build manifest product.${field} must be a string`
+-      );
++  it('keeps the backend name out of Electron Builder identity', () => {
++    const defaults = { productName: 'Example Desktop', appId: 'io.example.desktop' };
++    expect(
++      applyProductMetadata(defaults, { product: { backendAppName: 'Example backend' } })
++    ).toEqual({ ...defaults, extraMetadata: {} });
++  });
++
++  it.each([
++    '',
++    '   ',
++    '\t',
++    'Example\nbackend',
++    'Example\rbackend',
++    'Example\0backend',
++    'Example\x7f',
++    'Exámple',
++  ])('rejects an invalid backend name during packaging: %j', backendAppName => {
++    expect(() => applyProductMetadata({}, { product: { backendAppName } })).toThrow(
++      'Build manifest product.backendAppName must be non-blank printable ASCII'
++    );
++  });
++
++  it('validates backend names when Electron Builder loads its configuration', () => {
++    const manifestFile = temporaryFile(JSON.stringify({ product: { backendAppName: '' } }));
++    // A separate process avoids Electron Builder's configuration module cache.
++    expect(() =>
++      execFileSync(
++        process.execPath,
++        [
++          '-e',
++          `
++        require('app-builder-lib/out/util/config/config')
++          .getConfig(${JSON.stringify(appPath)}, 'electron-builder.config.ts', {})
++          .catch(error => { console.error(error.message); process.exit(1); });
++      `,
++        ],
++        {
++          cwd: appPath,
++          env: { ...process.env, HEADLAMP_BUILD_MANIFEST: manifestFile },
++          stdio: 'pipe',
++        }
++      )
++    ).toThrow('Build manifest product.backendAppName');
++  });
++
++  it('declares backend name constraints in the build manifest schema', () => {
++    const schema = JSON.parse(
++      fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
++    );
++    const validate = addFormats(new Ajv()).compile(schema);
++    expect(validate({ product: {} })).toBe(true);
++    expect(validate({ product: { backendAppName: 'Example backend' } })).toBe(true);
++    for (const backendAppName of [1, null, '', '  ', '\t', 'Example\nbackend', 'Exámple']) {
++      expect(validate({ product: { backendAppName } })).toBe(false);
+     }
+-  );
++  });
++
++  it.each([
++    'name',
++    'companyName',
++    'productName',
++    'backendAppName',
++    'version',
++    'appId',
++    'artifactName',
++    'trayIcon',
++  ])('rejects a non-string product.%s', field => {
++    expect(() => applyProductMetadata({}, { product: { [field]: 1 } })).toThrow(
++      `Build manifest product.${field} must be a string`
++    );
++  });
+ 
+   it('declares product company metadata in the build manifest schema', () => {
+     const schema = JSON.parse(
+@@ -1062,6 +1126,39 @@ describe('build manifest selection', () => {
      );
    });
  
@@ -635,7 +733,7 @@ index 0facf07617cff7a83d5a0ba9817d408099f5056a..70bacbce3600fd99e59c60556d1257c5
      const schema = JSON.parse(
        fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
 diff --git a/source/app/electron/main.ts b/source/app/electron/main.ts
-index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..1d7ce36e24a69e133fa5ce94dd168b3855a9af94 100644
+index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..2f4278350964188f7c0fab4f5e52bd8e2b7183a4 100644
 --- a/source/app/electron/main.ts
 +++ b/source/app/electron/main.ts
 @@ -74,8 +74,11 @@ import {
@@ -666,6 +764,15 @@ index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..1d7ce36e24a69e133fa5ce94dd168b38
  }
  
  /**
+@@ -868,7 +878,7 @@ async function startServer(
+     `--listen-addr=${INTERNAL_BACKEND_HOST}`,
+     `--port=${actualPort}`,
+     '--app-name',
+-    app.getName(),
++    productMetadata?.backendAppName ?? app.getName(),
+   ];
+   if (!!args.kubeconfig) {
+     serverArgs = serverArgs.concat(['--kubeconfig', args.kubeconfig]);
 @@ -1789,6 +1799,8 @@ function startElectron() {
  
      mainWindow.webContents.on('dom-ready', () => {
@@ -3814,6 +3921,38 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
    return {
      authorizeClusterRegistration(event, providerId, capability) {
        const registered = capabilityRegistry.get(capability);
+diff --git a/source/app/electron/runtimeProductIdentity.test.ts b/source/app/electron/runtimeProductIdentity.test.ts
+index 2d788de2d6200ef62996638542e5e3b0421f4357..9e4c61208e4535d6a6a132faf8e8e525a4218cad 100644
+--- a/source/app/electron/runtimeProductIdentity.test.ts
++++ b/source/app/electron/runtimeProductIdentity.test.ts
+@@ -61,7 +61,11 @@ describe('applyRuntimeProductIdentity', () => {
+   it('uses the product display name for the Electron runtime', () => {
+     expect(
+       applyRuntimeProductIdentity(runtimeApp, {
+-        product: { name: 'example-desktop', productName: 'Example Desktop' },
++        product: {
++          name: 'example-desktop',
++          productName: 'Example Desktop',
++          backendAppName: 'Example backend',
++        },
+       })
+     ).toBe('Example Desktop');
+     expect(runtimeApp.setName).toHaveBeenCalledWith('Example Desktop');
+@@ -77,6 +81,14 @@ describe('applyRuntimeProductIdentity', () => {
+     expect(runtimeApp.setPath).not.toHaveBeenCalled();
+   });
+ 
++  it('does not select an Electron name or profile from a backend-only name', () => {
++    expect(
++      applyRuntimeProductIdentity(runtimeApp, { product: { backendAppName: 'Example backend' } })
++    ).toBe('Headlamp');
++    expect(runtimeApp.setName).not.toHaveBeenCalled();
++    expect(runtimeApp.setPath).not.toHaveBeenCalled();
++  });
++
+   it('preserves an explicitly customized user data path', () => {
+     runtimeApp.getPath.mockReturnValue('/tmp/custom-profile');
+ 
 diff --git a/source/app/electron/secureStorage.test.ts b/source/app/electron/secureStorage.test.ts
 index 5049372a888d0cb3788d7e8fd9ff7a054349d3e7..a209b875ad1113da7c862dca96eb52355e24db1a 100644
 --- a/source/app/electron/secureStorage.test.ts
@@ -4190,6 +4329,39 @@ index bd9265880250829f5fd7d556b33fa16b9827c4a2..7a7cc6519e9a57a4aa5cab254bc308df
    const proxyUrls = manifest['proxy-urls'];
    if (proxyUrls !== undefined) {
      if (!Array.isArray(proxyUrls) || proxyUrls.some(pattern => typeof pattern !== 'string')) {
+diff --git a/source/app/scripts/product-metadata.ts b/source/app/scripts/product-metadata.ts
+index 7823255a10bbddc926f215dce27a80731937be5d..3b6e5175a432e1180c4e1c616c75a401a67481a1 100644
+--- a/source/app/scripts/product-metadata.ts
++++ b/source/app/scripts/product-metadata.ts
+@@ -19,6 +19,7 @@ export type ProductMetadata = {
+   name?: string;
+   companyName?: string;
+   productName?: string;
++  backendAppName?: string;
+   version?: string;
+   appId?: string;
+   artifactName?: string;
+@@ -51,6 +52,7 @@ export function readProductMetadata(manifest: unknown): ProductMetadata | undefi
+     'name',
+     'companyName',
+     'productName',
++    'backendAppName',
+     'version',
+     'appId',
+     'artifactName',
+@@ -61,6 +63,12 @@ export function readProductMetadata(manifest: unknown): ProductMetadata | undefi
+       throw new Error(`Build manifest product.${field} must be a string`);
+     }
+   }
++  if (
++    metadata.backendAppName !== undefined &&
++    (metadata.backendAppName.trim() === '' || /[^\x20-\x7e]/.test(metadata.backendAppName))
++  ) {
++    throw new Error('Build manifest product.backendAppName must be non-blank printable ASCII');
++  }
+   if (
+     metadata.protocols !== undefined &&
+     (!metadata.protocols ||
 diff --git a/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md b/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b065f6620f
@@ -4365,10 +4537,22 @@ index 6fec43fd49dc7de94ec5091c780f19b50bf81e1b..47366b42925d015b57f529b7557c8b8f
  
  ▸ **registerCustomCreateProject**(`customCreateProject`): `void`
 diff --git a/source/docs/development/app.md b/source/docs/development/app.md
-index ec74e51034a14022cbcefdcf7921022df1e9cc84..5db9837305450e3166aaf044ecbb5653ac543914 100644
+index ec74e51034a14022cbcefdcf7921022df1e9cc84..1654644bf8df67086c6ecf719c92b77ca4bd38f8 100644
 --- a/source/docs/development/app.md
 +++ b/source/docs/development/app.md
-@@ -154,6 +154,12 @@ retain the values from `app/package.json`.
+@@ -150,10 +150,24 @@ macOS copyright attribution, and Linux vendor. Set `platforms.linux.maintainer`
+ separately to a package contact in `Name <email>` form. Missing or empty fields
+ retain the values from `app/package.json`.
+ 
++`product.backendAppName` optionally sets the backend's `--app-name` independently
++of the Electron display name. It is used in Kubernetes user agents, backend
++`--version` output, and backend-served HTML/SPA page titles (including headless
++browser mode). It does not change the Electron app name or profile directories.
++Omitting it preserves the Electron app name. When present it must contain a
++non-space character and only printable ASCII; invalid values stop Electron
++packaging and runtime manifest loading.
++
+ `product.trayIcon` optionally selects a system tray icon using a path relative
  to the packaged resources directory. Declare the same file in `resources` so
  Electron Builder copies it into the package.
  
@@ -4381,7 +4565,7 @@ index ec74e51034a14022cbcefdcf7921022df1e9cc84..5db9837305450e3166aaf044ecbb5653
  For example:
  
  ```json
-@@ -163,7 +169,11 @@ For example:
+@@ -163,7 +177,11 @@ For example:
      "productName": "Example Desktop",
      "companyName": "Example Company",
      "version": "1.2.3",
@@ -4394,7 +4578,7 @@ index ec74e51034a14022cbcefdcf7921022df1e9cc84..5db9837305450e3166aaf044ecbb5653
    },
    "resources": {
      "common": [{ "from": "./example-tray.png", "to": "assets/example-tray.png" }]
-@@ -204,13 +214,13 @@ docker buildx build \
+@@ -204,13 +222,13 @@ docker buildx build \
  
  The manifest must remain available throughout the frontend and app packaging
  steps. An unreadable manifest, a non-object `product`, non-string
@@ -4415,7 +4599,7 @@ index ec74e51034a14022cbcefdcf7921022df1e9cc84..5db9837305450e3166aaf044ecbb5653
  
  ### Build manifest resources
  
-@@ -263,6 +273,21 @@ The optional `platforms` array accepts `linux`, `mac`, and `win`. An entry witho
+@@ -263,6 +281,21 @@ The optional `platforms` array accepts `linux`, `mac`, and `win`. An entry witho
  is missing, escapes the resources directory, is a directory or symbolic link,
  or does not match its declared digest.
  
