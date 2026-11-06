@@ -34,7 +34,14 @@ function main() {
     const actual = execFileSync(process.execPath, [cli, '--version'], { env, encoding: 'utf8' }).trim();
     if (actual !== version) throw new Error(`Expected npm ${version}, got ${actual}`);
     console.log(`Windows CI: verified npm ${actual}`);
-    for (const args of [['ci'], ['run', 'build:win-ci'], ['run', 'test:distribution']]) {
+    // ARM64 cannot launch on this x64 release host; native ARM64 CI covers that.
+    for (const args of [
+      ['ci'],
+      ['run', 'build:win-ci'],
+      ['run', 'test:distribution'],
+      ['run', 'build:win:arm64', '--', '--reuse-prepared-assets'],
+      ['run', 'test:post-build'],
+    ]) {
       execFileSync(process.execPath, [cli, ...args], { env, stdio: 'inherit' });
     }
   } finally {
