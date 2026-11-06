@@ -182,7 +182,10 @@ export function canInvokePackagedRuntime(
   hostPlatform: string = process.platform,
   hostArch: string = process.arch
 ): boolean {
-  return targetPlatform === hostPlatform && runtimeArch === hostArch;
+  return targetPlatform === hostPlatform && (
+    runtimeArch === hostArch ||
+    (hostPlatform === "win32" && hostArch === "arm64" && runtimeArch === "x64")
+  );
 }
 
 /**

@@ -21,14 +21,20 @@ do not claim a particular drive-mapping defect has been conclusively reproduced.
 The Windows pipeline now runs the dependency-free regression suite, then
 `npm run ci:windows`. Its [Node entrypoint](../build/windows-ci.cjs):
 
-1. Reads the exact npm pin from `package.json` and the working bootstrap CLI from
-   the npm lifecycle's `npm_execpath`.
+1. Reads the exact npm pin from `package.json`, checks that `.config/npm/package.json`
+   agrees, and reads the working bootstrap CLI from the npm lifecycle's `npm_execpath`.
 2. Creates its temporary installation with native Node filesystem paths, outside
-   the checkout so `npm ci` cannot delete the CLI executing it.
-3. Installs the pin using `process.execPath` plus the bootstrap CLI, without
-   passing temporary paths through Git Bash argument conversion.
+   the checkout so `npm ci` cannot delete the CLI executing it. Copies the npm
+   manifest and integrity lock from `.config/npm` into that directory.
+3. Installs the locked npm package with `ci --ignore-scripts` using `process.execPath`
+   plus the bootstrap CLI, without passing temporary paths through Git Bash
+   argument conversion.
 4. Checks that the new CLI exists and reports the expected version.
-5. Runs `ci`, `build:win-ci`, and `test:distribution` through Node and that CLI.
+5. Runs `ci`, `build:win-ci` (x64), and `test:distribution` through Node and that
+   CLI, then `build:win:arm64 -- --reuse-prepared-assets` and `test:post-build`.
+   The x64 release host checks the ARM64 bundle without launching its application;
+   the native Windows ARM64 CI job verifies bundled tools and launches the unpacked
+   application headlessly. It does not install the NSIS installer.
    A **native child-process PATH**, with the platform delimiter and existing key
    casing, also selects pinned npm/Node for nested bare commands. It is never
    exported back into Bash or persisted with `task.prependpath`.
@@ -37,8 +43,14 @@ The Windows pipeline now runs the dependency-free regression suite, then
    build result. The agent retains responsibility for its temporary workspace.
 
 The registry/pip proxy settings, package-manager/Node/Go pins, localization,
-lockfile, macOS/Linux workflows, distribution checks, ESRP signing, asset names
-and publication steps are unchanged. No new dependency is needed before `ci`.
+lockfile, macOS/Linux workflows, ESRP signing and asset names are unchanged.
+Both Windows installers are required before ESRP signing and verification, then
+published together in the `aks-desktop-signed` ADO pipeline artifact. This pipeline
+does not attach assets to a GitHub Release. No new dependency is needed before `ci`.
+
+PR CI retains the unsigned ARM64 installer in `aks-desktop-win-arm64` for seven
+days, before dependency reinstallation removes the build output. An ARM64 owner
+must still validate installation, normal application startup and uninstallation.
 
 ## Verification and remaining gate
 
