@@ -205,7 +205,7 @@ function roleBindingName(upn: string, clusterRole: string, position: number): st
   return `${fragment}${suffix}`;
 }
 
-export function generateNamespaceManifestEntries(
+function generateNamespaceManifestEntries(
   options: GenerateNamespaceManifestOptions
 ): NamespaceManifestEntry[] {
   const {

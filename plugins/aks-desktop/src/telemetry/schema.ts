@@ -3,7 +3,7 @@
 
 /** Sanitizers and closed vocabularies for telemetry envelope properties. */
 
-export const BUILTIN_K8S_KINDS: ReadonlySet<string> = new Set([
+const BUILTIN_K8S_KINDS: ReadonlySet<string> = new Set([
   // Core
   'Pod',
   'Service',
@@ -151,7 +151,7 @@ export const EVENT_STATUSES: ReadonlySet<TelemetryStatus> = new Set(EVENT_STATUS
 
 export const CONSENT_VALUES = ['granted', 'revoked'] as const;
 export type TelemetryConsent = (typeof CONSENT_VALUES)[number];
-export const CONSENT_VALUE_SET: ReadonlySet<TelemetryConsent> = new Set(CONSENT_VALUES);
+const CONSENT_VALUE_SET: ReadonlySet<TelemetryConsent> = new Set(CONSENT_VALUES);
 
 export const KNOWN_ROUTES: ReadonlySet<string> = new Set([
   '/index',
@@ -200,7 +200,7 @@ export const ERROR_AREAS: ReadonlySet<TelemetryErrorArea> = new Set(ERROR_AREA_V
  * user input, so a shape check is sufficient and immune to rot when
  * Azure adds new regions.
  */
-export const AZURE_REGION_RE = /^[a-z]*(central|north|south|east|west)[a-z]*\d{0,2}$/i;
+const AZURE_REGION_RE = /^[a-z]*(central|north|south|east|west)[a-z]*\d{0,2}$/i;
 
 export function sanitizeKind(kind: string | undefined): string {
   if (!kind) return 'Unknown';

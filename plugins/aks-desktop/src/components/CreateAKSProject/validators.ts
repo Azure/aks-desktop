@@ -26,7 +26,7 @@ import { FormData, FormValidationResult, UserAssignment, ValidationResult } from
  * `resolveAzureADUser` fills in the other, so this only bites when that lookup
  * is unavailable too — in which case the field explains where to find both.
  */
-export const isValidAssignee = (
+const isValidAssignee = (
   assignment: Pick<UserAssignment, 'objectId' | 'upn'>,
   requiresUpn = false
 ): boolean =>
