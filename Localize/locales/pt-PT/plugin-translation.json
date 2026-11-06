@@ -755,5 +755,7 @@
   "GitHub account": "",
   "GitHub disconnect failed": "",
   "Retry disconnect": "",
-  "Saved GitHub credentials could not be removed. Retry disconnect.": ""
+  "Saved GitHub credentials could not be removed. Retry disconnect.": "",
+  "Kubernetes requires successThreshold to be 1 for liveness probes.": "",
+  "Kubernetes requires successThreshold to be 1 for startup probes.": ""
 }

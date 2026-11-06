@@ -93,12 +93,7 @@ export function generateYamlForContainer(config: ContainerDeploymentConfig): str
         : type === 'readiness'
         ? config.readinessFailure ?? 3
         : config.startupFailure ?? 30;
-    const success =
-      type === 'liveness'
-        ? config.livenessSuccess ?? 1
-        : type === 'readiness'
-        ? config.readinessSuccess ?? 1
-        : config.startupSuccess ?? 1;
+    const success = type === 'readiness' ? config.readinessSuccess ?? 1 : 1;
 
     return {
       httpGet: {
