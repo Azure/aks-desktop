@@ -97,6 +97,34 @@ describe('useFastPathOrchestration', () => {
   });
 
   describe('handleDeploy', () => {
+    it('preserves the selected registry scope and build arguments for secrets and PR generation', async () => {
+      const registryConfig = {
+        acrResourceId:
+          '/subscriptions/registry-sub/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/myacr',
+        acrLoginServer: 'myacr.azurecr.io',
+        buildArguments: { MODE: 'production' },
+      };
+      const { result } = renderHook(() =>
+        useFastPathOrchestration({ ...defaultProps, ...registryConfig })
+      );
+
+      await act(async () => {
+        await result.current.handleDeploy({ selection: dockerfileSelection });
+      });
+
+      expect(mockCreatePipelineSecrets).toHaveBeenCalledWith(
+        mockOctokit,
+        expect.objectContaining({ ...registryConfig, resourceGroup: 'rg-1' })
+      );
+      expect(mockCreateFastPathPR).toHaveBeenCalledWith(
+        mockOctokit,
+        expect.objectContaining({
+          pipelineConfig: expect.objectContaining(registryConfig),
+        })
+      );
+      expect(result.current.pipeline.state.config).toEqual(expect.objectContaining(registryConfig));
+    });
+
     it('should transition through generating → PR creating → PR awaiting merge', async () => {
       const { result } = renderHook(() => useFastPathOrchestration(defaultProps));
 

@@ -4,8 +4,10 @@
 import YAML, { Scalar } from 'yaml';
 import { normalizeK8sName } from '../../../utils/kubernetes/k8sNames';
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
+import { generateAcrBuildSteps } from './acrBuildSteps';
 import { getProbeConfigs, probeFieldName } from './probeHelpers';
 
+/** Inputs embedded in the deterministic ACR Tasks build and AKS deployment workflow. */
 export interface WorkflowConfig {
   /** App name used for the ACR image name and the `CONTAINER_NAME` env var. Must be a valid DNS-1123 label. */
   appName: string;
@@ -22,9 +24,16 @@ export interface WorkflowConfig {
    * k8s-deploy to silently skip substitution and deploy the `:latest` tag instead.
    */
   acrName: string;
+  /**
+   * Full registry ARM ID, independent of the cluster's resource group/subscription.
+   * When omitted, the runtime discovers the registry by name in `secrets.AZURE_SUBSCRIPTION_ID`.
+   */
+  acrResourceId?: string;
+  /** Non-secret Docker build arguments embedded in the workflow; omitted means no arguments. */
+  buildArguments?: Record<string, string>;
   /** Path to the Dockerfile, relative to repo root (e.g., `./Dockerfile` or `./src/web/Dockerfile`). */
   dockerfilePath: string;
-  /** Build context path passed to `az acr build` (e.g., `.` or `./src/web`). */
+  /** Repository-relative build context uploaded to ACR Tasks (e.g., `.` or `./src/web`). */
   buildContextPath: string;
   /** Default branch name used as the push trigger (e.g., `main`). */
   defaultBranch: string;
@@ -43,6 +52,11 @@ function singleQuoted(value: string): Scalar {
  * Generates a deterministic deploy-to-aks.yml workflow.
  * Builds a plain JS object and serializes via YAML.stringify.
  * Based on the proven aks-devhub workflow with all known bug fixes applied.
+ * The shared runtime files must be published separately alongside this workflow.
+ *
+ * @param config Registry, source paths and deployment target to embed in the workflow.
+ * @returns GitHub Actions workflow YAML with deployment gated on a successful ACR build.
+ * @throws If the app name contains no alphanumeric characters.
  */
 export function generateDeployWorkflow(config: WorkflowConfig): string {
   // Normalize to a valid DNS-1123 label so CONTAINER_NAME matches the K8s resource name
@@ -70,6 +84,7 @@ export function generateDeployWorkflow(config: WorkflowConfig): string {
     },
     env: {
       AZURE_CONTAINER_REGISTRY: config.acrName,
+      AZURE_ACR_RESOURCE_ID: config.acrResourceId ?? '',
       CONTAINER_NAME: appName,
       CLUSTER_NAME: config.clusterName,
       CLUSTER_RESOURCE_GROUP: config.resourceGroup,
@@ -87,21 +102,25 @@ export function generateDeployWorkflow(config: WorkflowConfig): string {
         'runs-on': 'ubuntu-latest',
         steps: [
           {
-            uses: 'actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1',
+            uses: 'actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5', // v4.3.1
           },
           {
             name: 'Azure login',
-            uses: 'azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0',
+            uses: 'azure/login@eec3c95657c1536435858eda1f3ff5437fee8474', // v2.3.0
             with: {
               'client-id': '${{ secrets.AZURE_CLIENT_ID }}',
               'tenant-id': '${{ secrets.AZURE_TENANT_ID }}',
               'subscription-id': '${{ secrets.AZURE_SUBSCRIPTION_ID }}',
             },
           },
-          {
-            name: 'Build and push image to ACR',
-            run: 'az acr build \\\n  --registry "${{ env.AZURE_CONTAINER_REGISTRY }}" \\\n  -f "${{ env.DOCKER_FILE }}" \\\n  --image "${{ env.CONTAINER_NAME }}:${{ github.sha }}" \\\n  "${{ env.BUILD_CONTEXT_PATH }}"\n',
-          },
+          ...generateAcrBuildSteps({
+            acrName: config.acrName,
+            acrResourceId: config.acrResourceId,
+            containerName: appName,
+            dockerfilePath: config.dockerfilePath,
+            buildContextPath: config.buildContextPath,
+            buildArguments: config.buildArguments,
+          }),
         ],
       },
       deploy: {
@@ -114,11 +133,11 @@ export function generateDeployWorkflow(config: WorkflowConfig): string {
         needs: ['buildImage'],
         steps: [
           {
-            uses: 'actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1',
+            uses: 'actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5', // v4.3.1
           },
           {
             name: 'Azure login',
-            uses: 'azure/login@eec3c95657c1536435858eda1f3ff5437fee8474 # v2.3.0',
+            uses: 'azure/login@eec3c95657c1536435858eda1f3ff5437fee8474', // v2.3.0
             with: {
               'client-id': '${{ secrets.AZURE_CLIENT_ID }}',
               'tenant-id': '${{ secrets.AZURE_TENANT_ID }}',
@@ -127,14 +146,14 @@ export function generateDeployWorkflow(config: WorkflowConfig): string {
           },
           {
             name: 'Set up kubelogin',
-            uses: 'azure/use-kubelogin@0ce7c36141aa27d4934872cf00b0120804c98a29 # v1.3',
+            uses: 'azure/use-kubelogin@0ce7c36141aa27d4934872cf00b0120804c98a29', // v1.3
             with: {
               'kubelogin-version': singleQuoted('v0.1.6'),
             },
           },
           {
             name: 'Get K8s context',
-            uses: 'azure/aks-set-context@c7eb093e5a5d47caa333f64974d5fd1cd4bf069d # v4.0.3',
+            uses: 'azure/aks-set-context@c7eb093e5a5d47caa333f64974d5fd1cd4bf069d', // v4.0.3
             with: {
               'resource-group': '${{ env.CLUSTER_RESOURCE_GROUP }}',
               'cluster-name': '${{ env.CLUSTER_NAME }}',
@@ -144,7 +163,7 @@ export function generateDeployWorkflow(config: WorkflowConfig): string {
           },
           {
             name: 'Deploy application',
-            uses: 'Azure/k8s-deploy@c8cfec839dc09896b3b8cc40cd13d04792680771 # v5.1.0',
+            uses: 'Azure/k8s-deploy@c8cfec839dc09896b3b8cc40cd13d04792680771', // v5.1.0
             with: {
               action: 'deploy',
               manifests: '${{ env.DEPLOYMENT_MANIFEST_PATH }}',
