@@ -39,7 +39,125 @@ extends:
     stages:
       - stage: Stage
         jobs:
+          - job: Arm64Job
+            timeoutInMinutes: 120
+            pool:
+              name: staging-pool-arm64-mariner-2
+              image: 1es-azlinux-3-arm64-custom-disk
+              os: linux
+              hostArchitecture: arm64
+            variables:
+              NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
+              NPM_CONFIG_REPLACE_REGISTRY_HOST: npmjs
+              PIP_INDEX_URL: https://packagefeedproxy.microsoft.io/pypi/simple/
+              GOMODCACHE: $(Pipeline.Workspace)/.go/pkg/mod
+              GOCACHE: $(Pipeline.Workspace)/.go/build
+              ARCH: arm64
+            templateContext:
+              outputs:
+              - output: pipelineArtifact
+                targetPath: $(Pipeline.Workspace)/aks-desktop-linux-arm64-unsigned
+                artifactName: aks-desktop-linux-arm64-unsigned
+            steps:
+              - checkout: self
+                submodules: false
+
+              - task: NodeTool@0
+                displayName: Install Node.js
+                retryCountOnTaskFailure: 3
+                inputs:
+                  versionSpec: ${{ parameters.nodeVersion }}
+
+              - bash: |
+                  set -e
+                  go_version="$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types build/go-version.ts)"
+                  echo "Headlamp Go toolchain: $go_version"
+                  echo "##vso[task.setvariable variable=HEADLAMP_GO_VERSION]$go_version"
+                displayName: Resolve Headlamp Go version
+
+              - task: GoTool@0
+                displayName: Install Go
+                retryCountOnTaskFailure: 3
+                inputs:
+                  version: $(HEADLAMP_GO_VERSION)
+              - bash: |
+                  set -e
+                  mkdir -p "$(GOMODCACHE)" "$(GOCACHE)"
+                  echo "GOMODCACHE=$(go env GOMODCACHE)"
+                  echo "GOCACHE=$(go env GOCACHE)"
+                  echo "GOTOOLCHAIN=$(go env GOTOOLCHAIN)"
+                displayName: 'Configure Go caches'
+
+              - task: Cache@2
+                displayName: 'Cache Go module downloads'
+                inputs:
+                  key: 'go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
+                  restoreKeys: |
+                    go-mod-v3 | "$(Agent.OS)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOMODCACHE)'
+                  cacheHitVar: GO_MODULE_CACHE_HIT
+
+              - task: Cache@2
+                displayName: 'Cache Go build outputs'
+                inputs:
+                  key: 'go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" | "$(Build.SourceVersion)"'
+                  restoreKeys: |
+                    go-build-v3 | "$(Agent.OS)" | "$(ARCH)" | "$(HEADLAMP_GO_VERSION)" |
+                  path: '$(GOCACHE)'
+                  cacheHitVar: GO_BUILD_CACHE_HIT
+
+              - bash: |
+                  echo "[build-timing] Go module cache result: $(GO_MODULE_CACHE_HIT)"
+                  echo "[build-timing] Go build cache result: $(GO_BUILD_CACHE_HIT)"
+                displayName: 'Report Go cache results'
+              - bash: |
+                  set -e
+                  echo "=== INSTALL BUILD PREREQUISITES START ==="
+                  packages=()
+                  command -v ld >/dev/null 2>&1 || packages+=(binutils)
+                  command -v make >/dev/null 2>&1 || packages+=(make)
+
+                  if [ "${#packages[@]}" -gt 0 ]; then
+                    echo "Installing via tdnf: ${packages[*]}"
+                    if [ "$(id -u)" -eq 0 ]; then
+                      tdnf install -y "${packages[@]}"
+                    else
+                      sudo -n tdnf install -y "${packages[@]}"
+                    fi
+                  else
+                    echo "Build prerequisites are already installed."
+                  fi
+
+                  command -v tar >/dev/null # Missing extraction/compression tooling must fail verification.
+                  echo "Installed build prerequisites:"
+                  ld --version | head -n 1
+                  make --version | head -n 1
+                  echo "=== INSTALL BUILD PREREQUISITES END ==="
+                displayName: "Install build prerequisites"
+              - bash: |
+                  set -euo pipefail
+                  export GOPROXY="https://proxy.golang.org,direct"
+                  export GOSUMDB="sum.golang.org"
+                  export GONOPROXY=""
+                  export GOPRIVATE=""
+                  unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
+                  npm ci --prefix .config/npm --ignore-scripts --no-audit --no-fund
+                  echo "##vso[task.prependpath]$PWD/.config/npm/node_modules/.bin"
+                  export PATH="$PWD/.config/npm/node_modules/.bin:$PATH"
+                  npm ci --prefer-offline --no-audit --no-fund
+                  npm run build:linux:arm64
+                  npm run test:post-build
+                  version="$(node -p "require('./package.json').version")"
+                  dist="node_modules/@headlamp-k8s/headlamp-source/source/app/dist"
+                  stage="$(Pipeline.Workspace)/aks-desktop-linux-arm64-unsigned"
+                  npm exec -- tsx build/linux-package-verification.ts --stage-from="$dist" --dir="$stage" --version="$version" --arches=arm64
+                  npm exec -- tsx build/linux-package-verification.ts --dir="$stage" --version="$version" --arches=arm64
+                displayName: Build and verify native ARM64 unsigned packages
+                env:
+                  BUILD_BUILDNUMBER: $(Build.BuildNumber)
+
           - job: HostJob
+            dependsOn: Arm64Job
             timeoutInMinutes: 120
             variables:
               NPM_CONFIG_REGISTRY: https://packagefeedproxy.microsoft.io/npm/
@@ -167,6 +285,7 @@ extends:
                     echo "Build prerequisites are already installed."
                   fi
 
+                  command -v tar >/dev/null # Missing extraction/compression tooling must fail verification.
                   echo "Installed build prerequisites:"
                   ld --version | head -n 1
                   make --version | head -n 1
@@ -218,8 +337,16 @@ extends:
                   ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ 2>/dev/null || echo "Headlamp app dist not found"
                   echo "=== END POST-BUILD DEBUG ==="
                 displayName: "Build AKS desktop (Linux)"
+                env:
+                  BUILD_BUILDNUMBER: $(Build.BuildNumber)
 
-              # Find and copy the built executable to workspace dir
+              - task: DownloadPipelineArtifact@2
+                displayName: Download native ARM64 unsigned packages
+                inputs:
+                  artifactName: aks-desktop-linux-arm64-unsigned
+                  targetPath: $(Pipeline.Workspace)/arm64-download
+
+              # Select exact native packages, validate the downloaded producer, then collect.
               - bash: |
                   set -e  # fail on error
                   echo "=== COPY EXECUTABLE DEBUG START ==="
@@ -239,48 +366,21 @@ extends:
 
                   echo "=== COPY EXECUTABLE DEBUG END ==="
 
-                  echo "Finding built .deb file..."
-                  DEB_PATH=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*.deb" -print -quit)
-
-                  if [ -z "$DEB_PATH" ]; then
-                    echo "❌ No aks-desktop .deb file found in the Headlamp app dist!" >&2
-                    echo "Listing Headlamp app dist contents:"
-                    ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ || echo "Headlamp app dist directory not found"
-                    exit 1
-                  fi
-
-                  echo "✅ Found: $DEB_PATH"
-                  echo "File size: $(ls -lh "$DEB_PATH" | awk '{print $5}')"
-                  echo "File permissions: $(ls -la "$DEB_PATH")"
-
-                  echo "Finding built .tar.gz files..."
-                  TARGZ_FILES=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*.tar.gz" 2>/dev/null || true)
-
-                  if [ -z "$TARGZ_FILES" ]; then
-                    echo "No aks-desktop .tar.gz files found in the Headlamp app dist"
-                  else
-                    echo "Found tar.gz files:"
-                    echo "$TARGZ_FILES" | while read -r file; do
-                      echo "  - $file ($(ls -lh "$file" | awk '{print $5}'))"
-                    done
-                  fi
-
-                  mkdir -p "$(Pipeline.Workspace)/aks-desktop-deb-unsigned"
-                  cp "$DEB_PATH" "$(Pipeline.Workspace)/aks-desktop-deb-unsigned/"
-                  echo "Copied .deb to $(Pipeline.Workspace)/aks-desktop-deb-unsigned/"
-
-                  # Copy tar.gz files to unsigned folder (they don't need signing, pattern is *.deb)
-                  if [ -n "$TARGZ_FILES" ]; then
-                    for file in $TARGZ_FILES; do
-                      cp "$file" "$(Pipeline.Workspace)/aks-desktop-deb-unsigned/"
-                      echo "Copied $(basename "$file") to $(Pipeline.Workspace)/aks-desktop-deb-unsigned/"
-                    done
-                  fi
+                  version="$(node -p "require('./package.json').version")"
+                  dist="node_modules/@headlamp-k8s/headlamp-source/source/app/dist"
+                  stage="$(Pipeline.Workspace)/aks-desktop-deb-unsigned"
+                  arm="$(Pipeline.Workspace)/arm64-download"
+                  npm exec -- tsx build/linux-package-verification.ts --dir="$arm" --version="$version" --arches=arm64
+                  npm exec -- tsx build/linux-package-verification.ts --stage-from="$dist" --dir="$stage" --version="$version" --arches=x64
+                  cp "$arm/aks-desktop_${version}-1_arm64.deb" "$stage/"
+                  cp "$arm/aks-desktop-${version}-linux-arm64.tar.gz" "$stage/"
 
                   # TODO: Remove debug logging after pipeline is stable
                   echo "Verifying copy:"
                   ls -la "$(Pipeline.Workspace)/aks-desktop-deb-unsigned/"
                 displayName: "Copy built DEB and tar.gz files to workspace directory"
+                env:
+                  BUILD_BUILDNUMBER: $(Build.BuildNumber)
 
               # Verify contents in workspace directory
               - bash: |
@@ -304,6 +404,10 @@ extends:
 
               # TODO: Remove debug logging after pipeline is stable
               - bash: |
+                  set -euo pipefail
+                  version="$(node -p "require('./package.json').version")"
+                  stage="$(Pipeline.Workspace)/aks-desktop-deb-unsigned"
+                  npm exec -- tsx build/linux-package-verification.ts --dir="$stage" --version="$version" --arches=x64,arm64
                   echo "=== SIGNING DEBUG START ==="
                   echo "About to start ESRP code signing..."
                   echo "Target folder: $(Pipeline.Workspace)/aks-desktop-deb-unsigned"
@@ -315,6 +419,8 @@ extends:
                   echo "Certificate: azcu-ersp-corp"
                   echo "=== SIGNING DEBUG END ==="
                 displayName: "Debug: Pre-Signing"
+                env:
+                  BUILD_BUILDNUMBER: $(Build.BuildNumber)
               - task: EsrpCodeSigning@5
                 displayName: "ESRP CodeSigning"
                 condition: succeeded()

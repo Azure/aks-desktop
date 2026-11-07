@@ -32,6 +32,12 @@ jobs:
           ref: ${{ github.event.inputs.aks_plugin_branch }}
           submodules: false
 
+      - name: Record native build identity
+        run: |
+          set -euo pipefail
+          mkdir -p linux-proof
+          { git rev-parse HEAD; uname -m; node -p 'process.arch'; } 2>&1 | tee linux-proof/identity.log
+
       - name: Setup nodejs
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -59,11 +65,64 @@ jobs:
       - name: Setup AKS desktop and Build Headlamp (Linux)
         run: npm run build:linux:${{ matrix.arch }}
 
+      # Capture before strict checks, including when the build itself failed.
+      # Diagnostic command failures are recorded; they never change the failed job result.
+      - name: Capture package diagnostics
+        if: always()
+        run: |
+          mkdir -p linux-proof
+          dist="node_modules/@headlamp-k8s/headlamp-source/source/app/dist"
+          {
+            git rev-parse HEAD
+            uname -m
+            node -p 'process.arch'
+            find "$dist" -maxdepth 2 -printf '%p %s bytes\n'
+            for file in "$dist"/*.deb "$dist"/*.tar.gz; do
+              [ -f "$file" ] || continue
+              echo "=== $file ==="
+              sha256sum "$file"
+              case "$file" in
+                *.deb) dpkg-deb -I "$file"; dpkg-deb -c "$file" | head -n 150 ;;
+                *.tar.gz) tar -tf "$file" | head -n 150 ;;
+              esac
+            done
+          } > linux-proof/packages.log 2>&1 || true
+          cat linux-proof/packages.log
+          unpacked="$dist/linux-${{ matrix.arch }}-unpacked"
+          [ -d "$unpacked" ] || unpacked="$dist/linux-unpacked"
+          if [ -x node_modules/.bin/tsx ]; then
+            node_modules/.bin/tsx build/linux-package-verification.ts --elf-tree="$unpacked" --arches=${{ matrix.arch }} > linux-proof/elf-inventory.log 2>&1 || true
+          else
+            echo 'ELF verifier unavailable after failed bootstrap' > linux-proof/elf-inventory.log
+          fi
+          cat linux-proof/elf-inventory.log
+
       - name: Validate the packaged application
-        run: npm run test:distribution -- --no-sandbox
+        run: |
+          set -euo pipefail
+          npm run test:distribution -- --no-sandbox 2>&1 | tee linux-proof/native-cli-and-app.log
+
+      - name: Verify and stage exact Linux packages
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          dist="node_modules/@headlamp-k8s/headlamp-source/source/app/dist"
+          npm exec -- tsx build/linux-package-verification.ts --stage-from="$dist" --dir=linux-packages --version="$version" --arches=${{ matrix.arch }} 2>&1 | tee linux-proof/artifact-verification.log
+          npm exec -- tsx build/linux-package-verification.ts --dir=linux-packages --version="$version" --arches=${{ matrix.arch }} 2>&1 | tee -a linux-proof/artifact-verification.log
 
       - name: Upload Linux build artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: aks-desktop-linux-${{ matrix.arch }}
-          path: node_modules/@headlamp-k8s/headlamp-source/source/app/dist/aks-desktop*
+          if-no-files-found: error
+          path: |
+            linux-packages/aks-desktop_*-1_*.deb
+            linux-packages/aks-desktop-*-linux-*.tar.gz
+
+      - name: Upload Linux proof
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aks-desktop-linux-${{ matrix.arch }}-proof
+          if-no-files-found: error
+          path: linux-proof/*.log

@@ -34,8 +34,8 @@ interface PackageOptions {
 }
 
 const PACKAGE_ARGS: Record<string, string[]> = {
-  'linux:x64': ['--linux', '--x64'],
-  'linux:arm64': ['--linux', 'AppImage', 'tar.gz', '--arm64'],
+  'linux:x64': ['--linux', 'AppImage', 'deb', 'tar.gz', '--x64'],
+  'linux:arm64': ['--linux', 'deb', 'tar.gz', '--arm64'],
   'darwin:x64': ['--mac', 'dmg', '--x64'],
   'darwin:arm64': ['--mac', 'dmg', '--arm64'],
   'win32:x64': ['--win', '--x64'],

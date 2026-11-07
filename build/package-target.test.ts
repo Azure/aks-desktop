@@ -238,10 +238,10 @@ test('assembles an unpacked app without running distributable packaging', t => {
 });
 
 test('maps each supported target to one Electron Builder architecture', () => {
-  assert.deepEqual(packageArguments('linux', 'x64'), ['--linux', '--x64']);
+  assert.deepEqual(packageArguments('linux', 'x64'), ['--linux', 'AppImage', 'deb', 'tar.gz', '--x64']);
   assert.deepEqual(packageArguments('linux', 'arm64'), [
     '--linux',
-    'AppImage',
+    'deb',
     'tar.gz',
     '--arm64',
   ]);
