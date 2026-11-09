@@ -23,6 +23,7 @@ import {
 
 // Mock secure-storage to simulate an environment where secure storage is unavailable
 vi.mock('./secure-storage', () => ({
+  isSecureStorageAvailable: vi.fn().mockReturnValue(false),
   secureStorageSave: vi.fn().mockResolvedValue(false),
   secureStorageLoad: vi.fn().mockResolvedValue(null),
   secureStorageDelete: vi.fn().mockResolvedValue(false),
@@ -342,9 +343,9 @@ describe('github-auth', () => {
       expect(await loadTokens()).toBeNull();
     });
 
-    it('should call secureStorageDelete when clearing tokens', async () => {
+    it('does not claim cleanup success outside development when native storage is unavailable', async () => {
       const { secureStorageDelete } = await import('./secure-storage');
-      await clearTokens();
+      await expect(clearTokens()).resolves.toBe(false);
       expect(secureStorageDelete).toHaveBeenCalledWith('aks-desktop:github-auth');
     });
   });

@@ -34,8 +34,8 @@ interface PackageOptions {
 }
 
 const PACKAGE_ARGS: Record<string, string[]> = {
-  'linux:x64': ['--linux', '--x64'],
-  'linux:arm64': ['--linux', 'AppImage', 'tar.gz', '--arm64'],
+  'linux:x64': ['--linux', 'AppImage', 'deb', 'tar.gz', '--x64'],
+  'linux:arm64': ['--linux', 'deb', 'tar.gz', '--arm64'],
   'darwin:x64': ['--mac', 'dmg', '--x64'],
   'darwin:arm64': ['--mac', 'dmg', '--arm64'],
   'win32:x64': ['--win', '--x64'],
@@ -98,8 +98,10 @@ export function packageEnvironment(
   rootDir = ROOT_DIR,
   env: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
+  const project = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
   return {
     ...env,
+    APP_VERSION: project.version,
     GOARCH: target.arch === 'x64' ? 'amd64' : target.arch,
     HEADLAMP_BUILD_MANIFEST: BUILD_MANIFEST,
     HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'aks-desktop,aks-desktop-theme,plugin-catalog',

@@ -357,6 +357,37 @@ test('root builds package supported host targets independently', () => {
   assert.match(rootManifest.scripts['headlamp:assemble'], /headlamp:translations/);
 });
 
+test('explicit Linux targets do not inherit a foreign architecture from consumer configuration', () => {
+  const fromApp = require('node:module').createRequire(path.join(HEADLAMP_SOURCE_DIR, 'app', 'package.json'));
+  const { computeArchToTargetNamesMap } = fromApp('app-builder-lib/out/targets/targetFactory');
+  const { Platform } = fromApp('app-builder-lib/out/core');
+  const { Arch } = fromApp('builder-util');
+  const { packageArguments } = require(path.join(ROOT_DIR, 'build', 'package-target.ts'));
+  for (const arch of ['x64', 'arm64']) {
+    const targets = packageArguments('linux', arch).slice(1, -1);
+    const result = computeArchToTargetNamesMap(new Map([[Arch[arch], targets]]), {
+      platformSpecificBuildOptions: { target: rootManifest.headlamp.targets.linux },
+    }, Platform.LINUX);
+    assert.deepEqual([...result.keys()], [Arch[arch]], `Only ${arch} packages may be produced`);
+    assert.deepEqual(result.get(Arch[arch]), targets);
+  }
+});
+
+test('consumer Linux targets enable native ARM64 DEB without changing other platforms', async () => {
+  const { createProductTemplate } = require(path.join(PACKAGE_DIR, 'src/lib/product-manifest.ts'));
+  const { applyBuildTargets } = await import(pathToFileURL(
+    path.join(HEADLAMP_SOURCE_DIR, 'app/scripts/build-manifest.ts')
+  ).href);
+  const configured = applyBuildTargets(appManifest.build, createProductTemplate(rootManifest, 'linux'));
+  assert.deepEqual(configured.linux.target, [
+    { target: 'AppImage', arch: ['x64'] },
+    { target: 'deb', arch: ['x64', 'arm64'] },
+    { target: 'tar.gz', arch: ['x64', 'arm64'] },
+  ]);
+  assert.deepEqual(configured.mac, appManifest.build.mac);
+  assert.deepEqual(configured.win, appManifest.build.win);
+});
+
 test('the combined macOS build reports shared and per-target timings', () => {
   const workflow = fs.readFileSync(
     path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
@@ -429,6 +460,15 @@ test('cross-built ARM tools use structural verification on the Intel host', () =
   );
 });
 
+test('Linux post-build requires ELF inspection and native offline CLI proof without timeout skips', () => {
+  const verifier = fs.readFileSync(path.join(ROOT_DIR, 'build/verify-bundled-tools.ts'), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(verifier, /verifyLinuxApp\(BUILD_DIST_DIR, TARGET_ARCH, PRODUCT_CONFIG\.product\.version\)/);
+  assert.ok(verifier.indexOf('verifyLinuxApp(BUILD_DIST_DIR') < verifier.lastIndexOf('testAzureCliInvocation();'));
+  assert.match(verifier, /verifyLinuxProxyHelp\(azExecutable, TARGET_ARCH\)/);
+  assert.match(verifier, /withLinuxAzureConfig\(azExecutable/);
+  assert.equal(verifier.match(/CURRENT_PLATFORM !== 'linux' && errorMessage\.includes\('ETIMEDOUT'\)/g)?.length, 2);
+  assert.equal(verifier.match(/CURRENT_PLATFORM !== 'linux',\n\s+`Skipped/g)?.length, 2);
+});
 test('macOS builds cache verified Azure CLI extensions after npm ci', () => {
   const workflow = fs.readFileSync(
     path.join(ROOT_DIR, '.github', 'workflows', '1es-pipeline-mac.yml'),
@@ -446,10 +486,72 @@ test('macOS builds cache verified Azure CLI extensions after npm ci', () => {
   assert.ok(workflow.indexOf('Cache Azure CLI extensions') < workflow.indexOf('Build AKS desktop'));
 });
 
+test('Linux 1ES collects two native unsigned producers before its single DEB signing pass', () => {
+  const workflow = fs.readFileSync(path.join(ROOT_DIR, '.github/workflows/1es-pipeline-linux.yml'), 'utf8');
+  const arm = workflow.slice(workflow.indexOf('- job: Arm64Job'), workflow.indexOf('- job: HostJob'));
+  const host = workflow.slice(workflow.indexOf('- job: HostJob'));
+  function assertExplicitArmPool(job: string): void {
+    for (const field of ['name', 'image']) {
+      const value = new RegExp(`^\\s+${field}:([^#\\n]*)`, 'm').exec(job)?.[1].trim().replace(/^(['"])(.*)\1$/, '$2').trim();
+      assert.ok(value && value.toLowerCase() !== 'default', `ARM pool requires explicit ${field}, not a pool default`);
+    }
+  }
+  assertExplicitArmPool(arm);
+  // Filling the approved infrastructure gap must not require changing this contract.
+  assertExplicitArmPool(arm.replace('staging-pool-arm64-mariner-2', 'user-verified-arm64-pool').replace('TODO_VERIFIED_ARM64_IMAGE_ALIAS', 'user-verified-arm64-image'));
+  assert.throws(() => assertExplicitArmPool(arm.replace(/image:[^\n]+/, 'image: # no alias')), /explicit image/);
+  assert.throws(() => assertExplicitArmPool(arm.replace(/image:[^\n]+/, 'image: default')), /explicit image/);
+  assert.throws(() => assertExplicitArmPool(arm.replace(/image:[^\n]+/, "image: ''")), /explicit image/);
+  assert.match(arm, /hostArchitecture: arm64/);
+  assert.match(arm, /ARCH: arm64/);
+  assert.match(arm, /artifactName: aks-desktop-linux-arm64-unsigned/);
+  assert.match(arm, /npm run build:linux:arm64/);
+  assert.match(arm, /npm run test:post-build/);
+  assert.match(arm, /--stage-from="\$dist" --dir="\$stage" --version="\$version" --arches=arm64/);
+  assert.doesNotMatch(arm, /EsrpCodeSigning|UseDotNet|AppImage/);
+  assert.match(host, /dependsOn: Arm64Job/);
+  assert.match(host, /task: DownloadPipelineArtifact@2[\s\S]*artifactName: aks-desktop-linux-arm64-unsigned[\s\S]*targetPath: \$\(Pipeline.Workspace\)\/arm64-download/);
+  assert.match(host, /--dir="\$arm" --version="\$version" --arches=arm64/);
+  assert.match(host, /--stage-from="\$dist" --dir="\$stage" --version="\$version" --arches=x64/);
+  assert.match(host, /aks-desktop_\$\{version\}-1_arm64\.deb/);
+  assert.match(host, /aks-desktop-\$\{version\}-linux-arm64\.tar\.gz/);
+  assert.match(host, /--dir="\$stage" --version="\$version" --arches=x64,arm64/);
+  assert.ok(host.indexOf('--arches=x64,arm64') < host.indexOf('- task: EsrpCodeSigning@5'));
+  assert.equal(workflow.match(/task: EsrpCodeSigning@5/g)?.length, 1);
+  assert.match(host, /Pattern: "\*\.deb"/);
+  assert.doesNotMatch(workflow, /DEB_PATH=|TARGZ_FILES=|-print -quit/);
+  assert.equal(workflow.match(/BUILD_BUILDNUMBER: \$\(Build.BuildNumber\)/g)?.length, 4);
+  assert.match(workflow, /artifactName: aks-desktop-signed/);
+});
+test('GitHub Linux captures native proof even on failure and uploads only validated DEB/tar packages', () => {
+  const workflow = fs.readFileSync(path.join(ROOT_DIR, '.github/workflows/build-app-linux.yml'), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(workflow, /arch: x64\n\s+runner: ubuntu-24\.04\n/);
+  assert.match(workflow, /arch: arm64\n\s+runner: ubuntu-24\.04-arm/);
+  assert.match(workflow, /ref: \$\{\{ github.event.inputs.aks_plugin_branch \}\}/);
+  assert.match(workflow, /uname -m/); assert.match(workflow, /process.arch/); assert.match(workflow, /git rev-parse HEAD/);
+  const capture = workflow.slice(workflow.indexOf('- name: Capture package diagnostics'), workflow.indexOf('- name: Validate the packaged application'));
+  assert.match(capture, /if: always\(\)/);
+  assert.match(capture, /dpkg-deb -I "\$file"/);
+  assert.match(capture, /sha256sum "\$file"/);
+  assert.match(capture, /tar -tf "\$file"/);
+  assert.match(capture, /--elf-tree="\$unpacked"/);
+  assert.ok(workflow.indexOf('Capture package diagnostics') > workflow.indexOf('npm run build:linux:'));
+  assert.match(workflow, /set -euo pipefail[\s\S]+npm run test:distribution -- --no-sandbox 2>&1 \| tee/);
+  assert.match(workflow, /--stage-from="\$dist" --dir=linux-packages --version="\$version" --arches=\$\{\{ matrix.arch \}\}/);
+  assert.doesNotMatch(workflow, /continue-on-error|dist\/aks-desktop\*/);
+  const upload = workflow.slice(workflow.indexOf('- name: Upload Linux build artifact'), workflow.indexOf('- name: Upload Linux proof'));
+  assert.match(upload, /if-no-files-found: error/);
+  assert.match(upload, /path: \|\n\s+linux-packages\/aks-desktop_\*-1_\*\.deb\n\s+linux-packages\/aks-desktop-\*-linux-\*\.tar\.gz/);
+  assert.doesNotMatch(upload, /AppImage/);
+  const proof = workflow.slice(workflow.indexOf('- name: Upload Linux proof'));
+  assert.match(proof, /if: always\(\)/);
+  assert.match(proof, /name: aks-desktop-linux-\$\{\{ matrix.arch \}\}-proof/);
+  assert.match(proof, /if-no-files-found: error/);
+});
 test('build workflows derive Go and cache modules plus compiled outputs', () => {
   for (const [file, expectedCacheCount] of [
     ['1es-pipeline.yml', 1],
-    ['1es-pipeline-linux.yml', 1],
+    ['1es-pipeline-linux.yml', 2],
     ['1es-pipeline-mac.yml', 1],
   ] as const) {
     const workflow = fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', file), 'utf8');

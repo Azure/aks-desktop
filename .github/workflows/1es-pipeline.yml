@@ -196,22 +196,22 @@ extends:
 
                   echo "=== COPY EXECUTABLE DEBUG END ==="
 
-                  echo "Finding built .exe file..."
-                  EXE_PATH=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop-*-win-x64.exe" -print -quit)
-
-                  if [ -z "$EXE_PATH" ]; then
-                    echo "❌ No aks-desktop .exe file found in the Headlamp app dist!" >&2
-                    echo "Listing Headlamp app dist contents:"
-                    ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ || echo "Headlamp app dist directory not found"
-                    exit 1
-                  fi
-
-                  echo "✅ Found: $EXE_PATH"
-                  echo "File size: $(ls -lh "$EXE_PATH" | awk '{print $5}')"
-                  echo "File permissions: $(ls -la "$EXE_PATH")"
-
                   mkdir -p "$(Pipeline.Workspace)/aks-desktop-exe-unsigned"
-                  cp "$EXE_PATH" "$(Pipeline.Workspace)/aks-desktop-exe-unsigned/"
+                  for arch in x64 arm64; do
+                    echo "Finding built $arch .exe file..."
+                    EXE_PATH=$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop-*-win-$arch.exe" -print -quit)
+
+                    if [ -z "$EXE_PATH" ]; then
+                      echo "❌ No aks-desktop $arch .exe file found in the Headlamp app dist!" >&2
+                      ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ || echo "Headlamp app dist directory not found"
+                      exit 1
+                    fi
+
+                    echo "✅ Found: $EXE_PATH"
+                    echo "File size: $(ls -lh "$EXE_PATH" | awk '{print $5}')"
+                    echo "File permissions: $(ls -la "$EXE_PATH")"
+                    cp "$EXE_PATH" "$(Pipeline.Workspace)/aks-desktop-exe-unsigned/"
+                  done
                   echo "Copied to $(Pipeline.Workspace)/aks-desktop-exe-unsigned/"
 
                   # TODO: Remove debug logging after pipeline is stable

@@ -311,13 +311,11 @@ export function GitHubPipelineWizardPure({
         return (
           <ConnectSourceStep
             authState={gitHubAuth.authState}
-            onStartOAuth={() => gitHubAuth.startOAuth()}
             octokit={gitHubAuth.octokit}
             selectedRepo={selectedRepo}
             onRepoSelect={setSelectedRepo}
             appInstallNeeded={isAppInstallNeeded}
             appInstallUrl={appInstallUrl}
-            authCompleted={deploymentState !== 'GitHubAuthorizationNeeded'}
           />
         );
       }

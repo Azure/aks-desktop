@@ -11,6 +11,11 @@ function main() {
   const { packageManager } = JSON.parse(fs.readFileSync('package.json', 'utf8'));
   const version = /^npm@(\d+\.\d+\.\d+)$/.exec(packageManager || '')?.[1];
   if (!version) throw new Error('Windows CI requires an exact npm version in packageManager');
+  const toolDir = path.resolve('.config', 'npm');
+  const toolManifest = JSON.parse(fs.readFileSync(path.join(toolDir, 'package.json'), 'utf8'));
+  if (toolManifest.dependencies?.npm !== version) {
+    throw new Error('CI npm dependency must match packageManager');
+  }
   const bootstrapCli = process.env.npm_execpath;
   if (!bootstrapCli || !fs.existsSync(bootstrapCli)) {
     throw new Error('Missing npm_execpath; invoke through npm run ci:windows');
@@ -20,8 +25,11 @@ function main() {
   // Node creates native Windows paths; none pass through MSYS conversion or Bash PATH.
   const npmRoot = fs.mkdtempSync(path.join(process.env.AGENT_TEMPDIRECTORY || os.tmpdir(), 'aks-npm-'));
   try {
-    execFileSync(process.execPath, [bootstrapCli, 'install', '--prefix', npmRoot,
-      '--no-save', '--ignore-scripts', '--no-audit', '--no-fund', packageManager], { stdio: 'inherit' });
+    for (const file of ['package.json', 'package-lock.json']) {
+      fs.copyFileSync(path.join(toolDir, file), path.join(npmRoot, file));
+    }
+    execFileSync(process.execPath, [bootstrapCli, 'ci', '--prefix', npmRoot,
+      '--ignore-scripts', '--no-audit', '--no-fund'], { stdio: 'inherit' });
     const cli = path.join(npmRoot, 'node_modules', 'npm', 'bin', 'npm-cli.js');
     if (!fs.existsSync(cli)) throw new Error(`Pinned npm CLI was not installed: ${cli}`);
     const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === 'path') || 'PATH';
@@ -34,7 +42,14 @@ function main() {
     const actual = execFileSync(process.execPath, [cli, '--version'], { env, encoding: 'utf8' }).trim();
     if (actual !== version) throw new Error(`Expected npm ${version}, got ${actual}`);
     console.log(`Windows CI: verified npm ${actual}`);
-    for (const args of [['ci'], ['run', 'build:win-ci'], ['run', 'test:distribution']]) {
+    // ARM64 cannot launch on this x64 release host; native ARM64 CI covers that.
+    for (const args of [
+      ['ci'],
+      ['run', 'build:win-ci'],
+      ['run', 'test:distribution'],
+      ['run', 'build:win:arm64', '--', '--reuse-prepared-assets'],
+      ['run', 'test:post-build'],
+    ]) {
       execFileSync(process.execPath, [cli, ...args], { env, stdio: 'inherit' });
     }
   } finally {

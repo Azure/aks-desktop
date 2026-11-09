@@ -43,10 +43,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm_root="$(mktemp -d "$RUNNER_TEMP/npm.XXXXXX")"
-          npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
-          echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
-          export PATH="$npm_root/node_modules/.bin:$PATH"
+          npm ci --prefix .config/npm --ignore-scripts --no-audit --no-fund
+          echo "$PWD/.config/npm/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$PWD/.config/npm/node_modules/.bin:$PATH"
           npm ci --prefer-offline --no-audit --no-fund
 
       - name: Run plugin packaging tests
@@ -67,10 +66,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm_root="$(mktemp -d "$RUNNER_TEMP/npm.XXXXXX")"
-          npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
-          echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
-          export PATH="$npm_root/node_modules/.bin:$PATH"
+          npm ci --prefix .config/npm --ignore-scripts --no-audit --no-fund
+          echo "$PWD/.config/npm/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$PWD/.config/npm/node_modules/.bin:$PATH"
           npm ci --prefer-offline --no-audit --no-fund
 
       - name: Test the package CLI
@@ -119,12 +117,18 @@ jobs:
           - platform: Windows x64
             runner: windows-latest
             distribution-args: ""
+          - platform: Windows ARM64
+            runner: windows-11-arm
+            distribution-args: ""
     defaults:
       run:
         shell: bash
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Keep the tester's ARM64 installer tied to the PR head, not its merge ref.
+          ref: ${{ matrix.runner == 'windows-11-arm' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -147,13 +151,16 @@ jobs:
       - name: Setup pinned npm on Linux and macOS
         if: runner.os != 'Windows'
         run: |
-          npm_root="$(mktemp -d "$RUNNER_TEMP/npm.XXXXXX")"
-          npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
-          echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
+          npm ci --prefix .config/npm --ignore-scripts --no-audit --no-fund
+          echo "$PWD/.config/npm/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Setup pinned npm on Windows
         if: runner.os == 'Windows'
-        run: npm install --global --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
+        shell: pwsh
+        run: |
+          npm ci --prefix .config/npm --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Join-Path $env:GITHUB_WORKSPACE '.config/npm/node_modules/.bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install dependencies
         run: npm ci
@@ -186,16 +193,25 @@ jobs:
 
       - name: Upload packaged theme test diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packaged-theme-${{ runner.os }}-${{ runner.arch }}
           path: test/packaged/test-results
           if-no-files-found: ignore
           retention-days: 3
 
+      - name: Upload Windows ARM64 installer
+        if: github.event_name == 'pull_request' && runner.os == 'Windows' && runner.arch == 'ARM64'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aks-desktop-win-arm64
+          path: node_modules/@headlamp-k8s/headlamp-source/source/app/dist/aks-desktop-*-win-arm64.exe
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Reinstall after application assembly
         run: |
-          npm install --no-audit --no-fund
+          npm ci --no-audit --no-fund
           npm run test:headlamp-patches
 
   find_changed_plugins:
@@ -400,10 +416,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm_root="$(mktemp -d "$RUNNER_TEMP/npm.XXXXXX")"
-          npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
-          echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
-          export PATH="$npm_root/node_modules/.bin:$PATH"
+          npm ci --prefix .config/npm --ignore-scripts --no-audit --no-fund
+          echo "$PWD/.config/npm/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$PWD/.config/npm/node_modules/.bin:$PATH"
           npm ci --prefer-offline --no-audit --no-fund
 
       - name: Generate English locale (aks-desktop)

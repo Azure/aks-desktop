@@ -51,10 +51,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm_root="$(mktemp -d "$RUNNER_TEMP/npm.XXXXXX")"
-          npm install --prefix "$npm_root" --no-save --ignore-scripts --no-audit --no-fund "$(node -p "require('./package.json').packageManager")"
-          echo "$npm_root/node_modules/.bin" >> "$GITHUB_PATH"
-          export PATH="$npm_root/node_modules/.bin:$PATH"
+          npm ci --prefix .config/npm --ignore-scripts --no-audit --no-fund
+          echo "$PWD/.config/npm/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$PWD/.config/npm/node_modules/.bin:$PATH"
           npm ci --prefer-offline --no-audit --no-fund
 
       - name: Setup AKS desktop and Build Headlamp (macOS)

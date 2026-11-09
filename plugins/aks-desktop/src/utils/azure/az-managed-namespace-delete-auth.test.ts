@@ -28,6 +28,7 @@ beforeEach(() => {
     stdout: JSON.stringify(
       args[0] === 'cloud'
         ? {
+            name: 'AzureCloud',
             endpoints: {
               resourceManager: cloud.endpoint,
               activeDirectoryResourceId: cloud.audience,

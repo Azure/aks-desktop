@@ -14,6 +14,7 @@ import { execFileSync, execSync } from 'child_process';
 import { readBuildTarget, resolveTargetArch } from './build-target';
 import { readAzureCliConfig, resolveAzCliVersion, UNIX_AZ_CLI_EXTENSIONS_DIRNAME } from './az-cli-config';
 import { resolveAzureCliTarget } from './azure-cli-config';
+import { verifyLinuxApp, verifyLinuxProxyHelp, withLinuxAzureConfig } from './linux-package-verification';
 import {
   canInvokePackagedRuntime,
   getExtensionTimeoutResult,
@@ -447,7 +448,7 @@ function testAzureCliInvocation(): void {
   if (CURRENT_PLATFORM === 'win32') {
     azExecutable = path.join(binDir, 'az.cmd');
   } else {
-    azExecutable = path.join(binDir, 'az');
+    azExecutable = path.join(binDir, CURRENT_PLATFORM === 'linux' ? 'az-wrapper' : 'az');
   }
 
   if (!fs.existsSync(azExecutable)) {
@@ -479,7 +480,7 @@ function testAzureCliInvocation(): void {
     const aksPreviewPath = path.join(extensionDir, 'aks-preview');
     addResult(
       'Azure CLI invocation',
-      true,
+      CURRENT_PLATFORM !== 'linux',
       `Skipped ${AZURE_CLI_RUNTIME_ARCH} runtime invocation on ${process.arch} host`
     );
     addResult(
@@ -503,12 +504,14 @@ function testAzureCliInvocation(): void {
 
   try {
     // Try to get version with increased timeout for CI environments
-    const version = execSync(`"${azExecutable}" version --output json`, {
-      encoding: 'utf-8',
-      timeout: 120000, // Increased to 120 seconds for CI environments
-      stdio: ['pipe', 'pipe', 'pipe'],
-      maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-    }).trim();
+    const version = CURRENT_PLATFORM === 'linux'
+      ? withLinuxAzureConfig(azExecutable, env => execFileSync(azExecutable, ['version', '--output', 'json'], {
+          encoding: 'utf8', timeout: 120000, maxBuffer: 10 * 1024 * 1024, env,
+        }).trim())
+      : execSync(`"${azExecutable}" version --output json`, {
+          encoding: 'utf-8', timeout: 120000, stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 10 * 1024 * 1024,
+        }).trim();
+    if (CURRENT_PLATFORM === 'linux') console.log(`Native Azure CLI version JSON:\n${version}`);
 
     const versionData = JSON.parse(version);
     const azureCliVersion = versionData['azure-cli'];
@@ -574,7 +577,7 @@ function testAzureCliInvocation(): void {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     // Don't fail the test on timeout in CI, just warn
-    if (errorMessage.includes('ETIMEDOUT')) {
+    if (CURRENT_PLATFORM !== 'linux' && errorMessage.includes('ETIMEDOUT')) {
       logWarning(`Azure CLI invocation timed out (this can happen in CI environments)`);
       addResult(
         'Azure CLI invocation',
@@ -623,7 +626,7 @@ function testPythonInvocation(): void {
   )) {
     addResult(
       'Python invocation',
-      true,
+      CURRENT_PLATFORM !== 'linux',
       `Skipped ${PYTHON_RUNTIME_ARCH} runtime invocation on ${process.arch} host`
     );
     return;
@@ -644,7 +647,7 @@ function testPythonInvocation(): void {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     // Don't fail the test on timeout in CI, just warn
-    if (errorMessage.includes('ETIMEDOUT')) {
+    if (CURRENT_PLATFORM !== 'linux' && errorMessage.includes('ETIMEDOUT')) {
       logWarning(`Python invocation timed out (this can happen in CI environments)`);
       addResult(
         'Python invocation',
@@ -824,6 +827,14 @@ function main(): void {
     process.exit(1);
   }
 
+  // A native Linux proof cannot be satisfied by structural cross-build skips.
+  if (CURRENT_PLATFORM === 'linux') {
+    if (TARGET_ARCH !== 'x64' && TARGET_ARCH !== 'arm64') throw new Error(`Unsupported Linux target: ${TARGET_ARCH}`);
+    if (TARGET_ARCH !== process.arch) throw new Error(`Linux native host mismatch: ${process.arch}/${TARGET_ARCH}`);
+    const inventory = verifyLinuxApp(BUILD_DIST_DIR, TARGET_ARCH, PRODUCT_CONFIG.product.version);
+    console.log(`Linux ELF inventory (${TARGET_ARCH}):\n${inventory.files.join('\n')}`);
+  }
+
   // Run all tests
   testProductAssembly();
   testExternalToolsDir();
@@ -841,6 +852,13 @@ function main(): void {
 
   testAzureCliInvocation();
   testPythonInvocation();
+  if (CURRENT_PLATFORM === 'linux') {
+    const azExecutable = path.join(EXTERNAL_TOOLS_DIR, 'az-cli/linux/bin/az-wrapper');
+    try {
+      console.log(`Native offline proxy help:\n${verifyLinuxProxyHelp(azExecutable, TARGET_ARCH)}`);
+      addResult('Linux offline proxy help', true, 'Bundled connectedk8s proxy --help succeeded');
+    } catch (error) { addResult('Linux offline proxy help', false, String(error)); }
+  }
 
   // Print summary
   printSummary();

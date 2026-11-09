@@ -55,7 +55,7 @@ az-cli-core.ts  (foundation — runCommandAsync, runAzCommand, error helpers)
     ├── az-auth.ts ──────────────────> az-cli-path.ts
     ├── az-extensions.ts
     ├── az-resource-providers.ts
-    ├── az-subscriptions.ts ─────────> az-validation.ts
+    ├── az-subscriptions.ts ─────────> az-cloud.ts, az-http.ts, az-token.ts, az-validation.ts
     ├── az-resource-graph.ts ────────> az-http.ts
     ├── az-namespaces.ts
     ├── az-namespace-access.ts ──────> az-namespaces.ts
@@ -85,8 +85,12 @@ logged-in `az` for authentication, not resource-operation parity commands.
 Resource-provider registration uses direct REST and requires an explicit selected
 subscription. Success means accepted; pass `waitUntilRegistered: true` to poll for
 completion. An optional signal and timeout bound the entire operation.
-The wizard retains the selected account's tenant and normalizes CLI `cloudName`
-(or legacy `environmentName`) into its internal `environmentName`. Registration
+REST subscription discovery reads the active CLI cloud using local `az cloud show`
+configuration, uses its ARM endpoint and token audience for tenant/subscription
+requests, and returns its name as `environmentName` on every subscription.
+Resource group requests use the same cloud and authenticate with the
+subscription-bound credential, so groups in another tenant use that tenant's token.
+The wizard retains that cloud name and the selected account's tenant. Registration
 resolves that named cloud's configured ARM endpoint and token audience, including
 Government, China and custom clouds. Local `az cloud show` metadata is cached per
 cloud and invalidated on account changes; it does not switch the active CLI cloud.
