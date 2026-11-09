@@ -18,6 +18,7 @@ import {
   PIPELINE_WORKFLOW_FILENAME,
 } from '../constants';
 import type { PipelineConfig, PRTracking } from '../types';
+import { getAcrBuildFiles } from './acrTasks/acrTaskRunner';
 import { pushAgentConfigFiles, sanitizeAppNameForBranch } from './agentTemplates';
 import { deriveAcrName } from './deriveAcrName';
 import {
@@ -26,6 +27,7 @@ import {
   generateServiceManifest,
   type ManifestConfig,
 } from './fastPathTemplates';
+import { publishAcrBuildFiles } from './publishAcrBuildFiles';
 
 const GH_OWNER_REPO_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const GH_BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
@@ -87,6 +89,8 @@ export async function createFastPathPR(
       resourceGroup: pipelineConfig.resourceGroup,
       namespace: pipelineConfig.namespace,
       acrName,
+      acrResourceId: pipelineConfig.acrResourceId,
+      buildArguments: pipelineConfig.buildArguments,
       dockerfilePath,
       buildContextPath,
       defaultBranch,
@@ -112,6 +116,8 @@ export async function createFastPathPR(
         `Add AKS deploy workflow for ${pipelineConfig.appName}`,
         branchName
       ),
+      // The async agent publisher owns these same files when it runs below.
+      ...(withAsyncAgent ? [] : [publishAcrBuildFiles(octokit, owner, repo, branchName)]),
       createOrUpdateFile(
         octokit,
         owner,
@@ -150,6 +156,7 @@ export async function createFastPathPR(
         `- \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\` — Build + deploy workflow`,
         '- `deploy/kubernetes/deployment.yaml` — Kubernetes Deployment manifest',
         '- `deploy/kubernetes/service.yaml` — Kubernetes Service manifest',
+        ...Object.keys(getAcrBuildFiles()).map(path => `- \`${path}\` — ACR Tasks build runtime`),
         ...(withAsyncAgent
           ? [
               `- \`${COPILOT_SETUP_STEPS_PATH}\` — Agent environment setup`,

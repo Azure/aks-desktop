@@ -120,6 +120,9 @@ export function GitHubPipelineWizard({
     selectedRepo: orchestration.selectedRepo,
     containerConfig: localContainerConfig.config,
     identityId: orchestration.identityId,
+    acrResourceId: orchestration.pipeline.state.config?.acrResourceId,
+    acrLoginServer: orchestration.pipeline.state.config?.acrLoginServer,
+    buildArguments: orchestration.pipeline.state.config?.buildArguments,
   });
 
   const handleFastPathDeploy = useCallback(() => {
