@@ -562,8 +562,8 @@ test('Linux 1ES collects two native unsigned producers before its single DEB sig
   assert.match(host, /aks-desktop_\$\{version\}-1_arm64\.deb/);
   assert.match(host, /aks-desktop-\$\{version\}-linux-arm64\.tar\.gz/);
   assert.match(host, /--dir="\$stage" --version="\$version" --arches=x64,arm64/);
-  assert.ok(host.indexOf('--arches=x64,arm64') < host.indexOf('- task: EsrpCodeSigning@5'));
-  assert.equal(workflow.match(/task: EsrpCodeSigning@5/g)?.length, 1);
+  assert.ok(host.indexOf('--arches=x64,arm64') < host.indexOf('- task: EsrpCodeSigning@6'));
+  assert.equal(workflow.match(/task: EsrpCodeSigning@6/g)?.length, 1);
   assert.match(host, /Pattern: "\*\.deb"/);
   assert.doesNotMatch(workflow, /DEB_PATH=|TARGZ_FILES=|-print -quit/);
   assert.equal(workflow.match(/BUILD_BUILDNUMBER: \$\(Build.BuildNumber\)/g)?.length, 4);
