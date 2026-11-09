@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { brotliCompressSync } from "node:zlib";
 
 import {
   headlampLocaleName,
@@ -230,7 +231,7 @@ test("distribute rejects a translation when English changed after collection", (
   );
 });
 
-test("mergeMissing preserves the target locale CRLF line endings", (t) => {
+test("mergeMissing preserves CRLF and invalidates sidecars only when writing", (t) => {
   const localesDir = createLocalesDir(t);
   writeFile(
     path.join(localesDir, "en", "translation.json"),
@@ -238,6 +239,7 @@ test("mergeMissing preserves the target locale CRLF line endings", (t) => {
   );
   const targetPath = path.join(localesDir, "fr", "translation.json");
   writeFile(targetPath, '{\r\n  "existing": "Existant"\r\n}\r\n');
+  writeFile(`${targetPath}.br`, brotliCompressSync(fs.readFileSync(targetPath)));
 
   const added = mergeMissing(
     localesDir,
@@ -252,6 +254,21 @@ test("mergeMissing preserves the target locale CRLF line endings", (t) => {
     fs.readFileSync(targetPath, "utf-8"),
     '{\r\n  "existing": "Existant",\r\n  "added": "Ajoute"\r\n}\r\n'
   );
+  assert.equal(fs.existsSync(`${targetPath}.br`), false);
+
+  const currentSidecar = brotliCompressSync(fs.readFileSync(targetPath));
+  writeFile(`${targetPath}.br`, currentSidecar);
+  assert.equal(
+    mergeMissing(
+      localesDir,
+      "fr",
+      "translation",
+      { existing: "Existant", added: "Ajoute" },
+      { existing: "Existing", added: "Added" }
+    ),
+    0
+  );
+  assert.deepEqual(fs.readFileSync(`${targetPath}.br`), currentSidecar);
 });
 
 test("maps OneLoc locale names to Headlamp locale directories", () => {
@@ -325,7 +342,7 @@ test("distribute-headlamp writes mapped Headlamp locale directories", (t) => {
   });
 });
 
-test("distribute-packaged overlays AI Assistant release translations", (t) => {
+test("distribute-packaged overlays AI Assistant translations and removes stale sidecars", (t) => {
   const root = createLocalesDir(t);
   const managerPath = path.join(root, "Localize", "translation-manager.mjs");
   writeFile(managerPath, fs.readFileSync(new URL("./translation-manager.mjs", import.meta.url)));
@@ -338,6 +355,7 @@ test("distribute-packaged overlays AI Assistant release translations", (t) => {
     "node_modules/@headlamp-k8s/headlamp-source/source/.plugins/ai-assistant/locales/fr/translation.json"
   );
   writeFile(packagedLocale, JSON.stringify({ greeting: "Release translation" }));
+  writeFile(`${packagedLocale}.br`, brotliCompressSync(fs.readFileSync(packagedLocale)));
 
   const result = spawnSync(process.execPath, [managerPath, "distribute-packaged"], {
     encoding: "utf8",
@@ -347,4 +365,9 @@ test("distribute-packaged overlays AI Assistant release translations", (t) => {
   assert.deepEqual(JSON.parse(fs.readFileSync(packagedLocale, "utf8")), {
     greeting: "Bonjour",
   });
+  assert.equal(fs.existsSync(`${packagedLocale}.br`), false);
+  const repeated = spawnSync(process.execPath, [managerPath, "distribute-packaged"], {
+    encoding: "utf8",
+  });
+  assert.equal(repeated.status, 0, repeated.stderr);
 });

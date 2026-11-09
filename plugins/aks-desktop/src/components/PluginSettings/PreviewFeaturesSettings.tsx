@@ -27,6 +27,23 @@ export default function PreviewFeaturesSettings() {
       <FormControlLabel
         control={
           <Switch
+            checked={config.upgradeInsights}
+            onChange={(_e, checked) => handleToggle('upgradeInsights', checked)}
+          />
+        }
+        label={
+          <Box>
+            <Typography variant="body1">{t('Upgrade Insights')}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {t('Review AKS upgrade readiness using your Azure account. Never starts upgrades.')}
+            </Typography>
+          </Box>
+        }
+        sx={{ alignItems: 'flex-start', ml: 0, mt: 1 }}
+      />
+      <FormControlLabel
+        control={
+          <Switch
             checked={config.githubPipelines}
             onChange={(_e, checked) => handleToggle('githubPipelines', checked)}
           />

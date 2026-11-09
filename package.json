@@ -173,6 +173,10 @@
   },
   "headlamp": {
     "commandEnvironment": "external-tools/aks-tool-environment.cjs",
+    "githubOAuth": {
+      "clientId": "Iv23liWWbvrfIrA6WWj5",
+      "clientSecret": "5a066cc6ca8d2c6f201c45f24f2f4e62905b5d95"
+    },
     "proxy-urls": [
       "https://artifacthub.io/api/v1/packages/*"
     ],
@@ -323,6 +327,7 @@
       {
         "environment": "development",
         "pluginLocation": "development",
+        "githubOAuth": true,
         "approvedCommands": [
           {
             "tool": "az",
@@ -721,6 +726,7 @@
       {
         "environment": "production",
         "pluginLocation": "shipped",
+        "githubOAuth": true,
         "approvedCommands": [
           {
             "tool": "az",
@@ -1133,8 +1139,8 @@
       {
         "name": "ai-assistant",
         "packageName": "@headlamp-k8s/ai-assistant",
-        "archive": "https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.1-alpha/headlamp-k8s-ai-assistant-0.4.1-alpha.tar.gz",
-        "sha256": "a91984fa15682a4109088803a6265d5caf49fe1f0931870716169b14d99e98ef",
+        "archive": "https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.5.0-alpha/headlamp-k8s-ai-assistant-0.5.0-alpha.tar.gz",
+        "sha256": "efe29409e91e51240d312c0819a0a4b058c3d99bd08af39c6b3a8d04aea06ad8",
         "enabledByDefault": true
       },
       {
@@ -1165,7 +1171,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
-    "integrity": "sha512-qiyXVOZCJXk3mPfuS/OCh8vPEUmnJtvKYe3wUG47JY8wjbPiAnagdawWRS5iKcE1QO6yGYtBlR9FbWmJE1NqUQ=="
+    "integrity": "sha512-C0sT14X6sQ8kdoehLhf+vqBQblgGIRYJBgdnypYIluARTihAtz/+j8UQApnu40g/UxuZO8cBUoyDu47jKiVPrw=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [

@@ -218,6 +218,52 @@ test('the patched Headlamp source exposes provider-scoped cluster registration',
   );
 });
 
+test('AKS supplies GitHub OAuth identity through its generated product manifest', () => {
+  const { createProductTemplate } = require(
+    path.join(PACKAGE_DIR, 'src', 'lib', 'product-manifest.ts')
+  );
+  const { validateBuildManifest } = require(
+    path.join(HEADLAMP_SOURCE_DIR, 'app', 'scripts', 'build-manifest.ts')
+  );
+  const configuration = rootManifest.headlamp.githubOAuth;
+  assert.equal(configuration?.clientId, 'Iv23liWWbvrfIrA6WWj5');
+  assert.equal(typeof configuration?.clientSecret, 'string');
+  assert.ok(configuration.clientSecret.length > 0);
+  const oauthPolicies = rootManifest.headlamp.runCommands.filter(policy => policy.githubOAuth);
+  assert.equal(oauthPolicies.length, 2);
+  assert.deepEqual(new Set(oauthPolicies.map(policy => policy.pluginLocation)),
+    new Set(['development', 'shipped']));
+  for (const policy of oauthPolicies) {
+    assert.deepEqual(policy.plugins, [{ bundleName: 'aks-desktop', packageName: 'aks-desktop' }]);
+  }
+  for (const platform of ['linux', 'darwin', 'win32']) {
+    const manifest = validateBuildManifest(createProductTemplate(rootManifest, platform));
+    assert.deepEqual(manifest.githubOAuth, configuration);
+    assert.equal(manifest.product.protocols.schemes[0], 'aks-desktop');
+  }
+});
+
+test('the installed host provides the GitHub sign-in, callback and refresh bridge', () => {
+  const electronFile = (name: string) => fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'app', 'electron', name), 'utf8'
+  );
+  const preload = electronFile('preload.ts');
+  assert.match(preload, /githubOAuth:/);
+  assert.doesNotMatch(preload, /\n  (?:startGitHubOAuth|onGitHubOAuthCallback|refreshGitHubOAuth):/);
+  const loader = fs.readFileSync(
+    path.join(HEADLAMP_SOURCE_DIR, 'frontend', 'src', 'plugin', 'index.ts'), 'utf8'
+  );
+  assert.match(loader, /pluginGitHubOAuth/);
+  assert.match(electronFile('main.ts'), /setupGitHubOAuth/);
+  const provider = electronFile('githubOAuth.ts');
+  assert.match(provider, /registerOAuthProvider/);
+  assert.match(provider, /code_challenge_method: 'S256'/);
+  assert.match(provider, /code_verifier:/);
+  assert.doesNotMatch(provider, /GITHUB_OAUTH_CALLBACK|webContents\.send/);
+  assert.doesNotMatch(provider, /Iv23liWWbvrfIrA6WWj5|aks-desktop/);
+  assert.doesNotMatch(provider, /secure-storage\.json|safeStorage/);
+});
+
 test('source builds use explicit, reviewed install scripts', () => {
   for (const lifecycle of ['preinstall', 'install', 'postinstall']) {
     assert.equal(packageManifest.scripts[lifecycle], undefined);
@@ -671,8 +717,8 @@ test('shipped plugins use verified workspace and release sources', () => {
     name: 'ai-assistant',
     packageName: '@headlamp-k8s/ai-assistant',
     archive:
-      'https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.1-alpha/headlamp-k8s-ai-assistant-0.4.1-alpha.tar.gz',
-    sha256: 'a91984fa15682a4109088803a6265d5caf49fe1f0931870716169b14d99e98ef',
+      'https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.5.0-alpha/headlamp-k8s-ai-assistant-0.5.0-alpha.tar.gz',
+    sha256: 'efe29409e91e51240d312c0819a0a4b058c3d99bd08af39c6b3a8d04aea06ad8',
     enabledByDefault: true,
   });
   const catalog = (rootManifest.headlamp.plugins as any[]).find(
