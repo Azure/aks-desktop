@@ -671,8 +671,8 @@ test('shipped plugins use verified workspace and release sources', () => {
     name: 'ai-assistant',
     packageName: '@headlamp-k8s/ai-assistant',
     archive:
-      'https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.4.1-alpha/headlamp-k8s-ai-assistant-0.4.1-alpha.tar.gz',
-    sha256: 'a91984fa15682a4109088803a6265d5caf49fe1f0931870716169b14d99e98ef',
+      'https://github.com/headlamp-k8s/plugins/releases/download/ai-assistant-0.5.0-alpha/headlamp-k8s-ai-assistant-0.5.0-alpha.tar.gz',
+    sha256: 'efe29409e91e51240d312c0819a0a4b058c3d99bd08af39c6b3a8d04aea06ad8',
     enabledByDefault: true,
   });
   const catalog = (rootManifest.headlamp.plugins as any[]).find(
