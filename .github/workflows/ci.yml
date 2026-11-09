@@ -117,12 +117,18 @@ jobs:
           - platform: Windows x64
             runner: windows-latest
             distribution-args: ""
+          - platform: Windows ARM64
+            runner: windows-11-arm
+            distribution-args: ""
     defaults:
       run:
         shell: bash
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Keep the tester's ARM64 installer tied to the PR head, not its merge ref.
+          ref: ${{ matrix.runner == 'windows-11-arm' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -193,6 +199,15 @@ jobs:
           path: test/packaged/test-results
           if-no-files-found: ignore
           retention-days: 3
+
+      - name: Upload Windows ARM64 installer
+        if: github.event_name == 'pull_request' && runner.os == 'Windows' && runner.arch == 'ARM64'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aks-desktop-win-arm64
+          path: node_modules/@headlamp-k8s/headlamp-source/source/app/dist/aks-desktop-*-win-arm64.exe
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Reinstall after application assembly
         run: |
