@@ -350,10 +350,10 @@ function distribute(sourceNames) {
 
         if (source.replaceDir) {
           const replaceLang = source.replaceLocaleName?.(lang) ?? lang;
-          writeJson(
-            path.join(source.replaceDir, replaceLang, `${ns}.json`),
-            translations
-          );
+          const targetPath = path.join(source.replaceDir, replaceLang, `${ns}.json`);
+          writeJson(targetPath, translations);
+          // Do not serve the release's compressed bytes after overlaying translations.
+          fs.rmSync(`${targetPath}.br`, { force: true });
           replaced++;
         }
 
@@ -434,6 +434,7 @@ function mergeMissing(localesDir, lang, ns, translations, sourceEn) {
   if (added === 0) return 0;
 
   writeJson(targetPath, result, detectEol(targetPath));
+  fs.rmSync(`${targetPath}.br`, { force: true });
   return added;
 }
 
