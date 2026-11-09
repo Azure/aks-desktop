@@ -1151,7 +1151,7 @@
     "concurrently": "^10.0.6",
     "cross-env": "10.1.0",
     "husky": "^9.0.0",
-    "knip": "^6.44.0",
+    "knip": "^6.44.1",
     "lint-staged": "^17.6.0",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3"
