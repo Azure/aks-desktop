@@ -32,10 +32,14 @@ export function useAzureAuth(redirectToLogin = false): AzureAuthStatus {
   locationRef.current = location;
   const redirectToLoginRef = useRef(redirectToLogin);
   redirectToLoginRef.current = redirectToLogin;
+  const latestCheck = useRef(0);
 
   const checkAuth = useCallback(async () => {
+    const check = ++latestCheck.current;
+    setAuthStatus({ isLoggedIn: false, isChecking: true });
     try {
       const status = await getLoginStatus();
+      if (check !== latestCheck.current) return;
 
       const newAuthStatus = {
         isLoggedIn: status.isLoggedIn,
@@ -60,6 +64,7 @@ export function useAzureAuth(redirectToLogin = false): AzureAuthStatus {
         });
       }
     } catch (error) {
+      if (check !== latestCheck.current) return;
       console.error('Error checking Azure authentication:', error);
       const errorAuthStatus = {
         isLoggedIn: false,
@@ -85,7 +90,12 @@ export function useAzureAuth(redirectToLogin = false): AzureAuthStatus {
 
     const handleAuthUpdate = () => checkAuth();
     window.addEventListener('azure-auth-update', handleAuthUpdate);
-    return () => window.removeEventListener('azure-auth-update', handleAuthUpdate);
+    window.addEventListener('azure-account-change', handleAuthUpdate);
+    return () => {
+      latestCheck.current++;
+      window.removeEventListener('azure-auth-update', handleAuthUpdate);
+      window.removeEventListener('azure-account-change', handleAuthUpdate);
+    };
   }, [checkAuth]);
 
   return authStatus;
