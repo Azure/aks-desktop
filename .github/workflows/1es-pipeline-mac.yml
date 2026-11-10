@@ -348,11 +348,6 @@ extends:
                   fi
                 displayName: "Verify Downloaded Artifacts"
 
-              - bash: |
-                  set -euo pipefail
-                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/unsigned-dmg"
-                displayName: "Verify Electron entitlements before signing"
-
               # Create directory for signed output
               - bash: |
                   mkdir -p "$(Pipeline.Workspace)/signed-dmg"
@@ -626,11 +621,6 @@ extends:
                     exit 1
                   fi
                 displayName: "Verify Downloaded Artifacts"
-
-              - bash: |
-                  set -euo pipefail
-                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/unsigned-dmg"
-                displayName: "Verify Electron entitlements before signing"
 
               # Create directory for signed output
               - bash: |

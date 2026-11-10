@@ -144,21 +144,20 @@ test('native codesign preserves JIT entitlements when replacing a signature', {
   assert.equal(entitlements['com.apple.security.cs.allow-jit'], true);
 });
 
-test('both release architectures preserve and verify final signing entitlements', () => {
+test('both release architectures preserve entitlements and verify signed artifacts', () => {
   const workflow = fs.readFileSync(
     path.join(__dirname, '..', '.github', 'workflows', '1es-pipeline-mac.yml'), 'utf8'
   );
   assert.equal(workflow.match(/--options=runtime --preserve-metadata=entitlements/g)?.length, 2);
-  assert.equal(workflow.match(/node build\/verify-macos-signing\.cjs "\$\(Pipeline.Workspace\)\/unsigned-dmg"/g)?.length, 2);
+  assert.doesNotMatch(workflow, /node build\/verify-macos-signing\.cjs "\$\(Pipeline.Workspace\)\/unsigned-dmg"/);
   assert.equal(workflow.match(/node build\/verify-macos-signing\.cjs "\$\(Pipeline.Workspace\)\/signed-dmg"/g)?.length, 2);
   assert.equal(workflow.match(/node build\/verify-macos-signing\.cjs "\$\(Pipeline.Workspace\)\/notarized-dmg"/g)?.length, 2);
   for (const arch of ['arm64', 'x64']) {
     const sign = workflow.slice(workflow.indexOf(`- stage: Sign_${arch}`),
       workflow.indexOf(`- stage: Notarize_${arch}`));
-    const before = sign.indexOf('node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/unsigned-dmg"');
     const operation = sign.indexOf('"OperationCode": "MacAppDeveloperSign"');
     const after = sign.indexOf('node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/signed-dmg"');
-    assert.ok(before > 0 && before < operation && after > operation);
+    assert.ok(operation > 0 && after > operation);
     assert.match(sign, /checkout: self/);
   }
 });

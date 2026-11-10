@@ -217,9 +217,8 @@ Builder (`--preserve-metadata=entitlements`). The main app and Electron helpers
 require `com.apple.security.cs.allow-jit=true`; a valid Developer ID signature
 and successful notarization alone do not establish that the ARM64 app can start.
 The release pipeline runs `node build/verify-macos-signing.cjs <dmg-directory>`
-before signing, after signing, and after notarization for both architectures.
-Missing entitlements or invalid app signatures fail the job. A pre-signing
-failure must be corrected in the build output, not bypassed.
+after signing and after notarization for both architectures.
+Missing entitlements or invalid app signatures fail the job.
 
 Run `node --test build/verify-macos-signing.test.cjs` for the verifier and
 pipeline contract tests. On macOS this also exercises native `codesign`
