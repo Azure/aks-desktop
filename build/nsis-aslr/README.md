@@ -66,6 +66,25 @@ If `--check` fails, investigate source, patch and toolchain drift before updatin
 the bytes or manifest. A compiler, template or compression change requires
 revalidating the one-stub selection and Windows compiler pairing.
 
+## Packaging and stock identity
+
+`build/nsis-toolset.ts` makes an ordinary temporary copy of electron-builder's
+stock bundle (about 7.3 MB), overlays this one stub, and checks its exact file
+inventory. `stock-bundle.sha256` records the other 342 files from a fresh extraction
+of the authenticated archive below, including `Bin/makensis.exe`, `elevate.exe`,
+the other 11 stubs and `Stubs/uninst` (an icon). `stubs.sha256` authenticates the
+replacement. The downloader's extraction cache is never modified. The separate
+`nsis-resources-3.4.1` bundle is not covered by this manifest or repair.
+
+Only Windows-host distributable packaging selects this copy; unpacked output
+and other platforms are unchanged. The parent owns cleanup after packaging and
+PE verification, even on failure. A caller toolset override is preserved and still
+subject to the finished-installer gate. Windows copy/antivirus overhead needs CI
+validation. Installed-config contracts guard effective NSIS-only targets (including
+manifest replacements), Unicode, non-solid zlib, both toolset selectors, and explicit
+or auto-discovered custom scripts/includes. Re-evaluate the replacement set if any
+of those contracts changes.
+
 ## Stock regression fixture
 
 `test-fixtures/stock-zlib-x86-unicode.headers.bin` is the first 1024 bytes

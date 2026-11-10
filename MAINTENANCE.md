@@ -18,6 +18,38 @@ npm install --prefix .config/npm --package-lock-only --ignore-scripts --no-audit
 node --test build/windows-ci.test.cjs
 ```
 
+## Windows installer ASLR
+
+Windows distributable builds use the ASLR-capable NSIS 3.04 Unicode/non-solid
+zlib launcher in `build/nsis-aslr/`. Both payload architectures share this x86
+launcher. Packaging copies electron-builder's cached stock bundle into a unique
+temporary directory, replaces one stub, and verifies all 343 files against
+independent SHA-256 manifests before using the compiler or elevation helper.
+The copy is removed after packaging, including failures; no patched cache is kept.
+A caller's `ELECTRON_BUILDER_NSIS_DIR` still wins and is never removed, but the
+finished installer must pass the same structural PE relocation gate.
+
+Use `npm run nsis:rebuild-stubs` to rebuild, or
+`build/nsis-aslr/build-stubs.sh --check` to compare without editing. See the
+[recipe and provenance](build/nsis-aslr/README.md) for the pinned image, snapshot,
+packages, source and patches. CI independently rebuilds on Linux. If the snapshot
+stops resolving, investigate before refreshing pins and proving byte identity again.
+The installed configuration/template contracts fail on unsupported target, toolset,
+Unicode or script/include drift: re-evaluate the single replacement and compiler
+pairing rather than just updating expectations. The separate `nsis-resources`
+bundle is outside this repair and its manifest.
+
+Packaging is Windows-host-only to pair the stub with the bundle's Windows
+`makensis.exe` v3.04; the Linux/macOS compiler variants are incompatible. Every
+finished installer is checked before build success, but this does not prove Windows
+loader randomization, install/upgrade/uninstall, signing or Guardian acceptance.
+Check the installed uninstaller separately (an installed-copy/extraction gate, not
+an automated per-build check). After release signing, re-run
+`tsx build/pe-relocations.ts <installer>...` on both signed installers and confirm
+ESRP verification and zero active/baselined BA2009 before removing the temporary
+Guardian baselines in a separate change. NSIS notices follow the existing generated
+NOTICE process; its source license is retained beside the recipe.
+
 ## Headlamp source
 
 AKS Desktop builds a pinned Headlamp commit from `packages/headlamp-source/`.
