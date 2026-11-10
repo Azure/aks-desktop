@@ -326,7 +326,8 @@ extends:
                   artifactName: signed-dmg-arm64
                   displayName: 'Publish Signed DMG (arm64)'
             steps:
-              - checkout: none
+              - checkout: self
+                fetchDepth: 1
               
               # Download unsigned DMG from previous stage
               - task: DownloadPipelineArtifact@2
@@ -346,6 +347,11 @@ extends:
                     exit 1
                   fi
                 displayName: "Verify Downloaded Artifacts"
+
+              - bash: |
+                  set -euo pipefail
+                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/unsigned-dmg"
+                displayName: "Verify Electron entitlements before signing"
 
               # Create directory for signed output
               - bash: |
@@ -379,13 +385,18 @@ extends:
                         "KeyCode": "CP-401337-Apple",
                         "OperationCode": "MacAppDeveloperSign",
                         "Parameters": {
-                          "Hardening": "--options=runtime"
+                          "Hardening": "--options=runtime --preserve-metadata=entitlements"
                         },
                         "ToolName": "sign",
                         "ToolVersion": "1.0"
                       }
                     ]
                   SessionTimeout: 60
+
+              - bash: |
+                  set -euo pipefail
+                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/signed-dmg"
+                displayName: "Verify Electron entitlements after signing"
 
               # Verify signatures and extract Bundle ID
               - bash: |
@@ -466,7 +477,8 @@ extends:
                   artifactName: aks-desktop-signed-arm64
                   displayName: 'Publish Notarized DMG (arm64)'
             steps:
-              - checkout: none
+              - checkout: self
+                fetchDepth: 1
               
               # Download signed DMG from previous stage
               - task: DownloadPipelineArtifact@2
@@ -525,6 +537,11 @@ extends:
                       }
                     ]
                   SessionTimeout: 240
+
+              - bash: |
+                  set -euo pipefail
+                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/notarized-dmg"
+                displayName: "Verify final Electron entitlements"
 
               # Verify notarization
               - bash: |
@@ -588,7 +605,8 @@ extends:
                   artifactName: signed-dmg-x64
                   displayName: 'Publish Signed DMG (x64)'
             steps:
-              - checkout: none
+              - checkout: self
+                fetchDepth: 1
               
               # Download unsigned DMG from previous stage
               - task: DownloadPipelineArtifact@2
@@ -608,6 +626,11 @@ extends:
                     exit 1
                   fi
                 displayName: "Verify Downloaded Artifacts"
+
+              - bash: |
+                  set -euo pipefail
+                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/unsigned-dmg"
+                displayName: "Verify Electron entitlements before signing"
 
               # Create directory for signed output
               - bash: |
@@ -641,13 +664,18 @@ extends:
                         "KeyCode": "CP-401337-Apple",
                         "OperationCode": "MacAppDeveloperSign",
                         "Parameters": {
-                          "Hardening": "--options=runtime"
+                          "Hardening": "--options=runtime --preserve-metadata=entitlements"
                         },
                         "ToolName": "sign",
                         "ToolVersion": "1.0"
                       }
                     ]
                   SessionTimeout: 60
+
+              - bash: |
+                  set -euo pipefail
+                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/signed-dmg"
+                displayName: "Verify Electron entitlements after signing"
 
               # Verify signatures and extract Bundle ID
               - bash: |
@@ -728,7 +756,8 @@ extends:
                   artifactName: aks-desktop-signed-x64
                   displayName: 'Publish Notarized DMG (x64)'
             steps:
-              - checkout: none
+              - checkout: self
+                fetchDepth: 1
               
               # Download signed DMG from previous stage
               - task: DownloadPipelineArtifact@2
@@ -787,6 +816,11 @@ extends:
                       }
                     ]
                   SessionTimeout: 240
+
+              - bash: |
+                  set -euo pipefail
+                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/notarized-dmg"
+                displayName: "Verify final Electron entitlements"
 
               # Verify notarization
               - bash: |

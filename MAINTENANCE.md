@@ -212,6 +212,22 @@ The Intel worker cannot launch the ARM64 app, so ARM64 runs packaged-tool checks
 instead of the Electron launch smoke. Signing and notarization remain separate
 per architecture after the shared build job.
 
+ESRP developer signing must preserve the entitlements embedded by Electron
+Builder (`--preserve-metadata=entitlements`). The main app and Electron helpers
+require `com.apple.security.cs.allow-jit=true`; a valid Developer ID signature
+and successful notarization alone do not establish that the ARM64 app can start.
+The release pipeline runs `node build/verify-macos-signing.cjs <dmg-directory>`
+before signing, after signing, and after notarization for both architectures.
+Missing entitlements or invalid app signatures fail the job. A pre-signing
+failure must be corrected in the build output, not bypassed.
+
+Run `node --test build/verify-macos-signing.test.cjs` for the verifier and
+pipeline contract tests. On macOS this also exercises native `codesign`
+entitlement preservation. Changes to signing arguments require a real ESRP
+pipeline run; local tests cannot validate the remote signing service.
+Before publishing, launch the final signed/notarized ARM64 app on an ARM64 Mac,
+quit it, and reopen it. The Intel build worker cannot perform that runtime check.
+
 Do not split the build job unless both an ARM64 macOS runner and at least two
 concurrent macOS jobs are available. After changing this flow, validate both
 unsigned artifacts and their signing and notarization stages.
