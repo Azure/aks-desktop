@@ -1,4 +1,6 @@
 *.sh text eol=lf
+build/nsis-aslr/*.sha256 text eol=lf
+build/nsis-aslr/*.lock text eol=lf
 build/nsis-aslr/stubs/* binary
 build/nsis-aslr/test-fixtures/*.bin binary
 Localize/locales/**/*.json whitespace=cr-at-eol

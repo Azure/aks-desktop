@@ -17,6 +17,7 @@ for (const corruption of [
   'missing',
   'replacement',
   'linked-stubs',
+  'crlf',
 ]) {
   test(`assembled toolset integrity: ${corruption ?? 'success'}`, async (t) => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nsis-test-'));
@@ -41,15 +42,16 @@ for (const corruption of [
     }
     await fs.mkdir(path.join(recipe, 'stubs'), { recursive: true });
     await fs.mkdir(output);
+    const newline = corruption === 'crlf' ? '\r\n' : '\n';
     await fs.writeFile(
       path.join(recipe, 'stock-bundle.sha256'),
       Object.entries(files)
-        .map(([file, value]) => `${hash(value)}  ${file}\n`)
+        .map(([file, value]) => `${hash(value)}  ${file}${newline}`)
         .join('')
     );
     await fs.writeFile(
       path.join(recipe, 'stubs.sha256'),
-      `${hash('new')}  stubs/zlib-x86-unicode\n`
+      `${hash('new')}  stubs/zlib-x86-unicode${newline}`
     );
     await fs.writeFile(
       path.join(recipe, 'stubs/zlib-x86-unicode'),
@@ -66,7 +68,7 @@ for (const corruption of [
       await fs.unlink(path.join(stock, 'Stubs/uninst'));
     else if (corruption === 'extra')
       await fs.writeFile(path.join(stock, 'extra'), 'extra');
-    else if (corruption && corruption !== 'replacement')
+    else if (corruption && !['replacement', 'crlf'].includes(corruption))
       await fs.writeFile(path.join(stock, corruption), 'tampered');
     const prepare = () =>
       prepareNsisToolset({
@@ -75,7 +77,7 @@ for (const corruption of [
         recipeDir: recipe,
         download: async () => stock,
       });
-    if (corruption) {
+    if (corruption && corruption !== 'crlf') {
       await assert.rejects(prepare, /NSIS.*(mismatch|inventory)/);
     } else {
       await prepare();

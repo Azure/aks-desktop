@@ -59,7 +59,7 @@ export async function prepareNsisToolset(options: {
       await fs.readFile(path.join(recipeDir, manifest), 'utf8')
     )
       .trim()
-      .split('\n')) {
+      .split(/\r?\n/)) {
       const match = /^([a-f0-9]{64}) {2}(.+)$/.exec(line);
       if (!match) throw new Error(`Invalid NSIS manifest: ${manifest}`);
       const name = replacement
