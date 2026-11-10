@@ -66,6 +66,13 @@ import {
   validatePackageHost,
 } from './package-target';
 
+function writeWindowsInstallerFixture(distDir: string): void {
+  if (process.platform === 'win32') {
+    fs.copyFileSync(path.join(__dirname, 'nsis-aslr/stubs/zlib-x86-unicode'),
+      path.join(distDir, `aks-desktop-9.8.7-win-${process.arch}.exe`));
+  }
+}
+
 for (const failPackaging of [false, true]) {
   test(`reports build output only after successful packaging (failure: ${failPackaging})`, t => {
     const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build output-'));
@@ -100,6 +107,7 @@ for (const failPackaging of [false, true]) {
         assert.equal(cwd, path.join(sourceDir, 'app'));
         if (failPackaging) throw new Error('packaging failed');
         fs.mkdirSync(distDir, { recursive: true });
+        writeWindowsInstallerFixture(distDir);
         packaged = true;
       }
     };
@@ -116,6 +124,8 @@ for (const failPackaging of [false, true]) {
   });
 }
 
+// Keep the generic orchestration fixtures on the host. Native Windows fixtures
+// below also exercise the real post-package PE gate.
 test('stages the newly built backend under the Windows packaging filename', t => {
   const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'windows-backend-'));
   t.after(() => fs.rmSync(sourceDir, { recursive: true, force: true }));
@@ -144,9 +154,11 @@ test('packages installed dependencies once and reports timestamped phase timings
   const messages: string[] = [];
   t.mock.method(console, 'log', (message: string) => messages.push(message));
   packageTarget({ platform: process.platform, arch: process.arch }, rootDir, (args, cwd) => {
+    if (args[1] === 'nsis:toolset') return; // Windows routing has its own focused matrix.
     commands.push(`${cwd === rootDir ? 'root' : cwd === sourceDir ? 'source' : 'app'}:${args.join(' ')}`);
     if (cwd === appDir && args[1] === 'package') {
       fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
+      writeWindowsInstallerFixture(path.join(appDir, 'dist'));
     }
   });
 
@@ -181,10 +193,12 @@ test('reuses architecture-independent assets for a second package target', t => 
     { platform: process.platform, arch: process.arch },
     rootDir,
     (args, cwd, env) => {
+      if (args[1] === 'nsis:toolset') return;
       commands.push(`${cwd === rootDir ? 'root' : cwd === sourceDir ? 'source' : 'app'}:${args.join(' ')}`);
       if (cwd === appDir && args[1] === 'package:prepared') {
         assert.equal(env?.APP_VERSION, '9.8.7');
         fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
+        writeWindowsInstallerFixture(path.join(appDir, 'dist'));
       }
     },
     { reusePreparedAssets: true }

@@ -10,6 +10,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { verifyAslr } from './pe-relocations';
 import { runTimedStep } from './build-timing';
 import { dependencyTargetMatches } from './dependency-target';
 
@@ -154,9 +156,10 @@ export function packageTarget(
   target: PackageTarget,
   rootDir = ROOT_DIR,
   runStep = runNpm,
-  options: PackageOptions = {}
+  options: PackageOptions = {},
+  dependencies = { validateHost: validatePackageHost }
 ): void {
-  validatePackageHost(target);
+  dependencies.validateHost(target);
   if (options.unpacked && options.reusePreparedAssets) {
     throw new Error('Prepared assets can only be reused for distributable packaging');
   }
@@ -204,20 +207,43 @@ export function packageTarget(
         runStep(['run', 'frontend:build'], sourceDir, buildEnv)
       );
     }
-    runTimedStep(options.unpacked ? 'assemble unpacked application' : 'package application', () =>
-      runStep(
-        [
-          'run',
-          options.unpacked ? 'build' : options.reusePreparedAssets ? 'package:prepared' : 'package',
-          '--',
-          ...(options.unpacked
-            ? unpackedArguments(target.platform, target.arch)
-            : packageArguments(target.platform, target.arch)),
-        ],
-        appDir,
-        buildEnv
-      )
-    );
+    let ownedToolset: string | undefined;
+    try {
+      let packageEnv = buildEnv;
+      if (target.platform === 'win32' && !options.unpacked && !buildEnv.ELECTRON_BUILDER_NSIS_DIR) {
+        ownedToolset = fs.mkdtempSync(path.join(os.tmpdir(), 'aks-nsis-'));
+        runTimedStep('prepare NSIS toolset', () =>
+          runStep(['run', 'nsis:toolset', '--', `--output=${ownedToolset}`], rootDir, buildEnv)
+        );
+        packageEnv = { ...buildEnv, ELECTRON_BUILDER_NSIS_DIR: ownedToolset };
+      }
+      runTimedStep(options.unpacked ? 'assemble unpacked application' : 'package application', () =>
+        runStep(
+          [
+            'run',
+            options.unpacked ? 'build' : options.reusePreparedAssets ? 'package:prepared' : 'package',
+            '--',
+            ...(options.unpacked
+              ? unpackedArguments(target.platform, target.arch)
+              : packageArguments(target.platform, target.arch)),
+          ],
+          appDir,
+          packageEnv
+        )
+      );
+      if (target.platform === 'win32' && !options.unpacked) {
+        runTimedStep('verify installer ASLR', () => {
+          const installer = `aks-desktop-${buildEnv.APP_VERSION}-win-${target.arch}.exe`;
+          const matches = fs.readdirSync(distDir).filter(file => file === installer);
+          if (matches.length !== 1) throw new Error(`Expected exactly one current installer: ${installer}`);
+          const result = verifyAslr(fs.readFileSync(path.join(distDir, installer)), installer);
+          console.log(`${installer}: ${result.fixupCount} HIGHLOW fixups`);
+        });
+      }
+    } finally {
+      // Only remove the directory this invocation created, never a caller override.
+      if (ownedToolset) fs.rmSync(ownedToolset, { recursive: true, force: true });
+    }
     fs.writeFileSync(targetRecord, `${JSON.stringify(target)}\n`);
     console.log(
       `\nBuild complete (${target.platform}/${target.arch}).\nOutput directory: ${path.resolve(distDir)}`
