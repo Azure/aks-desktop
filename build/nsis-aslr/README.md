@@ -66,6 +66,18 @@ If `--check` fails, investigate source, patch and toolchain drift before updatin
 the bytes or manifest. A compiler, template or compression change requires
 revalidating the one-stub selection and Windows compiler pairing.
 
+## Stock regression fixture
+
+`test-fixtures/stock-zlib-x86-unicode.headers.bin` is the first 1024 bytes
+of `Stubs/zlib-x86-unicode` from the freshly extracted stock bundle, authenticated
+against electron-builder's archive SHA-256
+`9877df902530f96357d13a7a31ae2b9df67f48b11ffc9a1700a7c961574ec5fa`.
+The full stock stub SHA-256 is
+`aed7cb7405345d69121485184cf59b608686e144a19f5cf579b1adf5d97f7328`;
+the header fixture SHA-256 is
+`59311bccb5386a5d385810c1e40c1a9ead699de2959504bbe5cbaa7b00583eb1`.
+It contains no executable body and demonstrates the stock RELOCS_STRIPPED failure.
+
 ## Proof limits
 
 Local clean-build reproducibility and a small Windows-compiler probe under Wine
