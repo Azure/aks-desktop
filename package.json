@@ -183,6 +183,7 @@
     "product": {
       "name": "aks-desktop",
       "productName": "AKS desktop",
+      "backendAppName": "AKS desktop",
       "companyName": "Microsoft",
       "appId": "com.microsoft.aksdesktop",
       "artifactName": "aks-desktop-${version}-${os}-${arch}.${ext}",
@@ -1171,7 +1172,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
-    "integrity": "sha512-C0sT14X6sQ8kdoehLhf+vqBQblgGIRYJBgdnypYIluARTihAtz/+j8UQApnu40g/UxuZO8cBUoyDu47jKiVPrw=="
+    "integrity": "sha512-KICY9QSnX6veXwg+brjEnpNAbDpnxQpo54dwtFcbyCjHC3AJQD1v07fMXJzEkUrZCLpgOhO/1VkaDAMQ2X8kog=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
