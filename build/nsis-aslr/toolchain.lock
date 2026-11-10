@@ -1,0 +1,42 @@
+# Digest-pinned Debian 12 (bookworm-slim) base; build-stubs.sh fixes linux/amd64.
+IMAGE="debian@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc"
+
+# The dated Debian snapshot is the only apt source. container-build.sh removes
+# both baked-in sources and package lists before refreshing it. HTTP transport
+# bootstraps without a CA package; apt still authenticates signed Release and
+# package indices using the Debian archive keyring pinned in the base image.
+# Expired Valid-Until metadata is allowed for this historical snapshot; signature
+# verification is not disabled. Dependencies are constrained by this snapshot;
+# direct build packages below are additionally pinned by exact version.
+SNAPSHOT_TIMESTAMP="20261001T000000Z"
+SNAPSHOT_BASE_URL="http://snapshot.debian.org/archive/debian/20261001T000000Z/"
+DEBIAN_SUITE="bookworm"
+PACKAGE_SCONS="scons=4.4.0+dfsg-1"
+PACKAGE_PYTHON3="python3=3.11.2-1+b1"
+PACKAGE_GCC_MINGW="gcc-mingw-w64-i686=12.2.0-14+25.2"
+PACKAGE_GXX_MINGW="g++-mingw-w64-i686=12.2.0-14+25.2"
+PACKAGE_BINUTILS_MINGW="binutils-mingw-w64-i686=2.40-2+10.4"
+# Native compilers support SCons Configure checks (which execute host programs).
+PACKAGE_GCC="gcc=4:12.2.0-3"
+PACKAGE_GXX="g++=4:12.2.0-3"
+PACKAGE_PATCH="patch=2.7.6-7"
+PACKAGE_BZIP2="bzip2=1.0.8-5+b1"
+PACKAGE_TAR="tar=1.34+dfsg-1.2+deb12u1"
+# Native helper environment needs zlib; the Windows stub uses bundled sources.
+PACKAGE_ZLIB_DEV="zlib1g-dev=1:1.2.13.dfsg-1"
+
+# Fixed reproducibility input. The stub-only --no-insert-timestamp linker flag
+# comes from patches/0002-reloc-before-ndata.patch, not APPEND_LINKFLAGS (which
+# would also affect native Configure probes and other build environments).
+SOURCE_DATE_EPOCH="1790812800" # 2026-10-01T00:00:00Z
+
+# container-build.sh is authoritative for the literal SCons invocation:
+#   XGCC_W32_PREFIX=i686-w64-mingw32-
+#   NSIS_MAX_STRLEN=8192 UNICODE=yes
+#   VERSION=v3.04 VER_MAJOR=3 VER_MINOR=0 VER_REVISION=4 VER_BUILD=0
+#   SKIPUTILS=all SKIPPLUGINS=all SKIPMISC=all SKIPDOC=all
+#   APPEND_CCFLAGS="-fno-tree-loop-distribute-patterns"
+#   target: stubs
+# No NSIS_CONFIG_LOG: pair with the Windows v3.04/MAX_STRLEN8192, non-logging
+# compiler from electron-builder's nsis-3.0.4.1 bundle (see README.md).
+# SCons may compile all 12 variants; only zlib-x86-unicode is exported.

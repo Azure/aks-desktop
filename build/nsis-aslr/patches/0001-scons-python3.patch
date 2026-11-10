@@ -1,0 +1,264 @@
+# build/nsis-aslr/patches/0001-scons-python3.patch
+#
+# Purpose: let NSIS 3.04's SCons build scripts run under Python 3 (the v3.04
+# release only supports Python 2).
+#
+# Provenance: the exact `git diff` of SConstruct, SCons/Tools/crossmingw.py,
+# SCons/utils.py and Docs/src/SConscript between upstream tag v304 and the
+# single later upstream commit below, from the nsis-dev/nsis GitHub mirror of
+# the project's SVN history (https://github.com/nsis-dev/nsis). That commit
+# is titled "Port SCons scripts to py3k (xantares/py3k PR)". The patch is
+# restricted to these four build-script paths; no runtime source is changed.
+#
+# Why these four, and not "every SConscript": with
+# SKIPUTILS=all SKIPPLUGINS=all SKIPMISC=all SKIPDOC=all, every other
+# per-component SConscript directory is skipped *before* SCons reads it
+# (SConstruct's `for X in <list>: if X in defenv['SKIPX']: continue` guards
+# run ahead of the `defenv.SConscript(...)` call for plugins/utils/misc).
+# Docs/src/SConscript is the one exception: `defenv.SConscript(dirs =
+# 'Docs/src', ...)` runs unconditionally; SKIPDOC only gates what that
+# SConscript later distributes, not whether SCons reads and executes it. Its
+# `htmls = ... + map(...) + map(...)` (a Python-2-only list-concatenation of
+# `map()`, which returns an iterator in Python 3) is a hard parse-time
+# failure for any invocation, including a stubs-only build, so it needs the
+# same `list(map(...))` fix upstream made in the same commit. No other
+# touched SConscript executes for a stubs-only invocation under these flags
+# (`Source/SConscript`, `Source/exehead/SConscript`, `Source/Tests/SConscript`,
+# `Include/SConscript`, `Examples/SConscript` and
+# `Docs/src/bin/halibut/SConscript` were checked and have none of the
+# Python-2-only constructs this patch fixes).
+#
+# Carries has_key()->`in`, `raise X, msg`->`raise X(msg)`, `string` module
+# calls, `map()` results wrapped in `list()`, `.decode()`/`.encode()` for
+# bytes, and `EnsurePythonVersion` plumbing. The 64-bit mingw-prefix hunk in
+# crossmingw.py is incidental upstream content carried along with the needed
+# fix, not something this recipe asked for separately. No Source/exehead
+# change.
+#
+#   base (v304):      25cf71ac318c73016d0706add96f25ef70ccd4f7
+#   target:            2aea5257709d81dded1ac66caabad6ccb543f446
+#                      ("Port SCons scripts to py3k (xantares/py3k PR)",
+#                       2019-10-06, nsis-dev/nsis)
+#
+# Apply with `patch -p1` or `git apply` from the extracted nsis-3.04-src tree.
+diff --git a/Docs/src/SConscript b/Docs/src/SConscript
+index e0241c96..6cbf996a 100644
+--- a/Docs/src/SConscript
++++ b/Docs/src/SConscript
+@@ -50,8 +50,8 @@ chapters = 5
+ appendices = 9
+ 
+ htmls = Split('IndexPage.html Contents.html') \
+-	+ map(lambda ch: 'Chapter' + str(ch + 1) + '.html', range(chapters)) \
+-	+ map(lambda ap: 'Appendix' + chr(ord('A') + ap) + '.html', range(appendices))
++	+ list(map(lambda ch: 'Chapter' + str(ch + 1) + '.html', range(chapters))) \
++	+ list(map(lambda ap: 'Appendix' + chr(ord('A') + ap) + '.html', range(appendices)))
+ 
+ docsdefault_install_basepath = 'Docs'
+ 
+@@ -137,7 +137,7 @@ def docs_fixer(target, source, env):
+ 		data = open(html.path,'rb').read()
+ 
+ 		for pat, repl in fixes.items():
+-			data = re.sub(env.subst(pat), env.subst(repl), data)
++			data = re.sub(env.subst(pat).encode(), env.subst(repl).encode(), data)
+ 
+ 		open(html.path, 'wb').write(data)
+ 
+diff --git a/SCons/Tools/crossmingw.py b/SCons/Tools/crossmingw.py
+index 106f4034..522eaf29 100644
+--- a/SCons/Tools/crossmingw.py
++++ b/SCons/Tools/crossmingw.py
+@@ -43,7 +43,7 @@ import SCons.Tool
+ import SCons.Util
+ 
+ # This is what we search for to find mingw:
+-prefixes = SCons.Util.Split("""
++prefixes32 = SCons.Util.Split("""
+     mingw32-
+     mingw32msvc-
+     i386-mingw32-
+@@ -64,10 +64,18 @@ prefixes = SCons.Util.Split("""
+     i686-w64-mingw32-
+ """)
+ 
++prefixes64 = SCons.Util.Split("""
++    x86_64-w64-mingw32-
++""")
++
+ def find(env):
+     # Explicitly specified toolchain to build Windows executables
+     # takes predominance.
+     prefix = SCons.Script.ARGUMENTS.get('XGCC_W32_PREFIX', None)
++    prefixes = prefixes32
++    if env['TARGET_ARCH'] == 'amd64':
++        prefixes = prefixes64
++
+     if prefix:
+         prefixes.insert(0, prefix)
+     for prefix in prefixes:
+@@ -98,7 +106,7 @@ def shlib_emitter(target, source, env):
+     no_import_lib = env.get('no_import_lib', 0)
+ 
+     if not dll:
+-        raise SCons.Errors.UserError, "A shared library should have exactly one target with the suffix: %s" % env.subst("$SHLIBSUFFIX")
++        raise SCons.Errors.UserError("A shared library should have exactly one target with the suffix: %s" % env.subst("$SHLIBSUFFIX"))
+     
+     if not no_import_lib and \
+        not env.FindIxes(target, 'LIBPREFIX', 'LIBSUFFIX'):
+@@ -141,9 +149,9 @@ def generate(env):
+         if not path: 
+             path = []
+         if SCons.Util.is_String(path):
+-            path = string.split(path, os.pathsep)
++            path = str.split(path, os.pathsep)
+ 
+-        env['ENV']['PATH'] = string.join([dir] + path, os.pathsep)
++        env['ENV']['PATH'] = str.join(os.pathsep, [dir] + path)
+ 
+     # Most of mingw is the same as gcc and friends...
+     gnu_tools = ['gcc', 'g++', 'gnulink', 'ar', 'gas']
+diff --git a/SCons/utils.py b/SCons/utils.py
+index 372f8ae5..0b5315e9 100644
+--- a/SCons/utils.py
++++ b/SCons/utils.py
+@@ -123,11 +123,11 @@ def GetOptionOrEnv(name, defval = None):
+ 	Get option set on scons command line or in os.environ
+ 	"""
+ 	import os
+-	#if optenv and optenv.has_key(name):
++	#if optenv and name in optenv:
+ 	#	return optenv[name]
+-	if ARGUMENTS.has_key(name):
++	if name in ARGUMENTS:
+ 		return ARGUMENTS[name]
+-	if os.environ.has_key(name):
++	if name in os.environ:
+ 		return os.environ[name]
+ 	return defval
+ 
+diff --git a/SConstruct b/SConstruct
+index dffcd624..e8252c97 100644
+--- a/SConstruct
++++ b/SConstruct
+@@ -1,4 +1,5 @@
+ EnsureSConsVersion(1,2)
++EnsurePythonVersion(2,7)
+ 
+ stubs = [
+ 	'bzip2',
+@@ -253,14 +254,14 @@ f = open(defenv.File('#$BUILD_CONFIG/nsis-version.h').abspath, 'w')
+ f.write('// This file is automatically generated by SCons\n// DO NOT EDIT THIS FILE\n')
+ f.write('#include "%s"\n' % File('#/Source/tchar.h').abspath)
+ 
+-if (not defenv.has_key('VER_PACKED')) and defenv.has_key('VER_MAJOR') and defenv.has_key('VER_MINOR'):
++if (not 'VER_PACKED' in defenv) and 'VER_MAJOR' in defenv and 'VER_MINOR' in defenv:
+ 	packed_r = int(defenv.get('VER_REVISION','0'))
+ 	packed_b = int(defenv.get('VER_BUILD','0'))
+ 	defenv['VER_PACKED'] = '0x%0.2i%0.3i%0.2i%0.1i' % (int(defenv['VER_MAJOR']), int(defenv['VER_MINOR']), packed_r, packed_b)
+-if not defenv.has_key('VER_PACKED'):
++if not 'VER_PACKED' in defenv:
+ 	import re
+ 	found = None
+-	for v in re.compile(r'^\\H\{[v]?(\S+)\}', re.M).finditer(File('#/Docs/src/history.but').get_contents()): # Try to parse the Halibut history file
++	for v in re.compile(r'^\\H\{[v]?(\S+)\}', re.M).finditer(File('#/Docs/src/history.but').get_contents().decode()): # Try to parse the Halibut history file
+ 		if v and not found:
+ 			v = v.group(1).split('.')
+ 			if len(v) >= 2:
+@@ -277,11 +278,11 @@ if int(defenv['VER_PACKED'], 0) < int('0x03000000', 0) or int(defenv['VER_PACKED
+ 	Exit(1)
+ f.write('#define NSIS_PACKEDVERSION _T("%s")\n' % defenv['VER_PACKED'])
+ 
+-if defenv.has_key('VER_MAJOR') and defenv.get('VERSION','') == '':
++if 'VER_MAJOR' in defenv and defenv.get('VERSION','') == '':
+ 	defenv['VERSION'] = defenv['VER_MAJOR']
+-	if defenv.has_key('VER_MINOR'):
++	if 'VER_MINOR' in defenv:
+ 		defenv['VERSION'] += '.' + defenv['VER_MINOR']
+-	if defenv.has_key('VER_REVISION'):
++	if 'VER_REVISION' in defenv:
+ 		defenv['VERSION'] += '.' + defenv['VER_REVISION']
+ f.write('#define NSIS_VERSION _T("v%s")\n' % defenv['VERSION'])
+ 
+@@ -292,7 +293,7 @@ f.close()
+ ######################################################################
+ 
+ def GetArcCPU(env):
+-	if (not env.has_key('TARGET_ARCH')) or env['TARGET_ARCH'] == 'x86':
++	if (not 'TARGET_ARCH' in env) or env['TARGET_ARCH'] == 'x86':
+ 		return 'x86'
+ 	return env['TARGET_ARCH']
+ 
+@@ -355,7 +356,7 @@ defenv['DISTSUFFIX'] = ''
+ 
+ if GetArcCPU(defenv) != 'x86':
+ 	defenv['DISTSUFFIX'] += GetArcCPU(defenv)
+-if defenv.has_key('CODESIGNER'):
++if 'CODESIGNER' in defenv:
+ 	defenv['DISTSUFFIX'] += '-signed'
+ 
+ defenv.Execute(Delete('$ZIPDISTDIR'))
+@@ -363,21 +364,19 @@ defenv.Execute(Delete('$INSTDISTDIR'))
+ defenv.Execute(Delete('$TESTDISTDIR'))
+ 
+ def Distribute(files, names, component, path, subpath, alias, install_alias=None):
+-	from types import StringType
+-
+ 	files = MakeFileList(files)
+ 
+ 	names = names or map(lambda x: x.name, files)
+-	if isinstance(names, StringType):
++	if isinstance(names, str):
+ 		names = [names]
+ 
+ 	for d in ('$ZIPDISTDIR', '$INSTDISTDIR', '$TESTDISTDIR'):
+-		paths = map(lambda file: os.path.join(d, path, subpath, file), names)
++		paths = list(map(lambda file: os.path.join(d, path, subpath, file), names))
+ 		defenv.InstallAs(paths, files)
+ 
+-	if (defenv.has_key('PREFIX') and defenv['PREFIX']) or (defenv.has_key('PREFIX_DEST') and defenv['PREFIX_DEST']) :
++	if ('PREFIX' in defenv and defenv['PREFIX']) or ('PREFIX_DEST' in defenv and defenv['PREFIX_DEST']) :
+ 		prefix = '${PREFIX_DEST}${PREFIX_%s}' % component.upper()
+-		paths = map(lambda file: os.path.join(prefix, path, subpath, file), names)
++		paths = list(map(lambda file: os.path.join(prefix, path, subpath, file), names))
+ 		ins = defenv.InstallAs(paths, files)
+ 	else:
+ 		ins = []
+@@ -434,7 +433,7 @@ def FindMakeNSIS(env, path):
+ 	return exename
+ 
+ def Sign(targets):
+-	if defenv.has_key('CODESIGNER'):
++	if 'CODESIGNER' in defenv:
+ 		for t in targets:
+ 			a = defenv.Action('$CODESIGNER "%s"' % t.path)
+ 			defenv.AddPostAction(t, a)
+@@ -548,6 +547,17 @@ Export('plugin_env plugin_uenv')
+ #######  Distribution                                              ###
+ ######################################################################
+ 
++if defenv['PLATFORM'] == 'win32':
++	def build_nsis_menu_for_zip(target, source, env):
++		cmdline = FindMakeNSIS(env, str(env['ZIPDISTDIR']))
++		cmd = env.Command(None, source, cmdline + ' $SOURCE /X"OutFile %s"' % (target[0].abspath, ))
++		AlwaysBuild(cmd)
++
++	nsis_menu_target = defenv.Command(os.path.join('$ZIPDISTDIR', 'NSIS.exe'),
++																		os.path.join('$ZIPDISTDIR', 'Examples', 'NSISMenu.nsi'),
++																		build_nsis_menu_for_zip)
++	defenv.Sign(nsis_menu_target)
++
+ dist_zip = 'nsis-${VERSION}${DISTSUFFIX}.zip'
+ zip_target = defenv.Zip(dist_zip, '$ZIPDISTDIR')
+ defenv.Alias('dist-zip', zip_target)
+@@ -560,8 +570,8 @@ else:
+ 	optchar = '-'
+ 
+ defenv['INSTVER'] = '%sDVERSION=$VERSION' % optchar
+-if defenv.has_key('VER_MAJOR') and defenv.has_key('VER_MINOR') \
+-    and defenv.has_key('VER_REVISION') and defenv.has_key('VER_BUILD'):
++if 'VER_MAJOR' in defenv and 'VER_MINOR' in defenv \
++    and 'VER_REVISION' in defenv and 'VER_BUILD' in defenv:
+ 	defenv['INSTVER'] += ' %sDVER_MAJOR=$VER_MAJOR' % optchar
+ 	defenv['INSTVER'] += ' %sDVER_MINOR=$VER_MINOR' % optchar
+ 	defenv['INSTVER'] += ' %sDVER_REVISION=$VER_REVISION' % optchar
