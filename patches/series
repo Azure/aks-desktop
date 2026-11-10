@@ -5,3 +5,4 @@
 8095 source 8095-headlamp-upstream-plugin-menu-reload.patch
 8147 source 8147-headlamp-upstream-github-oauth.patch
 8265 source 8265-headlamp-upstream-backend-app-name.patch
+8354 source 8354-headlamp-upstream-kubeconfig-null-collections.patch
