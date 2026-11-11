@@ -6,10 +6,8 @@ import {
   registerAppBarAction,
   registerAppLogo,
   registerAppTheme,
-  registerClusterEmptyState,
 } from '@kinvolk/headlamp-plugin/lib';
 import React from 'react';
-import AKSClusterEmptyState from './components/ClusterEmptyState/AKSClusterEmptyState';
 import ContactUsButton from './components/ContactUs/ContactUsButton';
 import AzureLogo from './components/Logo/Logo';
 import { CONTACT_US_URL } from './utils/constants/contactUs';
@@ -41,7 +39,6 @@ if (Headlamp.isRunningAsApp()) {
   });
 
   registerAppLogo(AzureLogo);
-  registerClusterEmptyState(AKSClusterEmptyState);
   registerAppTheme(azureTheme, { default: true });
   registerAppBarAction({ id: 'aksd.contact-us', action: () => <ContactUsButton /> });
 }
