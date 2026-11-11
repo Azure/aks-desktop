@@ -249,6 +249,9 @@ extends:
                   export CI=true
                   export CSC_KEYCHAIN="$(agent.tempdirectory)/buildagent.keychain"
 
+                  node --test build/verify-macos-signing.test.cjs
+                  npx tsx --test build/package-target.test.ts
+
                   for arch in x64 arm64; do
                     if [ "$arch" = x64 ]; then
                       arch_display='Intel (x64)'
@@ -293,6 +296,10 @@ extends:
                     npm run "$verification_command"
                     echo "[build-timing] distribution verification $arch completed in $((SECONDS - verification_started))s"
 
+                    # Preserve the unsigned x64 smoke above; ad-hoc hardened apps are not launched.
+                    # Reuse prepared assets and let Electron Builder sign nested code before DMG creation.
+                    npm run "build:mac:$arch" -- --reuse-prepared-assets --prepare-macos-signing
+
                     artifact_started=$SECONDS
                     echo "[build-timing] artifact collection $arch started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                     dmg_file="$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*-$arch.dmg" -print -quit)"
@@ -305,6 +312,7 @@ extends:
                     mkdir -p "$output_dir"
                     cp "$dmg_file" "$output_dir/"
                     ls -la "$output_dir"
+                    node build/verify-macos-signing.cjs "$output_dir"
                     echo "[build-timing] artifact collection $arch completed in $((SECONDS - artifact_started))s"
                   done
                 displayName: 'Build AKS desktop (x64 + arm64)'
@@ -326,7 +334,8 @@ extends:
                   artifactName: signed-dmg-arm64
                   displayName: 'Publish Signed DMG (arm64)'
             steps:
-              - checkout: none
+              - checkout: self
+                fetchDepth: 1
               
               # Download unsigned DMG from previous stage
               - task: DownloadPipelineArtifact@2
@@ -386,6 +395,11 @@ extends:
                       }
                     ]
                   SessionTimeout: 60
+
+              - bash: |
+                  set -euo pipefail
+                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/signed-dmg"
+                displayName: "Verify Electron entitlements after signing"
 
               # Verify signatures and extract Bundle ID
               - bash: |
@@ -466,7 +480,8 @@ extends:
                   artifactName: aks-desktop-signed-arm64
                   displayName: 'Publish Notarized DMG (arm64)'
             steps:
-              - checkout: none
+              - checkout: self
+                fetchDepth: 1
               
               # Download signed DMG from previous stage
               - task: DownloadPipelineArtifact@2
@@ -525,6 +540,11 @@ extends:
                       }
                     ]
                   SessionTimeout: 240
+
+              - bash: |
+                  set -euo pipefail
+                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/notarized-dmg"
+                displayName: "Verify final Electron entitlements"
 
               # Verify notarization
               - bash: |
@@ -588,7 +608,8 @@ extends:
                   artifactName: signed-dmg-x64
                   displayName: 'Publish Signed DMG (x64)'
             steps:
-              - checkout: none
+              - checkout: self
+                fetchDepth: 1
               
               # Download unsigned DMG from previous stage
               - task: DownloadPipelineArtifact@2
@@ -648,6 +669,11 @@ extends:
                       }
                     ]
                   SessionTimeout: 60
+
+              - bash: |
+                  set -euo pipefail
+                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/signed-dmg"
+                displayName: "Verify Electron entitlements after signing"
 
               # Verify signatures and extract Bundle ID
               - bash: |
@@ -728,7 +754,8 @@ extends:
                   artifactName: aks-desktop-signed-x64
                   displayName: 'Publish Notarized DMG (x64)'
             steps:
-              - checkout: none
+              - checkout: self
+                fetchDepth: 1
               
               # Download signed DMG from previous stage
               - task: DownloadPipelineArtifact@2
@@ -787,6 +814,11 @@ extends:
                       }
                     ]
                   SessionTimeout: 240
+
+              - bash: |
+                  set -euo pipefail
+                  node build/verify-macos-signing.cjs "$(Pipeline.Workspace)/notarized-dmg"
+                displayName: "Verify final Electron entitlements"
 
               # Verify notarization
               - bash: |
