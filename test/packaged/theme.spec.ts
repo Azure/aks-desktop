@@ -1,11 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { expect, test } from '@playwright/test';
+import { _electron, type ElectronApplication, expect, type Page, test } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { _electron, type ElectronApplication, type Page } from 'playwright';
 
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const { resolveInstalledHeadlampPaths } = require(path.join(
