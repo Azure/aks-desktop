@@ -31,6 +31,7 @@ interface PackageTarget {
 interface PackageOptions {
   unpacked?: boolean;
   reusePreparedAssets?: boolean;
+  prepareMacSigning?: boolean;
 }
 
 const PACKAGE_ARGS: Record<string, string[]> = {
@@ -42,13 +43,28 @@ const PACKAGE_ARGS: Record<string, string[]> = {
   'win32:arm64': ['--win', '--arm64'],
 };
 
-/** Maps a supported package target to its Electron Builder arguments. */
-export function packageArguments(platform: NodeJS.Platform, arch: string): string[] {
+/** Maps a package target and optional intermediate signing plist to Electron Builder arguments. */
+export function packageArguments(
+  platform: NodeJS.Platform,
+  arch: string,
+  signingEntitlements?: string
+): string[] {
   const args = PACKAGE_ARGS[`${platform}:${arch}`];
   if (!args) {
     throw new Error(`Unsupported package target: ${platform}/${arch}`);
   }
-  return [...args];
+  if (signingEntitlements === undefined) {
+    return [...args];
+  }
+  if (platform !== 'darwin') {
+    throw new Error('Signing preparation requires a macOS package target');
+  }
+  return [
+    ...args,
+    '--config.mac.identity=-',
+    `--config.mac.entitlements=${signingEntitlements}`,
+    `--config.mac.entitlementsInherit=${signingEntitlements}`,
+  ];
 }
 
 /** Maps a supported target to Electron Builder arguments for directory-only output. */
@@ -160,6 +176,9 @@ export function packageTarget(
   if (options.unpacked && options.reusePreparedAssets) {
     throw new Error('Prepared assets can only be reused for distributable packaging');
   }
+  if (options.prepareMacSigning && (target.platform !== 'darwin' || options.unpacked)) {
+    throw new Error('Signing preparation requires a distributable macOS package');
+  }
 
   const { sourceDir, appDir, distDir } = resolveInstalledHeadlampPaths(rootDir);
   const targetArgs = [
@@ -212,7 +231,13 @@ export function packageTarget(
           '--',
           ...(options.unpacked
             ? unpackedArguments(target.platform, target.arch)
-            : packageArguments(target.platform, target.arch)),
+            : packageArguments(
+                target.platform,
+                target.arch,
+                options.prepareMacSigning
+                  ? path.join(rootDir, 'build', 'macos-jit-entitlements.plist')
+                  : undefined
+              )),
         ],
         appDir,
         buildEnv
@@ -240,5 +265,6 @@ if (require.main === module) {
   packageTarget({ platform, arch }, ROOT_DIR, runNpm, {
     unpacked: process.argv.includes('--unpacked'),
     reusePreparedAssets: process.argv.includes('--reuse-prepared-assets'),
+    prepareMacSigning: process.argv.includes('--prepare-macos-signing'),
   });
 }

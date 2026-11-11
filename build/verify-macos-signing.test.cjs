@@ -144,11 +144,45 @@ test('native codesign preserves JIT entitlements when replacing a signature', {
   assert.equal(entitlements['com.apple.security.cs.allow-jit'], true);
 });
 
-test('both release architectures preserve entitlements and verify signed artifacts', () => {
+test('native ad-hoc app and helpers carry only the product JIT entitlement', {
+  skip: process.platform !== 'darwin',
+}, t => {
+  const { app, bundles } = fixture(t);
+  const plist = path.join(__dirname, 'macos-jit-entitlements.plist');
+  const entitlements = JSON.parse(execFileSync('plutil',
+    ['-convert', 'json', '-o', '-', plist], { encoding: 'utf8' }));
+  assert.deepEqual(entitlements, { 'com.apple.security.cs.allow-jit': true });
+  for (const [index, bundle] of bundles.entries()) {
+    const contents = path.join(bundle, 'Contents');
+    const executable = path.join(contents, 'MacOS', 'test-binary');
+    fs.mkdirSync(path.dirname(executable), { recursive: true });
+    fs.copyFileSync('/usr/bin/true', executable);
+    fs.writeFileSync(path.join(contents, 'Info.plist'), `<?xml version="1.0"?>
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.example.aks-signing.fixture${index}</string>
+<key>CFBundleExecutable</key><string>test-binary</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+</dict></plist>`);
+  }
+  for (const bundle of [...bundles.slice(1), app]) {
+    execFileSync('codesign', ['--force', '--sign', '-', '--options=runtime',
+      '--entitlements', plist, bundle]);
+  }
+  verifyApp(app);
+});
+
+test('both release architectures prepare JIT entitlements and verify signed artifacts', () => {
   const workflow = fs.readFileSync(
     path.join(__dirname, '..', '.github', 'workflows', '1es-pipeline-mac.yml'), 'utf8'
   );
-  assert.equal(workflow.match(/--options=runtime --preserve-metadata=entitlements/g)?.length, 2);
+  assert.equal(workflow.match(/"Hardening": "--options=runtime"/g)?.length, 2);
+  assert.doesNotMatch(workflow, /--preserve-metadata=entitlements/);
+  const smoke = workflow.indexOf('npm run "$verification_command"');
+  const prepare = workflow.indexOf('npm run "build:mac:$arch" -- --reuse-prepared-assets --prepare-macos-signing');
+  const verify = workflow.indexOf('node build/verify-macos-signing.cjs "$output_dir"');
+  assert.ok(smoke > 0 && prepare > smoke && verify > prepare);
+  assert.match(workflow, /node --test build\/verify-macos-signing\.test\.cjs/);
+  assert.match(workflow, /npx tsx --test build\/package-target\.test\.ts/);
   assert.doesNotMatch(workflow, /node build\/verify-macos-signing\.cjs "\$\(Pipeline.Workspace\)\/unsigned-dmg"/);
   assert.equal(workflow.match(/node build\/verify-macos-signing\.cjs "\$\(Pipeline.Workspace\)\/signed-dmg"/g)?.length, 2);
   assert.equal(workflow.match(/node build\/verify-macos-signing\.cjs "\$\(Pipeline.Workspace\)\/notarized-dmg"/g)?.length, 2);

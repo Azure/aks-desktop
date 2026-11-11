@@ -249,6 +249,9 @@ extends:
                   export CI=true
                   export CSC_KEYCHAIN="$(agent.tempdirectory)/buildagent.keychain"
 
+                  node --test build/verify-macos-signing.test.cjs
+                  npx tsx --test build/package-target.test.ts
+
                   for arch in x64 arm64; do
                     if [ "$arch" = x64 ]; then
                       arch_display='Intel (x64)'
@@ -293,6 +296,10 @@ extends:
                     npm run "$verification_command"
                     echo "[build-timing] distribution verification $arch completed in $((SECONDS - verification_started))s"
 
+                    # Preserve the unsigned x64 smoke above; ad-hoc hardened apps are not launched.
+                    # Reuse prepared assets and let Electron Builder sign nested code before DMG creation.
+                    npm run "build:mac:$arch" -- --reuse-prepared-assets --prepare-macos-signing
+
                     artifact_started=$SECONDS
                     echo "[build-timing] artifact collection $arch started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
                     dmg_file="$(find node_modules/@headlamp-k8s/headlamp-source/source/app/dist -type f -name "aks-desktop*-$arch.dmg" -print -quit)"
@@ -305,6 +312,7 @@ extends:
                     mkdir -p "$output_dir"
                     cp "$dmg_file" "$output_dir/"
                     ls -la "$output_dir"
+                    node build/verify-macos-signing.cjs "$output_dir"
                     echo "[build-timing] artifact collection $arch completed in $((SECONDS - artifact_started))s"
                   done
                 displayName: 'Build AKS desktop (x64 + arm64)'
@@ -380,7 +388,7 @@ extends:
                         "KeyCode": "CP-401337-Apple",
                         "OperationCode": "MacAppDeveloperSign",
                         "Parameters": {
-                          "Hardening": "--options=runtime --preserve-metadata=entitlements"
+                          "Hardening": "--options=runtime"
                         },
                         "ToolName": "sign",
                         "ToolVersion": "1.0"
@@ -654,7 +662,7 @@ extends:
                         "KeyCode": "CP-401337-Apple",
                         "OperationCode": "MacAppDeveloperSign",
                         "Parameters": {
-                          "Hardening": "--options=runtime --preserve-metadata=entitlements"
+                          "Hardening": "--options=runtime"
                         },
                         "ToolName": "sign",
                         "ToolVersion": "1.0"

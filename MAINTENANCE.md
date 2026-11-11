@@ -212,18 +212,28 @@ The Intel worker cannot launch the ARM64 app, so ARM64 runs packaged-tool checks
 instead of the Electron launch smoke. Signing and notarization remain separate
 per architecture after the shared build job.
 
-ESRP developer signing must preserve the entitlements embedded by Electron
-Builder (`--preserve-metadata=entitlements`). The main app and Electron helpers
-require `com.apple.security.cs.allow-jit=true`; a valid Developer ID signature
-and successful notarization alone do not establish that the ARM64 app can start.
-The release pipeline runs `node build/verify-macos-signing.cjs <dmg-directory>`
-after signing and after notarization for both architectures.
-Missing entitlements or invalid app signatures fail the job.
+After the existing unsigned package checks, release builds repackage prepared
+assets with `--reuse-prepared-assets --prepare-macos-signing`. Electron Builder
+uses an explicit ad-hoc identity and `build/macos-jit-entitlements.plist` for
+the app and nested code before creating the intermediate DMG. That plist grants
+only `com.apple.security.cs.allow-jit=true`. This does not require a certificate
+or add a library-validation exception. Hardened ad-hoc apps are not launched:
+the existing unsigned x64 smoke test runs before signing preparation.
 
-Run `node --test build/verify-macos-signing.test.cjs` for the verifier and
-pipeline contract tests. On macOS this also exercises native `codesign`
-entitlement preservation. Changes to signing arguments require a real ESRP
-pipeline run; local tests cannot validate the remote signing service.
+ESRP still applies the final Developer ID signature with
+`"Hardening": "--options=runtime"`. This setting is not a general codesign
+argument passthrough; appending `--preserve-metadata=entitlements` is rejected.
+ESRP must retain the embedded JIT entitlements. The release pipeline runs
+`node build/verify-macos-signing.cjs <dmg-directory>` after preparation,
+after ESRP signing and after notarization for both architectures. Missing
+entitlements or invalid app signatures fail the job; the intermediate ad-hoc
+signature is not a release signature.
+
+Run `node --test build/verify-macos-signing.test.cjs` and
+`npx tsx --test build/package-target.test.ts` for verifier and packaging tests.
+The macOS build runs these before packaging, including native ad-hoc
+app/helper entitlement checks. Local tests cannot establish ESRP's preservation
+behavior; the real service and the resulting DMGs must pass the final checks.
 Before publishing, launch the final signed/notarized ARM64 app on an ARM64 Mac,
 quit it, and reopen it. The Intel build worker cannot perform that runtime check.
 
