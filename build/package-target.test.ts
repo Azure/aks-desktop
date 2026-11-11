@@ -254,6 +254,60 @@ test('maps each supported target to one Electron Builder architecture', () => {
   assert.deepEqual(unpackedArguments('win32', 'x64'), ['--win', '--x64']);
 });
 
+for (const arch of ['x64', 'arm64']) {
+  test(`prepares ${arch} macOS signing inputs with explicit minimal entitlements`, () => {
+    const plist = '/product root/build/macos-jit-entitlements.plist';
+    assert.deepEqual(packageArguments('darwin', arch, plist), [
+      '--mac', 'dmg', `--${arch}`,
+      '--config.mac.identity=-',
+      `--config.mac.entitlements=${plist}`,
+      `--config.mac.entitlementsInherit=${plist}`,
+    ]);
+  });
+
+  test(`passes signing preparation through the ${arch} macOS packaging command`, {
+    skip: process.platform !== 'darwin' || (arch === 'x64' && process.arch !== 'x64'),
+  }, t => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mac signing-'));
+    t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+    fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
+    const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
+    const appDir = path.join(sourceDir, 'app');
+    fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
+    const target = { platform: 'darwin' as const, arch };
+    writeDependencyTarget(rootDir, target);
+    t.mock.method(console, 'log', () => undefined);
+    let packaged = false;
+    packageTarget(target, rootDir, (args, cwd, env) => {
+      if (cwd === appDir && args[1] === 'package:prepared') {
+        assert.deepEqual(args, [
+          'run', 'package:prepared', '--',
+          ...packageArguments('darwin', arch, path.join(rootDir, 'build', 'macos-jit-entitlements.plist')),
+        ]);
+        assert.equal(env?.GOARCH, arch === 'x64' ? 'amd64' : 'arm64');
+        fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
+        packaged = true;
+      }
+    }, { reusePreparedAssets: true, prepareMacSigning: true });
+    assert.equal(packaged, true);
+  });
+}
+
+test('rejects macOS signing preparation for non-macOS targets', () => {
+  for (const platform of ['linux', 'win32'] as const) {
+    assert.throws(() => packageArguments(platform, 'x64', '/jit.plist'), /macOS/);
+  }
+});
+
+test('rejects signing preparation for unpacked output before running build steps', () => {
+  assert.throws(() => packageTarget(
+    { platform: process.platform, arch: process.arch },
+    '/unused',
+    () => assert.fail('build steps must not run'),
+    { unpacked: true, prepareMacSigning: true }
+  ), /distributable macOS package/);
+});
+
 test('rejects unsupported platform and architecture pairs', () => {
   assert.throws(() => packageArguments('linux', 'armv7l'), /Unsupported package target/);
   assert.throws(() => packageArguments('aix', 'x64'), /Unsupported package target/);
