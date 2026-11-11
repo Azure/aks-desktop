@@ -1,6 +1,6 @@
 {
   "name": "aks-desktop-monorepo",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "AKS desktop - Headlamp Plugin Monorepo",
   "private": true,
   "packageManager": "npm@12.0.1",
