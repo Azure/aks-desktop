@@ -9,7 +9,6 @@ import {
   registerClusterEmptyState,
 } from '@kinvolk/headlamp-plugin/lib';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import AKSClusterEmptyState from './components/ClusterEmptyState/AKSClusterEmptyState';
 import AzureLogo from './components/Logo/Logo';
 import { CONTACT_US_URL } from './utils/constants/contactUs';
 import { azureTheme } from './utils/shared/theme';
@@ -27,9 +26,6 @@ vi.mock('@kinvolk/headlamp-plugin/lib', () => ({
 
 vi.mock('./components/ContactUs/ContactUsButton', () => ({ default: () => null }));
 vi.mock('./components/Logo/Logo', () => ({ default: () => null }));
-vi.mock('./components/ClusterEmptyState/AKSClusterEmptyState', () => ({
-  default: () => null,
-}));
 
 beforeEach(() => {
   vi.resetModules();
@@ -41,7 +37,7 @@ describe('theme registration', () => {
     await import('./index');
 
     expect(registerAppLogo).toHaveBeenCalledExactlyOnceWith(AzureLogo);
-    expect(registerClusterEmptyState).toHaveBeenCalledExactlyOnceWith(AKSClusterEmptyState);
+    expect(registerClusterEmptyState).not.toHaveBeenCalled();
     expect(registerAppTheme).toHaveBeenCalledExactlyOnceWith(azureTheme, { default: true });
     expect(registerAppBarAction).toHaveBeenCalledExactlyOnceWith({
       id: 'aksd.contact-us',

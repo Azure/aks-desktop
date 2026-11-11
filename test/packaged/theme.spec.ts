@@ -89,7 +89,9 @@ async function expectTheme(name: string, navbar: string) {
 async function expectBranding(enabled: boolean) {
   await navigate('/');
   const logos = page.getByLabel('AKS desktop logo', { exact: true });
-  await expect(logos).toHaveCount(enabled ? 2 : 0);
+  await expect(logos).toHaveCount(enabled ? 1 : 0);
+  await expect(page.locator('#main').getByLabel('AKS desktop logo', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('No clusters found', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Contact us', exact: true })).toHaveCount(
     enabled ? 1 : 0
   );

@@ -4,7 +4,7 @@ An independent Headlamp plugin containing AKS Desktop presentation and branding:
 
 - Azure color palette, registered as the default only when there is no saved
   theme preference or forced host theme
-- App logo and cluster empty-state logo (preserves Headlamp's cluster actions)
+- App logo
 - AKS documentation and contact links in the desktop Help menu
 - Contact action in the desktop app bar, including the narrow-screen overflow menu
 
@@ -47,7 +47,7 @@ headless Linux). Set `AKS_DESKTOP_EXECUTABLE` to test another packaged executabl
 
 The tests launch the real packaged Electron application with isolated profile,
 kubeconfig, and Azure configuration directories. They toggle the theme through
-Settings and Save & Apply, verify colors, app/empty-state logos and native Help
+Settings and Save & Apply, verify colors, app logo and native Help
 menus after reload, and check that AKS workflows and explicit theme preferences
 survive disabling, re-enabling and restarting the application.
 Azure CLI telemetry is disabled for these tests. Profile cleanup uses bounded
