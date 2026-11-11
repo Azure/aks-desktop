@@ -187,6 +187,7 @@
       "companyName": "Microsoft",
       "appId": "com.microsoft.aksdesktop",
       "artifactName": "aks-desktop-${version}-${os}-${arch}.${ext}",
+      "trayIcon": "assets/aks-desktop-tray.png",
       "errorReporting": {
         "githubIssueUrl": "https://github.com/Azure/aks-desktop/issues/new?labels=bug",
         "buttonLabel": "Contact us"
@@ -266,6 +267,11 @@
           "base": "project",
           "from": "NOTICE.md",
           "to": "AKS_DESKTOP_NOTICE.md"
+        },
+        {
+          "base": "project",
+          "from": "build/icons/aks-desktop-tray.png",
+          "to": "assets/aks-desktop-tray.png"
         }
       ],
       "externalTools": [

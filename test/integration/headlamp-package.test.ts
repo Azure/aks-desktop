@@ -1088,6 +1088,55 @@ test('error and not-found graphics use the product-owned artwork', context => {
   assert.notEqual(environment.REACT_APP_HEADLAMP_ERROR_PAGE_GRAPHIC, environment.REACT_APP_HEADLAMP_NOT_FOUND_PAGE_GRAPHIC);
 });
 
+test('AKS product metadata packages its high-resolution tray icon on every desktop platform', context => {
+  const trayIcon = 'assets/aks-desktop-tray.png';
+  assert.equal(rootManifest.headlamp.product.trayIcon, trayIcon);
+  const configuredResource = rootManifest.headlamp.build.resources.find(
+    (resource: { base: string; from: string; to: string }) =>
+      resource.base === 'project' &&
+      resource.from === 'build/icons/aks-desktop-tray.png' &&
+      resource.to === trayIcon
+  );
+  assert.ok(configuredResource);
+  const icon = fs.readFileSync(path.join(ROOT_DIR, configuredResource.from));
+  assert.equal(icon.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+  assert.equal(icon.readUInt32BE(16), 704);
+  assert.equal(icon.readUInt32BE(20), 704);
+  assert.equal(icon[25], 6);
+
+  const { createManifest } = require(
+    path.join(PACKAGE_DIR, 'src', 'lib', 'generate-product-manifest.ts')
+  );
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'aks tray icon-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const iconPath = path.join(directory, configuredResource.from);
+  fs.mkdirSync(path.dirname(iconPath), { recursive: true });
+  fs.copyFileSync(path.join(ROOT_DIR, configuredResource.from), iconPath);
+  const project = structuredClone(rootManifest);
+  project.headlamp.build.externalTools = [];
+  project.headlamp.build.icons = {};
+  project.headlamp.build.resources = [configuredResource];
+  fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify(project));
+
+  for (const platform of ['darwin', 'linux', 'win32']) {
+    const { manifest, manifestPath } = createManifest({
+      rootDir: directory,
+      packageDir: HEADLAMP_PACKAGE_DIR,
+      platform,
+    });
+    assert.equal(manifest.product.trayIcon, trayIcon);
+    const trayResources = manifest.resources.common.filter(
+      (resource: { to: string }) => resource.to === trayIcon
+    );
+    assert.equal(trayResources.length, 1);
+    assert.equal(
+      path.resolve(path.dirname(manifestPath), trayResources[0].from),
+      iconPath
+    );
+    assert.deepEqual(fs.readFileSync(iconPath), icon);
+  }
+});
+
 test('product packaging declares valid AKS icons for every desktop platform', () => {
   const icons = rootManifest.headlamp.build.icons;
   assert.deepEqual(icons, {
