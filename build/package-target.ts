@@ -243,9 +243,9 @@ export function packageTarget(
       if (target.platform === 'win32' && !options.unpacked) {
         runTimedStep('verify installer ASLR', () => {
           const installer = `aks-desktop-${buildEnv.APP_VERSION}-win-${target.arch}.exe`;
-          const matches = fs.readdirSync(distDir).filter(file => file === installer);
-          if (matches.length !== 1) throw new Error(`Expected exactly one current installer: ${installer}`);
-          const result = verifyAslr(fs.readFileSync(path.join(distDir, installer)), installer);
+          const installerPath = path.join(distDir, installer);
+          if (!fs.existsSync(installerPath)) throw new Error(`Expected exactly one current installer: ${installer}`);
+          const result = verifyAslr(fs.readFileSync(installerPath), installer);
           console.log(`${installer}: ${result.fixupCount} HIGHLOW fixups`);
         });
       }
