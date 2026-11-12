@@ -95,6 +95,8 @@ for (const corruption of [
       await fs.readFile(path.join(stock, 'Stubs/zlib-x86-unicode'), 'utf8'),
       'old'
     );
+    // A failed copy may leave output empty; arrange this guard independently.
+    await fs.writeFile(path.join(output, 'occupied'), 'not empty');
     await assert.rejects(prepare, /empty/);
   });
 }
