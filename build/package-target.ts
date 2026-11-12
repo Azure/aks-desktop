@@ -170,6 +170,15 @@ export function packageTarget(
     `--arch=${target.arch}`,
   ];
   const buildEnv = packageEnvironment(target, rootDir);
+  const nsisTempPrefix = target.platform === 'win32' && !options.unpacked && !buildEnv.ELECTRON_BUILDER_NSIS_DIR
+    ? path.join(os.tmpdir(), 'aks-nsis-')
+    : undefined;
+  // Match electron-builder's Windows override constraint before expensive build steps.
+  if (nsisTempPrefix && (!path.isAbsolute(nsisTempPrefix) || /[;&|`$<>"']/.test(nsisTempPrefix))) {
+    throw new Error(
+      'TEMP/TMP cannot stage the NSIS toolset: electron-builder requires an absolute path without shell-unsafe characters (; & | ` $ < > " \'). Set TEMP and TMP to an existing directory such as C:\\Temp, then restart the build. Spaces are supported.'
+    );
+  }
   const targetRecord = path.join(distDir, '.package-target.json');
   fs.rmSync(targetRecord, { force: true });
 
@@ -210,8 +219,8 @@ export function packageTarget(
     let ownedToolset: string | undefined;
     try {
       let packageEnv = buildEnv;
-      if (target.platform === 'win32' && !options.unpacked && !buildEnv.ELECTRON_BUILDER_NSIS_DIR) {
-        ownedToolset = fs.mkdtempSync(path.join(os.tmpdir(), 'aks-nsis-'));
+      if (nsisTempPrefix) {
+        ownedToolset = fs.mkdtempSync(nsisTempPrefix);
         runTimedStep('prepare NSIS toolset', () =>
           runStep(['run', 'nsis:toolset', '--', `--output=${ownedToolset}`], rootDir, buildEnv)
         );

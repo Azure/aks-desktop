@@ -28,6 +28,10 @@ independent SHA-256 manifests before using the compiler or elevation helper.
 The copy is removed after packaging, including failures; no patched cache is kept.
 A caller's `ELECTRON_BUILDER_NSIS_DIR` still wins and is never removed, but the
 finished installer must pass the same structural PE relocation gate.
+Default staging fails before build steps if the temporary path is incompatible with
+electron-builder's Windows override check. Set `TEMP` and `TMP` to an existing absolute
+directory without shell metacharacters (for example `C:\Temp`) and restart the build.
+Spaces in the path are supported.
 
 Use `npm run nsis:rebuild-stubs` to rebuild, or
 `build/nsis-aslr/build-stubs.sh --check` to compare without editing. See the
