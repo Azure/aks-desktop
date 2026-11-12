@@ -84,6 +84,37 @@ const mutations: [string, (b: Buffer) => void, RegExp][] = [
   ],
   ['unaligned page', (b) => b.writeUInt32LE(4097, reloc), /page alignment/],
   [
+    'duplicate HIGHLOW target',
+    (b) => b.writeUInt16LE(b.readUInt16LE(reloc + 8), reloc + 10),
+    /overlapping HIGHLOW targets/,
+  ],
+  [
+    'duplicate HIGHLOW target across blocks',
+    (b) => {
+      // Repeat the first block as a second block in the same directory.
+      const size = b.readUInt32LE(reloc + 4);
+      b.copy(b, reloc + size, reloc, reloc + size);
+      b.writeUInt32LE(size * 2, directory + 4);
+    },
+    /overlapping HIGHLOW targets/,
+  ],
+  [
+    'partially overlapping HIGHLOW targets across blocks',
+    (b) => {
+      // Two individually valid, overlapping in-image VAs in committed .text.
+      b.writeUInt32LE(24, directory + 4);
+      for (const [block, offset] of [[reloc, 0x2b], [reloc + 12, 0x2d]]) {
+        b.writeUInt32LE(4096, block);
+        b.writeUInt32LE(12, block + 4);
+        b.writeUInt16LE(0x3000 | offset, block + 8);
+        b.writeUInt16LE(0, block + 10);
+      }
+      // Little-endian windows at +0/+2 both contain the in-image VA 0x400040.
+      Buffer.from([0x40, 0, 0x40, 0, 0x40, 0]).copy(b, 1024 + 0x2b);
+    },
+    /overlapping HIGHLOW targets/,
+  ],
+  [
     'unsupported type',
     (b) => b.writeUInt16LE(0x5000, reloc + 8),
     /relocation type/,

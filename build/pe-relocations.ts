@@ -75,6 +75,8 @@ export function verifyAslr(
     fail('relocation directory must be wholly inside file-backed .reloc');
   const end = start + relocSize;
   let fixupCount = 0;
+  // The loader applies every fixup, so even cross-block partial overlap is invalid.
+  const relocatedBytes = new Set<number>();
   for (let block = start; block < end; ) {
     if (end - block < 8) fail('truncated relocation block header');
     const page = buffer.readUInt32LE(block);
@@ -87,9 +89,14 @@ export function verifyAslr(
       const type = value >>> 12;
       if (type === 0) continue; // ABSOLUTE entries are alignment padding.
       if (type !== 3) fail(`unsupported relocation type ${type}`);
-      const target = fileOffset(page + (value & 0xfff), 4);
+      const targetRva = page + (value & 0xfff);
+      const target = fileOffset(targetRva, 4);
       if (target === undefined)
         fail('HIGHLOW requires a four-byte file-backed target');
+      for (let byte = targetRva; byte < targetRva + 4; byte++) {
+        if (relocatedBytes.has(byte)) fail('overlapping HIGHLOW targets');
+        relocatedBytes.add(byte);
+      }
       const va = buffer.readUInt32LE(target);
       if (va < imageBase || va >= imageBase + imageSize)
         fail('HIGHLOW requires an in-image VA');
