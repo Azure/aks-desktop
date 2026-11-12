@@ -12,7 +12,6 @@ vi.mock('./az-cli-core', () => ({
 
 vi.mock('./az-validation', () => ({
   isValidAzResourceName: (s: string) => /^[a-zA-Z0-9-_]+$/.test(s),
-  parseManagedIdentityOutput: vi.fn(),
 }));
 
 import { getKubeletIdentityObjectId } from './az-identity';

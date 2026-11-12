@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { createManagedIdentity, getManagedIdentity } from './az-identity';
+import { createManagedIdentity, getManagedIdentity } from './az-managed-identities';
 import {
   createResourceGroup,
   getResourceGroupLocation,

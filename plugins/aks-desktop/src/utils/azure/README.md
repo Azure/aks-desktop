@@ -6,13 +6,13 @@ This directory contains the Azure CLI integration layer for AKS Desktop. Every A
 
 ### Core Layer
 
-| Module             | Responsibility                                                                                                    |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `az-cli-path.ts`   | Resolve the `az` command path (bundled Electron build vs system CLI)                                              |
-| `az-cli-core.ts`   | Foundation — `runCommandAsync`, `runAzCommand`, debug logging, error detection (`needsRelogin`, `isAzError`)      |
-| `az-validation.ts` | Input validation (`isValidAzResourceName`, `isValidGitHubName`) and output parsing (`parseManagedIdentityOutput`) |
-| `az-token.ts`      | CLI-backed `TokenCredential` (`getAzToken`, `azCliCredential`)                                                    |
-| `az-http.ts`       | Azure REST requests (`azRequest`, `azRequestRaw`, `azListAll`)                                                    |
+| Module             | Responsibility                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `az-cli-path.ts`   | Resolve the `az` command path (bundled Electron build vs system CLI)                                         |
+| `az-cli-core.ts`   | Foundation — `runCommandAsync`, `runAzCommand`, debug logging, error detection (`needsRelogin`, `isAzError`) |
+| `az-validation.ts` | Input validation (`isValidAzResourceName`, `isValidGitHubName`)                                              |
+| `az-token.ts`      | CLI-backed `TokenCredential` (`getAzToken`, `azCliCredential`)                                               |
+| `az-http.ts`       | Azure REST requests (`azRequest`, `azRequestRaw`, `azListAll`)                                               |
 
 ### Domain Modules
 
@@ -26,7 +26,8 @@ This directory contains the Azure CLI integration layer for AKS Desktop. Every A
 | `az-resource-graph.ts`     | Azure Resource Graph queries for clusters, counts, and managed namespaces    |
 | `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                     |
 | `az-namespace-access.ts`   | Namespace role assignments and access verification                           |
-| `az-identity.ts`           | Managed identity CRUD, role assignments, scope building                      |
+| `az-identity.ts`           | Role assignments, scope building                                             |
+| `az-managed-identities.ts` | Managed identity CRUD                                                        |
 | `az-ad.ts`                 | Microsoft Graph Entra user search and identifier resolution                  |
 | `az-acr.ts`                | Container registry creation, listing, and image discovery                    |
 | `az-federation.ts`         | Federated credentials for GitHub Actions and Kubernetes OIDC                 |
@@ -60,6 +61,7 @@ az-cli-core.ts  (foundation — runCommandAsync, runAzCommand, error helpers)
     ├── az-namespace-access.ts ──────> az-namespaces.ts
     ├── az-clusters.ts ──────────────> az-resource-graph.ts, az-subscriptions.ts
     ├── az-identity.ts ──────────────> az-validation.ts
+    ├── az-managed-identities.ts ────> az-cloud.ts, az-http.ts, az-token.ts, az-validation.ts
     ├── az-ad.ts ────────────────────> az-http.ts
     ├── az-acr.ts ───────────────────> az-validation.ts
     └── az-federation.ts ────────────> az-validation.ts
@@ -169,6 +171,17 @@ permission requirements. Offline transport and caller tests do not establish
 live consent or conditional-access behavior in a particular tenant. Public,
 Government, and China Graph routing is tested with mocked cloud configuration;
 this is not a claim of live sovereign-cloud validation.
+
+### Managed identities
+
+`getManagedIdentity`, `createManagedIdentity` and `listManagedIdentities` use the
+user-assigned identities ARM API (`2023-01-31`) through `az-http.ts`. Requests
+target the configured cloud and authenticate to the subscription's own tenant.
+
+A missing identity returns `notFound`; a missing resource group or subscription
+is an error. Creation uses the identity resource group's location and tags the
+identity as an AKS Desktop workload identity. Listing returns every page and
+skips identities without client or principal IDs.
 
 ### Managed namespace deletion
 
