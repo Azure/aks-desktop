@@ -49,7 +49,7 @@ finished installer is checked before build success, but this does not prove Wind
 loader randomization, install/upgrade/uninstall, signing or Guardian acceptance.
 Check the installed uninstaller separately (an installed-copy/extraction gate, not
 an automated per-build check). After release signing, re-run
-`tsx build/pe-relocations.ts <installer>...` on both signed installers and confirm
+`tsx build/nsis-aslr/pe-relocations.ts <installer>...` on both signed installers and confirm
 ESRP verification and zero active/baselined BA2009 before removing the temporary
 Guardian baselines in a separate change. NSIS notices follow the existing generated
 NOTICE process; its source license is retained beside the recipe.

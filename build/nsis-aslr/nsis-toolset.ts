@@ -6,7 +6,7 @@ import * as fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 
-const RECIPE = path.join(__dirname, 'nsis-aslr');
+const RECIPE = __dirname;
 const CHECKSUM =
   '9877df902530f96357d13a7a31ae2b9df67f48b11ffc9a1700a7c961574ec5fa';
 
@@ -110,13 +110,13 @@ if (require.main === module) {
     ?.slice('--output='.length);
   const {
     resolveInstalledHeadlampPaths,
-  } = require('../packages/headlamp-source/src/lib/paths.ts');
+  } = require('../../packages/headlamp-source/src/lib/paths.ts');
   if (!output)
     throw new Error(
       'Usage: nsis-toolset.ts --output=<parent-created-empty-directory>'
     );
   prepareNsisToolset({
-    ...resolveInstalledHeadlampPaths(path.dirname(__dirname)),
+    ...resolveInstalledHeadlampPaths(path.resolve(__dirname, '../..')),
     output,
   }).catch((error) => {
     console.error(error);

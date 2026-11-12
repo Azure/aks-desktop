@@ -68,7 +68,7 @@ revalidating the one-stub selection and Windows compiler pairing.
 
 ## Packaging and stock identity
 
-`build/nsis-toolset.ts` makes an ordinary temporary copy of electron-builder's
+`build/nsis-aslr/nsis-toolset.ts` makes an ordinary temporary copy of electron-builder's
 stock bundle (about 7.3 MB), overlays this one stub, and checks its exact file
 inventory. `stock-bundle.sha256` records the other 342 files from a fresh extraction
 of the authenticated archive below, including `Bin/makensis.exe`, `elevate.exe`,

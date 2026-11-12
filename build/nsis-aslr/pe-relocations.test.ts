@@ -8,7 +8,7 @@ import * as path from 'node:path';
 import { test } from 'node:test';
 import { verifyAslr } from './pe-relocations';
 
-const stubPath = path.join(__dirname, 'nsis-aslr/stubs/zlib-x86-unicode');
+const stubPath = path.join(__dirname, 'stubs/zlib-x86-unicode');
 const stub = fs.readFileSync(stubPath);
 // Offsets are deliberately coupled to the pinned PE, not a synthetic PE builder.
 const pe = 128;
@@ -170,10 +170,7 @@ for (const length of [0, 63, 151, 375, 695, reloc + 10]) {
 }
 test('real stock header fails on stripped relocations before needing code bytes', () => {
   const headers = fs.readFileSync(
-    path.join(
-      __dirname,
-      'nsis-aslr/test-fixtures/stock-zlib-x86-unicode.headers.bin'
-    )
+    path.join(__dirname, 'test-fixtures/stock-zlib-x86-unicode.headers.bin')
   );
   assert.throws(() => verifyAslr(headers, 'stock'), /stock:.*RELOCS_STRIPPED/);
 });

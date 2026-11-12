@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { verifyAslr } from './pe-relocations';
+import { verifyAslr } from './nsis-aslr/pe-relocations';
 import { runTimedStep } from './build-timing';
 import { dependencyTargetMatches } from './dependency-target';
 

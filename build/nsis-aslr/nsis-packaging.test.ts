@@ -7,8 +7,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
-import { writeDependencyTarget } from './dependency-target';
-import { packageTarget } from './package-target';
+import { writeDependencyTarget } from '../dependency-target';
+import { packageTarget } from '../package-target';
 
 for (const mode of [
   'normal',
@@ -95,7 +95,7 @@ for (const mode of [
             // Exercise the produced override against the installed consumer's Windows check.
             const consumer = path.join(
               __dirname,
-              '../node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules/builder-util/out/envUtil.js'
+              '../../node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules/builder-util/out/envUtil.js'
             );
             const result = spawnSync(
               process.execPath,
@@ -119,7 +119,7 @@ for (const mode of [
               mode === 'stale' ? '0.1.0' : '9.8.7'
             }-win-${arch}.exe`;
             const bytes = fs.readFileSync(
-              path.join(__dirname, 'nsis-aslr/stubs/zlib-x86-unicode')
+              path.join(__dirname, 'stubs/zlib-x86-unicode')
             );
             if (mode === 'invalid') bytes.writeUInt16LE(0, 0);
             fs.writeFileSync(path.join(dist, filename), bytes);
