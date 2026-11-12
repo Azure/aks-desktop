@@ -6,13 +6,13 @@ This directory contains the Azure integration layer for AKS Desktop. Azure resou
 
 ### Core Layer
 
-| Module             | Responsibility                                                                                                    |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `az-cli-path.ts`   | Resolve the `az` command path (bundled Electron build vs system CLI)                                              |
-| `az-cli-core.ts`   | Foundation — `runCommandAsync`, `runAzCommand`, debug logging, error detection (`needsRelogin`, `isAzError`)      |
-| `az-validation.ts` | Input validation (`isValidAzResourceName`, `isValidGitHubName`) and output parsing (`parseManagedIdentityOutput`) |
-| `az-token.ts`      | CLI-backed `TokenCredential` (`getAzToken`, `azCliCredential`)                                                    |
-| `az-http.ts`       | Azure REST requests (`azRequest`, `azRequestRaw`, `azListAll`)                                                    |
+| Module             | Responsibility                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `az-cli-path.ts`   | Resolve the `az` command path (bundled Electron build vs system CLI)                                         |
+| `az-cli-core.ts`   | Foundation — `runCommandAsync`, `runAzCommand`, debug logging, error detection (`needsRelogin`, `isAzError`) |
+| `az-validation.ts` | Input validation (`isValidAzResourceName`, `isValidGitHubName`)                                              |
+| `az-token.ts`      | CLI-backed `TokenCredential` (`getAzToken`, `azCliCredential`)                                               |
+| `az-http.ts`       | Azure REST requests (`azRequest`, `azRequestRaw`, `azListAll`)                                               |
 
 ### Domain Modules
 
@@ -25,7 +25,8 @@ This directory contains the Azure integration layer for AKS Desktop. Azure resou
 | `az-resource-graph.ts`     | ARM Resource Graph queries for clusters, counts, and managed namespaces      |
 | `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                     |
 | `az-namespace-access.ts`   | Namespace role assignments and access verification                           |
-| `az-identity.ts`           | Managed identity CRUD, role assignments, scope building                      |
+| `az-identity.ts`           | Role assignments, scope building, and kubelet identity lookup                |
+| `az-managed-identities.ts` | Managed identity CRUD                                                        |
 | `az-ad.ts`                 | Microsoft Graph Entra user search and identifier resolution                  |
 | `az-acr.ts`                | Container registry creation, listing, and image discovery                    |
 | `az-federation.ts`         | Federated credentials for GitHub Actions and Kubernetes OIDC                 |
@@ -56,7 +57,8 @@ az-cli-core.ts  (foundation — runCommandAsync, runAzCommand, error helpers)
     ├── az-namespaces.ts
     ├── az-namespace-access.ts ──────> az-namespaces.ts
     ├── az-clusters.ts ──────────────> az-resource-graph.ts, az-subscriptions.ts
-    ├── az-identity.ts ──────────────> az-validation.ts
+    ├── az-identity.ts ──────────────> az-managed-clusters.ts, az-validation.ts
+    ├── az-managed-identities.ts ────> az-cloud.ts, az-http.ts, az-resource-providers.ts, az-subscriptions.ts, az-token.ts, az-validation.ts
     ├── az-ad.ts ────────────────────> az-http.ts
     ├── az-acr.ts ───────────────────> az-validation.ts
     └── az-federation.ts ────────────> az-validation.ts
@@ -86,9 +88,9 @@ For read-only managed AKS list/info checks in the current CLI subscription, run
 directory. See [live test setup and inventory](../../../../../test/live/README.md)
 for coverage, skip conditions and differences from the resource-creating suites.
 
-Resource-provider registration uses direct REST and requires an explicit selected
-subscription. Success means accepted; pass `waitUntilRegistered: true` to poll for
-completion. An optional signal and timeout bound the entire operation.
+Container Service and Container Registry registration use direct REST on the
+selected subscription. Success means accepted; pass `waitUntilRegistered: true`
+to poll for completion. An optional signal and timeout bound the entire operation.
 REST subscription discovery reads the active CLI cloud using local `az cloud show`
 configuration, uses its ARM endpoint and token audience for tenant/subscription
 requests, and returns its name as `environmentName` on every subscription.
@@ -189,6 +191,17 @@ permission requirements. Offline transport and caller tests do not establish
 live consent or conditional-access behavior in a particular tenant. Public,
 Government, and China Graph routing is tested with mocked cloud configuration;
 this is not a claim of live sovereign-cloud validation.
+
+### Managed identities
+
+Managed identity create, get and list use ARM (`2023-01-31`) in the configured
+cloud with subscription-scoped authentication.
+Creation retries transient failures up to three times.
+If ARM returns `MissingSubscriptionRegistration`, the operation registers
+`Microsoft.ManagedIdentity` on the target subscription, waits up to five minutes
+for registration to complete, then retries once. This requires provider
+registration permission on that subscription.
+See the [opt-in live test](../../../../../test/live/README.md#resource-creating-suites).
 
 ### Managed namespace deletion
 

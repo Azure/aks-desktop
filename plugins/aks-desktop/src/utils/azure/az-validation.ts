@@ -41,26 +41,3 @@ export function isValidGitBranchName(value: string): boolean {
     .split('/')
     .every(segment => segment.length > 0 && !segment.startsWith('.') && !segment.endsWith('.lock'));
 }
-
-export interface ManagedIdentityResult {
-  success: boolean;
-  notFound?: boolean;
-  clientId?: string;
-  principalId?: string;
-  tenantId?: string;
-  error?: string;
-}
-
-export function parseManagedIdentityOutput(stdout: string) {
-  let identity;
-  try {
-    identity = JSON.parse(stdout);
-  } catch {
-    throw new Error('Unexpected output from az identity command');
-  }
-  return {
-    clientId: identity.clientId as string,
-    principalId: identity.principalId as string,
-    tenantId: identity.tenantId as string,
-  };
-}

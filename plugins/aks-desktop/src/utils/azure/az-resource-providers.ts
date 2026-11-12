@@ -65,8 +65,28 @@ export async function registerContainerRegistryProvider(
   return registerProvider('Microsoft.ContainerRegistry', subscriptionId, options);
 }
 
+/**
+ * Registers the Managed Identity provider and waits until Azure reports `Registered`.
+ * @param subscriptionId - Explicit subscription ID.
+ * @param options - Authentication, cloud and deadline options. `timeoutMs` defaults to
+ * 60 seconds for cloud lookup, registration and polling combined.
+ * @returns Success only when registration completes, or a failure diagnostic.
+ */
+export async function registerManagedIdentityProvider(
+  subscriptionId: string,
+  options: Omit<RegistrationOptions, 'waitUntilRegistered'>
+): Promise<RegistrationResult> {
+  return registerProvider('Microsoft.ManagedIdentity', subscriptionId, {
+    ...options,
+    waitUntilRegistered: true,
+  });
+}
+
 async function registerProvider(
-  namespace: 'Microsoft.ContainerService' | 'Microsoft.ContainerRegistry',
+  namespace:
+    | 'Microsoft.ContainerService'
+    | 'Microsoft.ContainerRegistry'
+    | 'Microsoft.ManagedIdentity',
   subscriptionId: string,
   options: RegistrationOptions
 ): Promise<RegistrationResult> {

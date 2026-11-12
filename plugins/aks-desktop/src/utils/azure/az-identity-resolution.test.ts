@@ -8,6 +8,7 @@ const mockRunAzCommand = vi.fn();
 const mockResourceGroupExists = vi.fn();
 const mockCreateResourceGroup = vi.fn();
 const mockAzRequest = vi.fn();
+const mockAzListAll = vi.fn();
 const mockGetAzureRoleTransport = vi.fn();
 vi.mock('./az-cli-core', async importOriginal => ({
   ...(await importOriginal<typeof import('./az-cli-core')>()),
@@ -19,6 +20,14 @@ vi.mock('./az-resource-graph', () => ({
 vi.mock('./az-http', async importOriginal => ({
   ...(await importOriginal<typeof import('./az-http')>()),
   azRequest: (...args: unknown[]) => mockAzRequest(...args),
+  azListAll: (...args: unknown[]) => mockAzListAll(...args),
+}));
+vi.mock('./az-cloud', async importOriginal => ({
+  ...(await importOriginal<typeof import('./az-cloud')>()),
+  getAzureCloudEndpoints: async () => ({
+    endpoint: 'https://management.azure.com',
+    scope: 'https://management.azure.com/.default',
+  }),
 }));
 vi.mock('./az-role-assignments', () => ({
   createAzureRoleAssignment: vi.fn(),
@@ -30,16 +39,15 @@ vi.mock('./az-token', () => ({
 vi.mock('./az-subscriptions', () => ({
   resourceGroupExists: (...args: unknown[]) => mockResourceGroupExists(...args),
   createResourceGroup: (...args: unknown[]) => mockCreateResourceGroup(...args),
-  getResourceGroupLocation: vi.fn(),
+  getResourceGroupLocation: async () => 'eastus2',
 }));
 
+import { getManagedNamespaceResourceId, resolveManagedIdentityByClientId } from './az-identity';
 import {
   createManagedIdentity,
   getManagedIdentity,
-  getManagedNamespaceResourceId,
   listManagedIdentities,
-  resolveManagedIdentityByClientId,
-} from './az-identity';
+} from './az-managed-identities';
 import { ensureIdentityAndResourceGroup } from './identitySetup';
 
 const subscriptionId = '11111111-2222-3333-4444-555555555555';
@@ -69,9 +77,8 @@ describe('resolveManagedIdentityByClientId', () => {
       mockQueryResourceGraph.mockResolvedValue([
         { name: 'custom-identity', resourceGroup, clientId },
       ]);
-      mockRunAzCommand.mockResolvedValue({
-        success: true,
-        data: { clientId, principalId: subscriptionId, tenantId: subscriptionId },
+      mockAzRequest.mockResolvedValue({
+        properties: { clientId, principalId: subscriptionId, tenantId: subscriptionId },
       });
 
       const resolved = await resolveManagedIdentityByClientId({ subscriptionId, clientId });
@@ -85,18 +92,10 @@ describe('resolveManagedIdentityByClientId', () => {
         })
       ).resolves.toMatchObject({ clientId, isExisting: true });
 
-      expect(mockRunAzCommand).toHaveBeenCalledTimes(1);
-      expect(mockRunAzCommand.mock.calls[0][0]).toEqual([
-        'identity',
-        'show',
-        '--name',
-        'custom-identity',
-        `--resource-group=${resourceGroup}`,
-        '--subscription',
-        subscriptionId,
-        '--output',
-        'json',
-      ]);
+      expect(mockAzRequest).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ url: `${identityCollectionPath(resourceGroup)}/custom-identity` })
+      );
+      expect(mockRunAzCommand).not.toHaveBeenCalled();
       expect(mockResourceGroupExists).not.toHaveBeenCalled();
       expect(mockCreateResourceGroup).not.toHaveBeenCalled();
     }
@@ -140,6 +139,13 @@ describe('resolveManagedIdentityByClientId', () => {
   });
 });
 
+function identityCollectionPath(resourceGroup: string): string {
+  return (
+    `/subscriptions/${subscriptionId}/resourceGroups/${encodeURIComponent(resourceGroup)}` +
+    '/providers/Microsoft.ManagedIdentity/userAssignedIdentities'
+  );
+}
+
 describe.each([
   ['show identity', getManagedIdentity],
   ['create identity', createManagedIdentity],
@@ -148,12 +154,12 @@ describe.each([
   beforeEach(() => vi.resetAllMocks());
 
   it.each(['team.prod', 'rg(test)', 'équipe_资源١', '-rg'])(
-    'passes the target resource group %s unchanged',
+    'encodes resource group %s in the ARM path',
     async resourceGroup => {
-      mockRunAzCommand.mockResolvedValue({
-        success: true,
-        data: { identityProfile: { kubeletidentity: { objectId: clientId } } },
+      mockAzRequest.mockResolvedValue({
+        properties: { clientId, principalId: subscriptionId, tenantId: subscriptionId },
       });
+      mockAzListAll.mockResolvedValue([]);
       await expect(
         operation({
           subscriptionId,
@@ -161,16 +167,22 @@ describe.each([
           identityName: 'custom-identity',
         })
       ).resolves.toMatchObject({ success: true });
-      expect(mockRunAzCommand).toHaveBeenCalledTimes(1);
-      const args = mockRunAzCommand.mock.calls[0][0];
-      expect(args).toContain(`--resource-group=${resourceGroup}`);
-      expect(args).not.toContain('--resource-group');
-      expect(args).not.toContain(resourceGroup);
+      const path = identityCollectionPath(resourceGroup);
+      if (operation === listManagedIdentities) {
+        expect(mockAzListAll).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ url: path })
+        );
+      } else {
+        expect(mockAzRequest).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ url: `${path}/custom-identity` })
+        );
+      }
+      expect(mockRunAzCommand).not.toHaveBeenCalled();
     }
   );
 
   it.each(['rg.', 'rg/name', 'a'.repeat(91)])(
-    'rejects invalid group %s before CLI calls',
+    'rejects invalid group %s before sending ARM requests',
     async resourceGroup => {
       await expect(
         operation({
@@ -179,7 +191,8 @@ describe.each([
           identityName: 'custom-identity',
         })
       ).resolves.toMatchObject({ success: false });
-      expect(mockRunAzCommand).not.toHaveBeenCalled();
+      expect(mockAzRequest).not.toHaveBeenCalled();
+      expect(mockAzListAll).not.toHaveBeenCalled();
     }
   );
 });
