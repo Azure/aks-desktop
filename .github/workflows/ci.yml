@@ -13,6 +13,36 @@ env:
   NODE_VERSION: "22.22.2"
 
 jobs:
+  script-warnings:
+    name: Check script warnings
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install lint dependencies
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          python3 -m venv "$RUNNER_TEMP/script-lint"
+          "$RUNNER_TEMP/script-lint/bin/python" -m pip install -r .config/lint/requirements.txt
+          echo "$RUNNER_TEMP/script-lint/bin" >> "$GITHUB_PATH"
+
+      - name: Install PowerShell analyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Repository PSGallery -Scope CurrentUser -Force
+
+      - name: Test script collection and warning checks
+        run: |
+          npm run test:script-lint
+          npm run lint:scripts
+          npm run lint:powershell
+
   release-signing:
     name: Test release signing
     runs-on: ubuntu-latest
