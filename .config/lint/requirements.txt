@@ -1,0 +1,2 @@
+ruff==0.17.4
+shellcheck-py==0.11.0.1
