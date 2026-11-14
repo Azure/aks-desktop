@@ -10,6 +10,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { verifyAslr } from './nsis-aslr/pe-relocations';
 import { runTimedStep } from './build-timing';
 import { dependencyTargetMatches } from './dependency-target';
 
@@ -154,9 +156,10 @@ export function packageTarget(
   target: PackageTarget,
   rootDir = ROOT_DIR,
   runStep = runNpm,
-  options: PackageOptions = {}
+  options: PackageOptions = {},
+  dependencies = { validateHost: validatePackageHost }
 ): void {
-  validatePackageHost(target);
+  dependencies.validateHost(target);
   if (options.unpacked && options.reusePreparedAssets) {
     throw new Error('Prepared assets can only be reused for distributable packaging');
   }
@@ -167,6 +170,15 @@ export function packageTarget(
     `--arch=${target.arch}`,
   ];
   const buildEnv = packageEnvironment(target, rootDir);
+  const nsisTempPrefix = target.platform === 'win32' && !options.unpacked && !buildEnv.ELECTRON_BUILDER_NSIS_DIR
+    ? path.join(os.tmpdir(), 'aks-nsis-')
+    : undefined;
+  // Match electron-builder's Windows override constraint before expensive build steps.
+  if (nsisTempPrefix && (!path.isAbsolute(nsisTempPrefix) || /[;&|`$<>"']/.test(nsisTempPrefix))) {
+    throw new Error(
+      'TEMP/TMP cannot stage the NSIS toolset: electron-builder requires an absolute path without shell-unsafe characters (; & | ` $ < > " \'). Set TEMP and TMP to an existing directory such as C:\\Temp, then restart the build. Spaces are supported.'
+    );
+  }
   const targetRecord = path.join(distDir, '.package-target.json');
   fs.rmSync(targetRecord, { force: true });
 
@@ -204,20 +216,43 @@ export function packageTarget(
         runStep(['run', 'frontend:build'], sourceDir, buildEnv)
       );
     }
-    runTimedStep(options.unpacked ? 'assemble unpacked application' : 'package application', () =>
-      runStep(
-        [
-          'run',
-          options.unpacked ? 'build' : options.reusePreparedAssets ? 'package:prepared' : 'package',
-          '--',
-          ...(options.unpacked
-            ? unpackedArguments(target.platform, target.arch)
-            : packageArguments(target.platform, target.arch)),
-        ],
-        appDir,
-        buildEnv
-      )
-    );
+    let ownedToolset: string | undefined;
+    try {
+      let packageEnv = buildEnv;
+      if (nsisTempPrefix) {
+        ownedToolset = fs.mkdtempSync(nsisTempPrefix);
+        runTimedStep('prepare NSIS toolset', () =>
+          runStep(['run', 'nsis:toolset', '--', `--output=${ownedToolset}`], rootDir, buildEnv)
+        );
+        packageEnv = { ...buildEnv, ELECTRON_BUILDER_NSIS_DIR: ownedToolset };
+      }
+      runTimedStep(options.unpacked ? 'assemble unpacked application' : 'package application', () =>
+        runStep(
+          [
+            'run',
+            options.unpacked ? 'build' : options.reusePreparedAssets ? 'package:prepared' : 'package',
+            '--',
+            ...(options.unpacked
+              ? unpackedArguments(target.platform, target.arch)
+              : packageArguments(target.platform, target.arch)),
+          ],
+          appDir,
+          packageEnv
+        )
+      );
+      if (target.platform === 'win32' && !options.unpacked) {
+        runTimedStep('verify installer ASLR', () => {
+          const installer = `aks-desktop-${buildEnv.APP_VERSION}-win-${target.arch}.exe`;
+          const installerPath = path.join(distDir, installer);
+          if (!fs.existsSync(installerPath)) throw new Error(`Expected exactly one current installer: ${installer}`);
+          const result = verifyAslr(fs.readFileSync(installerPath), installer);
+          console.log(`${installer}: ${result.fixupCount} HIGHLOW fixups`);
+        });
+      }
+    } finally {
+      // Only remove the directory this invocation created, never a caller override.
+      if (ownedToolset) fs.rmSync(ownedToolset, { recursive: true, force: true });
+    }
     fs.writeFileSync(targetRecord, `${JSON.stringify(target)}\n`);
     console.log(
       `\nBuild complete (${target.platform}/${target.arch}).\nOutput directory: ${path.resolve(distDir)}`

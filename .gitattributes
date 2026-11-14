@@ -1,4 +1,10 @@
 *.sh text eol=lf
+build/nsis-aslr/*.sha256 text eol=lf
+build/nsis-aslr/*.lock text eol=lf
+build/nsis-aslr/stubs/* binary
+build/nsis-aslr/test-fixtures/*.bin binary
+build/nsis-aslr/NSIS-COPYING.txt -whitespace
+build/nsis-aslr/patches/*.patch -whitespace
 Localize/locales/**/*.json whitespace=cr-at-eol
 patches/*.patch -text -whitespace
 patches/headlamp-source@*.patch -diff
