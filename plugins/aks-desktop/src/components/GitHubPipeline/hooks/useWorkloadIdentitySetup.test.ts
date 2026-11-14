@@ -18,9 +18,11 @@ vi.mock('../../../utils/azure/az-subscriptions', () => ({
   createResourceGroup: (...args: any[]) => mockCreateResourceGroup(...args),
 }));
 
-vi.mock('../../../utils/azure/az-identity', () => ({
+vi.mock('../../../utils/azure/az-managed-identities', () => ({
   getManagedIdentity: (...args: any[]) => mockGetManagedIdentity(...args),
   createManagedIdentity: (...args: any[]) => mockCreateManagedIdentity(...args),
+}));
+vi.mock('../../../utils/azure/az-identity', () => ({
   assignAzureRoles: (...args: any[]) => mockAssignRolesToIdentity(...args),
   getManagedNamespaceResourceId: vi.fn(),
   buildClusterScope: (sub: string, rg: string, cluster: string) =>

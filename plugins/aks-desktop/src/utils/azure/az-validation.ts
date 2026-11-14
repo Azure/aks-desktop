@@ -19,17 +19,3 @@ export interface ManagedIdentityResult {
   tenantId?: string;
   error?: string;
 }
-
-export function parseManagedIdentityOutput(stdout: string) {
-  let identity;
-  try {
-    identity = JSON.parse(stdout);
-  } catch {
-    throw new Error('Unexpected output from az identity command');
-  }
-  return {
-    clientId: identity.clientId as string,
-    principalId: identity.principalId as string,
-    tenantId: identity.tenantId as string,
-  };
-}
