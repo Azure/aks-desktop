@@ -9,6 +9,17 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { embeddedPython, normalizePipelineExpressions, workflowScripts } from './lint-scripts.ts';
 
+const root = fileURLToPath(new URL('../', import.meta.url));
+
+function lintRepository(...args: string[]) {
+  return spawnSync(process.execPath, [
+    '--disable-warning=MODULE_TYPELESS_PACKAGE_JSON',
+    '--experimental-strip-types',
+    'build/lint-scripts.ts',
+    ...args,
+  ], { cwd: root, encoding: 'utf8' });
+}
+
 test('collects GitHub run scripts with inherited and explicit shells, not github-script JavaScript', () => {
   const scripts = workflowScripts('workflow.yml', `
 on: push
@@ -91,17 +102,32 @@ test('the configured analyzers reject Python mistakes and Bash warnings', () => 
 });
 
 test('the repository command fails when a newly added Python script has a diagnostic', context => {
-  const root = fileURLToPath(new URL('../', import.meta.url));
   const directory = fs.mkdtempSync(path.join(root, 'build/.lint-fixture-'));
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   fs.writeFileSync(path.join(directory, 'invalid.py'), 'print(undefined_name)\n');
-  const result = spawnSync(process.execPath, [
-    '--disable-warning=MODULE_TYPELESS_PACKAGE_JSON',
-    '--experimental-strip-types',
-    'build/lint-scripts.ts',
-  ], { cwd: root, encoding: 'utf8' });
+  const result = lintRepository();
   assert.ifError(result.error);
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stdout, /invalid.py/);
   assert.match(result.stdout, /F821/);
+});
+
+test('Husky hooks reject Bash-only syntax under the POSIX shell dialect', context => {
+  const fixture = path.join(root, '.husky', `lint-fixture-${process.pid}`);
+  fs.writeFileSync(fixture, '[[ -n "$HOME" ]]\n', { flag: 'wx' });
+  context.after(() => fs.rmSync(fixture));
+  const result = lintRepository();
+  assert.ifError(result.error);
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stdout, /SC3010/);
+});
+
+test('PowerShell syntax errors fail the repository command', context => {
+  const directory = fs.mkdtempSync(path.join(root, 'build/.lint-fixture-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(directory, 'invalid.ps1'), 'if ($true) {\n');
+  const result = lintRepository('powershell');
+  assert.ifError(result.error);
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stdout + result.stderr, /MissingEndCurlyBrace/);
 });

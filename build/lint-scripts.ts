@@ -125,9 +125,10 @@ function trackedScripts(root: string): Script[] {
   for (const filename of new Set(result.stdout.split('\0').filter(Boolean))) {
     const absolute = path.join(root, filename);
     if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) continue;
-    if (/\.(py|sh|bash|ps1)$/.test(filename) || /^\.husky\/[^./]+$/.test(filename)) {
+    const huskyHook = /^\.husky\/[^./]+$/.test(filename);
+    if (/\.(py|sh|bash|ps1)$/.test(filename) || huskyHook) {
       const language = filename.endsWith('.py') ? 'python'
-        : filename.endsWith('.ps1') ? 'powershell' : 'bash';
+        : filename.endsWith('.ps1') ? 'powershell' : huskyHook ? 'sh' : 'bash';
       scripts.push({ name: filename, language, source: fs.readFileSync(absolute, 'utf8') });
     } else if (/^(\.github\/workflows|\.azure-pipeline)\/.*\.ya?ml$/.test(filename)) {
       scripts.push(...workflowScripts(filename, fs.readFileSync(absolute, 'utf8')));
@@ -160,7 +161,7 @@ function main(): void {
       failures = run('pwsh', ['-NoProfile', '-NonInteractive', '-Command', `
         $ErrorActionPreference = 'Stop'
         Import-Module PSScriptAnalyzer -RequiredVersion 1.25.0
-        $findings = @(Invoke-ScriptAnalyzer -Path $env:AKS_SCRIPT_LINT_PATH -Recurse -Severity Warning,Error)
+        $findings = @(Invoke-ScriptAnalyzer -Path $env:AKS_SCRIPT_LINT_PATH -Recurse -Severity Warning,Error,ParseError)
         $findings | Format-Table -AutoSize | Out-String -Width 240 | Write-Output
         if ($findings.Count -gt 0) { exit 1 }
       `], undefined, { ...process.env, AKS_SCRIPT_LINT_PATH: directory });

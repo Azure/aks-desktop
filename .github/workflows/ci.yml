@@ -28,6 +28,9 @@ jobs:
 
       - name: Install lint dependencies
         run: |
+          npm ci --prefix .config/npm --ignore-scripts --no-audit --no-fund
+          echo "$PWD/.config/npm/node_modules/.bin" >> "$GITHUB_PATH"
+          export PATH="$PWD/.config/npm/node_modules/.bin:$PATH"
           npm ci --ignore-scripts --no-audit --no-fund
           python3 -m venv "$RUNNER_TEMP/script-lint"
           "$RUNNER_TEMP/script-lint/bin/python" -m pip install -r .config/lint/requirements.txt

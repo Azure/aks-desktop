@@ -19,23 +19,24 @@ See [MAINTENANCE.md](MAINTENANCE.md) for Headlamp source updates and patches.
 
 ## Script warning checks
 
-CI checks project Python with Ruff, Bash with ShellCheck, and PowerShell with
+CI checks project Python with Ruff, Bash/POSIX shell with ShellCheck, and PowerShell with
 PSScriptAnalyzer. These complement the existing plugin and Headlamp lint and
-type checks. Any reported Python diagnostic or shell/analyzer warning fails CI.
+type checks. Any reported Python diagnostic, shell/analyzer warning, or
+PowerShell parse error fails CI. Husky hooks are checked as POSIX shell.
 Fix findings or document a narrowly scoped false-positive suppression.
 
 Install the root npm dependencies and the pinned tools in
 [`.config/lint/requirements.txt`](.config/lint/requirements.txt) into a Python
-virtual environment, then activate it and run:
+virtual environment, then activate it. The full test suite also requires
+PowerShell and PSScriptAnalyzer 1.25.0, installed using
+`Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser`.
+Run:
 
 ```sh
 npm run test:script-lint
 npm run lint:scripts
+npm run lint:powershell
 ```
-
-For PowerShell checks, install PSScriptAnalyzer 1.25.0 using
-`Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser`,
-then run `npm run lint:powershell`.
 
 The checks include pipeline scripts, generated Unix Azure/Python wrappers, and
 static Python `-c` snippets in JavaScript/TypeScript build helpers. Pipeline
