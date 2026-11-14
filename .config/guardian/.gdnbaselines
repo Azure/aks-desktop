@@ -7,7 +7,7 @@
     "default": {
       "name": "default",
       "createdDate": "2025-11-07 19:25:15Z",
-      "lastUpdatedDate": "2025-11-07 19:25:15Z"
+      "lastUpdatedDate": "2026-11-10 01:48:34Z"
     }
   },
   "results": {
@@ -25,6 +25,96 @@
       "createdDate": "2025-11-07 19:25:15Z",
       "expirationDate": "2026-04-26 19:26:49Z",
       "justification": "This error is baselined with an expiration date of 180 days from 2025-11-07 19:26:49Z"
+    },
+    "987e7d6cfd0ce6a4668d76ee30851385d213d524716dd58871b9798457e6a871": {
+      "signature": "987e7d6cfd0ce6a4668d76ee30851385d213d524716dd58871b9798457e6a871",
+      "alternativeSignatures": [
+        "204a35f265d15d2a8e9edb3639664755d34040f710c43a0d41ff357218bcd7d8"
+      ],
+      "target": "file:///C:/a/_work/1/aks-desktop-exe-unsigned/aks-desktop-0.11.0-rc1-win-arm64.exe",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2009",
+      "createdDate": "2026-11-10 00:29:58Z",
+      "expirationDate": "2026-12-10 00:29:58Z",
+      "justification": "Temporary 0.11.0-rc1 NSIS installer exception: the launcher is marked DYNAMICBASE but has no relocation data. This accepts the installer ASLR limitation for 30 days; remove after installer hardening. All other BinSkim findings remain enforced."
+    },
+    "975cbb778259447bdd671a2c1d855a1cb24515089e45ac1f693998a2f13eb3b5": {
+      "signature": "975cbb778259447bdd671a2c1d855a1cb24515089e45ac1f693998a2f13eb3b5",
+      "alternativeSignatures": [
+        "9804645ae81ff193d632e07b9ef4fb0bb16bdad9b50a50a5e5df0c95ba19040b"
+      ],
+      "target": "file:///C:/a/_work/1/aks-desktop-exe-unsigned/aks-desktop-0.11.0-rc1-win-x64.exe",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2009",
+      "createdDate": "2026-11-10 00:29:58Z",
+      "expirationDate": "2026-12-10 00:29:58Z",
+      "justification": "Temporary 0.11.0-rc1 NSIS installer exception: the launcher is marked DYNAMICBASE but has no relocation data. This accepts the installer ASLR limitation for 30 days; remove after installer hardening. All other BinSkim findings remain enforced."
+    },
+    "65bdfa462a0bc56081cdc2663804199eae9db740c8410bfeb28466fb80dc9ac7": {
+      "signature": "65bdfa462a0bc56081cdc2663804199eae9db740c8410bfeb28466fb80dc9ac7",
+      "alternativeSignatures": [
+        "ec3bce57df0cf7794b37d15b6f693916df3ac29857080a77df7595df37152c1c"
+      ],
+      "target": "file:///C:/a/_work/1/aks-desktop-exe-unsigned/aks-desktop-0.11.0-rc2-win-arm64.exe",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2009",
+      "createdDate": "2026-11-10 01:48:34Z",
+      "expirationDate": "2026-12-10 00:29:58Z",
+      "justification": "Temporary 0.11.0-rc2 NSIS installer exception: the launcher is marked DYNAMICBASE but has no relocation data. This accepts the installer ASLR limitation until 2026-12-10; remove after installer hardening. All other BinSkim findings remain enforced."
+    },
+    "14e65cbd25afc90d08fdd8ac57b4e4515ac2790144f7e049fa3f48fbc9f52b81": {
+      "signature": "14e65cbd25afc90d08fdd8ac57b4e4515ac2790144f7e049fa3f48fbc9f52b81",
+      "alternativeSignatures": [
+        "dad48db9ff9d5f7e970e35f5fe53743c259602bd2a6c8ecf410d01a764267556"
+      ],
+      "target": "file:///C:/a/_work/1/aks-desktop-exe-unsigned/aks-desktop-0.11.0-rc2-win-x64.exe",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2009",
+      "createdDate": "2026-11-10 01:48:34Z",
+      "expirationDate": "2026-12-10 00:29:58Z",
+      "justification": "Temporary 0.11.0-rc2 NSIS installer exception: the launcher is marked DYNAMICBASE but has no relocation data. This accepts the installer ASLR limitation until 2026-12-10; remove after installer hardening. All other BinSkim findings remain enforced."
+    },
+    "521956fe5cd7ff3afc2cba3a6c7abc90bfc5bff073809d174aa536ba8f0d7e6d": {
+      "signature": "521956fe5cd7ff3afc2cba3a6c7abc90bfc5bff073809d174aa536ba8f0d7e6d",
+      "alternativeSignatures": [
+        "a6ac373b6274a8ea1db6b9a5018225b06cb078f42d022bcc430de668032d9534"
+      ],
+      "target": "file:///C:/a/_work/1/aks-desktop-exe-unsigned/aks-desktop-0.11.0-win-arm64.exe",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2009",
+      "createdDate": "2026-11-10 01:48:34Z",
+      "expirationDate": "2026-12-10 00:29:58Z",
+      "justification": "Temporary 0.11.0 NSIS installer exception: the launcher is marked DYNAMICBASE but has no relocation data. This accepts the installer ASLR limitation until 2026-12-10; remove after installer hardening. All other BinSkim findings remain enforced."
+    },
+    "cc5cd09a58c27f0e8e8bd8ce81b7a76b177ac2b0bc3235e5d959b4c7e7c1caa7": {
+      "signature": "cc5cd09a58c27f0e8e8bd8ce81b7a76b177ac2b0bc3235e5d959b4c7e7c1caa7",
+      "alternativeSignatures": [
+        "7f75ee500f4f778d2b4921c33bfeb2669ed9e050551782c4569a987be39150be"
+      ],
+      "target": "file:///C:/a/_work/1/aks-desktop-exe-unsigned/aks-desktop-0.11.0-win-x64.exe",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2009",
+      "createdDate": "2026-11-10 01:48:34Z",
+      "expirationDate": "2026-12-10 00:29:58Z",
+      "justification": "Temporary 0.11.0 NSIS installer exception: the launcher is marked DYNAMICBASE but has no relocation data. This accepts the installer ASLR limitation until 2026-12-10; remove after installer hardening. All other BinSkim findings remain enforced."
     }
   }
 }
