@@ -100,9 +100,9 @@ extends:
                 displayName: "Debug: Node.js Installation"
               - powershell: |
                   New-Item -ItemType Directory -Force -Path "$(GOMODCACHE)", "$(GOCACHE)" | Out-Null
-                  Write-Host "GOMODCACHE=$(go env GOMODCACHE)"
-                  Write-Host "GOCACHE=$(go env GOCACHE)"
-                  Write-Host "GOTOOLCHAIN=$(go env GOTOOLCHAIN)"
+                  Write-Output "GOMODCACHE=$(go env GOMODCACHE)"
+                  Write-Output "GOCACHE=$(go env GOCACHE)"
+                  Write-Output "GOTOOLCHAIN=$(go env GOTOOLCHAIN)"
                 displayName: 'Configure Go caches'
 
               - task: Cache@2
@@ -124,8 +124,8 @@ extends:
                   cacheHitVar: GO_BUILD_CACHE_HIT
 
               - powershell: |
-                  Write-Host "[build-timing] Go module cache result: $(GO_MODULE_CACHE_HIT)"
-                  Write-Host "[build-timing] Go build cache result: $(GO_BUILD_CACHE_HIT)"
+                  Write-Output "[build-timing] Go module cache result: $(GO_MODULE_CACHE_HIT)"
+                  Write-Output "[build-timing] Go build cache result: $(GO_BUILD_CACHE_HIT)"
                 displayName: 'Report Go cache results'
               # TODO: Remove debug logging after pipeline is stable
               - bash: |
