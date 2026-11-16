@@ -62,6 +62,13 @@ async function launch() {
     ],
     env,
   });
+  const appProcess = app.process();
+  appProcess.once('exit', (code, signal) => {
+    console.info('Packaged theme process exited:', { pid: appProcess.pid, code, signal });
+  });
+  appProcess.once('close', (code, signal) => {
+    console.info('Packaged theme process stdio closed:', { pid: appProcess.pid, code, signal });
+  });
   expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true);
   page = await app.firstWindow();
   page.on('pageerror', error => pageErrors.push(error.message));
@@ -156,26 +163,32 @@ test.beforeEach(async () => {
 test.afterEach(async ({}, testInfo) => {
   try {
     if (page && !page.isClosed() && testInfo.status !== testInfo.expectedStatus) {
-      console.error('Packaged theme diagnostics:', {
-        url: page.url().split('?')[0],
-        pageErrors,
-        body: (await page.locator('body').innerText()).slice(0, 4000),
-      });
-      await testInfo.attach('packaged-theme', {
-        body: await page.screenshot(),
-        contentType: 'image/png',
+      await test.step('Capture packaged theme failure diagnostics', async () => {
+        console.error('Packaged theme diagnostics:', {
+          url: page.url().split('?')[0],
+          pageErrors,
+          body: (await page.locator('body').innerText()).slice(0, 4000),
+        });
+        await testInfo.attach('packaged-theme', {
+          body: await page.screenshot(),
+          contentType: 'image/png',
+        });
       });
     }
   } finally {
     try {
-      await app?.close();
+      await test.step('Close packaged theme application', async () => {
+        await app?.close();
+      });
     } finally {
-      // Windows CLI subprocesses can release their log handles after Electron exits.
-      await fs.promises.rm(profile, {
-        recursive: true,
-        force: true,
-        maxRetries: 10,
-        retryDelay: 200,
+      await test.step('Remove packaged theme profile', async () => {
+        // Windows CLI subprocesses can release their log handles after Electron exits.
+        await fs.promises.rm(profile, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 200,
+        });
       });
     }
   }
@@ -209,7 +222,9 @@ test('preserves an explicit user theme across disable, re-enable and app restart
   await expectBranding(true);
   await expectTheme('Dark', 'rgb(37, 36, 35)');
 
-  await app.close();
+  await test.step('Close packaged theme application before restart', async () => {
+    await app.close();
+  });
   await launch();
   await expectBranding(true);
   await expectTheme('Dark', 'rgb(37, 36, 35)');
