@@ -1,112 +1,96 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
+import { getLoginStatus } from './az-auth';
 import { debugLog, getErrorMessage, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
 import { getAzureCloudEndpoints } from './az-cloud';
 import { azListAll } from './az-http';
 import { type AksClusterReadOptions, getManagedClusterDetails } from './az-managed-clusters';
 import { getClusterResourceGroupViaGraph, getClustersViaGraph } from './az-resource-graph';
 import { getSubscriptions } from './az-subscriptions';
-import { getSubscriptionCredential } from './az-token';
+import { AzTokenError, getSubscriptionCredential } from './az-token';
+
+/** Fields consumed from ARM managedClusters lists; CLI responses flatten properties. */
+interface ManagedClusterResource {
+  id?: string;
+  name?: string;
+  location?: string;
+  properties?: {
+    kubernetesVersion?: string;
+    provisioningState?: string;
+    powerState?: { code?: string } | null;
+    aadProfile?: { enableAzureRBAC?: boolean; [key: string]: unknown } | null;
+    agentPoolProfiles?: { count?: number; vmSize?: string }[] | null;
+  } | null;
+}
+
+async function listManagedClusters(
+  subscriptionId: string,
+  tenantId?: string
+): Promise<ManagedClusterResource[]> {
+  const credential = getSubscriptionCredential(subscriptionId);
+  const { endpoint, scope } = await getAzureCloudEndpoints();
+  return azListAll<ManagedClusterResource>({
+    endpoint,
+    scope,
+    credential,
+    tenantId,
+    url: `/subscriptions/${encodeURIComponent(
+      subscriptionId
+    )}/providers/Microsoft.ContainerService/managedClusters`,
+    apiVersion: '2026-01-01',
+  });
+}
+
+function managedClusterSummary(
+  cluster: ManagedClusterResource,
+  subscription: string,
+  allSubscriptions = false
+) {
+  const properties = cluster.properties ?? {};
+  const { enableAzureRBAC, ...aadProfile } = properties.aadProfile ?? {};
+  return {
+    name: cluster.name,
+    subscription,
+    resourceGroup: resourceGroupFromId(cluster.id),
+    location: cluster.location,
+    version: properties.kubernetesVersion,
+    status: properties.provisioningState,
+    powerState: properties.powerState?.code || 'Unknown',
+    nodeCount: properties.agentPoolProfiles?.reduce((sum, pool) => sum + (pool.count || 0), 0) || 0,
+    // Preserve the existing per-path summary shapes and CLI-facing AAD casing.
+    ...(allSubscriptions
+      ? { id: cluster.id, vmSize: properties.agentPoolProfiles?.[0]?.vmSize || '' }
+      : {
+          aadProfile: properties.aadProfile && { ...aadProfile, enableAzureRbac: enableAzureRBAC },
+        }),
+  };
+}
 
 export async function getClusters(subscriptionId?: string, query?: string): Promise<any[]> {
-  const clusters: any[] = [];
-
   if (subscriptionId) {
-    // Try Azure Resource Graph first (10x faster than az aks list)
+    const filterAad = query?.includes('aadProfile');
     try {
-      const filterAad = query?.includes('aadProfile');
-      const graphClusters = await getClustersViaGraph(subscriptionId, filterAad);
-      return graphClusters;
+      return await getClustersViaGraph(subscriptionId, filterAad);
     } catch (graphError) {
-      console.warn('Resource Graph query failed, falling back to az aks list:', graphError);
+      console.warn('Resource Graph query failed, falling back to ARM REST:', graphError);
     }
+    return (await listManagedClusters(subscriptionId))
+      .filter(cluster => !filterAad || Boolean(cluster.properties?.aadProfile))
+      .map(cluster => managedClusterSummary(cluster, subscriptionId));
+  }
 
-    // Fallback to az aks list
-    const command = ['aks', 'list', '--subscription', subscriptionId];
-
-    // Add query parameter if provided
-    if (query) {
-      command.push('--query', query);
-    }
-
-    // Always add JSON output format
-    command.push('-o', 'json');
-
-    const { stdout, stderr } = await runCommandAsync('az', command);
-
-    if (stderr) {
-      // Check if stderr contains only warnings (not actual errors)
-      const isWarningOnly =
-        stderr.includes('WARNING:') &&
-        !isAzError(stderr) &&
-        !stderr.includes('error:') &&
-        !stderr.includes('failed') &&
-        !stderr.includes('Failed');
-
-      if (!isWarningOnly) {
-        throw new Error(stderr);
-      }
-      // If it's just warnings, continue processing stdout
-    }
-    if (stdout) {
-      const parsed = JSON.parse(stdout);
-      parsed.forEach((cluster: any) => {
-        clusters.push({
-          name: cluster.name,
-          subscription: subscriptionId,
-          resourceGroup: cluster.resourceGroup,
-          location: cluster.location,
-          version: cluster.kubernetesVersion,
-          status: cluster.provisioningState,
-          aadProfile: cluster.aadProfile,
-          powerState: cluster.powerState?.code || 'Unknown',
-          nodeCount:
-            cluster.agentPoolProfiles?.reduce(
-              (acc: number, pool: any) => acc + (pool.count || 0),
-              0
-            ) || 0,
-        });
-      });
-    }
-  } else {
-    // Fetch clusters from all subscriptions (original behavior)
-    const subs = await getSubscriptions();
-
-    for (const sub of subs) {
-      const { stdout } = await runCommandAsync('az', [
-        'aks',
-        'list',
-        '--subscription',
-        sub.id,
-        '-o',
-        'json',
-      ]);
-      if (stdout) {
-        try {
-          const parsed = JSON.parse(stdout);
-          parsed.forEach((cluster: any) => {
-            clusters.push({
-              id: cluster.id,
-              name: cluster.name,
-              subscription: sub.id,
-              resourceGroup: cluster.resourceGroup,
-              location: cluster.location,
-              version: cluster.kubernetesVersion,
-              status: cluster.provisioningState,
-              powerState: cluster.powerState?.code || 'Unknown',
-              nodeCount:
-                cluster.agentPoolProfiles?.reduce(
-                  (acc: number, pool: any) => acc + (pool.count || 0),
-                  0
-                ) || 0,
-              vmSize: cluster.agentPoolProfiles?.[0]?.vmSize || '',
-            });
-          });
-        } catch (parseError) {
-          console.warn(`Failed to parse AKS cluster list for subscription ${sub.id}:`, parseError);
-        }
-      }
+  const clusters: any[] = [];
+  for (const sub of await getSubscriptions()) {
+    try {
+      const resources = await listManagedClusters(sub.id, sub.tenant);
+      clusters.push(...resources.map(cluster => managedClusterSummary(cluster, sub.id, true)));
+    } catch (error) {
+      // Keep reachable inventory, but do not present a failed subscription as successfully empty.
+      console.warn(
+        `Could not list AKS clusters for subscription ${sub.id}:`,
+        getErrorMessage(error)
+      );
     }
   }
   return clusters;
@@ -352,40 +336,26 @@ export async function getClusterInfo(clusterName?: string): Promise<{
   } = {};
 
   try {
-    // First get the current subscription
-    const { stdout: accountStdout, stderr: accountStderr } = await runCommandAsync('az', [
-      'account',
-      'show',
-      '--output',
-      'json',
-    ]);
-
-    if (accountStderr && !accountStdout) {
-      const isInteractionRequired =
-        accountStderr.includes('InteractionRequired') ||
-        accountStderr.includes('interaction_required') ||
-        accountStderr.includes('multi-factor authentication') ||
-        accountStderr.includes('AADSTS50076');
-      if (isInteractionRequired) {
+    const account = await getLoginStatus();
+    const accountError = account.error ?? '';
+    if (!account.isLoggedIn) {
+      if (
+        /InteractionRequired|interaction_required|multi-factor authentication|AADSTS50076/.test(
+          accountError
+        )
+      ) {
         throw new Error(
           'Your Azure session requires re-authentication. Please run "az login" to sign in again.'
         );
       }
-      if (accountStderr.includes('No subscriptions found')) {
+      if (accountError.includes('No subscriptions found')) {
         throw new Error(
           'No Azure subscriptions found. Please run "az login" to sign in with an account that has active subscriptions.'
         );
       }
+      return result;
     }
-
-    if (accountStdout) {
-      try {
-        const account = JSON.parse(accountStdout);
-        result.subscriptionId = account.id;
-      } catch (parseError) {
-        console.warn('Could not parse Azure account info:', parseError);
-      }
-    }
+    result.subscriptionId = account.subscriptionId;
 
     if (!result.subscriptionId) {
       console.warn('No subscription ID found, cannot query cluster info');
@@ -400,7 +370,7 @@ export async function getClusterInfo(clusterName?: string): Promise<{
         return result;
       }
 
-      // FAST PATH: Try Azure Resource Graph query first (2-3s vs 36s for az aks list)
+      // Prefer Resource Graph; a missing/ambiguous group also falls through to ARM.
       try {
         const resourceGroupFromGraph = await getClusterResourceGroupViaGraph(
           clusterName,
@@ -413,38 +383,20 @@ export async function getClusterInfo(clusterName?: string): Promise<{
           return result;
         }
       } catch (graphError) {
-        debugLog('Resource Graph failed, falling back to az aks list:', graphError);
+        debugLog('Resource Graph failed, falling back to ARM REST:', graphError);
       }
 
-      // FALLBACK: Use slower az aks list query if Resource Graph fails
+      result.clusterName = clusterName;
       try {
-        const { stdout: clusterStdout } = await runCommandAsync('az', [
-          'aks',
-          'list',
-          '--subscription',
-          result.subscriptionId,
-          '--query',
-          `[?name=='${clusterName}'].{name:name,resourceGroup:resourceGroup}`,
-          '-o',
-          'json',
-        ]);
-
-        if (clusterStdout) {
-          const clusters = JSON.parse(clusterStdout);
-          if (clusters.length > 0) {
-            result.clusterName = clusters[0].name;
-            result.resourceGroup = clusters[0].resourceGroup;
-            debugLog(`Found cluster info for ${clusterName}:`, result);
-          } else {
-            console.warn(
-              `Cluster ${clusterName} not found in subscription ${result.subscriptionId}`
-            );
-            result.clusterName = clusterName; // Still return the provided name
-          }
+        const clusters = await listManagedClusters(result.subscriptionId, account.tenantId);
+        const cluster = clusters.find(cluster => cluster.name === clusterName);
+        if (cluster) {
+          result.resourceGroup = resourceGroupFromId(cluster.id);
+        } else {
+          console.warn(`Cluster ${clusterName} not found in subscription ${result.subscriptionId}`);
         }
-      } catch (azError) {
-        console.warn(`Could not get cluster info for ${clusterName}:`, azError);
-        result.clusterName = clusterName; // Still return the provided name
+      } catch (error) {
+        console.warn(`Could not get cluster info for ${clusterName}:`, getErrorMessage(error));
       }
     } else {
       // No cluster name provided, try to get from current kubectl context as fallback
@@ -473,24 +425,11 @@ export async function getClusterInfo(clusterName?: string): Promise<{
 
       // If still no cluster name, get the first available cluster
       try {
-        const { stdout: clustersStdout } = await runCommandAsync('az', [
-          'aks',
-          'list',
-          '--subscription',
-          result.subscriptionId,
-          '--query',
-          '[].{name:name,resourceGroup:resourceGroup}',
-          '-o',
-          'json',
-        ]);
-
-        if (clustersStdout) {
-          const clusters = JSON.parse(clustersStdout);
-          if (clusters.length > 0) {
-            result.clusterName = clusters[0].name;
-            result.resourceGroup = clusters[0].resourceGroup;
-            debugLog('Using first available cluster:', result);
-          }
+        const [cluster] = await listManagedClusters(result.subscriptionId, account.tenantId);
+        if (cluster) {
+          result.clusterName = cluster.name;
+          result.resourceGroup = resourceGroupFromId(cluster.id);
+          debugLog('Using first available cluster:', result);
         }
       } catch (azError) {
         console.warn('Could not list AKS clusters:', azError);
@@ -517,40 +456,15 @@ export async function getClusterResourceIdAndGroup(
   subscription: string
 ): Promise<{ resourceId: string; resourceGroup: string } | null> {
   if (!clusterName) return null;
-  debugLog('cluster name:', clusterName, 'subscription:', subscription);
-  const { stdout, stderr } = await runCommandAsync('az', [
-    'aks',
-    'list',
-    '--query',
-    `[?name=='${clusterName}']`,
-    '-o',
-    'json',
-    '--subscription',
-    subscription,
-  ]);
-
-  debugLog('stdout:', stdout);
-  debugLog('stderr:', stderr);
-  if (stderr && needsRelogin(stderr)) {
-    throw new Error('Authentication required. Please log in to Azure CLI: az login');
-  }
-
-  if (stderr && isAzError(stderr)) {
-    throw new Error(`Failed to list AKS clusters: ${stderr}`);
-  }
-
   try {
-    const arr = JSON.parse(stdout || '[]');
-    if (!Array.isArray(arr) || arr.length === 0) return null;
-
-    const item = arr[0] || {};
-    const resourceId: string = item.id || '';
-    const resourceGroup: string = item.resourceGroup || resourceGroupFromId(resourceId);
-
-    if (!resourceId) return null;
-    return { resourceId, resourceGroup };
-  } catch (parseError) {
-    debugLog('parseError:', parseError);
-    throw new Error('Failed to parse AKS list response');
+    const clusters = await listManagedClusters(subscription);
+    const cluster = clusters.find(cluster => cluster.name === clusterName);
+    if (!cluster?.id) return null;
+    return { resourceId: cluster.id, resourceGroup: resourceGroupFromId(cluster.id) };
+  } catch (error) {
+    if (error instanceof AzTokenError && error.needsRelogin) {
+      throw new Error('Authentication required. Please log in to Azure CLI: az login');
+    }
+    throw error;
   }
 }
