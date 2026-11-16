@@ -356,7 +356,7 @@ extends:
                 displayName: "Prepare for Signing"
 
               # ESRP Developer Sign
-              - task: EsrpCodeSigning@5
+              - task: EsrpCodeSigning@6
                 displayName: "ESRP Developer Sign DMG"
                 condition: succeeded()
                 inputs:
@@ -495,7 +495,7 @@ extends:
                 displayName: "Verify Pre-Notarization Requirements"
 
               # ESRP Notarization
-              - task: EsrpCodeSigning@5
+              - task: EsrpCodeSigning@6
                 displayName: "ESRP Notarization"
                 condition: succeeded()
                 inputs:
@@ -618,7 +618,7 @@ extends:
                 displayName: "Prepare for Signing"
 
               # ESRP Developer Sign
-              - task: EsrpCodeSigning@5
+              - task: EsrpCodeSigning@6
                 displayName: "ESRP Developer Sign DMG"
                 condition: succeeded()
                 inputs:
@@ -757,7 +757,7 @@ extends:
                 displayName: "Verify Pre-Notarization Requirements"
 
               # ESRP Notarization
-              - task: EsrpCodeSigning@5
+              - task: EsrpCodeSigning@6
                 displayName: "ESRP Notarization"
                 condition: succeeded()
                 inputs:

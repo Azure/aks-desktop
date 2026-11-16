@@ -421,7 +421,7 @@ extends:
                 displayName: "Debug: Pre-Signing"
                 env:
                   BUILD_BUILDNUMBER: $(Build.BuildNumber)
-              - task: EsrpCodeSigning@5
+              - task: EsrpCodeSigning@6
                 displayName: "ESRP CodeSigning"
                 condition: succeeded()
                 inputs:

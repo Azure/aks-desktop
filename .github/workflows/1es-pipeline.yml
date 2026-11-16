@@ -252,7 +252,7 @@ extends:
                   echo "Certificate: azcu-ersp-corp"
                   echo "=== SIGNING DEBUG END ==="
                 displayName: "Debug: Pre-Signing"
-              - task: EsrpCodeSigning@5
+              - task: EsrpCodeSigning@6
                 displayName: "ESRP CodeSigning"
                 condition: succeeded()
                 inputs:
