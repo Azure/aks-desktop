@@ -68,7 +68,7 @@ const aksOptimizedPluginKeys = new Set(
 
 // A plugin is AKS Desktop optimized when its normalized name and repository name
 // both match an entry in the curated list.
-export function isAksOptimizedPlugin(plugin: PluginPackage): boolean {
+function isAksOptimizedPlugin(plugin: PluginPackage): boolean {
   return aksOptimizedPluginKeys.has(`${plugin.normalized_name}@${plugin.repository?.name}`);
 }
 

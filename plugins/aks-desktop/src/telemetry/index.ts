@@ -343,7 +343,7 @@ function setEnvelopeTag(
   tags[key] = value;
 }
 
-export function configureTelemetryPrivacy(insights: ApplicationInsights, installId: string): void {
+function configureTelemetryPrivacy(insights: ApplicationInsights, installId: string): void {
   insights.addTelemetryInitializer(createTelemetryInitializer(installId));
 }
 

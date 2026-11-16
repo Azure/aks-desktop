@@ -65,8 +65,8 @@ function findClusterSettingsKey(clusterName: string): string {
  * Iconify icon and accent color used to mark AKS Hybrid & Edge (Arc-connected) clusters
  * on the Home cluster-name badge. `#0078d4` is the Azure brand blue.
  */
-export const AKS_HYBRID_EDGE_BADGE_ICON = 'mdi:server';
-export const AKS_HYBRID_EDGE_BADGE_ACCENT = '#0078d4';
+const AKS_HYBRID_EDGE_BADGE_ICON = 'mdi:server';
+const AKS_HYBRID_EDGE_BADGE_ACCENT = '#0078d4';
 
 /**
  * Gives an AKS Hybrid & Edge cluster a distinct name-badge (server icon + Azure-blue

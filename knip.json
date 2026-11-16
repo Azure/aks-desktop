@@ -1,8 +1,5 @@
 {
   "$schema": "./node_modules/knip/schema.json",
-  "ignoreBinaries": [
-    "make"
-  ],
   "workspaces": {
     ".": {
       "entry": [
@@ -10,6 +7,13 @@
       ],
       "project": [
         "build/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@headlamp-k8s/headlamp-source"
+      ],
+      "ignoreBinaries": [
+        "lipo",
+        "cosign"
       ]
     },
     "plugins/aks-desktop": {
@@ -29,7 +33,6 @@
       "ignoreDependencies": [
         "@azure/arm-resourcegraph",
         "@azure/arm-subscriptions",
-        "@azure/identity",
         "@iconify/react",
         "@monaco-editor/react",
         "@mui/material",
@@ -44,13 +47,40 @@
         "react-router-dom"
       ],
       "ignoreBinaries": [
+        "az",
         "prettier"
+      ]
+    },
+    "plugins/aks-desktop-theme": {
+      "entry": [
+        "src/index.tsx",
+        "src/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ],
+      "ignoreDependencies": [
+        "@mui/material"
+      ]
+    },
+    "plugins/plugin-catalog": {
+      "entry": [
+        "src/index.tsx",
+        "src/**/*.stories.{ts,tsx}",
+        "src/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ],
+      "ignoreDependencies": [
+        "@iconify/react",
+        "@mui/material",
+        "lodash",
+        "react-router",
+        "react-router-dom"
       ]
     }
   },
-  "ignoreDependencies": [
-    "tsx"
-  ],
   "ignoreExportsUsedInFile": {
     "interface": true,
     "type": true
