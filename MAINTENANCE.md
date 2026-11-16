@@ -314,6 +314,15 @@ Static plugins are declared in `package.json#headlamp.plugins`. Keep package
 plugins pinned exactly, keep reviewed capabilities in product configuration,
 and run `npm run test:headlamp-package` after changing the list.
 
+Insights uses the local `file:plugins/insights-plugin` dependency as a prebuilt
+package. `plugin:setup` runs its installed, Node-only artifact builder before
+bundling, preserving checksum verification without installing the plugin SDK.
+The wrapper manifest remains the source of its release version and SHA-256.
+After changing its metadata or staging scripts, refresh the root lockfile as
+needed and reinstall root dependencies with pinned npm to update the installed copy.
+Contributors can still install the workspace's development dependencies when
+using its SDK-based `package` command.
+
 See the [source package reference](packages/headlamp-source/README.md) for the
 configuration schema and script API.
 
