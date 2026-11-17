@@ -251,7 +251,14 @@ export function packageTarget(
       }
     } finally {
       // Only remove the directory this invocation created, never a caller override.
-      if (ownedToolset) fs.rmSync(ownedToolset, { recursive: true, force: true });
+      if (ownedToolset) {
+        try {
+          fs.rmSync(ownedToolset, { recursive: true, force: true, maxRetries: 3 });
+        } catch (error) {
+          // Windows may keep an executable locked; cleanup must not replace the build result.
+          console.warn(`Could not remove temporary NSIS directory ${ownedToolset}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
     }
     fs.writeFileSync(targetRecord, `${JSON.stringify(target)}\n`);
     console.log(

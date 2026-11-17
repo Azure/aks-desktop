@@ -21,6 +21,10 @@ for (const mode of [
   'missing',
   'stale',
   'unsafe-temp',
+  'cleanup-retries',
+  'cleanup-error',
+  'package-and-cleanup-error',
+  'invalid-and-cleanup-error',
 ] as const) {
   for (const arch of ['x64', 'arm64']) {
     test(`Windows ${arch} NSIS packaging: ${mode}`, (t) => {
@@ -59,6 +63,32 @@ for (const mode of [
       }
       let owned: string | undefined;
       let packaged = false;
+      const warnings: string[] = [];
+      t.mock.method(console, 'warn', (message: string) =>
+        warnings.push(message)
+      );
+      const cleanupFails =
+        mode === 'cleanup-error' || mode.endsWith('-and-cleanup-error');
+      const packageError = new Error('package failed');
+      const remove = fs.rmSync;
+      if (mode === 'cleanup-retries' || cleanupFails) {
+        t.mock.method(
+          require('node:fs'),
+          'rmSync',
+          (target: fs.PathLike, options?: fs.RmOptions) => {
+            if (owned && target === owned) {
+              // Node owns the retry loop; packaging must enable its bounded retries.
+              if (mode === 'cleanup-retries')
+                assert.equal(options?.maxRetries, 3);
+              if (cleanupFails)
+                throw Object.assign(new Error('fixture cleanup locked'), {
+                  code: 'EBUSY',
+                });
+            }
+            remove(target, options);
+          }
+        );
+      }
       const run = (args: string[], cwd: string, env?: NodeJS.ProcessEnv) => {
         assert.notEqual(
           mode,
@@ -113,7 +143,8 @@ for (const mode of [
             );
             assert.equal(result.status, 0, result.stderr);
           }
-          if (mode === 'package-error') throw new Error('package failed');
+          if (mode === 'package-error' || mode === 'package-and-cleanup-error')
+            throw packageError;
           if (mode !== 'missing' && mode !== 'unpacked') {
             const filename = `aks-desktop-${
               mode === 'stale' ? '0.1.0' : '9.8.7'
@@ -121,7 +152,8 @@ for (const mode of [
             const bytes = fs.readFileSync(
               path.join(__dirname, 'stubs/zlib-x86-unicode')
             );
-            if (mode === 'invalid') bytes.writeUInt16LE(0, 0);
+            if (mode === 'invalid' || mode === 'invalid-and-cleanup-error')
+              bytes.writeUInt16LE(0, 0);
             fs.writeFileSync(path.join(dist, filename), bytes);
           }
           // Wrong-arch and stale files cannot satisfy the current installer gate.
@@ -158,6 +190,8 @@ for (const mode of [
           'missing',
           'stale',
           'unsafe-temp',
+          'package-and-cleanup-error',
+          'invalid-and-cleanup-error',
         ].includes(mode)
       ) {
         assert.throws(
@@ -166,9 +200,9 @@ for (const mode of [
             ? /TEMP\/TMP.*shell-unsafe.*Set TEMP and TMP.*restart/i
             : mode === 'prepare-error'
             ? /prepare failed/
-            : mode === 'package-error'
-            ? /package failed/
-            : mode === 'invalid'
+            : mode === 'package-error' || mode === 'package-and-cleanup-error'
+            ? (error: unknown) => error === packageError
+            : mode === 'invalid' || mode === 'invalid-and-cleanup-error'
             ? /DOS signature/
             : /current installer/
         );
@@ -191,10 +225,20 @@ for (const mode of [
         assert.ok(owned, 'toolset preparation must run');
         assert.equal(
           fs.existsSync(owned),
-          false,
-          'parent must clean up through every failure path'
+          cleanupFails,
+          'parent removes its toolset unless cleanup remains locked'
         );
       }
+      if (cleanupFails) {
+        assert.ok(owned);
+        assert.equal(warnings.length, 1);
+        assert.ok(warnings[0].includes(owned));
+        assert.match(
+          warnings[0],
+          /Could not remove temporary NSIS directory.*fixture cleanup locked/
+        );
+        remove(owned, { recursive: true, force: true });
+      } else assert.deepEqual(warnings, []);
       if (mode === 'override') assert.equal(fs.existsSync(override), true);
     });
   }
