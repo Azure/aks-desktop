@@ -413,6 +413,92 @@ describe('createContainerRegistry', () => {
     expect(mocks.fetch).toHaveBeenCalledTimes(3);
   });
 
+  test.each(['Failed', 'Canceled', 'Cancelled'])(
+    'rejects resource provisioning state %s after operation success',
+    async provisioningState => {
+      mocks.fetch
+        .mockResolvedValueOnce(
+          json(201, {}, { 'azure-asyncoperation': '/operations/create', 'retry-after': '0' })
+        )
+        .mockResolvedValueOnce(json(200, { status: 'Succeeded' }))
+        .mockResolvedValueOnce(
+          json(200, {
+            id: 'registry-id',
+            properties: { loginServer: 'registry.azurecr.io', provisioningState },
+          })
+        );
+
+      expect(await createContainerRegistry(options)).toMatchObject({
+        success: false,
+        error: expect.stringContaining(`Registry provisioning failed: ${provisioningState}`),
+      });
+      expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    }
+  );
+
+  test('polls resource provisioning after operation success using the resource retry delay', async () => {
+    vi.useFakeTimers();
+    mocks.fetch
+      .mockResolvedValueOnce(
+        json(201, {}, { 'azure-asyncoperation': '/operations/create', 'retry-after': '0' })
+      )
+      .mockResolvedValueOnce(json(200, { status: 'Succeeded' }))
+      .mockResolvedValueOnce(
+        json(
+          200,
+          {
+            id: 'registry-id',
+            properties: { loginServer: 'registry.azurecr.io', provisioningState: 'Creating' },
+          },
+          { 'retry-after': '2' }
+        )
+      )
+      .mockResolvedValueOnce(
+        json(200, {
+          id: 'registry-id',
+          properties: { loginServer: 'registry.azurecr.io', provisioningState: 'Succeeded' },
+        })
+      );
+    const result = createContainerRegistry(options);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toEqual({
+      success: true,
+      id: 'registry-id',
+      loginServer: 'registry.azurecr.io',
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(4);
+    expect(String(mocks.fetch.mock.calls[3][0])).toBe(String(mocks.fetch.mock.calls[0][0]));
+  });
+
+  test('bounds resource provisioning after operation success by the creation deadline', async () => {
+    vi.useFakeTimers();
+    mocks.fetch
+      .mockResolvedValueOnce(
+        json(201, {}, { 'azure-asyncoperation': '/operations/create', 'retry-after': '0' })
+      )
+      .mockResolvedValueOnce(json(200, { status: 'Succeeded' }))
+      .mockImplementation(() =>
+        Promise.resolve(
+          json(
+            200,
+            {
+              id: 'registry-id',
+              properties: { loginServer: 'registry.azurecr.io', provisioningState: 'Creating' },
+            },
+            { 'retry-after': '60' }
+          )
+        )
+      );
+    const result = createContainerRegistry(options);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(await result).toMatchObject({
+      success: false,
+      error: expect.stringContaining('Registry creation timed out'),
+    });
+  });
+
   test('waits for asynchronous completion and reads the completed registry', async () => {
     const resource =
       `/subscriptions/${subscriptionId}/resourceGroups/my-group/` +

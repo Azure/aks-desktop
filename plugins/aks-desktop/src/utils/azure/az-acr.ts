@@ -121,7 +121,6 @@ export async function createContainerRegistry(options: {
       response = await azRequestRaw<RegistryResource>(createRequest);
     }
 
-    let registry = response.data;
     const operationHeader = response.headers.get('azure-asyncoperation');
     if (operationHeader) {
       const resourceUrl = new URL(url, cloud.endpoint);
@@ -155,36 +154,39 @@ export async function createContainerRegistry(options: {
           );
         }
       }
-      registry = (
-        await azRequestRaw<RegistryResource>({ ...request, url, timeoutMs: CREATE_TIMEOUT_MS })
-      ).data;
-    } else {
-      let state = registry?.properties?.provisioningState;
-      if (state !== undefined && (typeof state !== 'string' || !state.trim())) {
-        throw new AzureRequestError('Registry creation response is missing its provisioning state');
-      }
-      if (typeof state === 'string') {
-        let headers = response.headers;
-        for (;;) {
-          const normalizedState = state.toLowerCase();
-          if (normalizedState === 'succeeded') break;
-          if (['failed', 'canceled', 'cancelled'].includes(normalizedState)) {
-            throw new AzureRequestError(`Registry provisioning failed: ${state}`);
-          }
-          await waitForAzureRetry(headers, controller.signal);
-          const progress = await azRequestRaw<RegistryResource>({
-            ...request,
-            url,
-            timeoutMs: CREATE_TIMEOUT_MS,
-          });
-          headers = progress.headers;
-          registry = progress.data;
-          state = registry?.properties?.provisioningState;
-          if (typeof state !== 'string' || !state.trim()) {
-            throw new AzureRequestError(
-              'Registry provisioning response is missing its provisioning state'
-            );
-          }
+      response = await azRequestRaw<RegistryResource>({
+        ...request,
+        url,
+        timeoutMs: CREATE_TIMEOUT_MS,
+      });
+    }
+
+    let registry = response.data;
+    let state = registry?.properties?.provisioningState;
+    if (state !== undefined && (typeof state !== 'string' || !state.trim())) {
+      throw new AzureRequestError('Registry creation response is missing its provisioning state');
+    }
+    if (typeof state === 'string') {
+      let headers = response.headers;
+      for (;;) {
+        const normalizedState = state.toLowerCase();
+        if (normalizedState === 'succeeded') break;
+        if (['failed', 'canceled', 'cancelled'].includes(normalizedState)) {
+          throw new AzureRequestError(`Registry provisioning failed: ${state}`);
+        }
+        await waitForAzureRetry(headers, controller.signal);
+        const progress = await azRequestRaw<RegistryResource>({
+          ...request,
+          url,
+          timeoutMs: CREATE_TIMEOUT_MS,
+        });
+        headers = progress.headers;
+        registry = progress.data;
+        state = registry?.properties?.provisioningState;
+        if (typeof state !== 'string' || !state.trim()) {
+          throw new AzureRequestError(
+            'Registry provisioning response is missing its provisioning state'
+          );
         }
       }
     }
