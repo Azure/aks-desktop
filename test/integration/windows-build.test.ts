@@ -18,11 +18,47 @@ test('PR and scheduled builds validate Windows ARM64 on a native runner', () => 
   assert.match(ci, /platform: Windows ARM64\s+runner: windows-11-arm/);
   assert.match(ci, /run: npm run build\s/);
   assert.match(ci, /run: npm run test:distribution --/);
+  assert.match(ci, /name: Validate packaged theme and reload behavior\s+if: runner\.os != 'Linux'\s+run: npm run test:packaged-theme/);
 
   const scheduled = workflow('build-app-win.yml');
   assert.match(scheduled, /arch: arm64\s+runner: windows-11-arm/);
   assert.match(scheduled, /run: npm run build:win:\$\{\{ matrix\.arch \}\}/);
   assert.match(scheduled, /run: npm run test:distribution/);
+});
+
+test('Windows builds cache installed plugin trees separately by architecture and exact inputs', () => {
+  for (const name of ['ci.yml', 'build-app-win.yml']) {
+    const contents = workflow(name);
+    const build = name === 'ci.yml'
+      ? contents.split('\n  application-build:')[1].split('\n  find_changed_plugins:')[0]
+      : contents;
+    const cache = build.match(/^ {6}- name: Cache Windows plugin dependencies\n[\s\S]*?(?=\n {6}- name:)/m)?.[0];
+    assert.ok(cache);
+    assert.match(cache, /uses: actions\/cache@[a-f0-9]{40}/);
+    assert.match(cache, /key: windows-plugin-deps-v2-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node-/);
+    assert.match(cache, /hashFiles\('package\.json', '\.npmrc', 'build\/install-dependencies\.ts'/);
+    assert.ok(cache.includes("'packages/headlamp-source/src/lib/bundle-plugins.ts'"));
+    assert.ok(cache.includes("'plugins/*/.npmrc'"));
+    for (const plugin of ['aks-desktop', 'aks-desktop-theme', 'insights-plugin', 'plugin-catalog']) {
+      assert.ok(cache.includes(`'plugins/${plugin}/package*.json'`));
+      assert.ok(cache.includes(`plugins/${plugin}/node_modules`));
+    }
+    assert.doesNotMatch(cache, /restore-keys:/);
+    assert.match(build, /HEADLAMP_REUSE_PLUGIN_DEPENDENCIES:.*aks-desktop,aks-desktop-theme,insights-plugin,plugin-catalog/);
+    assert.ok(build.indexOf(cache) < build.indexOf('      - name: Install dependencies'));
+    const setupNode = build.match(/^ {6}- name: Setup Node\.js\n[\s\S]*?(?=\n {6}- name:)/m) ??
+      build.match(/^ {6}- name: Setup nodejs\n[\s\S]*?(?=\n {6}- name:)/m);
+    assert.ok(setupNode);
+    assert.match(setupNode[0], /cache: "npm"/);
+    for (const lockfile of [
+      '.config/npm/package-lock.json',
+      'package-lock.json',
+      'plugins/*/package-lock.json',
+    ]) {
+      assert.ok(setupNode[0].includes(lockfile));
+    }
+    assert.doesNotMatch(build, /--reuse-prepared-assets|run: npm run ci:windows/);
+  }
 });
 
 test('PR CI uploads only the ARM64 installer before reinstall can remove it', () => {

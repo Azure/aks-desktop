@@ -2,10 +2,16 @@
 // Licensed under the Apache 2.0.
 
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import test from 'node:test';
 import { runTimedStep } from './build-timing';
 import { DEPENDENCY_INSTALL_STEPS, installDependencies } from './install-dependencies';
+
+const { writePluginDependencyMarker } = require(
+  '../packages/headlamp-source/src/lib/bundle-plugins.ts'
+);
 
 test('reports UTC start and elapsed failure timing without replacing the error', () => {
   const messages: string[] = [];
@@ -69,3 +75,56 @@ test('stops dependency installation at the first failed group', t => {
   );
   assert.deepEqual(scripts, ['headlamp:install', 'plugin:install']);
 });
+
+for (const state of ['valid', 'disabled', 'missing', 'partial', 'manifest', 'lock', 'installed-lock']) {
+  test(`plugin dependency reuse handles ${state} cache state`, t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cached-plugin-deps-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    t.mock.method(console, 'log', () => undefined);
+    for (const step of DEPENDENCY_INSTALL_STEPS) {
+      if (!('pluginDirectory' in step)) continue;
+      const directory = path.join(root, step.pluginDirectory);
+      fs.mkdirSync(path.join(directory, 'node_modules'), { recursive: true });
+      for (const file of ['package.json', 'package-lock.json', 'node_modules/.package-lock.json']) {
+        fs.writeFileSync(path.join(directory, file), '{}');
+      }
+      writePluginDependencyMarker(directory);
+    }
+
+    const plugin = path.join(root, 'plugins', 'aks-desktop');
+    const changedFiles: Record<string, string> = {
+      missing: 'node_modules/.headlamp-dependency-identity',
+      partial: 'node_modules/.package-lock.json',
+      manifest: 'package.json',
+      lock: 'package-lock.json',
+      'installed-lock': 'node_modules/.package-lock.json',
+    };
+    const changedFile = changedFiles[state];
+    if (changedFile) {
+      if (state === 'missing' || state === 'partial') {
+        fs.rmSync(path.join(plugin, changedFile));
+      } else {
+        fs.writeFileSync(path.join(plugin, changedFile), '{"changed":true}');
+      }
+    }
+
+    const scripts: string[] = [];
+    const marked: string[] = [];
+    installDependencies(
+      root,
+      script => scripts.push(script),
+      directory => marked.push(directory),
+      state === 'disabled'
+        ? {}
+        : { HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'aks-desktop,aks-desktop-theme,plugin-catalog' }
+    );
+    const expectedScripts = state === 'valid'
+      ? ['headlamp:install']
+      : state === 'disabled'
+        ? DEPENDENCY_INSTALL_STEPS.map(step => step.script)
+        : ['headlamp:install', 'plugin:install'];
+    assert.deepEqual(scripts, expectedScripts);
+    assert.equal(marked.length, scripts.length - 1);
+    if (state !== 'valid') assert.equal(marked[0], plugin);
+  });
+}

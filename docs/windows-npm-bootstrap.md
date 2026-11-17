@@ -52,6 +52,35 @@ PR CI retains the unsigned ARM64 installer in `aks-desktop-win-arm64` for seven
 days, before dependency reinstallation removes the build output. An ARM64 owner
 must still validate installation, normal application startup and uninstallation.
 
+## Native Windows ARM64 performance
+
+[Run 43825605598](https://github.com/illume/aks-desktop/actions/runs/43825605598)
+took about 49 minutes on `windows-11-arm` versus 12 minutes on `windows-latest`.
+Dependency installation alone took 34 versus 5 minutes. The ARM job used native
+ARM64 Node and had npm and Go download-cache hits. The three initial plugin
+installs accounted for about 23 minutes, and bundling installed the remaining
+`insights-plugin` dependencies for another 7 minutes. The logs locate the
+bottleneck in installation, but do not isolate filesystem, antivirus, or npm
+implementation costs.
+
+PR and scheduled builds retain native ARM64 packaging, bundled-tool checks, and
+application smoke tests. PR CI also retains native packaged-theme tests. Both
+Windows workflows cache all four installed workspace-plugin dependency trees
+separately by runner OS/architecture, exact Node version, npm pin, manifests,
+lockfiles, npm configuration, and installation helper. There are no fallback
+restore keys. The npm download-cache key also includes the pinned bootstrap npm
+lockfile, so npm upgrades can populate a new cache rather than repeatedly missing
+from an already immutable cache entry.
+Only trees whose clean-install identity matches the manifests and npm's hidden
+lockfile are reused; a missing or stale marker triggers normal `npm ci`. Headlamp
+installation, plugin builds, packaging, and native runtime checks still execute.
+
+This targets repeated plugin extraction rather than just package downloads.
+Cold caches still require installation; warm-cache speedups must be measured on
+the Windows ARM64 runner. Compare the cache-hit output and existing
+`[build-timing]` install phases with the linked baseline before claiming a
+specific time reduction.
+
 ## Verification and remaining gate
 
 ```sh
