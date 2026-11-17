@@ -71,6 +71,10 @@ lockfiles, npm configuration, and installation helper. There are no fallback
 restore keys. The npm download-cache key also includes the pinned bootstrap npm
 lockfile, so npm upgrades can populate a new cache rather than repeatedly missing
 from an already immutable cache entry.
+Unless restoration reports an exact cache hit, all four installed plugin trees
+are discarded before installation or bundling can reuse them. This also handles
+partial extraction that restored valid markers and lockfiles but missed packages,
+including the independently enabled `insights-plugin` packaging reuse.
 Only trees whose clean-install identity matches the manifests and npm's hidden
 lockfile are reused; a missing or stale marker triggers normal `npm ci`. Headlamp
 installation, plugin builds, packaging, and native runtime checks still execute.

@@ -87,6 +87,57 @@ test('Windows builds cache installed plugin trees separately by architecture and
   }
 });
 
+test('unconfirmed Windows plugin cache restores discard partial trees before reuse', t => {
+  const { reusePluginDependencies, writePluginDependencyMarker } = require(
+    '../../packages/headlamp-source/src/lib/bundle-plugins.ts'
+  );
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'partial plugin cache-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const plugins = ['aks-desktop', 'aks-desktop-theme', 'insights-plugin', 'plugin-catalog'];
+  const env = { HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: plugins.join(',') };
+  for (const plugin of plugins) {
+    const directory = path.join(root, 'plugins', plugin);
+    fs.mkdirSync(path.join(directory, 'node_modules'), { recursive: true });
+    for (const file of ['package.json', 'package-lock.json', 'node_modules/.package-lock.json']) {
+      fs.writeFileSync(path.join(directory, file), '{}');
+    }
+    writePluginDependencyMarker(directory);
+    assert.equal(reusePluginDependencies(directory, plugin, env), true);
+  }
+  const unrelated = path.join(root, 'plugins', 'unrelated', 'node_modules');
+  fs.mkdirSync(unrelated, { recursive: true });
+  fs.writeFileSync(path.join(unrelated, 'keep'), 'unrelated dependency');
+
+  const action = fs.readFileSync(path.join(ROOT_DIR, CACHE_ACTION, 'action.yml'), 'utf8');
+  const restore = workflowStep(action, 'Cache Windows plugin dependencies');
+  const cacheId = restore.match(/\bid: ([\w-]+)/)?.[1];
+  assert.ok(cacheId);
+  const discard = workflowStep(action, 'Discard unconfirmed plugin caches');
+  assert.ok(discard.includes(`if: steps.${cacheId}.outputs.cache-hit != 'true'`));
+  assert.match(discard, /shell: bash/);
+  assert.ok(action.indexOf(restore) < action.indexOf(discard));
+  assert.ok(action.indexOf(discard) < action.indexOf(workflowStep(action, 'Enable verified plugin dependency reuse')));
+  const script = discard.match(/\brun: \|\r?\n([\s\S]*)/)?.[1];
+  assert.ok(script);
+  const runCleanup = () => {
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], {
+      cwd: root,
+      encoding: 'utf8',
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+  };
+  runCleanup();
+  for (const plugin of plugins) {
+    const directory = path.join(root, 'plugins', plugin);
+    assert.equal(fs.existsSync(path.join(directory, 'node_modules')), false);
+    assert.equal(reusePluginDependencies(directory, plugin, env), false);
+    assert.equal(fs.readFileSync(path.join(directory, 'package.json'), 'utf8'), '{}');
+  }
+  runCleanup();
+  assert.equal(fs.readFileSync(path.join(unrelated, 'keep'), 'utf8'), 'unrelated dependency');
+});
+
 test('PR CI verifies patch contracts before assembly and uploads the native ARM64 installer', () => {
   const applicationBuild = workflowJob(workflow('ci.yml'), 'application-build');
   const checkout = workflowStep(applicationBuild, 'Checkout code');

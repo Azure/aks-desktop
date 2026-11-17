@@ -10,6 +10,7 @@ runs:
   using: composite
   steps:
     - name: Cache Windows plugin dependencies
+      id: plugin-cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         key: windows-plugin-deps-v2-${{ runner.os }}-${{ runner.arch }}-node-${{ inputs.node-version }}-${{ hashFiles('package.json', '.npmrc', 'build/install-dependencies.ts', '.github/actions/cache-windows-plugin-dependencies/action.yml', 'packages/headlamp-source/src/lib/bundle-plugins.ts', 'plugins/*/.npmrc', 'plugins/aks-desktop/package*.json', 'plugins/aks-desktop-theme/package*.json', 'plugins/insights-plugin/package*.json', 'plugins/plugin-catalog/package*.json') }}
@@ -18,6 +19,12 @@ runs:
           plugins/aks-desktop-theme/node_modules
           plugins/insights-plugin/node_modules
           plugins/plugin-catalog/node_modules
+
+    - name: Discard unconfirmed plugin caches
+      if: steps.plugin-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        node -e "const fs = require('node:fs'); for (const plugin of ['aks-desktop', 'aks-desktop-theme', 'insights-plugin', 'plugin-catalog']) fs.rmSync('plugins/' + plugin + '/node_modules', { recursive: true, force: true, maxRetries: 3 });"
 
     - name: Enable verified plugin dependency reuse
       shell: bash
