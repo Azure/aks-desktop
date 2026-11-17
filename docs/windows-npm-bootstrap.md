@@ -75,6 +75,12 @@ Only trees whose clean-install identity matches the manifests and npm's hidden
 lockfile are reused; a missing or stale marker triggers normal `npm ci`. Headlamp
 installation, plugin builds, packaging, and native runtime checks still execute.
 
+Both workflows call the [shared cache action](../.github/actions/cache-windows-plugin-dependencies/action.yml),
+which owns the cache inputs, plugin paths, and reuse selection. Its definition is
+also hashed, so changes to that policy populate a new cache. The initial installer
+handles three plugin trees; `insights-plugin` is installed later during bundling
+and participates in the same four-plugin cache and verified-reuse policy.
+
 PR CI runs the Headlamp patch and package contracts after the initial clean
 installation, before application assembly mutates the installed source.
 The same contract suite previously ran after a second full `npm ci`; moving it

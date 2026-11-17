@@ -114,8 +114,6 @@ jobs:
     name: Build application (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
-    env:
-      HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: ${{ startsWith(matrix.runner, 'windows-') && 'aks-desktop,aks-desktop-theme,insights-plugin,plugin-catalog' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -180,14 +178,9 @@ jobs:
 
       - name: Cache Windows plugin dependencies
         if: runner.os == 'Windows'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: ./.github/actions/cache-windows-plugin-dependencies
         with:
-          key: windows-plugin-deps-v2-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('package.json', '.npmrc', 'build/install-dependencies.ts', 'packages/headlamp-source/src/lib/bundle-plugins.ts', 'plugins/*/.npmrc', 'plugins/aks-desktop/package*.json', 'plugins/aks-desktop-theme/package*.json', 'plugins/insights-plugin/package*.json', 'plugins/plugin-catalog/package*.json') }}
-          path: |
-            plugins/aks-desktop/node_modules
-            plugins/aks-desktop-theme/node_modules
-            plugins/insights-plugin/node_modules
-            plugins/plugin-catalog/node_modules
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund

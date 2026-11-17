@@ -10,77 +10,100 @@ import test from 'node:test';
 
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const APP_DIR = path.join(ROOT_DIR, 'node_modules/@headlamp-k8s/headlamp-source/source/app');
+const CACHE_ACTION = '.github/actions/cache-windows-plugin-dependencies';
 const workflow = (name: string) =>
   fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', name), 'utf8');
 
+function workflowJob(contents: string, name: string): string {
+  const job = contents.match(
+    new RegExp(`^  ${name}:\\r?\\n[\\s\\S]*?(?=^  [\\w-]+:|(?![\\s\\S]))`, 'm')
+  );
+  assert.ok(job, `Missing workflow job: ${name}`);
+  return job[0];
+}
+
+function workflowStep(contents: string, name: string): string {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const step = contents.match(
+    new RegExp(
+      `^([ \\t]*)- name: ${escapedName}\\r?\\n[\\s\\S]*?(?=^\\1- |(?![\\s\\S]))`,
+      'm'
+    )
+  );
+  assert.ok(step, `Missing workflow step: ${name}`);
+  return step[0];
+}
+
 test('PR and scheduled builds validate Windows ARM64 on a native runner', () => {
-  const ci = workflow('ci.yml');
+  const ci = workflowJob(workflow('ci.yml'), 'application-build');
   assert.match(ci, /platform: Windows ARM64\s+runner: windows-11-arm/);
   assert.match(ci, /run: npm run build\s/);
   assert.match(ci, /run: npm run test:distribution --/);
   assert.match(ci, /name: Validate packaged theme and reload behavior\s+if: runner\.os != 'Linux'\s+run: npm run test:packaged-theme/);
 
-  const scheduled = workflow('build-app-win.yml');
+  const scheduled = workflowJob(workflow('build-app-win.yml'), 'build');
   assert.match(scheduled, /arch: arm64\s+runner: windows-11-arm/);
   assert.match(scheduled, /run: npm run build:win:\$\{\{ matrix\.arch \}\}/);
   assert.match(scheduled, /run: npm run test:distribution/);
 });
 
 test('Windows builds cache installed plugin trees separately by architecture and exact inputs', () => {
+  const action = fs.readFileSync(path.join(ROOT_DIR, CACHE_ACTION, 'action.yml'), 'utf8');
+  const sharedCache = workflowStep(action, 'Cache Windows plugin dependencies');
+  assert.match(sharedCache, /uses: actions\/cache@[a-f0-9]{40}/);
+  assert.match(sharedCache, /key: windows-plugin-deps-v2-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node-\$\{\{ inputs\.node-version \}\}-/);
+  assert.match(sharedCache, /hashFiles\('package\.json', '\.npmrc', 'build\/install-dependencies\.ts'/);
+  assert.ok(sharedCache.includes(`'${CACHE_ACTION}/action.yml'`));
+  assert.ok(sharedCache.includes("'packages/headlamp-source/src/lib/bundle-plugins.ts'"));
+  assert.ok(sharedCache.includes("'plugins/*/.npmrc'"));
+  for (const plugin of ['aks-desktop', 'aks-desktop-theme', 'insights-plugin', 'plugin-catalog']) {
+    assert.ok(sharedCache.includes(`'plugins/${plugin}/package*.json'`));
+    assert.ok(sharedCache.includes(`plugins/${plugin}/node_modules`));
+  }
+  assert.doesNotMatch(sharedCache, /restore-keys:/);
+  const reuse = workflowStep(action, 'Enable verified plugin dependency reuse');
+  assert.match(reuse, /HEADLAMP_REUSE_PLUGIN_DEPENDENCIES=aks-desktop,aks-desktop-theme,insights-plugin,plugin-catalog/);
+  assert.match(reuse, />> "\$GITHUB_ENV"/);
+
   for (const name of ['ci.yml', 'build-app-win.yml']) {
-    const contents = workflow(name);
-    const build = name === 'ci.yml'
-      ? contents.split('\n  application-build:')[1].split('\n  find_changed_plugins:')[0]
-      : contents;
-    const cache = build.match(/^ {6}- name: Cache Windows plugin dependencies\n[\s\S]*?(?=\n {6}- name:)/m)?.[0];
-    assert.ok(cache);
-    assert.match(cache, /uses: actions\/cache@[a-f0-9]{40}/);
-    assert.match(cache, /key: windows-plugin-deps-v2-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node-/);
-    assert.match(cache, /hashFiles\('package\.json', '\.npmrc', 'build\/install-dependencies\.ts'/);
-    assert.ok(cache.includes("'packages/headlamp-source/src/lib/bundle-plugins.ts'"));
-    assert.ok(cache.includes("'plugins/*/.npmrc'"));
-    for (const plugin of ['aks-desktop', 'aks-desktop-theme', 'insights-plugin', 'plugin-catalog']) {
-      assert.ok(cache.includes(`'plugins/${plugin}/package*.json'`));
-      assert.ok(cache.includes(`plugins/${plugin}/node_modules`));
-    }
-    assert.doesNotMatch(cache, /restore-keys:/);
-    assert.match(build, /HEADLAMP_REUSE_PLUGIN_DEPENDENCIES:.*aks-desktop,aks-desktop-theme,insights-plugin,plugin-catalog/);
-    assert.ok(build.indexOf(cache) < build.indexOf('      - name: Install dependencies'));
-    const setupNode = build.match(/^ {6}- name: Setup Node\.js\n[\s\S]*?(?=\n {6}- name:)/m) ??
-      build.match(/^ {6}- name: Setup nodejs\n[\s\S]*?(?=\n {6}- name:)/m);
-    assert.ok(setupNode);
-    assert.match(setupNode[0], /cache: "npm"/);
+    const build = workflowJob(workflow(name), name === 'ci.yml' ? 'application-build' : 'build');
+    const cache = workflowStep(build, 'Cache Windows plugin dependencies');
+    assert.ok(cache.includes(`uses: ./${CACHE_ACTION}`));
+    if (name === 'ci.yml') assert.match(cache, /if: runner\.os == 'Windows'/);
+    assert.ok(build.indexOf(cache) < build.indexOf(workflowStep(build, 'Install dependencies')));
+    const setupNode = workflowStep(build, name === 'ci.yml' ? 'Setup Node.js' : 'Setup nodejs');
+    const nodeVersion = setupNode.match(/node-version: (.+)/)?.[1];
+    assert.ok(nodeVersion);
+    assert.ok(cache.includes(`node-version: ${nodeVersion}`));
+    assert.match(setupNode, /cache: "npm"/);
     for (const lockfile of [
       '.config/npm/package-lock.json',
       'package-lock.json',
       'plugins/*/package-lock.json',
     ]) {
-      assert.ok(setupNode[0].includes(lockfile));
+      assert.ok(setupNode.includes(lockfile));
     }
     assert.doesNotMatch(build, /--reuse-prepared-assets|run: npm run ci:windows/);
   }
 });
 
 test('PR CI verifies patch contracts before assembly and uploads the native ARM64 installer', () => {
-  const ci = workflow('ci.yml');
-  const applicationBuild = ci.split('\n  application-build:')[1].split('\n  find_changed_plugins:')[0];
-  const checkout = applicationBuild.match(/^ {6}- name: Checkout code\n[\s\S]*?(?=\n {6}- name:)/m)?.[0];
-  assert.ok(checkout);
+  const applicationBuild = workflowJob(workflow('ci.yml'), 'application-build');
+  const checkout = workflowStep(applicationBuild, 'Checkout code');
   assert.match(checkout, /ref: \$\{\{ matrix\.runner == 'windows-11-arm' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/);
-  const uploadStart = applicationBuild.indexOf('      - name: Upload Windows ARM64 installer');
-  const upload = uploadStart < 0 ? undefined : applicationBuild.slice(uploadStart);
-  assert.ok(upload, 'the native ARM64 job must retain its installer for the tester');
+  const upload = workflowStep(applicationBuild, 'Upload Windows ARM64 installer');
   assert.match(upload, /if: github\.event_name == 'pull_request' && runner\.os == 'Windows' && runner\.arch == 'ARM64'/);
   assert.match(upload, /uses: actions\/upload-artifact@[a-f0-9]{40}/);
   assert.match(upload, /name: aks-desktop-win-arm64\s/);
   assert.match(upload, /path: node_modules\/@headlamp-k8s\/headlamp-source\/source\/app\/dist\/aks-desktop-\*-win-arm64\.exe\s/);
   assert.match(upload, /if-no-files-found: error\s/);
   assert.match(upload, /retention-days: 7\s/);
-  const installation = applicationBuild.indexOf('      - name: Install dependencies');
-  const contracts = applicationBuild.indexOf('      - name: Verify Headlamp patch contracts');
-  const build = applicationBuild.indexOf('      - name: Build application for host platform');
+  const installation = applicationBuild.indexOf(workflowStep(applicationBuild, 'Install dependencies'));
+  const contractStep = workflowStep(applicationBuild, 'Verify Headlamp patch contracts');
+  const contracts = applicationBuild.indexOf(contractStep);
+  const build = applicationBuild.indexOf(workflowStep(applicationBuild, 'Build application for host platform'));
   assert.ok(installation >= 0 && installation < contracts && contracts < build);
-  assert.match(applicationBuild.slice(contracts, build), /run: npm run test:headlamp-patches/);
+  assert.match(contractStep, /run: npm run test:headlamp-patches/);
   assert.doesNotMatch(applicationBuild, /Reinstall after application assembly/);
 });
 
