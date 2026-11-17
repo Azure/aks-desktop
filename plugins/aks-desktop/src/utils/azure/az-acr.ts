@@ -10,7 +10,13 @@ import {
   runCommandAsync,
 } from './az-cli-core';
 import { getAzureCloudEndpoints } from './az-cloud';
-import { azListAll, azRequestRaw, AzureRequestError, waitForAzureRetry } from './az-http';
+import {
+  azListAll,
+  azRequestRaw,
+  type AzResponse,
+  AzureRequestError,
+  waitForAzureRetry,
+} from './az-http';
 import { registerContainerRegistryProvider } from './az-resource-providers';
 import { getSubscriptionCredential } from './az-token';
 import { isValidAzResourceName } from './az-validation';
@@ -99,26 +105,34 @@ export async function createContainerRegistry(options: {
       body: { location, sku: { name: sku } },
       timeoutMs: CREATE_TIMEOUT_MS,
     };
-    let response;
-    try {
-      response = await azRequestRaw<RegistryResource>(createRequest);
-    } catch (error) {
-      if (
-        !(error instanceof AzureRequestError) ||
-        error.code !== 'MissingSubscriptionRegistration'
-      ) {
-        throw error;
+    let response: AzResponse<RegistryResource>;
+    let registrationRequested = false;
+    for (;;) {
+      try {
+        response = await azRequestRaw<RegistryResource>(createRequest);
+        break;
+      } catch (error) {
+        if (
+          !(error instanceof AzureRequestError) ||
+          error.code !== 'MissingSubscriptionRegistration'
+        ) {
+          throw error;
+        }
+        if (registrationRequested) {
+          await waitForAzureRetry(undefined, controller.signal);
+        } else {
+          const registration = await registerContainerRegistryProvider(subscriptionId, {
+            endpoint: cloud.endpoint,
+            scope: cloud.scope,
+            credential: request.credential,
+            signal: controller.signal,
+            timeoutMs: CREATE_TIMEOUT_MS,
+            waitUntilRegistered: false,
+          });
+          if (!registration.success) throw new Error(registration.error);
+          registrationRequested = true;
+        }
       }
-      const registration = await registerContainerRegistryProvider(subscriptionId, {
-        endpoint: cloud.endpoint,
-        scope: cloud.scope,
-        credential: request.credential,
-        signal: controller.signal,
-        timeoutMs: CREATE_TIMEOUT_MS,
-        waitUntilRegistered: true,
-      });
-      if (!registration.success) throw new Error(registration.error);
-      response = await azRequestRaw<RegistryResource>(createRequest);
     }
 
     const operationHeader = response.headers.get('azure-asyncoperation');

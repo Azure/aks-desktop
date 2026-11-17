@@ -170,37 +170,70 @@ describe('createContainerRegistry', () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
-  test('registers the provider, waits for readiness, and retries creation once', async () => {
+  test('retries creation without waiting for subscription-wide registration', async () => {
     vi.useFakeTimers();
     mocks.fetch
       .mockResolvedValueOnce(
         json(409, { error: { code: 'MissingSubscriptionRegistration', message: 'register' } })
       )
       .mockResolvedValueOnce(json(200, { registrationState: 'Registering' }))
-      .mockResolvedValueOnce(json(200, { registrationState: 'Registered' }))
       .mockResolvedValueOnce(
         json(200, { id: 'registry-id', properties: { loginServer: 'registry.azurecr.io' } })
       );
     const result = createContainerRegistry(options);
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.fetch.mock.calls.map(([, init]) => init.method)).toEqual(['PUT', 'POST', 'PUT']);
     expect(await result).toEqual({
       success: true,
       id: 'registry-id',
       loginServer: 'registry.azurecr.io',
     });
-    expect(mocks.fetch.mock.calls.map(([, init]) => init.method)).toEqual([
-      'PUT',
-      'POST',
-      'GET',
-      'PUT',
-    ]);
     expect(String(mocks.fetch.mock.calls[1][0])).toBe(
       `https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.ContainerRegistry/register?api-version=2021-04-01`
     );
-    expect(String(mocks.fetch.mock.calls[2][0])).toBe(
-      `https://management.azure.com/subscriptions/${subscriptionId}/providers/Microsoft.ContainerRegistry?api-version=2021-04-01`
-    );
-    expect(String(mocks.fetch.mock.calls[3][0])).toBe(String(mocks.fetch.mock.calls[0][0]));
+    expect(String(mocks.fetch.mock.calls[2][0])).toBe(String(mocks.fetch.mock.calls[0][0]));
+  });
+
+  test('retries creation after registration is accepted without a response body', async () => {
+    vi.useFakeTimers();
+    mocks.fetch
+      .mockResolvedValueOnce(
+        json(409, { error: { code: 'MissingSubscriptionRegistration', message: 'register' } })
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 202 }))
+      .mockResolvedValueOnce(
+        json(200, { id: 'registry-id', properties: { loginServer: 'registry.azurecr.io' } })
+      );
+    const result = createContainerRegistry(options);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.fetch.mock.calls.map(([, init]) => init.method)).toEqual(['PUT', 'POST', 'PUT']);
+    expect(await result).toMatchObject({ success: true });
+  });
+
+  test('delays creation retries while registration propagates without registering again', async () => {
+    vi.useFakeTimers();
+    mocks.fetch
+      .mockResolvedValueOnce(
+        json(409, { error: { code: 'MissingSubscriptionRegistration', message: 'register' } })
+      )
+      .mockResolvedValueOnce(json(200, { registrationState: 'Registering' }))
+      .mockResolvedValueOnce(
+        json(409, { error: { code: 'MissingSubscriptionRegistration', message: 'register' } })
+      )
+      .mockResolvedValueOnce(
+        json(200, { id: 'registry-id', properties: { loginServer: 'registry.azurecr.io' } })
+      );
+    const result = createContainerRegistry(options);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toMatchObject({ success: true });
+    expect(mocks.fetch.mock.calls.map(([, init]) => init.method)).toEqual([
+      'PUT',
+      'POST',
+      'PUT',
+      'PUT',
+    ]);
   });
 
   test('returns provider registration errors without retrying creation', async () => {
@@ -218,36 +251,56 @@ describe('createContainerRegistry', () => {
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
   });
 
-  test('stops provider polling at the creation deadline', async () => {
+  test('stops registration propagation retries at the creation deadline', async () => {
     vi.useFakeTimers();
     mocks.fetch
       .mockResolvedValueOnce(
         json(409, { error: { code: 'MissingSubscriptionRegistration', message: 'register' } })
       )
-      .mockImplementation(() => Promise.resolve(json(200, { registrationState: 'Registering' })));
+      .mockResolvedValueOnce(json(200, { registrationState: 'Registering' }))
+      .mockImplementation(() =>
+        Promise.resolve(
+          json(409, { error: { code: 'MissingSubscriptionRegistration', message: 'register' } })
+        )
+      );
     const result = createContainerRegistry(options);
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
     expect(await result).toMatchObject({
       success: false,
       error: expect.stringContaining('Registry creation timed out'),
     });
-    expect(mocks.fetch.mock.calls.filter(([, init]) => init.method === 'PUT')).toHaveLength(1);
+    expect(mocks.fetch.mock.calls.filter(([, init]) => init.method === 'POST')).toHaveLength(1);
+    expect(mocks.fetch.mock.calls.filter(([, init]) => init.method === 'GET')).toHaveLength(0);
+    expect(
+      mocks.fetch.mock.calls.filter(([, init]) => init.method === 'PUT').length
+    ).toBeGreaterThan(1);
   });
 
-  test('does not repeat registration if the retried creation also fails', async () => {
+  test('does not retry unrelated creation failures while registration propagates', async () => {
+    vi.useFakeTimers();
     mocks.fetch
       .mockResolvedValueOnce(
         json(409, { error: { code: 'MissingSubscriptionRegistration', message: 'register' } })
       )
-      .mockResolvedValueOnce(json(200, { registrationState: 'Registered' }))
+      .mockResolvedValueOnce(json(200, { registrationState: 'Registering' }))
       .mockResolvedValueOnce(
         json(409, { error: { code: 'MissingSubscriptionRegistration', message: 'register' } })
+      )
+      .mockResolvedValueOnce(
+        json(403, { error: { code: 'AuthorizationFailed', message: 'denied' } })
       );
-    expect(await createContainerRegistry(options)).toMatchObject({
+    const result = createContainerRegistry(options);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await result).toMatchObject({
       success: false,
-      error: expect.stringContaining('MissingSubscriptionRegistration'),
+      error: expect.stringContaining('AuthorizationFailed'),
     });
-    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    expect(mocks.fetch.mock.calls.map(([, init]) => init.method)).toEqual([
+      'PUT',
+      'POST',
+      'PUT',
+      'PUT',
+    ]);
   });
 
   test.each<AcrSku>(['Basic', 'Standard', 'Premium'])('creates a %s registry', async sku => {
