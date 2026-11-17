@@ -19,10 +19,19 @@ type RegistrationOptions = Pick<
 
 /** ARM provider fields used to distinguish accepted registration from completion. */
 interface ResourceProvider {
-  /** Provider namespace, normally Microsoft.ContainerService. */
+  /** Provider namespace. */
   namespace?: string;
   /** Azure state such as Registering or Registered; may be absent on HTTP 202. */
   registrationState?: string;
+}
+
+interface RegistrationResult {
+  /** Whether the request was accepted, or completed when waiting was requested. */
+  success: boolean;
+  /** Last observed provider state; absent if Azure returned no provider body. */
+  registrationState?: string;
+  /** User-facing failure diagnostic, present when success is false. */
+  error?: string;
 }
 
 /**
@@ -39,20 +48,34 @@ interface ResourceProvider {
 export async function registerContainerServiceProvider(
   subscriptionId: string,
   options: RegistrationOptions = {}
-): Promise<{
-  /** Whether the request was accepted, or completed when waiting was requested. */
-  success: boolean;
-  /** Last observed provider state; absent if Azure returned no provider body. */
-  registrationState?: string;
-  /** User-facing failure diagnostic, present when success is false. */
-  error?: string;
-}> {
+): Promise<RegistrationResult> {
+  return registerProvider('Microsoft.ContainerService', subscriptionId, options);
+}
+
+/**
+ * Registers the Container Registry provider with the same contract as Container Service.
+ * @param subscriptionId - Explicit subscription ID.
+ * @param options - Authentication, cloud and deadline options.
+ * @returns Registration result, including any failure diagnostic.
+ */
+export async function registerContainerRegistryProvider(
+  subscriptionId: string,
+  options: RegistrationOptions = {}
+): Promise<RegistrationResult> {
+  return registerProvider('Microsoft.ContainerRegistry', subscriptionId, options);
+}
+
+async function registerProvider(
+  namespace: 'Microsoft.ContainerService' | 'Microsoft.ContainerRegistry',
+  subscriptionId: string,
+  options: RegistrationOptions
+): Promise<RegistrationResult> {
   const controller = new AbortController();
   const abort = () => controller.abort(options.signal?.reason);
   options.signal?.addEventListener('abort', abort, { once: true });
   if (options.signal?.aborted) abort();
   const timeout = setTimeout(
-    () => controller.abort(new Error('Microsoft.ContainerService registration timed out')),
+    () => controller.abort(new Error(`${namespace} registration timed out`)),
     options.timeoutMs ?? 60_000
   );
 
@@ -61,9 +84,7 @@ export async function registerContainerServiceProvider(
     const cloud = options.cloudName
       ? await getAzureCloudEndpoints(options.cloudName, controller.signal)
       : undefined;
-    const url = `/subscriptions/${encodeURIComponent(
-      subscriptionId
-    )}/providers/Microsoft.ContainerService`;
+    const url = `/subscriptions/${encodeURIComponent(subscriptionId)}/providers/${namespace}`;
     const request = {
       ...options,
       credential: options.credential ?? getSubscriptionCredential(subscriptionId),
@@ -98,7 +119,7 @@ export async function registerContainerServiceProvider(
   } catch (error) {
     return {
       success: false,
-      error: `Failed to register Microsoft.ContainerService provider: ${getErrorMessage(error)}`,
+      error: `Failed to register ${namespace} provider: ${getErrorMessage(error)}`,
     };
   } finally {
     clearTimeout(timeout);

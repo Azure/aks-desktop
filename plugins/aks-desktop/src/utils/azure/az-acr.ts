@@ -1,15 +1,53 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
-// Azure Container Registry CLI functions.
+// Azure Container Registry functions.
 
-import { debugLog, isValidGuid, needsRelogin, runAzCommand, runCommandAsync } from './az-cli-core';
+import {
+  debugLog,
+  getErrorMessage,
+  isValidGuid,
+  needsRelogin,
+  runCommandAsync,
+} from './az-cli-core';
+import { getAzureCloudEndpoints } from './az-cloud';
+import { azListAll, azRequestRaw, AzureRequestError, waitForAzureRetry } from './az-http';
+import { registerContainerRegistryProvider } from './az-resource-providers';
+import { getSubscriptionCredential } from './az-token';
 import { isValidAzResourceName } from './az-validation';
+
+const ACR_API_VERSION = '2023-07-01';
+const CREATE_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** Azure Container Registry name: 5-50 lowercase alphanumeric characters. */
 export const ACR_NAME_PATTERN = /^[a-z0-9]{5,50}$/;
 
 /** Shared validation error for invalid ACR names. */
 export const ACR_NAME_ERROR = 'Registry name must be 5-50 lowercase alphanumeric characters.';
+
+interface RegistryResource {
+  id: string;
+  name: string;
+  location: string;
+  sku?: { name?: AcrSku } | AcrSku;
+  properties?: {
+    loginServer?: string;
+    provisioningState?: string;
+  };
+}
+
+interface RegistryOperation {
+  status?: string;
+  error?: {
+    code?: string;
+    message?: string;
+  };
+}
+
+function registryResourceGroup(id: string): string {
+  const segments = id.split('/');
+  const index = segments.findIndex(segment => segment.toLowerCase() === 'resourcegroups');
+  return index >= 0 && segments[index + 1] ? decodeURIComponent(segments[index + 1]) : '';
+}
 
 /**
  * Creates an Azure Container Registry.
@@ -36,53 +74,144 @@ export async function createContainerRegistry(options: {
     return { success: false, error: 'Invalid resource group name format' };
   }
 
-  const result = await runAzCommand(
-    [
-      'acr',
-      'create',
-      '--name',
-      registryName,
-      '--resource-group',
-      resourceGroup,
-      '--sku',
-      sku,
-      '--location',
-      location,
-      '--subscription',
-      subscriptionId,
-      '--output',
-      'json',
-    ],
-    'Creating container registry:',
-    'create container registry',
-    (stdout: string) => {
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout);
-      } catch (e) {
-        throw new Error(
-          `Unexpected output from ACR create command: ${e instanceof Error ? e.message : e}`
-        );
-      }
-      return {
-        id: parsed.id as string,
-        loginServer: parsed.loginServer as string,
-      };
-    }
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(new AzureRequestError('Registry creation timed out')),
+    CREATE_TIMEOUT_MS
   );
+  try {
+    const cloud = await getAzureCloudEndpoints(undefined, controller.signal);
+    const request = {
+      endpoint: cloud.endpoint,
+      scope: cloud.scope,
+      credential: getSubscriptionCredential(subscriptionId),
+      apiVersion: ACR_API_VERSION,
+      signal: controller.signal,
+    };
+    const url =
+      `/subscriptions/${encodeURIComponent(subscriptionId)}` +
+      `/resourceGroups/${encodeURIComponent(resourceGroup)}` +
+      `/providers/Microsoft.ContainerRegistry/registries/${encodeURIComponent(registryName)}`;
+    const createRequest = {
+      ...request,
+      url,
+      method: 'PUT' as const,
+      body: { location, sku: { name: sku } },
+      timeoutMs: CREATE_TIMEOUT_MS,
+    };
+    let response;
+    try {
+      response = await azRequestRaw<RegistryResource>(createRequest);
+    } catch (error) {
+      if (
+        !(error instanceof AzureRequestError) ||
+        error.code !== 'MissingSubscriptionRegistration'
+      ) {
+        throw error;
+      }
+      const registration = await registerContainerRegistryProvider(subscriptionId, {
+        endpoint: cloud.endpoint,
+        scope: cloud.scope,
+        credential: request.credential,
+        signal: controller.signal,
+        timeoutMs: CREATE_TIMEOUT_MS,
+        waitUntilRegistered: true,
+      });
+      if (!registration.success) throw new Error(registration.error);
+      response = await azRequestRaw<RegistryResource>(createRequest);
+    }
 
-  if (!result.success) {
-    return { success: false, error: result.error };
+    let registry = response.data;
+    const operationHeader = response.headers.get('azure-asyncoperation');
+    if (operationHeader) {
+      const resourceUrl = new URL(url, cloud.endpoint);
+      const operationUrl = new URL(operationHeader, resourceUrl);
+      if (operationUrl.origin !== resourceUrl.origin) {
+        throw new AzureRequestError('Refusing to poll registry creation on an untrusted host');
+      }
+
+      let headers = response.headers;
+      for (;;) {
+        await waitForAzureRetry(headers, controller.signal);
+        const operation = await azRequestRaw<RegistryOperation>({
+          ...request,
+          url: operationUrl.href,
+          timeoutMs: CREATE_TIMEOUT_MS,
+        });
+        headers = operation.headers;
+        const status = operation.data?.status;
+        if (typeof status !== 'string' || !status.trim()) {
+          throw new AzureRequestError('Registry creation operation response is missing its status');
+        }
+        const normalizedStatus = status.toLowerCase();
+        if (normalizedStatus === 'succeeded') break;
+        if (['failed', 'canceled', 'cancelled'].includes(normalizedStatus)) {
+          const detail = operation.data?.error;
+          throw new AzureRequestError(
+            [detail?.code, detail?.message ?? 'Registry creation failed']
+              .filter(Boolean)
+              .join(': '),
+            { code: detail?.code }
+          );
+        }
+      }
+      registry = (
+        await azRequestRaw<RegistryResource>({ ...request, url, timeoutMs: CREATE_TIMEOUT_MS })
+      ).data;
+    } else {
+      let state = registry?.properties?.provisioningState;
+      if (state !== undefined && (typeof state !== 'string' || !state.trim())) {
+        throw new AzureRequestError('Registry creation response is missing its provisioning state');
+      }
+      if (typeof state === 'string') {
+        let headers = response.headers;
+        for (;;) {
+          const normalizedState = state.toLowerCase();
+          if (normalizedState === 'succeeded') break;
+          if (['failed', 'canceled', 'cancelled'].includes(normalizedState)) {
+            throw new AzureRequestError(`Registry provisioning failed: ${state}`);
+          }
+          await waitForAzureRetry(headers, controller.signal);
+          const progress = await azRequestRaw<RegistryResource>({
+            ...request,
+            url,
+            timeoutMs: CREATE_TIMEOUT_MS,
+          });
+          headers = progress.headers;
+          registry = progress.data;
+          state = registry?.properties?.provisioningState;
+          if (typeof state !== 'string' || !state.trim()) {
+            throw new AzureRequestError(
+              'Registry provisioning response is missing its provisioning state'
+            );
+          }
+        }
+      }
+    }
+
+    if (
+      typeof registry?.id !== 'string' ||
+      !registry.id.trim() ||
+      typeof registry.properties?.loginServer !== 'string' ||
+      !registry.properties.loginServer.trim()
+    ) {
+      throw new AzureRequestError('Registry creation returned an incomplete registry');
+    }
+    return {
+      success: true,
+      id: registry.id,
+      loginServer: registry.properties.loginServer,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Failed to create container registry: ${getErrorMessage(error)}`,
+    };
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return {
-    success: true,
-    id: result.data?.id,
-    loginServer: result.data?.loginServer,
-  };
 }
 
-// Azure Container Registry functions (moved from az-cli.ts)
 export type AcrSku = 'Basic' | 'Standard' | 'Premium';
 
 export interface AcrInfo {
@@ -99,29 +228,28 @@ export async function getContainerRegistries(subscriptionId: string): Promise<Ac
     throw new Error('Invalid subscription ID format');
   }
 
-  const result = await runAzCommand<AcrInfo[]>(
-    ['acr', 'list', '--subscription', subscriptionId, '--output', 'json'],
-    'Listing container registries:',
-    'list container registries',
-    (stdout: string) => {
-      const registries = JSON.parse(stdout || '[]') as any[];
-      return registries.map(
-        (r): AcrInfo => ({
-          id: r.id,
-          name: r.name,
-          resourceGroup: r.resourceGroup,
-          loginServer: r.loginServer,
-          location: r.location,
-          sku: r.sku?.name ?? r.sku ?? 'Basic',
-        })
-      );
-    }
-  );
-
-  if (!result.success) {
-    throw new Error(result.error ?? 'Failed to get container registries');
+  try {
+    const cloud = await getAzureCloudEndpoints();
+    const registries = await azListAll<RegistryResource>({
+      url:
+        `/subscriptions/${encodeURIComponent(subscriptionId)}` +
+        '/providers/Microsoft.ContainerRegistry/registries',
+      apiVersion: ACR_API_VERSION,
+      endpoint: cloud.endpoint,
+      scope: cloud.scope,
+      credential: getSubscriptionCredential(subscriptionId),
+    });
+    return registries.map(registry => ({
+      id: registry.id,
+      name: registry.name,
+      resourceGroup: registryResourceGroup(registry.id),
+      loginServer: registry.properties?.loginServer ?? '',
+      location: registry.location,
+      sku: (typeof registry.sku === 'string' ? registry.sku : registry.sku?.name) ?? 'Basic',
+    }));
+  } catch (error) {
+    throw new Error(`Failed to get container registries: ${getErrorMessage(error)}`);
   }
-  return result.data!;
 }
 
 export async function getContainerImages(
