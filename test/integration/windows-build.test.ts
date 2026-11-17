@@ -47,11 +47,20 @@ test('PR and scheduled builds validate Windows ARM64 on a native runner', () => 
   assert.match(scheduled, /run: npm run test:distribution/);
 });
 
+test('scheduled Windows cache writes use the workflow event commit', () => {
+  const contents = workflow('build-app-win.yml');
+  const build = workflowJob(contents, 'build');
+  const checkout = workflowStep(build, 'Checkout this repository');
+  assert.match(checkout, /ref: \$\{\{ github\.sha \}\}/);
+  assert.match(contents, /workflow_dispatch:/);
+  assert.doesNotMatch(contents, /aks_plugin_branch|github\.event\.inputs/);
+});
+
 test('Windows builds cache installed plugin trees separately by architecture and exact inputs', () => {
   const action = fs.readFileSync(path.join(ROOT_DIR, CACHE_ACTION, 'action.yml'), 'utf8');
   const sharedCache = workflowStep(action, 'Cache Windows plugin dependencies');
   assert.match(sharedCache, /uses: actions\/cache@[a-f0-9]{40}/);
-  assert.match(sharedCache, /key: windows-plugin-deps-v2-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node-\$\{\{ inputs\.node-version \}\}-/);
+  assert.match(sharedCache, /key: windows-plugin-deps-v3-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node-\$\{\{ inputs\.node-version \}\}-/);
   assert.match(sharedCache, /hashFiles\('package\.json', '\.npmrc', 'build\/install-dependencies\.ts'/);
   assert.ok(sharedCache.includes(`'${CACHE_ACTION}/action.yml'`));
   assert.ok(sharedCache.includes("'packages/headlamp-source/src/lib/bundle-plugins.ts'"));

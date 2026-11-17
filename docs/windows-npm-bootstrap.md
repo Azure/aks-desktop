@@ -85,6 +85,12 @@ also hashed, so changes to that policy populate a new cache. The initial install
 handles three plugin trees; `insights-plugin` is installed later during bundling
 and participates in the same four-plugin cache and verified-reuse policy.
 
+Scheduled and manually dispatched Windows builds check out the workflow event's
+exact commit, keeping executed code within GitHub's cache-write scope. For a
+branch build, use the dispatch **Use workflow from** selector or `gh workflow run
+build-app-win.yml --ref <branch>`; there is no independent checkout override.
+The cache generation was rotated so earlier entries cannot be reused.
+
 PR CI runs the Headlamp patch and package contracts after the initial clean
 installation, before application assembly mutates the installed source.
 The same contract suite previously ran after a second full `npm ci`; moving it

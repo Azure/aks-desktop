@@ -5,11 +5,6 @@ on:
     # Runs every day at 1:00 AM UTC
     - cron: '0 1 * * *'
   workflow_dispatch:
-    inputs:
-      aks_plugin_branch:
-        description: 'Branch to build aks-plugin'
-        required: true
-        default: 'main'
 
 permissions:
   contents: read
@@ -32,7 +27,7 @@ jobs:
       - name: Checkout this repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.inputs.aks_plugin_branch }}
+          ref: ${{ github.sha }}
           submodules: false
 
       - name: Setup nodejs
