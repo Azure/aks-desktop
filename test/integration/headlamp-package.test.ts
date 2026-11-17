@@ -666,10 +666,10 @@ test('package targets have verified external tool runtimes', () => {
   const azureCli = rootManifest.config.externalTools.azureCli;
   assert.equal(azureCli.version, '2.90.0');
   assert.deepEqual(azureCli.extensionVersions, {
-    'resource-graph': '2.1.1',
     alertsmanagement: '1.0.0b2',
     connectedk8s: '1.11.3',
   });
+  assert.deepEqual(azureCli.extensions, ['alertsmanagement', 'connectedk8s']);
   assert.equal(rootManifest.config.externalTools.python.version, '3.14');
   for (const [extension, version] of Object.entries(azureCli.extensionVersions) as [string, string][]) {
     const extensionPackage = azureCli.extensionPackages[extension];
@@ -794,12 +794,17 @@ test('AKS product policy owns development and production command grants', () => 
   const productGrants: any[] = policies[0].commands;
   assert.equal(productGrants.some(grant => 'command' in grant), false);
   assert.equal(productGrants.some(grant => 'executable' in grant), false);
-  for (const group of ['ad', 'identity', 'rest']) {
-    assert.ok(
-      productGrants.some(
-        grant => grant.tool === 'az' && grant.args[0] === group && grant.allowTrailingArgs
-      ),
-      `Missing az ${group} command grant`
+  assert.ok(
+    productGrants.some(
+      grant => grant.tool === 'az' && grant.args[0] === 'identity' && grant.allowTrailingArgs
+    ),
+    'Missing az identity command grant'
+  );
+  for (const group of ['ad', 'config', 'extension', 'feature', 'graph', 'group', 'rest', 'version', 'vm']) {
+    assert.equal(
+      productGrants.some(grant => grant.tool === 'az' && grant.args[0] === group),
+      false,
+      `Unexpected az ${group} command grant`
     );
   }
   assert.ok(
