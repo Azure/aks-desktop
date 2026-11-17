@@ -61,13 +61,14 @@ test('Windows builds cache installed plugin trees separately by architecture and
   }
 });
 
-test('PR CI uploads only the ARM64 installer before reinstall can remove it', () => {
+test('PR CI verifies patch contracts before assembly and uploads the native ARM64 installer', () => {
   const ci = workflow('ci.yml');
   const applicationBuild = ci.split('\n  application-build:')[1].split('\n  find_changed_plugins:')[0];
   const checkout = applicationBuild.match(/^ {6}- name: Checkout code\n[\s\S]*?(?=\n {6}- name:)/m)?.[0];
   assert.ok(checkout);
   assert.match(checkout, /ref: \$\{\{ matrix\.runner == 'windows-11-arm' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/);
-  const upload = applicationBuild.match(/^ {6}- name: Upload Windows ARM64 installer\n[\s\S]*?(?=\n {6}- name:)/m)?.[0];
+  const uploadStart = applicationBuild.indexOf('      - name: Upload Windows ARM64 installer');
+  const upload = uploadStart < 0 ? undefined : applicationBuild.slice(uploadStart);
   assert.ok(upload, 'the native ARM64 job must retain its installer for the tester');
   assert.match(upload, /if: github\.event_name == 'pull_request' && runner\.os == 'Windows' && runner\.arch == 'ARM64'/);
   assert.match(upload, /uses: actions\/upload-artifact@[a-f0-9]{40}/);
@@ -75,7 +76,12 @@ test('PR CI uploads only the ARM64 installer before reinstall can remove it', ()
   assert.match(upload, /path: node_modules\/@headlamp-k8s\/headlamp-source\/source\/app\/dist\/aks-desktop-\*-win-arm64\.exe\s/);
   assert.match(upload, /if-no-files-found: error\s/);
   assert.match(upload, /retention-days: 7\s/);
-  assert.ok(applicationBuild.indexOf(upload) < applicationBuild.indexOf('      - name: Reinstall after application assembly'));
+  const installation = applicationBuild.indexOf('      - name: Install dependencies');
+  const contracts = applicationBuild.indexOf('      - name: Verify Headlamp patch contracts');
+  const build = applicationBuild.indexOf('      - name: Build application for host platform');
+  assert.ok(installation >= 0 && installation < contracts && contracts < build);
+  assert.match(applicationBuild.slice(contracts, build), /run: npm run test:headlamp-patches/);
+  assert.doesNotMatch(applicationBuild, /Reinstall after application assembly/);
 });
 
 test('installed effective NSIS selection matches the single replacement stub', (t) => {

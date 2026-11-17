@@ -49,8 +49,8 @@ published together in the `aks-desktop-signed` ADO pipeline artifact. This pipel
 does not attach assets to a GitHub Release. No new dependency is needed before `ci`.
 
 PR CI retains the unsigned ARM64 installer in `aks-desktop-win-arm64` for seven
-days, before dependency reinstallation removes the build output. An ARM64 owner
-must still validate installation, normal application startup and uninstallation.
+days. An ARM64 owner must still validate installation, normal application startup
+and uninstallation.
 
 ## Native Windows ARM64 performance
 
@@ -74,6 +74,13 @@ from an already immutable cache entry.
 Only trees whose clean-install identity matches the manifests and npm's hidden
 lockfile are reused; a missing or stale marker triggers normal `npm ci`. Headlamp
 installation, plugin builds, packaging, and native runtime checks still execute.
+
+PR CI runs the Headlamp patch and package contracts after the initial clean
+installation, before application assembly mutates the installed source.
+The same contract suite previously ran after a second full `npm ci`; moving it
+preserves the clean-tree check and removes that duplicate installation.
+In run 43961980412, the duplicate x64 install took six minutes, exactly as long as
+the initial install. The ARM64 saving must be measured after the workflow can run.
 
 This targets repeated plugin extraction rather than just package downloads.
 Cold caches still require installation; warm-cache speedups must be measured on
