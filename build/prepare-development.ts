@@ -15,7 +15,9 @@ import {
 } from './azure-cli-config';
 
 const { npmInvocation, spawnSync } = require('../packages/headlamp-source/src/lib/npm-command.ts');
-const { resolveInstalledHeadlampPaths } = require('../packages/headlamp-source/src/lib/paths.ts');
+const { resolveInstalledHeadlampPaths, resolveWithin } = require(
+  '../packages/headlamp-source/src/lib/paths.ts'
+);
 
 const ROOT_DIR = path.dirname(__dirname);
 const PREPARATION_MARKER = path.join(
@@ -59,7 +61,24 @@ function hashInput(hash: ReturnType<typeof createHash>, input: string, rootDir: 
 export function developmentPreparationIdentity(rootDir: string): string {
   const project = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
   const pluginSources = (project.headlamp?.plugins ?? [])
-    .map((plugin: { source?: unknown }) => plugin.source)
+    .map((plugin: { source?: unknown; packageName?: unknown }) => {
+      if (typeof plugin.source === 'string') return plugin.source;
+      if (
+        plugin.source !== null &&
+        typeof plugin.source === 'object' &&
+        'type' in plugin.source &&
+        plugin.source.type === 'package'
+      ) {
+        if (typeof plugin.packageName !== 'string' || !plugin.packageName) {
+          throw new Error('Package plugin source must declare a packageName');
+        }
+        const installed = resolveWithin(
+          path.join(rootDir, 'node_modules'), plugin.packageName, 'Plugin package source'
+        );
+        return path.relative(rootDir, fs.realpathSync(installed));
+      }
+      return undefined;
+    })
     .filter((source: unknown): source is string => typeof source === 'string');
   const inputs = ['package.json', 'build', 'Localize', 'resources', ...pluginSources];
   const hash = createHash('sha256');

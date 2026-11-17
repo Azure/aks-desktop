@@ -320,6 +320,8 @@ bundling, preserving checksum verification without installing the plugin SDK.
 The wrapper manifest remains the source of its release version and SHA-256.
 After changing its metadata or staging scripts, refresh the root lockfile as
 needed and reinstall root dependencies with pinned npm to update the installed copy.
+Development preparation fingerprints installed package inputs, including metadata
+and staging scripts, but excludes generated `dist` and nested dependencies.
 Contributors can still install the workspace's development dependencies when
 using its SDK-based `package` command.
 

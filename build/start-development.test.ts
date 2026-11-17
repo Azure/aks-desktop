@@ -51,6 +51,51 @@ test('invalidates development preparation when a configured plugin changes', t =
   assert.notEqual(developmentPreparationIdentity(rootDir), firstIdentity);
 });
 
+for (const packageName of ['example-artifact', '@example/artifact']) {
+  test(`refreshes development assets when installed ${packageName} inputs change`, t => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'package preparation-'));
+    t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+    fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({
+      headlamp: { plugins: [{ packageName, source: { type: 'package' } }] },
+    }));
+    const installed = path.join(rootDir, 'node_modules', packageName);
+    fs.mkdirSync(path.join(installed, 'scripts'), { recursive: true });
+    const metadata = path.join(installed, 'package.json');
+    const script = path.join(installed, 'scripts', 'stage.mjs');
+    fs.writeFileSync(metadata, JSON.stringify({ name: packageName, artifactSha256: 'a'.repeat(64) }));
+    fs.writeFileSync(script, 'console.log("stage");\n');
+    let marker = developmentPreparationIdentity(rootDir);
+    const scripts: string[] = [];
+    const options = {
+      dependenciesCurrent: () => true,
+      assemblyCurrent: (root: string) => developmentPreparationIdentity(root) === marker,
+      runScript: (command: string) => scripts.push(command),
+      writeMarker: (root: string) => { marker = developmentPreparationIdentity(root); },
+    };
+
+    prepareDevelopment(rootDir, options);
+    for (const relative of ['dist/main.js', 'node_modules/dependency/index.js']) {
+      const output = path.join(installed, relative);
+      fs.mkdirSync(path.dirname(output), { recursive: true });
+      fs.writeFileSync(output, 'generated output');
+    }
+    const sibling = path.join(rootDir, 'node_modules', 'unrelated-package');
+    fs.mkdirSync(sibling);
+    fs.writeFileSync(path.join(sibling, 'package.json'), '{"version":"2.0.0"}');
+    prepareDevelopment(rootDir, options);
+    assert.deepEqual(scripts, []);
+
+    fs.writeFileSync(metadata, JSON.stringify({ name: packageName, artifactSha256: 'b'.repeat(64) }));
+    prepareDevelopment(rootDir, options);
+    assert.deepEqual(scripts, ['headlamp:assemble']);
+    fs.writeFileSync(script, 'console.log("updated stage");\n');
+    prepareDevelopment(rootDir, options);
+    assert.deepEqual(scripts, ['headlamp:assemble', 'headlamp:assemble']);
+    prepareDevelopment(rootDir, options);
+    assert.equal(scripts.length, 2);
+  });
+}
+
 test('starts development through the npm lifecycle CLI and preserves its environment', async t => {
   const previous = process.env.npm_execpath;
   process.env.npm_execpath = 'C:\\Program Files\\nodejs\\npm-cli.js';
