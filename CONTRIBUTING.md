@@ -16,3 +16,13 @@ or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any addi
 ## Headlamp Source Contributions
 
 See [MAINTENANCE.md](MAINTENANCE.md) for Headlamp source updates and patches.
+
+## Azure Live Tests
+
+Run `npm run test:e2e:azure` only against approved Azure test resources. This
+entry point uses the shared `AZ_LIVE_TESTS` opt-in for REST parity and generated
+GitHub Actions/ACR tests; normal test discovery and CI remain offline.
+Use `-- --suite rest` or `-- --suite acr` to select one suite.
+
+See [the Azure live-test guide](test/e2e/README.md) for configuration, offline
+harness tests, and dedicated-resource ownership and cleanup requirements.
