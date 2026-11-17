@@ -210,30 +210,35 @@ describe('createContainerRegistry', () => {
     expect(await result).toMatchObject({ success: true });
   });
 
-  test('delays creation retries while registration propagates without registering again', async () => {
+  test('backs off registration retries up to one minute without registering again', async () => {
     vi.useFakeTimers();
     mocks.fetch
       .mockResolvedValueOnce(
         json(409, { error: { code: 'MissingSubscriptionRegistration', message: 'register' } })
       )
       .mockResolvedValueOnce(json(200, { registrationState: 'Registering' }))
-      .mockResolvedValueOnce(
-        json(409, { error: { code: 'MissingSubscriptionRegistration', message: 'register' } })
-      )
-      .mockResolvedValueOnce(
-        json(200, { id: 'registry-id', properties: { loginServer: 'registry.azurecr.io' } })
+      .mockImplementation(() =>
+        Promise.resolve(
+          json(409, { error: { code: 'MissingSubscriptionRegistration', message: 'register' } })
+        )
       );
     const result = createContainerRegistry(options);
-    await vi.advanceTimersByTimeAsync(999);
-    expect(mocks.fetch).toHaveBeenCalledTimes(3);
-    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(0);
+    const delays = [1000, 2000, 4000, 8000, 16000, 32000, 60000, 60000];
+    for (const [attempt, delay] of delays.entries()) {
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(mocks.fetch).toHaveBeenCalledTimes(3 + attempt);
+      if (attempt === delays.length - 1) {
+        mocks.fetch.mockResolvedValueOnce(
+          json(200, { id: 'registry-id', properties: { loginServer: 'registry.azurecr.io' } })
+        );
+      }
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mocks.fetch).toHaveBeenCalledTimes(4 + attempt);
+    }
     expect(await result).toMatchObject({ success: true });
-    expect(mocks.fetch.mock.calls.map(([, init]) => init.method)).toEqual([
-      'PUT',
-      'POST',
-      'PUT',
-      'PUT',
-    ]);
+    expect(mocks.fetch.mock.calls.filter(([, init]) => init.method === 'POST')).toHaveLength(1);
+    expect(mocks.fetch.mock.calls.filter(([, init]) => init.method === 'GET')).toHaveLength(0);
   });
 
   test('returns provider registration errors without retrying creation', async () => {

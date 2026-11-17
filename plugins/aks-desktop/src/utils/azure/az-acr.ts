@@ -107,6 +107,7 @@ export async function createContainerRegistry(options: {
     };
     let response: AzResponse<RegistryResource>;
     let registrationRequested = false;
+    let registrationRetryAttempt = 0;
     for (;;) {
       try {
         response = await azRequestRaw<RegistryResource>(createRequest);
@@ -119,7 +120,7 @@ export async function createContainerRegistry(options: {
           throw error;
         }
         if (registrationRequested) {
-          await waitForAzureRetry(undefined, controller.signal);
+          await waitForAzureRetry(undefined, controller.signal, registrationRetryAttempt++);
         } else {
           const registration = await registerContainerRegistryProvider(subscriptionId, {
             endpoint: cloud.endpoint,
