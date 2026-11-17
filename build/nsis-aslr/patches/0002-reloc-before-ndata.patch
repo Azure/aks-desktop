@@ -1,0 +1,80 @@
+# build/nsis-aslr/patches/0002-reloc-before-ndata.patch
+#
+# Purpose: real ASLR for NSIS stubs.
+#
+# 1. SCons/Config/linker_script: move the `.reloc` output section ahead of
+#    `.ndata` and `.rsrc`. NSIS's own stub linker scripts place `.reloc`
+#    last; `makensis` (Source/ResourceEditor.cpp, CResourceEditor::
+#    SetPESectionVirtualSize) grows `.ndata` (user variables) and rewrites
+#    `.rsrc`, shifting every later section, and fixes up the **resource**
+#    data directory when that happens but not the base-relocation
+#    directory. With the stock order the relocation directory RVA ends up
+#    pointing into the grown `.ndata`. Nothing placed ahead of `.ndata` in
+#    the stub ever moves, and relocation entries only target
+#    `.text/.data/.rdata/.bss`, so moving `.reloc` ahead of `.ndata`/`.rsrc`
+#    keeps the relocation directory valid after makensis edits the stub.
+#
+# 2. SCons/Config/gnu: add `-Wl,--no-insert-timestamp` to the stub link
+#    environment only (`stub_env`, inherited by `stub_uenv` through
+#    `.Clone()`), not through a global/append-everywhere flag variable
+#    (`APPEND_LINKFLAGS` also reaches host-side SCons `Configure()` checks
+#    and the makensis/plugin/util environments, which this recipe does not
+#    want to perturb). This removes the embedded PE `TimeDateStamp` (and,
+#    because the checksum is a pure function of file bytes, stabilizes the
+#    header checksum too), an input a byte-identical two-build rebuild
+#    proof depends on.
+#
+# This patch is our own, not cherry-picked from upstream; it is the
+# substance of the ASLR fix. No Source/exehead change.
+#
+# The pinned GNU/mingw build retains the base-relocation table with this
+# patch; no extra relocation-enabling flag is needed. This recipe does not
+# use or change the MSVC configuration, which links stubs with `/FIXED`.
+#
+# Base: nsis-3.04-src (see ../nsis-source.lock), after
+# 0001-scons-python3.patch has been applied.
+#
+# Apply with `patch -p1` or `git apply` from the extracted nsis-3.04-src
+# tree, after 0001.
+--- a/SCons/Config/linker_script
++++ b/SCons/Config/linker_script
+@@ -123,6 +123,18 @@
+     PROVIDE ( _end = .);
+      __end__ = .;
+   }
++  /* AKS Desktop ASLR fix: keep .reloc ahead of .ndata and .rsrc, the two
++     sections NSIS's resource editor (makensis) grows/rewrites after link
++     time (CResourceEditor::SetPESectionVirtualSize fixes up the resource
++     data directory when sections after it move, but not the base
++     relocation directory). Keeping .reloc earlier means its RVA, and the
++     RVAs of every section before it, never move, so the relocation
++     directory stays valid after makensis edits the stub. See
++     build/nsis-aslr/README.md. */
++  .reloc BLOCK(__section_alignment__) :
++  {
++    *(.reloc)
++  }
+   .ndata BLOCK(__section_alignment__) :
+   {
+     *(.ndata)
+@@ -132,10 +144,6 @@
+     *(.rsrc)
+     *(SORT(.rsrc$*))
+   }
+-  .reloc BLOCK(__section_alignment__) :
+-  {
+-    *(.reloc)
+-  }
+   .stab BLOCK(__section_alignment__) (NOLOAD) :
+   {
+     *(.stab)
+--- a/SCons/Config/gnu
++++ b/SCons/Config/gnu
+@@ -102,6 +102,7 @@
+ stub_env.Append(LINKFLAGS = ['$NODEFLIBS_FLAG'])    # no standard libraries
+ stub_env.Append(LINKFLAGS = ['$ALIGN_FLAG'])        # 512 bytes align
+ stub_env.Append(LINKFLAGS = ['$MAP_FLAG'])          # generate map file
++stub_env.Append(LINKFLAGS = ['-Wl,--no-insert-timestamp']) # AKS Desktop ASLR fix: reproducible, no PE timestamp
+ 
+ stub_uenv = stub_env.Clone()
+ stub_uenv.Append(CPPDEFINES = ['_UNICODE', 'UNICODE'])

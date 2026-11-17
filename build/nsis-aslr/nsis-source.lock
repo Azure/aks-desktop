@@ -1,0 +1,18 @@
+# NSIS source provenance pin.
+#
+# Official release tarball, authenticated by SHA-256 and cross-checked against
+# the upstream git tag. build-stubs.sh refuses any other hash.
+
+SOURCE_URL="https://sourceforge.net/projects/nsis/files/NSIS%203/3.04/nsis-3.04-src.tar.bz2/download"
+SOURCE_SHA256="609536046c50f35cfd909dd7df2ab38f2e835d0da3c1048aa0d48c59c5a4f4f5"
+
+# Cross-check: nsis-dev/nsis (GitHub mirror of the upstream SVN repository)
+# tag v304 is an annotated tag whose object resolves to this commit:
+GIT_TAG="v304"
+GIT_TAG_COMMIT="25cf71ac318c73016d0706add96f25ef70ccd4f7"
+
+# Python-3-compatible build-script snapshot. Four selected build-script files,
+# including Docs/src/SConscript (read even with SKIPDOC=all), are carried from
+# the actual upstream Python 3 port. No Source/exehead runtime edits; see
+# patches/0001-scons-python3.patch for the exact diff and provenance.
+PY3_SNAPSHOT_COMMIT="2aea5257709d81dded1ac66caabad6ccb543f446"

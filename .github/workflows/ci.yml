@@ -13,6 +13,16 @@ env:
   NODE_VERSION: "22.22.2"
 
 jobs:
+  nsis-stubs:
+    name: Verify NSIS stubs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Rebuild and compare NSIS stub
+        run: build/nsis-aslr/build-stubs.sh --check
+
   release-signing:
     name: Test release signing
     runs-on: ubuntu-latest
