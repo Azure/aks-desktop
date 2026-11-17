@@ -4,6 +4,7 @@
 import * as assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import { devNull } from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +18,15 @@ function lintRepository(...args: string[]) {
     '--experimental-strip-types',
     'build/lint-scripts.ts',
     ...args,
-  ], { cwd: root, encoding: 'utf8' });
+  ], {
+    cwd: root, encoding: 'utf8',
+    env: {
+      ...process.env,
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'core.excludesFile',
+      GIT_CONFIG_VALUE_0: devNull,
+    },
+  });
 }
 
 test('collects GitHub run scripts with inherited and explicit shells, not github-script JavaScript', () => {
@@ -130,4 +139,67 @@ test('PowerShell syntax errors fail the repository command', context => {
   assert.ifError(result.error);
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stdout + result.stderr, /MissingEndCurlyBrace/);
+});
+
+test('virtual environment dependencies are not linted as project Python', context => {
+  const directory = fs.mkdtempSync(path.join(root, 'build/.lint-fixture-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const dependency = path.join(directory, '.venv/lib/python3.12/site-packages/dependency.py');
+  fs.mkdirSync(path.dirname(dependency), { recursive: true });
+  fs.writeFileSync(dependency, 'print(undefined_dependency_name)\n');
+  const result = lintRepository();
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.doesNotMatch(result.stdout, /dependency\.py/);
+});
+
+test('standalone shell scripts use their declared shebang dialect', context => {
+  const directory = fs.mkdtempSync(path.join(root, 'build/.lint-fixture-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const script = path.join(directory, 'example.sh');
+  fs.writeFileSync(script, '#!/bin/sh\n[[ -n "$HOME" ]]\n');
+  const posix = lintRepository();
+  assert.ifError(posix.error);
+  assert.equal(posix.status, 1, posix.stderr);
+  assert.match(posix.stdout, /SC3010/);
+
+  fs.writeFileSync(script, '#!/usr/bin/env bash\n[[ -n "$HOME" ]]\n');
+  const bash = lintRepository();
+  assert.ifError(bash.error);
+  assert.equal(bash.status, 0, bash.stderr + bash.stdout);
+});
+
+test('inline PowerShell accepts non-ASCII text without a synthetic encoding warning', context => {
+  const workflow = path.join(root, '.github/workflows', `lint-fixture-${process.pid}.yml`);
+  fs.writeFileSync(workflow, `
+on: push
+jobs:
+  encoding:
+    runs-on: windows-latest
+    steps:
+      - shell: pwsh
+        run: Write-Output 'caf\u00e9'
+`, { flag: 'wx' });
+  context.after(() => fs.rmSync(workflow));
+  const result = lintRepository('powershell');
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+});
+
+test('standalone PowerShell retains its original encoding diagnostics', context => {
+  const directory = fs.mkdtempSync(path.join(root, 'build/.lint-fixture-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const script = path.join(directory, 'encoding.ps1');
+  const source = "Write-Output 'caf\u00e9'\n";
+  for (const [encoding, bytes, expectedStatus] of [
+    ['UTF-8 without BOM', Buffer.from(source), 1],
+    ['UTF-8 with BOM', Buffer.from(`\uFEFF${source}`), 0],
+    ['UTF-16 with BOM', Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from(source, 'utf16le')]), 0],
+  ] as const) {
+    fs.writeFileSync(script, bytes);
+    const result = lintRepository('powershell');
+    assert.ifError(result.error);
+    assert.equal(result.status, expectedStatus, `${encoding}\n${result.stderr}${result.stdout}`);
+    if (expectedStatus === 1) assert.match(result.stdout, /PSUseBOMForUnicodeEncodedFile/);
+  }
 });

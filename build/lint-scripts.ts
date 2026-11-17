@@ -10,11 +10,12 @@ import ts from 'typescript';
 import { parseDocument } from 'yaml';
 import { generateUnixAzWrapperScript, generateUnixPythonWrapperScript } from './az-cli-config.ts';
 
-type Language = 'python' | 'bash' | 'sh' | 'powershell';
+type Language = 'python' | 'bash' | 'sh' | 'shell' | 'powershell';
 export interface Script {
   name: string;
   language: Language;
   source: string;
+  filePath?: string;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -128,8 +129,10 @@ function trackedScripts(root: string): Script[] {
     const huskyHook = /^\.husky\/[^./]+$/.test(filename);
     if (/\.(py|sh|bash|ps1)$/.test(filename) || huskyHook) {
       const language = filename.endsWith('.py') ? 'python'
-        : filename.endsWith('.ps1') ? 'powershell' : huskyHook ? 'sh' : 'bash';
-      scripts.push({ name: filename, language, source: fs.readFileSync(absolute, 'utf8') });
+        : filename.endsWith('.ps1') ? 'powershell' : huskyHook ? 'sh' : 'shell';
+      scripts.push({
+        name: filename, language, source: fs.readFileSync(absolute, 'utf8'), filePath: absolute,
+      });
     } else if (/^(\.github\/workflows|\.azure-pipeline)\/.*\.ya?ml$/.test(filename)) {
       scripts.push(...workflowScripts(filename, fs.readFileSync(absolute, 'utf8')));
     } else if (/^(build|Localize|packages|plugins)\/.*\.(ts|js|cjs|mjs)$/.test(filename) &&
@@ -156,7 +159,15 @@ function main(): void {
       const selected = scripts.filter(script => script.language === 'powershell');
       selected.forEach((script, index) => {
         console.log(`${index}.ps1: ${script.name}`);
-        fs.writeFileSync(path.join(directory, `${index}.ps1`), script.source);
+        const destination = path.join(directory, `${index}.ps1`);
+        if (script.filePath) {
+          fs.copyFileSync(script.filePath, destination);
+        } else {
+          fs.writeFileSync(
+            destination,
+            script.source.startsWith('\uFEFF') ? script.source : `\uFEFF${script.source}`
+          );
+        }
       });
       failures = run('pwsh', ['-NoProfile', '-NonInteractive', '-Command', `
         $ErrorActionPreference = 'Stop'
@@ -176,7 +187,10 @@ function main(): void {
         failures += run('ruff', ['check', '--no-cache', '--config',
           path.join(root, '.config/lint/ruff.toml'), '--stdin-filename', script.name, '-'], script.source);
       } else {
-        failures += run('shellcheck', ['--severity=warning', `--shell=${script.language}`, '-'], script.source);
+        const args = ['--severity=warning'];
+        if (script.language !== 'shell') args.push(`--shell=${script.language}`);
+        args.push(script.filePath ?? '-');
+        failures += run('shellcheck', args, script.filePath ? undefined : script.source);
       }
     }
   }
