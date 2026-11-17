@@ -18,7 +18,6 @@ vi.mock('./az-cli-path', () => ({
 
 import {
   getErrorMessage,
-  isAzCliInstalled,
   isAzCliLoggedIn,
   isAzError,
   isCliNotFoundError,
@@ -54,11 +53,11 @@ describe('command helpers', () => {
   test('resolves Azure CLI commands through the bundled path', async () => {
     mocks.execCommand.mockResolvedValue({ stdout: 'ok', stderr: '' });
 
-    await expect(runCommandAsync('az', ['version'])).resolves.toEqual({
+    await expect(runCommandAsync('az', ['account', 'show'])).resolves.toEqual({
       stdout: 'ok',
       stderr: '',
     });
-    expect(mocks.execCommand).toHaveBeenCalledWith('/bundled/az', ['version']);
+    expect(mocks.execCommand).toHaveBeenCalledWith('/bundled/az', ['account', 'show']);
   });
 
   test('passes non-Azure commands through unchanged', async () => {
@@ -94,24 +93,6 @@ describe('command helpers', () => {
 });
 
 describe('Azure CLI status', () => {
-  test.each([
-    [{ stdout: '{"azure-cli":"2.78.0"}', stderr: '' }, true],
-    [{ stdout: '{"extensions":[]}', stderr: '' }, false],
-    [{ stdout: '{invalid', stderr: '' }, false],
-    [{ stdout: '', stderr: '' }, false],
-    [{ stdout: '', stderr: 'az: command not found' }, false],
-  ])('reports installation status for %o', async (result, expected) => {
-    mocks.execCommand.mockResolvedValue(result);
-
-    await expect(isAzCliInstalled()).resolves.toBe(expected);
-  });
-
-  test('reports Azure CLI as unavailable when the bridge rejects', async () => {
-    mocks.execCommand.mockRejectedValue(new Error('bridge failed'));
-
-    await expect(isAzCliInstalled()).resolves.toBe(false);
-  });
-
   test('reports a usable logged-in account', async () => {
     mocks.execCommand.mockResolvedValue({ stdout: 'user@example.com\n', stderr: '' });
 

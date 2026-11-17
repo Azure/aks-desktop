@@ -35,7 +35,6 @@ export const BASE_PROPS: CreateAKSProjectPureProps = {
   showSuccessDialog: false,
   applicationName: '',
   setApplicationName: (() => {}) as any,
-  cliSuggestions: [],
   validation: { isValid: true },
   azureResourcesLoading: false,
   onNavigateToProject: () => {},

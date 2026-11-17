@@ -136,7 +136,7 @@ describe('runCommandAsync', () => {
   test('resolves with error when pluginRunCommand is not available', async () => {
     delete (globalThis as any).pluginRunCommand;
 
-    const result = await runCommandAsync('az', ['version']);
+    const result = await runCommandAsync('az', ['account', 'show']);
 
     expect(result).toEqual({
       stdout: '',
@@ -149,7 +149,7 @@ describe('runCommandAsync', () => {
       throw new Error('bridge not ready');
     });
 
-    const result = await runCommandAsync('az', ['version']);
+    const result = await runCommandAsync('az', ['account', 'show']);
 
     expect(result).toEqual({
       stdout: '',

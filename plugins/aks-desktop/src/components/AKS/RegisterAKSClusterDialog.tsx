@@ -12,7 +12,6 @@ import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { getAKSClusters, getSubscriptions, registerAKSCluster } from '../../utils/azure/aks';
 import { startProxy, verifyAksHybridEdgeCluster } from '../../utils/azure/aksHybridEdgeProxy';
 import { getClusterCapabilities } from '../../utils/azure/az-clusters';
-import { isExtensionInstalled } from '../../utils/azure/az-extensions';
 import { normalizeClusterName } from '../../utils/kubernetes/k8sNames';
 import {
   getClusterSettings,
@@ -547,22 +546,6 @@ export default function RegisterAKSClusterDialog({
     };
 
     try {
-      // The proxy is driven by the `connectedk8s` Azure CLI extension.
-      const ext = await isExtensionInstalled('connectedk8s');
-      if (!ext.installed) {
-        // Surface the underlying reason when the check failed for something other
-        // than a missing extension (e.g. "Authentication required…"), so a
-        // login/CLI failure isn't masked by the generic install message.
-        setError(
-          ext.error ||
-            t(
-              'The Azure CLI "connectedk8s" extension is required for AKS Hybrid & Edge clusters. Install it with: az extension add --name connectedk8s'
-            )
-        );
-        finishRegistration(isMountedRef.current, setLoading);
-        return false;
-      }
-
       const startResult = await startProxy(target);
 
       if (!startResult.success) {

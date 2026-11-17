@@ -25,7 +25,6 @@ const baseArgs: CreateAKSProjectPureProps = {
   showSuccessDialog: false,
   applicationName: '',
   setApplicationName: noOp as any,
-  cliSuggestions: [],
   validation: { isValid: true },
   azureResourcesLoading: false,
   onNavigateToProject: noOp,

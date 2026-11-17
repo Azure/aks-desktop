@@ -11,7 +11,6 @@ import { assignAzureRoles } from '../../../utils/azure/az-identity';
 import { checkNamespaceExists } from '../../../utils/azure/az-namespace-access';
 import { createManagedNamespace } from '../../../utils/azure/az-namespaces';
 import { registerContainerServiceProvider } from '../../../utils/azure/az-resource-providers';
-import { checkAzureCli } from '../../../utils/azure/checkAzureCli';
 import { computeArcProjectRoles } from '../../../utils/azure/identityRoles';
 import { assignRolesToNamespace } from '../../../utils/azure/roleAssignment';
 import {
@@ -102,13 +101,6 @@ export interface UseCreateAKSProjectWizardResult {
   /** Setter for {@link applicationName}. */
   setApplicationName: React.Dispatch<React.SetStateAction<string>>;
 
-  // ── CLI suggestions ───────────────────────────────────────────────────────
-  /**
-   * Warning messages returned by `checkAzureCli` on mount.
-   * Non-empty when the Azure CLI is missing or outdated.
-   */
-  cliSuggestions: string[];
-
   // ── Sub-hook results (forwarded to step components) ───────────────────────
   /** Collected form values from the wizard steps. */
   formData: ReturnType<typeof useFormData>['formData'];
@@ -179,7 +171,6 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   const isMountedRef = useRef(false);
   /** Monotonic owner token so cancelled attempts cannot clear a newer attempt's UI. */
   const submissionIdRef = useRef(0);
-  const [cliSuggestions, setCliSuggestions] = useState<string[]>([]);
   // Live accessibility of the selected Arc (AKS Hybrid & Edge) cluster, determined
   // by a real Kubernetes API probe rather than a cached Arc heartbeat. `accessible`
   // is `null` when not applicable (managed cluster, none selected, or not connected).
@@ -263,23 +254,6 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
 
   useEffect(() => {
     azureResources.fetchSubscriptions();
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      const azureCheck = await checkAzureCli();
-      if (cancelled) {
-        return;
-      }
-      if (DEBUG) console.debug('Azure CLI check results:', azureCheck);
-      setCliSuggestions(azureCheck?.suggestions ?? []);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   /**
@@ -1032,7 +1006,6 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     setShowSuccessDialog,
     applicationName,
     setApplicationName,
-    cliSuggestions,
     formData,
     updateFormData,
     azureResources,

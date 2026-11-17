@@ -84,10 +84,6 @@ vi.mock('../../../utils/azure/az-namespaces', () => ({
   createManagedNamespace: vi.fn(),
 }));
 
-vi.mock('../../../utils/azure/checkAzureCli', () => ({
-  checkAzureCli: vi.fn().mockResolvedValue({ suggestions: [] }),
-}));
-
 vi.mock('../../../utils/azure/az-cli-core', () => ({
   debugLog: vi.fn(),
 }));

@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   getClusterCapabilities: vi.fn(),
   getClusterSettings: vi.fn(),
   getSubscriptions: vi.fn(),
-  isExtensionInstalled: vi.fn(),
   markAksHybridEdgeAppearance: vi.fn(),
   onClose: vi.fn(),
   onClusterRegistered: vi.fn(),
@@ -95,10 +94,6 @@ vi.mock('../../utils/azure/az-clusters', () => ({
 vi.mock('../../utils/azure/aksHybridEdgeProxy', () => ({
   startProxy: mocks.startProxy,
   verifyAksHybridEdgeCluster: mocks.verifyAksHybridEdgeCluster,
-}));
-
-vi.mock('../../utils/azure/az-extensions', () => ({
-  isExtensionInstalled: mocks.isExtensionInstalled,
 }));
 
 vi.mock('../../utils/shared/clusterSettings', () => ({
@@ -1114,7 +1109,6 @@ describe('RegisterAKSClusterDialog telemetry', () => {
 
   test('reports a succeeded outcome when an Arc cluster connects', async () => {
     selection.current = arcCluster;
-    mocks.isExtensionInstalled.mockResolvedValue({ installed: true });
     mocks.startProxy.mockResolvedValue({ success: true });
     mocks.verifyAksHybridEdgeCluster.mockResolvedValue({ success: true });
     renderDialog();
@@ -1132,7 +1126,6 @@ describe('RegisterAKSClusterDialog telemetry', () => {
 
   test('reports a failed outcome when an Arc cluster is unreachable', async () => {
     selection.current = arcCluster;
-    mocks.isExtensionInstalled.mockResolvedValue({ installed: true });
     mocks.startProxy.mockResolvedValue({ success: true });
     mocks.verifyAksHybridEdgeCluster.mockResolvedValue({
       success: false,

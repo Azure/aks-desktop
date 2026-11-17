@@ -46,41 +46,6 @@ export function runCommandAsync(
   return execCommand(actualCommand, args);
 }
 
-export async function isAzCliInstalled(): Promise<boolean> {
-  try {
-    const { stdout, stderr } = await runCommandAsync('az', ['version']);
-    debugLog('Azure CLI version check:', stderr, stdout);
-
-    if (stderr && isCliNotFoundError(stderr)) {
-      debugLog('Azure CLI not found in PATH');
-      return false;
-    }
-
-    // Parse JSON output from az version
-    if (stdout) {
-      try {
-        const versionData = JSON.parse(stdout);
-        if (versionData['azure-cli']) {
-          debugLog('Azure CLI found, version:', versionData['azure-cli']);
-          return true; // Azure CLI is installed
-        } else {
-          debugLog('Azure CLI version not detected in JSON output');
-          return false;
-        }
-      } catch (parseError) {
-        debugLog('Failed to parse Azure CLI version JSON:', parseError);
-        return false;
-      }
-    } else {
-      debugLog('Azure CLI version not detected in output');
-      return false; // Azure CLI not found
-    }
-  } catch (error) {
-    console.error('Error checking Azure CLI installation:', error);
-    return false;
-  }
-}
-
 export async function isAzCliLoggedIn(): Promise<boolean> {
   try {
     const { stdout, stderr } = await runCommandAsync('az', [
