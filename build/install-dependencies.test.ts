@@ -12,6 +12,7 @@ import { DEPENDENCY_INSTALL_STEPS, installDependencies } from './install-depende
 const { writePluginDependencyMarker } = require(
   '../packages/headlamp-source/src/lib/bundle-plugins.ts'
 );
+const pluginSteps = DEPENDENCY_INSTALL_STEPS.filter(step => 'pluginDirectory' in step);
 
 test('reports UTC start and elapsed failure timing without replacing the error', () => {
   const messages: string[] = [];
@@ -81,8 +82,7 @@ for (const state of ['valid', 'disabled', 'missing', 'partial', 'manifest', 'loc
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cached-plugin-deps-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     t.mock.method(console, 'log', () => undefined);
-    for (const step of DEPENDENCY_INSTALL_STEPS) {
-      if (!('pluginDirectory' in step)) continue;
+    for (const step of pluginSteps) {
       const directory = path.join(root, step.pluginDirectory);
       fs.mkdirSync(path.join(directory, 'node_modules'), { recursive: true });
       for (const file of ['package.json', 'package-lock.json', 'node_modules/.package-lock.json']) {
@@ -116,7 +116,11 @@ for (const state of ['valid', 'disabled', 'missing', 'partial', 'manifest', 'loc
       directory => marked.push(directory),
       state === 'disabled'
         ? {}
-        : { HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: 'aks-desktop,aks-desktop-theme,plugin-catalog' }
+        : {
+            HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: pluginSteps
+              .map(step => path.basename(step.pluginDirectory))
+              .join(','),
+          }
     );
     const expectedScripts = state === 'valid'
       ? ['headlamp:install']
