@@ -96,13 +96,39 @@ installation, before application assembly mutates the installed source.
 The same contract suite previously ran after a second full `npm ci`; moving it
 preserves the clean-tree check and removes that duplicate installation.
 In run 43961980412, the duplicate x64 install took six minutes, exactly as long as
-the initial install. The ARM64 saving must be measured after the workflow can run.
+the initial install. The ARM64 saving from that change alone has not been isolated.
 
 This targets repeated plugin extraction rather than just package downloads.
-Cold caches still require installation; warm-cache speedups must be measured on
-the Windows ARM64 runner. Compare the cache-hit output and existing
-`[build-timing]` install phases with the linked baseline before claiming a
-specific time reduction.
+Cold caches still require installation. Compare cache-hit output and the existing
+`[build-timing]` install phases rather than treating a configured cache as a
+measured speedup.
+
+### Measured native ARM64 cache reuse
+
+On `93dd7c5fa`, attempts 1 and 2 of
+[run 44169082943](https://github.com/Azure/aks-desktop/actions/runs/44169082943)
+used the same commit, runner architecture, and cache key:
+
+| Phase | [Cold run](https://github.com/Azure/aks-desktop/actions/runs/44169082943/job/134342981474) | [Warm run](https://github.com/Azure/aks-desktop/actions/runs/44169082943/job/134402531440) |
+| --- | --- | --- |
+| Installed-plugin cache restore | 0m02s | 6m53s |
+| Install dependencies | 34m22s | 11m58s |
+| Restore plus installation | 34m24s | 18m51s |
+
+This is about 45% less dependency-setup time, including the substantial archive
+restore cost. It is not a cold-install speedup. The cold run also spent 4m15s
+uploading its first 416 MB archive after the build; the exact warm hit did not
+upload another archive.
+
+The warm log confirms the exact cache hit and verified reuse of all three
+initial plugin installs. Headlamp's uncached frontend/app installation still
+took about 9m29s. Both ARM64 jobs passed their native packaging and runtime checks.
+The saving from moving patch contracts, independently of caching, was not
+isolated by this comparison.
+
+Changes to cache-key inputs deliberately require a new cold fill. In particular,
+changing the root manifest's source-patch metadata also changes this key. Measure
+restore plus installation on a confirmed hit before comparing a later run.
 
 ## Verification and remaining gate
 
