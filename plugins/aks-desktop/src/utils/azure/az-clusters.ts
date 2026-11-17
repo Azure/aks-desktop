@@ -24,6 +24,12 @@ interface ManagedClusterResource {
   } | null;
 }
 
+/**
+ * Lists every page of managed AKS resources through ARM REST.
+ * @param subscriptionId - Azure subscription GUID to query and authenticate against.
+ * @param tenantId - Optional tenant to use for token acquisition.
+ * @returns Raw ARM resources; rejects if any page or authentication fails.
+ */
 async function listManagedClusters(
   subscriptionId: string,
   tenantId?: string
@@ -42,6 +48,13 @@ async function listManagedClusters(
   });
 }
 
+/**
+ * Maps a managed AKS resource to the existing discovery summary shape.
+ * @param cluster - Raw ARM managed cluster resource.
+ * @param subscription - Owning subscription GUID.
+ * @param allSubscriptions - Include ID/VM size instead of the subscription-view AAD profile.
+ * @returns Flattened cluster summary with defaults for missing properties.
+ */
 function managedClusterSummary(
   cluster: ManagedClusterResource,
   subscription: string,
@@ -67,6 +80,13 @@ function managedClusterSummary(
   };
 }
 
+/**
+ * Discovers managed AKS clusters, preferring Resource Graph for a single subscription.
+ * @param subscriptionId - Subscription GUID; omitted to list all reachable subscriptions via REST.
+ * @param query - Legacy query hint: containing `aadProfile` filters single-subscription results to AAD clusters.
+ * @returns Cluster summaries. All-subscription discovery warns and skips failed subscriptions;
+ * single-subscription REST and subscription-enumeration failures reject.
+ */
 export async function getClusters(subscriptionId?: string, query?: string): Promise<any[]> {
   if (subscriptionId) {
     const filterAad = query?.includes('aadProfile');
@@ -268,7 +288,11 @@ export async function getClusterCapabilities(
 
 export type AddonKey = 'azure-monitor-metrics' | 'keda' | 'vpa';
 
-// Enable one or more cluster addons in a single az aks update command
+/**
+ * Enables one or more addons in a single, non-blocking Azure CLI update.
+ * @param options - Target subscription GUID, resource group, cluster name and addon(s) to enable.
+ * @returns Whether the update was accepted, with an error for invalid addons or CLI failures.
+ */
 export async function enableClusterAddon(options: {
   subscriptionId: string;
   resourceGroup: string;
@@ -324,6 +348,12 @@ export async function enableClusterAddon(options: {
   return { success: true };
 }
 
+/**
+ * Resolves a managed AKS cluster in the account provider's selected subscription.
+ * @param clusterName - Exact name; omitted to try the kubectl context, then the first listed cluster.
+ * @returns Best-effort cluster name, resource group and subscription; fields may be absent.
+ * Re-authentication and no-subscription errors reject; other lookup failures retain known fields.
+ */
 export async function getClusterInfo(clusterName?: string): Promise<{
   clusterName?: string;
   resourceGroup?: string;
@@ -451,6 +481,12 @@ export async function getClusterInfo(clusterName?: string): Promise<{
   }
 }
 
+/**
+ * Finds the first exact-name managed AKS match across all ARM list pages.
+ * @param clusterName - Cluster name to find; an empty name returns null without a request.
+ * @param subscription - Azure subscription GUID to query and authenticate against.
+ * @returns Resource ID and group, or null if no match with an ID exists; request failures reject.
+ */
 export async function getClusterResourceIdAndGroup(
   clusterName: string,
   subscription: string

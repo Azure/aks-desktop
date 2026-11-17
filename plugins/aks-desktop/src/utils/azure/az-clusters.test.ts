@@ -103,11 +103,15 @@ describe('managed cluster discovery', () => {
     vi.restoreAllMocks();
   });
 
-  test.each([[], [{ name: 'graph-first' }]])('keeps successful Graph results: %j', async rows => {
-    mocks.getClustersViaGraph.mockResolvedValue(rows);
-    expect(await getClusters(subscription)).toEqual(rows);
-    expect(mocks.fetch).not.toHaveBeenCalled();
-  });
+  test.each([{ rows: [] }, { rows: [{ name: 'graph-first' }] }])(
+    'keeps successful Graph results: $rows',
+    async ({ rows }) => {
+      expect(Array.isArray(rows)).toBe(true);
+      mocks.getClustersViaGraph.mockResolvedValue(rows);
+      expect(await getClusters(subscription)).toEqual(rows);
+      expect(mocks.fetch).not.toHaveBeenCalled();
+    }
+  );
 
   test('maps nested ARM fields and preserves duplicate names through both nextLink forms', async () => {
     mocks.fetch
