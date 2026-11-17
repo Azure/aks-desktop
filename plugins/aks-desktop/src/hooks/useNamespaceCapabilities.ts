@@ -4,26 +4,40 @@
 import { useEffect, useState } from 'react';
 import { getClusterCapabilities } from '../utils/azure/az-clusters';
 import { getManagedNamespaceResourceId } from '../utils/azure/az-identity';
+import { getClusterSettings } from '../utils/shared/clusterSettings';
 
-/** Appends a new error message, joining with '; ' if a previous error exists. */
+/**
+ * @param prev - Earlier capability diagnostic, if any.
+ * @param next - Newly observed diagnostic.
+ * @returns Messages joined with a semicolon, or next alone when no earlier error exists.
+ */
 function appendError(prev: string | null, next: string): string {
   return prev ? `${prev}; ${next}` : next;
 }
 
 /**
- * Fetches namespace capabilities (managed namespace status, Azure RBAC).
- * Return values: `undefined` = still loading or indeterminate, `true`/`false` = resolved.
- * For `isManagedNamespace`: only set to `true` on definitive success; `undefined` if the API
- * returns a non-success result (could be transient/auth issue); `false` only on thrown errors.
- * For `azureRbacEnabled`: `undefined` if the cluster capabilities are unavailable or not set.
+ * Coordinates for capability discovery; missing Azure coordinates suppress new reads.
  */
 interface UseNamespaceCapabilitiesParams {
+  /** Explicit Azure subscription, or undefined until selection is known. */
   subscriptionId: string | undefined;
+  /** AKS resource group, or undefined until selection is known. */
   resourceGroup: string | undefined;
+  /** Registered cluster name used for both Azure reads and the persisted Arc discriminator. */
   clusterName: string | undefined;
+  /** Kubernetes namespace whose managed-resource status is being discovered. */
   namespace: string;
 }
 
+/**
+ * Fetches managed-namespace and Azure RBAC capabilities without applying managed AKS reads to Arc.
+ * @param params - Namespace identity and available Azure cluster coordinates.
+ * @returns Current isManagedNamespace, azureRbacEnabled and error state.
+ * Managed status is undefined while loading/on a returned lookup failure, false
+ * for confirmed absence, thrown lookup errors or Arc, and true for a resolved ID.
+ * RBAC remains undefined when unavailable; error collects lookup diagnostics.
+ * Effect cleanup ignores stale results but does not cancel the underlying reads.
+ */
 export function useNamespaceCapabilities({
   subscriptionId,
   resourceGroup,
@@ -33,8 +47,15 @@ export function useNamespaceCapabilities({
   const [isManagedNamespace, setIsManagedNamespace] = useState<boolean | undefined>(undefined);
   const [azureRbacEnabled, setAzureRbacEnabled] = useState<boolean | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const isArcCluster = !!clusterName && getClusterSettings(clusterName).clusterType === 'aksarc';
 
   useEffect(() => {
+    if (isArcCluster) {
+      setIsManagedNamespace(false);
+      setAzureRbacEnabled(undefined);
+      setError(null);
+      return;
+    }
     if (!subscriptionId || !resourceGroup || !clusterName) return;
     let cancelled = false;
 
@@ -98,7 +119,7 @@ export function useNamespaceCapabilities({
     return () => {
       cancelled = true;
     };
-  }, [subscriptionId, resourceGroup, clusterName, namespace]);
+  }, [subscriptionId, resourceGroup, clusterName, namespace, isArcCluster]);
 
   return { isManagedNamespace, azureRbacEnabled, error };
 }

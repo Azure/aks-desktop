@@ -209,10 +209,10 @@ export function waitForAzureRetry(
  * Creates a signal that aborts when the caller's `signal` aborts or after `timeoutMs`.
  * `dispose` stops the timer and removes the listener.
  * @param signal - Optional caller signal, including already-aborted signals.
- * @param timeoutMs - Total request/acquisition/retry budget in milliseconds.
+ * @param timeoutMs - Total request/acquisition/retry budget in milliseconds; defaults to one minute.
  * @returns The linked signal and a disposer that must run on every completion path.
  */
-function linkSignal(signal: AbortSignal | undefined, timeoutMs: number) {
+export function createAzureRequestSignal(signal?: AbortSignal, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController();
   const onAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) onAbort();
@@ -245,7 +245,7 @@ export async function azRequestRaw<T>(options: AzRequestOptions): Promise<AzResp
   const credential = options.credential ?? azCliCredential;
   const maxRetries =
     options.maxRetries ?? (RETRYABLE_METHODS.has(method) ? DEFAULT_MAX_RETRIES : 0);
-  const linked = linkSignal(options.signal, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const linked = createAzureRequestSignal(options.signal, options.timeoutMs);
 
   try {
     for (let attempt = 0; ; attempt++) {

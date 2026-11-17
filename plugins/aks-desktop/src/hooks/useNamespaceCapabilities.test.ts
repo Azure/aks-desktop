@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../utils/azure/az-clusters', () => ({
   getClusterCapabilities: vi.fn(),
@@ -18,6 +18,7 @@ import { useNamespaceCapabilities } from './useNamespaceCapabilities';
 
 const mockGetManagedNamespaceResourceId = vi.mocked(getManagedNamespaceResourceId);
 const mockGetClusterCapabilities = vi.mocked(getClusterCapabilities);
+afterEach(() => localStorage.clear());
 
 describe('useNamespaceCapabilities', () => {
   it('returns undefined for both when params are undefined and makes no API calls', () => {
@@ -33,6 +34,24 @@ describe('useNamespaceCapabilities', () => {
     expect(result.current.isManagedNamespace).toBeUndefined();
     expect(result.current.azureRbacEnabled).toBeUndefined();
     expect(result.current.error).toBeNull();
+    expect(mockGetManagedNamespaceResourceId).not.toHaveBeenCalled();
+    expect(mockGetClusterCapabilities).not.toHaveBeenCalled();
+  });
+
+  it('does not use managed AKS or managed-namespace reads for a registered Arc cluster', async () => {
+    localStorage.setItem('cluster_settings.cluster-1', JSON.stringify({ clusterType: 'aksarc' }));
+    mockGetManagedNamespaceResourceId.mockClear();
+    mockGetClusterCapabilities.mockClear();
+    const { result } = renderHook(() =>
+      useNamespaceCapabilities({
+        subscriptionId: 'sub-1',
+        resourceGroup: 'rg-1',
+        clusterName: 'cluster-1',
+        namespace: 'project',
+      })
+    );
+    expect(result.current.isManagedNamespace).toBe(false);
+    expect(result.current.azureRbacEnabled).toBeUndefined();
     expect(mockGetManagedNamespaceResourceId).not.toHaveBeenCalled();
     expect(mockGetClusterCapabilities).not.toHaveBeenCalled();
   });
