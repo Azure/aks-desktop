@@ -85,6 +85,7 @@ describe('useNamespaceCapabilities', () => {
     await waitFor(() => {
       expect(result.current.isManagedNamespace).toBe(true);
       expect(result.current.azureRbacEnabled).toBe(true);
+      expect(result.current.azureRbacResolved).toBe(true);
       expect(result.current.error).toBeNull();
     });
 
@@ -99,6 +100,44 @@ describe('useNamespaceCapabilities', () => {
       resourceGroup: 'rg-1',
       clusterName: 'cluster-1',
     });
+  });
+
+  it('marks azureRbacResolved when aadProfile/enableAzureRBAC is omitted and supports retry on failure', async () => {
+    mockGetManagedNamespaceResourceId.mockResolvedValue({ success: true, resourceId: undefined });
+    mockGetClusterCapabilities
+      .mockRejectedValueOnce(new Error('Capability lookup failed'))
+      .mockResolvedValueOnce({
+        sku: 'Standard',
+        aadEnabled: false,
+        azureRbacEnabled: null,
+        networkPolicy: null,
+        networkPlugin: 'azure',
+        prometheusEnabled: null,
+        containerInsightsEnabled: null,
+        kedaEnabled: null,
+        vpaEnabled: null,
+      });
+
+    const { result } = renderHook(() =>
+      useNamespaceCapabilities({
+        subscriptionId: 'sub-1',
+        resourceGroup: 'rg-1',
+        clusterName: 'cluster-1',
+        namespace: 'default',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.error).toContain('Capability lookup failed');
+    });
+    expect(result.current.azureRbacResolved).toBe(false);
+
+    result.current.retry();
+    await waitFor(() => {
+      expect(result.current.azureRbacResolved).toBe(true);
+    });
+    expect(result.current.azureRbacEnabled).toBe(false);
+    expect(result.current.error).toBeNull();
   });
 
   it('leaves isManagedNamespace undefined when result.success is false (non-success is indeterminate)', async () => {

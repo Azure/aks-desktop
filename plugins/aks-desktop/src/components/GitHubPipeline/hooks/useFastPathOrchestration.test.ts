@@ -28,8 +28,21 @@ const mockCreateFastPathPR = vi.fn().mockResolvedValue({
   number: 1,
   merged: false,
 });
+const mockTriggerAsyncAgentReview = vi
+  .fn()
+  .mockResolvedValue('https://github.com/test/repo/issues/2');
 vi.mock('../utils/fastPathOrchestration', () => ({
   createFastPathPR: (...args: unknown[]) => mockCreateFastPathPR(...args),
+  triggerAsyncAgentReview: (...args: unknown[]) => mockTriggerAsyncAgentReview(...args),
+}));
+
+const mockGetRepoSetupStatus = vi.fn().mockResolvedValue({
+  isCurrent: true,
+  hasSetupWorkflow: true,
+  hasAgentConfig: true,
+});
+vi.mock('../utils/repoSetupStatus', () => ({
+  getRepoSetupStatus: (...args: unknown[]) => mockGetRepoSetupStatus(...args),
 }));
 
 const mockDispatchWorkflow = vi.fn().mockResolvedValue(undefined);
@@ -79,6 +92,8 @@ const defaultProps = {
   selectedRepo,
   containerConfig,
   identityId: 'id-1',
+  identityReady: true,
+  acrLoginServer: 'myregistry.azurecr.io',
 };
 
 const dockerfileSelection = { path: 'Dockerfile', buildContext: '.' };
@@ -97,6 +112,80 @@ describe('useFastPathOrchestration', () => {
   });
 
   describe('handleDeploy', () => {
+    it('blocks unverified resumed permissions before secrets or PR writes, then accepts fresh setup', async () => {
+      const { result, rerender } = renderHook(
+        ({ identityReady }) => useFastPathOrchestration({ ...defaultProps, identityReady }),
+        { initialProps: { identityReady: false } }
+      );
+      await act(async () => result.current.handleDeploy({ selection: dockerfileSelection }));
+      expect(mockCreatePipelineSecrets).not.toHaveBeenCalled();
+      expect(mockCreateFastPathPR).not.toHaveBeenCalled();
+      expect(result.current.pipeline.state.error).toContain('permissions must be verified');
+      act(() => result.current.pipeline.retry());
+      rerender({ identityReady: true });
+      await act(async () => result.current.handleDeploy({ selection: dockerfileSelection }));
+      expect(mockCreatePipelineSecrets).toHaveBeenCalledOnce();
+      expect(mockCreateFastPathPR).toHaveBeenCalledOnce();
+      expect(result.current.pipeline.state.deploymentState).toBe('FastPathPRAwaitingMerge');
+    });
+
+    it('rejects a stale deploy action after identity proof is invalidated', async () => {
+      const { result, rerender } = renderHook(
+        ({ identityReady }) => useFastPathOrchestration({ ...defaultProps, identityReady }),
+        { initialProps: { identityReady: true } }
+      );
+      const previousDeploy = result.current.handleDeploy;
+      rerender({ identityReady: false });
+      await act(async () => previousDeploy({ selection: dockerfileSelection }));
+      expect(mockCreatePipelineSecrets).not.toHaveBeenCalled();
+      expect(mockCreateFastPathPR).not.toHaveBeenCalled();
+      expect(result.current.pipeline.state.error).toContain('permissions must be verified');
+    });
+    it('rejects ID-only saved configuration before repository secrets or PR writes', async () => {
+      const { result } = renderHook(() =>
+        useFastPathOrchestration({
+          ...defaultProps,
+          acrLoginServer: undefined,
+          acrResourceId:
+            '/subscriptions/sub/resourceGroups/group/providers/Microsoft.ContainerRegistry/registries/myacr',
+        })
+      );
+      await act(async () => {
+        await result.current.handleDeploy({ selection: dockerfileSelection });
+      });
+      expect(mockCreatePipelineSecrets).not.toHaveBeenCalled();
+      expect(mockCreateFastPathPR).not.toHaveBeenCalled();
+      expect(result.current.pipeline.state.error).toContain('actual ACR login server');
+    });
+
+    it('preserves the selected registry scope and build arguments for secrets and PR generation', async () => {
+      const registryConfig = {
+        acrResourceId:
+          '/subscriptions/registry-sub/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/myacr',
+        acrLoginServer: 'myacr.azurecr.io',
+        buildArguments: { MODE: 'production' },
+      };
+      const { result } = renderHook(() =>
+        useFastPathOrchestration({ ...defaultProps, ...registryConfig })
+      );
+
+      await act(async () => {
+        await result.current.handleDeploy({ selection: dockerfileSelection });
+      });
+
+      expect(mockCreatePipelineSecrets).toHaveBeenCalledWith(
+        mockOctokit,
+        expect.objectContaining({ ...registryConfig, resourceGroup: 'rg-1' })
+      );
+      expect(mockCreateFastPathPR).toHaveBeenCalledWith(
+        mockOctokit,
+        expect.objectContaining({
+          pipelineConfig: expect.objectContaining(registryConfig),
+        })
+      );
+      expect(result.current.pipeline.state.config).toEqual(expect.objectContaining(registryConfig));
+    });
+
     it('should transition through generating → PR creating → PR awaiting merge', async () => {
       const { result } = renderHook(() => useFastPathOrchestration(defaultProps));
 
@@ -171,6 +260,64 @@ describe('useFastPathOrchestration', () => {
 
       // The effect should fire and transition to PipelineRunning
       expect(result.current.pipeline.state.deploymentState).toBe('PipelineRunning');
+    });
+
+    it('verifies merged setup before triggering async agent review and keeps deploy intact on failure', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        mockGetRepoSetupStatus.mockResolvedValueOnce({
+          isCurrent: false,
+          hasSetupWorkflow: true,
+          hasAgentConfig: true,
+        });
+        const { result, rerender } = renderHook(() => useFastPathOrchestration(defaultProps));
+        await act(async () => {
+          await result.current.handleDeploy({
+            selection: dockerfileSelection,
+            withAsyncAgent: true,
+          });
+        });
+        prPollingMerged = true;
+        rerender();
+        workflowConclusion = 'success';
+        await act(async () => {
+          rerender();
+        });
+        expect(mockGetRepoSetupStatus).toHaveBeenCalledOnce();
+        expect(mockTriggerAsyncAgentReview).not.toHaveBeenCalled();
+        expect(result.current.pipeline.state.deploymentState).toBe('Deployed');
+        expect(warnSpy).toHaveBeenCalledWith(
+          'Skipping async agent review: repository setup is outdated or modified'
+        );
+
+        localStorage.clear();
+        prPollingMerged = false;
+        workflowConclusion = null;
+        const verificationError = new Error('Verification unavailable');
+        mockGetRepoSetupStatus.mockRejectedValueOnce(verificationError);
+        const second = renderHook(() => useFastPathOrchestration(defaultProps));
+        await act(async () => {
+          await second.result.current.handleDeploy({
+            selection: dockerfileSelection,
+            withAsyncAgent: true,
+          });
+        });
+        prPollingMerged = true;
+        second.rerender();
+        workflowConclusion = 'success';
+        await act(async () => {
+          second.rerender();
+        });
+        expect(mockGetRepoSetupStatus).toHaveBeenCalledTimes(2);
+        expect(mockTriggerAsyncAgentReview).not.toHaveBeenCalled();
+        expect(second.result.current.pipeline.state.deploymentState).toBe('Deployed');
+        expect(warnSpy).toHaveBeenCalledWith(
+          'Failed to trigger async agent review:',
+          verificationError
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
   });
 });

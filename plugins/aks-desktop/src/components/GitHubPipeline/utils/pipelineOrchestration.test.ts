@@ -2,9 +2,13 @@
 // Licensed under the Apache 2.0.
 
 import type { Octokit } from '@octokit/rest';
+import { Buffer } from 'buffer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import YAML from 'yaml';
 import { createContainerConfig, createValidConfig } from '../__fixtures__/pipelineConfig';
 import type { PipelineConfig } from '../types';
+import { getAcrBuildFiles } from './acrTasks/acrTaskRunner';
+import { generateDeployWorkflow } from './fastPathTemplates';
 
 // Mock github-api module — vi.hoisted ensures mocks are available when vi.mock is hoisted
 const {
@@ -38,6 +42,12 @@ vi.mock('../../../utils/github/github-api', () => ({
 const { mockPushAgentConfigFiles } = vi.hoisted(() => ({
   mockPushAgentConfigFiles: vi.fn(),
 }));
+const { mockGetRepoSetupStatus } = vi.hoisted(() => ({
+  mockGetRepoSetupStatus: vi.fn(),
+}));
+vi.mock('./repoSetupStatus', () => ({
+  getRepoSetupStatus: mockGetRepoSetupStatus,
+}));
 
 vi.mock('./agentTemplates', async () => {
   const actual = await vi.importActual('./agentTemplates');
@@ -63,6 +73,7 @@ describe('pipelineOrchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPushAgentConfigFiles.mockResolvedValue(undefined);
+    mockGetRepoSetupStatus.mockResolvedValue({ isCurrent: true });
   });
 
   describe('createSetupPR', () => {
@@ -122,6 +133,68 @@ describe('pipelineOrchestration', () => {
       await expect(createSetupPR(mockOctokit, validConfig)).rejects.toThrow('Not Found');
     });
 
+    it('upgrades inherited setup and runtime files with per-file SHAs from the new branch', async () => {
+      const { pushAgentConfigFiles, generateAgentConfig, SETUP_WORKFLOW_CONTENT } =
+        await vi.importActual<typeof import('./agentTemplates')>('./agentTemplates');
+      const config = { ...validConfig, acrLoginServer: 'myregistry.azurecr.io' };
+      const files: Record<string, string> = {
+        '.github/workflows/copilot-setup-steps.yml': SETUP_WORKFLOW_CONTENT,
+        '.github/agents/containerization.agent.md':
+          generateAgentConfig(validConfig) +
+          '\n## Repository guidance\n- Custom policy: retain our deployment checks.\n',
+        ...getAcrBuildFiles(),
+      };
+      const getContent = vi.fn(async ({ path }: { path: string }) => ({
+        data: {
+          type: 'file',
+          encoding: 'base64',
+          sha: `inherited:${path}`,
+          content: Buffer.from(files[path]).toString('base64'),
+        },
+      }));
+      const client = { repos: { getContent } } as unknown as Octokit;
+      mockGetDefaultBranchSha.mockResolvedValue('default-branch-sha');
+      mockCreateBranch.mockResolvedValue(undefined);
+      mockCreatePullRequest.mockResolvedValue({ number: 42, url: 'https://example.com/pull/42' });
+      mockPushAgentConfigFiles.mockImplementationOnce(pushAgentConfigFiles);
+
+      expect(await createSetupPR(client, config)).toEqual({
+        number: 42,
+        url: 'https://example.com/pull/42',
+        merged: false,
+      });
+      for (const path of Object.keys(files)) {
+        expect(getContent).toHaveBeenCalledWith({
+          owner: config.repo.owner,
+          repo: config.repo.repo,
+          path,
+          ref: 'aks-project/setup-my-app-1700000000000',
+        });
+        if (path.endsWith('.yml')) {
+          expect(mockCreateOrUpdateFile.mock.calls.some(call => call[3] === path)).toBe(false);
+          continue;
+        }
+        expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+          client,
+          config.repo.owner,
+          config.repo.repo,
+          path,
+          expect.any(String),
+          expect.any(String),
+          'aks-project/setup-my-app-1700000000000',
+          `inherited:${path}`
+        );
+      }
+      const updatedAgent = mockCreateOrUpdateFile.mock.calls.find(call =>
+        call[3].endsWith('.agent.md')
+      )?.[4];
+      expect(updatedAgent).not.toContain('az acr build');
+      expect(updatedAgent).toContain('- Custom policy: retain our deployment checks.');
+      expect(mockCreatePullRequest.mock.calls[0][4]).toContain(
+        'Review and merge this PR explicitly'
+      );
+    });
+
     it('should attempt branch cleanup when PR creation fails', async () => {
       mockGetDefaultBranchSha.mockResolvedValue('abc123');
       mockCreateBranch.mockResolvedValue(undefined);
@@ -140,6 +213,68 @@ describe('pipelineOrchestration', () => {
   });
 
   describe('triggerCopilotAgent', () => {
+    it('does not create an issue while the repository setup is outdated', async () => {
+      mockGetRepoSetupStatus.mockResolvedValueOnce({ isCurrent: false });
+      await expect(triggerCopilotAgent(mockOctokit, validConfig)).rejects.toThrow(
+        'Repository setup is outdated'
+      );
+      expect(mockCreateCopilotAssignedIssue).not.toHaveBeenCalled();
+    });
+
+    it('propagates setup verification errors instead of triggering optimistically', async () => {
+      mockGetRepoSetupStatus.mockRejectedValueOnce(new Error('Verification denied'));
+      await expect(triggerCopilotAgent(mockOctokit, validConfig)).rejects.toThrow(
+        'Verification denied'
+      );
+      expect(mockCreateCopilotAssignedIssue).not.toHaveBeenCalled();
+    });
+
+    it.each(['retained ACR instructions', 'branch movement'])('blocks %s', async reason => {
+      const { getRepoSetupStatus } = await vi.importActual<typeof import('./repoSetupStatus')>(
+        './repoSetupStatus'
+      );
+      const { generateAgentConfig, SETUP_WORKFLOW_CONTENT } = await import('./agentTemplates');
+      mockGetRepoSetupStatus.mockImplementationOnce(getRepoSetupStatus);
+      mockGetDefaultBranchSha
+        .mockResolvedValue(reason === 'branch movement' ? 'new-commit' : 'verified-commit')
+        .mockResolvedValueOnce('verified-commit');
+      const files: Record<string, string> = {
+        '.github/workflows/copilot-setup-steps.yml': SETUP_WORKFLOW_CONTENT,
+        '.github/agents/containerization.agent.md': generateAgentConfig(
+          reason === 'retained ACR instructions'
+            ? { ...validConfig, acrLoginServer: 'retained.azurecr.io' }
+            : validConfig
+        ),
+      };
+      const client = {
+        repos: {
+          getContent: vi.fn(async ({ path }: { path: string }) => ({
+            data: {
+              type: 'file',
+              encoding: 'base64',
+              sha: `sha:${path}`,
+              content: Buffer.from(files[path]).toString('base64'),
+            },
+          })),
+        },
+      } as unknown as Octokit;
+      await expect(triggerCopilotAgent(client, validConfig)).rejects.toThrow(
+        reason === 'branch movement'
+          ? 'Repository branch changed during setup verification. Please retry.'
+          : 'Repository setup is outdated'
+      );
+      expect(mockGetDefaultBranchSha).toHaveBeenCalledTimes(2);
+      for (const path of Object.keys(files)) {
+        expect(client.repos.getContent).toHaveBeenCalledWith({
+          owner: validConfig.repo.owner,
+          repo: validConfig.repo.repo,
+          path,
+          ref: 'verified-commit',
+        });
+      }
+      expect(mockCreateCopilotAssignedIssue).not.toHaveBeenCalled();
+    });
+
     it('should create issue then assign to copilot-swe-agent[bot]', async () => {
       mockCreateCopilotAssignedIssue.mockResolvedValue({
         number: 10,
@@ -288,6 +423,80 @@ describe('pipelineOrchestration', () => {
   });
 
   describe('createPipelineSecrets', () => {
+    it.each(['deterministic', 'agent'])(
+      'ignores a retained registry A ID after switching to name-only registry B (%s)',
+      async generationPath => {
+        const retainedSecrets: Record<string, string> = {};
+        mockSetRepoSecrets.mockImplementation(
+          async (
+            _client: Octokit,
+            _owner: string,
+            _repo: string,
+            secrets: Record<string, string>
+          ) => {
+            Object.assign(retainedSecrets, secrets);
+          }
+        );
+        const registryAId =
+          '/subscriptions/sub-a/resourceGroups/rg-a/providers/Microsoft.ContainerRegistry/registries/registrya';
+        await createPipelineSecrets(
+          mockOctokit,
+          createValidConfig({
+            acrLoginServer: 'registrya.azurecr.io',
+            acrResourceId: registryAId,
+          })
+        );
+        const next = createValidConfig({
+          acrLoginServer: 'registryb.azurecr.io',
+          acrResourceId: undefined,
+        });
+        await createPipelineSecrets(mockOctokit, next);
+        expect(retainedSecrets.AZURE_ACR_RESOURCE_ID).toBe(registryAId);
+        expect(retainedSecrets.AZURE_ACR_NAME).toBe('registryb');
+
+        let steps: { env: Record<string, string> }[];
+        let workflowEnv: Record<string, string> = {};
+        if (generationPath === 'deterministic') {
+          const workflow = YAML.parse(
+            generateDeployWorkflow({
+              appName: next.appName,
+              clusterName: next.clusterName,
+              resourceGroup: next.resourceGroup,
+              namespace: next.namespace,
+              acrName: retainedSecrets.AZURE_ACR_NAME,
+              acrResourceId: next.acrResourceId,
+              dockerfilePath: 'Dockerfile',
+              buildContextPath: '.',
+              defaultBranch: next.repo.defaultBranch,
+            })
+          );
+          expect(workflow.env.AZURE_ACR_RESOURCE_ID).toBe('');
+          workflowEnv = workflow.env;
+          steps = workflow.jobs.buildImage.steps.filter((step: { env?: unknown }) => step.env);
+        } else {
+          const { generateAgentConfig } = await import('./agentTemplates');
+          const instructions = generateAgentConfig(next);
+          const match = instructions.match(/```yaml\n([\s\S]*?)```/);
+          expect(match).not.toBeNull();
+          steps = YAML.parse(match![1]).steps;
+        }
+        for (const step of steps) {
+          const resourceId =
+            step.env.AZURE_ACR_RESOURCE_ID === '${{ env.AZURE_ACR_RESOURCE_ID }}'
+              ? workflowEnv.AZURE_ACR_RESOURCE_ID
+              : step.env.AZURE_ACR_RESOURCE_ID;
+          expect(resourceId).toBe('');
+          const name =
+            step.env.AZURE_CONTAINER_REGISTRY === '${{ secrets.AZURE_ACR_NAME }}'
+              ? retainedSecrets.AZURE_ACR_NAME
+              : step.env.AZURE_CONTAINER_REGISTRY === '${{ env.AZURE_CONTAINER_REGISTRY }}'
+              ? workflowEnv.AZURE_CONTAINER_REGISTRY
+              : step.env.AZURE_CONTAINER_REGISTRY;
+          expect(name).toBe('registryb');
+        }
+      }
+    );
+
     it('should pass Azure credentials as secrets', async () => {
       mockSetRepoSecrets.mockResolvedValue(undefined);
 
@@ -349,6 +558,31 @@ describe('pipelineOrchestration', () => {
     });
 
     describe('ACR name derivation', () => {
+      it('passes the registry ARM ID as a secret without replacing the login subscription', async () => {
+        mockSetRepoSecrets.mockResolvedValue(undefined);
+        const acrResourceId =
+          '/subscriptions/registry-sub/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/myacr';
+        const config = createValidConfig({
+          subscriptionId: 'cluster-sub',
+          resourceGroup: 'cluster-rg',
+          acrResourceId,
+          acrLoginServer: 'myacr.azurecr.io',
+        });
+
+        await createPipelineSecrets(mockOctokit, config);
+
+        expect(mockSetRepoSecrets).toHaveBeenCalledWith(
+          mockOctokit,
+          'testuser',
+          'my-repo',
+          expect.objectContaining({
+            AZURE_ACR_NAME: 'myacr',
+            AZURE_ACR_RESOURCE_ID: acrResourceId,
+            AZURE_SUBSCRIPTION_ID: 'cluster-sub',
+          })
+        );
+      });
+
       it('should derive AZURE_ACR_NAME from acrLoginServer', async () => {
         mockSetRepoSecrets.mockResolvedValue(undefined);
 
@@ -359,7 +593,7 @@ describe('pipelineOrchestration', () => {
         expect(secrets.AZURE_ACR_NAME).toBe('myregistry');
       });
 
-      it('should derive AZURE_ACR_NAME from acrResourceId', async () => {
+      it('rejects ID-only configuration before changing repository-wide secrets', async () => {
         mockSetRepoSecrets.mockResolvedValue(undefined);
 
         const config: PipelineConfig = {
@@ -367,10 +601,10 @@ describe('pipelineOrchestration', () => {
           acrResourceId:
             '/subscriptions/sub-123/resourceGroups/my-rg/providers/Microsoft.ContainerRegistry/registries/myacr',
         };
-        await createPipelineSecrets(mockOctokit, config);
-
-        const secrets = mockSetRepoSecrets.mock.calls[0][3] as Record<string, string>;
-        expect(secrets.AZURE_ACR_NAME).toBe('myacr');
+        await expect(createPipelineSecrets(mockOctokit, config)).rejects.toThrow(
+          'actual ACR login server'
+        );
+        expect(mockSetRepoSecrets).not.toHaveBeenCalled();
       });
 
       it('should throw when acrLoginServer produces empty first segment', async () => {
@@ -390,7 +624,7 @@ describe('pipelineOrchestration', () => {
         };
 
         await expect(createPipelineSecrets(mockOctokit, config)).rejects.toThrow(
-          'Could not derive ACR name from resource ID'
+          'actual ACR login server'
         );
         expect(mockSetRepoSecrets).not.toHaveBeenCalled();
       });

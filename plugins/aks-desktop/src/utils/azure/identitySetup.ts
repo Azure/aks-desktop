@@ -17,6 +17,8 @@ export interface IdentitySetupConfig {
   /** Resource group where the identity will be created. */
   identityResourceGroup: string;
   identityName: string;
+  /** Revalidation must never create a replacement for a saved client ID. */
+  existingClientId?: string;
   /** Purpose label for the resource group tags (e.g. 'GitHub Actions Identity', 'Workload Identity'). */
   purpose?: string;
   onStatusChange: (status: IdentitySetupStatus) => void;
@@ -43,7 +45,34 @@ export async function ensureIdentityAndResourceGroup(
     identityName,
     purpose,
     onStatusChange,
+    existingClientId,
   } = config;
+
+  if (existingClientId) {
+    onStatusChange('checking');
+    const existing = await getManagedIdentity({
+      identityName,
+      resourceGroup: identityResourceGroup,
+      subscriptionId,
+    });
+    if (
+      !existing.success ||
+      existing.clientId?.toLowerCase() !== existingClientId.toLowerCase() ||
+      !existing.principalId ||
+      !existing.tenantId
+    ) {
+      throw new Error(
+        existing.error ??
+          'Could not validate the saved managed identity. No replacement was created.'
+      );
+    }
+    return {
+      clientId: existing.clientId,
+      principalId: existing.principalId,
+      tenantId: existing.tenantId,
+      isExisting: true,
+    };
+  }
 
   // Step 1: Ensure identity resource group exists
   onStatusChange('creating-rg');

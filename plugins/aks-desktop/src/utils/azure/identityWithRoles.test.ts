@@ -11,6 +11,11 @@ const mockCreateManagedIdentity = vi.fn();
 const mockAssignRolesToIdentity = vi.fn();
 const mockGetManagedNamespaceResourceId = vi.fn();
 const mockGetKubeletIdentityObjectId = vi.fn();
+const mockGetRegistryRoleAssignmentMode = vi.fn();
+
+vi.mock('./az-acr', () => ({
+  getRegistryRoleAssignmentMode: (...args: any[]) => mockGetRegistryRoleAssignmentMode(...args),
+}));
 
 vi.mock('./az-subscriptions', () => ({
   resourceGroupExists: (...args: any[]) => mockResourceGroupExists(...args),
@@ -59,6 +64,7 @@ function setupHappyPath() {
     tenantId: 'tid',
   });
   mockAssignRolesToIdentity.mockResolvedValue({ success: true, results: [] });
+  mockGetRegistryRoleAssignmentMode.mockResolvedValue('LegacyRegistryPermissions');
 }
 
 describe('ensureIdentityWithRoles', () => {
@@ -204,6 +210,30 @@ describe('ensureIdentityWithRoles', () => {
     const roleNames = roleCall.roles.map((r: { role: string }) => r.role);
     expect(roleNames).toContain('AcrPush');
     expect(roleNames).toContain('Container Registry Tasks Contributor');
+    expect(roleNames).not.toContain('Reader');
+  });
+
+  it('revalidates required registry roles without requesting a redundant Reader grant', async () => {
+    setupHappyPath();
+    mockAssignRolesToIdentity.mockImplementation(async ({ roles }) => {
+      if (roles.some((entry: { role: string }) => entry.role === 'Reader')) {
+        return { success: false, error: 'Reader assignment is not delegated', results: [] };
+      }
+      return { success: true, results: [] };
+    });
+
+    await expect(
+      ensureIdentityWithRoles({ ...baseConfig, acrResourceId: '/acr' })
+    ).resolves.toMatchObject({ clientId: 'cid', isExisting: true });
+    expect(mockAssignRolesToIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalId: 'pid',
+        roles: expect.arrayContaining([
+          { role: 'AcrPush', scope: '/acr' },
+          { role: 'Container Registry Tasks Contributor', scope: '/acr' },
+        ]),
+      })
+    );
   });
 
   it('reports status changes in correct sequence', async () => {
@@ -265,6 +295,72 @@ describe('ensureIdentityWithRoles', () => {
       ],
     });
     expect(result.warnings).toHaveLength(0);
+  });
+
+  it('assigns Container Registry Repository Writer and Reader for AbacRepositoryPermissions registries', async () => {
+    setupHappyPath();
+    mockGetRegistryRoleAssignmentMode.mockResolvedValue('AbacRepositoryPermissions');
+    mockGetKubeletIdentityObjectId.mockResolvedValue({
+      success: true,
+      objectId: 'kubelet-principal-1',
+    });
+
+    const acrResourceId =
+      '/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/myacr';
+
+    const result = await ensureIdentityWithRoles({
+      ...baseConfig,
+      acrResourceId,
+      isPipeline: true,
+    });
+
+    const statuses = (baseConfig.onStatusChange as ReturnType<typeof vi.fn>).mock.calls.map(
+      c => c[0]
+    );
+    expect(statuses.indexOf('checking-registry')).toBe(0);
+    expect(statuses.indexOf('creating-rg')).toBeGreaterThan(0);
+    expect(result.warnings).toEqual([]);
+    expect(mockAssignRolesToIdentity).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        principalId: 'pid',
+        roles: expect.arrayContaining([
+          { role: 'Container Registry Repository Writer', scope: acrResourceId },
+          { role: 'Container Registry Repository Catalog Lister', scope: acrResourceId },
+          { role: 'Container Registry Tasks Contributor', scope: acrResourceId },
+        ]),
+      })
+    );
+    expect(
+      mockAssignRolesToIdentity.mock.calls[0][0].roles.map((r: { role: string }) => r.role)
+    ).not.toContain('AcrPush');
+    expect(mockAssignRolesToIdentity).toHaveBeenNthCalledWith(2, {
+      principalId: 'kubelet-principal-1',
+      subscriptionId: 'sub',
+      roles: [{ role: 'Container Registry Repository Reader', scope: acrResourceId }],
+    });
+  });
+
+  it('fails before creating resource group or identity when reading the registry roleAssignmentMode fails', async () => {
+    setupHappyPath();
+    mockGetRegistryRoleAssignmentMode.mockRejectedValue(new Error('Registry read failed'));
+    const onStatusChange = vi.fn();
+
+    await expect(
+      ensureIdentityWithRoles({
+        ...baseConfig,
+        acrResourceId: '/acr',
+        isPipeline: true,
+        onStatusChange,
+      })
+    ).rejects.toThrow('Registry read failed');
+    expect(onStatusChange).toHaveBeenCalledWith('checking-registry');
+    expect(onStatusChange).not.toHaveBeenCalledWith('checking');
+    expect(mockResourceGroupExists).not.toHaveBeenCalled();
+    expect(mockCreateResourceGroup).not.toHaveBeenCalled();
+    expect(mockGetManagedIdentity).not.toHaveBeenCalled();
+    expect(mockCreateManagedIdentity).not.toHaveBeenCalled();
+    expect(mockAssignRolesToIdentity).not.toHaveBeenCalled();
   });
 
   it('should still return identity with warning when getKubeletIdentityObjectId fails', async () => {

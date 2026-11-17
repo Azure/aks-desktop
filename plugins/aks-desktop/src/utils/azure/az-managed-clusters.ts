@@ -37,6 +37,8 @@ export interface ManagedClusterDetails {
   name?: string;
   /** Azure resource region, distinct from any node-pool zone. */
   location?: string | null;
+  /** Control-plane identity; null/None identifies legacy service-principal clusters. */
+  identity?: { type?: string | null } | null;
   /** SKU metadata belongs at the resource top level, not under properties. */
   sku?: {
     /** AKS SKU name, such as Base or Automatic. */
@@ -46,6 +48,8 @@ export interface ManagedClusterDetails {
   } | null;
   /** Required ARM property container; individual profiles may be absent or null. */
   properties: {
+    /** Legacy cluster service-principal metadata, not the kubelet managed identity. */
+    servicePrincipalProfile?: { clientId?: string | null } | null;
     /** Deployment state; readiness requires Succeeded together with Running power. */
     provisioningState?: string | null;
     /** Observed cluster power state, independent of provisioning. */

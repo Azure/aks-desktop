@@ -3,6 +3,7 @@
 
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SCHEMA_VERSION, STORAGE_KEY_PREFIX } from '../constants';
 import type { PipelineConfig, PipelineState } from '../types';
 import { useGitHubPipelineState } from './useGitHubPipelineState';
 
@@ -33,7 +34,7 @@ function transitionTo(
     return;
   }
 
-  // Ensure config is set so identity check passes (avoids WorkloadIdentitySetup detour)
+  // Ensure config is set before running the setup flow.
   if (!result.current.state.config) {
     act(() => result.current.setConfig(validConfig));
   }
@@ -63,8 +64,8 @@ function transitionTo(
     return;
   }
 
-  // ReadyForSetup (config has identity, ACR step completed)
   act(() => result.current.setAcrCompleted());
+  act(() => result.current.setIdentityReady());
   if (target === 'ReadyForSetup') return;
 
   act(() => result.current.setCreatingSetupPR());
@@ -154,6 +155,92 @@ describe('useGitHubPipelineState', () => {
     const { result } = renderHook(() => useGitHubPipelineState(null));
     act(() => result.current.updateConfig({ appName: 'new-name' }));
     expect(result.current.state.config).toBeNull();
+  });
+
+  it('persists verified setup status but invalidates it when the saved config changes', () => {
+    const { result, unmount } = renderHook(() => useGitHubPipelineState('testuser/my-repo'));
+    act(() => result.current.setConfig(validConfig));
+    act(() => result.current.setSetupStatus('current'));
+    unmount();
+    const restored = renderHook(() => useGitHubPipelineState('testuser/my-repo'));
+    expect(restored.result.current.state.setupStatus).toBe('current');
+    act(() => restored.result.current.updateConfig({ appName: 'other-app' }));
+    expect(restored.result.current.state.setupStatus).toBe('unknown');
+  });
+
+  it('requires registry permission setup before returning an existing identity to review', () => {
+    const { result } = renderHook(() => useGitHubPipelineState(null));
+    transitionTo(result, 'ReadyForSetup');
+    act(() => result.current.setSetupStatus('current'));
+    act(() =>
+      result.current.updateConfig({
+        acrResourceId: 'registry-b',
+        acrLoginServer: 'registry-b.azurecr.io',
+      })
+    );
+    expect(result.current.state.deploymentState).toBe('WorkloadIdentitySetup');
+    expect(result.current.state.setupStatus).toBe('unknown');
+    act(() => result.current.setCreatingSetupPR());
+    expect(result.current.state.deploymentState).toBe('WorkloadIdentitySetup');
+    act(() => result.current.setIdentityReady());
+    expect(result.current.state.deploymentState).toBe('ReadyForSetup');
+  });
+
+  it.each(['ReadyForSetup', 'AgentTaskCreating', 'WorkloadIdentitySetup'] as const)(
+    'recovers an ID-only saved %s without discarding configuration or PR tracking',
+    deploymentState => {
+      const config = {
+        ...validConfig,
+        acrResourceId: 'registry-id',
+        buildArguments: { MODE: 'prod' },
+      };
+      const setupPr = { url: 'https://github.com/test/repo/pull/42', number: 42, merged: true };
+      localStorage.setItem(
+        `${STORAGE_KEY_PREFIX}testuser/my-repo`,
+        JSON.stringify({
+          __schemaVersion: SCHEMA_VERSION,
+          deploymentState,
+          lastSuccessfulState: 'ReadyForSetup',
+          config,
+          setupPr,
+        })
+      );
+      const { result } = renderHook(() => useGitHubPipelineState('testuser/my-repo'));
+      expect(result.current.state.deploymentState).toBe('AcrSelection');
+      expect(result.current.state.config).toEqual(config);
+      expect(result.current.state.setupPr).toEqual(setupPr);
+      act(() => result.current.setAcrCompleted());
+      expect(result.current.state.deploymentState).toBe('AcrSelection');
+      act(() => result.current.updateConfig({ acrLoginServer: 'registry.azurecr.io' }));
+      act(() => result.current.setAcrCompleted());
+      expect(result.current.state.deploymentState).toBe('WorkloadIdentitySetup');
+    }
+  );
+
+  it('recovers an ID-only failed review retry and retains a safely created pending PR', () => {
+    const config = { ...validConfig, acrResourceId: 'registry-id' };
+    const saved = {
+      __schemaVersion: SCHEMA_VERSION,
+      deploymentState: 'Failed',
+      lastSuccessfulState: 'ReadyForSetup',
+      config,
+      error: 'Missing registry login server',
+      setupPr: { url: 'https://github.com/test/repo/pull/42', number: 42, merged: false },
+    };
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}testuser/my-repo`, JSON.stringify(saved));
+    const { result, unmount } = renderHook(() => useGitHubPipelineState('testuser/my-repo'));
+    act(() => result.current.retry());
+    expect(result.current.state.deploymentState).toBe('AcrSelection');
+    expect(result.current.state.error).toBeNull();
+    expect(result.current.state.config).toEqual(config);
+    unmount();
+    localStorage.setItem(
+      `${STORAGE_KEY_PREFIX}testuser/my-repo`,
+      JSON.stringify({ ...saved, deploymentState: 'SetupPRAwaitingMerge' })
+    );
+    const pending = renderHook(() => useGitHubPipelineState('testuser/my-repo'));
+    expect(pending.result.current.state.deploymentState).toBe('SetupPRAwaitingMerge');
+    expect(pending.result.current.state.setupPr).toEqual(saved.setupPr);
   });
 
   it('should transition through setAuthNeeded', () => {
@@ -254,7 +341,7 @@ describe('useGitHubPipelineState', () => {
       expect(result.current.state.deploymentState).toBe('AcrSelection');
     });
 
-    it('should transition from AcrSelection to ReadyForSetup when identity exists', () => {
+    it('requires permission setup after ACR selection even when an identity already exists', () => {
       const { result } = renderHook(() => useGitHubPipelineState(null));
 
       act(() => result.current.setConfig(validConfig));
@@ -269,10 +356,12 @@ describe('useGitHubPipelineState', () => {
       });
       act(() => result.current.setAcrCompleted());
 
+      expect(result.current.state.deploymentState).toBe('WorkloadIdentitySetup');
+      act(() => result.current.setIdentityReady());
       expect(result.current.state.deploymentState).toBe('ReadyForSetup');
     });
 
-    it('should transition to AgentTaskCreating when repo is set up and config is complete', () => {
+    it('requires fresh identity setup even when the repo bundle and saved identity are current', () => {
       const { result } = renderHook(() => useGitHubPipelineState(null));
 
       act(() => {
@@ -282,15 +371,40 @@ describe('useGitHubPipelineState', () => {
         result.current.setCheckingRepo();
       });
       act(() => {
+        result.current.setRepoReadiness(
+          {
+            hasSetupWorkflow: true,
+            hasAgentConfig: true,
+            hasDeployWorkflow: false,
+            dockerfilePaths: [],
+          },
+          true
+        );
+      });
+
+      expect(result.current.state.deploymentState).toBe('WorkloadIdentitySetup');
+    });
+
+    it('does not trust existing filenames without a current setup verification', () => {
+      const { result } = renderHook(() => useGitHubPipelineState(null));
+      act(() => result.current.setConfig(validConfig));
+      act(() => result.current.setCheckingRepo());
+      act(() =>
         result.current.setRepoReadiness({
           hasSetupWorkflow: true,
           hasAgentConfig: true,
           hasDeployWorkflow: false,
           dockerfilePaths: [],
-        });
-      });
+        })
+      );
+      expect(result.current.state.deploymentState).toBe('AcrSelection');
+    });
 
-      expect(result.current.state.deploymentState).toBe('AgentTaskCreating');
+    it('returns resumed agent creation to setup review when verification finds an obsolete bundle', () => {
+      const { result } = renderHook(() => useGitHubPipelineState(null));
+      transitionTo(result, 'AgentTaskCreating');
+      act(() => result.current.setIdentityReady());
+      expect(result.current.state.deploymentState).toBe('ReadyForSetup');
     });
 
     it('should transition to AcrSelection when repo is set up but identity is missing', () => {
@@ -501,7 +615,7 @@ describe('useGitHubPipelineState', () => {
         })
       );
       act(() => result.current.setAcrCompleted());
-      // With identity but no appName, this lands on ReadyForSetup.
+      act(() => result.current.setIdentityReady());
       expect(result.current.state.deploymentState).toBe('ReadyForSetup');
       act(() => {
         result.current.setFailed('Error');

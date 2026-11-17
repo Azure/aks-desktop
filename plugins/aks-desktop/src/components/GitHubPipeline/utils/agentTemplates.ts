@@ -2,7 +2,9 @@
 // Licensed under the Apache 2.0.
 
 import type { Octokit } from '@octokit/rest';
+import YAML from 'yaml';
 import { createOrUpdateFile } from '../../../utils/github/github-api';
+import { normalizeK8sName } from '../../../utils/kubernetes/k8sNames';
 import { getServiceAccountName } from '../../../utils/kubernetes/serviceAccountNames';
 import {
   AGENT_CONFIG_PATH,
@@ -13,8 +15,13 @@ import {
   PIPELINE_WORKFLOW_FILENAME,
 } from '../constants';
 import type { PipelineConfig } from '../types';
+import { generateAcrBuildSteps } from './acrBuildSteps';
+import { ACR_BUILD_SCRIPT_PATH } from './acrTasks/acrTaskRunner';
+import { ACR_TASKS_ABAC_API_VERSION, ACR_TASKS_API_VERSION } from './acrTasks/apiVersions';
+import { requireAcrLoginServer } from './deriveAcrName';
 import { toEnvSecretName } from './pipelineOrchestration';
 import { getProbeConfigs, renderProbeMarkdown } from './probeHelpers';
+import { publishAcrBuildFiles } from './publishAcrBuildFiles';
 
 /**
  * Returns the non-empty environment variables from a pipeline config.
@@ -30,8 +37,8 @@ export interface ValidationResult {
 }
 
 /**
- * Static content for `.github/workflows/copilot-setup-steps.yml`.
- * Matches the reference implementation.
+ * Baseline for `.github/workflows/copilot-setup-steps.yml`. Compatible repository
+ * tool steps, services and permissions are retained by upgradeSetupWorkflow.
  */
 export const SETUP_WORKFLOW_CONTENT = `name: Copilot Setup Steps
 
@@ -105,14 +112,238 @@ const generateEnvVarWorkflowInstructions = (config: PipelineConfig): string => {
 };
 
 /**
+ * Renders the shared build/cancel steps and registry-scoping requirements for the agent.
+ *
+ * @param config Deployment settings, including the selected registry and non-secret build arguments.
+ * @returns Markdown instructions, or an empty string when no registry is configured.
+ */
+export const generateAcrWorkflowInstructions = (config: PipelineConfig): string => {
+  if (!config.acrLoginServer && !config.acrResourceId) return '';
+
+  const containerName = normalizeK8sName(config.appName);
+  const loginServer = requireAcrLoginServer(config);
+  const steps = YAML.stringify(
+    {
+      steps: generateAcrBuildSteps({
+        acrName: '${{ secrets.AZURE_ACR_NAME }}',
+        acrResourceId: config.acrResourceId ? '${{ secrets.AZURE_ACR_RESOURCE_ID }}' : undefined,
+        containerName,
+        dockerfilePath: './Dockerfile',
+        buildContextPath: '.',
+        buildArguments: config.buildArguments,
+      }),
+    },
+    { lineWidth: 0 }
+  );
+
+  return `
+- Build/push with the committed Python 3 standard-library helper \`${ACR_BUILD_SCRIPT_PATH}\`; do not replace or duplicate its implementation in the workflow. Hosted Ubuntu already provides Python 3; no package downloads are needed.
+- After checkout and \`azure/login@v2\`, insert these exact shared build/cancel steps into \`buildImage\`. Adjust only \`DOCKER_FILE\` and \`BUILD_CONTEXT_PATH\` to the repository's Dockerfile and context:
+  \`\`\`yaml
+${steps
+  .trimEnd()
+  .split('\n')
+  .map(line => `  ${line}`)
+  .join('\n')}
+  \`\`\`
+- The helper uses the existing Azure login: \`az account get-access-token\` obtains an ARM token only. ${
+    config.acrResourceId
+      ? 'Registry scope comes from `secrets.AZURE_ACR_RESOURCE_ID` for this ID-backed configuration.'
+      : 'This name-only configuration explicitly leaves `AZURE_ACR_RESOURCE_ID` empty and uses ARM discovery in `secrets.AZURE_SUBSCRIPTION_ID`. Do not fall back to a retained registry-ID secret from an earlier configuration.'
+  } Never assume the registry belongs to the AKS resource group.
+- Preserve the complete ACR Tasks REST sequence with \`api-version=${ACR_TASKS_API_VERSION}\` (using \`api-version=${ACR_TASKS_ABAC_API_VERSION}\` with \`[caller]\` source-registry credentials for \`scheduleRun\` when the registry uses \`AbacRepositoryPermissions\`): POST \`listBuildSourceUploadUrl\`, PUT the local context archive to its upload SAS URL, POST \`scheduleRun\` with the helper-selected \`DockerBuildRequest\` or inline \`EncodedTaskRunRequest\`, poll GET \`/runs/{runId}\` to a terminal state, POST \`/runs/{runId}/listLogSasUrl\`, and download/print the build log. Only \`Succeeded\` is success; failed, canceled, error, timeout, and polling/log failures must fail the build.
+- Preserve SIGINT/SIGTERM handling and the cleanup step: POST \`/runs/{runId}/cancel\` for unfinished builds using persisted \`RUNNER_TEMP\` state. Missing state is a no-op; cancellation errors must remain visible failures, never use \`continue-on-error\` or suppress them. Keep \`exec python3\` so runner signals reach the helper.
+- Deploy image \`${loginServer}/${containerName}:\${{ github.sha }}\`; keep the deploy job gated on a successful \`buildImage\`.
+- Queue rather than cancel deployments: concurrency group \`\${{ github.workflow }}-\${{ github.ref }}\`, \`cancel-in-progress: false\`.
+`;
+};
+
+const ACR_INSTRUCTIONS_START = '<!-- aks-desktop:acr-build:start -->';
+const ACR_INSTRUCTIONS_END = '<!-- aks-desktop:acr-build:end -->';
+const AGENT_START = '<!-- aks-desktop:deployment:v1:start -->';
+const AGENT_END = '<!-- aks-desktop:deployment:v1:end -->';
+const AGENT_HEADER = `---
+name: containerize-and-deploy
+description: "Analyze repository, generate a best-practice Dockerfile, Kubernetes manifests, and a GitHub Actions deployment workflow for AKS."
+---
+
+`;
+
+/**
+ * The versioned region owns the complete generated deployment contract, not just ACR.
+ * Repository guidance belongs outside it. Unmarked files are adopted only when their
+ * complete generated prefix is exactly a recognized current or pre-REST template.
+ */
+export function upgradeAgentConfig(existing: string, config: PipelineConfig): string {
+  return reconcileAgentConfig(existing, config).content;
+}
+
+function manualMigration(path: string): never {
+  throw new Error(
+    `${path} requires manual migration: unrecognized, customized, or outdated setup cannot be safely upgraded. Preserve repository guidance outside the AKS Desktop deployment region.`
+  );
+}
+
+function reconcileAgentConfig(
+  existing: string,
+  config: PipelineConfig
+): { content: string; isCurrent: boolean } {
+  const generated = generateAgentConfig(config);
+  if (existing.includes('<!-- aks-desktop:deployment:')) {
+    if (
+      existing.split(AGENT_START).length !== 2 ||
+      existing.split(AGENT_END).length !== 2 ||
+      existing.match(/<!-- aks-desktop:deployment:/g)?.length !== 2 ||
+      existing.includes('<!-- aks-desktop:acr-build:') ||
+      !existing.startsWith(AGENT_HEADER + AGENT_START + '\n')
+    ) {
+      return manualMigration(AGENT_CONFIG_PATH);
+    }
+    const end = existing.indexOf(AGENT_END);
+    const suffix = existing.slice(end + AGENT_END.length);
+    if (end < existing.indexOf(AGENT_START) || hasUnmanagedBuildInstructions(suffix)) {
+      return manualMigration(AGENT_CONFIG_PATH);
+    }
+    const content = generated.slice(0, -1) + suffix;
+    return { content, isCurrent: content === existing };
+  }
+
+  const legacy = generateLegacyAgentConfig(config);
+  const instructions = generateAcrWorkflowInstructions(config);
+  const markedLegacy = instructions
+    ? legacy.replace(
+        instructions.trim(),
+        `${ACR_INSTRUCTIONS_START}${instructions}${ACR_INSTRUCTIONS_END}\n`
+      )
+    : legacy;
+  const cliLegacy = generateLegacyAgentConfig(config, true);
+  for (const candidate of [legacy, markedLegacy, cliLegacy]) {
+    if (existing.startsWith(candidate)) {
+      const suffix = existing.slice(candidate.length);
+      if (!hasUnmanagedBuildInstructions(suffix)) {
+        return {
+          content: generated + suffix,
+          isCurrent: candidate !== cliLegacy || cliLegacy === legacy,
+        };
+      }
+    }
+  }
+  return manualMigration(AGENT_CONFIG_PATH);
+}
+
+function hasUnmanagedBuildInstructions(content: string): boolean {
+  return /aks-desktop:|az\s+acr\s+build\b|Build\/push with the committed Python|AZURE_ACR_(?:NAME|RESOURCE_ID)|^## (?:Role|Execution Plan|AKS Deployment Configuration|Deployment Annotations|GitHub Actions Workflow Requirements|Naming Conventions|Validation)\b/m.test(
+    content
+  );
+}
+
+export function isAgentConfigCurrent(existing: string, config: PipelineConfig): boolean {
+  try {
+    return reconcileAgentConfig(existing, config).isCurrent;
+  } catch {
+    return false;
+  }
+}
+
+/** The repository owns its setup workflow; REST upgrades never replace its steps. */
+export function upgradeSetupWorkflow(existing: string): string {
+  if (!isSetupWorkflowCurrent(existing)) return manualMigration(COPILOT_SETUP_STEPS_PATH);
+  return existing;
+}
+
+export function isSetupWorkflowCurrent(content: string): boolean {
+  try {
+    const actual = YAML.parse(content);
+    const isMap = (value: unknown): value is Record<string, unknown> =>
+      !!value && typeof value === 'object' && !Array.isArray(value);
+    const text = (value: unknown): value is string =>
+      typeof value === 'string' && value.trim().length > 0;
+    const labels = (value: unknown): boolean =>
+      text(value) || (Array.isArray(value) && value.length > 0 && value.every(text));
+    if (!isMap(actual) || !isMap(actual.jobs)) return false;
+    const events = actual.on;
+    if (
+      !text(events) &&
+      !(Array.isArray(events) && events.length > 0 && events.every(text)) &&
+      !(
+        isMap(events) &&
+        Object.keys(events).length > 0 &&
+        Object.entries(events).every(
+          ([name, options]) => text(name) && (options === null || isMap(options))
+        )
+      )
+    ) {
+      return false;
+    }
+    const job = actual.jobs['copilot-setup-steps'];
+    return (
+      isMap(job) &&
+      (labels(job['runs-on']) ||
+        (isMap(job['runs-on']) &&
+          (text(job['runs-on'].group) || labels(job['runs-on'].labels)) &&
+          (job['runs-on'].group === undefined || text(job['runs-on'].group)) &&
+          (job['runs-on'].labels === undefined || labels(job['runs-on'].labels)))) &&
+      Array.isArray(job.steps) &&
+      job.steps.length > 0 &&
+      job.steps.every(
+        step =>
+          isMap(step) && 'uses' in step !== 'run' in step && (text(step.uses) || text(step.run))
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Reads a regular UTF-8 setup file at the requested ref; only a 404 means absent. */
+export async function readSetupFile(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  path: string,
+  ref: string
+): Promise<{ sha: string; content: string } | null> {
+  try {
+    const { data } = await octokit.repos.getContent({ owner, repo, path, ref });
+    if (
+      Array.isArray(data) ||
+      data.type !== 'file' ||
+      !data.sha ||
+      !('content' in data) ||
+      data.encoding !== 'base64'
+    ) {
+      throw new Error(`Setup path ${path} is not a readable regular file on ${ref}`);
+    }
+    return {
+      sha: data.sha,
+      content: new TextDecoder('utf-8', { fatal: true }).decode(
+        Uint8Array.from(atob(data.content.replace(/\s/g, '')), c => c.charCodeAt(0))
+      ),
+    };
+  } catch (error) {
+    if (error instanceof Error && 'status' in error && error.status === 404) return null;
+    throw error;
+  }
+}
+
+/**
  * Generates the `.github/agents/containerization.agent.md` file,
  * parameterized with the user's AKS deployment config.
  *
  * Based on the reference implementation at
  * https://github.com/ReinierCC/spring-petclinic/blob/main/.github/agents/containerization.agent.md
  * with an appended AKS-specific deployment section.
+ *
+ * @param config Deployment settings used to specialize the agent's instructions.
+ * @returns Agent configuration Markdown, including shared ACR runtime instructions when configured.
  */
-export const generateAgentConfig = (config: PipelineConfig): string => {
+export const generateAgentConfig = (config: PipelineConfig): string =>
+  `${AGENT_HEADER}${AGENT_START}
+<!-- Generated deployment contract: edits inside this region are replaced on upgrade. Keep repository guidance after the end marker. -->
+${generateLegacyAgentConfig(config).slice(AGENT_HEADER.length)}${AGENT_END}
+`;
+
+const generateLegacyAgentConfig = (config: PipelineConfig, cli = false): string => {
   const optionalLines: string[] = [];
   if (config.ingressEnabled !== undefined) {
     optionalLines.push(`- Ingress: ${config.ingressEnabled ? 'enabled' : 'disabled'}`);
@@ -227,8 +458,14 @@ Template:
 - Namespace: ${config.namespace}
 - Service Type: ${config.serviceType}
 - Azure credentials stored as GitHub repository secrets: \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\`, \`AZURE_SUBSCRIPTION_ID\`${
-    config.acrLoginServer
-      ? `\n- Container Registry: \`${config.acrLoginServer}\` (ACR name stored as secret \`AZURE_ACR_NAME\`)`
+    cli
+      ? config.acrLoginServer
+        ? `\n- Container Registry: \`${config.acrLoginServer}\` (ACR name stored as secret \`AZURE_ACR_NAME\`)`
+        : ''
+      : config.acrLoginServer || config.acrResourceId
+      ? `\n- Container Registry: \`${requireAcrLoginServer(
+          config
+        )}\` (ACR name stored as secret \`AZURE_ACR_NAME\`; registry resource ID, when configured, stored as secret \`AZURE_ACR_RESOURCE_ID\`)`
       : ''
   }${optionalSection}
 
@@ -244,13 +481,19 @@ Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\`:
   - \`resource-group\` (default: \`${config.resourceGroup}\`)
   - \`namespace\` (default: \`${config.namespace}\`)
 - No \`push\` trigger.
-- Two jobs: \`buildImage\` (build + push to ACR) and \`deploy\` (apply manifests) with \`needs: [buildImage]\`. The \`deploy\` job permissions block MUST include \`actions: read\`.
+- ${
+    config.acrLoginServer || config.acrResourceId
+      ? 'Two jobs: `buildImage` (build + push to ACR) and `deploy` (apply manifests) with `needs: [buildImage]`.'
+      : 'Use a `deploy` job with the configured container image. No registry is selected: do not build/push to ACR or consume retained ACR repository secrets.'
+  } The \`deploy\` job permissions block MUST include \`actions: read\`.
 - Use \`azure/login@v2\` with OIDC (\`secrets.AZURE_CLIENT_ID\`, \`secrets.AZURE_TENANT_ID\`, \`secrets.AZURE_SUBSCRIPTION_ID\`).
 - Use \`azure/aks-set-context@v4\` with \`\${{ inputs.cluster-name }}\` and \`\${{ inputs.resource-group }}\`.
 - Install kubelogin via \`azure/use-kubelogin@v1\` with \`kubelogin-version: '${KUBELOGIN_VERSION}'\`, then \`kubelogin convert-kubeconfig -l workloadidentity\`.${
-    config.acrLoginServer
-      ? `\n- Build/push image via ACR Tasks: \`az acr build --registry \${{ secrets.AZURE_ACR_NAME }} --image ${config.appName}:\${{ github.sha }} .\` — and update manifests to reference \`${config.acrLoginServer}/${config.appName}:\${{ github.sha }}\`.`
-      : ''
+    cli
+      ? config.acrLoginServer
+        ? `\n- Build/push image via ACR Tasks: \`az acr build --registry \${{ secrets.AZURE_ACR_NAME }} --image ${config.appName}:\${{ github.sha }} .\` — and update manifests to reference \`${config.acrLoginServer}/${config.appName}:\${{ github.sha }}\`.`
+        : ''
+      : generateAcrWorkflowInstructions(config)
   }${generateEnvVarWorkflowInstructions(config)}${generateWorkloadIdentityWorkflowInstructions(
     config
   )}- Apply manifests: \`kubectl apply -f deploy/kubernetes/ -n \${{ inputs.namespace }}\`
@@ -269,8 +512,17 @@ Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\`:
 };
 
 /**
- * Pushes both agent config files (copilot-setup-steps.yml and containerization.agent.md)
- * to the given branch. Used by both the standard setup flow and the fast-path async review.
+ * Pushes agent config and, when a registry is configured, its exact ACR runtime bundle.
+ * Also owns runtime publication for the fast-path async review to avoid duplicate writes.
+ * Branch writes are sequential, not atomic, and are not rolled back on failure.
+ *
+ * @param octokit Authenticated client with repository contents write access.
+ * @param owner GitHub repository owner.
+ * @param repo GitHub repository name.
+ * @param branchName Existing branch receiving the setup workflow, agent config and optional runtime.
+ * @param config Deployment settings used to generate the agent config and select runtime publication.
+ * @returns Resolves when all requested files have been published.
+ * @throws If generation or any GitHub read/write fails; other writes may already have completed.
  */
 export async function pushAgentConfigFiles(
   octokit: Octokit,
@@ -279,27 +531,41 @@ export async function pushAgentConfigFiles(
   branchName: string,
   config: PipelineConfig
 ): Promise<void> {
-  const agentConfig = generateAgentConfig(config);
-  await Promise.all([
-    createOrUpdateFile(
+  const [workflow, agent] = await Promise.all([
+    readSetupFile(octokit, owner, repo, COPILOT_SETUP_STEPS_PATH, branchName),
+    readSetupFile(octokit, owner, repo, AGENT_CONFIG_PATH, branchName),
+  ]);
+  const agentConfig = agent
+    ? upgradeAgentConfig(agent.content, config)
+    : generateAgentConfig(config);
+  const workflowContent = workflow
+    ? upgradeSetupWorkflow(workflow.content)
+    : SETUP_WORKFLOW_CONTENT;
+  if (!workflow) {
+    await createOrUpdateFile(
       octokit,
       owner,
       repo,
       COPILOT_SETUP_STEPS_PATH,
-      SETUP_WORKFLOW_CONTENT,
+      workflowContent,
       'Add Copilot setup workflow',
-      branchName
-    ),
-    createOrUpdateFile(
-      octokit,
-      owner,
-      repo,
-      AGENT_CONFIG_PATH,
-      agentConfig,
-      `Add containerization agent config for ${config.appName}`,
-      branchName
-    ),
-  ]);
+      branchName,
+      undefined
+    );
+  }
+  await createOrUpdateFile(
+    octokit,
+    owner,
+    repo,
+    AGENT_CONFIG_PATH,
+    agentConfig,
+    `Add containerization agent config for ${config.appName}`,
+    branchName,
+    agent?.sha
+  );
+  if (config.acrLoginServer || config.acrResourceId) {
+    await publishAcrBuildFiles(octokit, owner, repo, branchName);
+  }
 }
 
 /**
@@ -335,6 +601,9 @@ const NAMESPACE_REGEX = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
  */
 export const validatePipelineConfig = (config: PipelineConfig): ValidationResult => {
   const errors: string[] = [];
+  if (config.acrResourceId && !config.acrLoginServer?.trim()) {
+    errors.push('The actual ACR login server is required; reselect the registry before deployment');
+  }
 
   if (!config.clusterName.trim()) {
     errors.push('Cluster name is required');

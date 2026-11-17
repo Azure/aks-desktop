@@ -69,7 +69,13 @@ export function GitHubPipelineWizard({
   projectName,
 }: GitHubPipelineWizardProps) {
   const localContainerConfig = useContainerConfiguration(appName);
-  const { isManagedNamespace, azureRbacEnabled } = useNamespaceCapabilities({
+  const {
+    isManagedNamespace,
+    azureRbacEnabled,
+    azureRbacResolved,
+    error: capabilitiesError,
+    retry: retryCapabilities,
+  } = useNamespaceCapabilities({
     subscriptionId,
     resourceGroup,
     clusterName,
@@ -83,7 +89,9 @@ export function GitHubPipelineWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [pathChoice, setPathChoice] = useState<DeployPathChoice | null>(null);
   const orchestration = useGitHubPipelineOrchestration({
+    pathChoice,
     clusterName,
     namespace,
     appName,
@@ -94,6 +102,8 @@ export function GitHubPipelineWizard({
     containerConfig: localContainerConfig.config,
     mode,
     projectName,
+    azureRbacEnabled,
+    azureRbacResolved,
   });
 
   useEffect(() => {
@@ -106,7 +116,6 @@ export function GitHubPipelineWizard({
     localContainerConfig.setConfig,
   ]);
 
-  const [pathChoice, setPathChoice] = useState<DeployPathChoice | null>(null);
   const dockerfilePaths = orchestration.pipeline.state.repoReadiness?.dockerfilePaths ?? [];
   const dockerfileDiscovery = useDockerfileDiscovery(dockerfilePaths);
 
@@ -120,6 +129,10 @@ export function GitHubPipelineWizard({
     selectedRepo: orchestration.selectedRepo,
     containerConfig: localContainerConfig.config,
     identityId: orchestration.identityId,
+    identityReady: orchestration.identityReady,
+    acrResourceId: orchestration.pipeline.state.config?.acrResourceId,
+    acrLoginServer: orchestration.pipeline.state.config?.acrLoginServer,
+    buildArguments: orchestration.pipeline.state.config?.buildArguments,
   });
 
   const handleFastPathDeploy = useCallback(() => {
@@ -165,6 +178,9 @@ export function GitHubPipelineWizard({
       localContainerConfig={localContainerConfig}
       isManagedNamespace={isManagedNamespace}
       azureRbacEnabled={azureRbacEnabled}
+      azureRbacResolved={azureRbacResolved}
+      capabilitiesError={capabilitiesError}
+      onRetryCapabilities={retryCapabilities}
       pathChoice={pathChoice}
       onPathChoiceChange={setPathChoice}
       onFastPathDeploy={handleFastPathDeploy}

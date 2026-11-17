@@ -7,7 +7,7 @@ import { getErrorMessage, isValidGuid, runCommandAsync } from './az-cli-core';
 import { clearAzureCloudCache, getAzureCloudEndpoints } from './az-cloud';
 import { azListAll, azRequest, azRequestRaw, AzureRequestError } from './az-http';
 import { clearAzureTokenCaches, getSubscriptionCredential } from './az-token';
-import { isValidAzResourceName } from './az-validation';
+import { isValidAzResourceGroupName } from './az-validation';
 
 const SUBSCRIPTIONS_API_VERSION = '2022-12-01';
 const RESOURCE_GROUPS_API_VERSION = '2021-04-01';
@@ -152,7 +152,7 @@ function validateResourceGroup({
   subscriptionId,
 }: ResourceGroupOptions): string | undefined {
   if (!isValidGuid(subscriptionId)) return `Invalid subscription ID format: '${subscriptionId}'`;
-  if (!isValidAzResourceName(resourceGroupName)) {
+  if (!isValidAzResourceGroupName(resourceGroupName)) {
     return `Invalid resource group name: '${resourceGroupName}'`;
   }
   return undefined;

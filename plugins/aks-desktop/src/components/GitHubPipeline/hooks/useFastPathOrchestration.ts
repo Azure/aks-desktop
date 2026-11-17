@@ -9,12 +9,14 @@ import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfi
 import { DEFAULT_DOCKERFILE_PATH, MANIFESTS_DIR, PIPELINE_WORKFLOW_FILENAME } from '../constants';
 import { useGitHubAuthContext } from '../GitHubAuthContext';
 import type { PipelineConfig } from '../types';
+import { requireAcrLoginServer } from '../utils/deriveAcrName';
 import {
   createFastPathPR,
   type FastPathPRConfig,
   triggerAsyncAgentReview,
 } from '../utils/fastPathOrchestration';
 import { createPipelineSecrets } from '../utils/pipelineOrchestration';
+import { getRepoSetupStatus } from '../utils/repoSetupStatus';
 import type { UseDeploymentHealthResult } from './useDeploymentHealth';
 import { useDeploymentHealth } from './useDeploymentHealth';
 import type { DockerfileSelection } from './useDockerfileDiscovery';
@@ -43,7 +45,7 @@ export interface UseFastPathOrchestrationProps {
   namespace: string;
   /** App name used for the Deployment/Service resource names and branch slug. */
   appName: string;
-  /** Azure subscription that owns the cluster + ACR. */
+  /** Azure subscription that owns the cluster; also the registry discovery scope when no ID is supplied. */
   subscriptionId: string;
   /** Azure resource group containing the AKS cluster. */
   resourceGroup: string;
@@ -55,6 +57,14 @@ export interface UseFastPathOrchestrationProps {
   containerConfig: ContainerConfig;
   /** Azure managed identity client ID used by the workflow for workload-identity auth. */
   identityId: string;
+  /** Fresh identity, registry and pull checks for this configuration, never persisted proof. */
+  identityReady: boolean;
+  /** Registry selected by the pipeline wizard; its scope need not match the cluster. */
+  acrResourceId?: string;
+  /** Selected registry's login server (e.g., `myregistry.azurecr.io`). */
+  acrLoginServer?: string;
+  /** Non-secret Docker build arguments embedded in the workflow; omitted means none. */
+  buildArguments?: Record<string, string>;
 }
 
 export interface HandleDeployOptions {
@@ -89,11 +99,19 @@ export const useFastPathOrchestration = ({
   selectedRepo,
   containerConfig,
   identityId,
+  identityReady,
+  acrResourceId,
+  acrLoginServer,
+  buildArguments,
 }: UseFastPathOrchestrationProps): UseFastPathOrchestrationResult => {
   const deployInFlightRef = useRef(false);
   const dispatchInFlightRef = useRef(false);
   const asyncAgentInFlightRef = useRef(false);
   const deploymentStateRef = useRef<FastPathDeploymentState>('Configured');
+  const identityReadyRef = useRef(identityReady);
+  useLayoutEffect(() => {
+    identityReadyRef.current = identityReady;
+  }, [identityReady]);
 
   const gitHubAuth = useGitHubAuthContext();
   const repoKey = selectedRepo ? `${selectedRepo.owner}/${selectedRepo.repo}` : null;
@@ -148,15 +166,23 @@ export const useFastPathOrchestration = ({
         serviceType: containerConfig.serviceType,
         containerConfig,
         repo: selectedRepo,
+        acrResourceId,
+        acrLoginServer,
+        buildArguments,
       };
 
-      pipeline.setConfig(config, withAsyncAgent);
-      pipeline.setDockerfileDetected([selection.path]);
-      pipeline.setGenerating();
-      // Sync ref eagerly — useLayoutEffect won't run until after this callback yields
-      deploymentStateRef.current = 'FastPathGenerating';
-
       try {
+        requireAcrLoginServer(config);
+        if (!identityReadyRef.current) {
+          throw new Error(
+            'Workload identity and registry permissions must be verified before deployment. Complete identity setup and retry.'
+          );
+        }
+        pipeline.setConfig(config, withAsyncAgent);
+        pipeline.setDockerfileDetected([selection.path]);
+        pipeline.setGenerating();
+        // Sync ref eagerly — useLayoutEffect won't run until after this callback yields.
+        deploymentStateRef.current = 'FastPathGenerating';
         // Create secrets first (needed for the workflow to authenticate)
         await createPipelineSecrets(gitHubAuth.octokit, config);
         if (currentState(deploymentStateRef) !== 'FastPathGenerating') return;
@@ -187,6 +213,9 @@ export const useFastPathOrchestration = ({
       selectedRepo,
       tenantId,
       identityId,
+      acrResourceId,
+      acrLoginServer,
+      buildArguments,
       subscriptionId,
       clusterName,
       resourceGroup,
@@ -265,6 +294,11 @@ export const useFastPathOrchestration = ({
 
     (async () => {
       try {
+        const setupStatus = await getRepoSetupStatus(gitHubAuth.octokit!, config);
+        if (!setupStatus.isCurrent) {
+          console.warn('Skipping async agent review: repository setup is outdated or modified');
+          return;
+        }
         const issueUrl = await triggerAsyncAgentReview(gitHubAuth.octokit!, {
           owner: selectedRepo.owner,
           repo: selectedRepo.repo,

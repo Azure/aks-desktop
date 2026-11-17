@@ -10,6 +10,8 @@ import {
 
 // Azure built-in role names
 const ACR_PUSH = 'AcrPush';
+const ACR_REPO_WRITER = 'Container Registry Repository Writer';
+const ACR_REPO_CATALOG_LISTER = 'Container Registry Repository Catalog Lister';
 const ACR_TASKS_CONTRIBUTOR = 'Container Registry Tasks Contributor';
 const AKS_CLUSTER_USER = 'Azure Kubernetes Service Cluster User Role';
 const AKS_RBAC_WRITER = 'Azure Kubernetes Service RBAC Writer';
@@ -30,6 +32,8 @@ interface IdentityRoleContextBase {
   resourceGroup: string;
   clusterName: string;
   acrResourceId?: string;
+  /** When true, uses `Container Registry Repository Writer` and `Container Registry Repository Catalog Lister` instead of `AcrPush`. */
+  acrAbacEnabled?: boolean;
 }
 
 interface NormalNamespaceRoleContext extends IdentityRoleContextBase {
@@ -55,16 +59,19 @@ export type IdentityRoleContext = NormalNamespaceRoleContext | ManagedNamespaceR
  * based on whether the target is a normal or managed namespace and whether an ACR is involved.
  *
  * Note: `isPipeline` on `NormalNamespaceRoleContext` is NOT used here; it only affects
- * kubelet AcrPull assignment in `identityWithRoles.ts`.
+ * kubelet pull role assignment (`Container Registry Repository Reader` for ABAC registries,
+ * or `AcrPull` for legacy registries) in `identityWithRoles.ts`.
  *
  * Normal Namespace (NS):
- *   - AcrPush → ACR scope (if ACR provided)
+ *   - Container Registry Repository Writer + Container Registry Repository Catalog Lister (ABAC),
+ *     or AcrPush (legacy) → ACR scope (if ACR provided)
  *   - Container Registry Tasks Contributor → ACR scope (if ACR provided)
  *   - AKS Cluster User Role → cluster scope
  *   - AKS RBAC Writer → cluster scope (if Azure RBAC enabled)
  *
  * Managed Namespace (MNS):
- *   - AcrPush → ACR scope (if ACR provided)
+ *   - Container Registry Repository Writer + Container Registry Repository Catalog Lister (ABAC),
+ *     or AcrPush (legacy) → ACR scope (if ACR provided)
  *   - Container Registry Tasks Contributor → ACR scope (if ACR provided)
  *   - AKS RBAC Writer → managed namespace scope
  *   - AKS Namespace User → managed namespace scope
@@ -74,7 +81,12 @@ export function computeRequiredRoles(ctx: IdentityRoleContext): RoleAssignment[]
 
   // ACR roles (common to both NS and MNS when an ACR is provided)
   if (ctx.acrResourceId) {
-    roles.push({ role: ACR_PUSH, scope: ctx.acrResourceId });
+    if (ctx.acrAbacEnabled) {
+      roles.push({ role: ACR_REPO_WRITER, scope: ctx.acrResourceId });
+      roles.push({ role: ACR_REPO_CATALOG_LISTER, scope: ctx.acrResourceId });
+    } else {
+      roles.push({ role: ACR_PUSH, scope: ctx.acrResourceId });
+    }
     roles.push({ role: ACR_TASKS_CONTRIBUTOR, scope: ctx.acrResourceId });
   }
 

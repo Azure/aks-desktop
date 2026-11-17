@@ -15,14 +15,16 @@ import React from 'react';
 import ConfigureContainer from '../../DeployWizard/components/ConfigureContainer';
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
 import { AGENT_CONFIG_PATH, COPILOT_SETUP_STEPS_PATH } from '../constants';
-import type { PipelineConfig } from '../types';
+import type { PipelineConfig, RepoSetupStatus } from '../types';
+import { getAcrBuildFiles } from '../utils/acrTasks/acrTaskRunner';
 
 interface AgentSetupReviewProps {
   config: PipelineConfig;
   identityId: string;
   appName: string;
   onAppNameChange: (appName: string) => void;
-  filesExist?: boolean;
+  setupStatus?: RepoSetupStatus;
+  hasSetupFiles?: boolean;
   containerConfig?: {
     config: ContainerConfig;
     setConfig: React.Dispatch<React.SetStateAction<ContainerConfig>>;
@@ -47,11 +49,19 @@ export function AgentSetupReview({
   identityId,
   appName,
   onAppNameChange,
-  filesExist = false,
+  setupStatus = 'unknown',
+  hasSetupFiles = false,
   containerConfig,
 }: AgentSetupReviewProps) {
-  const needsAppName = !config.appName.trim();
-
+  const files = [
+    ...FILE_LIST,
+    ...(config.acrResourceId || config.acrLoginServer
+      ? Object.keys(getAcrBuildFiles()).map(path => ({
+          path,
+          description: 'ACR Tasks build runtime',
+        }))
+      : []),
+  ];
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
@@ -61,18 +71,26 @@ export function AgentSetupReview({
         </Typography>
       </Box>
 
-      {filesExist ? (
+      {!appName.trim() ? (
         <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
-          Agent config files already exist in{' '}
+          Enter an application name below to verify repository setup.
+        </Typography>
+      ) : setupStatus === 'current' ? (
+        <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
+          Agent setup is verified and current in{' '}
           <strong>
             {config.repo.owner}/{config.repo.repo}
           </strong>
           . Provide the configuration below to trigger the Copilot agent.
         </Typography>
+      ) : setupStatus === 'unknown' || setupStatus === 'verifying' ? (
+        <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
+          Verifying agent setup before continuing.
+        </Typography>
       ) : (
         <>
           <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
-            A setup PR will be created in{' '}
+            {hasSetupFiles ? 'Upgrade setup' : 'Create setup'}: a setup PR will be created in{' '}
             <strong>
               {config.repo.owner}/{config.repo.repo}
             </strong>{' '}
@@ -80,7 +98,7 @@ export function AgentSetupReview({
           </Typography>
 
           <Box sx={{ mb: 3 }}>
-            {FILE_LIST.map(file => (
+            {files.map(file => (
               <Box
                 key={file.path}
                 sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1 }}
@@ -125,19 +143,17 @@ export function AgentSetupReview({
         </Typography>
       </Box>
 
-      {needsAppName && (
-        <Box sx={{ mb: 2 }}>
-          <TextField
-            label="Application Name"
-            helperText="Used for K8s resource naming and PR titles"
-            value={appName}
-            onChange={e => onAppNameChange(e.target.value)}
-            size="small"
-            fullWidth
-            required
-          />
-        </Box>
-      )}
+      <Box sx={{ mb: 2 }}>
+        <TextField
+          label="Application Name"
+          helperText="Used for K8s resource naming and PR titles"
+          value={appName}
+          onChange={e => onAppNameChange(e.target.value)}
+          size="small"
+          fullWidth
+          required
+        />
+      </Box>
 
       {identityId && (
         <Box sx={{ mb: 3 }}>
@@ -151,10 +167,11 @@ export function AgentSetupReview({
         </Box>
       )}
 
-      {!filesExist && (
+      {setupStatus === 'obsolete' && (
         <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
-          After you approve the setup PR, the Copilot agent will analyze your repo and create a
-          deployment PR with Dockerfile, K8s manifests, and a GitHub Actions deploy workflow.
+          Merge the setup PR before the Copilot agent can run. After the merged setup is verified,
+          the Copilot agent will analyze your repo and create a deployment PR with Dockerfile, K8s
+          manifests, and a GitHub Actions deploy workflow.
         </Typography>
       )}
 

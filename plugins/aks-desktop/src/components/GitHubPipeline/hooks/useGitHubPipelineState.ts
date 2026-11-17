@@ -11,6 +11,7 @@ import {
   type PipelineDeploymentState,
   type PipelineState,
   type PRTracking,
+  type RepoSetupStatus,
 } from '../types';
 import { safeRecord } from '../utils/safeRecord';
 
@@ -48,6 +49,7 @@ const INITIAL_STATE: PipelineState = {
   deploymentState: 'Configured',
   config: null,
   repoReadiness: null,
+  setupStatus: 'unknown',
   setupPr: { url: null, number: null, merged: false },
   triggerIssue: { url: null, number: null },
   generatedPr: { url: null, number: null, merged: false },
@@ -57,6 +59,23 @@ const INITIAL_STATE: PipelineState = {
   createdAt: null,
   updatedAt: null,
 };
+
+const SETUP_REVIEW_STATES: ReadonlySet<PipelineDeploymentState> = new Set([
+  'WorkloadIdentitySetup',
+  'ReadyForSetup',
+  'AgentTaskCreating',
+  'SetupPRCreating',
+]);
+
+function recoverRegistrySelection(
+  target: PipelineDeploymentState,
+  config: PipelineConfig | null
+): PipelineDeploymentState {
+  const incompleteRegistry =
+    Boolean(config?.acrResourceId?.trim() || config?.acrLoginServer?.trim()) &&
+    !(config?.acrResourceId?.trim() && config?.acrLoginServer?.trim());
+  return incompleteRegistry && SETUP_REVIEW_STATES.has(target) ? 'AcrSelection' : target;
+}
 
 const loadPersistedState = (repoKey: string): PipelineState | null => {
   try {
@@ -100,11 +119,21 @@ const loadPersistedState = (repoKey: string): PipelineState | null => {
             : {}),
         }
       : null;
+    const config = (safeRecord(data.config) as unknown as PipelineConfig | null) ?? null;
     return {
       ...INITIAL_STATE,
       ...data,
-      deploymentState: deploymentState as PipelineDeploymentState,
+      deploymentState: recoverRegistrySelection(deploymentState as PipelineDeploymentState, config),
+      lastSuccessfulState:
+        typeof data.lastSuccessfulState === 'string' &&
+        VALID_DEPLOYMENT_STATES.has(data.lastSuccessfulState)
+          ? recoverRegistrySelection(data.lastSuccessfulState as PipelineDeploymentState, config)
+          : null,
       repoReadiness,
+      setupStatus:
+        data.setupStatus === 'current' || data.setupStatus === 'obsolete'
+          ? data.setupStatus
+          : 'unknown',
       setupPr: { ...INITIAL_STATE.setupPr, ...safeRecord(data.setupPr) },
       triggerIssue: { ...INITIAL_STATE.triggerIssue, ...safeRecord(data.triggerIssue) },
       generatedPr: { ...INITIAL_STATE.generatedPr, ...safeRecord(data.generatedPr) },
@@ -143,7 +172,8 @@ type PipelineAction =
   | { type: 'SET_AUTH_COMPLETED' }
   | { type: 'SET_APP_INSTALL_NEEDED' }
   | { type: 'SET_CHECKING_REPO' }
-  | { type: 'SET_REPO_READINESS'; readiness: RepoReadiness }
+  | { type: 'SET_REPO_READINESS'; readiness: RepoReadiness; setupCurrent?: boolean }
+  | { type: 'SET_SETUP_STATUS'; status: RepoSetupStatus }
   | { type: 'SET_ACR_COMPLETED' }
   | { type: 'SET_IDENTITY_SETUP' }
   | { type: 'SET_IDENTITY_READY' }
@@ -170,12 +200,13 @@ const VALID_TRANSITIONS: Record<
   SET_APP_INSTALL_NEEDED: new Set(['CheckingRepo', 'AppInstallationNeeded']),
   SET_CHECKING_REPO: new Set(['Configured', 'AppInstallationNeeded']),
   SET_REPO_READINESS: new Set(['CheckingRepo', 'AppInstallationNeeded']),
+  SET_SETUP_STATUS: null,
   SET_ACR_COMPLETED: new Set(['AcrSelection']),
-  SET_IDENTITY_SETUP: new Set(['CheckingRepo', 'ReadyForSetup']),
-  SET_IDENTITY_READY: new Set(['WorkloadIdentitySetup']),
+  SET_IDENTITY_SETUP: new Set(['CheckingRepo', 'ReadyForSetup', 'AgentTaskCreating']),
+  SET_IDENTITY_READY: new Set(['WorkloadIdentitySetup', 'AgentTaskCreating']),
   SET_CREATING_SETUP_PR: new Set(['ReadyForSetup']),
   SET_SETUP_PR_CREATED: new Set(['SetupPRCreating']),
-  SET_SETUP_PR_MERGED: new Set(['SetupPRAwaitingMerge', 'ReadyForSetup']),
+  SET_SETUP_PR_MERGED: new Set(['SetupPRAwaitingMerge', 'ReadyForSetup', 'SetupPRCreating']),
   SET_AGENT_TRIGGERED: new Set(['AgentTaskCreating']),
   SET_GENERATED_PR_CREATED: new Set(['AgentRunning']),
   SET_GENERATED_PR_MERGED: new Set(['GeneratedPRAwaitingMerge', 'AgentRunning']),
@@ -209,7 +240,11 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
 
   const simpleTarget = SIMPLE_TRANSITIONS[action.type];
   if (simpleTarget) {
-    next = { ...state, deploymentState: simpleTarget, updatedAt: now() };
+    next = {
+      ...state,
+      deploymentState: recoverRegistrySelection(simpleTarget, state.config),
+      updatedAt: now(),
+    };
   } else {
     switch (action.type) {
       case 'SET_CONFIG':
@@ -217,18 +252,39 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
           ...state,
           deploymentState: 'Configured',
           config: action.config,
+          setupStatus: 'unknown',
           createdAt: state.createdAt ?? now(),
           updatedAt: now(),
         };
         break;
 
-      case 'UPDATE_CONFIG':
+      case 'UPDATE_CONFIG': {
+        const registryChanged =
+          state.config &&
+          'acrResourceId' in action.partial &&
+          action.partial.acrResourceId !== state.config.acrResourceId;
         next = {
           ...state,
+          ...(registryChanged &&
+          !['Configured', 'CheckingRepo', 'AcrSelection'].includes(state.deploymentState)
+            ? {
+                deploymentState: 'WorkloadIdentitySetup' as const,
+                lastSuccessfulState: 'AcrSelection' as const,
+              }
+            : {}),
           config: state.config ? { ...state.config, ...action.partial } : null,
+          setupStatus:
+            state.config &&
+            Object.entries(action.partial).some(
+              ([key, value]) =>
+                JSON.stringify(state.config![key as keyof PipelineConfig]) !== JSON.stringify(value)
+            )
+              ? 'unknown'
+              : state.setupStatus,
           updatedAt: now(),
         };
         break;
+      }
 
       case 'SET_AUTH_NEEDED':
         next = {
@@ -239,7 +295,10 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
         break;
 
       case 'SET_AUTH_COMPLETED': {
-        const target = state.lastSuccessfulState ?? 'Configured';
+        const target = recoverRegistrySelection(
+          state.lastSuccessfulState ?? 'Configured',
+          state.config
+        );
         next = {
           ...state,
           deploymentState: target,
@@ -250,22 +309,35 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
 
       case 'SET_REPO_READINESS': {
         const { readiness } = action;
+        const setupStatus =
+          action.setupCurrent === undefined
+            ? 'unknown'
+            : action.setupCurrent
+            ? 'current'
+            : 'obsolete';
         if (readiness.hasDeployWorkflow) {
           next = {
             ...state,
             deploymentState: 'PipelineConfigured',
             repoReadiness: readiness,
+            setupStatus,
             updatedAt: now(),
           };
           break;
         }
         const hasIdentity = Boolean(state.config?.identityId?.trim());
         const configComplete = hasIdentity && Boolean(state.config?.appName?.trim());
-        if (readiness.hasSetupWorkflow && readiness.hasAgentConfig && configComplete) {
+        if (
+          action.setupCurrent &&
+          readiness.hasSetupWorkflow &&
+          readiness.hasAgentConfig &&
+          configComplete
+        ) {
           next = {
             ...state,
-            deploymentState: 'AgentTaskCreating',
+            deploymentState: recoverRegistrySelection('WorkloadIdentitySetup', state.config),
             repoReadiness: readiness,
+            setupStatus: 'current',
             updatedAt: now(),
           };
           break;
@@ -275,28 +347,24 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
           ...state,
           deploymentState: 'AcrSelection',
           repoReadiness: readiness,
+          setupStatus,
           updatedAt: now(),
         };
         break;
       }
 
       case 'SET_ACR_COMPLETED': {
-        const hasIdentity = Boolean(state.config?.identityId?.trim());
-        if (!hasIdentity) {
-          next = {
-            ...state,
-            deploymentState: 'WorkloadIdentitySetup',
-            updatedAt: now(),
-          };
-          break;
-        }
         next = {
           ...state,
-          deploymentState: 'ReadyForSetup',
+          deploymentState: recoverRegistrySelection('WorkloadIdentitySetup', state.config),
           updatedAt: now(),
         };
         break;
       }
+
+      case 'SET_SETUP_STATUS':
+        next = { ...state, setupStatus: action.status, updatedAt: now() };
+        break;
 
       case 'SET_SETUP_PR_CREATED':
         next = {
@@ -374,7 +442,10 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
         break;
 
       case 'RETRY': {
-        const retryTarget = state.lastSuccessfulState ?? 'Configured';
+        const retryTarget = recoverRegistrySelection(
+          state.lastSuccessfulState ?? 'Configured',
+          state.config
+        );
         return {
           ...state,
           deploymentState: retryTarget,
@@ -406,7 +477,8 @@ export interface UseGitHubPipelineStateResult {
   setAuthCompleted: () => void;
   setAppInstallNeeded: () => void;
   setCheckingRepo: () => void;
-  setRepoReadiness: (readiness: RepoReadiness) => void;
+  setRepoReadiness: (readiness: RepoReadiness, setupCurrent?: boolean) => void;
+  setSetupStatus: (status: RepoSetupStatus) => void;
   setAcrCompleted: () => void;
   setIdentitySetup: () => void;
   setIdentityReady: () => void;
@@ -484,8 +556,9 @@ export const useGitHubPipelineState = (repoKey: string | null): UseGitHubPipelin
       setAuthCompleted: () => dispatch({ type: 'SET_AUTH_COMPLETED' }),
       setAppInstallNeeded: () => dispatch({ type: 'SET_APP_INSTALL_NEEDED' }),
       setCheckingRepo: () => dispatch({ type: 'SET_CHECKING_REPO' }),
-      setRepoReadiness: (readiness: RepoReadiness) =>
-        dispatch({ type: 'SET_REPO_READINESS', readiness }),
+      setRepoReadiness: (readiness: RepoReadiness, setupCurrent?: boolean) =>
+        dispatch({ type: 'SET_REPO_READINESS', readiness, setupCurrent }),
+      setSetupStatus: (status: RepoSetupStatus) => dispatch({ type: 'SET_SETUP_STATUS', status }),
       setAcrCompleted: () => dispatch({ type: 'SET_ACR_COMPLETED' }),
       setIdentitySetup: () => dispatch({ type: 'SET_IDENTITY_SETUP' }),
       setIdentityReady: () => dispatch({ type: 'SET_IDENTITY_READY' }),

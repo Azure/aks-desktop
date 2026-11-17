@@ -12,6 +12,7 @@ import { getServiceAccountName } from '../../../utils/kubernetes/serviceAccountN
 
 type DeployWorkloadIdentityStatus =
   | 'idle'
+  | 'checking-registry'
   | 'creating-rg'
   | 'checking'
   | 'creating-identity'

@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import type { Octokit } from '@octokit/rest';
+import { Octokit } from '@octokit/rest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createContainerConfig, createValidConfig } from '../__fixtures__/pipelineConfig';
 
@@ -54,9 +54,11 @@ vi.mock('./agentTemplates', () => ({
       .replace(/^-|-$/g, '') || 'app',
 }));
 
+import { getAcrBuildFiles } from './acrTasks/acrTaskRunner';
 import { createFastPathPR, type FastPathPRConfig } from './fastPathOrchestration';
 
-const mockOctokit = {} as unknown as Octokit;
+const mockOctokit = new Octokit();
+const mockGetContent = vi.fn();
 
 const validConfig = createValidConfig({
   acrLoginServer: 'acrprod.azurecr.io',
@@ -72,9 +74,11 @@ const baseFastPathConfig: FastPathPRConfig = {
 describe('fastPathOrchestration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(mockOctokit.repos, 'getContent').mockImplementation(mockGetContent);
     mockGetDefaultBranchSha.mockResolvedValue('sha123');
     mockCreateBranch.mockResolvedValue(undefined);
     mockCreateOrUpdateFile.mockResolvedValue(undefined);
+    mockGetContent.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }));
     mockPushAgentConfigFiles.mockResolvedValue(undefined);
     mockCreatePullRequest.mockResolvedValue({
       number: 10,
@@ -83,6 +87,36 @@ describe('fastPathOrchestration', () => {
   });
 
   describe('createFastPathPR', () => {
+    it('never overlaps branch writes and publishes runtime only after manifests settle', async () => {
+      let active = false;
+      const completed: string[] = [];
+      mockCreateOrUpdateFile.mockImplementation(async (...args) => {
+        expect(active, 'Concurrent Contents commits can race the branch head').toBe(false);
+        active = true;
+        await new Promise(resolve => setTimeout(resolve, 1));
+        completed.push(args[3]);
+        active = false;
+      });
+      await createFastPathPR(mockOctokit, baseFastPathConfig);
+      expect(completed.slice(0, 3)).toEqual([
+        '.github/workflows/deploy-to-aks.yml',
+        'deploy/kubernetes/deployment.yaml',
+        'deploy/kubernetes/service.yaml',
+      ]);
+      expect(completed.slice(3)).toEqual(Object.keys(getAcrBuildFiles()));
+      expect(mockCreatePullRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not start runtime publication or later writes after a manifest commit fails', async () => {
+      mockCreateOrUpdateFile.mockRejectedValueOnce(new Error('branch head conflict'));
+      await expect(createFastPathPR(mockOctokit, baseFastPathConfig)).rejects.toThrow(
+        'branch head conflict'
+      );
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(1);
+      expect(mockGetContent).not.toHaveBeenCalled();
+      expect(mockCreatePullRequest).not.toHaveBeenCalled();
+    });
+
     it('should create branch from default branch SHA', async () => {
       await createFastPathPR(mockOctokit, baseFastPathConfig);
 
@@ -104,7 +138,9 @@ describe('fastPathOrchestration', () => {
     it('should push workflow + deployment + service manifests', async () => {
       await createFastPathPR(mockOctokit, baseFastPathConfig);
 
-      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(3);
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(
+        3 + Object.keys(getAcrBuildFiles()).length
+      );
       expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
         mockOctokit,
         'testuser',
@@ -131,6 +167,89 @@ describe('fastPathOrchestration', () => {
         'service-yaml',
         expect.any(String),
         expect.any(String)
+      );
+    });
+
+    it('publishes every ACR runtime artifact unchanged on the deploy branch', async () => {
+      await createFastPathPR(mockOctokit, baseFastPathConfig);
+      const branchName = mockCreateBranch.mock.calls[0][3];
+
+      for (const [path, content] of Object.entries(getAcrBuildFiles())) {
+        expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+          mockOctokit,
+          'testuser',
+          'my-repo',
+          path,
+          content,
+          expect.any(String),
+          branchName,
+          undefined
+        );
+      }
+    });
+
+    it('can switch from merged agent setup to a plain fast path with an inherited runtime bundle', async () => {
+      const runtime = getAcrBuildFiles();
+      mockGetContent.mockImplementation(async ({ path }) => ({
+        data: { type: 'file', sha: `existing:${path}` },
+      }));
+      mockCreateOrUpdateFile.mockImplementation(async (...args: unknown[]) => {
+        if (Object.keys(runtime).includes(String(args[3])) && args[7] !== `existing:${args[3]}`) {
+          throw new Error('Existing runtime requires its current file SHA');
+        }
+      });
+
+      await expect(createFastPathPR(mockOctokit, baseFastPathConfig)).resolves.toMatchObject({
+        number: 10,
+      });
+
+      const branchName = mockCreateBranch.mock.calls[0][3];
+      for (const [path, content] of Object.entries(runtime)) {
+        expect(mockGetContent).toHaveBeenCalledWith({
+          owner: 'testuser',
+          repo: 'my-repo',
+          path,
+          ref: branchName,
+        });
+        expect(mockCreateOrUpdateFile).toHaveBeenCalledWith(
+          mockOctokit,
+          'testuser',
+          'my-repo',
+          path,
+          content,
+          expect.any(String),
+          branchName,
+          `existing:${path}`
+        );
+      }
+    });
+
+    it('publishes the runtime exactly once when async agent config is included', async () => {
+      const actual = await vi.importActual<typeof import('./agentTemplates')>('./agentTemplates');
+      mockPushAgentConfigFiles.mockImplementationOnce(actual.pushAgentConfigFiles);
+
+      await createFastPathPR(mockOctokit, { ...baseFastPathConfig, withAsyncAgent: true });
+
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(
+        5 + Object.keys(getAcrBuildFiles()).length
+      );
+      for (const [path, content] of Object.entries(getAcrBuildFiles())) {
+        const writes = mockCreateOrUpdateFile.mock.calls.filter(call => call[3] === path);
+        expect(writes).toHaveLength(1);
+        expect(writes[0][4]).toBe(content);
+        expect(writes[0][6]).toBe(mockCreateBranch.mock.calls[0][3]);
+      }
+    });
+
+    it('propagates non-secret build arguments to the workflow generator', async () => {
+      const buildArguments = { MODE: 'production', MESSAGE: 'space "quotes" $value' };
+      await createFastPathPR(mockOctokit, {
+        ...baseFastPathConfig,
+        pipelineConfig: { ...validConfig, buildArguments },
+      });
+
+      expect(mockGenerateDeployWorkflow).toHaveBeenCalledWith(
+        expect.objectContaining({ buildArguments })
       );
     });
 
@@ -200,20 +319,47 @@ describe('fastPathOrchestration', () => {
       );
     });
 
-    it('should derive ACR name from acrResourceId when no login server', async () => {
+    it('rejects ID-only registry configuration before branch creation instead of guessing its host', async () => {
       const configWithResourceId = createValidConfig({
         acrLoginServer: undefined,
         acrResourceId:
           '/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/myacr',
       });
 
+      await expect(
+        createFastPathPR(mockOctokit, {
+          ...baseFastPathConfig,
+          pipelineConfig: configWithResourceId,
+        })
+      ).rejects.toThrow('actual ACR login server');
+      expect(mockCreateBranch).not.toHaveBeenCalled();
+      expect(mockGenerateDeployWorkflow).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { description: 'with a login server', acrLoginServer: 'acrprod.azurecr.io' },
+      { description: 'with a Domain Name Label host', acrLoginServer: 'acrprod-abc123.azurecr.io' },
+    ])('passes the registry ARM scope to the workflow $description', async ({ acrLoginServer }) => {
+      const acrResourceId =
+        '/subscriptions/registry-sub/resourceGroups/registry-rg/providers/Microsoft.ContainerRegistry/registries/acrprod';
+      const pipelineConfig = createValidConfig({
+        subscriptionId: 'cluster-sub',
+        resourceGroup: 'cluster-rg',
+        acrLoginServer,
+        acrResourceId,
+      });
+
       await createFastPathPR(mockOctokit, {
         ...baseFastPathConfig,
-        pipelineConfig: configWithResourceId,
+        pipelineConfig,
       });
 
       expect(mockGenerateDeployWorkflow).toHaveBeenCalledWith(
-        expect.objectContaining({ acrName: 'myacr' })
+        expect.objectContaining({
+          acrResourceId,
+          acrName: acrLoginServer.split('.')[0],
+          resourceGroup: 'cluster-rg',
+        })
       );
     });
 
@@ -231,9 +377,11 @@ describe('fastPathOrchestration', () => {
       ).rejects.toThrow('ACR');
     });
 
-    it('should push 3 files without agent config when withAsyncAgent is false', async () => {
+    it('should push workflow, manifests, and runtime without agent config when withAsyncAgent is false', async () => {
       await createFastPathPR(mockOctokit, baseFastPathConfig);
-      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(3);
+      expect(mockCreateOrUpdateFile).toHaveBeenCalledTimes(
+        3 + Object.keys(getAcrBuildFiles()).length
+      );
       expect(mockPushAgentConfigFiles).not.toHaveBeenCalled();
     });
     it('should call pushAgentConfigFiles when withAsyncAgent is true', async () => {

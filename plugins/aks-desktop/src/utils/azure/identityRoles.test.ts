@@ -45,6 +45,21 @@ describe('computeRequiredRoles', () => {
       ]);
     });
 
+    it('uses Container Registry Repository Writer and Catalog Lister instead of AcrPush when acrAbacEnabled is true', () => {
+      const roles = computeRequiredRoles({
+        ...baseContext,
+        acrResourceId,
+        acrAbacEnabled: true,
+      });
+
+      expect(roles).toEqual([
+        { role: 'Container Registry Repository Writer', scope: acrResourceId },
+        { role: 'Container Registry Repository Catalog Lister', scope: acrResourceId },
+        { role: 'Container Registry Tasks Contributor', scope: acrResourceId },
+        { role: 'Azure Kubernetes Service Cluster User Role', scope: clusterScope },
+      ]);
+    });
+
     it('includes AKS RBAC Writer when azureRbacEnabled is true', () => {
       const roles = computeRequiredRoles({ ...baseContext, azureRbacEnabled: true });
 
@@ -102,7 +117,7 @@ describe('computeRequiredRoles', () => {
         azureRbacEnabled: true,
         acrResourceId,
       });
-      expect(roles).toHaveLength(4); // AcrPush + AcrTasksContributor + ClusterUser + RBACWriter
+      expect(roles).toHaveLength(4);
       // Verify isPipeline alone doesn't change the count vs non-pipeline with same azureRbacEnabled
       const rolesWithoutPipeline = computeRequiredRoles({
         ...baseContext,
