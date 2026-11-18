@@ -74,10 +74,12 @@ async function unusedPort(): Promise<number> {
 }
 
 // `aks-devctl` owns the user's default kubeconfig: `cluster create` adds the cluster's context
-// and `cluster delete` removes it, each by an atomic temp-file rename. The backend must follow
-// both, including removals and an all-null file.
+// and `cluster delete` removes it, each by an atomic temp-file rename. The watcher picks up added
+// contexts but does not retire removed ones, so after the CLI delete the Developer Cluster plugin
+// asks the backend to forget the listed cluster. That request must not change the file, and the
+// periodic reload must not bring the cluster back, including from an all-null file.
 it.each([true, false])(
-  'follows atomic CLI rewrites of the default kubeconfig (another context present: %s)',
+  'lists a CLI-created cluster and forgets it on delete (another context present: %s)',
   async ordinaryExists => {
     expect(process.platform, 'Run this opt-in check with native Windows Node').toBe('win32');
     expect(process.arch).toBe('x64');
@@ -108,6 +110,8 @@ it.each([true, false])(
         APPDATA: path.join(temporaryRoot, 'Roaming'),
         LOCALAPPDATA: path.join(temporaryRoot, 'Local'),
         HEADLAMP_BACKEND_TOKEN: token,
+        // As AKS Desktop's main process sets it; the cluster delete route exists only then.
+        HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS: 'true',
       });
       const child = spawn(
         backend,
@@ -207,13 +211,24 @@ it.each([true, false])(
       writeKubeconfigAtomically(kubeconfig, fixture([...baseNames, 'dev-cluster']));
       await waitForNames([...baseNames, 'dev-cluster']);
 
-      // A later rewrite that drops the context must retire it, not only add new ones.
-      writeKubeconfigAtomically(kubeconfig, fixture([...baseNames, 'replacement']));
-      await waitForNames([...baseNames, 'replacement']);
-
-      // cluster delete; without another context every list is null.
+      // cluster delete; without another context every list is null. The plugin then sends
+      // the same request as its `forgetCluster` (DELETE /cluster/<listed name>).
       writeKubeconfigAtomically(kubeconfig, fixture(baseNames));
+      const afterDelete = fs.readFileSync(kubeconfig, 'utf8');
+      const forgotten = await fetch(`http://127.0.0.1:${port}/cluster/dev-cluster`, {
+        method: 'DELETE',
+        headers: { 'X-HEADLAMP_BACKEND-TOKEN': token },
+        signal: AbortSignal.timeout(10000),
+      });
+      expect(forgotten.status).toBe(200);
       await waitForNames(baseNames);
+      // Outlast one 10 s reload of missing kubeconfig files.
+      const stableUntil = Date.now() + 11000;
+      while (Date.now() < stableUntil) {
+        expect(await clusterNames()).toEqual([...baseNames].sort());
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      expect(fs.readFileSync(kubeconfig, 'utf8')).toBe(afterDelete);
     } finally {
       // Only this test-owned synthetic backend is terminated; no Desktop, CLI, or guest is used.
       if (server && server.exitCode === null && server.signalCode === null) server.kill();
