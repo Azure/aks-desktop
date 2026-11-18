@@ -370,6 +370,7 @@ export async function getClusterInfo(clusterName?: string): Promise<{
     const accountError = account.error ?? '';
     if (!account.isLoggedIn) {
       if (
+        account.needsRelogin ||
         /InteractionRequired|interaction_required|multi-factor authentication|AADSTS50076/.test(
           accountError
         )
