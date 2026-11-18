@@ -472,6 +472,12 @@ describe('azListAll', () => {
     await expect(azListAll({ url: '/subs', credential })).rejects.toThrow(/not an array/);
   });
 
+  test('preserves permissive empty-page handling by default', async () => {
+    mocks.fetch.mockResolvedValueOnce(json(200, {})).mockResolvedValueOnce(json(204));
+    await expect(azListAll({ url: '/subs', credential })).resolves.toEqual([]);
+    await expect(azListAll({ url: '/subs', credential })).resolves.toEqual([]);
+  });
+
   test('refuses to send tokens to a foreign nextLink host', async () => {
     mocks.fetch.mockResolvedValueOnce(
       json(200, { value: [1], nextLink: 'https://evil.example.com/steal' })

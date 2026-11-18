@@ -248,6 +248,7 @@ export async function getContainerRegistries(subscriptionId: string): Promise<Ac
   try {
     const cloud = await getAzureCloudEndpoints();
     const registries = await azListAll<RegistryResource>({
+      requireValueArray: true,
       url:
         `/subscriptions/${encodeURIComponent(subscriptionId)}` +
         '/providers/Microsoft.ContainerRegistry/registries',

@@ -138,6 +138,58 @@ describe('getContainerRegistries', () => {
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
 
+  test.each([{}, undefined])(
+    'rejects a first registry page without a value array: %o',
+    async body => {
+      mocks.fetch.mockResolvedValueOnce(
+        body === undefined ? new Response(null, { status: 204 }) : json(200, body)
+      );
+      await expect(getContainerRegistries(subscriptionId)).rejects.toThrow(
+        /Malformed list response/
+      );
+      expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  test.each([{}, undefined])(
+    'rejects a later registry page without returning partial inventory: %o',
+    async body => {
+      mocks.fetch
+        .mockResolvedValueOnce(
+          json(200, {
+            value: [
+              {
+                id:
+                  `/subscriptions/${subscriptionId}/resourceGroups/group/` +
+                  'providers/Microsoft.ContainerRegistry/registries/myregistry',
+                name: 'myregistry',
+                location: 'eastus',
+                properties: { loginServer: 'myregistry.azurecr.io' },
+              },
+            ],
+            nextLink: '?api-version=2023-07-01&$skiptoken=next',
+          })
+        )
+        .mockResolvedValueOnce(
+          body === undefined ? new Response(null, { status: 204 }) : json(200, body)
+        );
+      await expect(getContainerRegistries(subscriptionId)).rejects.toThrow(
+        /Malformed list response/
+      );
+      expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  test('accepts empty value arrays and follows an empty page continuation', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(
+        json(200, { value: [], nextLink: '?api-version=2023-07-01&$skiptoken=next' })
+      )
+      .mockResolvedValueOnce(json(200, { value: [] }));
+    await expect(getContainerRegistries(subscriptionId)).resolves.toEqual([]);
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
   test('rejects malformed JSON in a registry list', async () => {
     mocks.fetch.mockResolvedValueOnce(new Response('{', { status: 200 }));
     await expect(getContainerRegistries(subscriptionId)).rejects.toThrow(/Malformed JSON response/);
