@@ -44,7 +44,7 @@
     "test:post-build": "tsx ./build/verify-bundled-tools.ts",
     "test:distribution": "npm run test:post-build && npm run headlamp:smoke --",
     "test:packaged-theme": "tsc -p test/packaged/tsconfig.json && playwright test --config test/packaged/playwright.config.ts",
-    "plugin:setup": "npm --prefix node_modules/@headlamp-k8s/headlamp-source run bundle:plugins",
+    "plugin:setup": "npm --prefix node_modules/insights-plugin run build && npm --prefix node_modules/@headlamp-k8s/headlamp-source run bundle:plugins",
     "plugin:install-releases": "tsx ./build/install-release-plugins.ts",
     "plugin:install": "npm ci --prefix plugins/aks-desktop --prefer-offline --no-audit --no-fund",
     "plugin:build": "cd plugins/aks-desktop && npm run build",
@@ -811,7 +811,9 @@
       {
         "name": "insights-plugin",
         "packageName": "insights-plugin",
-        "source": "plugins/insights-plugin",
+        "source": {
+          "type": "package"
+        },
         "enabledByDefault": true
       },
       {
@@ -829,6 +831,7 @@
     "concurrently": "^10.0.7",
     "cross-env": "10.1.0",
     "husky": "^9.0.0",
+    "insights-plugin": "file:plugins/insights-plugin",
     "knip": "^6.45.1",
     "lint-staged": "^17.6.0",
     "tsx": "^4.23.1",
