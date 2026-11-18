@@ -77,6 +77,20 @@ test('stops dependency installation at the first failed group', t => {
   assert.deepEqual(scripts, ['headlamp:install', 'plugin:install']);
 });
 
+test('can defer only Headlamp until after the root clean install and cache restore', t => {
+  const scripts: string[] = [];
+  const marked: string[] = [];
+  t.mock.method(console, 'log', () => undefined);
+  installDependencies(
+    '/workspace',
+    script => scripts.push(script),
+    directory => marked.push(directory),
+    { HEADLAMP_DEFER_DESKTOP_INSTALL: 'true' }
+  );
+  assert.deepEqual(scripts, pluginSteps.map(step => step.script));
+  assert.equal(marked.length, pluginSteps.length);
+});
+
 for (const state of ['valid', 'disabled', 'missing', 'partial', 'manifest', 'lock', 'installed-lock']) {
   test(`plugin dependency reuse handles ${state} cache state`, t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cached-plugin-deps-'));

@@ -11,6 +11,7 @@ import test from 'node:test';
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const APP_DIR = path.join(ROOT_DIR, 'node_modules/@headlamp-k8s/headlamp-source/source/app');
 const CACHE_ACTION = '.github/actions/cache-windows-plugin-dependencies';
+const HEADLAMP_CACHE_ACTION = '.github/actions/cache-headlamp-dependencies';
 const workflow = (name: string) =>
   fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', name), 'utf8');
 
@@ -145,6 +146,76 @@ test('unconfirmed Windows plugin cache restores discard partial trees before reu
   }
   runCleanup();
   assert.equal(fs.readFileSync(path.join(unrelated, 'keep'), 'utf8'), 'unrelated dependency');
+});
+
+test('Windows restores Headlamp after root npm ci and saves verified trees before packaging', () => {
+  const action = fs.readFileSync(path.join(ROOT_DIR, HEADLAMP_CACHE_ACTION, 'action.yml'), 'utf8');
+  const names = [
+    'Resolve Headlamp cache inputs',
+    'Restore Headlamp dependencies',
+    'Discard unconfirmed Headlamp dependencies',
+    'Install Headlamp dependencies',
+    'Verify Headlamp dependency snapshot',
+    'Save Headlamp dependencies',
+  ];
+  const steps = names.map(name => workflowStep(action, name));
+  assert.match(steps[0], /run: npm run headlamp:install -- --cache-inputs/);
+  for (const input of [
+    `${HEADLAMP_CACHE_ACTION}/action.yml`,
+    'build/install-headlamp-desktop.ts',
+    'build/dependency-target.ts',
+    '.config/npm/package*.json',
+    'packages/headlamp-source/src/lib/bundle-plugins.ts',
+    'packages/headlamp-source/src/lib/npm-command.ts',
+  ]) {
+    assert.ok(steps[0].includes(`'${input}'`));
+  }
+  assert.match(steps[1], /uses: actions\/cache\/restore@[a-f0-9]{40}/);
+  assert.match(steps[1], /key: \$\{\{ steps\.cache-inputs\.outputs\.key \}\}/);
+  assert.match(steps[1], /path: \$\{\{ steps\.cache-inputs\.outputs\.paths \}\}/);
+  const cacheId = steps[1].match(/\bid: ([\w-]+)/)?.[1];
+  assert.ok(cacheId);
+  for (const conditional of [steps[2], steps[5]]) {
+    assert.ok(conditional.includes(`if: steps.${cacheId}.outputs.cache-hit != 'true'`));
+  }
+  assert.match(steps[2], /run: npm run headlamp:install -- --discard-cache/);
+  assert.match(steps[3], /HEADLAMP_REUSE_DESKTOP_DEPENDENCIES: 'true'/);
+  assert.match(steps[3], /run: npm run headlamp:install\s*$/);
+  assert.match(steps[4], /run: npm run headlamp:install -- --verify-cache/);
+  assert.match(steps[5], /uses: actions\/cache\/save@[a-f0-9]{40}/);
+  assert.match(steps[5], /key: \$\{\{ steps\.cache-inputs\.outputs\.key \}\}/);
+  assert.match(steps[5], /path: \$\{\{ steps\.cache-inputs\.outputs\.paths \}\}/);
+  assert.doesNotMatch(action, /restore-keys:/);
+  for (let index = 1; index < steps.length; index++) {
+    assert.ok(action.indexOf(steps[index - 1]) < action.indexOf(steps[index]));
+  }
+
+  for (const name of ['ci.yml', 'build-app-win.yml']) {
+    const job = workflowJob(workflow(name), name === 'ci.yml' ? 'application-build' : 'build');
+    const rootInstall = workflowStep(job, 'Install dependencies');
+    const headlamp = workflowStep(job, 'Restore and install Headlamp dependencies');
+    const build = workflowStep(job, name === 'ci.yml'
+      ? 'Build application for host platform'
+      : 'Setup AKS desktop and Build Headlamp (Windows)');
+    assert.match(rootInstall, /run: npm ci --prefer-offline --no-audit --no-fund/);
+    assert.doesNotMatch(rootInstall, /--ignore-scripts/);
+    assert.ok(headlamp.includes(`uses: ./${HEADLAMP_CACHE_ACTION}`));
+    if (name === 'ci.yml') {
+      assert.ok(rootInstall.includes("runner.os == 'Windows' && 'true' || ''"));
+      assert.match(headlamp, /if: runner\.os == 'Windows'/);
+    } else {
+      assert.match(rootInstall, /HEADLAMP_DEFER_DESKTOP_INSTALL: 'true'/);
+    }
+    assert.ok(job.indexOf(rootInstall) < job.indexOf(headlamp));
+    assert.ok(job.indexOf(headlamp) < job.indexOf(build));
+  }
+});
+
+test('Dependabot covers the shared plugin and Headlamp cache actions', () => {
+  const configuration = fs.readFileSync(path.join(ROOT_DIR, '.github/dependabot.yml'), 'utf8');
+  for (const action of [CACHE_ACTION, HEADLAMP_CACHE_ACTION]) {
+    assert.ok(configuration.includes(`'/${action}'`));
+  }
 });
 
 test('PR CI verifies patch contracts before assembly and uploads the native ARM64 installer', () => {

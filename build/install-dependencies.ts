@@ -59,6 +59,10 @@ export function installDependencies(
 ): void {
   runTimedStep('install all dependencies', () => {
     for (const step of DEPENDENCY_INSTALL_STEPS) {
+      if (step.script === 'headlamp:install' && env.HEADLAMP_DEFER_DESKTOP_INSTALL === 'true') {
+        console.log('Deferring Headlamp installation until installed-dependency cache restoration.');
+        continue;
+      }
       runTimedStep(step.name, () => {
         if (
           'pluginDirectory' in step &&

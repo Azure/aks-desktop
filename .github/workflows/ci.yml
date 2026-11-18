@@ -183,7 +183,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
+        env:
+          HEADLAMP_DEFER_DESKTOP_INSTALL: ${{ runner.os == 'Windows' && 'true' || '' }}
         run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Restore and install Headlamp dependencies
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/cache-headlamp-dependencies
 
       - name: Test platform build helpers
         run: >-

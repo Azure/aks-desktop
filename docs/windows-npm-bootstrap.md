@@ -76,8 +76,8 @@ are discarded before installation or bundling can reuse them. This also handles
 partial extraction that restored valid markers and lockfiles but missed packages,
 including the independently enabled `insights-plugin` packaging reuse.
 Only trees whose clean-install identity matches the manifests and npm's hidden
-lockfile are reused; a missing or stale marker triggers normal `npm ci`. Headlamp
-installation, plugin builds, packaging, and native runtime checks still execute.
+lockfile are reused; a missing or stale marker triggers normal `npm ci`. Backend
+builds, plugin builds, packaging, and native runtime checks still execute.
 
 Both workflows call the [shared cache action](../.github/actions/cache-windows-plugin-dependencies/action.yml),
 which owns the cache inputs, plugin paths, and reuse selection. Its definition is
@@ -103,7 +103,44 @@ Cold caches still require installation. Compare cache-hit output and the existin
 `[build-timing]` install phases rather than treating a configured cache as a
 measured speedup.
 
-### Measured native ARM64 cache reuse
+### Installed Headlamp dependency cache
+
+The [Headlamp cache action](../.github/actions/cache-headlamp-dependencies/action.yml)
+now separately caches the installed frontend and Electron app dependency trees
+on both native Windows architectures. The frontend cache represents the existing
+`npm ci --omit=dev` install; the app cache represents the full clean install.
+
+Root `npm ci` still runs its normal lifecycle hooks and materializes/patches the
+source package. On Windows only, `HEADLAMP_DEFER_DESKTOP_INSTALL=true` defers the
+Headlamp install until that clean install finishes. Restoring earlier would be
+ineffective because root `npm ci` deletes the installed source dependency trees.
+Normal local installs and non-Windows jobs retain their existing behavior.
+
+Keys use the Headlamp pin/patch identity, actual dependency manifests and locks,
+npm configuration, actual Node/npm versions, Node ABI, target architecture,
+installation mode, and cache-policy helpers. Unrelated AKS product metadata does
+not invalidate this cache. Source, patch, dependency, runtime, or configuration
+changes do invalidate it.
+
+Unless restoration confirms an exact hit, both trees are discarded. Even on a
+hit, both clean-install markers and their installation context must match before
+either `npm ci` is skipped. A failed replacement invalidates the completed-target
+record. Backend compilation still runs with the existing Go cache.
+
+New caches are verified and saved immediately after successful installation,
+before packaging can mutate native dependencies. Neither incomplete installs nor
+build-mutated trees are saved as clean snapshots. The same event-ref checkout
+boundary applies, and Dependabot covers both cache actions.
+
+Real frontend/app installs were restored across a root-clean-install round trip
+locally; both subsequent `npm ci` calls were skipped. Backend compilation was
+disabled only for that local dependency-cache smoke, not in the workflows.
+Native ARM64 timings for this additional cache must be measured on a confirmed
+hit, including its restore cost, root installation, and Headlamp action time.
+
+### Measured native ARM64 plugin-cache baseline
+
+This measurement predates the additional installed Headlamp dependency cache.
 
 On `93dd7c5fa`, attempts 1 and 2 of
 [run 44169082943](https://github.com/Azure/aks-desktop/actions/runs/44169082943)

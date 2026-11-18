@@ -65,7 +65,12 @@ jobs:
           node-version: 22.22.2
 
       - name: Install dependencies
+        env:
+          HEADLAMP_DEFER_DESKTOP_INSTALL: 'true'
         run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Restore and install Headlamp dependencies
+        uses: ./.github/actions/cache-headlamp-dependencies
 
       - name: Setup AKS desktop and Build Headlamp (Windows)
         run: npm run build:win:${{ matrix.arch }}
