@@ -4,11 +4,32 @@ Live tests require `AZ_LIVE_TESTS=1`, Azure CLI on PATH and an existing `az logi
 session. Azure CLI is used to bootstrap an ARM token (refreshed only on expiry); resource
 creation, assertions, polling, inventory and cleanup use REST.
 
-The default subscription is **Cloud Native Tools**, not the CLI's current
-subscription. For this PR's live validation, use only Cloud Native Tools.
+The resource-creating suites default to **Cloud Native Tools**, not the CLI's
+current subscription. For their live validation, use only Cloud Native Tools.
 `AZ_LIVE_SUBSCRIPTION` may specify that subscription's GUID instead of its name;
 do not point the live run at another subscription or switch to another cloud.
 `AZ_LIVE_LOCATION` defaults to `eastus2`.
+
+## Read-only managed cluster discovery
+
+```sh
+AZ_LIVE_TESTS=1 npm --prefix plugins/aks-desktop run test:unit -- az-clusters.live.test.ts
+```
+
+This co-located suite uses the **current CLI subscription**, unlike the
+resource-creating suites below; `AZ_LIVE_SUBSCRIPTION` does not select its account.
+It never switches accounts/clouds, creates resources or needs cleanup. It is
+disabled whenever `CI` is set, even with the live opt-in. The command adapter permits
+only `az account show`, `az account get-access-token` and `az cloud show`.
+
+The suite covers normal Graph-first discovery and real ARM fallback list/info/ID-group
+reads. ARM cases bypass only Graph; authentication, cloud configuration, tokens,
+HTTP and responses remain real. The lookup case skips when no uniquely named
+managed cluster exists. Errors are sanitized and assertions use types/booleans to
+avoid logging account or resource identifiers. It does not validate managed-detail
+projections, packaged-app behavior or sovereign/custom-cloud accounts.
+
+## Resource-creating suites
 
 Run a suite, for example:
 
@@ -94,7 +115,7 @@ The shared AKS fixture gives the initial PUT and subsequent polling the remainin
 20-minute provisioning budget, rather than a separate 60-second transport cap.
 Timing regressions cover a two-minute initial PUT and exact remaining poll time.
 
-Each test creates a fresh resource group named
+Each resource-creating test creates a fresh resource group named
 `aksd-rest-e2e-<suite>-<UTC timestamp>-<random ID>`. Tags record the test suite,
 run ID and creation time. AKS node groups use the same name with `-nodes`.
 Tests clean up both groups in a per-test `finally` block even when setup or an
