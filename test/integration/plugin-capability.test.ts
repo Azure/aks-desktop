@@ -126,7 +126,7 @@ test('the product grants AI assistant auto-detect commands in every app environm
   }
 });
 
-test('AKS approvals retain main defaults plus scoped directory reads', () => {
+test('AKS command policies retain only current CLI consumers', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')).headlamp;
   for (const environment of ['development', 'production'] as const) {
     const policy = productPluginCommandPolicies(manifest, environment).find(
@@ -135,43 +135,74 @@ test('AKS approvals retain main defaults plus scoped directory reads', () => {
     assert.ok(policy, `Missing ${environment} AKS command policy`);
     assert.equal(policy.bundleName, 'aks-desktop');
     const prefixes = [
-      '--version', 'version', 'login', 'logout', 'config', 'aks', 'connectedk8s',
-      'aksarc', 'extension', 'feature', 'account', 'cloud', 'role', 'graph',
-      'acr', 'group', 'vm', 'alerts-management', 'monitor',
+      'login',
+      'logout',
+      'aks',
+      'account',
+      'cloud',
+      'role',
+      'acr',
+      'alerts-management',
+      'monitor',
     ];
     assert.deepEqual(policy.approvedCommands, [
-      { tool: 'az', args: [] },
       ...prefixes.map(prefix => ({
-        tool: 'az', args: prefix === 'cloud' ? ['cloud', 'show'] : [prefix],
+        tool: 'az',
+        args: prefix === 'cloud' ? ['cloud', 'show'] : [prefix],
         allowTrailingArgs: true,
       })),
-      { tool: 'kubectl', args: ['top'], allowTrailingArgs: true },
       { tool: 'kubectl', args: ['config'], allowTrailingArgs: true },
-      { tool: 'az', args: ['ad', 'user', 'list'], allowTrailingArgs: true },
-      { tool: 'az', args: ['ad', 'user', 'show'], allowTrailingArgs: true },
     ]);
     assert.equal(policy.consent, undefined);
     assert.equal(policy.source, environment === 'development' ? 'development' : 'shipped');
-    for (const args of [['version'], ['account', 'show', '-o', 'json'], ['extension', 'list']]) {
+    for (const args of [
+      ['account', 'show', '-o', 'json'],
+      ['aks', 'namespace', 'show'],
+      ['acr', 'list'],
+    ]) {
       assert.equal(isRunCommandAllowed(policy.grants, 'az', args), true);
       assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', args), true);
     }
-    assert.equal(isRunCommandAllowed(policy.grants, 'az', ['rest']), true);
+    assert.equal(isRunCommandAllowed(policy.grants, 'az', ['identity', 'list']), true);
     for (const grants of [policy.grants, policy.approvedCommands]) {
-      assert.equal(isRunCommandAllowed(grants, 'az', ['cloud', 'show', '--name', 'AzureUSGovernment']), true);
+      assert.equal(
+        isRunCommandAllowed(grants, 'az', [
+          'cloud',
+          'show',
+          '--name',
+          'AzureUSGovernment',
+        ]),
+        true
+      );
       assert.equal(isRunCommandAllowed(grants, 'az', ['cloud', 'set', '--name', 'AzureUSGovernment']), false);
       assert.equal(isRunCommandAllowed(grants, 'az', ['cloud', 'register', '--name', 'Other']), false);
+      for (const args of [
+        [],
+        ['version'],
+        ['config', 'set'],
+        ['extension', 'list'],
+        ['graph', 'query'],
+        ['rest'],
+        ['ad', 'user', 'list'],
+        ['feature', 'show'],
+        ['group', 'list'],
+        ['connectedk8s', 'delete'],
+        ['vm', 'list'],
+        ['aksarc', 'list'],
+      ]) {
+        assert.equal(isRunCommandAllowed(grants, 'az', args), false);
+      }
     }
-    assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', ['rest']), false);
-    assert.equal(isRunCommandAllowed(policy.approvedCommands, 'kubectl', ['top', 'nodes']), true);
+    assert.equal(isRunCommandAllowed(policy.approvedCommands, 'kubectl', ['config', 'current-context']), true);
+    assert.equal(isRunCommandAllowed(policy.grants, 'kubectl', ['config', 'current-context']), true);
+    assert.equal(isRunCommandAllowed(policy.approvedCommands, 'kubectl', ['top', 'nodes']), false);
     assert.equal(isRunCommandAllowed(policy.grants, 'kubectl', ['top', 'nodes']), false);
-    assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', []), true);
     assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', ['unknown']), false);
     assert.equal(isRunCommandAllowed(policy.grants, 'sh', ['-c', 'command']), false);
   }
 });
 
-test('AKS project user lookup approvals do not approve directory writes or other plugins', () => {
+test('AKS project directory commands remain denied after the REST migration', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')).headlamp;
   for (const environment of ['development', 'production'] as const) {
     const policies = productPluginCommandPolicies(manifest, environment);
@@ -180,18 +211,11 @@ test('AKS project user lookup approvals do not approve directory writes or other
     for (const args of [
       ['ad', 'user', 'list', '--filter', "startswith(displayName,'Example')", '--output', 'json'],
       ['ad', 'user', 'show', '--id', 'user@example.com', '--output', 'json'],
-    ]) {
-      assert.equal(isRunCommandAllowed(policy.grants, 'az', args), true);
-      assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', args), true);
-      for (const other of policies.filter((candidate: { packageName: string }) => candidate.packageName !== 'aks-desktop')) {
-        assert.equal(isRunCommandAllowed(other.approvedCommands ?? [], 'az', args), false);
-      }
-    }
-    for (const args of [
       ['ad'], ['ad', 'user'], ['ad', 'user', 'delete', '--id', 'user@example.com'],
       ['ad', 'user', 'update', '--id', 'user@example.com'], ['ad', 'user', 'create'],
       ['ad', 'app', 'create'], ['ad', 'group', 'delete'], ['ad', 'user', 'list-extra'],
     ]) {
+      assert.equal(isRunCommandAllowed(policy.grants, 'az', args), false);
       assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', args), false);
     }
   }

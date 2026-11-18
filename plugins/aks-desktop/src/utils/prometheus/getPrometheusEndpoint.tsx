@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { configureAzureCliExtensions } from '../azure/az-extensions';
 import { runCommandWithOutput } from '../kubernetes/cli-runner';
 
 /**
@@ -18,11 +17,6 @@ export async function getPrometheusEndpoint(
   subscription: string
 ): Promise<string> {
   try {
-    // Configure Azure CLI to auto-install extensions without prompts
-    // This allows the az alerts-management command to automatically install the extension if needed
-    console.debug('Configuring Azure CLI for automatic extension installation...');
-    await configureAzureCliExtensions();
-
     console.debug('[getPrometheusEndpoint] Querying prometheus rule groups...');
     console.debug('[getPrometheusEndpoint] Parameters:', {
       resourceGroup,

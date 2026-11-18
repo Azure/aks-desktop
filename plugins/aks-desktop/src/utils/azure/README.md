@@ -1,6 +1,6 @@
 # Azure Utilities (`utils/azure/`)
 
-This directory contains the Azure CLI integration layer for AKS Desktop. Every Azure operation — authentication, cluster management, namespace CRUD, identity setup — flows through these modules.
+This directory contains the Azure integration layer for AKS Desktop. Azure resource operations use direct HTTP where available; retained CLI-backed operations and authentication also flow through these modules.
 
 ## Module Map
 
@@ -19,11 +19,10 @@ This directory contains the Azure CLI integration layer for AKS Desktop. Every A
 | Module                     | Responsibility                                                               |
 | -------------------------- | ---------------------------------------------------------------------------- |
 | `az-auth.ts`               | Login flows and status checks                                                |
-| `az-extensions.ts`         | Extension installation, status checks, and Azure CLI configuration           |
 | `az-resource-providers.ts` | Subscription resource-provider registration                                  |
 | `az-subscriptions.ts`      | Subscriptions and resource groups                                            |
 | `az-clusters.ts`           | AKS cluster listing (Resource Graph optimized), status, capabilities, addons |
-| `az-resource-graph.ts`     | Azure Resource Graph queries for clusters, counts, and managed namespaces    |
+| `az-resource-graph.ts`     | ARM Resource Graph queries for clusters, counts, and managed namespaces      |
 | `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                     |
 | `az-namespace-access.ts`   | Namespace role assignments and access verification                           |
 | `az-identity.ts`           | Managed identity CRUD, role assignments, scope building                      |
@@ -38,7 +37,6 @@ These modules compose the `az-*` primitives into higher-level workflows used by 
 | Module                 | Responsibility                                                           |
 | ---------------------- | ------------------------------------------------------------------------ |
 | `aks.ts`               | Legacy cluster registration flow (subscriptions + clusters + kubeconfig) |
-| `checkAzureCli.ts`     | Pre-flight check: is the CLI installed and new enough?                   |
 | `identitySetup.ts`     | Ensure resource group + managed identity exist (create-if-missing)       |
 | `identityRoles.ts`     | Compute required role assignments for a given namespace context          |
 | `identityWithRoles.ts` | End-to-end: ensure identity exists with all required roles               |
@@ -52,7 +50,6 @@ az-cli-path.ts  (standalone — CLI path resolution)
 az-cli-core.ts  (foundation — runCommandAsync, runAzCommand, error helpers)
     ^
     ├── az-auth.ts ──────────────────> az-cli-path.ts
-    ├── az-extensions.ts
     ├── az-resource-providers.ts
     ├── az-subscriptions.ts ─────────> az-cloud.ts, az-http.ts, az-token.ts, az-validation.ts
     ├── az-resource-graph.ts ────────> az-http.ts
@@ -80,6 +77,9 @@ domains. Tokens are cached separately by subscription, tenant and audience.
 
 Live tests (`*.live.test.ts`) verify real ARM results through REST and require a
 logged-in `az` for authentication, not resource-operation parity commands.
+Packaged builds retain the `alertsmanagement` and `connectedk8s` extensions for
+their active consumers. Resource Graph uses ARM REST, and runtime code must not
+install extensions or change the user's Azure CLI extension configuration.
 
 Resource-provider registration uses direct REST and requires an explicit selected
 subscription. Success means accepted; pass `waitUntilRegistered: true` to poll for
@@ -259,7 +259,7 @@ Returned by `runCommandAsync`. Callers check `stderr` for errors.
 { success: boolean; stdout: string; stderr: string; error?: string }
 ```
 
-Used by domain functions (e.g., `az-extensions.ts`, `az-namespaces.ts`) that need to expose both the success flag and raw CLI output.
+Used by domain functions such as `az-namespaces.ts` that need to expose both the success flag and raw CLI output.
 
 **`runAzCommand<T>`** — runs an `az` CLI command and returns `{ success: boolean; data?: T; error?: string }`. Does **not** throw on CLI errors — returns `success: false` with an `error` message instead. JSON parsing is not automatic; callers pass an optional `parseOutput` function (commonly `JSON.parse`) to convert stdout into `T`. Handles `needsRelogin` detection internally.
 

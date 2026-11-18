@@ -20,7 +20,6 @@ import {
   Typography,
 } from '@mui/material';
 import React from 'react';
-import AzureCliWarning from '../../AzureCliWarning';
 import { STEPS } from '../types';
 import { Breadcrumb } from './Breadcrumb';
 
@@ -82,11 +81,6 @@ export interface CreateAKSProjectPureProps {
   applicationName: string;
   /** Setter for {@link applicationName}. */
   setApplicationName: React.Dispatch<React.SetStateAction<string>>;
-  /**
-   * CLI warning messages from `checkAzureCli`.
-   * Non-empty when the Azure CLI is missing or outdated.
-   */
-  cliSuggestions: string[];
   /** Per-step validation result; gates the "Next" / "Create Project" button. */
   validation: { isValid: boolean };
   /** `true` while Azure subscriptions/clusters are loading; adds `aria-busy` to Next button. */
@@ -134,7 +128,6 @@ export default function CreateAKSProjectPure({
   showSuccessDialog,
   applicationName,
   setApplicationName,
-  cliSuggestions,
   validation,
   azureResourcesLoading,
   onNavigateToProject,
@@ -154,12 +147,6 @@ export default function CreateAKSProjectPure({
         subtitle={t('Set up and configure a new project in Azure Kubernetes Service (AKS)')}
         backLink="/"
       >
-        {cliSuggestions.length > 0 && (
-          <Box sx={{ mb: 2 }}>
-            <AzureCliWarning suggestions={cliSuggestions} />
-          </Box>
-        )}
-
         {/* aria-busy signals to assistive technologies that this region is being updated
             while the project creation request is in-flight. aria-describedby links the Card
             to the progress indicator so AT knows which region is loading.

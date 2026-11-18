@@ -6,8 +6,7 @@ This directory contains TypeScript tests for the utility functions in the AKS He
 
 ```
 src/utils/test/
-├── az-cli-simple.test.ts   # Azure CLI installation and login detection
-├── az-cli-final.test.ts    # Additional Azure CLI command tests
+├── azureLiveAuthBridge.test.ts # Restricted live-test authentication bridge
 └── README.md
 ```
 
@@ -18,7 +17,7 @@ src/utils/test/
 npm test
 
 # Run specific test file
-npx vitest run src/utils/test/az-cli-simple.test.ts
+npx vitest run src/utils/test/getClusterCapabilities.test.ts
 
 # Run tests in watch mode
 npx vitest src/utils/test/
@@ -32,14 +31,7 @@ npx vitest src/utils/test/
 
 ## Test Coverage
 
-### Azure CLI Tests (`az-cli-*.test.ts`)
-
-Tests for Azure CLI utility functions:
-
-- `isAzCliInstalled()` - Detects if Azure CLI is installed
-- `isAzCliLoggedIn()` - Checks user authentication status
-
-All Azure CLI commands are mocked using `vi.mock()` to avoid external dependencies.
+Azure CLI commands are mocked using `vi.mock()` to avoid external dependencies.
 
 ## Adding New Tests
 

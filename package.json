@@ -112,20 +112,14 @@
       "azureCli": {
         "version": "2.90.0",
         "extensions": [
-          "resource-graph",
           "alertsmanagement",
           "connectedk8s"
         ],
         "extensionVersions": {
-          "resource-graph": "2.1.1",
           "alertsmanagement": "1.0.0b2",
           "connectedk8s": "1.11.3"
         },
         "extensionPackages": {
-          "resource-graph": {
-            "url": "https://azcliprod.blob.core.windows.net/cli-extensions/resource_graph-2.1.1-py2.py3-none-any.whl",
-            "checksum": "436b2e865d7f3fb6beea2cdc017c74dd48a66991209a5ab8dc092443ec93140f"
-          },
           "alertsmanagement": {
             "url": "https://azcliprod.blob.core.windows.net/cli-extensions/alertsmanagement-1.0.0b2-py3-none-any.whl",
             "checksum": "37f376234f8047df93d7c5355cc864f35ec195f6c7babe148f57349303af6696"
@@ -340,24 +334,6 @@
         "approvedCommands": [
           {
             "tool": "az",
-            "args": []
-          },
-          {
-            "tool": "az",
-            "args": [
-              "--version"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "version"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
             "args": [
               "login"
             ],
@@ -373,42 +349,7 @@
           {
             "tool": "az",
             "args": [
-              "config"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "aks"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "connectedk8s"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "aksarc"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "extension"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "feature"
             ],
             "allowTrailingArgs": true
           },
@@ -437,28 +378,7 @@
           {
             "tool": "az",
             "args": [
-              "graph"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "acr"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "group"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "vm"
             ],
             "allowTrailingArgs": true
           },
@@ -479,32 +399,7 @@
           {
             "tool": "kubectl",
             "args": [
-              "top"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "kubectl",
-            "args": [
               "config"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "ad",
-              "user",
-              "list"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "ad",
-              "user",
-              "show"
             ],
             "allowTrailingArgs": true
           }
@@ -545,13 +440,6 @@
           {
             "tool": "az",
             "args": [
-              "ad"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "acr"
             ],
             "allowTrailingArgs": true
@@ -567,48 +455,6 @@
             "tool": "az",
             "args": [
               "alerts-management"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "config"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "connectedk8s"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "extension"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "feature"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "graph"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "group"
             ],
             "allowTrailingArgs": true
           },
@@ -643,28 +489,7 @@
           {
             "tool": "az",
             "args": [
-              "rest"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "role"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "version"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "vm"
             ],
             "allowTrailingArgs": true
           },
@@ -739,24 +564,6 @@
         "approvedCommands": [
           {
             "tool": "az",
-            "args": []
-          },
-          {
-            "tool": "az",
-            "args": [
-              "--version"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "version"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
             "args": [
               "login"
             ],
@@ -772,42 +579,7 @@
           {
             "tool": "az",
             "args": [
-              "config"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "aks"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "connectedk8s"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "aksarc"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "extension"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "feature"
             ],
             "allowTrailingArgs": true
           },
@@ -836,28 +608,7 @@
           {
             "tool": "az",
             "args": [
-              "graph"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "acr"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "group"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "vm"
             ],
             "allowTrailingArgs": true
           },
@@ -878,32 +629,7 @@
           {
             "tool": "kubectl",
             "args": [
-              "top"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "kubectl",
-            "args": [
               "config"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "ad",
-              "user",
-              "list"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "ad",
-              "user",
-              "show"
             ],
             "allowTrailingArgs": true
           }
@@ -944,13 +670,6 @@
           {
             "tool": "az",
             "args": [
-              "ad"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "acr"
             ],
             "allowTrailingArgs": true
@@ -966,48 +685,6 @@
             "tool": "az",
             "args": [
               "alerts-management"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "config"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "connectedk8s"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "extension"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "feature"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "graph"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "group"
             ],
             "allowTrailingArgs": true
           },
@@ -1042,28 +719,7 @@
           {
             "tool": "az",
             "args": [
-              "rest"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "role"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "version"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "vm"
             ],
             "allowTrailingArgs": true
           },
