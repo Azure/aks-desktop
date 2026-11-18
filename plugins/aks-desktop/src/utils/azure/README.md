@@ -81,8 +81,10 @@ Packaged builds retain the `alertsmanagement` and `connectedk8s` extensions for
 their active consumers. Resource Graph uses ARM REST, and runtime code must not
 install extensions or change the user's Azure CLI extension configuration.
 
-For read-only managed AKS list/info checks in the current CLI subscription, run from the plugin directory:
-`AZ_LIVE_TESTS=1 npm run test:unit -- az-clusters.live.test.ts` (disabled in CI; ARM cases bypass Graph; lookup skips if no uniquely named cluster exists).
+For read-only managed AKS list/info checks in the current CLI subscription, run
+`AZ_LIVE_TESTS=1 npm run test:unit -- az-clusters.live.test.ts` from this plugin
+directory. See [live test setup and inventory](../../../../../test/live/README.md)
+for coverage, skip conditions and differences from the resource-creating suites.
 
 Resource-provider registration uses direct REST and requires an explicit selected
 subscription. Success means accepted; pass `waitUntilRegistered: true` to poll for
