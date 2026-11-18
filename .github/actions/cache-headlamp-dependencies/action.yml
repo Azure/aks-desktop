@@ -8,7 +8,7 @@ runs:
       id: cache-inputs
       shell: bash
       env:
-        HEADLAMP_CACHE_POLICY: ${{ hashFiles('.github/actions/cache-headlamp-dependencies/action.yml', 'build/install-headlamp-desktop.ts', 'build/dependency-target.ts', '.config/npm/package*.json', 'packages/headlamp-source/src/lib/bundle-plugins.ts', 'packages/headlamp-source/src/lib/npm-command.ts', 'packages/headlamp-source/src/lib/paths.ts') }}
+        HEADLAMP_CACHE_POLICY: ${{ hashFiles('.github/actions/cache-headlamp-dependencies/action.yml', 'build/install-headlamp-desktop.ts', 'build/install-dependencies.ts', 'build/build-timing.ts', 'build/dependency-target.ts', '.config/npm/package*.json', 'packages/headlamp-source/src/lib/bundle-plugins.ts', 'packages/headlamp-source/src/lib/npm-command.ts', 'packages/headlamp-source/src/lib/paths.ts') }}
       run: npm run headlamp:install -- --cache-inputs
 
     - name: Restore Headlamp dependencies

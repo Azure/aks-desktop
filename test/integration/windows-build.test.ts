@@ -163,6 +163,8 @@ test('Windows restores Headlamp after root npm ci and saves verified trees befor
   for (const input of [
     `${HEADLAMP_CACHE_ACTION}/action.yml`,
     'build/install-headlamp-desktop.ts',
+    'build/install-dependencies.ts',
+    'build/build-timing.ts',
     'build/dependency-target.ts',
     '.config/npm/package*.json',
     'packages/headlamp-source/src/lib/bundle-plugins.ts',

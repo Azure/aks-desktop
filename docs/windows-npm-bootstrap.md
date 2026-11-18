@@ -118,9 +118,10 @@ Normal local installs and non-Windows jobs retain their existing behavior.
 
 Keys use the Headlamp pin/patch identity, actual dependency manifests and locks,
 npm configuration, actual Node/npm versions, Node ABI, target architecture,
-installation mode, and cache-policy helpers. Unrelated AKS product metadata does
-not invalidate this cache. Source, patch, dependency, runtime, or configuration
-changes do invalidate it.
+installation mode, and cache-policy helpers. Root npm script definitions and the
+install/timing helpers are execution-policy inputs; unrelated AKS product
+metadata does not invalidate this cache. Source, patch, dependency, runtime,
+script, or configuration changes do invalidate it.
 
 Unless restoration confirms an exact hit, both trees are discarded. Even on a
 hit, both clean-install markers and their installation context must match before
@@ -137,6 +138,17 @@ locally; both subsequent `npm ci` calls were skipped. Backend compilation was
 disabled only for that local dependency-cache smoke, not in the workflows.
 Native ARM64 timings for this additional cache must be measured on a confirmed
 hit, including its restore cost, root installation, and Headlamp action time.
+
+First native captures on `ad45c0e34`, using Node 22.22.2 / npm 12.0.1:
+
+| Native job | Cold Headlamp action, including first snapshot upload | Archive bytes |
+| --- | --- | --- |
+| [Windows x64](https://github.com/Azure/aks-desktop/actions/runs/44322951968/job/134866516447) | 2m02s | 290,022,494 |
+| [Windows ARM64](https://github.com/Azure/aks-desktop/actions/runs/44322951968/job/134866516297) | 10m10s | 281,341,832 |
+
+Both verified archives were saved before packaging. These confirm native capture,
+not warm-cache speedups. Changes to execution-policy fingerprints deliberately
+require a new cold fill.
 
 ### Measured native ARM64 plugin-cache baseline
 

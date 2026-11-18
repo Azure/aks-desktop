@@ -107,7 +107,8 @@ for (const state of ['missing', 'manifest', 'lock', 'installed-lock', 'marker', 
 }
 
 for (const changed of [
-  'architecture', 'npm', 'install-mode', 'runtime', 'electron-download', 'source', 'patch', 'root-config',
+  'architecture', 'npm', 'install-mode', 'runtime', 'electron-download', 'source', 'patch',
+  'install-script', 'root-config',
 ]) {
   test(`Headlamp cache invalidates both trees after ${changed} changes`, t => {
     const fixture = desktopCacheFixture(t);
@@ -129,7 +130,9 @@ for (const changed of [
       const file = path.join(fixture.rootDir, 'package.json');
       const project = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (changed === 'source') project.headlampSource.revision = 'new-revision';
-      else project.headlampPatch.integrity = 'sha512-new-patch';
+      else if (changed === 'install-script') {
+        project.scripts = { 'headlamp:install': 'node changed-install-entrypoint.js' };
+      } else project.headlampPatch.integrity = 'sha512-new-patch';
       fs.writeFileSync(file, JSON.stringify(project));
     }
     assert.notEqual(

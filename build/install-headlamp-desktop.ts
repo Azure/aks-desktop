@@ -108,6 +108,7 @@ function dependencyInputIdentity(
     version: 1,
     source: project.headlampSource,
     patch: project.headlampPatch,
+    scripts: project.scripts ?? {},
     node: process.version,
     abi: process.versions.modules,
     npm: activeNpmVersion(env),
