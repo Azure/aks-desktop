@@ -54,7 +54,8 @@ and uninstallation.
 
 ## Native Windows ARM64 performance
 
-[Run 43825605598](https://github.com/illume/aks-desktop/actions/runs/43825605598)
+Before Insights switched to prebuilt staging,
+[run 43825605598](https://github.com/illume/aks-desktop/actions/runs/43825605598)
 took about 49 minutes on `windows-11-arm` versus 12 minutes on `windows-latest`.
 Dependency installation alone took 34 versus 5 minutes. The ARM job used native
 ARM64 Node and had npm and Go download-cache hits. The three initial plugin
@@ -65,25 +66,27 @@ implementation costs.
 
 PR and scheduled builds retain native ARM64 packaging, bundled-tool checks, and
 application smoke tests. PR CI also retains native packaged-theme tests. Both
-Windows workflows cache all four installed workspace-plugin dependency trees
+Windows workflows cache the three installed workspace-plugin dependency trees
+(`aks-desktop`, `aks-desktop-theme`, and `plugin-catalog`)
 separately by runner OS/architecture, exact Node version, npm pin, manifests,
 lockfiles, npm configuration, and installation helper. There are no fallback
 restore keys. The npm download-cache key also includes the pinned bootstrap npm
 lockfile, so npm upgrades can populate a new cache rather than repeatedly missing
 from an already immutable cache entry.
-Unless restoration reports an exact cache hit, all four installed plugin trees
+Unless restoration reports an exact cache hit, all three installed plugin trees
 are discarded before installation or bundling can reuse them. This also handles
-partial extraction that restored valid markers and lockfiles but missed packages,
-including the independently enabled `insights-plugin` packaging reuse.
+partial extraction that restored valid markers and lockfiles but missed packages.
 Only trees whose clean-install identity matches the manifests and npm's hidden
 lockfile are reused; a missing or stale marker triggers normal `npm ci`. Backend
 builds, plugin builds, packaging, and native runtime checks still execute.
 
 Both workflows call the [shared cache action](../.github/actions/cache-windows-plugin-dependencies/action.yml),
 which owns the cache inputs, plugin paths, and reuse selection. Its definition is
-also hashed, so changes to that policy populate a new cache. The initial installer
-handles three plugin trees; `insights-plugin` is installed later during bundling
-and participates in the same four-plugin cache and verified-reuse policy.
+also hashed, so changes to that policy populate a new cache. Initial installation
+and packaging-time reuse cover the same three trees. Insights is staged from the
+prebuilt `insights-plugin` package without a workspace dependency install or SDK
+rebuild, so its wrapper metadata and paths are excluded from cache inputs,
+cleanup, and dependency reuse.
 
 Scheduled and manually dispatched Windows builds check out the workflow event's
 exact commit, keeping executed code within GitHub's cache-write scope. For a

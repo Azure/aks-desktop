@@ -65,14 +65,15 @@ test('Windows builds cache installed plugin trees separately by architecture and
   assert.match(sharedCache, /hashFiles\('package\.json', '\.npmrc', 'build\/install-dependencies\.ts'/);
   assert.ok(sharedCache.includes(`'${CACHE_ACTION}/action.yml'`));
   assert.ok(sharedCache.includes("'packages/headlamp-source/src/lib/bundle-plugins.ts'"));
-  assert.ok(sharedCache.includes("'plugins/*/.npmrc'"));
-  for (const plugin of ['aks-desktop', 'aks-desktop-theme', 'insights-plugin', 'plugin-catalog']) {
+  for (const plugin of ['aks-desktop', 'aks-desktop-theme', 'plugin-catalog']) {
+    assert.ok(sharedCache.includes(`'plugins/${plugin}/.npmrc'`));
     assert.ok(sharedCache.includes(`'plugins/${plugin}/package*.json'`));
     assert.ok(sharedCache.includes(`plugins/${plugin}/node_modules`));
   }
+  assert.doesNotMatch(action, /insights-plugin|plugins\/\*\//);
   assert.doesNotMatch(sharedCache, /restore-keys:/);
   const reuse = workflowStep(action, 'Enable verified plugin dependency reuse');
-  assert.match(reuse, /HEADLAMP_REUSE_PLUGIN_DEPENDENCIES=aks-desktop,aks-desktop-theme,insights-plugin,plugin-catalog/);
+  assert.match(reuse, /HEADLAMP_REUSE_PLUGIN_DEPENDENCIES=aks-desktop,aks-desktop-theme,plugin-catalog/);
   assert.match(reuse, />> "\$GITHUB_ENV"/);
 
   for (const name of ['ci.yml', 'build-app-win.yml']) {
@@ -103,7 +104,7 @@ test('unconfirmed Windows plugin cache restores discard partial trees before reu
   );
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'partial plugin cache-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const plugins = ['aks-desktop', 'aks-desktop-theme', 'insights-plugin', 'plugin-catalog'];
+  const plugins = ['aks-desktop', 'aks-desktop-theme', 'plugin-catalog'];
   const env = { HEADLAMP_REUSE_PLUGIN_DEPENDENCIES: plugins.join(',') };
   for (const plugin of plugins) {
     const directory = path.join(root, 'plugins', plugin);
@@ -114,9 +115,12 @@ test('unconfirmed Windows plugin cache restores discard partial trees before reu
     writePluginDependencyMarker(directory);
     assert.equal(reusePluginDependencies(directory, plugin, env), true);
   }
-  const unrelated = path.join(root, 'plugins', 'unrelated', 'node_modules');
-  fs.mkdirSync(unrelated, { recursive: true });
-  fs.writeFileSync(path.join(unrelated, 'keep'), 'unrelated dependency');
+  const preserved = ['insights-plugin', 'unrelated'];
+  for (const plugin of preserved) {
+    const directory = path.join(root, 'plugins', plugin, 'node_modules');
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, 'keep'), plugin);
+  }
 
   const action = fs.readFileSync(path.join(ROOT_DIR, CACHE_ACTION, 'action.yml'), 'utf8');
   const restore = workflowStep(action, 'Cache Windows plugin dependencies');
@@ -145,7 +149,12 @@ test('unconfirmed Windows plugin cache restores discard partial trees before reu
     assert.equal(fs.readFileSync(path.join(directory, 'package.json'), 'utf8'), '{}');
   }
   runCleanup();
-  assert.equal(fs.readFileSync(path.join(unrelated, 'keep'), 'utf8'), 'unrelated dependency');
+  for (const plugin of preserved) {
+    assert.equal(
+      fs.readFileSync(path.join(root, 'plugins', plugin, 'node_modules', 'keep'), 'utf8'),
+      plugin
+    );
+  }
 });
 
 test('Windows restores Headlamp after root npm ci and saves verified trees before packaging', () => {

@@ -107,7 +107,7 @@ export function packageEnvironment(
     GOARCH: target.arch === 'x64' ? 'amd64' : target.arch,
     HEADLAMP_BUILD_MANIFEST: BUILD_MANIFEST,
     HEADLAMP_REUSE_PLUGIN_DEPENDENCIES:
-      'aks-desktop,aks-desktop-theme,insights-plugin,plugin-catalog',
+      'aks-desktop,aks-desktop-theme,plugin-catalog',
     npm_config_arch: target.arch,
     npm_config_platform: target.platform,
     npm_config_target_arch: target.arch,
