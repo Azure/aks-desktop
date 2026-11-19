@@ -896,5 +896,7 @@
   "Node OS image": "Node OS image",
   "Snapshot is more than 24 hours old. Re-check before upgrading.": "Snapshot is more than 24 hours old. Re-check before upgrading.",
   "Stored evaluation has expired.": "Stored evaluation has expired.",
-  "Unknown scope": "Unknown scope"
+  "Unknown scope": "Unknown scope",
+  "Kubernetes requires successThreshold to be 1 for liveness probes.": "",
+  "Kubernetes requires successThreshold to be 1 for startup probes.": ""
 }
