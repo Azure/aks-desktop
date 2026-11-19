@@ -2,10 +2,14 @@
 // Licensed under the Apache 2.0.
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
 import { getLoginStatus } from './az-auth';
-import { debugLog, getErrorMessage, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
+import { debugLog, getErrorMessage, runCommandAsync } from './az-cli-core';
 import { getAzureCloudEndpoints } from './az-cloud';
 import { azListAll } from './az-http';
 import { type AksClusterReadOptions, getManagedClusterDetails } from './az-managed-clusters';
+import {
+  type EnableClusterAddonOptions,
+  enableClusterAddonsViaRest,
+} from './az-prometheus-provisioning';
 import { getClusterResourceGroupViaGraph, getClustersViaGraph } from './az-resource-graph';
 import { getSubscriptions } from './az-subscriptions';
 import { AzTokenError, getSubscriptionCredential } from './az-token';
@@ -289,63 +293,14 @@ export async function getClusterCapabilities(
 export type AddonKey = 'azure-monitor-metrics' | 'keda' | 'vpa';
 
 /**
- * Enables one or more addons in a single, non-blocking Azure CLI update.
- * @param options - Target subscription GUID, resource group, cluster name and addon(s) to enable.
- * @returns Whether the update was accepted, with an error for invalid addons or CLI failures.
+ * Enables one or more addons via ARM REST (`2026-01-01`).
+ * @param options - Target subscription GUID, resource group, cluster name, addon(s), and optional REST overrides.
+ * @returns Whether the update was accepted, with an error for invalid addons or REST/auth failures.
  */
-export async function enableClusterAddon(options: {
-  subscriptionId: string;
-  resourceGroup: string;
-  clusterName: string;
-  addon: AddonKey | AddonKey[];
-}): Promise<{ success: boolean; error?: string }> {
-  const { subscriptionId, resourceGroup, clusterName, addon } = options;
-
-  const addons = Array.isArray(addon) ? addon : [addon];
-
-  if (addons.length === 0) {
-    return { success: false, error: 'No addons specified' };
-  }
-
-  const addonFlags: Partial<Record<AddonKey, string[]>> = {
-    'azure-monitor-metrics': ['--enable-azure-monitor-metrics'],
-    keda: ['--enable-keda'],
-    vpa: ['--enable-vpa'],
-  };
-
-  const flags: string[] = [];
-  for (const a of addons) {
-    const f = addonFlags[a];
-    if (!f) {
-      return { success: false, error: `Unknown addon: ${a}` };
-    }
-    flags.push(...f);
-  }
-
-  const args = [
-    'aks',
-    'update',
-    '--subscription',
-    subscriptionId,
-    '--resource-group',
-    resourceGroup,
-    '--name',
-    clusterName,
-    ...flags,
-    '--no-wait',
-  ];
-
-  const { stderr } = await runCommandAsync('az', args);
-
-  if (stderr && needsRelogin(stderr)) {
-    return { success: false, error: 'Authentication required. Please log in to Azure CLI.' };
-  }
-
-  if (stderr && isAzError(stderr)) {
-    return { success: false, error: `Failed to enable addons (${addons.join(', ')}): ${stderr}` };
-  }
-
-  return { success: true };
+export async function enableClusterAddon(
+  options: EnableClusterAddonOptions
+): Promise<{ success: boolean; error?: string }> {
+  return enableClusterAddonsViaRest(options);
 }
 
 /**
