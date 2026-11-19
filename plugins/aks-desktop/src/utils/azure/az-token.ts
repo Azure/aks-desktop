@@ -41,8 +41,11 @@ export interface AzCliCredential extends TokenCredential {
    * @throws {AzTokenError} For invalid selectors, failed acquisition or tenant mismatch.
    */
   getToken(scopes: string | string[], options?: GetTokenOptions): Promise<AccessToken>;
-  /** Forgets cached/in-flight token promises without cancelling their CLI processes. */
-  clearCache(): void;
+  /**
+   * Forgets cached/in-flight token promises without cancelling their CLI processes.
+   * When `scope` is provided, only entries for that scope are evicted.
+   */
+  clearCache(scope?: string): void;
 }
 
 /**
@@ -178,8 +181,17 @@ export function createAzCliCredential(subscriptionId?: string): AzCliCredential 
       }
       return withAbort(() => resolveToken(scopeList[0], tenantId), options?.abortSignal);
     },
-    clearCache() {
-      cache.clear();
+    clearCache(scope?: string) {
+      if (scope === undefined) {
+        cache.clear();
+        return;
+      }
+      const suffix = `|${scope}`;
+      for (const key of cache.keys()) {
+        if (key.endsWith(suffix)) {
+          cache.delete(key);
+        }
+      }
     },
   };
 }

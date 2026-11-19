@@ -79,8 +79,8 @@ domains. Tokens are cached separately by subscription, tenant and audience.
 
 Live tests (`*.live.test.ts`) verify real ARM results through REST and require a
 logged-in `az` for authentication, not resource-operation parity commands.
-Packaged builds retain the `alertsmanagement` and `connectedk8s` extensions for
-their active consumers. Resource Graph uses ARM REST, and runtime code must not
+Packaged builds retain the `connectedk8s` extension for its active consumers.
+Resource Graph and Prometheus discovery use ARM REST, and runtime code must not
 install extensions or change the user's Azure CLI extension configuration.
 
 For read-only managed AKS list/info checks in the current CLI subscription, run
