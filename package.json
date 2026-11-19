@@ -115,18 +115,12 @@
       "azureCli": {
         "version": "2.90.0",
         "extensions": [
-          "alertsmanagement",
           "connectedk8s"
         ],
         "extensionVersions": {
-          "alertsmanagement": "1.0.0b2",
           "connectedk8s": "1.11.3"
         },
         "extensionPackages": {
-          "alertsmanagement": {
-            "url": "https://azcliprod.blob.core.windows.net/cli-extensions/alertsmanagement-1.0.0b2-py3-none-any.whl",
-            "checksum": "37f376234f8047df93d7c5355cc864f35ec195f6c7babe148f57349303af6696"
-          },
           "connectedk8s": {
             "url": "https://azcliprod.blob.core.windows.net/cli-extensions/connectedk8s-1.11.3-py2.py3-none-any.whl",
             "checksum": "18b2087ed7f70d621a6259ad2ce14836a57b215ab71c03aed52296a05a609c1f"
@@ -200,9 +194,26 @@
     },
     "targets": {
       "linux": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "deb", "arch": ["x64", "arm64"] },
-        { "target": "tar.gz", "arch": ["x64", "arm64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ]
     },
     "checkForUpdates": false,
@@ -379,20 +390,6 @@
             "allowTrailingArgs": true
           },
           {
-            "tool": "az",
-            "args": [
-              "alerts-management"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "monitor"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
             "tool": "kubectl",
             "args": [
               "config"
@@ -450,13 +447,6 @@
           {
             "tool": "az",
             "args": [
-              "alerts-management"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "identity"
             ],
             "allowTrailingArgs": true
@@ -472,13 +462,6 @@
             "tool": "az",
             "args": [
               "logout"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "monitor"
             ],
             "allowTrailingArgs": true
           },
@@ -595,20 +578,6 @@
             "allowTrailingArgs": true
           },
           {
-            "tool": "az",
-            "args": [
-              "alerts-management"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "monitor"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
             "tool": "kubectl",
             "args": [
               "config"
@@ -666,13 +635,6 @@
           {
             "tool": "az",
             "args": [
-              "alerts-management"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "identity"
             ],
             "allowTrailingArgs": true
@@ -688,13 +650,6 @@
             "tool": "az",
             "args": [
               "logout"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "monitor"
             ],
             "allowTrailingArgs": true
           },

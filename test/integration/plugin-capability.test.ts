@@ -141,8 +141,6 @@ test('AKS command policies retain only current CLI consumers', () => {
       'account',
       'cloud',
       'acr',
-      'alerts-management',
-      'monitor',
     ];
     assert.deepEqual(policy.approvedCommands, [
       ...prefixes.map(prefix => ({
@@ -184,6 +182,8 @@ test('AKS command policies retain only current CLI consumers', () => {
         ['rest'],
         ['role', 'assignment', 'create'],
         ['role', 'assignment', 'list'],
+        ['alerts-management', 'prometheus-rule-group', 'list'],
+        ['monitor', 'account', 'show'],
         ['ad', 'user', 'list'],
         ['feature', 'show'],
         ['group', 'list'],
