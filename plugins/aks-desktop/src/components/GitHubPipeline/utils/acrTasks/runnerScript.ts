@@ -4,6 +4,7 @@ import {
   ACR_TASKS_API_VERSION,
 } from './apiVersions';
 
+// language=Python
 export const acrTaskRunnerScript = String.raw`#!/usr/bin/env python3
 """Bounded ACR Tasks build through ARM. Azure CLI is used only for the login token."""
 import base64

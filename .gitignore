@@ -6,6 +6,7 @@
 out
 dist
 node_modules
+.venv/
 headlamp/
 vsix
 .vscode-test/

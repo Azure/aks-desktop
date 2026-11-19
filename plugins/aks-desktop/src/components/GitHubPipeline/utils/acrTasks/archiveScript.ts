@@ -1,5 +1,6 @@
 export const ACR_ARCHIVE_SCRIPT_PATH = '.github/scripts/aksd-acr-context.py';
 
+// language=Python
 export const acrArchiveScript = String.raw`"""Local Docker context packaging; no Docker daemon or third-party modules."""
 import io
 import os
