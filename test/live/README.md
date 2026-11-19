@@ -48,6 +48,18 @@ Sovereign/custom-cloud mappings remain covered by unit tests. No real accounts i
 those clouds are used or claimed as live-validated; they are outside the permitted
 Cloud Native Tools live-validation scope.
 
+Run the managed identity suite:
+
+```sh
+AZ_LIVE_TESTS=1 npm --prefix plugins/aks-desktop run test:unit -- az-managed-identities.live.test.ts
+```
+
+The suite tests managed identity create, get and list through ARM in a temporary
+resource group and requires permission to create user-assigned identities.
+If ARM returns `MissingSubscriptionRegistration`, the suite registers
+`Microsoft.ManagedIdentity` through ARM. This requires provider registration
+permission on the subscription. Resource group cleanup does not undo registration.
+
 Run the managed namespace deletion suite with a fresh AKS cluster:
 
 ```sh
