@@ -284,6 +284,37 @@ describe('createAzCliCredential', () => {
     ).rejects.toThrow('cancelled');
     expect(mocks.execCommand).not.toHaveBeenCalled();
   });
+
+  test('clearCache(scope) evicts only matching scope across tenants while keeping other scopes cached', async () => {
+    const PROM_SCOPE = 'https://prometheus.monitor.azure.com/.default';
+    mocks.execCommand
+      .mockResolvedValueOnce(cliToken('arm-1'))
+      .mockResolvedValueOnce(cliToken('prom-a-1'))
+      .mockResolvedValueOnce(cliToken('prom-b-1'))
+      .mockResolvedValueOnce(cliToken('prom-a-2'))
+      .mockResolvedValueOnce(cliToken('prom-b-2'));
+    const credential = createAzCliCredential();
+
+    expect((await credential.getToken(ARM_SCOPE)).token).toBe('arm-1');
+    expect((await credential.getToken(PROM_SCOPE, { tenantId: 'tenant-a' })).token).toBe(
+      'prom-a-1'
+    );
+    expect((await credential.getToken(PROM_SCOPE, { tenantId: 'tenant-b' })).token).toBe(
+      'prom-b-1'
+    );
+    expect(mocks.execCommand).toHaveBeenCalledTimes(3);
+
+    credential.clearCache(PROM_SCOPE);
+
+    expect((await credential.getToken(ARM_SCOPE)).token).toBe('arm-1');
+    expect((await credential.getToken(PROM_SCOPE, { tenantId: 'tenant-a' })).token).toBe(
+      'prom-a-2'
+    );
+    expect((await credential.getToken(PROM_SCOPE, { tenantId: 'tenant-b' })).token).toBe(
+      'prom-b-2'
+    );
+    expect(mocks.execCommand).toHaveBeenCalledTimes(5);
+  });
 });
 
 describe('shared credential', () => {
