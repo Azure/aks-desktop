@@ -326,11 +326,12 @@ export async function azRequest<T>(options: AzRequestOptions): Promise<T | undef
  * @typeParam T - Item shape inside each page's value array.
  * @param options - GET request/authentication options reused per page; timeoutMs is
  * per request, while a caller signal can impose one budget across the entire list.
+ * Set requireValueArray to reject pages without a value array.
  * @returns All items in service order, without partial success on a failed later page.
  * @throws For invalid value arrays, untrusted nextLink origins or propagated request failures.
  */
 export async function azListAll<T>(
-  options: Omit<AzRequestOptions, 'method' | 'body'>
+  options: Omit<AzRequestOptions, 'method' | 'body'> & { requireValueArray?: boolean }
 ): Promise<T[]> {
   const origin = resolveUrl(options).origin;
   const items: T[] = [];
@@ -338,7 +339,7 @@ export async function azListAll<T>(
 
   while (next) {
     const page: { value?: T[]; nextLink?: string } | undefined = await azRequest(next);
-    if (page?.value !== undefined && !Array.isArray(page.value)) {
+    if ((options.requireValueArray || page?.value !== undefined) && !Array.isArray(page?.value)) {
       throw new AzureRequestError('Malformed list response: `value` is not an array');
     }
     items.push(...(page?.value ?? []));
