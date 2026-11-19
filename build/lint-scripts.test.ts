@@ -4,7 +4,7 @@
 import * as assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
-import { devNull } from 'node:os';
+import { devNull, tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -202,4 +202,35 @@ test('standalone PowerShell retains its original encoding diagnostics', context 
     assert.equal(result.status, expectedStatus, `${encoding}\n${result.stderr}${result.stdout}`);
     if (expectedStatus === 1) assert.match(result.stdout, /PSUseBOMForUnicodeEncodedFile/);
   }
+});
+
+test('Python lint installation rejects replacement wheel bytes without contacting a registry', context => {
+  const directory = fs.mkdtempSync(path.join(tmpdir(), 'lint-wheel-integrity-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(directory, 'ruff-0.17.4-py3-none-any.whl'), 'unreviewed wheel bytes');
+  const result = spawnSync('python3', [
+    '-m', 'pip', 'install', '--disable-pip-version-check', '--no-cache-dir',
+    '--no-index', '--find-links', directory, '--target', path.join(directory, 'installed'),
+    '-r', path.join(root, '.config/lint/requirements.txt'),
+  ], { encoding: 'utf8' });
+  assert.ifError(result.error);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /DO NOT MATCH THE HASHES/);
+  assert.equal(fs.existsSync(path.join(directory, 'installed', 'ruff')), false);
+});
+
+test('PowerShell analyzer installation rejects replacement archive bytes before extraction', context => {
+  const directory = fs.mkdtempSync(path.join(tmpdir(), 'lint-analyzer-integrity-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const archive = path.join(directory, 'analyzer.nupkg');
+  const modules = path.join(directory, 'modules');
+  fs.writeFileSync(archive, 'unreviewed analyzer bytes');
+  const result = spawnSync('pwsh', [
+    '-NoProfile', '-NonInteractive', '-File', path.join(root, '.config/lint/install-powershell.ps1'),
+    '-ArchivePath', archive, '-ModuleRoot', modules,
+  ], { encoding: 'utf8' });
+  assert.ifError(result.error);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /SHA-256 mismatch/);
+  assert.equal(fs.existsSync(modules), false);
 });

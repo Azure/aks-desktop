@@ -48,7 +48,7 @@ jobs:
 
       - name: Install PowerShell analyzer
         shell: pwsh
-        run: Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Repository PSGallery -Scope CurrentUser -Force
+        run: ./.config/lint/install-powershell.ps1
 
       - name: Test script collection and warning checks
         run: |

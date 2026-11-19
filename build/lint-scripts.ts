@@ -171,11 +171,17 @@ function main(): void {
       });
       failures = run('pwsh', ['-NoProfile', '-NonInteractive', '-Command', `
         $ErrorActionPreference = 'Stop'
-        Import-Module PSScriptAnalyzer -RequiredVersion 1.25.0
+        Import-Module $env:AKS_SCRIPT_ANALYZER_MANIFEST -RequiredVersion 1.25.0
         $findings = @(Invoke-ScriptAnalyzer -Path $env:AKS_SCRIPT_LINT_PATH -Recurse -Severity Warning,Error,ParseError)
         $findings | Format-Table -AutoSize | Out-String -Width 240 | Write-Output
         if ($findings.Count -gt 0) { exit 1 }
-      `], undefined, { ...process.env, AKS_SCRIPT_LINT_PATH: directory });
+      `], undefined, {
+        ...process.env,
+        AKS_SCRIPT_LINT_PATH: directory,
+        AKS_SCRIPT_ANALYZER_MANIFEST: path.join(
+          root, 'node_modules/.cache/script-lint/modules/PSScriptAnalyzer/1.25.0/PSScriptAnalyzer.psd1'
+        ),
+      });
       console.log(`Checked ${selected.length} PowerShell scripts.`);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });

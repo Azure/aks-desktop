@@ -45,12 +45,11 @@ python3 -m venv .venv
 python -m pip install -r .config/lint/requirements.txt
 ```
 
-The full test suite also requires
-PowerShell and PSScriptAnalyzer 1.25.0, installed using
-`Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser`.
-Run:
+The full test suite also requires PowerShell. Install PSScriptAnalyzer 1.25.0
+using the checksum-verifying installer, then run:
 
 ```sh
+pwsh -NoProfile -File .config/lint/install-powershell.ps1
 npm run test:script-lint
 npm run lint:scripts
 npm run lint:powershell
@@ -64,3 +63,12 @@ file and step or source line. New dynamic Python snippets must be moved to
 standalone Python files so they can be checked.
 Extracted PowerShell snippets receive a UTF-8 BOM in their temporary files;
 standalone PowerShell files retain their original bytes for encoding diagnostics.
+
+The Python requirements enforce wheel-only, SHA-256-verified installations;
+source distributions and unpinned transitive dependencies are not permitted.
+PSScriptAnalyzer is downloaded from its pinned upstream release and its SHA-256
+is checked before extraction. It is installed under `node_modules/.cache/`,
+not into the user's module directory, and the lint command imports that exact copy.
+Reinstall it after a root `npm ci`, which removes `node_modules`.
+For offline installation, pass `-ArchivePath /path/to/PSScriptAnalyzer.1.25.0.nupkg`
+to the installer; the same checksum is required.
