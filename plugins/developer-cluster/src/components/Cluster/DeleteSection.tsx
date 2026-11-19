@@ -57,7 +57,11 @@ interface DeleteSectionProps {
   readonly target: LocalTarget;
 }
 
-function DeleteFailureNotice({ state }: { readonly state: WorkflowState }) {
+/**
+ * The failure of the last Delete. Overview shows it with the cluster and, once a refresh finds no
+ * cluster, on the landing page; the CLI can fail after it removed the cluster's context.
+ */
+export function DeleteFailureNotice({ state }: { readonly state: WorkflowState }) {
   const { t } = useTranslation();
   const failure = state.deletePhase === 'failed' ? state.deleteFailure : null;
   if (failure === null) return null;

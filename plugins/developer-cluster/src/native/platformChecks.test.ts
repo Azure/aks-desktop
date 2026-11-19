@@ -3,12 +3,13 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RunningCommand } from '../cli/runner';
-import { inspectWsl } from './platformChecks';
+import { inspectWsl, QUERY_TIMEOUT_MS } from './platformChecks';
 
 type Listener = (value: unknown) => void;
 
 interface Reply {
-  readonly code: number;
+  /** The exit code; absent for a query that never exits. */
+  readonly code?: number;
   readonly stdout?: string;
 }
 
@@ -20,7 +21,7 @@ function stubQueries(status: Reply, defaults: Reply) {
     const exit: Listener[] = [];
     setTimeout(() => {
       if (reply.stdout !== undefined) stdout.forEach(listener => listener(reply.stdout));
-      exit.forEach(listener => listener(reply.code));
+      if (reply.code !== undefined) exit.forEach(listener => listener(reply.code));
     });
     return {
       stdout: { on: (_event, listener) => stdout.push(listener) },
@@ -34,6 +35,7 @@ function stubQueries(status: Reply, defaults: Reply) {
 
 describe('inspectWsl', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -50,6 +52,19 @@ describe('inspectWsl', () => {
       ['wsl', '--status'],
       ['reg', 'query'],
     ]);
+  });
+
+  it.each([
+    ['wsl --status', {}, { code: 0 }],
+    ['reg query', { code: 0 }, {}],
+  ])('reports unknown when %s does not exit in time', async (_query, status, defaults) => {
+    vi.useFakeTimers();
+    stubQueries(status, defaults);
+    const inspection = inspectWsl();
+
+    await vi.advanceTimersByTimeAsync(QUERY_TIMEOUT_MS);
+
+    await expect(inspection).resolves.toStrictEqual({ wsl: 'unknown' });
   });
 
   it('treats an absent default version as WSL 2, as the CLI does', async () => {

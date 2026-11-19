@@ -9,10 +9,10 @@ import { LocalTarget } from '../contract/capability';
 import { readLocalTarget } from '../native/localContext';
 import { inspectWsl } from '../native/platformChecks';
 import { checkReadinessAgain, createLocalCluster } from './create';
-import { deleteLocalContext } from './delete';
+import { deleteLocalCluster, deleteLocalContext } from './delete';
 import { hostError, nativeError } from './failure';
 import { checkPlatform } from './platform';
-import { beginSetup, refreshOverview, refreshSetup } from './setup';
+import { beginSetup, finishedOverviewRefreshes, refreshOverview, refreshSetup } from './setup';
 import { getWorkflowState, update } from './store';
 
 vi.mock('../cli/commands', () => ({
@@ -124,7 +124,7 @@ describe('Setup attempt', () => {
     await refreshSetup();
     vi.mocked(readLocalTarget).mockResolvedValueOnce(TARGET);
     vi.mocked(deleteCluster).mockResolvedValueOnce(undefined);
-    await deleteLocalContext(TARGET.contextName);
+    await deleteLocalContext(TARGET.contextName, TARGET.name);
     expect(deleteCluster).toHaveBeenCalledWith(TARGET.name);
     expect(getWorkflowState().environment).toBeNull();
   });
@@ -152,6 +152,7 @@ describe('refreshOverview', () => {
 
   it('does not initialize a remount when its refresh is refused by an in-flight operation', async () => {
     const release = holdTargetRead(null);
+    const finished = finishedOverviewRefreshes();
 
     const firstRefresh = refreshOverview();
     await vi.waitFor(() => {
@@ -160,16 +161,21 @@ describe('refreshOverview', () => {
 
     await expect(refreshOverview()).resolves.toBe(false);
     expect(getWorkflowState().overviewInitialized).toBe(false);
+    expect(finishedOverviewRefreshes()).toBe(finished);
 
     release();
     await expect(firstRefresh).resolves.toBe(true);
     expect(getWorkflowState().overviewInitialized).toBe(true);
+    expect(finishedOverviewRefreshes()).toBe(finished + 1);
   });
 
   it('initializes the overview after an executed refresh fails', async () => {
     vi.mocked(readLocalTarget).mockRejectedValueOnce(nativeError('failed'));
+    const finished = finishedOverviewRefreshes();
 
     await expect(refreshOverview()).resolves.toBe(false);
+
+    expect(finishedOverviewRefreshes()).toBe(finished + 1);
 
     expect(getWorkflowState().overviewInitialized).toBe(true);
     expect(getWorkflowState().refreshFailure).toEqual({ source: 'native', code: 'failed' });
@@ -179,7 +185,7 @@ describe('refreshOverview', () => {
     vi.mocked(deleteCluster).mockResolvedValue(undefined);
     const release = holdTargetRead(TARGET);
 
-    const deletion = deleteLocalContext(TARGET.contextName);
+    const deletion = deleteLocalContext(TARGET.contextName, TARGET.name);
     await vi.waitFor(() => {
       expect(getWorkflowState().deletePhase).toBe('running');
       expect(getWorkflowState().busy).toBe(true);
@@ -217,7 +223,7 @@ describe('Delete and the AKS Desktop cluster list', () => {
   it('asks the backend to drop the listed cluster only after the CLI deleted it', async () => {
     vi.mocked(deleteCluster).mockResolvedValueOnce(undefined);
 
-    await expect(deleteLocalContext(LISTED.contextName)).resolves.toBe(true);
+    await expect(deleteLocalContext(LISTED.contextName, LISTED.name)).resolves.toBe(true);
 
     expect(deleteCluster).toHaveBeenCalledWith(LISTED.name);
     // The backend route itself, by list name, bounded, with no current cluster and no
@@ -239,7 +245,7 @@ describe('Delete and the AKS Desktop cluster list', () => {
     vi.mocked(ApiProxy.request).mockRejectedValueOnce(new Error('408 Request timed-out'));
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await expect(deleteLocalContext(LISTED.contextName)).resolves.toBe(true);
+    await expect(deleteLocalContext(LISTED.contextName, LISTED.name)).resolves.toBe(true);
 
     expect(warn).toHaveBeenCalledOnce();
     expect(getWorkflowState()).toMatchObject({ deletePhase: 'deleted', deleteFailure: null });
@@ -248,10 +254,39 @@ describe('Delete and the AKS Desktop cluster list', () => {
   it('leaves the list alone when the CLI delete fails', async () => {
     vi.mocked(deleteCluster).mockRejectedValueOnce(nativeError('failed'));
 
-    await expect(deleteLocalContext(LISTED.contextName)).resolves.toBe(false);
+    await expect(deleteLocalContext(LISTED.contextName, LISTED.name)).resolves.toBe(false);
 
     expect(ApiProxy.request).not.toHaveBeenCalled();
     expect(getWorkflowState().deletePhase).toBe('failed');
+  });
+});
+
+describe('Delete identity', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    update({ busy: false, deletePhase: 'idle', deleteFailure: null, target: TARGET });
+    vi.mocked(readLocalTarget).mockResolvedValue(TARGET);
+  });
+
+  it('refuses an Overview Delete when the loaded target changed since the page rendered', async () => {
+    const shown: LocalTarget = { ...TARGET, kubernetesVersion: 'v1.35.9' };
+
+    await expect(deleteLocalCluster(shown)).resolves.toBe(false);
+
+    expect(readLocalTarget).not.toHaveBeenCalled();
+    expect(deleteCluster).not.toHaveBeenCalled();
+  });
+
+  it('refuses a cluster-menu Delete when the context now names another cluster', async () => {
+    vi.mocked(readLocalTarget).mockResolvedValueOnce({ ...TARGET, name: 'other-cluster' });
+
+    await expect(deleteLocalContext(TARGET.contextName, TARGET.name)).resolves.toBe(false);
+
+    expect(deleteCluster).not.toHaveBeenCalled();
+    expect(getWorkflowState()).toMatchObject({
+      deletePhase: 'failed',
+      deleteFailure: { source: 'host', code: 'identity-mismatch' },
+    });
   });
 });
 
@@ -363,13 +398,48 @@ describe('readiness after Create', () => {
     });
   });
 
+  /** Runs a Create whose context is not loaded within 30 seconds. */
+  async function createNotConfirmed(): Promise<void> {
+    const create = createLocalCluster(CREATE);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(create).resolves.toBe(true);
+    expect(getWorkflowState().createPhase).toBe('not-confirmed');
+    vi.mocked(readLocalTarget).mockClear();
+  }
+
   it('Check again reads once and reports usable when the context is loaded', async () => {
-    update({ createPhase: 'not-confirmed' });
+    await createNotConfirmed();
     vi.mocked(readLocalTarget).mockResolvedValueOnce(TARGET);
 
     await expect(checkReadinessAgain()).resolves.toBe(true);
 
     expect(readLocalTarget).toHaveBeenCalledOnce();
     expect(getWorkflowState()).toMatchObject({ createPhase: 'usable', target: TARGET });
+  });
+
+  it('Check again fails with invalid-metadata for another loaded cluster', async () => {
+    await createNotConfirmed();
+    const other: LocalTarget = { ...TARGET, name: 'other-cluster', contextName: 'other-cluster' };
+    vi.mocked(readLocalTarget).mockResolvedValueOnce(other);
+
+    await expect(checkReadinessAgain()).resolves.toBe(false);
+
+    expect(getWorkflowState()).toMatchObject({
+      createPhase: 'failed',
+      createFailure: { source: 'native', code: 'invalid-metadata' },
+      target: other,
+    });
+  });
+
+  it('Check again stays not confirmed when its read fails', async () => {
+    await createNotConfirmed();
+    vi.mocked(readLocalTarget).mockRejectedValueOnce(nativeError('failed'));
+
+    await expect(checkReadinessAgain()).resolves.toBe(false);
+
+    expect(getWorkflowState()).toMatchObject({
+      createPhase: 'not-confirmed',
+      createFailure: { source: 'native', code: 'failed' },
+    });
   });
 });

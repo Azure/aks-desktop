@@ -32,25 +32,27 @@ async function readAgain(confirmed: LocalTarget): Promise<Readonly<LocalTarget>>
 }
 
 /**
- * Deletes the local cluster when it is still the cluster `shown` names; Overview asks for no typed
- * confirmation or consent. Resolves true when the cluster was deleted, and false when Delete was
- * refused or failed (`deleteFailure`). After a failure Overview is refreshed.
+ * Deletes the local cluster when the loaded target is still the target `shown`: the same name,
+ * Kubernetes version and context. Overview asks for no typed confirmation or consent. Resolves
+ * true when the cluster was deleted, and false when Delete was refused or failed (`deleteFailure`).
+ * After a failure Overview is refreshed.
  */
 export async function deleteLocalCluster(shown: LocalTarget): Promise<boolean> {
   const confirmed = getWorkflowState().target;
-  if (confirmed === null || confirmed.name !== shown.name) return false;
+  if (confirmed === null || !sameTarget(confirmed, shown)) return false;
   return runDelete(() => readAgain(confirmed));
 }
 
 /**
  * Overview's Delete for the context selected in AKS Desktop's cluster menu. The page
  * may not have read the target in this session, so a fresh read supplies it, and it must
- * be the selected context; otherwise `identity-mismatch`. Resolves as deleteLocalCluster does.
+ * be the selected context and the cluster the dialog named; otherwise `identity-mismatch`.
+ * Resolves as deleteLocalCluster does.
  */
-export function deleteLocalContext(contextName: string): Promise<boolean> {
+export function deleteLocalContext(contextName: string, clusterName: string): Promise<boolean> {
   return runDelete(async () => {
     const target = await refreshTarget();
-    if (target === null || target.contextName !== contextName) {
+    if (target === null || target.contextName !== contextName || target.name !== clusterName) {
       throw hostError('identity-mismatch');
     }
     return target;

@@ -14,6 +14,11 @@ interface DeleteClusterDialogProps {
   readonly open: boolean;
   /** The cluster the dialog names. */
   readonly clusterName: string;
+  /**
+   * Disables Delete cluster while the workflow would refuse it. Only AKS Desktop's cluster menu,
+   * whose Headlamp supports it, sets it.
+   */
+  readonly confirmDisabled?: boolean;
   readonly onClose: () => void;
   readonly onConfirm: () => void;
 }
@@ -21,6 +26,7 @@ interface DeleteClusterDialogProps {
 export function DeleteClusterDialog({
   open,
   clusterName,
+  confirmDisabled,
   onClose,
   onConfirm,
 }: DeleteClusterDialogProps) {
@@ -47,6 +53,8 @@ export function DeleteClusterDialog({
       }
       cancelLabel={String(t('Cancel'))}
       confirmLabel={String(t('Delete cluster'))}
+      // Omitted unless set, so a Headlamp without the prop receives nothing new.
+      {...(confirmDisabled === undefined ? {} : { confirmButtonDisabled: confirmDisabled })}
       handleClose={onClose}
       onConfirm={onConfirm}
     />

@@ -63,8 +63,8 @@ describe('runCli', () => {
 
   it('keeps the last result and reads CRLF lines', async () => {
     const command = start();
-    command.out(event('result', 'info', { n: 1 }).replace('\n', '\r\n'));
-    command.out(event('result', 'warn', { n: 2 }).replace('\n', '\r\n'));
+    command.out(event('result', 'info', { n: 1 }).replace(/\n$/, '\r\n'));
+    command.out(event('result', 'warn', { n: 2 }).replace(/\n$/, '\r\n'));
     command.exit(0);
     await expect(command.promise).resolves.toStrictEqual({ level: 'warn', data: { n: 2 } });
   });

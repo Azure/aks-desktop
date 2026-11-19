@@ -5,7 +5,8 @@
 // browser's User-Agent Client Hints. WSL 2 comes from the read-only `wsl --status` and `reg query`
 // that AKS Desktop grants this plugin; Desktop runs none itself. Installed distributions are not
 // inspected: the CLI registers a new WSL 2 instance named after the cluster and never uses one the
-// user installed. Nothing is started or installed, and an unanswered query reports `unknown`.
+// user installed. Nothing is started or installed, and a query that fails or does not exit within
+// QUERY_TIMEOUT_MS reports `unknown`.
 
 import type { RunningCommand } from '../cli/runner';
 import { HostEnvironment } from '../contract/capability';
@@ -17,6 +18,12 @@ declare const pluginRunCommand:
 
 /** The output bound of the host's `inspect` queries. */
 const MAX_OUTPUT_CHARS = 64 * 1024;
+
+/**
+ * How long a query may run. `wsl --status` can take seconds while WSL starts. Headlamp offers no
+ * way to stop a command, so a query that runs longer is left running and its result ignored.
+ */
+export const QUERY_TIMEOUT_MS = 30_000;
 
 const LXSS_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss';
 const DEFAULT_VERSION = /^\s*DefaultVersion\s+REG_DWORD\s+0x([12])\s*$/m;
@@ -32,7 +39,8 @@ interface QueryOutput {
 class QueryUnavailable extends Error {}
 
 function query(tool: string, args: readonly string[]): Promise<QueryOutput> {
-  return new Promise<QueryOutput>((resolve, reject) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const result = new Promise<QueryOutput>((resolve, reject) => {
     if (typeof pluginRunCommand !== 'function') {
       reject(new QueryUnavailable());
       return;
@@ -44,6 +52,7 @@ function query(tool: string, args: readonly string[]): Promise<QueryOutput> {
       reject(new QueryUnavailable());
       return;
     }
+    timer = setTimeout(() => reject(new QueryUnavailable()), QUERY_TIMEOUT_MS);
     let stdout = '';
     let oversized = false;
     try {
@@ -64,6 +73,7 @@ function query(tool: string, args: readonly string[]): Promise<QueryOutput> {
       reject(new QueryUnavailable());
     }
   });
+  return result.finally(() => clearTimeout(timer));
 }
 
 /** Trimmed non-empty lines, without the NULs and byte-order marks a UTF-16LE decode leaves. */

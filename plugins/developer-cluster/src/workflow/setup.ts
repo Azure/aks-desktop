@@ -28,6 +28,14 @@ function refreshFailed(failure: WorkflowFailure): Partial<WorkflowState> {
   return { refreshFailure: failure };
 }
 
+/** Overview refreshes that ran to the end, failed ones included; refused ones are not counted. */
+let finishedRefreshes = 0;
+
+/** How many Overview refreshes ran to the end in this session. */
+export function finishedOverviewRefreshes(): number {
+  return finishedRefreshes;
+}
+
 /** Refreshes Overview; resolves false when refused or failed (`refreshFailure`). */
 export async function refreshOverview(): Promise<boolean> {
   return exclusive(async () => {
@@ -35,6 +43,7 @@ export async function refreshOverview(): Promise<boolean> {
       update({ refreshFailure: null });
       await refreshTarget();
     } finally {
+      finishedRefreshes += 1;
       // Only an executed refresh initializes Overview. A remount refused by exclusive() must keep
       // showing discovery progress until the already-running refresh settles.
       update({ overviewInitialized: true });

@@ -8,9 +8,12 @@
 // Overview, which shows the progress.
 
 import { useHistory } from 'react-router-dom';
+import { canRefresh } from '../../common/gates';
 import { isLocalContext } from '../../contract/capability';
 import { PLUGIN_ROUTES } from '../../contract/routes';
 import { deleteLocalContext } from '../../workflow/delete';
+import { getWorkflowState } from '../../workflow/store';
+import { useWorkflow } from '../shared/hooks';
 import { DeleteClusterDialog } from './DeleteClusterDialog';
 
 /** The dialog name Delete opens; Headlamp keeps one open dialog per cluster row. */
@@ -37,7 +40,7 @@ function localContextName(cluster: MenuCluster | null | undefined): string | nul
 
 /**
  * The cluster name the dialog shows: the CLI records it in the context's `context_info`; the
- * context name stands in when it is missing. Display only; Delete matches the context.
+ * context name stands in when it is missing. Delete requires the target to have this name.
  */
 function localClusterName(cluster: MenuCluster, contextName: string): string {
   const name = cluster.meta_data?.extensions?.context_info?.name;
@@ -62,17 +65,27 @@ export function ClusterMenuDeleteDialog({
   setOpenConfirmDialog,
 }: DialogProps) {
   const history = useHistory();
+  const state = useWorkflow();
   const contextName = localContextName(cluster);
   if (contextName === null) return null;
+  const clusterName = localClusterName(cluster, contextName);
   return (
     <DeleteClusterDialog
       open={openConfirmDialog === DELETE_DIALOG}
-      clusterName={localClusterName(cluster, contextName)}
+      clusterName={clusterName}
+      // Another operation, such as Overview's refresh, would make the workflow refuse Delete.
+      confirmDisabled={!canRefresh(state)}
       onClose={() => setOpenConfirmDialog('')}
       onConfirm={() => {
+        // Re-checks the latest state: the click can follow an update that has not rendered yet.
+        // Headlamp closes the dialog before this call, so a refused Delete reopens it.
+        if (!canRefresh(getWorkflowState())) {
+          setOpenConfirmDialog(DELETE_DIALOG);
+          return;
+        }
         setOpenConfirmDialog('');
         // Sets the running phase before Overview opens, so Overview shows the progress.
-        deleteLocalContext(contextName);
+        deleteLocalContext(contextName, clusterName);
         history.push(PLUGIN_ROUTES.overview);
       }}
     />

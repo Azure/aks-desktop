@@ -3,12 +3,14 @@
 
 // Overview. Without a cluster it is the landing page: readiness, one next action (Set up Developer
 // Cluster), the guided path and what setup needs. While Create or Delete runs, it shows the one
-// panel of overviewPanel instead. Opening Overview refreshes it. After a failed Create without a
-// local cluster in the kubeconfig, the landing page shows the failure and says that parts of the
-// cluster can remain on this computer. Overview reads only the kubeconfig target; the platform
-// checks run in Setup's environment step. With a cluster it shows the cluster with its Status and
-// View, the cluster details, and Delete with its result. While Delete runs, the panel shows only
-// its progress and how long it can take.
+// panel of overviewPanel instead. Opening Overview refreshes it; opened while another operation
+// runs, it refreshes when that operation ends unless a refresh finished meanwhile.
+// After a failed Create without a local cluster in the kubeconfig, the landing page shows the
+// failure and says that parts of the cluster can remain on this computer; after a failed Delete it
+// shows that failure. Overview reads only the kubeconfig target; the platform checks run in Setup's
+// environment step. With a cluster it shows the cluster with its Status and View, the cluster
+// details, and Delete with its result. While Delete runs, the panel shows only its progress and how
+// long it can take.
 
 import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
@@ -25,12 +27,17 @@ import { clusterRoute, PLUGIN_ROUTES, PRODUCT_DISPLAY_NAME } from '../../contrac
 import { apiServerReady } from '../../native/apiServerProbe';
 import { beginSetup, refreshOverview } from '../../workflow/setup';
 import { WorkflowState } from '../../workflow/store';
-import { DeleteButtonSection, DeleteProgress, DeleteResultNotice } from '../Cluster/DeleteSection';
+import {
+  DeleteButtonSection,
+  DeleteFailureNotice,
+  DeleteProgress,
+  DeleteResultNotice,
+} from '../Cluster/DeleteSection';
 import { TextRow } from '../shared/clusterText';
 import { CreateProgress } from '../shared/CreateProgress';
 import { Card, DetailRows } from '../shared/DetailCard';
 import { failureText } from '../shared/failureText';
-import { useWorkflow } from '../shared/hooks';
+import { useOverviewRefresh, useWorkflow } from '../shared/hooks';
 import { NotConfirmedNotice, RefreshFailureNotice } from '../shared/WorkflowNotices';
 
 interface StateProps {
@@ -161,6 +168,7 @@ function Landing({ state }: StateProps) {
         }
       />
       <DeleteResultNotice state={state} />
+      <DeleteFailureNotice state={state} />
       <CreateFailureNotice state={state} />
       <Box
         sx={{
@@ -424,9 +432,7 @@ function ClusterOverview({ state, target }: ClusterProps) {
 export function OverviewPage() {
   const { t } = useTranslation();
   const state = useWorkflow();
-  useEffect(() => {
-    refreshOverview();
-  }, []);
+  useOverviewRefresh(state.busy);
   const { target } = state;
   const panel = overviewPanel(state);
   if (panel === 'target' && target !== null) {

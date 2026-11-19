@@ -17,3 +17,13 @@ declare module '@kinvolk/headlamp-plugin/lib' {
   }
   export function registerClusterProviderDeleteHandler(handler: ClusterDeleteHandler): void;
 }
+
+// Headlamp's ConfirmDialog takes `confirmButtonDisabled` since kubernetes-sigs/headlamp 1dc67f61,
+// which AKS Desktop's Headlamp includes. Plugin SDK 0.14.0 does not declare it; remove this block
+// once the SDK does.
+declare module '@kinvolk/headlamp-plugin/lib/components/common/ConfirmDialog' {
+  interface ConfirmDialogProps {
+    /** Disables the Confirm button; defaults to false. */
+    confirmButtonDisabled?: boolean;
+  }
+}

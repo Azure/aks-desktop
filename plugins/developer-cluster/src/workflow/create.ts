@@ -27,6 +27,12 @@ export interface CreateInput {
   readonly gpu?: boolean;
 }
 
+/**
+ * The name and version of the last Create that ran, which Check again confirms. Kept in memory,
+ * like the workflow state.
+ */
+let lastCreate: Pick<CreateInput, 'name' | 'kubernetesVersion'> | null = null;
+
 /** Fails when the kubeconfig already has a local cluster's context. */
 async function checkNoTarget(): Promise<void> {
   if ((await refreshTarget()) !== null) throw hostError('already-exists');
@@ -85,8 +91,9 @@ export function createLocalCluster(input: CreateInput): Promise<boolean> {
       deleteFailure: null,
       environment: null,
     });
-    await checkNoTarget();
     const { name, kubernetesVersion } = input;
+    lastCreate = Object.freeze({ name, kubernetesVersion });
+    await checkNoTarget();
     await createCluster({ name, kubernetesVersion, gpu: input.gpu === true });
     update(await awaitReadiness(input));
   }, createFailed);
@@ -94,21 +101,30 @@ export function createLocalCluster(input: CreateInput): Promise<boolean> {
 
 /**
  * Check again after readiness was not confirmed: one read, without polling. A loaded
- * local context becomes the target, so Overview shows it and Delete becomes available.
+ * local context becomes the target, so Overview shows it and Delete becomes available. As after
+ * Create, a loaded local context for another name or version fails Create with
+ * `invalid-metadata`; a failed read keeps readiness not confirmed.
  */
 export function checkReadinessAgain(): Promise<boolean> {
   const { createPhase } = getWorkflowState();
-  if (createPhase !== 'not-confirmed') return Promise.resolve(false);
+  const input = lastCreate;
+  if (createPhase !== 'not-confirmed' || input === null) return Promise.resolve(false);
+  const run = { mismatch: false };
   return exclusive(
     async () => {
       update({ createFailure: null });
       const target = await readLocalTarget();
-      update(
-        target === null
-          ? { createPhase: 'not-confirmed' }
-          : { createPhase: 'usable', target: freezeTarget(target) }
-      );
+      if (target === null) {
+        update({ createPhase: 'not-confirmed' });
+        return;
+      }
+      update({ target: freezeTarget(target) });
+      if (!sameCluster(target, input)) {
+        run.mismatch = true;
+        throw nativeError('invalid-metadata');
+      }
+      update({ createPhase: 'usable' });
     },
-    failure => ({ createPhase: 'not-confirmed', createFailure: failure })
+    failure => ({ createPhase: run.mismatch ? 'failed' : 'not-confirmed', createFailure: failure })
   );
 }
