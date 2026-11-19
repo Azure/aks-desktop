@@ -8,3 +8,4 @@
 8329 source 8329-headlamp-upstream-activity-test-timers.patch
 8354 source 8354-headlamp-upstream-kubeconfig-null-collections.patch
 8518 source 8518-headlamp-upstream-kubeconfig-null-contexts.patch
+8519 source 8519-headlamp-upstream-cluster-delete-handler.patch
