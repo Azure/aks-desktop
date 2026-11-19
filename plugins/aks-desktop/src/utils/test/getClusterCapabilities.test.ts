@@ -4,12 +4,20 @@
 // REST capability projections are covered in az-managed-clusters.test.ts.
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const command = vi.hoisted(() => vi.fn());
+const mocks = vi.hoisted(() => ({
+  command: vi.fn(),
+  enableClusterAddonsViaRest: vi.fn(),
+}));
+const command = mocks.command;
 vi.stubGlobal('pluginRunCommand', command);
 vi.mock('@kinvolk/headlamp-plugin/lib', () => ({ runCommand: command }));
 vi.mock('../azure/az-cli-path', () => ({
   getAzCommand: () => 'az',
   getInstallationInstructions: () => 'Install Azure CLI',
+}));
+vi.mock('../azure/az-prometheus-provisioning', async importOriginal => ({
+  ...(await importOriginal<typeof import('../azure/az-prometheus-provisioning')>()),
+  enableClusterAddonsViaRest: (...args: unknown[]) => mocks.enableClusterAddonsViaRest(...args),
 }));
 
 import { enableClusterAddon } from '../azure/az-clusters';
@@ -20,100 +28,39 @@ const options = {
   clusterName: 'test-cluster',
 };
 
-function processOutput(stdout: string, stderr = '') {
-  return {
-    stdout: {
-      on: vi.fn((event: string, callback: (data: string) => void) => {
-        if (event === 'data') callback(stdout);
-      }),
-    },
-    stderr: {
-      on: vi.fn((event: string, callback: (data: string) => void) => {
-        if (event === 'data') callback(stderr);
-      }),
-    },
-    on: vi.fn((event: string, callback: (code: number) => void) => {
-      if (event === 'exit') callback(0);
-    }),
-  };
-}
-
-beforeEach(() => command.mockReset());
+beforeEach(() => {
+  command.mockReset();
+  mocks.enableClusterAddonsViaRest.mockReset();
+});
 
 describe('enableClusterAddon', () => {
-  test.each([
-    ['azure-monitor-metrics', '--enable-azure-monitor-metrics'],
-    ['keda', '--enable-keda'],
-    ['vpa', '--enable-vpa'],
-  ] as const)('retains the %s CLI write', async (addon, flag) => {
-    command.mockReturnValue(processOutput(''));
-    expect(await enableClusterAddon({ ...options, addon })).toEqual({ success: true });
-    expect(command).toHaveBeenCalledWith(
-      'az',
-      expect.arrayContaining([
-        'aks',
-        'update',
-        '--subscription',
-        options.subscriptionId,
-        '--resource-group',
-        options.resourceGroup,
-        '--name',
-        options.clusterName,
-        flag,
-        '--no-wait',
-      ]),
-      expect.anything()
-    );
-  });
+  test.each(['azure-monitor-metrics', 'keda', 'vpa'] as const)(
+    'delegates %s addon enablement to REST provisioning',
+    async addon => {
+      mocks.enableClusterAddonsViaRest.mockResolvedValue({ success: true });
+      expect(await enableClusterAddon({ ...options, addon })).toEqual({ success: true });
+      expect(mocks.enableClusterAddonsViaRest).toHaveBeenCalledWith({ ...options, addon });
+      expect(command).not.toHaveBeenCalled();
+    }
+  );
 
-  test.each([
-    'Interactive authentication is needed. Please run: az login',
-    'AADSTS50173: Token expired',
-  ])('reports authentication failures: %s', async stderr => {
-    command.mockReturnValue(processOutput('', stderr));
-    expect(await enableClusterAddon({ ...options, addon: 'keda' })).toMatchObject({
-      success: false,
-      error: expect.stringContaining('Authentication required'),
-    });
-  });
-
-  test.each([
-    'ERROR: (ResourceNotFound) The Resource was not found.',
-    'WARNING: something changed\nERROR: operation failed',
-  ])('reports CLI write failures: %s', async stderr => {
-    command.mockReturnValue(processOutput('', stderr));
-    expect(await enableClusterAddon({ ...options, addon: 'keda' })).toMatchObject({
-      success: false,
-      error: expect.stringContaining('Failed to enable addons'),
-    });
-  });
-
-  test.each([
-    'WARNING: The behavior of this command has been altered.',
-    'WARNING: The behavior has changed due to an error in the config',
-  ])('does not fail writes for warnings: %s', async stderr => {
-    command.mockReturnValue(processOutput('', stderr));
-    expect(await enableClusterAddon({ ...options, addon: 'keda' })).toEqual({ success: true });
-  });
-
-  test('combines multiple addons in one CLI write', async () => {
-    command.mockReturnValue(processOutput(''));
+  test('combines multiple addons in one REST call', async () => {
+    mocks.enableClusterAddonsViaRest.mockResolvedValue({ success: true });
     expect(
       await enableClusterAddon({ ...options, addon: ['azure-monitor-metrics', 'keda'] })
     ).toEqual({ success: true });
-    expect(command).toHaveBeenCalledTimes(1);
-    expect(command).toHaveBeenCalledWith(
-      'az',
-      expect.arrayContaining(['--enable-azure-monitor-metrics', '--enable-keda', '--no-wait']),
-      expect.anything()
-    );
+    expect(mocks.enableClusterAddonsViaRest).toHaveBeenCalledTimes(1);
+    expect(command).not.toHaveBeenCalled();
   });
 
-  test('rejects an empty addon selection', async () => {
-    expect(await enableClusterAddon({ ...options, addon: [] })).toMatchObject({
+  test('propagates REST failures and validation errors', async () => {
+    mocks.enableClusterAddonsViaRest.mockResolvedValue({
       success: false,
-      error: expect.stringContaining('No addons specified'),
+      error: 'Authentication required. Please log in to Azure CLI.',
     });
-    expect(command).not.toHaveBeenCalled();
+    expect(await enableClusterAddon({ ...options, addon: 'keda' })).toEqual({
+      success: false,
+      error: 'Authentication required. Please log in to Azure CLI.',
+    });
   });
 });
