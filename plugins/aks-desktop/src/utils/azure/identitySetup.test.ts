@@ -55,6 +55,38 @@ describe('ensureIdentityAndResourceGroup', () => {
     expect(mockCreateManagedIdentity).not.toHaveBeenCalled();
   });
 
+  it('revalidates a saved client ID without checking or creating its resource group', async () => {
+    mockGetManagedIdentity.mockResolvedValue({
+      success: true,
+      clientId: 'saved-client',
+      principalId: 'principal',
+      tenantId: 'tenant',
+    });
+    await expect(
+      ensureIdentityAndResourceGroup({ ...baseConfig, existingClientId: 'saved-client' })
+    ).resolves.toMatchObject({ clientId: 'saved-client', isExisting: true });
+    expect(mockResourceGroupExists).not.toHaveBeenCalled();
+    expect(mockCreateResourceGroup).not.toHaveBeenCalled();
+    expect(mockCreateManagedIdentity).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { success: false, notFound: true },
+    { success: false, error: '403 Forbidden' },
+    { success: true, clientId: 'replacement', principalId: 'pid', tenantId: 'tid' },
+    { success: true, clientId: 'saved-client' },
+  ])(
+    'does not replace a missing, inaccessible, mismatched or malformed saved identity: %j',
+    async identity => {
+      mockGetManagedIdentity.mockResolvedValue(identity);
+      await expect(
+        ensureIdentityAndResourceGroup({ ...baseConfig, existingClientId: 'saved-client' })
+      ).rejects.toThrow();
+      expect(mockResourceGroupExists).not.toHaveBeenCalled();
+      expect(mockCreateManagedIdentity).not.toHaveBeenCalled();
+    }
+  );
+
   it('creates RG and identity when neither exists', async () => {
     mockResourceGroupExists.mockResolvedValue({ exists: false });
     mockGetResourceGroupLocation.mockResolvedValue('eastus');

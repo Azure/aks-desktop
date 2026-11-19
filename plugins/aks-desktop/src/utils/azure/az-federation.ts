@@ -5,7 +5,12 @@
 import { K8S_DNS_LABEL_PATTERN } from '../kubernetes/k8sNames';
 import { debugLog, getErrorMessage, isValidGuid, runAzCommand } from './az-cli-core';
 import { type AksClusterReadOptions, getManagedClusterDetails } from './az-managed-clusters';
-import { isValidAzResourceName, isValidGitHubName } from './az-validation';
+import {
+  isValidAzResourceGroupName,
+  isValidAzResourceName,
+  isValidGitBranchName,
+  isValidGitHubName,
+} from './az-validation';
 
 /** Shared helper: runs `az identity federated-credential create` with dedup handling. */
 async function runFederatedCredentialCreate(options: {
@@ -34,8 +39,7 @@ async function runFederatedCredentialCreate(options: {
       'create',
       '--identity-name',
       identityName,
-      '--resource-group',
-      resourceGroup,
+      `--resource-group=${resourceGroup}`,
       '--subscription',
       subscriptionId,
       '--name',
@@ -77,10 +81,14 @@ export async function createFederatedCredential(options: {
   if (!isValidGuid(subscriptionId)) {
     return { success: false, error: 'Invalid subscription ID format' };
   }
-  if (!isValidAzResourceName(identityName) || !isValidAzResourceName(resourceGroup)) {
+  if (!isValidAzResourceName(identityName) || !isValidAzResourceGroupName(resourceGroup)) {
     return { success: false, error: 'Invalid identity name or resource group format' };
   }
-  if (!isValidGitHubName(repoOwner) || !isValidGitHubName(repoName) || !isValidGitHubName(branch)) {
+  if (
+    !isValidGitHubName(repoOwner) ||
+    !isValidGitHubName(repoName) ||
+    !isValidGitBranchName(branch)
+  ) {
     return { success: false, error: 'Invalid GitHub owner, repo name, or branch format' };
   }
 
@@ -122,7 +130,7 @@ export async function getAksOidcIssuerUrl(options: AksClusterReadOptions): Promi
   if (!isValidGuid(subscriptionId)) {
     return { success: false, error: 'Invalid subscription ID format' };
   }
-  if (!isValidAzResourceName(clusterName) || !isValidAzResourceName(resourceGroup)) {
+  if (!isValidAzResourceName(clusterName) || !isValidAzResourceGroupName(resourceGroup)) {
     return { success: false, error: 'Invalid cluster name or resource group format' };
   }
 
@@ -178,7 +186,7 @@ export async function createK8sFederatedCredential(options: {
   if (!isValidGuid(subscriptionId)) {
     return { success: false, error: 'Invalid subscription ID format' };
   }
-  if (!isValidAzResourceName(identityName) || !isValidAzResourceName(resourceGroup)) {
+  if (!isValidAzResourceName(identityName) || !isValidAzResourceGroupName(resourceGroup)) {
     return { success: false, error: 'Invalid identity name or resource group format' };
   }
 

@@ -39,6 +39,7 @@ const defaultProps = {
   repo: mockRepo,
   projectName: 'my-project',
   isManagedNamespace: false as const,
+  azureRbacEnabled: true,
 };
 
 describe('WorkloadIdentitySetup', () => {
@@ -55,6 +56,114 @@ describe('WorkloadIdentitySetup', () => {
 
     const textField = screen.getByDisplayValue('rg-my-project');
     expect(textField).toBeInTheDocument();
+  });
+
+  it('rehydrates and locks the saved identity resource group instead of the project default', () => {
+    const setup = makeIdentitySetup({
+      existingIdentity: {
+        identityName: 'saved-identity',
+        identityResourceGroup: 'custom-rg',
+        clientId: 'saved-client',
+      },
+      identityResolutionStatus: 'resolved',
+    });
+    render(<WorkloadIdentitySetup {...defaultProps} identitySetup={setup} />);
+    expect(screen.getByDisplayValue('custom-rg')).toHaveAttribute('readonly');
+    expect(screen.getByText('saved-identity')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+    expect(setup.setupWorkloadIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ identityResourceGroup: 'custom-rg' })
+    );
+  });
+
+  it('shows saved identity lookup errors without offering a replacement identity resource group', () => {
+    render(
+      <WorkloadIdentitySetup
+        {...defaultProps}
+        identitySetup={makeIdentitySetup({
+          identityResolutionStatus: 'error',
+          identityResolutionError: 'Forbidden identity lookup',
+        })}
+      />
+    );
+    expect(screen.getByText('Forbidden identity lookup')).toBeInTheDocument();
+    expect(screen.getByLabelText('Identity Resource Group')).toHaveAttribute('readonly');
+  });
+
+  it('shows checking-registry before creating-rg when an ACR resource ID is configured', () => {
+    render(
+      <WorkloadIdentitySetup
+        {...defaultProps}
+        acrResourceId="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/myacr"
+        identitySetup={makeIdentitySetup({ status: 'checking-registry' })}
+      />
+    );
+    const registryStep = screen.getByText('Checking container registry permissions...');
+    const rgStep = screen.getByText('Ensuring resource group exists...');
+    expect(
+      registryStep.compareDocumentPosition(rgStep) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('disables Continue while azureRbacResolved is false, allows omitted azureRbacEnabled when resolved, and surfaces capability errors with Retry', () => {
+    const onRetry = vi.fn();
+    const { rerender } = render(
+      <WorkloadIdentitySetup
+        {...defaultProps}
+        azureRbacEnabled={undefined}
+        azureRbacResolved={false}
+        capabilitiesError="Failed to get cluster capabilities"
+        onRetryCapabilities={onRetry}
+        identitySetup={makeIdentitySetup()}
+      />
+    );
+    expect(screen.getByRole('button', { name: /Continue/i })).toBeDisabled();
+    expect(screen.getByText('Failed to get cluster capabilities')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Retry/i }));
+    expect(onRetry).toHaveBeenCalledOnce();
+
+    rerender(
+      <WorkloadIdentitySetup
+        {...defaultProps}
+        azureRbacEnabled={undefined}
+        azureRbacResolved
+        identitySetup={makeIdentitySetup()}
+      />
+    );
+    expect(screen.getByRole('button', { name: /Continue/i })).toBeEnabled();
+  });
+
+  it('requires an explicit SP pull acknowledgement before retry, then invalidates it for another ACR', () => {
+    const setup = makeIdentitySetup({
+      status: 'error',
+      error: 'Manual pull verification required',
+      servicePrincipalPullRequired: true,
+    });
+    const { rerender } = render(
+      <WorkloadIdentitySetup {...defaultProps} acrResourceId="registry-a" identitySetup={setup} />
+    );
+    expect(screen.getByRole('button', { name: /Retry/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /Retry/i }));
+    expect(setup.setupWorkloadIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ acknowledgeServicePrincipalPull: true })
+    );
+    rerender(
+      <WorkloadIdentitySetup {...defaultProps} acrResourceId="registry-b" identitySetup={setup} />
+    );
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+    expect(screen.getByRole('button', { name: /Retry/i })).toBeDisabled();
+  });
+
+  it('does not offer manual bypass for managed-identity or network failures', () => {
+    render(
+      <WorkloadIdentitySetup
+        {...defaultProps}
+        identitySetup={makeIdentitySetup({ status: 'error', error: 'Forbidden kubelet lookup' })}
+      />
+    );
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Retry/i })).toBeEnabled();
   });
 
   it('updates TextField when projectName prop changes', () => {

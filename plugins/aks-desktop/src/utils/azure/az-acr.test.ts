@@ -18,7 +18,12 @@ vi.mock('./az-token', async importOriginal => ({
   getSubscriptionCredential: mocks.getSubscriptionCredential,
 }));
 
-import { type AcrSku, createContainerRegistry, getContainerRegistries } from './az-acr';
+import {
+  type AcrSku,
+  createContainerRegistry,
+  getContainerRegistries,
+  getRegistryRoleAssignmentMode,
+} from './az-acr';
 
 const subscriptionId = '11111111-2222-3333-4444-555555555555';
 const credential: TokenCredential = {
@@ -820,5 +825,88 @@ describe('createContainerRegistry', () => {
     });
     expect(mocks.fetch).not.toHaveBeenCalled();
     expect(mocks.getAzureCloudEndpoints).not.toHaveBeenCalled();
+  });
+
+  test.each(['team.prod', 'team(prod)', 'équipe-一', '-rg'])(
+    'accepts valid ARM resource group %s',
+    async resourceGroup => {
+      mocks.fetch.mockResolvedValue(
+        json(200, { id: '/acr', properties: { loginServer: 'myregistry.azurecr.io' } })
+      );
+      await expect(
+        createContainerRegistry({
+          registryName: 'myregistry',
+          resourceGroup,
+          subscriptionId,
+          location: 'eastus',
+        })
+      ).resolves.toEqual({
+        success: true,
+        id: '/acr',
+        loginServer: 'myregistry.azurecr.io',
+      });
+    }
+  );
+
+  test.each(['team.', 'a/b', 'a'.repeat(91)])(
+    'rejects invalid resource group %s without HTTP calls',
+    async resourceGroup => {
+      await expect(
+        createContainerRegistry({
+          registryName: 'myregistry',
+          resourceGroup,
+          subscriptionId,
+          location: 'eastus',
+        })
+      ).resolves.toEqual({
+        success: false,
+        error: 'Invalid resource group name format',
+      });
+      expect(mocks.fetch).not.toHaveBeenCalled();
+    }
+  );
+});
+
+describe('getRegistryRoleAssignmentMode', () => {
+  const acrId = `/subscriptions/${subscriptionId}/resourceGroups/my-rg/providers/Microsoft.ContainerRegistry/registries/myacr`;
+
+  test('returns AbacRepositoryPermissions when reported by ARM 2025-11-01', async () => {
+    mocks.getAzureCloudEndpoints.mockResolvedValue({
+      endpoint: 'https://management.usgovcloudapi.net',
+      scope: 'https://management.usgovcloudapi.net/.default',
+    });
+    mocks.fetch.mockResolvedValue(
+      json(200, { properties: { roleAssignmentMode: 'AbacRepositoryPermissions' } })
+    );
+
+    await expect(getRegistryRoleAssignmentMode(acrId)).resolves.toBe('AbacRepositoryPermissions');
+    expect(mocks.getSubscriptionCredential).toHaveBeenCalledWith(subscriptionId);
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    expect(String(mocks.fetch.mock.calls[0][0])).toBe(
+      `https://management.usgovcloudapi.net${acrId}?api-version=2025-11-01`
+    );
+    expect(mocks.fetch.mock.calls[0][1]).toMatchObject({ method: 'GET' });
+  });
+
+  test.each([undefined, 'LegacyRegistryPermissions'])(
+    'returns LegacyRegistryPermissions when roleAssignmentMode is %s',
+    async roleAssignmentMode => {
+      mocks.fetch.mockResolvedValue(json(200, { properties: { roleAssignmentMode } }));
+      await expect(getRegistryRoleAssignmentMode(acrId)).resolves.toBe('LegacyRegistryPermissions');
+    }
+  );
+
+  test('rejects malformed ACR resource IDs before calling ARM', async () => {
+    await expect(getRegistryRoleAssignmentMode('/invalid/acr')).rejects.toThrow(
+      'Invalid ACR resource ID'
+    );
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  test('propagates ARM read failures', async () => {
+    mocks.fetch.mockResolvedValue(
+      json(403, { error: { code: 'AuthorizationFailed', message: 'Forbidden' } })
+    );
+    await expect(getRegistryRoleAssignmentMode(acrId)).rejects.toThrow('Forbidden');
   });
 });

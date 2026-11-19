@@ -7,6 +7,7 @@ vi.mock('../shared/runCommandAsync', () => ({ runCommandAsync: mocks.command }))
 
 import { getKubeletIdentityObjectId } from './az-identity';
 
+const objectId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const options = {
   subscriptionId: '11111111-2222-3333-4444-555555555555',
   resourceGroup: 'my-rg',
@@ -33,7 +34,12 @@ describe('getKubeletIdentityObjectId', () => {
     'validates input without a REST or CLI request',
     async (subscriptionId, resourceGroup, clusterName, error) => {
       expect(
-        await getKubeletIdentityObjectId({ ...options, subscriptionId, resourceGroup, clusterName })
+        await getKubeletIdentityObjectId({
+          ...options,
+          subscriptionId,
+          resourceGroup,
+          clusterName,
+        })
       ).toMatchObject({ success: false, error: expect.stringContaining(error) });
       expect(mocks.fetch).not.toHaveBeenCalled();
     }
@@ -55,4 +61,83 @@ describe('getKubeletIdentityObjectId', () => {
       });
     }
   );
+
+  test.each(['team.prod', 'rg(test)', 'équipe_资源١', '-rg'])(
+    'reads the kubelet object ID through ARM in resource group %s',
+    async resourceGroup => {
+      mocks.fetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            properties: { identityProfile: { kubeletidentity: { objectId } } },
+          })
+        )
+      );
+      expect(await getKubeletIdentityObjectId({ ...options, resourceGroup })).toEqual({
+        success: true,
+        objectId,
+      });
+      expect(String(mocks.fetch.mock.calls[0][0])).toContain(
+        `/resourceGroups/${encodeURIComponent(resourceGroup)}/`
+      );
+    }
+  );
+
+  test.each([null, undefined, { type: 'None' }])(
+    'recognizes legacy SP metadata using top-level identity %j',
+    async identity => {
+      mocks.fetch.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            identity,
+            properties: { identityProfile: null, servicePrincipalProfile: { clientId: objectId } },
+          })
+        )
+      );
+      expect(await getKubeletIdentityObjectId(options)).toMatchObject({
+        success: false,
+        servicePrincipalRequiresManualVerification: true,
+      });
+    }
+  );
+
+  test.each([
+    {},
+    {
+      identity: { type: 'SystemAssigned' },
+      properties: {
+        servicePrincipalProfile: { clientId: objectId },
+      },
+    },
+    { identity: null, properties: { servicePrincipalProfile: { clientId: 'malformed' } } },
+    {
+      identity: null,
+      properties: { identityProfile: [], servicePrincipalProfile: { clientId: objectId } },
+    },
+    {
+      identity: null,
+      properties: {
+        identityProfile: { kubeletidentity: { objectId: 'malformed' } },
+        servicePrincipalProfile: { clientId: objectId },
+      },
+    },
+  ])('does not offer an SP bypass for malformed or managed identity data %j', async cluster => {
+    mocks.fetch.mockResolvedValue(new Response(JSON.stringify(cluster)));
+    const result = await getKubeletIdentityObjectId(options);
+    expect(result.success).toBe(false);
+    expect(result.servicePrincipalRequiresManualVerification).not.toBe(true);
+  });
+
+  test('preserves ARM authorization errors without enabling manual SP acknowledgement', async () => {
+    mocks.fetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: 'AuthorizationFailed', message: 'Forbidden' },
+        }),
+        { status: 403 }
+      )
+    );
+    const result = await getKubeletIdentityObjectId(options);
+    expect(result).toMatchObject({ success: false, error: expect.stringContaining('Forbidden') });
+    expect(result.servicePrincipalRequiresManualVerification).not.toBe(true);
+  });
 });

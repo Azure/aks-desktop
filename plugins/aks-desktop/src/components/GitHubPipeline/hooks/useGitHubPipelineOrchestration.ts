@@ -24,6 +24,7 @@ import {
   RESUMABLE_STATES,
   setActivePipeline,
 } from '../utils/pipelineStorage';
+import { getRepoSetupStatus } from '../utils/repoSetupStatus';
 import { useAgentPRDiscovery } from './useAgentPRDiscovery';
 import type { AgentWorkflowProgress } from './useAgentWorkflowProgress';
 import { useAgentWorkflowProgress } from './useAgentWorkflowProgress';
@@ -44,6 +45,8 @@ import type { UseWorkloadIdentitySetupReturn } from './useWorkloadIdentitySetup'
 import { useWorkloadIdentitySetup } from './useWorkloadIdentitySetup';
 
 interface UseGitHubPipelineOrchestrationProps {
+  /** Null until the user chooses a path when Dockerfiles are available. */
+  pathChoice?: 'agent' | 'fast' | 'fast-with-ai' | null;
   clusterName: string;
   namespace: string;
   /** Application name. Defaults to `''` (derived from repo name at runtime). */
@@ -64,6 +67,10 @@ interface UseGitHubPipelineOrchestrationProps {
   mode?: 'configure' | 'deploy';
   /** Project name — used for identity naming and resource group defaults. */
   projectName?: string;
+  /** Whether Azure RBAC for Kubernetes is enabled on the cluster (`undefined` while loading or omitted). */
+  azureRbacEnabled?: boolean;
+  /** Whether the Azure RBAC capability read has completed (distinguishes omitted ARM fields from pending/failed reads). */
+  azureRbacResolved?: boolean;
 }
 
 export interface UseGitHubPipelineOrchestrationResult {
@@ -74,6 +81,8 @@ export interface UseGitHubPipelineOrchestrationResult {
   isCheckingInstall: boolean;
   pipeline: UseGitHubPipelineStateResult;
   identityId: string;
+  /** Current-session identity and registry/pull checks succeeded for the selected scope. */
+  identityReady: boolean;
   localAppName: string;
   setLocalAppName: React.Dispatch<React.SetStateAction<string>>;
   checkRepoAndApp: (options?: { silent?: boolean }) => Promise<void>;
@@ -95,20 +104,27 @@ export interface UseGitHubPipelineOrchestrationResult {
  * pipeline wizard. The companion `GitHubPipelineWizard` component is a
  * pure render-only consumer of the values returned here.
  */
-export const useGitHubPipelineOrchestration = ({
-  clusterName,
-  namespace,
-  appName = '',
-  subscriptionId,
-  resourceGroup,
-  tenantId,
-  initialRepo,
-  containerConfig,
-  mode = 'deploy',
-  projectName,
-}: UseGitHubPipelineOrchestrationProps): UseGitHubPipelineOrchestrationResult => {
-  const agentTriggerInFlightRef = useRef(false);
-  const checkRepoInFlightRef = useRef(false);
+export const useGitHubPipelineOrchestration = (
+  props: UseGitHubPipelineOrchestrationProps
+): UseGitHubPipelineOrchestrationResult => {
+  const {
+    clusterName,
+    namespace,
+    appName = '',
+    subscriptionId,
+    resourceGroup,
+    tenantId,
+    initialRepo,
+    containerConfig,
+    mode = 'deploy',
+    projectName,
+    pathChoice = null,
+    azureRbacEnabled,
+    azureRbacResolved,
+  } = props;
+  const trackAzureRbac = 'azureRbacResolved' in props;
+  const checkRepoInFlightRef = useRef<object | null>(null);
+  const setupPRInFlightRef = useRef(false);
 
   const deploymentStateRef = useRef<PipelineDeploymentState>('Configured');
 
@@ -131,30 +147,99 @@ export const useGitHubPipelineOrchestration = ({
     deploymentStateRef.current = pipeline.state.deploymentState;
   }, [pipeline.state.deploymentState]);
 
-  const identitySetup = useWorkloadIdentitySetup();
-
   const [identityId, setIdentityId] = useState('');
-  const [localAppName, setLocalAppName] = useState(appName || '');
+  const savedIdentityId =
+    pipeline.state.config?.identityId ||
+    namespaceInstance?.jsonData?.metadata?.annotations?.[ANNOTATION_WORKLOAD_IDENTITY] ||
+    identityId;
+  const identityScopeKey = JSON.stringify([
+    repoKey,
+    selectedRepo?.defaultBranch,
+    subscriptionId,
+    clusterName,
+    resourceGroup,
+    namespace,
+    tenantId,
+    pipeline.state.config?.acrResourceId,
+    pipeline.state.config?.acrLoginServer,
+    trackAzureRbac ? (azureRbacResolved ? azureRbacEnabled ?? false : 'pending') : null,
+  ]);
+  // Adopting the result of this setup must not reset its own permission proof.
+  // A different scope or externally selected identity still invalidates it.
+  const identitySeedRef = useRef({ scopeKey: identityScopeKey, clientId: savedIdentityId });
+  if (
+    identitySeedRef.current.scopeKey !== identityScopeKey ||
+    (savedIdentityId !== identityId && identitySeedRef.current.clientId !== savedIdentityId)
+  ) {
+    identitySeedRef.current = { scopeKey: identityScopeKey, clientId: savedIdentityId };
+  }
+  const identitySeed = identitySeedRef.current.clientId;
+  const identitySetup = useWorkloadIdentitySetup(
+    JSON.stringify([identityScopeKey, identitySeed]),
+    true,
+    identitySeed ? { clientId: identitySeed, subscriptionId } : undefined
+  );
+  const identityReady =
+    (!trackAzureRbac || azureRbacResolved === true) &&
+    identitySetup.status === 'done' &&
+    !!identitySetup.result &&
+    identitySetup.result.clientId === pipeline.state.config?.identityId &&
+    !identitySetup.servicePrincipalPullRequired &&
+    !identitySetup.result.warnings.length;
+
+  const [localAppName, setLocalAppName] = useState(
+    appName || pipeline.state.config?.appName || resolvedInitialRepo?.repo || ''
+  );
+  const appNameRepoRef = useRef(repoKey);
 
   useEffect(() => {
-    if (identityId) return;
-    const stored =
-      namespaceInstance?.jsonData?.metadata?.annotations?.[ANNOTATION_WORKLOAD_IDENTITY];
-    if (stored) {
-      setIdentityId(stored);
+    if (appNameRepoRef.current !== repoKey) {
+      const config = pipeline.state.config;
+      if (
+        selectedRepo &&
+        config &&
+        (config.repo.owner !== selectedRepo.owner || config.repo.repo !== selectedRepo.repo)
+      ) {
+        return;
+      }
+      appNameRepoRef.current = repoKey;
+      setLocalAppName(appName || (selectedRepo && config?.appName) || selectedRepo?.repo || '');
     }
-  }, [identityId, namespaceInstance]);
+  }, [repoKey, appName, pipeline.state.config, selectedRepo]);
 
-  useEffect(() => {
-    if (!localAppName && selectedRepo) {
-      setLocalAppName(selectedRepo.repo);
+  const agentFlow =
+    pathChoice === 'agent' ||
+    (pathChoice === null &&
+      (!pipeline.state.repoReadiness?.dockerfilePaths?.length ||
+        pipeline.state.deploymentState === 'AgentTaskCreating'));
+  const reviewConfigKey = JSON.stringify(
+    pipeline.state.config && {
+      ...pipeline.state.config,
+      repo: selectedRepo ?? pipeline.state.config.repo,
+      identityId: identityId || pipeline.state.config.identityId,
+      appName: localAppName,
+      containerConfig,
     }
-  }, [localAppName, selectedRepo]);
+  );
+  const contextKey = JSON.stringify([
+    reviewConfigKey,
+    clusterName,
+    namespace,
+    subscriptionId,
+    resourceGroup,
+    tenantId,
+  ]);
+  const contextRef = useRef({ contextKey, octokit: gitHubAuth.octokit, agentFlow });
+  useLayoutEffect(() => {
+    contextRef.current = { contextKey, octokit: gitHubAuth.octokit, agentFlow };
+  }, [contextKey, gitHubAuth.octokit, agentFlow]);
 
   useEffect(() => {
     if (
       identitySetup.status === 'done' &&
       identitySetup.result &&
+      !identitySetup.servicePrincipalPullRequired &&
+      !identitySetup.result.warnings.length &&
       pipeline.state.deploymentState === 'WorkloadIdentitySetup'
     ) {
       setIdentityId(identitySetup.result.clientId);
@@ -164,6 +249,7 @@ export const useGitHubPipelineOrchestration = ({
   }, [
     identitySetup.status,
     identitySetup.result,
+    identitySetup.servicePrincipalPullRequired,
     pipeline.state.deploymentState,
     pipeline.updateConfig,
     pipeline.setIdentityReady,
@@ -225,8 +311,10 @@ export const useGitHubPipelineOrchestration = ({
   const checkRepoAndApp = useCallback(
     async (options?: { silent?: boolean }) => {
       if (!gitHubAuth.octokit || !selectedRepo) return;
-      if (checkRepoInFlightRef.current) return;
-      checkRepoInFlightRef.current = true;
+      const requestContext = contextRef.current;
+      if (checkRepoInFlightRef.current === requestContext) return;
+      checkRepoInFlightRef.current = requestContext;
+      const isActive = () => contextRef.current === requestContext;
       setIsCheckingInstall(true);
       if (!options?.silent) {
         pipeline.setCheckingRepo();
@@ -237,6 +325,7 @@ export const useGitHubPipelineOrchestration = ({
           selectedRepo.owner,
           selectedRepo.repo
         );
+        if (!isActive()) return;
         if (!installed) {
           pipeline.setAppInstallNeeded();
           setAppInstallUrl(installUrl);
@@ -248,18 +337,38 @@ export const useGitHubPipelineOrchestration = ({
           selectedRepo.repo,
           selectedRepo.defaultBranch
         );
+        if (!isActive()) return;
         // Only shortcut to PipelineConfigured when resuming via initialRepo.
         // When the user manually selected a repo (or used "Start over"),
         // always show the setup review so they can re-run the pipeline.
         const effective = isResumingRef.current
           ? readiness
           : { ...readiness, hasDeployWorkflow: false };
-        pipeline.setRepoReadiness(effective);
+        const config = pipeline.state.config;
+        const setupCurrent =
+          (pathChoice === 'agent' || (pathChoice === null && !readiness.dockerfilePaths?.length)) &&
+          !effective.hasDeployWorkflow &&
+          readiness.hasSetupWorkflow &&
+          readiness.hasAgentConfig &&
+          !!config?.identityId?.trim() &&
+          !!config?.appName?.trim()
+            ? (
+                await getRepoSetupStatus(gitHubAuth.octokit, {
+                  ...config,
+                  repo: selectedRepo,
+                })
+              ).isCurrent
+            : undefined;
+        if (isActive()) pipeline.setRepoReadiness(effective, setupCurrent);
       } catch (err) {
-        pipeline.setFailed(err instanceof Error ? err.message : 'Failed to check repo');
+        if (isActive()) {
+          pipeline.setFailed(err instanceof Error ? err.message : 'Failed to check repo');
+        }
       } finally {
-        checkRepoInFlightRef.current = false;
-        setIsCheckingInstall(false);
+        if (checkRepoInFlightRef.current === requestContext) {
+          checkRepoInFlightRef.current = null;
+          setIsCheckingInstall(false);
+        }
       }
     },
     [
@@ -269,8 +378,60 @@ export const useGitHubPipelineOrchestration = ({
       pipeline.setAppInstallNeeded,
       pipeline.setRepoReadiness,
       pipeline.setFailed,
+      pipeline.state.config,
+      pathChoice,
     ]
   );
+
+  // All deployment paths need fresh permissions; only agent paths need setup-file verification.
+  useEffect(() => {
+    if (pipeline.state.deploymentState !== 'ReadyForSetup') return;
+    if (!identityReady) {
+      pipeline.setIdentitySetup();
+      return;
+    }
+    if (!agentFlow) return;
+    if (!reviewConfigKey || reviewConfigKey === 'null' || !gitHubAuth.octokit) return;
+    const reviewConfig: PipelineConfig = JSON.parse(reviewConfigKey);
+    const octokit = gitHubAuth.octokit;
+    let cancelled = false;
+    const isActive = () =>
+      !cancelled &&
+      contextRef.current.contextKey === contextKey &&
+      contextRef.current.octokit === octokit &&
+      contextRef.current.agentFlow;
+    pipeline.setSetupStatus('verifying');
+    if (!reviewConfig.appName.trim()) {
+      pipeline.setSetupStatus('unknown');
+      return;
+    }
+    const timeout = setTimeout(() => {
+      getRepoSetupStatus(octokit, reviewConfig)
+        .then(({ isCurrent }) => {
+          if (isActive()) pipeline.setSetupStatus(isCurrent ? 'current' : 'obsolete');
+        })
+        .catch(err => {
+          if (isActive()) {
+            pipeline.setSetupStatus('unknown');
+            pipeline.setFailed(err instanceof Error ? err.message : 'Failed to verify repo setup');
+          }
+        });
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [
+    pipeline.state.deploymentState,
+    agentFlow,
+    reviewConfigKey,
+    contextKey,
+    pipeline.setSetupStatus,
+    pipeline.setFailed,
+    pipeline.setIdentitySetup,
+    identityReady,
+    gitHubAuth.octokit,
+  ]);
 
   const setupPrPolling = usePRPolling(
     gitHubAuth.octokit,
@@ -322,33 +483,61 @@ export const useGitHubPipelineOrchestration = ({
   // Agent task creation: secrets + Copilot agent trigger (narrow dependencies)
   useEffect(() => {
     if (pipeline.state.deploymentState !== 'AgentTaskCreating') return;
-    if (agentTriggerInFlightRef.current) return;
+    if (!agentFlow) return;
     const currentConfig = pipeline.state.config;
     const currentOctokit = gitHubAuth.octokit;
     if (!currentConfig || !currentOctokit) return;
+    if (!identityReady) {
+      pipeline.setIdentitySetup();
+      return;
+    }
 
-    agentTriggerInFlightRef.current = true;
+    let cancelled = false;
+    const isActive = () =>
+      !cancelled &&
+      deploymentStateRef.current === 'AgentTaskCreating' &&
+      contextRef.current.contextKey === contextKey &&
+      contextRef.current.octokit === currentOctokit &&
+      contextRef.current.agentFlow;
+    pipeline.setSetupStatus('verifying');
     (async () => {
       try {
+        // Also protects resumed sessions and merged PRs whose contents are no longer current.
+        const { isCurrent } = await getRepoSetupStatus(currentOctokit, currentConfig);
+        if (!isActive()) return;
+        pipeline.setSetupStatus(isCurrent ? 'current' : 'obsolete');
+        if (!isCurrent) {
+          // Identity is still ready; return to the existing setup PR review step.
+          pipeline.setIdentityReady();
+          return;
+        }
         await createPipelineSecrets(currentOctokit, currentConfig);
-        if (deploymentStateRef.current !== 'AgentTaskCreating') return;
+        if (!isActive()) return;
         const issue = await triggerCopilotAgent(currentOctokit, currentConfig);
-        if (deploymentStateRef.current !== 'AgentTaskCreating') return;
+        if (!isActive()) return;
         pipeline.setAgentTriggered(issue);
       } catch (err) {
-        if (deploymentStateRef.current !== 'AgentTaskCreating') return;
+        if (!isActive()) return;
         console.error('Failed to trigger Copilot agent:', err);
+        pipeline.setSetupStatus('unknown');
         pipeline.setFailed(err instanceof Error ? err.message : 'Failed to trigger Copilot agent');
-      } finally {
-        agentTriggerInFlightRef.current = false;
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [
     pipeline.state.deploymentState,
     pipeline.state.config,
     gitHubAuth.octokit,
     pipeline.setAgentTriggered,
+    pipeline.setIdentityReady,
     pipeline.setFailed,
+    pipeline.setSetupStatus,
+    pipeline.setIdentitySetup,
+    identityReady,
+    contextKey,
+    agentFlow,
   ]);
 
   useEffect(() => {
@@ -494,9 +683,26 @@ export const useGitHubPipelineOrchestration = ({
 
   const handleCreateSetupPR = useCallback(async () => {
     if (!pipeline.state.config || !gitHubAuth.octokit) return;
+    if (!agentFlow || !localAppName.trim()) return;
+    if (!identityReady) {
+      pipeline.setIdentitySetup();
+      return;
+    }
+    if (
+      pipeline.state.deploymentState !== 'ReadyForSetup' ||
+      !['current', 'obsolete'].includes(pipeline.state.setupStatus)
+    )
+      return;
+    if (setupPRInFlightRef.current) return;
+    setupPRInFlightRef.current = true;
 
     const resolvedIdentityId = identityId || pipeline.state.config.identityId;
-    const resolvedAppName = localAppName || pipeline.state.config.appName;
+    const resolvedAppName = localAppName;
+    const octokit = gitHubAuth.octokit;
+    const isActive = () =>
+      contextRef.current.contextKey === contextKey &&
+      contextRef.current.octokit === octokit &&
+      contextRef.current.agentFlow;
 
     // Single source of truth — used for both persistence and the API call.
     const mergedConfig: PipelineConfig = {
@@ -504,42 +710,56 @@ export const useGitHubPipelineOrchestration = ({
       identityId: resolvedIdentityId,
       appName: resolvedAppName,
       containerConfig,
+      repo: selectedRepo ?? pipeline.state.config.repo,
     };
 
     pipeline.updateConfig({
       identityId: resolvedIdentityId,
       appName: resolvedAppName,
       containerConfig,
+      repo: mergedConfig.repo,
     });
 
-    // If both config files already exist on the repo (e.g. setup PR was merged in a previous
-    // session), skip PR creation and go straight to the agent trigger.
-    const readiness = pipeline.state.repoReadiness;
-    if (readiness?.hasSetupWorkflow && readiness?.hasAgentConfig) {
-      pipeline.setSetupPRMerged();
-      return;
-    }
-
-    pipeline.setCreatingSetupPR();
+    pipeline.setSetupStatus('verifying');
     try {
-      const pr = await createSetupPR(gitHubAuth.octokit, mergedConfig);
+      const { isCurrent } = await getRepoSetupStatus(octokit, mergedConfig);
+      if (!isActive()) return;
+      pipeline.setSetupStatus(isCurrent ? 'current' : 'obsolete');
+      if (isCurrent) {
+        pipeline.setSetupPRMerged();
+        return;
+      }
+      pipeline.setCreatingSetupPR();
+      const pr = await createSetupPR(octokit, mergedConfig);
+      if (!isActive()) return;
       pipeline.setSetupPRCreated(pr);
     } catch (error) {
+      if (!isActive()) return;
       console.error('Failed to create setup PR:', error);
+      pipeline.setSetupStatus('unknown');
       pipeline.setFailed(error instanceof Error ? error.message : 'Failed to create setup PR');
+    } finally {
+      setupPRInFlightRef.current = false;
     }
   }, [
     gitHubAuth.octokit,
     pipeline.state.config,
-    pipeline.state.repoReadiness,
+    pipeline.state.deploymentState,
+    pipeline.state.setupStatus,
     pipeline.updateConfig,
     pipeline.setSetupPRMerged,
     pipeline.setCreatingSetupPR,
     pipeline.setSetupPRCreated,
     pipeline.setFailed,
+    pipeline.setSetupStatus,
+    pipeline.setIdentitySetup,
+    identityReady,
     identityId,
     localAppName,
     containerConfig,
+    selectedRepo,
+    agentFlow,
+    contextKey,
   ]);
 
   const handleRedeploy = useCallback(async () => {
@@ -564,7 +784,8 @@ export const useGitHubPipelineOrchestration = ({
     appInstallUrl,
     isCheckingInstall,
     pipeline,
-    identityId,
+    identityId: identityId || savedIdentityId,
+    identityReady,
     localAppName,
     setLocalAppName,
     checkRepoAndApp,

@@ -16,20 +16,21 @@ import {
   PIPELINE_WORKFLOW_FILENAME,
 } from '../constants';
 import type { IssueTracking, PipelineConfig, PRTracking } from '../types';
+import { getAcrBuildFiles } from './acrTasks/acrTaskRunner';
 import {
   generateBranchName,
   getActiveEnvVars,
   pushAgentConfigFiles,
   validatePipelineConfig,
 } from './agentTemplates';
-import { deriveAcrName } from './deriveAcrName';
+import { deriveAcrName, requireAcrLoginServer } from './deriveAcrName';
 import { getProbeConfigs, renderProbeYaml } from './probeHelpers';
+import { getRepoSetupStatus } from './repoSetupStatus';
 import { escapeYamlValue } from './yamlUtils';
 
 /**
  * Creates the setup PR that adds Copilot agent config files to the repo (Step C).
- * Creates a branch, pushes copilot-setup-steps.yml and containerization.agent.md,
- * then opens a PR against the default branch.
+ * Publishes agent configuration and its ACR runtime (when configured), then opens a PR.
  */
 export const createSetupPR = async (
   octokit: Octokit,
@@ -49,15 +50,20 @@ export const createSetupPR = async (
       octokit,
       owner,
       repo,
-      `Enable AKS deployment agent for ${config.appName}`,
+      `Set up or upgrade AKS deployment agent for ${config.appName}`,
       [
         '## AKS Desktop — Containerization Agent Setup',
         '',
         'This PR adds the GitHub Copilot Coding Agent configuration for containerizing and deploying this application to AKS.',
+        'Existing setup files are upgraded to the current ACR Tasks runtime and build instructions. Other agent guidance is preserved.',
+        'Review and merge this PR explicitly. The agent will not run until the updated setup is present on the default branch.',
         '',
         '### What gets added',
         `- \`${COPILOT_SETUP_STEPS_PATH}\` — environment setup for the agent`,
         `- \`${AGENT_CONFIG_PATH}\` — agent instructions for containerization + AKS deployment`,
+        ...(config.acrLoginServer || config.acrResourceId
+          ? Object.keys(getAcrBuildFiles()).map(path => `- \`${path}\` — ACR Tasks build runtime`)
+          : []),
         '',
         '### What happens after merge',
         'The Copilot Coding Agent will analyze this repository and create a follow-up PR with:',
@@ -109,6 +115,7 @@ export const createPipelineSecrets = async (
   octokit: Octokit,
   config: PipelineConfig
 ): Promise<void> => {
+  if (config.acrResourceId || config.acrLoginServer) requireAcrLoginServer(config);
   const { owner, repo } = config.repo;
 
   const secrets: Record<string, string> = {
@@ -119,6 +126,9 @@ export const createPipelineSecrets = async (
 
   if (config.acrLoginServer || config.acrResourceId) {
     secrets.AZURE_ACR_NAME = deriveAcrName(config);
+  }
+  if (config.acrResourceId) {
+    secrets.AZURE_ACR_RESOURCE_ID = config.acrResourceId;
   }
 
   const envVars = getActiveEnvVars(config);
@@ -150,6 +160,11 @@ export const triggerCopilotAgent = async (
   const validation = validatePipelineConfig(config);
   if (!validation.isValid) {
     throw new Error(`Invalid pipeline config: ${validation.errors.join(', ')}`);
+  }
+  if (!(await getRepoSetupStatus(octokit, config)).isCurrent) {
+    throw new Error(
+      'Repository setup is outdated; merge the setup upgrade before running the agent'
+    );
   }
 
   // PRD Section 6.3: payload in a single fenced block to reduce ambiguity.

@@ -896,5 +896,15 @@
   "Node OS image": "Node OS image",
   "Snapshot is more than 24 hours old. Re-check before upgrading.": "Snapshot is more than 24 hours old. Re-check before upgrading.",
   "Stored evaluation has expired.": "Stored evaluation has expired.",
-  "Unknown scope": "Unknown scope"
+  "Unknown scope": "Unknown scope",
+  "Upgrade setup": "",
+  "Verifying setup...": "",
+  "I manually verified that this service-principal cluster can pull images from the selected registry.": "",
+  "Registry pull access was manually acknowledged, not automatically verified.": "",
+  "Resolving the saved managed identity...": "",
+  "Resource group of the saved managed identity": "",
+  "Reusing the saved managed identity. No replacement identity will be created.": "",
+  "Saved managed identity": "",
+  "The saved managed identity and its permissions will be revalidated for this pipeline.": "",
+  "Checking container registry permissions...": ""
 }

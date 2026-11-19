@@ -228,6 +228,8 @@ export default function WorkloadIdentityStep({
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <CircularProgress size={16} />
                     <Typography variant="body2" color="text.secondary">
+                      {workloadIdentity.status === 'checking-registry' &&
+                        t('Checking container registry permissions...')}
                       {workloadIdentity.status === 'creating-rg' && t('Creating resource group...')}
                       {workloadIdentity.status === 'checking' &&
                         t('Checking for existing identity...')}

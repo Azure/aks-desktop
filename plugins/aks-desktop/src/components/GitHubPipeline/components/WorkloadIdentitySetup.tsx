@@ -3,7 +3,15 @@
 
 import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { Alert, Box, Button, TextField, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  Checkbox,
+  FormControlLabel,
+  TextField,
+  Typography,
+} from '@mui/material';
 import React, { useEffect, useRef, useState } from 'react';
 import type { GitHubRepo } from '../../../types/github';
 import type {
@@ -29,6 +37,12 @@ type WorkloadIdentitySetupProps = {
   acrResourceId?: string;
   /** Whether Azure RBAC for Kubernetes is enabled on the cluster. */
   azureRbacEnabled?: boolean;
+  /** Whether the Azure RBAC capability lookup has completed. */
+  azureRbacResolved?: boolean;
+  /** Error returned while resolving cluster/namespace capabilities. */
+  capabilitiesError?: string | null;
+  /** Retries the failed cluster/namespace capability lookup. */
+  onRetryCapabilities?: () => void;
 } & NamespaceContext;
 
 const BASE_STATUS_ORDER = [
@@ -44,19 +58,29 @@ const BASE_STATUS_ORDER = [
  * The optional `creating-rolebinding` step is only inserted when we'll be creating
  * a Kubernetes RoleBinding (non-Azure-RBAC clusters with a managed namespace).
  */
-function getStatusOrder(includeRoleBinding: boolean): string[] {
+function getStatusOrder(includeRegistryCheck: boolean, includeRoleBinding: boolean): string[] {
+  const order: string[] = includeRegistryCheck
+    ? ['checking-registry', ...BASE_STATUS_ORDER]
+    : [...BASE_STATUS_ORDER];
   if (includeRoleBinding) {
-    return [...BASE_STATUS_ORDER, 'creating-rolebinding', 'done'];
+    return [...order, 'creating-rolebinding', 'done'];
   }
-  return [...BASE_STATUS_ORDER, 'done'];
+  return [...order, 'done'];
 }
 
 /**
  * Returns the rendered step list — same order as {@link getStatusOrder} but paired
  * with translated labels. Must stay in sync with that function.
  */
-function getStatusSteps(t: (key: string) => string, includeRoleBinding: boolean) {
+function getStatusSteps(
+  t: (key: string) => string,
+  includeRegistryCheck: boolean,
+  includeRoleBinding: boolean
+) {
   const steps = [
+    ...(includeRegistryCheck
+      ? [{ key: 'checking-registry', label: t('Checking container registry permissions...') }]
+      : []),
     { key: 'creating-rg', label: t('Ensuring resource group exists...') },
     { key: 'checking', label: t('Checking for existing identity...') },
     { key: 'creating-identity', label: t('Creating managed identity...') },
@@ -102,18 +126,51 @@ export function WorkloadIdentitySetup({
   isManagedNamespace,
   namespaceName,
   azureRbacEnabled,
+  azureRbacResolved = true,
+  capabilitiesError,
+  onRetryCapabilities,
 }: WorkloadIdentitySetupProps) {
-  const { status, error, result, setupWorkloadIdentity } = identitySetup;
+  const {
+    status,
+    error,
+    result,
+    setupWorkloadIdentity,
+    existingIdentity,
+    identityResolutionStatus,
+    identityResolutionError,
+    servicePrincipalPullRequired,
+  } = identitySetup;
   const { t } = useTranslation();
-  const identityName = getIdentityName(projectName);
+  const identityName =
+    existingIdentity?.identityName ??
+    (identityResolutionStatus ? t('Saved managed identity') : getIdentityName(projectName));
+  const needsRegistryCheck = Boolean(acrResourceId);
   const needsRoleBinding = azureRbacEnabled === false && isManagedNamespace === true;
-  const statusOrder = getStatusOrder(needsRoleBinding);
-  const statusSteps = getStatusSteps(t, needsRoleBinding);
-  const [identityRG, setIdentityRG] = useState(`rg-${projectName}`);
+  const statusOrder = getStatusOrder(needsRegistryCheck, needsRoleBinding);
+  const statusSteps = getStatusSteps(t, needsRegistryCheck, needsRoleBinding);
+  const [identityRG, setIdentityRG] = useState(identityResolutionStatus ? '' : `rg-${projectName}`);
+  const [acknowledgeServicePrincipalPull, setAcknowledgeServicePrincipalPull] = useState(false);
 
   useEffect(() => {
-    setIdentityRG(`rg-${projectName}`);
-  }, [projectName]);
+    setIdentityRG(
+      existingIdentity?.identityResourceGroup ??
+        (identityResolutionStatus ? '' : `rg-${projectName}`)
+    );
+  }, [projectName, existingIdentity?.identityResourceGroup, identityResolutionStatus]);
+
+  useEffect(() => {
+    setAcknowledgeServicePrincipalPull(false);
+  }, [
+    subscriptionId,
+    resourceGroup,
+    clusterName,
+    namespaceName,
+    acrResourceId,
+    repo.owner,
+    repo.repo,
+    repo.defaultBranch,
+    existingIdentity?.clientId,
+  ]);
 
   // Track the last non-error status so StepIcon can show which step failed
   const lastActiveStatusRef = useRef(status);
@@ -133,6 +190,7 @@ export function WorkloadIdentitySetup({
       repo,
       acrResourceId,
       azureRbacEnabled,
+      ...(acknowledgeServicePrincipalPull && { acknowledgeServicePrincipalPull: true }),
     };
     const config: WorkloadIdentitySetupConfig = isManagedNamespace
       ? { ...base, isManagedNamespace: true, namespaceName }
@@ -149,12 +207,32 @@ export function WorkloadIdentitySetup({
         </Typography>
       </Box>
 
+      {identityResolutionStatus === 'loading' && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          {t('Resolving the saved managed identity...')}
+        </Alert>
+      )}
+      {identityResolutionError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {identityResolutionError}
+        </Alert>
+      )}
+      {existingIdentity && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          {t('Reusing the saved managed identity. No replacement identity will be created.')}
+        </Alert>
+      )}
+
       {status === 'idle' ? (
         <>
           <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
-            {t(
-              'The following Azure resources will be created to enable your GitHub Actions pipeline to authenticate with your AKS cluster:'
-            )}
+            {identityResolutionStatus
+              ? t(
+                  'The saved managed identity and its permissions will be revalidated for this pipeline.'
+                )
+              : t(
+                  'The following Azure resources will be created to enable your GitHub Actions pipeline to authenticate with your AKS cluster:'
+                )}
           </Typography>
 
           <Box sx={{ mb: 3, pl: 1 }}>
@@ -210,18 +288,43 @@ export function WorkloadIdentitySetup({
             label={t('Identity Resource Group')}
             size="small"
             value={identityRG}
+            InputProps={{ readOnly: !!identityResolutionStatus }}
             onChange={e => setIdentityRG(e.target.value)}
             fullWidth
-            helperText={t('Resource group where the managed identity will be created')}
+            helperText={
+              identityResolutionStatus
+                ? t('Resource group of the saved managed identity')
+                : t('Resource group where the managed identity will be created')
+            }
             sx={{ mb: 3 }}
           />
+
+          {capabilitiesError && (
+            <Alert
+              severity="error"
+              sx={{ mb: 2 }}
+              action={
+                onRetryCapabilities ? (
+                  <Button color="inherit" size="small" onClick={onRetryCapabilities}>
+                    {t('Retry')}
+                  </Button>
+                ) : undefined
+              }
+            >
+              {capabilitiesError}
+            </Alert>
+          )}
 
           <Button
             variant="contained"
             onClick={handleSetup}
             startIcon={<Icon icon="mdi:shield-check-outline" aria-hidden="true" />}
             sx={{ textTransform: 'none' }}
-            disabled={!identityRG.trim()}
+            disabled={
+              (!identityRG.trim() && !identityResolutionStatus) ||
+              identityResolutionStatus === 'loading' ||
+              !azureRbacResolved
+            }
           >
             {t('Continue')}
           </Button>
@@ -262,17 +365,40 @@ export function WorkloadIdentitySetup({
                 label={t('Identity Resource Group')}
                 size="small"
                 value={identityRG}
+                InputProps={{ readOnly: !!identityResolutionStatus }}
                 onChange={e => setIdentityRG(e.target.value)}
                 fullWidth
-                helperText={t('Resource group where the managed identity will be created')}
+                helperText={
+                  identityResolutionStatus
+                    ? t('Resource group of the saved managed identity')
+                    : t('Resource group where the managed identity will be created')
+                }
                 sx={{ mb: 2 }}
               />
+              {servicePrincipalPullRequired && (
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={acknowledgeServicePrincipalPull}
+                      onChange={event => setAcknowledgeServicePrincipalPull(event.target.checked)}
+                    />
+                  }
+                  label={t(
+                    'I manually verified that this service-principal cluster can pull images from the selected registry.'
+                  )}
+                  sx={{ mb: 2 }}
+                />
+              )}
               <Button
                 variant="outlined"
                 onClick={handleSetup}
                 startIcon={<Icon icon="mdi:refresh" aria-hidden="true" />}
                 sx={{ textTransform: 'none' }}
-                disabled={!identityRG.trim()}
+                disabled={
+                  (!identityRG.trim() && !identityResolutionStatus) ||
+                  identityResolutionStatus === 'loading' ||
+                  (!!servicePrincipalPullRequired && !acknowledgeServicePrincipalPull)
+                }
               >
                 {t('Retry')}
               </Button>
@@ -284,6 +410,11 @@ export function WorkloadIdentitySetup({
               <Alert severity="success" sx={{ mb: 2 }}>
                 {t('Workload identity configured successfully.')}
               </Alert>
+              {result?.servicePrincipalPullAcknowledged && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  {t('Registry pull access was manually acknowledged, not automatically verified.')}
+                </Alert>
+              )}
               {(result?.warnings ?? []).map((warning, i) => (
                 <Alert key={i} severity="warning" sx={{ mb: 1 }}>
                   {warning}

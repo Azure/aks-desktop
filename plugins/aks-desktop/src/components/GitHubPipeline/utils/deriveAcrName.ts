@@ -4,9 +4,7 @@
 import type { PipelineConfig } from '../types';
 
 /**
- * Derives the ACR short name from PipelineConfig.
- * Tries acrLoginServer first ("myacr.azurecr.io" -> "myacr"),
- * falls back to acrResourceId (".../registries/myacr" -> "myacr").
+ * Derives the configured login prefix, falling back to the ARM name for non-deployment operations.
  */
 export function deriveAcrName(config: PipelineConfig): string {
   if (config.acrLoginServer) {
@@ -28,5 +26,13 @@ export function deriveAcrName(config: PipelineConfig): string {
   }
   throw new Error(
     'Cannot derive ACR name: neither acrLoginServer nor acrResourceId is set on PipelineConfig'
+  );
+}
+
+/** Requires the actual host before generating image references; ARM names cannot identify DNL hosts. */
+export function requireAcrLoginServer(config: PipelineConfig): string {
+  if (config.acrLoginServer?.trim()) return config.acrLoginServer.trim();
+  throw new Error(
+    'The actual ACR login server is required for deployment; reselect the registry to resolve it. An ARM resource ID alone cannot identify its login host.'
   );
 }

@@ -2,8 +2,9 @@
 // Licensed under the Apache 2.0.
 
 import { clusterRequest } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createFederatedCredential } from '../../../utils/azure/az-federation';
+import { resolveManagedIdentityByClientId } from '../../../utils/azure/az-identity';
 import {
   ensureIdentityWithRoles,
   type EnsureIdentityWithRolesResult,
@@ -12,6 +13,7 @@ import { sanitizeDnsName } from '../../../utils/kubernetes/k8sNames';
 
 export type WorkloadIdentitySetupStatus =
   | 'idle'
+  | 'checking-registry'
   | 'creating-rg'
   | 'checking'
   | 'creating-identity'
@@ -30,6 +32,10 @@ export interface UseWorkloadIdentitySetupReturn {
   error: string | null;
   result: WorkloadIdentitySetupResult | null;
   warnings: string[];
+  existingIdentity?: Awaited<ReturnType<typeof resolveManagedIdentityByClientId>> | null;
+  identityResolutionStatus?: 'loading' | 'resolved' | 'error';
+  identityResolutionError?: string | null;
+  servicePrincipalPullRequired?: boolean;
   setupWorkloadIdentity: (config: WorkloadIdentitySetupConfig) => Promise<void>;
 }
 
@@ -58,6 +64,8 @@ export type WorkloadIdentitySetupConfig = {
   acrResourceId?: string;
   /** Whether Azure RBAC for Kubernetes is enabled on the cluster. */
   azureRbacEnabled?: boolean;
+  /** Explicit acknowledgement for SP clusters only; never bypasses managed-identity checks. */
+  acknowledgeServicePrincipalPull?: boolean;
 } & NamespaceContext;
 
 export function getIdentityName(projectName: string): string {
@@ -72,115 +80,223 @@ export function getIdentityName(projectName: string): string {
  * federated credential → (optionally) Kubernetes RoleBinding for non-Azure-RBAC
  * clusters. Non-fatal errors during role assignment or RoleBinding creation are
  * surfaced as `warnings` rather than aborting the flow; the identity is still
- * usable for fast-path deploys.
+ * returned for callers that permit warnings.
  *
- * Returns a tuple of `{ status, error, result, warnings, setupWorkloadIdentity }`
- * suitable for driving the `<WorkloadIdentitySetup>` step component.
+ * A changed scopeKey invalidates previous results and pending completions without
+ * starting Azure operations. requirePermissions makes permission warnings retryable
+ * errors for pipeline paths; other consumers retain the existing warning behavior.
+ * A saved client ID is resolved across resource groups and revalidated without
+ * creating an identity or resource group. Service-principal pull access requires
+ * explicit manual acknowledgement; Azure lookup failures never enable that path.
  */
-export const useWorkloadIdentitySetup = (): UseWorkloadIdentitySetupReturn => {
+export const useWorkloadIdentitySetup = (
+  scopeKey?: string,
+  requirePermissions = false,
+  savedIdentity?: { clientId: string; subscriptionId: string }
+): UseWorkloadIdentitySetupReturn => {
   const [status, setStatus] = useState<WorkloadIdentitySetupStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<WorkloadIdentitySetupResult | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-
-  const setupWorkloadIdentity = useCallback(async (config: WorkloadIdentitySetupConfig) => {
-    const {
-      subscriptionId,
-      resourceGroup,
-      identityResourceGroup,
-      projectName,
-      clusterName,
-      repo,
-      acrResourceId,
-      isManagedNamespace,
-      namespaceName,
-      azureRbacEnabled,
-    } = config;
-    const identityName = getIdentityName(projectName);
-
+  const [existingIdentity, setExistingIdentity] = useState<Awaited<
+    ReturnType<typeof resolveManagedIdentityByClientId>
+  > | null>(null);
+  const [identityResolutionStatus, setIdentityResolutionStatus] = useState<
+    'loading' | 'resolved' | 'error'
+  >();
+  const [identityResolutionError, setIdentityResolutionError] = useState<string | null>(null);
+  const [servicePrincipalPullRequired, setServicePrincipalPullRequired] = useState(false);
+  const savedClientId = savedIdentity?.clientId;
+  const savedSubscriptionId = savedIdentity?.subscriptionId;
+  const scope = useMemo(() => ({ active: true }), [scopeKey, savedClientId, savedSubscriptionId]);
+  const resultScopeRef = useRef(scope);
+  useLayoutEffect(() => {
+    scope.active = true;
+    resultScopeRef.current = scope;
+    setStatus('idle');
     setError(null);
     setResult(null);
     setWarnings([]);
+    setServicePrincipalPullRequired(false);
+    setExistingIdentity(null);
+    setIdentityResolutionError(null);
+    setIdentityResolutionStatus(savedClientId ? 'loading' : undefined);
+    return () => {
+      scope.active = false;
+    };
+  }, [scope]);
 
-    try {
-      // Steps 1-4: Ensure RG + identity + roles via shared utility
-      const identityResult = await ensureIdentityWithRoles({
+  useEffect(() => {
+    if (!savedClientId || !savedSubscriptionId) return;
+    resolveManagedIdentityByClientId({
+      clientId: savedClientId,
+      subscriptionId: savedSubscriptionId,
+    }).then(
+      identity => {
+        if (!scope.active) return;
+        setExistingIdentity(identity);
+        setIdentityResolutionStatus('resolved');
+      },
+      err => {
+        if (!scope.active) return;
+        setIdentityResolutionError(
+          err instanceof Error ? err.message : 'Failed to resolve saved managed identity'
+        );
+        setIdentityResolutionStatus('error');
+      }
+    );
+  }, [scope, savedClientId, savedSubscriptionId]);
+
+  const setupWorkloadIdentity = useCallback(
+    async (config: WorkloadIdentitySetupConfig) => {
+      if (!scope.active) return;
+      resultScopeRef.current = scope;
+      const {
         subscriptionId,
         resourceGroup,
-        identityResourceGroup,
-        identityName,
+        projectName,
         clusterName,
+        repo,
         acrResourceId,
         isManagedNamespace,
         namespaceName,
         azureRbacEnabled,
-        isPipeline: true,
-        purpose: 'GitHub Actions Identity',
-        onStatusChange: setStatus,
-      });
+        acknowledgeServicePrincipalPull,
+      } = config;
 
-      if (identityResult.warnings.length > 0) {
-        console.warn(
-          '[WorkloadIdentitySetup] Non-fatal warnings during identity setup:',
-          identityResult.warnings
-        );
-      }
+      setError(null);
+      setResult(null);
+      setWarnings([]);
+      setServicePrincipalPullRequired(false);
 
-      // Step 5: Create federated credential
-      setStatus('creating-credential');
-      const credResult = await createFederatedCredential({
-        identityName,
-        resourceGroup: identityResourceGroup,
-        subscriptionId,
-        repoOwner: repo.owner,
-        repoName: repo.repo,
-        branch: repo.defaultBranch,
-      });
-      if (!credResult.success) {
-        throw new Error(credResult.error ?? 'Failed to create federated credential');
-      }
-
-      // Step 6: On non-Azure-RBAC managed namespaces, create a Kubernetes RoleBinding
-      // so the pipeline identity can kubectl apply + annotate in the target namespace.
-      // Azure RBAC roles (like AKS RBAC Writer) have no effect when the cluster uses
-      // Kubernetes-native RBAC. Gated on isManagedNamespace to keep this in lockstep
-      // with the WorkloadIdentitySetup component's `needsRoleBinding` step ordering.
-      const warnings = [...identityResult.warnings];
-      if (azureRbacEnabled === false && isManagedNamespace && namespaceName) {
-        setStatus('creating-rolebinding');
-        try {
-          await ensurePipelineRoleBinding({
-            clusterName,
-            namespace: namespaceName,
-            principalId: identityResult.principalId,
-            identityName,
+      try {
+        let identityName = getIdentityName(projectName);
+        let identityResourceGroup = config.identityResourceGroup;
+        if (savedClientId) {
+          setStatus('checking');
+          const identity = await resolveManagedIdentityByClientId({
+            clientId: savedClientId,
+            subscriptionId,
           });
-        } catch (rbErr) {
-          console.warn('[WorkloadIdentitySetup] RoleBinding creation failed:', rbErr);
-          warnings.push(
-            `Failed to create Kubernetes RoleBinding for pipeline identity: ${
-              rbErr instanceof Error ? rbErr.message : 'unknown error'
-            }. ` + 'The pipeline may not have permission to deploy to this namespace.'
+          if (!scope.active) return;
+          identityName = identity.identityName;
+          identityResourceGroup = identity.identityResourceGroup;
+          setExistingIdentity(identity);
+          setIdentityResolutionStatus('resolved');
+          setIdentityResolutionError(null);
+        }
+        // Steps 1-4: Ensure RG + identity + roles via shared utility
+        const identityResult = await ensureIdentityWithRoles({
+          subscriptionId,
+          resourceGroup,
+          identityResourceGroup,
+          identityName,
+          existingClientId: savedClientId,
+          acknowledgeServicePrincipalPull,
+          clusterName,
+          acrResourceId,
+          isManagedNamespace,
+          namespaceName,
+          azureRbacEnabled,
+          isPipeline: true,
+          purpose: 'GitHub Actions Identity',
+          onStatusChange: status => {
+            if (scope.active) setStatus(status);
+          },
+        });
+        if (!scope.active) return;
+
+        setServicePrincipalPullRequired(!!identityResult.servicePrincipalPullRequired);
+        if (identityResult.servicePrincipalPullRequired) {
+          throw new Error(
+            'This cluster uses a service principal. Verify pull access to the selected registry, then acknowledge the manual verification and retry.'
           );
         }
+        if (identityResult.warnings.length > 0) {
+          console.warn(
+            '[WorkloadIdentitySetup] Non-fatal warnings during identity setup:',
+            identityResult.warnings
+          );
+        }
+
+        // Step 5: Create federated credential
+        setStatus('creating-credential');
+        const credResult = await createFederatedCredential({
+          identityName,
+          resourceGroup: identityResourceGroup,
+          subscriptionId,
+          repoOwner: repo.owner,
+          repoName: repo.repo,
+          branch: repo.defaultBranch,
+        });
+        if (!scope.active) return;
+        if (!credResult.success) {
+          throw new Error(credResult.error ?? 'Failed to create federated credential');
+        }
+
+        // Step 6: On non-Azure-RBAC managed namespaces, create a Kubernetes RoleBinding
+        // so the pipeline identity can kubectl apply + annotate in the target namespace.
+        // Azure RBAC roles (like AKS RBAC Writer) have no effect when the cluster uses
+        // Kubernetes-native RBAC. Gated on isManagedNamespace to keep this in lockstep
+        // with the WorkloadIdentitySetup component's `needsRoleBinding` step ordering.
+        const warnings = [...identityResult.warnings];
+        if (azureRbacEnabled === false && isManagedNamespace && namespaceName) {
+          setStatus('creating-rolebinding');
+          try {
+            await ensurePipelineRoleBinding({
+              clusterName,
+              namespace: namespaceName,
+              principalId: identityResult.principalId,
+              identityName,
+            });
+          } catch (rbErr) {
+            console.warn('[WorkloadIdentitySetup] RoleBinding creation failed:', rbErr);
+            warnings.push(
+              `Failed to create Kubernetes RoleBinding for pipeline identity: ${
+                rbErr instanceof Error ? rbErr.message : 'unknown error'
+              }. ` + 'The pipeline may not have permission to deploy to this namespace.'
+            );
+          }
+        }
+
+        const setupResult: WorkloadIdentitySetupResult = {
+          ...identityResult,
+          identityName,
+          warnings,
+        };
+        if (!scope.active) return;
+        if (requirePermissions && warnings.length > 0) {
+          throw new Error(warnings.join('\n'));
+        }
+        setResult(setupResult);
+        setWarnings(warnings);
+        setStatus('done');
+      } catch (err) {
+        if (!scope.active) return;
+        console.error('[WorkloadIdentitySetup] Setup failed:', err);
+        setError(err instanceof Error ? err.message : 'Unknown error during identity setup');
+        setStatus('error');
       }
+    },
+    [scope, requirePermissions, savedClientId]
+  );
 
-      const setupResult: WorkloadIdentitySetupResult = {
-        ...identityResult,
-        identityName,
-        warnings,
-      };
-      setResult(setupResult);
-      setWarnings(warnings);
-      setStatus('done');
-    } catch (err) {
-      console.error('[WorkloadIdentitySetup] Setup failed:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error during identity setup');
-      setStatus('error');
-    }
-  }, []);
-
-  return { status, error, result, warnings, setupWorkloadIdentity };
+  const isCurrentScope = resultScopeRef.current === scope;
+  return {
+    status: isCurrentScope ? status : 'idle',
+    error: isCurrentScope ? error : null,
+    result: isCurrentScope ? result : null,
+    warnings: isCurrentScope ? warnings : [],
+    existingIdentity: isCurrentScope ? existingIdentity : null,
+    identityResolutionStatus: isCurrentScope
+      ? identityResolutionStatus
+      : savedClientId
+      ? 'loading'
+      : undefined,
+    identityResolutionError: isCurrentScope ? identityResolutionError : null,
+    servicePrincipalPullRequired: isCurrentScope && servicePrincipalPullRequired,
+    setupWorkloadIdentity,
+  };
 };
 
 /**

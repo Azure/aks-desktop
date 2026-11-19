@@ -12,6 +12,7 @@ import {
 import { getAzureCloudEndpoints } from './az-cloud';
 import {
   azListAll,
+  azRequest,
   type AzRequestOptions,
   azRequestRaw,
   type AzResponse,
@@ -20,13 +21,49 @@ import {
 } from './az-http';
 import { registerContainerRegistryProvider } from './az-resource-providers';
 import { getSubscriptionCredential } from './az-token';
-import { isValidAzResourceName } from './az-validation';
+import { isValidAzResourceGroupName } from './az-validation';
 
 const ACR_API_VERSION = '2023-07-01';
 const CREATE_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** Azure Container Registry name: 5-50 lowercase alphanumeric characters. */
 export const ACR_NAME_PATTERN = /^[a-z0-9]{5,50}$/;
+
+/** Full ARM resource ID for an Azure Container Registry, capturing the subscription ID. */
+const ACR_RESOURCE_ID_PATTERN =
+  /^\/subscriptions\/([^/?#]+)\/resourceGroups\/[^/?#]+\/providers\/Microsoft\.ContainerRegistry\/registries\/[a-zA-Z0-9]+$/i;
+
+/** Registry RBAC permission mode reported by ARM (`2025-11-01`). */
+export type AcrRoleAssignmentMode = 'AbacRepositoryPermissions' | 'LegacyRegistryPermissions';
+
+/**
+ * Reads a registry's `roleAssignmentMode` via ARM (`2025-11-01`) so callers can
+ * select between legacy (`AcrPush`/`AcrPull`) and ABAC repository roles.
+ *
+ * @param acrResourceId - Full ARM resource ID of the container registry.
+ * @returns `'AbacRepositoryPermissions'` or `'LegacyRegistryPermissions'`.
+ * @throws When `acrResourceId` is malformed or the ARM read fails.
+ */
+export async function getRegistryRoleAssignmentMode(
+  acrResourceId: string
+): Promise<AcrRoleAssignmentMode> {
+  const normalized = acrResourceId.trim().replace(/\/+$/, '');
+  const match = ACR_RESOURCE_ID_PATTERN.exec(normalized);
+  if (!match) {
+    throw new Error('Invalid ACR resource ID');
+  }
+  const { endpoint, scope } = await getAzureCloudEndpoints();
+  const response = await azRequest<{ properties?: { roleAssignmentMode?: string } }>({
+    url: normalized,
+    apiVersion: '2025-11-01',
+    credential: getSubscriptionCredential(match[1]),
+    endpoint,
+    scope,
+  });
+  return response?.properties?.roleAssignmentMode === 'AbacRepositoryPermissions'
+    ? 'AbacRepositoryPermissions'
+    : 'LegacyRegistryPermissions';
+}
 
 /** Shared validation error for invalid ACR names. */
 export const ACR_NAME_ERROR = 'Registry name must be 5-50 lowercase alphanumeric characters.';
@@ -190,7 +227,7 @@ export async function createContainerRegistry(options: {
       error: `Invalid registry name: ${ACR_NAME_ERROR}`,
     };
   }
-  if (!isValidAzResourceName(resourceGroup)) {
+  if (!isValidAzResourceGroupName(resourceGroup)) {
     return { success: false, error: 'Invalid resource group name format' };
   }
 

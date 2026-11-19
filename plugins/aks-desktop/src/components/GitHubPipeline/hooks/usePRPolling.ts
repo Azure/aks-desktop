@@ -2,11 +2,10 @@
 // Licensed under the Apache 2.0.
 
 import type { Octokit } from '@octokit/rest';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GitHubRunConclusion, GitHubRunStatus } from '../../../types/github';
 import { getPullRequest, getStatusChecks } from '../../../utils/github/github-api';
 import { POLLING_INTERVAL_MS, PR_POLLING_MAX_POLLS } from '../constants';
-import { usePolling } from './usePolling';
 
 type PRState = 'open' | 'closed';
 
@@ -52,37 +51,88 @@ export const usePRPolling = (
   enabled: boolean
 ): UsePRPollingResult => {
   const isEnabled = !!(octokit && prNumber && enabled);
-
-  const pollFn = useCallback(async (): Promise<PRPollData | null> => {
-    if (!octokit || !prNumber) return null;
-    const result = await getPullRequest(octokit, owner, repo, prNumber);
-    let statusChecks: PRPollData['statusChecks'] = null;
-    if (result.state === 'open') {
-      try {
-        statusChecks = await getStatusChecks(octokit, owner, repo, result.headSha);
-      } catch (err) {
-        console.error('Failed to fetch status checks:', err);
-      }
-    }
-    return {
-      prStatus: { state: result.state, merged: result.merged, mergeable: result.mergeable },
-      statusChecks,
-    };
-  }, [octokit, owner, repo, prNumber]);
-
-  const shouldStop = useCallback(
-    (result: PRPollData): boolean => result.prStatus.merged || result.prStatus.state === 'closed',
-    []
+  const session = useMemo(
+    () => ({ stopped: false, timer: null as ReturnType<typeof setTimeout> | null }),
+    [octokit, owner, repo, prNumber, isEnabled]
   );
+  const [snapshot, setSnapshot] = useState<{
+    session: typeof session;
+    data: PRPollData | null;
+    error: string | null;
+    isTimedOut: boolean;
+  } | null>(null);
 
-  const { data, isTimedOut, error, stopPolling } = usePolling<PRPollData>({
-    enabled: isEnabled,
-    intervalMs: POLLING_INTERVAL_MS,
-    maxPolls: PR_POLLING_MAX_POLLS,
-    pollFn,
-    shouldStop,
-  });
+  const stopPolling = useCallback(() => {
+    session.stopped = true;
+    if (session.timer) clearTimeout(session.timer);
+  }, [session]);
 
+  useEffect(() => {
+    if (!isEnabled || !octokit || !prNumber) return;
+    let cancelled = false;
+    let polls = 0;
+    session.stopped = false;
+    setSnapshot(null);
+    const poll = async () => {
+      if (cancelled || session.stopped) return;
+      polls++;
+      try {
+        const result = await getPullRequest(octokit, owner, repo, prNumber);
+        if (cancelled || session.stopped) return;
+        let statusChecks: PRPollData['statusChecks'] = null;
+        if (result.state === 'open') {
+          try {
+            statusChecks = await getStatusChecks(octokit, owner, repo, result.headSha);
+          } catch (err) {
+            console.error('Failed to fetch status checks:', err);
+          }
+        }
+        if (cancelled || session.stopped) return;
+        setSnapshot({
+          session,
+          data: {
+            prStatus: { state: result.state, merged: result.merged, mergeable: result.mergeable },
+            statusChecks,
+          },
+          error: null,
+          isTimedOut: false,
+        });
+        if (result.merged || result.state === 'closed') {
+          stopPolling();
+          return;
+        }
+      } catch (err) {
+        if (cancelled || session.stopped) return;
+        console.error('Polling error:', err);
+        setSnapshot(previous => ({
+          session,
+          data: previous?.session === session ? previous.data : null,
+          error: err instanceof Error ? err.message : 'Polling failed',
+          isTimedOut: false,
+        }));
+      }
+      if (cancelled || session.stopped) return;
+      if (polls >= PR_POLLING_MAX_POLLS) {
+        setSnapshot(previous =>
+          previous?.session === session ? { ...previous, isTimedOut: true } : previous
+        );
+        stopPolling();
+      } else {
+        session.timer = setTimeout(poll, POLLING_INTERVAL_MS);
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
+  }, [octokit, owner, repo, prNumber, isEnabled, session, stopPolling]);
+
+  // Hide old PR results during render, before effects can reset the next session.
+  const current = isEnabled && snapshot?.session === session ? snapshot : null;
+  const data = current?.data;
+  const isTimedOut = current?.isTimedOut ?? false;
+  const error = current?.error ?? null;
   const prStatus = data?.prStatus ?? null;
   const isMerged = data?.prStatus.merged ?? false;
   const isClosed = !!(data?.prStatus.state === 'closed' && !isMerged);

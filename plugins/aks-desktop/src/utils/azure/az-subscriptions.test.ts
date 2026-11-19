@@ -429,4 +429,51 @@ describe('Azure CLI usage', () => {
 
     expect(mocks.runCommandAsync).not.toHaveBeenCalled();
   });
+
+  describe('resource group names', () => {
+    it.each(['team.prod', 'team(prod)', 'équipe-一', '-rg'])(
+      'accepts and encodes %s for lookup, location, and creation',
+      async resourceGroupName => {
+        mocks.azRequestRaw.mockResolvedValue({ status: 204 });
+        mocks.azRequest.mockResolvedValue({ location: 'eastus' });
+        const options = { resourceGroupName, subscriptionId: SUB_ID };
+        const url = `/subscriptions/${SUB_ID}/resourceGroups/${encodeURIComponent(
+          resourceGroupName
+        )}`;
+
+        await expect(resourceGroupExists(options)).resolves.toEqual({ exists: true });
+        await expect(getResourceGroupLocation(options)).resolves.toBe('eastus');
+        await expect(createResourceGroup({ ...options, location: 'eastus' })).resolves.toEqual({
+          success: true,
+        });
+        expect(mocks.azRequestRaw).toHaveBeenCalledWith(
+          expect.objectContaining({ url, method: 'HEAD' })
+        );
+        expect(mocks.azRequest).toHaveBeenCalledWith(expect.objectContaining({ url }));
+        expect(mocks.azRequest).toHaveBeenCalledWith(
+          expect.objectContaining({ url, method: 'PUT' })
+        );
+      }
+    );
+
+    it.each(['team.', 'a/b', 'a'.repeat(91)])(
+      'rejects %s before requests',
+      async resourceGroupName => {
+        const options = { resourceGroupName, subscriptionId: SUB_ID };
+        await expect(resourceGroupExists(options)).resolves.toEqual({
+          exists: false,
+          error: expect.stringContaining('Invalid resource group name'),
+        });
+        await expect(getResourceGroupLocation(options)).rejects.toThrow(
+          'Invalid resource group name'
+        );
+        await expect(createResourceGroup({ ...options, location: 'eastus' })).resolves.toEqual({
+          success: false,
+          error: expect.stringContaining('Invalid resource group name'),
+        });
+        expect(mocks.azRequest).not.toHaveBeenCalled();
+        expect(mocks.azRequestRaw).not.toHaveBeenCalled();
+      }
+    );
+  });
 });

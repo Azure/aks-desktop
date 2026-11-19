@@ -18,14 +18,16 @@ import {
   PIPELINE_WORKFLOW_FILENAME,
 } from '../constants';
 import type { PipelineConfig, PRTracking } from '../types';
+import { getAcrBuildFiles } from './acrTasks/acrTaskRunner';
 import { pushAgentConfigFiles, sanitizeAppNameForBranch } from './agentTemplates';
-import { deriveAcrName } from './deriveAcrName';
+import { deriveAcrName, requireAcrLoginServer } from './deriveAcrName';
 import {
   generateDeploymentManifest,
   generateDeployWorkflow,
   generateServiceManifest,
   type ManifestConfig,
 } from './fastPathTemplates';
+import { publishAcrBuildFiles } from './publishAcrBuildFiles';
 
 const GH_OWNER_REPO_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const GH_BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
@@ -75,6 +77,7 @@ export async function createFastPathPR(
   const branchName = `aks-project/fast-path-${sanitizeAppNameForBranch(
     pipelineConfig.appName
   )}-${Date.now()}`;
+  requireAcrLoginServer(pipelineConfig);
   const acrName = deriveAcrName(pipelineConfig);
 
   const sha = await getDefaultBranchSha(octokit, owner, repo, defaultBranch);
@@ -87,6 +90,8 @@ export async function createFastPathPR(
       resourceGroup: pipelineConfig.resourceGroup,
       namespace: pipelineConfig.namespace,
       acrName,
+      acrResourceId: pipelineConfig.acrResourceId,
+      buildArguments: pipelineConfig.buildArguments,
       dockerfilePath,
       buildContextPath,
       defaultBranch,
@@ -102,38 +107,38 @@ export async function createFastPathPR(
     const deploymentYaml = generateDeploymentManifest(manifestConfig, containerConfig);
     const serviceYaml = generateServiceManifest(manifestConfig, containerConfig);
 
-    await Promise.all([
-      createOrUpdateFile(
-        octokit,
-        owner,
-        repo,
-        `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
-        workflowYaml,
-        `Add AKS deploy workflow for ${pipelineConfig.appName}`,
-        branchName
-      ),
-      createOrUpdateFile(
-        octokit,
-        owner,
-        repo,
-        `${MANIFESTS_DIR}/deployment.yaml`,
-        deploymentYaml,
-        `Add Kubernetes deployment manifest for ${pipelineConfig.appName}`,
-        branchName
-      ),
-      createOrUpdateFile(
-        octokit,
-        owner,
-        repo,
-        `${MANIFESTS_DIR}/service.yaml`,
-        serviceYaml,
-        `Add Kubernetes service manifest for ${pipelineConfig.appName}`,
-        branchName
-      ),
-    ]);
+    await createOrUpdateFile(
+      octokit,
+      owner,
+      repo,
+      `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
+      workflowYaml,
+      `Add AKS deploy workflow for ${pipelineConfig.appName}`,
+      branchName
+    );
+    await createOrUpdateFile(
+      octokit,
+      owner,
+      repo,
+      `${MANIFESTS_DIR}/deployment.yaml`,
+      deploymentYaml,
+      `Add Kubernetes deployment manifest for ${pipelineConfig.appName}`,
+      branchName
+    );
+    await createOrUpdateFile(
+      octokit,
+      owner,
+      repo,
+      `${MANIFESTS_DIR}/service.yaml`,
+      serviceYaml,
+      `Add Kubernetes service manifest for ${pipelineConfig.appName}`,
+      branchName
+    );
 
     if (withAsyncAgent) {
       await pushAgentConfigFiles(octokit, owner, repo, branchName, pipelineConfig);
+    } else {
+      await publishAcrBuildFiles(octokit, owner, repo, branchName);
     }
 
     const pr = await createPullRequest(
@@ -150,6 +155,7 @@ export async function createFastPathPR(
         `- \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\` — Build + deploy workflow`,
         '- `deploy/kubernetes/deployment.yaml` — Kubernetes Deployment manifest',
         '- `deploy/kubernetes/service.yaml` — Kubernetes Service manifest',
+        ...Object.keys(getAcrBuildFiles()).map(path => `- \`${path}\` — ACR Tasks build runtime`),
         ...(withAsyncAgent
           ? [
               `- \`${COPILOT_SETUP_STEPS_PATH}\` — Agent environment setup`,

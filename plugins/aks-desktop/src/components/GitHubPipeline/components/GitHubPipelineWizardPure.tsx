@@ -123,6 +123,12 @@ export interface GitHubPipelineWizardPureProps {
   isManagedNamespace: boolean | undefined;
   /** Whether Azure RBAC for Kubernetes is enabled on the cluster. */
   azureRbacEnabled: boolean | undefined;
+  /** Whether the Azure RBAC capability lookup has completed. */
+  azureRbacResolved?: boolean;
+  /** Error returned while resolving cluster/namespace capabilities. */
+  capabilitiesError?: string | null;
+  /** Retries the failed cluster/namespace capability lookup. */
+  onRetryCapabilities?: () => void;
 
   /** Currently selected deployment path (fast / fast+AI / agent), or `null` before selection. */
   pathChoice: DeployPathChoice | null;
@@ -154,6 +160,9 @@ export function GitHubPipelineWizardPure({
   localContainerConfig,
   isManagedNamespace,
   azureRbacEnabled,
+  azureRbacResolved,
+  capabilitiesError,
+  onRetryCapabilities,
   pathChoice,
   onPathChoiceChange,
   onFastPathDeploy,
@@ -167,6 +176,7 @@ export function GitHubPipelineWizardPure({
     appInstallUrl,
     pipeline,
     identityId,
+    identityReady,
     localAppName,
     setLocalAppName,
     checkRepoAndApp,
@@ -181,6 +191,9 @@ export function GitHubPipelineWizardPure({
   const isFastPath = pathChoice === 'fast' || pathChoice === 'fast-with-ai';
   const dockerfilePaths = pipeline.state.repoReadiness?.dockerfilePaths ?? [];
   const hasDockerfile = dockerfilePaths.length > 0;
+  const hasSetupFiles = !!(
+    pipeline.state.repoReadiness?.hasSetupWorkflow || pipeline.state.repoReadiness?.hasAgentConfig
+  );
 
   const deploymentState = pipeline.state.deploymentState;
   const fastPathDeploymentState = fastPath.pipeline.state.deploymentState;
@@ -346,6 +359,23 @@ export function GitHubPipelineWizardPure({
         );
 
       case 'WorkloadIdentitySetup': {
+        if (isManagedNamespace === undefined && capabilitiesError) {
+          return (
+            <Alert
+              severity="error"
+              sx={{ mb: 2 }}
+              action={
+                onRetryCapabilities ? (
+                  <Button color="inherit" size="small" onClick={onRetryCapabilities}>
+                    {t('Retry')}
+                  </Button>
+                ) : undefined
+              }
+            >
+              {capabilitiesError}
+            </Alert>
+          );
+        }
         if (!selectedRepo || isManagedNamespace === undefined)
           return (
             <LoadingSpinner
@@ -368,6 +398,9 @@ export function GitHubPipelineWizardPure({
             isManagedNamespace={isManagedNamespace}
             namespaceName={namespace}
             azureRbacEnabled={azureRbacEnabled}
+            azureRbacResolved={azureRbacResolved}
+            capabilitiesError={capabilitiesError}
+            onRetryCapabilities={onRetryCapabilities}
           />
         );
       }
@@ -398,15 +431,14 @@ export function GitHubPipelineWizardPure({
           );
         }
 
-        const readiness = pipeline.state.repoReadiness;
-        const filesAlreadyExist = !!(readiness?.hasSetupWorkflow && readiness?.hasAgentConfig);
         return (
           <AgentSetupReview
             config={pipeline.state.config}
             identityId={identityId}
             appName={localAppName}
             onAppNameChange={setLocalAppName}
-            filesExist={filesAlreadyExist}
+            setupStatus={pipeline.state.setupStatus}
+            hasSetupFiles={hasSetupFiles}
             containerConfig={localContainerConfig}
           />
         );
@@ -557,7 +589,7 @@ export function GitHubPipelineWizardPure({
               </Button>
               <Button
                 variant="contained"
-                disabled={!dockerfileDiscovery.selection}
+                disabled={!dockerfileDiscovery.selection || !identityReady}
                 onClick={onFastPathDeploy}
                 startIcon={<Icon icon="mdi:rocket-launch-outline" aria-hidden="true" />}
                 sx={{ textTransform: 'none' }}
@@ -568,9 +600,10 @@ export function GitHubPipelineWizardPure({
           );
         }
 
-        const needsApp = !pipeline.state.config?.appName.trim() && !localAppName.trim();
-        const readiness = pipeline.state.repoReadiness;
-        const filesExist = !!(readiness?.hasSetupWorkflow && readiness?.hasAgentConfig);
+        const needsApp = !localAppName.trim();
+        const setupStatus = pipeline.state.setupStatus;
+        const setupCurrent = setupStatus === 'current';
+        const verifying = !needsApp && setupStatus !== 'current' && setupStatus !== 'obsolete';
         return (
           <>
             {hasDockerfile && (
@@ -584,17 +617,23 @@ export function GitHubPipelineWizardPure({
             )}
             <Button
               variant="contained"
-              disabled={needsApp}
+              disabled={needsApp || verifying}
               onClick={handleCreateSetupPR}
               startIcon={
                 <Icon
-                  icon={filesExist ? 'mdi:robot-outline' : 'mdi:source-pull'}
+                  icon={setupCurrent ? 'mdi:robot-outline' : 'mdi:source-pull'}
                   aria-hidden="true"
                 />
               }
               sx={{ textTransform: 'none' }}
             >
-              {filesExist ? t('Trigger Copilot Agent') : t('Create Setup PR')}
+              {verifying
+                ? t('Verifying setup...')
+                : setupCurrent
+                ? t('Trigger Copilot Agent')
+                : hasSetupFiles
+                ? t('Upgrade setup')
+                : t('Create Setup PR')}
             </Button>
           </>
         );

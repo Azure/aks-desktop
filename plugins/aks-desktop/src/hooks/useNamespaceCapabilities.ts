@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getClusterCapabilities } from '../utils/azure/az-clusters';
 import { getManagedNamespaceResourceId } from '../utils/azure/az-identity';
 import { getClusterSettings } from '../utils/shared/clusterSettings';
@@ -32,10 +32,14 @@ interface UseNamespaceCapabilitiesParams {
 /**
  * Fetches managed-namespace and Azure RBAC capabilities without applying managed AKS reads to Arc.
  * @param params - Namespace identity and available Azure cluster coordinates.
- * @returns Current isManagedNamespace, azureRbacEnabled and error state.
+ * @returns Current isManagedNamespace, azureRbacEnabled, azureRbacResolved, error, and retry state.
  * Managed status is undefined while loading/on a returned lookup failure, false
  * for confirmed absence, thrown lookup errors or Arc, and true for a resolved ID.
- * RBAC remains undefined when unavailable; error collects lookup diagnostics.
+ * `azureRbacEnabled` is undefined while loading, on lookup errors, or for Arc; a successful
+ * capability lookup with no RBAC field resolves to `false`. `azureRbacResolved` is true once
+ * `getClusterCapabilities` succeeds or for Arc, and false while pending or after a lookup error,
+ * allowing callers to distinguish a resolved disabled capability from a pending or failed read.
+ * `error` collects lookup diagnostics, and `retry` re-triggers both capability lookups.
  * Effect cleanup ignores stale results but does not cancel the underlying reads.
  */
 export function useNamespaceCapabilities({
@@ -46,13 +50,17 @@ export function useNamespaceCapabilities({
 }: UseNamespaceCapabilitiesParams) {
   const [isManagedNamespace, setIsManagedNamespace] = useState<boolean | undefined>(undefined);
   const [azureRbacEnabled, setAzureRbacEnabled] = useState<boolean | undefined>(undefined);
+  const [azureRbacResolved, setAzureRbacResolved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const retry = useCallback(() => setRefreshToken(count => count + 1), []);
   const isArcCluster = !!clusterName && getClusterSettings(clusterName).clusterType === 'aksarc';
 
   useEffect(() => {
     if (isArcCluster) {
       setIsManagedNamespace(false);
       setAzureRbacEnabled(undefined);
+      setAzureRbacResolved(true);
       setError(null);
       return;
     }
@@ -61,6 +69,7 @@ export function useNamespaceCapabilities({
 
     setIsManagedNamespace(undefined);
     setAzureRbacEnabled(undefined);
+    setAzureRbacResolved(false);
     setError(null);
 
     getManagedNamespaceResourceId({
@@ -101,12 +110,16 @@ export function useNamespaceCapabilities({
       clusterName,
     })
       .then(caps => {
-        if (!cancelled) setAzureRbacEnabled(caps?.azureRbacEnabled ?? undefined);
+        if (!cancelled) {
+          setAzureRbacEnabled(caps?.azureRbacEnabled ?? false);
+          setAzureRbacResolved(true);
+        }
       })
       .catch(err => {
         if (!cancelled) {
           console.error('[useNamespaceCapabilities] Failed to get cluster capabilities:', err);
           setAzureRbacEnabled(undefined);
+          setAzureRbacResolved(false);
           setError(prev =>
             appendError(
               prev,
@@ -119,7 +132,7 @@ export function useNamespaceCapabilities({
     return () => {
       cancelled = true;
     };
-  }, [subscriptionId, resourceGroup, clusterName, namespace, isArcCluster]);
+  }, [subscriptionId, resourceGroup, clusterName, namespace, isArcCluster, refreshToken]);
 
-  return { isManagedNamespace, azureRbacEnabled, error };
+  return { isManagedNamespace, azureRbacEnabled, azureRbacResolved, error, retry };
 }

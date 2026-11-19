@@ -69,6 +69,8 @@ export interface PipelineConfig {
   acrResourceId?: string;
   /** Login server of the selected ACR (e.g., "myregistry.azurecr.io"). */
   acrLoginServer?: string;
+  /** Non-secret Docker build arguments embedded in generated workflows; omitted means none. */
+  buildArguments?: Record<string, string>;
 }
 
 export interface PRTracking {
@@ -82,6 +84,8 @@ export interface IssueTracking {
   number: number | null;
 }
 
+export type RepoSetupStatus = 'unknown' | 'verifying' | 'current' | 'obsolete';
+
 /**
  * Overall pipeline state tracked by AKS Desktop.
  * Must be serializable for persistence (PRD Section 6.4: resume after restart).
@@ -90,6 +94,8 @@ export interface PipelineState {
   deploymentState: PipelineDeploymentState;
   config: PipelineConfig | null;
   repoReadiness: RepoReadiness | null;
+  /** Verified setup contents for the saved config, not merely the presence of filenames. */
+  setupStatus: RepoSetupStatus;
   setupPr: PRTracking;
   triggerIssue: IssueTracking;
   generatedPr: PRTracking;

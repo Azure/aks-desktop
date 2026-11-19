@@ -4,8 +4,13 @@
 
 import { getErrorMessage, isValidGuid, runAzCommand } from './az-cli-core';
 import { azRequest, AzureRequestError } from './az-http';
-import { type AksClusterReadOptions, getManagedClusterDetails } from './az-managed-clusters';
+import {
+  type AksClusterReadOptions,
+  getManagedClusterDetails,
+  type ManagedClusterDetails,
+} from './az-managed-clusters';
 import { isAbsent } from './az-managed-namespace-delete';
+import { queryResourceGraph } from './az-resource-graph';
 import {
   type AzureRolePrincipalType,
   type AzureRoleRequestOptions,
@@ -14,9 +19,54 @@ import {
 } from './az-role-assignments';
 import { getSubscriptionCredential } from './az-token';
 import type { ManagedIdentityResult } from './az-validation';
-import { isValidAzResourceName, parseManagedIdentityOutput } from './az-validation';
+import {
+  isValidAzResourceGroupName,
+  isValidAzResourceName,
+  parseManagedIdentityOutput,
+} from './az-validation';
 
 // --- Identity CRUD ---
+
+/** Resolve a saved client ID across resource groups without guessing an identity name. */
+export async function resolveManagedIdentityByClientId(options: {
+  subscriptionId: string;
+  clientId: string;
+}): Promise<{ identityName: string; identityResourceGroup: string; clientId: string }> {
+  const { subscriptionId, clientId } = options;
+  if (!isValidGuid(subscriptionId) || !isValidGuid(clientId)) {
+    throw new Error('Invalid subscription or saved managed identity client ID');
+  }
+  const identities = await queryResourceGraph<{
+    name: string;
+    resourceGroup: string;
+    clientId: string;
+  }>(
+    `Resources | where type =~ 'microsoft.managedidentity/userassignedidentities' ` +
+      `| where tostring(properties.clientId) =~ '${clientId}' ` +
+      '| project name, resourceGroup, clientId=tostring(properties.clientId)',
+    [subscriptionId]
+  );
+  const identity = identities[0];
+  if (
+    identities.length !== 1 ||
+    !identity ||
+    typeof identity.name !== 'string' ||
+    typeof identity.resourceGroup !== 'string' ||
+    !isValidAzResourceName(identity.name) ||
+    !isValidAzResourceGroupName(identity.resourceGroup) ||
+    typeof identity.clientId !== 'string' ||
+    identity.clientId.toLowerCase() !== clientId.toLowerCase()
+  ) {
+    throw new Error(
+      'Could not uniquely resolve the saved managed identity. No replacement was created.'
+    );
+  }
+  return {
+    identityName: identity.name,
+    identityResourceGroup: identity.resourceGroup,
+    clientId: identity.clientId,
+  };
+}
 
 export async function getManagedIdentity(options: {
   identityName: string;
@@ -28,7 +78,7 @@ export async function getManagedIdentity(options: {
   if (!isValidGuid(subscriptionId)) {
     return { success: false, error: 'Invalid subscription ID format' };
   }
-  if (!isValidAzResourceName(identityName) || !isValidAzResourceName(resourceGroup)) {
+  if (!isValidAzResourceName(identityName) || !isValidAzResourceGroupName(resourceGroup)) {
     return { success: false, error: 'Invalid identity name or resource group format' };
   }
 
@@ -38,8 +88,7 @@ export async function getManagedIdentity(options: {
       'show',
       '--name',
       identityName,
-      '--resource-group',
-      resourceGroup,
+      `--resource-group=${resourceGroup}`,
       '--subscription',
       subscriptionId,
       '--output',
@@ -76,7 +125,7 @@ export async function createManagedIdentity(options: {
   if (!isValidGuid(subscriptionId)) {
     return { success: false, error: 'Invalid subscription ID format' };
   }
-  if (!isValidAzResourceName(identityName) || !isValidAzResourceName(resourceGroup)) {
+  if (!isValidAzResourceName(identityName) || !isValidAzResourceGroupName(resourceGroup)) {
     return { success: false, error: 'Invalid identity name or resource group format' };
   }
 
@@ -86,8 +135,7 @@ export async function createManagedIdentity(options: {
       'create',
       '--name',
       identityName,
-      '--resource-group',
-      resourceGroup,
+      `--resource-group=${resourceGroup}`,
       '--subscription',
       subscriptionId,
       '--tags',
@@ -184,8 +232,8 @@ export interface AssignRolesResult {
 export type PrincipalType = AzureRolePrincipalType;
 
 /**
- * Assigns multiple Azure RBAC roles to a principal (a managed identity by
- * default, or a user/group when `principalType` says so).
+ * Ensures multiple Azure RBAC roles for a principal via ARM REST (`createAzureRoleAssignment`).
+ * The principal is a managed identity by default, or a user/group when `principalType` says so.
  * Treats `RoleAssignmentExists` as success (idempotent).
  * Roles are assigned sequentially to avoid Azure ARM rate-limiting (429s).
  * @param options - Known principal, ordered grants and optional REST overrides.
@@ -326,24 +374,47 @@ export async function getKubeletIdentityObjectId(options: AksClusterReadOptions)
   objectId?: string;
   /** Validation, lookup or kubelet-configuration diagnostic on failure. */
   error?: string;
+  servicePrincipalRequiresManualVerification?: boolean;
 }> {
   const { subscriptionId, resourceGroup, clusterName } = options;
 
   if (!isValidGuid(subscriptionId)) {
     return { success: false, error: 'Invalid subscription ID format' };
   }
-  if (!isValidAzResourceName(resourceGroup) || !isValidAzResourceName(clusterName)) {
+  if (!isValidAzResourceGroupName(resourceGroup) || !isValidAzResourceName(clusterName)) {
     return { success: false, error: 'Invalid resource group or cluster name format' };
   }
 
+  let cluster: ManagedClusterDetails;
   let kubeletIdentity: unknown;
   try {
-    const cluster = await getManagedClusterDetails(options);
+    cluster = await getManagedClusterDetails(options);
     kubeletIdentity = cluster.properties.identityProfile?.kubeletidentity;
   } catch (error) {
     return { success: false, error: getErrorMessage(error) };
   }
   if (!kubeletIdentity || typeof kubeletIdentity !== 'object') {
+    const identityType = cluster.identity?.type;
+    const spClientId = cluster.properties.servicePrincipalProfile?.clientId;
+    if (
+      cluster &&
+      typeof cluster === 'object' &&
+      !Array.isArray(cluster) &&
+      (cluster.properties.identityProfile === null ||
+        cluster.properties.identityProfile === undefined ||
+        (typeof cluster.properties.identityProfile === 'object' &&
+          !Array.isArray(cluster.properties.identityProfile))) &&
+      (cluster.identity === null || cluster.identity === undefined || identityType === 'None') &&
+      typeof spClientId === 'string' &&
+      isValidGuid(spClientId)
+    ) {
+      return {
+        success: false,
+        servicePrincipalRequiresManualVerification: true,
+        error:
+          'Service-principal cluster: verify image pull access to the selected registry manually.',
+      };
+    }
     return {
       success: false,
       error:
@@ -389,15 +460,14 @@ export async function listManagedIdentities(options: {
   if (!isValidGuid(subscriptionId)) {
     return { success: false, error: 'Invalid subscription ID format' };
   }
-  if (!isValidAzResourceName(resourceGroup)) {
+  if (!isValidAzResourceGroupName(resourceGroup)) {
     return { success: false, error: 'Invalid resource group name' };
   }
   const result = await runAzCommand(
     [
       'identity',
       'list',
-      '--resource-group',
-      resourceGroup,
+      `--resource-group=${resourceGroup}`,
       '--subscription',
       subscriptionId,
       '--output',
