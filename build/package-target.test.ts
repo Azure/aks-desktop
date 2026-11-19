@@ -211,6 +211,34 @@ test('reuses architecture-independent assets for a second package target', t => 
   ]);
 });
 
+test('generates the product manifest for the package target architecture', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'manifest target-'));
+  fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const sourceDir = path.join(rootDir, 'node_modules', '@headlamp-k8s', 'headlamp-source', 'source');
+  const appDir = path.join(sourceDir, 'app');
+  fs.mkdirSync(path.join(sourceDir, 'backend'), { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, 'backend', 'headlamp-server'), 'fixture');
+  writeDependencyTarget(rootDir, { platform: process.platform, arch: process.arch });
+  t.mock.method(console, 'log', () => undefined);
+  let manifestEnv: NodeJS.ProcessEnv | undefined;
+
+  packageTarget(
+    { platform: process.platform, arch: process.arch },
+    rootDir,
+    (args, cwd, env) => {
+      if (args[1] === 'headlamp:manifest') manifestEnv = env;
+      if (cwd === appDir && args[1] === 'package:prepared') {
+        fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
+      }
+    },
+    { reusePreparedAssets: true }
+  );
+
+  assert.equal(manifestEnv?.npm_config_target_arch, process.arch);
+  assert.equal(manifestEnv?.npm_config_arch, process.arch);
+});
+
 test('marks prepared target installs to reuse frontend dependencies', () => {
   const environment = { PATH: '/tools' };
   assert.equal(targetDependencyEnvironment(environment), environment);
