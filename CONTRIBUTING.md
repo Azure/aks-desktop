@@ -56,8 +56,12 @@ npm run lint:powershell
 ```
 
 The checks include pipeline scripts, generated Unix Azure/Python wrappers, and
-static Python `-c` snippets in JavaScript/TypeScript build helpers. Pipeline
-expressions are replaced with placeholders for analysis; no pipeline or embedded
+static Python `-c` snippets in JavaScript/TypeScript build helpers. Python
+`String.raw` templates must have a `// language=Python` comment immediately
+before their variable statement; their raw text is checked without evaluating
+the module or applying chained replacements. Interpolated Python templates are rejected.
+Pipeline expressions are replaced with language-appropriate placeholders
+(runtime variables for shell conditions) for analysis; no pipeline or embedded
 script is executed. Diagnostics for embedded scripts identify the containing
 file and step or source line. New dynamic Python snippets must be moved to
 standalone Python files so they can be checked.

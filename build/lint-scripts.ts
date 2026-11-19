@@ -33,10 +33,12 @@ function shellLanguage(shell: string): Language {
   }
 }
 
-export function normalizePipelineExpressions(source: string): string {
-  return source.replace(/\$\{\{[\s\S]*?\}\}/g, 'CI_EXPRESSION')
+export function normalizePipelineExpressions(source: string, language: Language = 'bash'): string {
+  const placeholder = language === 'powershell' ? '$env:CI_EXPRESSION'
+    : language === 'python' ? 'CI_EXPRESSION' : '${CI_EXPRESSION}';
+  return source.replace(/\$\{\{[\s\S]*?\}\}/g, () => placeholder)
     .replace(/\$\(([A-Za-z_][A-Za-z0-9_.-]*)\)/g, (original, name: string) =>
-      name.includes('.') || name === name.toUpperCase() ? 'CI_EXPRESSION' : original);
+      name.includes('.') || name === name.toUpperCase() ? placeholder : original);
 }
 
 export function workflowScripts(filename: string, source: string): Script[] {
@@ -45,7 +47,9 @@ export function workflowScripts(filename: string, source: string): Script[] {
   const data: unknown = document.toJS();
   const scripts: Script[] = [];
   function add(name: string, language: Language, body: string): void {
-    scripts.push({ name: `${filename}:${name}`, language, source: normalizePipelineExpressions(body) });
+    scripts.push({
+      name: `${filename}:${name}`, language, source: normalizePipelineExpressions(body, language),
+    });
   }
   function defaultShell(value: unknown): string | undefined {
     return record(value) && record(value.run) && typeof value.run.shell === 'string'
@@ -89,6 +93,31 @@ export function embeddedPython(filename: string, source: string): Script[] {
   const parsed = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true);
   const scripts: Script[] = [];
   function visit(node: ts.Node): void {
+    if (ts.isVariableStatement(node) && /\/\/\s*language=Python\b/i.test(
+      source.slice(node.getFullStart(), node.getStart(parsed))
+    )) {
+      let found = false;
+      function collectRawTemplate(child: ts.Node): void {
+        if (ts.isTaggedTemplateExpression(child) && child.tag.getText(parsed) === 'String.raw') {
+          if (!ts.isNoSubstitutionTemplateLiteral(child.template)) {
+            throw new Error(`${filename}: annotated Python must use a static String.raw template`);
+          }
+          const template = child.template;
+          const line = parsed.getLineAndCharacterOfPosition(template.getStart(parsed)).line + 1;
+          scripts.push({
+            name: `${filename}:${line}.py`, language: 'python',
+            source: template.rawText ?? template.text,
+          });
+          found = true;
+          return;
+        }
+        ts.forEachChild(child, collectRawTemplate);
+      }
+      collectRawTemplate(node);
+      if (!found) {
+        throw new Error(`${filename}: annotated Python must use a static String.raw template`);
+      }
+    }
     if (ts.isCallExpression(node) && node.arguments.length >= 2 &&
         /python/i.test(node.arguments[0].getText(parsed)) &&
         ts.isArrayLiteralExpression(node.arguments[1])) {

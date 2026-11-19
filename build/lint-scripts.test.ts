@@ -74,8 +74,51 @@ extends:
 test('replaces pipeline substitutions without concealing real command substitutions', () => {
   assert.equal(
     normalizePipelineExpressions('echo "${{ matrix.arch }}" "$(Build.SourcesDirectory)" "$(CACHE)" "$(pwd)"'),
-    'echo "CI_EXPRESSION" "CI_EXPRESSION" "CI_EXPRESSION" "$(pwd)"'
+    'echo "${CI_EXPRESSION}" "${CI_EXPRESSION}" "${CI_EXPRESSION}" "$(pwd)"'
   );
+});
+
+test('pipeline condition placeholders remain runtime values for each script language', () => {
+  const shell = workflowScripts('workflow.yml', `
+on: push
+jobs:
+  conditions:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [ -z "\${{ github.ref }}" ]; then echo empty; fi
+          if [ -n "$(BUILD_ID)" ]; then echo populated; fi
+`);
+  const result = spawnSync('shellcheck', ['--severity=warning', '--shell=bash', '-'], {
+    input: shell[0].source, encoding: 'utf8',
+  });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.equal(
+    normalizePipelineExpressions('Write-Output "$(BUILD_ID)"', 'powershell'),
+    'Write-Output "$env:CI_EXPRESSION"'
+  );
+  assert.equal(
+    normalizePipelineExpressions('print("${{ matrix.arch }}")', 'python'),
+    'print("CI_EXPRESSION")'
+  );
+});
+
+test('extracts annotated raw Python without cooking escapes or executing its module', () => {
+  const raw = String.raw`print(r"\d+\n")`;
+  const source = [
+    'throw new Error("must not execute");',
+    '// language=Python',
+    'export const script = String.raw`' + raw + '`.replace("__VERSION__", version);',
+    'export const javascript = String.raw`console.log("not Python")`;',
+  ].join('\n');
+  const scripts = embeddedPython('template.ts', source);
+  assert.equal(scripts.length, 1);
+  assert.equal(scripts[0].source, raw);
+  assert.throws(() => embeddedPython('dynamic.ts', [
+    '// language=Python',
+    'export const script = String.raw`print(${value})`;',
+  ].join('\n')), /static.*String\.raw/);
 });
 
 test('extracts decoded Python commands without executing build code, rejecting dynamic snippets', () => {
@@ -233,4 +276,19 @@ test('PowerShell analyzer installation rejects replacement archive bytes before 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /SHA-256 mismatch/);
   assert.equal(fs.existsSync(modules), false);
+});
+
+test('raw Python templates reach Ruff and fail on undefined names', context => {
+  const directory = fs.mkdtempSync(path.join(root, 'build/.lint-fixture-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(directory, 'template.ts'), [
+    'throw new Error("must not execute");',
+    '// language=Python',
+    'export const script = String.raw`print(undefined_template_name)`;',
+  ].join('\n'));
+  const result = lintRepository();
+  assert.ifError(result.error);
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stdout, /template\.ts/);
+  assert.match(result.stdout, /F821/);
 });
