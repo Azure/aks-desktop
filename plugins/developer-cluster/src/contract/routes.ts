@@ -33,7 +33,7 @@ export const PLUGIN_ROUTE_NAMES: Record<PluginRouteKey, string> = {
 /** The plugin's single top-level entry in the home sidebar. */
 export const PLUGIN_SIDEBAR_ENTRY = 'developer-cluster-overview';
 
-/** AKS Desktop's standard cluster route, which View opens. */
-export function clusterRoute(context: string): string {
-  return `/c/${encodeURIComponent(context)}`;
+/** AKS Desktop's standard cluster route, which View opens, by the cluster's list name. */
+export function clusterRoute(listName: string): string {
+  return `/c/${encodeURIComponent(listName)}`;
 }

@@ -303,19 +303,19 @@ function Landing({ state }: StateProps) {
 
 type ApiServerStatus = 'checking' | 'active' | 'unreachable';
 
-/** Probes `/readyz` when the cluster layout opens and whenever the registered context changes. */
-function useApiServerStatus(contextName: string): ApiServerStatus {
+/** Probes `/readyz` when the cluster layout opens and whenever the listed cluster changes. */
+function useApiServerStatus(listName: string): ApiServerStatus {
   const [status, setStatus] = useState<ApiServerStatus>('checking');
   useEffect(() => {
     let current = true;
     setStatus('checking');
-    void apiServerReady(contextName).then(ready => {
+    void apiServerReady(listName).then(ready => {
       if (current) setStatus(ready ? 'active' : 'unreachable');
     });
     return () => {
       current = false;
     };
-  }, [contextName]);
+  }, [listName]);
   return status;
 }
 
@@ -362,7 +362,7 @@ function ViewButton({
   return (
     <Button
       component={Link}
-      to={clusterRoute(target.contextName)}
+      to={clusterRoute(target.listName)}
       variant="contained"
       disabled={!enabled}
     >
@@ -374,7 +374,7 @@ function ViewButton({
 /** The cluster layout: no tabs, metrics or events, and no Stop or Edit. */
 function ClusterOverview({ state, target }: ClusterProps) {
   const { t } = useTranslation();
-  const status = useApiServerStatus(target.contextName);
+  const status = useApiServerStatus(target.listName);
   const unknown = String(t('Unknown'));
   const version = target.kubernetesVersion ?? unknown;
   const details: TextRow[] = [
