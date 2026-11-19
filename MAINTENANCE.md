@@ -71,7 +71,7 @@ The current stack is rebased onto Headlamp main at
 
 | Patch | Upstream source | Carried revision |
 | --- | --- | --- |
-| `0071` | [Cluster pre-open hooks and proxy lifecycle, PR #7505](https://github.com/kubernetes-sigs/headlamp/pull/7505) | `91ee02272eeb6cadfcfac1cf89820e1d29a400bb` |
+| `0071` | [Cluster pre-open hooks and proxy lifecycle, PR #7505](https://github.com/kubernetes-sigs/headlamp/pull/7505) | `91ee02272eeb6cadfcfac1cf89820e1d29a400bb` plus downstream quit follow-up `5b7f66b1b3b4a62545d226ad0e8387ac92806459` |
 | `0080` | AKS Desktop compatibility marker | Downstream-only; unchanged |
 | `7683` | [Legacy GitHub token migration, PR #7683](https://github.com/kubernetes-sigs/headlamp/pull/7683) | `1a60fa08ae7651b898a243280f3742d769255134` |
 | `8147` | [Private GitHub browser OAuth, PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147) | `1146185af190ec0d0426f81f06f5d664bc8d1c3d` |
@@ -81,6 +81,10 @@ Patches `0072` (PR #7958), `7685`, `7712`, `7726`, `7727`, `7731`, `7744`, and
 `7746` are included in this pin and no longer carried. Keep each numbered
 patch refresh or removal in its own commit, followed by the source pin,
 generated aggregate, metadata, and integration-test updates.
+
+The `0071` follow-up resumes quit on a new event-loop turn after cleanup.
+Keep this ordering when refreshing the patch: an immediately resolved cleanup
+must not re-enter Electron's original prevented `before-quit` dispatch.
 
 ### Update the Headlamp commit
 

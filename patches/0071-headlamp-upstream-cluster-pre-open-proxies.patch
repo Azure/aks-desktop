@@ -7635,3 +7635,71 @@ index a9f9ce75021825b683f7a7e7dc9751b7af322c2e..33f73657373aeab8e6165868ac76a497
  ### Route
  
  Show a component in the main area at a given URL with
+From 5b7f66b1b3b4a62545d226ad0e8387ac92806459 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Wed, 18 Nov 2026 17:34:21 -0500
+Subject: [PATCH] app: quitCleanup: Defer resumed quit to a new turn
+
+A settled cleanup can resume quit from a promise microtask before Electron has unwound its prevented before-quit dispatch. Queue the resumed request on the next event-loop turn so native quit state has been released before normal shutdown resumes.
+
+Add an ordering regression and explicitly flush deferred quit in the cleanup-deadline test.
+---
+ app/electron/quitCleanup.test.ts | 15 +++++++++++++++
+ app/electron/quitCleanup.ts      |  4 ++--
+ 2 files changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/app/electron/quitCleanup.test.ts b/app/electron/quitCleanup.test.ts
+index 428fb425e..2bab3df54 100644
+--- a/app/electron/quitCleanup.test.ts
++++ b/app/electron/quitCleanup.test.ts
+@@ -17,6 +17,20 @@
+ import { expect, it, vi } from 'vitest';
+ import { createBeforeQuitHandler } from './quitCleanup';
+ 
++it('resumes quit outside the original before-quit dispatch turn', async () => {
++  let dispatchingBeforeQuit = true;
++  const quit = vi.fn(() => dispatchingBeforeQuit);
++  setImmediate(() => {
++    dispatchingBeforeQuit = false;
++  });
++  const handler = createBeforeQuitHandler(() => Promise.resolve(), quit);
++
++  handler({ preventDefault: vi.fn() });
++
++  await vi.waitFor(() => expect(quit).toHaveBeenCalledOnce());
++  expect(quit.mock.results[0].value).toBe(false);
++});
++
+ it('prevents quit until cleanup settles, then resumes once', async () => {
+   let finishCleanup!: () => void;
+   const cleanup = vi.fn(() => new Promise<void>(resolve => (finishCleanup = resolve)));
+@@ -70,6 +84,7 @@ it('resumes quit after the cleanup deadline', async () => {
+     expect(reportError).toHaveBeenCalledWith(
+       new Error('Quit cleanup did not settle within 10000ms.')
+     );
++    await vi.runOnlyPendingTimersAsync();
+     expect(quit).toHaveBeenCalledOnce();
+   } finally {
+     vi.useRealTimers();
+diff --git a/app/electron/quitCleanup.ts b/app/electron/quitCleanup.ts
+index 170a7cf7f..92df52f45 100644
+--- a/app/electron/quitCleanup.ts
++++ b/app/electron/quitCleanup.ts
+@@ -22,7 +22,7 @@ interface BeforeQuitEvent {
+  * Prevents Electron from quitting until asynchronous cleanup settles or its deadline expires.
+  *
+  * @param cleanup - Asynchronous application cleanup to start once.
+- * @param quit - Resumes Electron quit after cleanup or timeout.
++ * @param quit - Resumes Electron quit on a new event-loop turn after cleanup or timeout.
+  * @param reportError - Reports cleanup rejection or timeout.
+  * @param timeoutMs - Maximum time to keep Electron's quit event prevented.
+  * @returns An Electron before-quit event handler.
+@@ -64,7 +64,7 @@ export function createBeforeQuitHandler(
+       .finally(() => {
+         clearTimeout(timeout);
+         readyToQuit = true;
+-        quit();
++        setImmediate(quit);
+       });
+   };
+ }
