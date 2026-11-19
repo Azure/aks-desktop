@@ -71,8 +71,8 @@ The current stack is rebased onto Headlamp main at
 
 | Patch | Upstream source | Carried revision |
 | --- | --- | --- |
-| `0071` | [Cluster pre-open hooks and proxy lifecycle, PR #7505](https://github.com/kubernetes-sigs/headlamp/pull/7505) | `91ee02272eeb6cadfcfac1cf89820e1d29a400bb` plus downstream quit follow-up `5b7f66b1b3b4a62545d226ad0e8387ac92806459` |
-| `0080` | AKS Desktop compatibility marker | Downstream-only; unchanged |
+| `0080` | AKS Desktop compatibility marker | Downstream-only; context rebased for series order |
+| `7505` | [Cluster pre-open hooks and proxy lifecycle, PR #7505](https://github.com/kubernetes-sigs/headlamp/pull/7505) | `0df913771474f27a00552cc55951612d70ac072f` (rebased carried range, including upstream quit fix `d28a80377719e35b232eee7ba91aebbe08b21f49`) |
 | `7683` | [Legacy GitHub token migration, PR #7683](https://github.com/kubernetes-sigs/headlamp/pull/7683) | `1a60fa08ae7651b898a243280f3742d769255134` |
 | `8147` | [Private GitHub browser OAuth, PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147) | `1146185af190ec0d0426f81f06f5d664bc8d1c3d` |
 | `8329` | [Activity renderer test timer isolation, kubernetes-sigs/headlamp#8329](https://github.com/kubernetes-sigs/headlamp/pull/8329) | `6f0a49b49cd701b10408e19c8c5d820636e6e8f5` |
@@ -82,7 +82,11 @@ Patches `0072` (PR #7958), `7685`, `7712`, `7726`, `7727`, `7731`, `7744`, and
 patch refresh or removal in its own commit, followed by the source pin,
 generated aggregate, metadata, and integration-test updates.
 
-The `0071` follow-up resumes quit on a new event-loop turn after cleanup.
+The `7505` patch replaces the legacy `0071` filename. It retains the existing
+carried range and adds only the upstream quit-ordering follow-up, not unrelated
+later changes from that PR. Its context is rebased after the downstream-only
+`0080` marker to preserve numeric series order.
+The follow-up resumes quit on a new event-loop turn after cleanup.
 Keep this ordering when refreshing the patch: an immediately resolved cleanup
 must not re-enter Electron's original prevented `before-quit` dispatch.
 

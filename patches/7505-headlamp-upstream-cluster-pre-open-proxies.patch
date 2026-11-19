@@ -1,7 +1,7 @@
-From 094e4f62b9f96dfa809a961b99f2e12f683620c7 Mon Sep 17 00:00:00 2001
+From 07bbbc75a7a5c84ec7c5a07c5978a1cfb217cb55 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:44:44 +0200
-Subject: [PATCH 01/10] app: proxies: Cover secure Azure proxy lifecycle
+Subject: [PATCH 01/11] app: proxies: Cover secure Azure proxy lifecycle
 
 Verify capability checks, Windows entry points, readiness failures, handler
 
@@ -27,7 +27,7 @@ execution when the callback fails.
  create mode 100644 app/electron/quitCleanup.test.ts
 
 diff --git a/app/electron/build-manifest.test.ts b/app/electron/build-manifest.test.ts
-index 0facf07617cff7a83d5a0ba9817d408099f5056a..70bacbce3600fd99e59c60556d1257c51c27963c 100644
+index 0facf0761..70bacbce3 100644
 --- a/app/electron/build-manifest.test.ts
 +++ b/app/electron/build-manifest.test.ts
 @@ -1062,6 +1062,39 @@ describe('build manifest selection', () => {
@@ -71,7 +71,7 @@ index 0facf07617cff7a83d5a0ba9817d408099f5056a..70bacbce3600fd99e59c60556d1257c5
      const schema = JSON.parse(
        fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
 diff --git a/app/electron/plugin-management.test.ts b/app/electron/plugin-management.test.ts
-index 0c235601cc97ce5970fddb96fbc2371d5b28ca3f..85f49250db8ff26a0b3c1efd198ddf7435ded48c 100644
+index 0c235601c..85f49250d 100644
 --- a/app/electron/plugin-management.test.ts
 +++ b/app/electron/plugin-management.test.ts
 @@ -33,6 +33,7 @@ import {
@@ -109,7 +109,7 @@ index 0c235601cc97ce5970fddb96fbc2371d5b28ca3f..85f49250db8ff26a0b3c1efd198ddf74
    it('defers installation-only dependencies', async () => {
      const tarFactory = vi.fn(() => ({}));
 diff --git a/app/electron/preload.test.ts b/app/electron/preload.test.ts
-index e3c761993aec9186435edb281e934ddb565645d3..5148f403229a19fd788c56711c6bc7ce385c1c31 100644
+index e3c761993..5148f4032 100644
 --- a/app/electron/preload.test.ts
 +++ b/app/electron/preload.test.ts
 @@ -86,6 +86,23 @@ describe('desktop preload API', () => {
@@ -138,7 +138,7 @@ index e3c761993aec9186435edb281e934ddb565645d3..5148f403229a19fd788c56711c6bc7ce
    });
 diff --git a/app/electron/proxies.test.ts b/app/electron/proxies.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..42ceafafc8e8e57bc9d92afe1c04e09f31d00176
+index 000000000..718ef019c
 --- /dev/null
 +++ b/app/electron/proxies.test.ts
 @@ -0,0 +1,1295 @@
@@ -1439,7 +1439,7 @@ index 0000000000000000000000000000000000000000..42ceafafc8e8e57bc9d92afe1c04e09f
 +});
 diff --git a/app/electron/quitCleanup.test.ts b/app/electron/quitCleanup.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..428fb425e897c3d98f34c96b92eb2145fb71d59a
+index 000000000..428fb425e
 --- /dev/null
 +++ b/app/electron/quitCleanup.test.ts
 @@ -0,0 +1,77 @@
@@ -1521,7 +1521,7 @@ index 0000000000000000000000000000000000000000..428fb425e897c3d98f34c96b92eb2145
 +  }
 +});
 diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
-index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c216cdc7d3f 100644
+index a4f88fb02..f49bed4af 100644
 --- a/app/electron/runCmd.test.ts
 +++ b/app/electron/runCmd.test.ts
 @@ -89,6 +89,7 @@ vi.mock('./main', () => ({
@@ -1827,10 +1827,10 @@ index a4f88fb02eab7eef838ac91f5729daa124e64579..f49bed4af52ddb296443bd5c3dd20c21
    const fakeMainWindow = { id: 1 } as any;
    const permissionSecrets = { 'runCmd-gh': 99 };
 
-From 18d6b90475f370928caa9dbe13bb1cd678efd208 Mon Sep 17 00:00:00 2001
+From fb60e1f228ea58186ca6a095a55dd877f3758864 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:44:52 +0200
-Subject: [PATCH 02/10] frontend: e2e-tests: Cover scoped cluster pre-open flow
+Subject: [PATCH 02/11] frontend: e2e-tests: Cover scoped cluster pre-open flow
 
 Verify only the Azure plugin receives proxy startup and preparation gates
 
@@ -1844,7 +1844,7 @@ cluster rendering in a browser flow.
  create mode 100644 frontend/src/plugin/clusterProxy.test.ts
 
 diff --git a/app/e2e-tests/tests/listenerCleanup.spec.ts b/app/e2e-tests/tests/listenerCleanup.spec.ts
-index b4cb323329c256ac31b2f0fa5eecf48274352ee2..4aaa21c69f96a1c20cc45b1b3b3205a9c50f2ef0 100644
+index b4cb32332..4aaa21c69 100644
 --- a/app/e2e-tests/tests/listenerCleanup.spec.ts
 +++ b/app/e2e-tests/tests/listenerCleanup.spec.ts
 @@ -99,7 +99,7 @@ test.describe('desktop listener cleanup', () => {
@@ -1876,7 +1876,7 @@ index b4cb323329c256ac31b2f0fa5eecf48274352ee2..4aaa21c69f96a1c20cc45b1b3b3205a9
          );
 diff --git a/e2e-tests/tests/clusterPreOpen.spec.ts b/e2e-tests/tests/clusterPreOpen.spec.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..67fe3f25d8499025ef6a31ef9f85abe899dbfe7c
+index 000000000..67fe3f25d
 --- /dev/null
 +++ b/e2e-tests/tests/clusterPreOpen.spec.ts
 @@ -0,0 +1,67 @@
@@ -1949,7 +1949,7 @@ index 0000000000000000000000000000000000000000..67fe3f25d8499025ef6a31ef9f85abe8
 +});
 diff --git a/frontend/src/plugin/clusterProxy.test.ts b/frontend/src/plugin/clusterProxy.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..0c85fdf1814ba7e8033f0bff49533c5af2aa856d
+index 000000000..0c85fdf18
 --- /dev/null
 +++ b/frontend/src/plugin/clusterProxy.test.ts
 @@ -0,0 +1,89 @@
@@ -2043,10 +2043,10 @@ index 0000000000000000000000000000000000000000..0c85fdf1814ba7e8033f0bff49533c5a
 +  });
 +});
 
-From 194675c96b2712ceb9de28ebe6951caa5579a4fb Mon Sep 17 00:00:00 2001
+From b4a033390a37f17834c1841df2889647a3a0a906 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 14:03:45 +0530
-Subject: [PATCH 03/10] app: proxies: Add scoped Azure proxy lifecycle
+Subject: [PATCH 03/11] app: proxies: Add scoped Azure proxy lifecycle
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -2086,7 +2086,7 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
  create mode 100644 frontend/src/plugin/clusterProxy.ts
 
 diff --git a/app/app-build-manifest.json b/app/app-build-manifest.json
-index fa00908c390aaba0604a60a96a8bdbaab5f96f14..9c9fb000fa84028a71a2919ee8f6071bfb501f3e 100644
+index fa00908c3..9c9fb000f 100644
 --- a/app/app-build-manifest.json
 +++ b/app/app-build-manifest.json
 @@ -255,18 +255,6 @@
@@ -2109,7 +2109,7 @@ index fa00908c390aaba0604a60a96a8bdbaab5f96f14..9c9fb000fa84028a71a2919ee8f6071b
    ],
    "legalDocuments": [
 diff --git a/app/app-build-manifest.schema.json b/app/app-build-manifest.schema.json
-index f2e956d753b17ede4a33b7328f382460214e45c5..d55d7d39d6904c62dce9c496430a9d20aaa164e8 100644
+index f2e956d75..d55d7d39d 100644
 --- a/app/app-build-manifest.schema.json
 +++ b/app/app-build-manifest.schema.json
 @@ -26,6 +26,11 @@
@@ -2125,7 +2125,7 @@ index f2e956d753b17ede4a33b7328f382460214e45c5..d55d7d39d6904c62dce9c496430a9d20
        "type": "object",
        "description": "Reusable named command grant arrays. A runCommands policy composes one or more with commandSets instead of repeating commands.",
 diff --git a/app/electron/main.ts b/app/electron/main.ts
-index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..d005363f22d981151b32559ee04f14e9aa302b56 100644
+index 3ac31a7d2..d005363f2 100644
 --- a/app/electron/main.ts
 +++ b/app/electron/main.ts
 @@ -74,8 +74,11 @@ import {
@@ -2223,7 +2223,7 @@ index 3ac31a7d2b05fe7114432e86d1b4fc5c8ac85c91..d005363f22d981151b32559ee04f14e9
  
  if (!isRunningScript) {
 diff --git a/app/electron/plugin-management.ts b/app/electron/plugin-management.ts
-index 663f90b32f4c1fc6b262d2de704532f039140c38..509765943583971b1ae384e2d75b75366d3c607e 100644
+index 663f90b32..509765943 100644
 --- a/app/electron/plugin-management.ts
 +++ b/app/electron/plugin-management.ts
 @@ -850,7 +850,7 @@ export class PluginManager {
@@ -2275,7 +2275,7 @@ index 663f90b32f4c1fc6b262d2de704532f039140c38..509765943583971b1ae384e2d75b7536
        }
  
 diff --git a/app/electron/preload.ts b/app/electron/preload.ts
-index 420e5c109aa8e16e8dbbc2f098d46cd11f9f5283..a2976a333c0dd0b4d0d53497bdf05702c1742c29 100644
+index d8f56be75..75d2b1a95 100644
 --- a/app/electron/preload.ts
 +++ b/app/electron/preload.ts
 @@ -16,6 +16,7 @@
@@ -2286,10 +2286,10 @@ index 420e5c109aa8e16e8dbbc2f098d46cd11f9f5283..a2976a333c0dd0b4d0d53497bdf05702
  
  // Keeps the mapping between a caller-provided listener and the wrapped one we
  // actually register with ipcRenderer, so removeListener can still unsubscribe
-@@ -35,6 +36,12 @@ contextBridge.exposeInMainWorld('desktopApi', {
-   oidcLogout: (cluster: string) => ipcRenderer.invoke('oidc-logout', cluster),
-   isDevelopment: Boolean(process.env.ELECTRON_DEV),
-   getDevelopmentPluginsEnabled: () => ipcRenderer.invoke('get-development-plugins'),
+@@ -38,6 +39,12 @@ contextBridge.exposeInMainWorld('desktopApi', {
+   // Compatibility marker used by AI Assistant to identify AKS Desktop.
+   registerAKSCluster: () => undefined,
+ 
 +  /** Starts a proxy only when the caller supplies its scoped plugin capability. */
 +  startClusterProxy: (
 +    target: ClusterProxyTarget,
@@ -2300,7 +2300,7 @@ index 420e5c109aa8e16e8dbbc2f098d46cd11f9f5283..a2976a333c0dd0b4d0d53497bdf05702
      // allowed channels
      const validChannels = [
 diff --git a/app/electron/proxies.test.ts b/app/electron/proxies.test.ts
-index 42ceafafc8e8e57bc9d92afe1c04e09f31d00176..908c104b69583e30e15b37c7e3d7dc985f2d2d8f 100644
+index 718ef019c..82f1e819e 100644
 --- a/app/electron/proxies.test.ts
 +++ b/app/electron/proxies.test.ts
 @@ -21,17 +21,21 @@ import { tmpdir } from 'os';
@@ -2399,7 +2399,7 @@ index 42ceafafc8e8e57bc9d92afe1c04e09f31d00176..908c104b69583e30e15b37c7e3d7dc98
  
 diff --git a/app/electron/proxies.ts b/app/electron/proxies.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..0b2b9047f2b06069685cebe4728b01b5e4007a49
+index 000000000..661c4957a
 --- /dev/null
 +++ b/app/electron/proxies.ts
 @@ -0,0 +1,877 @@
@@ -3282,7 +3282,7 @@ index 0000000000000000000000000000000000000000..0b2b9047f2b06069685cebe4728b01b5
 +}
 diff --git a/app/electron/quitCleanup.ts b/app/electron/quitCleanup.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..170a7cf7f7736117f3c2a29133086e55b864cfdc
+index 000000000..170a7cf7f
 --- /dev/null
 +++ b/app/electron/quitCleanup.ts
 @@ -0,0 +1,70 @@
@@ -3357,7 +3357,7 @@ index 0000000000000000000000000000000000000000..170a7cf7f7736117f3c2a29133086e55
 +  };
 +}
 diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
-index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b233860df 100644
+index 5f960e2e2..14dbc211d 100644
 --- a/app/electron/runCmd.ts
 +++ b/app/electron/runCmd.ts
 @@ -33,6 +33,7 @@ import {
@@ -3623,7 +3623,7 @@ index 5f960e2e2e957eff454e3b2a1203f743da397c00..14dbc211d7d43e6ad1c93dd00677961b
      authorizeClusterRegistration(event, providerId, capability) {
        const registered = capabilityRegistry.get(capability);
 diff --git a/app/scripts/build-manifest.ts b/app/scripts/build-manifest.ts
-index bd9265880250829f5fd7d556b33fa16b9827c4a2..7a7cc6519e9a57a4aa5cab254bc308dfd7fb0b7f 100644
+index bd9265880..7a7cc6519 100644
 --- a/app/scripts/build-manifest.ts
 +++ b/app/scripts/build-manifest.ts
 @@ -29,6 +29,8 @@ type ManifestEnvironment = {
@@ -3657,7 +3657,7 @@ index bd9265880250829f5fd7d556b33fa16b9827c4a2..7a7cc6519e9a57a4aa5cab254bc308df
      if (!Array.isArray(proxyUrls) || proxyUrls.some(pattern => typeof pattern !== 'string')) {
 diff --git a/frontend/src/plugin/clusterProxy.ts b/frontend/src/plugin/clusterProxy.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..9bc24088f31eefe465154de87ba6c9396a9c924c
+index 000000000..9bc24088f
 --- /dev/null
 +++ b/frontend/src/plugin/clusterProxy.ts
 @@ -0,0 +1,91 @@
@@ -3753,7 +3753,7 @@ index 0000000000000000000000000000000000000000..9bc24088f31eefe465154de87ba6c939
 +  return [['startClusterProxy'], [startClusterProxy]];
 +}
 diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
-index fe3e1166aa7e7952c4951ae661787bcb4fdc9e5f..0c162a30762037cddaf702d361388a000a53f960 100644
+index fe3e1166a..0c162a307 100644
 --- a/frontend/src/plugin/index.ts
 +++ b/frontend/src/plugin/index.ts
 @@ -53,6 +53,7 @@ import * as Utils from '../lib/util';
@@ -3820,10 +3820,10 @@ index fe3e1166aa7e7952c4951ae661787bcb4fdc9e5f..0c162a30762037cddaf702d361388a00
            const [registrationArgs, registrationValues] = getPluginClusterRegistrationArgValues(
              commandCapabilities,
 
-From b40f60c83c5440c1f07d270c2dd47710bddca38d Mon Sep 17 00:00:00 2001
+From bf3c7bcce59efc3830285b3dc3182d285faa5cc4 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:45:12 +0200
-Subject: [PATCH 04/10] frontend: ClusterPreOpenGate: Cover preparation
+Subject: [PATCH 04/11] frontend: ClusterPreOpenGate: Cover preparation
  lifecycle
 
 Verify config loading, outer request gating, retries, route lifetime, aborts,
@@ -3844,7 +3844,7 @@ run ownership, auth ordering, and alert suppression.
 
 diff --git a/frontend/src/components/App/ClusterPreOpenGate.test.tsx b/frontend/src/components/App/ClusterPreOpenGate.test.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..bdbac3a02648445d928365e8d1dce1c6c6fc380e
+index 000000000..bdbac3a02
 --- /dev/null
 +++ b/frontend/src/components/App/ClusterPreOpenGate.test.tsx
 @@ -0,0 +1,160 @@
@@ -4009,7 +4009,7 @@ index 0000000000000000000000000000000000000000..bdbac3a02648445d928365e8d1dce1c6
 +  expect(screen.queryByText('health-poller')).not.toBeInTheDocument();
 +});
 diff --git a/frontend/src/components/App/RouteSwitcher.test.tsx b/frontend/src/components/App/RouteSwitcher.test.tsx
-index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..937f0bb05b279609373cbc493e97539baf1acd88 100644
+index 1480c7a1f..937f0bb05 100644
 --- a/frontend/src/components/App/RouteSwitcher.test.tsx
 +++ b/frontend/src/components/App/RouteSwitcher.test.tsx
 @@ -14,9 +14,19 @@
@@ -4393,7 +4393,7 @@ index 1480c7a1fb4edb401672d7a25c7397159c8abc9d..937f0bb05b279609373cbc493e97539b
 +  });
 +});
 diff --git a/frontend/src/components/common/AlertNotification.test.tsx b/frontend/src/components/common/AlertNotification.test.tsx
-index 5656b83d48fff73cba3ca9fdba2121ac56f7d2a4..df2bb401714e51b394dea86596d4e960678fbe72 100644
+index 5656b83d4..df2bb4017 100644
 --- a/frontend/src/components/common/AlertNotification.test.tsx
 +++ b/frontend/src/components/common/AlertNotification.test.tsx
 @@ -14,7 +14,8 @@
@@ -4456,7 +4456,7 @@ index 5656b83d48fff73cba3ca9fdba2121ac56f7d2a4..df2bb401714e51b394dea86596d4e960
 +  });
 +});
 diff --git a/frontend/src/lib/k8s/index.test.ts b/frontend/src/lib/k8s/index.test.ts
-index fd7ae2751f11ee9b1c7eb5176e76b88b19caf7ce..8bbf60a5718bfa1046fe89a3b62c4c8645dd412e 100644
+index fd7ae2751..8bbf60a57 100644
 --- a/frontend/src/lib/k8s/index.test.ts
 +++ b/frontend/src/lib/k8s/index.test.ts
 @@ -16,12 +16,15 @@
@@ -4531,7 +4531,7 @@ index fd7ae2751f11ee9b1c7eb5176e76b88b19caf7ce..8bbf60a5718bfa1046fe89a3b62c4c86
    let queryClient: QueryClient;
  
 diff --git a/frontend/src/plugin/clusterProxy.test.ts b/frontend/src/plugin/clusterProxy.test.ts
-index 0c85fdf1814ba7e8033f0bff49533c5af2aa856d..d3db92c4bfe686ddde1732f3365eeed6feb8efba 100644
+index 0c85fdf18..d3db92c4b 100644
 --- a/frontend/src/plugin/clusterProxy.test.ts
 +++ b/frontend/src/plugin/clusterProxy.test.ts
 @@ -15,44 +15,27 @@
@@ -4628,7 +4628,7 @@ index 0c85fdf1814ba7e8033f0bff49533c5af2aa856d..d3db92c4bfe686ddde1732f3365eeed6
    });
  });
 diff --git a/frontend/src/plugin/pluginLib.test.ts b/frontend/src/plugin/pluginLib.test.ts
-index c6d4ab70ec0675d754c78aa4a5c8a5e0ef6a3051..0f9f15d9e19b6c500dda15872f3d8c26da8e64b9 100644
+index c6d4ab70e..0f9f15d9e 100644
 --- a/frontend/src/plugin/pluginLib.test.ts
 +++ b/frontend/src/plugin/pluginLib.test.ts
 @@ -52,4 +52,15 @@ describe('pluginLib variable', () => {
@@ -4648,7 +4648,7 @@ index c6d4ab70ec0675d754c78aa4a5c8a5e0ef6a3051..0f9f15d9e19b6c500dda15872f3d8c26
 +  });
  });
 diff --git a/frontend/src/plugin/registry.test.ts b/frontend/src/plugin/registry.test.ts
-index af944db55faf5a56ea2f06dc3e1d51dcaea78251..c94f441b909b4f74e8ebe2a0aaa9670c6eedf8eb 100644
+index af944db55..c94f441b9 100644
 --- a/frontend/src/plugin/registry.test.ts
 +++ b/frontend/src/plugin/registry.test.ts
 @@ -17,7 +17,14 @@
@@ -4864,7 +4864,7 @@ index af944db55faf5a56ea2f06dc3e1d51dcaea78251..c94f441b909b4f74e8ebe2a0aaa9670c
  
  describe('registerAppTheme', () => {
 diff --git a/frontend/src/plugin/runPlugin.test.ts b/frontend/src/plugin/runPlugin.test.ts
-index 563dedd5e79f7ab99b967c4c183b42a5bf1721dc..0fc11437a067e9f6b308d6f5d3d61f6681261a87 100644
+index 563dedd5e..0fc11437a 100644
 --- a/frontend/src/plugin/runPlugin.test.ts
 +++ b/frontend/src/plugin/runPlugin.test.ts
 @@ -36,6 +36,53 @@ function runPluginInner(info: runPluginProps) {
@@ -4958,7 +4958,7 @@ index 563dedd5e79f7ab99b967c4c183b42a5bf1721dc..0fc11437a067e9f6b308d6f5d3d61f66
  });
  
 diff --git a/frontend/src/stateless/index.test.ts b/frontend/src/stateless/index.test.ts
-index 5b8b25aa94d39c3c0da5c5d5a616c9b0b8e6294d..9b898e9714b2979337a8fa2f6dac0d1e1b53c0e1 100644
+index 5b8b25aa9..9b898e971 100644
 --- a/frontend/src/stateless/index.test.ts
 +++ b/frontend/src/stateless/index.test.ts
 @@ -32,6 +32,38 @@ vi.mock('../lib/k8s/api/v1/clusterRequests', async importOriginal => {
@@ -5090,10 +5090,10 @@ index 5b8b25aa94d39c3c0da5c5d5a616c9b0b8e6294d..9b898e9714b2979337a8fa2f6dac0d1e
 +  });
  });
 
-From 01b2892636ced4d2b39865c3023707b73b3d953e Mon Sep 17 00:00:00 2001
+From d774593576840ec7e57e8d76229846c8ae4a9dff Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 13:58:15 +0530
-Subject: [PATCH 05/10] frontend: clusterProviderSlice: Add cluster pre-open
+Subject: [PATCH 05/11] frontend: clusterProviderSlice: Add cluster pre-open
  hooks
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -5131,7 +5131,7 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 
 diff --git a/frontend/src/components/App/ClusterLayout.tsx b/frontend/src/components/App/ClusterLayout.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..a03e34c3b7f4ddc90401d6c8e597425c5c324b72
+index 000000000..a03e34c3b
 --- /dev/null
 +++ b/frontend/src/components/App/ClusterLayout.tsx
 @@ -0,0 +1,57 @@
@@ -5194,7 +5194,7 @@ index 0000000000000000000000000000000000000000..a03e34c3b7f4ddc90401d6c8e597425c
 +}
 diff --git a/frontend/src/components/App/ClusterPreOpenGate.tsx b/frontend/src/components/App/ClusterPreOpenGate.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..0a0c1b758e26883581b4ad51bdc5a6542255fa05
+index 000000000..0a0c1b758
 --- /dev/null
 +++ b/frontend/src/components/App/ClusterPreOpenGate.tsx
 @@ -0,0 +1,80 @@
@@ -5280,7 +5280,7 @@ index 0000000000000000000000000000000000000000..0a0c1b758e26883581b4ad51bdc5a654
 +}
 diff --git a/frontend/src/components/App/ClusterPreparingDialog.tsx b/frontend/src/components/App/ClusterPreparingDialog.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..b964be6949352998991476d3545b1592a4196afb
+index 000000000..b964be694
 --- /dev/null
 +++ b/frontend/src/components/App/ClusterPreparingDialog.tsx
 @@ -0,0 +1,65 @@
@@ -5350,7 +5350,7 @@ index 0000000000000000000000000000000000000000..b964be6949352998991476d3545b1592
 +  );
 +}
 diff --git a/frontend/src/components/App/Layout.tsx b/frontend/src/components/App/Layout.tsx
-index 4ab18882193eb00e76424d15746276cffc53b0aa..6d903f50a5194eb47111a4c2f71cd45dbe8ee8af 100644
+index 4ab188821..6d903f50a 100644
 --- a/frontend/src/components/App/Layout.tsx
 +++ b/frontend/src/components/App/Layout.tsx
 @@ -47,6 +47,7 @@ import AlertNotification from '../common/AlertNotification';
@@ -5415,7 +5415,7 @@ index 4ab18882193eb00e76424d15746276cffc53b0aa..6d903f50a5194eb47111a4c2f71cd45d
    );
  }
 diff --git a/frontend/src/components/App/RouteSwitcher.tsx b/frontend/src/components/App/RouteSwitcher.tsx
-index 41cbbac576c4db806c7f4de726143eb450fb11db..541531bc212bf81c09ce08426a9bca104c85418b 100644
+index 41cbbac57..541531bc2 100644
 --- a/frontend/src/components/App/RouteSwitcher.tsx
 +++ b/frontend/src/components/App/RouteSwitcher.tsx
 @@ -148,7 +148,7 @@ interface AuthRouteProps {
@@ -5447,7 +5447,7 @@ index 41cbbac576c4db806c7f4de726143eb450fb11db..541531bc212bf81c09ce08426a9bca10
    const authError = query.error as any;
 diff --git a/frontend/src/components/App/useClusterPreOpen.ts b/frontend/src/components/App/useClusterPreOpen.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..40ea36a25827737d2f931b9d724ca3c64ef09fb0
+index 000000000..40ea36a25
 --- /dev/null
 +++ b/frontend/src/components/App/useClusterPreOpen.ts
 @@ -0,0 +1,150 @@
@@ -5602,7 +5602,7 @@ index 0000000000000000000000000000000000000000..40ea36a25827737d2f931b9d724ca3c6
 +  };
 +}
 diff --git a/frontend/src/components/common/AlertNotification.tsx b/frontend/src/components/common/AlertNotification.tsx
-index 9b216514c4a7e19247da2630fc35e7343f210cf6..5db234cfe1af2d3c126442eb4ea997fdb8b68264 100644
+index 9b216514c..5db234cfe 100644
 --- a/frontend/src/components/common/AlertNotification.tsx
 +++ b/frontend/src/components/common/AlertNotification.tsx
 @@ -66,7 +66,7 @@ export function PureAlertNotification({ checkerFunction }: PureAlertNotification
@@ -5656,7 +5656,7 @@ index 9b216514c4a7e19247da2630fc35e7343f210cf6..5db234cfe1af2d3c126442eb4ea997fd
  
    const showOnRoute = React.useMemo(() => {
 diff --git a/frontend/src/lib/k8s/index.ts b/frontend/src/lib/k8s/index.ts
-index b250ccb2e303f9c4b723ef38a34691453ed4a14b..0f67cf57c30580e99626fc0e4c9e44ed15f0c90f 100644
+index b250ccb2e..0f67cf57c 100644
 --- a/frontend/src/lib/k8s/index.ts
 +++ b/frontend/src/lib/k8s/index.ts
 @@ -136,21 +136,18 @@ export const ResourceClasses = {
@@ -5693,7 +5693,7 @@ index b250ccb2e303f9c4b723ef38a34691453ed4a14b..0f67cf57c30580e99626fc0e4c9e44ed
  
  export { useCluster, useConnectApi, useSelectedClusters } from './api/v1/hooks';
 diff --git a/frontend/src/plugin/__snapshots__/pluginLib.snapshot b/frontend/src/plugin/__snapshots__/pluginLib.snapshot
-index 13483d9e8dff20ba2f1a143b0b9d381de81ba701..b57c69fcb20487f39c1210741ed3230f273190ae 100644
+index 13483d9e8..b57c69fcb 100644
 --- a/frontend/src/plugin/__snapshots__/pluginLib.snapshot
 +++ b/frontend/src/plugin/__snapshots__/pluginLib.snapshot
 @@ -834,6 +834,7 @@
@@ -5706,7 +5706,7 @@ index 13483d9e8dff20ba2f1a143b0b9d381de81ba701..b57c69fcb20487f39c1210741ed3230f
    "registerDetailsViewHeaderAction": [Function],
 diff --git a/frontend/src/plugin/clusterPreOpen.ts b/frontend/src/plugin/clusterPreOpen.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..2db0b80a1378bba98874a70959abb4dd149c45e8
+index 000000000..2db0b80a1
 --- /dev/null
 +++ b/frontend/src/plugin/clusterPreOpen.ts
 @@ -0,0 +1,96 @@
@@ -5807,7 +5807,7 @@ index 0000000000000000000000000000000000000000..2db0b80a1378bba98874a70959abb4dd
 +  preOpenHooks.length = 0;
 +}
 diff --git a/frontend/src/plugin/clusterProxy.ts b/frontend/src/plugin/clusterProxy.ts
-index 9bc24088f31eefe465154de87ba6c9396a9c924c..a6c9503fbadc58c8243007d05ebbce08eeccf1f6 100644
+index 9bc24088f..a6c9503fb 100644
 --- a/frontend/src/plugin/clusterProxy.ts
 +++ b/frontend/src/plugin/clusterProxy.ts
 @@ -14,8 +14,6 @@
@@ -5905,7 +5905,7 @@ index 9bc24088f31eefe465154de87ba6c9396a9c924c..a6c9503fbadc58c8243007d05ebbce08
    }
  
 diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
-index 0c162a30762037cddaf702d361388a000a53f960..83f0536969606d0f800c66a8cc46632b0b5dc5c1 100644
+index 0c162a307..83f053696 100644
 --- a/frontend/src/plugin/index.ts
 +++ b/frontend/src/plugin/index.ts
 @@ -53,7 +53,7 @@ import * as Utils from '../lib/util';
@@ -6083,7 +6083,7 @@ index 0c162a30762037cddaf702d361388a000a53f960..83f0536969606d0f800c66a8cc46632b
        });
        desktopApi.send('request-plugin-permission-secrets');
 diff --git a/frontend/src/plugin/registry.tsx b/frontend/src/plugin/registry.tsx
-index 87eda435e3c75b31f5686641a4b9b310826bad30..afe480a42e867a614cad1fdd2b0ab5ff26700ed6 100644
+index 87eda435e..afe480a42 100644
 --- a/frontend/src/plugin/registry.tsx
 +++ b/frontend/src/plugin/registry.tsx
 @@ -72,12 +72,16 @@ import {
@@ -6148,7 +6148,7 @@ index 87eda435e3c75b31f5686641a4b9b310826bad30..afe480a42e867a614cad1fdd2b0ab5ff
   * Add a new theme that will be available in the settings.
   * Theme name should be unique
 diff --git a/frontend/src/plugin/runPlugin.ts b/frontend/src/plugin/runPlugin.ts
-index 8bb22bb81bf38426909c01d3b2d51da9473f39ce..2ae1a7d5d895be6333540f6f58014f2fe06b3e3c 100644
+index 8bb22bb81..2ae1a7d5d 100644
 --- a/frontend/src/plugin/runPlugin.ts
 +++ b/frontend/src/plugin/runPlugin.ts
 @@ -61,6 +61,14 @@ export type runPluginProps = [
@@ -6280,7 +6280,7 @@ index 8bb22bb81bf38426909c01d3b2d51da9473f39ce..2ae1a7d5d895be6333540f6f58014f2f
    const isPackage: Record<string, boolean> = {};
    for (const key in pluginPaths) {
 diff --git a/frontend/src/redux/clusterProviderSlice.ts b/frontend/src/redux/clusterProviderSlice.ts
-index 19dd642fcd7884403342f7f311e6e9bf796735d9..66b9ecd6a7dffd7f0f19bb4a6d996594ff86ae06 100644
+index 19dd642fc..66b9ecd6a 100644
 --- a/frontend/src/redux/clusterProviderSlice.ts
 +++ b/frontend/src/redux/clusterProviderSlice.ts
 @@ -49,6 +49,58 @@ export type ClusterEmptyStateComponent = (
@@ -6415,7 +6415,7 @@ index 19dd642fcd7884403342f7f311e6e9bf796735d9..66b9ecd6a7dffd7f0f19bb4a6d996594
  
  export default clusterProviderSlice.reducer;
 diff --git a/frontend/src/stateless/index.ts b/frontend/src/stateless/index.ts
-index c5cd96e3efc4d5e993d11f3165f2d9074b5e1208..d9a7216bd14defc2391ac71d241e35e2097a8276 100644
+index c5cd96e3e..d9a7216bd 100644
 --- a/frontend/src/stateless/index.ts
 +++ b/frontend/src/stateless/index.ts
 @@ -212,7 +212,7 @@ export function storeStatelessClusterKubeconfig(kubeconfig: string): Promise<voi
@@ -6546,7 +6546,7 @@ index c5cd96e3efc4d5e993d11f3165f2d9074b5e1208..d9a7216bd14defc2391ac71d241e35e2
  
  const exportFunctions = {
 diff --git a/plugins/headlamp-plugin/src/index.ts b/plugins/headlamp-plugin/src/index.ts
-index 20333b97619e68864172c40495b9cf310b6a3560..6a864f5d313a957b1719a023f1217cc811245579 100644
+index 20333b976..6a864f5d3 100644
 --- a/plugins/headlamp-plugin/src/index.ts
 +++ b/plugins/headlamp-plugin/src/index.ts
 @@ -43,6 +43,8 @@ import Registry, {
@@ -6584,10 +6584,10 @@ index 20333b97619e68864172c40495b9cf310b6a3560..6a864f5d313a957b1719a023f1217cc8
    DefaultSidebars,
    HeadlampEvent,
 
-From 1af6a4f953933f35a81083b4e7ec46f1c6fa4b64 Mon Sep 17 00:00:00 2001
+From 766484e9a01bf037b0e3c7408b92b9e1d6c16066 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 13:58:34 +0530
-Subject: [PATCH 06/10] frontend: i18n: Regenerate cluster pre-open locales
+Subject: [PATCH 06/11] frontend: i18n: Regenerate cluster pre-open locales
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -6627,7 +6627,7 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
  26 files changed, 104 insertions(+)
 
 diff --git a/frontend/src/i18n/locales/ar/translation.json b/frontend/src/i18n/locales/ar/translation.json
-index 94451618b4ddeca0db2b000f7b1a6a76076fce60..17aad4c31045539083dd742723c38651cd0a8345 100644
+index 94451618b..17aad4c31 100644
 --- a/frontend/src/i18n/locales/ar/translation.json
 +++ b/frontend/src/i18n/locales/ar/translation.json
 @@ -53,6 +53,10 @@
@@ -6642,7 +6642,7 @@ index 94451618b4ddeca0db2b000f7b1a6a76076fce60..17aad4c31045539083dd742723c38651
    "Add Cluster": "إضافة كتلة",
    "Proceed to select your preferred method for cluster creation and addition": "تابع لاختيار الطريقة المفضلة لديك لإنشاء الكتلة وإضافتها",
 diff --git a/frontend/src/i18n/locales/bn/translation.json b/frontend/src/i18n/locales/bn/translation.json
-index cd40386069f962be3a38a9a8455ff0479dfed6e1..217aa8fa360f493d74a9705792bbd37dc99b3a35 100644
+index cd4038606..217aa8fa3 100644
 --- a/frontend/src/i18n/locales/bn/translation.json
 +++ b/frontend/src/i18n/locales/bn/translation.json
 @@ -53,6 +53,10 @@
@@ -6657,7 +6657,7 @@ index cd40386069f962be3a38a9a8455ff0479dfed6e1..217aa8fa360f493d74a9705792bbd37d
    "Add Cluster": "Cluster যোগ করুন",
    "Proceed to select your preferred method for cluster creation and addition": "Cluster Create এবং সংযোজনের জন্য আপনার পছন্দসই পদ্ধতিটি নির্বাচন করতে এগিয়ে যান",
 diff --git a/frontend/src/i18n/locales/cs/translation.json b/frontend/src/i18n/locales/cs/translation.json
-index cecfda0667175b3b502e1d573db453f3b83a7cd7..c4f85fb43028d340a1b44f04d3af7d8be3dcb027 100644
+index cecfda066..c4f85fb43 100644
 --- a/frontend/src/i18n/locales/cs/translation.json
 +++ b/frontend/src/i18n/locales/cs/translation.json
 @@ -53,6 +53,10 @@
@@ -6672,7 +6672,7 @@ index cecfda0667175b3b502e1d573db453f3b83a7cd7..c4f85fb43028d340a1b44f04d3af7d8b
    "Add Cluster": "Přidat cluster",
    "Proceed to select your preferred method for cluster creation and addition": "Pokračujte výběrem upřednostňované metody pro vytvoření a přidání clusteru.",
 diff --git a/frontend/src/i18n/locales/de/translation.json b/frontend/src/i18n/locales/de/translation.json
-index 2d4973d5154a02dbc3ed34e02c6751a86edb1aa7..8187d4fb68e75aaaae474dd10514bee6876ac6cd 100644
+index 2d4973d51..8187d4fb6 100644
 --- a/frontend/src/i18n/locales/de/translation.json
 +++ b/frontend/src/i18n/locales/de/translation.json
 @@ -53,6 +53,10 @@
@@ -6687,7 +6687,7 @@ index 2d4973d5154a02dbc3ed34e02c6751a86edb1aa7..8187d4fb68e75aaaae474dd10514bee6
    "Add Cluster": "Cluster hinzufügen",
    "Proceed to select your preferred method for cluster creation and addition": "",
 diff --git a/frontend/src/i18n/locales/en/translation.json b/frontend/src/i18n/locales/en/translation.json
-index 0a6c9f62700149735abf98d6c782531a95f70622..f22f0a5b24d1e3ff9fa99bf92679cec43ba7dfef 100644
+index 0a6c9f627..f22f0a5b2 100644
 --- a/frontend/src/i18n/locales/en/translation.json
 +++ b/frontend/src/i18n/locales/en/translation.json
 @@ -53,6 +53,10 @@
@@ -6702,7 +6702,7 @@ index 0a6c9f62700149735abf98d6c782531a95f70622..f22f0a5b24d1e3ff9fa99bf92679cec4
    "Add Cluster": "Add Cluster",
    "Proceed to select your preferred method for cluster creation and addition": "Proceed to select your preferred method for cluster creation and addition",
 diff --git a/frontend/src/i18n/locales/es/translation.json b/frontend/src/i18n/locales/es/translation.json
-index 60c571472605554fabadd90bf8703511c767386d..551dc8df8514971b1cc51790a635e0b1cbe43b02 100644
+index 60c571472..551dc8df8 100644
 --- a/frontend/src/i18n/locales/es/translation.json
 +++ b/frontend/src/i18n/locales/es/translation.json
 @@ -53,6 +53,10 @@
@@ -6717,7 +6717,7 @@ index 60c571472605554fabadd90bf8703511c767386d..551dc8df8514971b1cc51790a635e0b1
    "Add Cluster": "Añadir cluster",
    "Proceed to select your preferred method for cluster creation and addition": "",
 diff --git a/frontend/src/i18n/locales/fr/translation.json b/frontend/src/i18n/locales/fr/translation.json
-index 337511ec9bf2dee0465b2009c5ce3e21788c7363..a5f840558c31842c10074df64e11cd6b974c69e6 100644
+index 337511ec9..a5f840558 100644
 --- a/frontend/src/i18n/locales/fr/translation.json
 +++ b/frontend/src/i18n/locales/fr/translation.json
 @@ -53,6 +53,10 @@
@@ -6732,7 +6732,7 @@ index 337511ec9bf2dee0465b2009c5ce3e21788c7363..a5f840558c31842c10074df64e11cd6b
    "Add Cluster": "Ajouter un cluster",
    "Proceed to select your preferred method for cluster creation and addition": "Continuez pour choisir votre méthode préférée pour la création et l'ajout de cluster",
 diff --git a/frontend/src/i18n/locales/he/translation.json b/frontend/src/i18n/locales/he/translation.json
-index f19cad3257e0979fd3425fb26520a62bdaa40240..92b89bff59edfa53c18dce6aeeee04202b210d5a 100644
+index f19cad325..92b89bff5 100644
 --- a/frontend/src/i18n/locales/he/translation.json
 +++ b/frontend/src/i18n/locales/he/translation.json
 @@ -53,6 +53,10 @@
@@ -6747,7 +6747,7 @@ index f19cad3257e0979fd3425fb26520a62bdaa40240..92b89bff59edfa53c18dce6aeeee0420
    "Add Cluster": "Add Cluster",
    "Proceed to select your preferred method for cluster creation and addition": "Proceed to select your preferred method for cluster creation and addition",
 diff --git a/frontend/src/i18n/locales/hi/translation.json b/frontend/src/i18n/locales/hi/translation.json
-index bb365d59eb302c2f69288a91d2a8939b1e53362a..f119e5dfbe571ef5ff06e48756340d5422d4a060 100644
+index bb365d59e..f119e5dfb 100644
 --- a/frontend/src/i18n/locales/hi/translation.json
 +++ b/frontend/src/i18n/locales/hi/translation.json
 @@ -53,6 +53,10 @@
@@ -6762,7 +6762,7 @@ index bb365d59eb302c2f69288a91d2a8939b1e53362a..f119e5dfbe571ef5ff06e48756340d54
    "Add Cluster": "",
    "Proceed to select your preferred method for cluster creation and addition": "",
 diff --git a/frontend/src/i18n/locales/hu/translation.json b/frontend/src/i18n/locales/hu/translation.json
-index 44741025a2c6df7b201cf94ded5f0ea9dafb6e56..d394504973837fa41c7bc4e080b553150f94bb37 100644
+index 44741025a..d39450497 100644
 --- a/frontend/src/i18n/locales/hu/translation.json
 +++ b/frontend/src/i18n/locales/hu/translation.json
 @@ -53,6 +53,10 @@
@@ -6777,7 +6777,7 @@ index 44741025a2c6df7b201cf94ded5f0ea9dafb6e56..d394504973837fa41c7bc4e080b55315
    "Add Cluster": "Fürt hozzáadása",
    "Proceed to select your preferred method for cluster creation and addition": "Folytassa a fürt létrehozásának és hozzáadásának előnyben részesített módszere kiválasztásával",
 diff --git a/frontend/src/i18n/locales/id/translation.json b/frontend/src/i18n/locales/id/translation.json
-index 20bce52c0c337fadfe44bc220a0b8c0cc24da9d9..d18062a9a4448de2c0b03c2631126476118079d8 100644
+index 20bce52c0..d18062a9a 100644
 --- a/frontend/src/i18n/locales/id/translation.json
 +++ b/frontend/src/i18n/locales/id/translation.json
 @@ -53,6 +53,10 @@
@@ -6792,7 +6792,7 @@ index 20bce52c0c337fadfe44bc220a0b8c0cc24da9d9..d18062a9a4448de2c0b03c2631126476
    "Add Cluster": "Tambahkan Kluster",
    "Proceed to select your preferred method for cluster creation and addition": "Lanjutkan untuk memilih metode pilihan Anda untuk pembuatan dan penambahan kluster",
 diff --git a/frontend/src/i18n/locales/it/translation.json b/frontend/src/i18n/locales/it/translation.json
-index 4c0610180b70a4b753bdb52d0df8739d15e3217a..6c22578fc7be5c4861d72081606d524f68361fb9 100644
+index 4c0610180..6c22578fc 100644
 --- a/frontend/src/i18n/locales/it/translation.json
 +++ b/frontend/src/i18n/locales/it/translation.json
 @@ -53,6 +53,10 @@
@@ -6807,7 +6807,7 @@ index 4c0610180b70a4b753bdb52d0df8739d15e3217a..6c22578fc7be5c4861d72081606d524f
    "Add Cluster": "Aggiungi Cluster",
    "Proceed to select your preferred method for cluster creation and addition": "",
 diff --git a/frontend/src/i18n/locales/ja/translation.json b/frontend/src/i18n/locales/ja/translation.json
-index d84b525eebbdf1b084c1949f16d3aca0f24613a9..077e60d4ec34e795e267f3c451580b5123e60c22 100644
+index d84b525ee..077e60d4e 100644
 --- a/frontend/src/i18n/locales/ja/translation.json
 +++ b/frontend/src/i18n/locales/ja/translation.json
 @@ -53,6 +53,10 @@
@@ -6822,7 +6822,7 @@ index d84b525eebbdf1b084c1949f16d3aca0f24613a9..077e60d4ec34e795e267f3c451580b51
    "Add Cluster": "クラスターの追加",
    "Proceed to select your preferred method for cluster creation and addition": "希望するクラスターの作成や追加の方法を選択してください",
 diff --git a/frontend/src/i18n/locales/ko/translation.json b/frontend/src/i18n/locales/ko/translation.json
-index 83a073ba53fd6075ea4494347858f7a2dbe90ad7..7432430269a34bfeca506be23988675993c0517f 100644
+index 83a073ba5..743243026 100644
 --- a/frontend/src/i18n/locales/ko/translation.json
 +++ b/frontend/src/i18n/locales/ko/translation.json
 @@ -53,6 +53,10 @@
@@ -6837,7 +6837,7 @@ index 83a073ba53fd6075ea4494347858f7a2dbe90ad7..7432430269a34bfeca506be239886759
    "Add Cluster": "클러스터 추가",
    "Proceed to select your preferred method for cluster creation and addition": "클러스터 생성 및 추가 방법을 선택하세요.",
 diff --git a/frontend/src/i18n/locales/nl/translation.json b/frontend/src/i18n/locales/nl/translation.json
-index 6a9090d3caed34ed5e36c428b68f3e8ab638de68..afc3387e0a375b4e1556d5df31ed218986bbfbb4 100644
+index 6a9090d3c..afc3387e0 100644
 --- a/frontend/src/i18n/locales/nl/translation.json
 +++ b/frontend/src/i18n/locales/nl/translation.json
 @@ -53,6 +53,10 @@
@@ -6852,7 +6852,7 @@ index 6a9090d3caed34ed5e36c428b68f3e8ab638de68..afc3387e0a375b4e1556d5df31ed2189
    "Add Cluster": "Cluster toevoegen",
    "Proceed to select your preferred method for cluster creation and addition": "Ga door met het selecteren van uw voorkeursmethode voor het maken en toevoegen van clusters",
 diff --git a/frontend/src/i18n/locales/pl/translation.json b/frontend/src/i18n/locales/pl/translation.json
-index 51b4706a81d4f8af631861cba4c3f90c289cfeeb..a61450f7e61a540f22e3fc6cce0d93f6b1a280f9 100644
+index 51b4706a8..a61450f7e 100644
 --- a/frontend/src/i18n/locales/pl/translation.json
 +++ b/frontend/src/i18n/locales/pl/translation.json
 @@ -53,6 +53,10 @@
@@ -6867,7 +6867,7 @@ index 51b4706a81d4f8af631861cba4c3f90c289cfeeb..a61450f7e61a540f22e3fc6cce0d93f6
    "Add Cluster": "Dodaj klaster",
    "Proceed to select your preferred method for cluster creation and addition": "Przejdź do wybierania preferowanej metody tworzenia i dodawania klastra",
 diff --git a/frontend/src/i18n/locales/pt-br/translation.json b/frontend/src/i18n/locales/pt-br/translation.json
-index 896bdb1d2a5cc93bdc503ed91ef1cdc6dbd96848..f96c468cf0431c60c7c4b93c4c270f2293d83efe 100644
+index 896bdb1d2..f96c468cf 100644
 --- a/frontend/src/i18n/locales/pt-br/translation.json
 +++ b/frontend/src/i18n/locales/pt-br/translation.json
 @@ -53,6 +53,10 @@
@@ -6882,7 +6882,7 @@ index 896bdb1d2a5cc93bdc503ed91ef1cdc6dbd96848..f96c468cf0431c60c7c4b93c4c270f22
    "Add Cluster": "Adicionar Cluster",
    "Proceed to select your preferred method for cluster creation and addition": "Prossiga para selecionar seu método preferencial para criação e adição de cluster",
 diff --git a/frontend/src/i18n/locales/pt-pt/translation.json b/frontend/src/i18n/locales/pt-pt/translation.json
-index 8eb91260b5cb76c7cc5f5bc2d89e2b0caceadd49..72a9ec11e7c16f4426f06c35b6e6c98924ccce08 100644
+index 8eb91260b..72a9ec11e 100644
 --- a/frontend/src/i18n/locales/pt-pt/translation.json
 +++ b/frontend/src/i18n/locales/pt-pt/translation.json
 @@ -53,6 +53,10 @@
@@ -6897,7 +6897,7 @@ index 8eb91260b5cb76c7cc5f5bc2d89e2b0caceadd49..72a9ec11e7c16f4426f06c35b6e6c989
    "Add Cluster": "",
    "Proceed to select your preferred method for cluster creation and addition": "",
 diff --git a/frontend/src/i18n/locales/pt/translation.json b/frontend/src/i18n/locales/pt/translation.json
-index a647d172c9877df5b8d8aaddd84e77c270f11284..275b0fe9b2dfd8f4d58fe660c222f0c95e3966c5 100644
+index a647d172c..275b0fe9b 100644
 --- a/frontend/src/i18n/locales/pt/translation.json
 +++ b/frontend/src/i18n/locales/pt/translation.json
 @@ -53,6 +53,10 @@
@@ -6912,7 +6912,7 @@ index a647d172c9877df5b8d8aaddd84e77c270f11284..275b0fe9b2dfd8f4d58fe660c222f0c9
    "Add Cluster": "",
    "Proceed to select your preferred method for cluster creation and addition": "",
 diff --git a/frontend/src/i18n/locales/ru/translation.json b/frontend/src/i18n/locales/ru/translation.json
-index 0d0206bd3f7cedb00005331432ac310d6825f10a..f1ce2147c8c3c8ceefbdf68a4acfd8df237d0da6 100644
+index 0d0206bd3..f1ce2147c 100644
 --- a/frontend/src/i18n/locales/ru/translation.json
 +++ b/frontend/src/i18n/locales/ru/translation.json
 @@ -53,6 +53,10 @@
@@ -6927,7 +6927,7 @@ index 0d0206bd3f7cedb00005331432ac310d6825f10a..f1ce2147c8c3c8ceefbdf68a4acfd8df
    "Add Cluster": "Добавить кластер",
    "Proceed to select your preferred method for cluster creation and addition": "Перейдите к выбору предпочтительного метода создания и добавления кластера.",
 diff --git a/frontend/src/i18n/locales/sv/translation.json b/frontend/src/i18n/locales/sv/translation.json
-index bfe43382739234abd1e267200a1bb6afd364be96..01243eecc17174455fdeda34c88fd48517f5faae 100644
+index bfe433827..01243eecc 100644
 --- a/frontend/src/i18n/locales/sv/translation.json
 +++ b/frontend/src/i18n/locales/sv/translation.json
 @@ -53,6 +53,10 @@
@@ -6942,7 +6942,7 @@ index bfe43382739234abd1e267200a1bb6afd364be96..01243eecc17174455fdeda34c88fd485
    "Add Cluster": "Lägg till kluster",
    "Proceed to select your preferred method for cluster creation and addition": "Välj hur du vill skapa och lägga till klustret",
 diff --git a/frontend/src/i18n/locales/ta/translation.json b/frontend/src/i18n/locales/ta/translation.json
-index fa93b9d1682b5f8abd53e1d800605219508f1dc0..e3fff1369c6e0e73db8e2feeb8e89a179fb3bc97 100644
+index fa93b9d16..e3fff1369 100644
 --- a/frontend/src/i18n/locales/ta/translation.json
 +++ b/frontend/src/i18n/locales/ta/translation.json
 @@ -53,6 +53,10 @@
@@ -6957,7 +6957,7 @@ index fa93b9d1682b5f8abd53e1d800605219508f1dc0..e3fff1369c6e0e73db8e2feeb8e89a17
    "Add Cluster": "க்ளஸ்டர் சேர்",
    "Proceed to select your preferred method for cluster creation and addition": "க்ளஸ்டர் உருவாக்கம் மற்றும் சேர்ப்பதற்கான உங்கள் விருப்பமான முறையைத் தேர்ந்தெடுக்க தொடரவும்",
 diff --git a/frontend/src/i18n/locales/tr/translation.json b/frontend/src/i18n/locales/tr/translation.json
-index c1669d7aff591151488027d28dfc86200476e0a8..b6b3d80081895bfe9eeb9d39f6be7303077fe4f2 100644
+index c1669d7af..b6b3d8008 100644
 --- a/frontend/src/i18n/locales/tr/translation.json
 +++ b/frontend/src/i18n/locales/tr/translation.json
 @@ -53,6 +53,10 @@
@@ -6972,7 +6972,7 @@ index c1669d7aff591151488027d28dfc86200476e0a8..b6b3d80081895bfe9eeb9d39f6be7303
    "Add Cluster": "Küme Ekle",
    "Proceed to select your preferred method for cluster creation and addition": "Küme oluşturma ve ekleme işleminde tercih ettiğiniz yöntemi seçmek için devam edin",
 diff --git a/frontend/src/i18n/locales/ur/translation.json b/frontend/src/i18n/locales/ur/translation.json
-index 77c9662039df535affc1ea07297c8bab635210ee..f99d80feaaad2c38f83aed402acf5ec7837564c8 100644
+index 77c966203..f99d80fea 100644
 --- a/frontend/src/i18n/locales/ur/translation.json
 +++ b/frontend/src/i18n/locales/ur/translation.json
 @@ -53,6 +53,10 @@
@@ -6987,7 +6987,7 @@ index 77c9662039df535affc1ea07297c8bab635210ee..f99d80feaaad2c38f83aed402acf5ec7
    "Add Cluster": "کلسٹر شامل کریں",
    "Proceed to select your preferred method for cluster creation and addition": "کلسٹر بنانے اور شامل کرنے کے لیے اپنا پسندیدہ طریقہ منتخب کریں",
 diff --git a/frontend/src/i18n/locales/zh-tw/translation.json b/frontend/src/i18n/locales/zh-tw/translation.json
-index 7dd0714ac6e1fafd90d8f6f40d32b8728f6d1ac3..b34ad48185b0e67cf16d41bd37af6bbbafbc6d51 100644
+index 7dd0714ac..b34ad4818 100644
 --- a/frontend/src/i18n/locales/zh-tw/translation.json
 +++ b/frontend/src/i18n/locales/zh-tw/translation.json
 @@ -53,6 +53,10 @@
@@ -7002,7 +7002,7 @@ index 7dd0714ac6e1fafd90d8f6f40d32b8728f6d1ac3..b34ad48185b0e67cf16d41bd37af6bbb
    "Add Cluster": "新增叢集",
    "Proceed to select your preferred method for cluster creation and addition": "繼續選擇您偏好的叢集建立和新增方法",
 diff --git a/frontend/src/i18n/locales/zh/translation.json b/frontend/src/i18n/locales/zh/translation.json
-index 7ab3cd8978d8d94a6c3e7998125533bdc4951373..9e735c81f67bdf8057c6a9a41309d140ad75f300 100644
+index 7ab3cd897..9e735c81f 100644
 --- a/frontend/src/i18n/locales/zh/translation.json
 +++ b/frontend/src/i18n/locales/zh/translation.json
 @@ -53,6 +53,10 @@
@@ -7017,10 +7017,10 @@ index 7ab3cd8978d8d94a6c3e7998125533bdc4951373..9e735c81f67bdf8057c6a9a41309d140
    "Add Cluster": "新增集群",
    "Proceed to select your preferred method for cluster creation and addition": "继续选择您偏好的集群创建与添加方式",
 
-From b02dfcdcb41eacbf677c461512d87785065fff7e Mon Sep 17 00:00:00 2001
+From bfec7f0aadd19ecaa1be9a0e1692ce7383326e24 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:45:44 +0200
-Subject: [PATCH 07/10] frontend: ClusterTable: Cover additive cluster actions
+Subject: [PATCH 07/11] frontend: ClusterTable: Cover additive cluster actions
 
 Ensure plugin-provided menu items do not replace Headlamp cluster actions.
 ---
@@ -7028,7 +7028,7 @@ Ensure plugin-provided menu items do not replace Headlamp cluster actions.
  1 file changed, 28 insertions(+), 1 deletion(-)
 
 diff --git a/frontend/src/components/App/Home/ClusterTable.test.tsx b/frontend/src/components/App/Home/ClusterTable.test.tsx
-index 746f7d2b74f16b9dedfa262d73c6d606009fada0..a49a4ad2193bd16fd791c1a2f112ac1ac7959b4b 100644
+index 746f7d2b7..a49a4ad21 100644
 --- a/frontend/src/components/App/Home/ClusterTable.test.tsx
 +++ b/frontend/src/components/App/Home/ClusterTable.test.tsx
 @@ -28,6 +28,7 @@ import ClusterTable from './ClusterTable';
@@ -7082,10 +7082,10 @@ index 746f7d2b74f16b9dedfa262d73c6d606009fada0..a49a4ad2193bd16fd791c1a2f112ac1a
  
    it('updates the config before notifying the page after deleting a cluster', async () => {
 
-From c1165102d583e44dd4a7ce2a5f3e132c98439143 Mon Sep 17 00:00:00 2001
+From 9772c0aa4cb8f7c8e6b4c7ab4c2084c8a89cc7a2 Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Wed, 22 Jul 2026 14:04:30 +0530
-Subject: [PATCH 08/10] frontend: ClusterContextMenu: Keep built-in Delete
+Subject: [PATCH 08/11] frontend: ClusterContextMenu: Keep built-in Delete
  action
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -7101,7 +7101,7 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
  1 file changed, 13 insertions(+), 14 deletions(-)
 
 diff --git a/frontend/src/components/App/Home/ClusterContextMenu.tsx b/frontend/src/components/App/Home/ClusterContextMenu.tsx
-index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..f8bd763a3907d9b8b51baa0485aad423e8e6870a 100644
+index 3e4942e0f..f8bd763a3 100644
 --- a/frontend/src/components/App/Home/ClusterContextMenu.tsx
 +++ b/frontend/src/components/App/Home/ClusterContextMenu.tsx
 @@ -164,20 +164,19 @@ export default function ClusterContextMenu({
@@ -7139,10 +7139,10 @@ index 3e4942e0fa7f1b60f04ee95a59ca3d254a813e6b..f8bd763a3907d9b8b51baa0485aad423
            return (
              <Item
 
-From 70875660058909fcf06e1df7f3a54cdf3786d6fe Mon Sep 17 00:00:00 2001
+From 98d129cf895f16f3784523a15ccc34201116210a Mon Sep 17 00:00:00 2001
 From: yolossn <sannagaraj@microsoft.com>
 Date: Tue, 25 Aug 2026 18:04:32 +0530
-Subject: [PATCH 09/10] frontend: stories: Add cluster pre-open states
+Subject: [PATCH 09/11] frontend: stories: Add cluster pre-open states
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -7162,7 +7162,7 @@ Co-authored-by: René Dudfield <renedudfield@microsoft.com>
 
 diff --git a/frontend/src/components/App/ClusterPreparingDialog.stories.tsx b/frontend/src/components/App/ClusterPreparingDialog.stories.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..a8e07ce7efe5dd409b72832cdf047935ff1c2386
+index 000000000..a8e07ce7e
 --- /dev/null
 +++ b/frontend/src/components/App/ClusterPreparingDialog.stories.tsx
 @@ -0,0 +1,52 @@
@@ -7220,7 +7220,7 @@ index 0000000000000000000000000000000000000000..a8e07ce7efe5dd409b72832cdf047935
 +DefaultMessage.storyName = 'Default (No Progress Message)';
 diff --git a/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.DefaultMessage.stories.storyshot b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.DefaultMessage.stories.storyshot
 new file mode 100644
-index 0000000000000000000000000000000000000000..c906dabf5d660c8c096b7e5bf2acc0feca185596
+index 000000000..c906dabf5
 --- /dev/null
 +++ b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.DefaultMessage.stories.storyshot
 @@ -0,0 +1,78 @@
@@ -7305,7 +7305,7 @@ index 0000000000000000000000000000000000000000..c906dabf5d660c8c096b7e5bf2acc0fe
 \ No newline at end of file
 diff --git a/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.WithProgressMessage.stories.storyshot b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.WithProgressMessage.stories.storyshot
 new file mode 100644
-index 0000000000000000000000000000000000000000..b36e9bfbee3022ce274fd5fb67380b8a6cddb70b
+index 000000000..b36e9bfbe
 --- /dev/null
 +++ b/frontend/src/components/App/__snapshots__/ClusterPreparingDialog.WithProgressMessage.stories.storyshot
 @@ -0,0 +1,78 @@
@@ -7389,10 +7389,10 @@ index 0000000000000000000000000000000000000000..b36e9bfbee3022ce274fd5fb67380b8a
 +</body>
 \ No newline at end of file
 
-From dd2da3cdf987f0a4a1e9bc209d9b436aaf754462 Mon Sep 17 00:00:00 2001
+From ae67d1f540b0fc679ad61d9eda942c7536175b81 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Thu, 27 Aug 2026 14:46:21 +0200
-Subject: [PATCH 10/10] docs: api: Document cluster pre-open hooks
+Subject: [PATCH 10/11] docs: api: Document cluster pre-open hooks
 
 Publish the interface, hook, and registration API in the committed TypeDoc
 
@@ -7410,7 +7410,7 @@ without defining product-specific bundled-tool policy in Headlamp.
 
 diff --git a/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md b/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b065f6620f
+index 000000000..7860e0a28
 --- /dev/null
 +++ b/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 @@ -0,0 +1,74 @@
@@ -7489,7 +7489,7 @@ index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b0
 +
 +[redux/clusterProviderSlice.ts:70](https://github.com/kubernetes-sigs/headlamp/blob/1079044ed/frontend/src/redux/clusterProviderSlice.ts#L70)
 diff --git a/docs/development/api/modules/plugin_registry.md b/docs/development/api/modules/plugin_registry.md
-index 6fec43fd49dc7de94ec5091c780f19b50bf81e1b..47366b42925d015b57f529b7557c8b8f5b457564 100644
+index 6fec43fd4..47366b429 100644
 --- a/docs/development/api/modules/plugin_registry.md
 +++ b/docs/development/api/modules/plugin_registry.md
 @@ -18,6 +18,7 @@
@@ -7583,7 +7583,7 @@ index 6fec43fd49dc7de94ec5091c780f19b50bf81e1b..47366b42925d015b57f529b7557c8b8f
  
  ▸ **registerCustomCreateProject**(`customCreateProject`): `void`
 diff --git a/docs/development/app.md b/docs/development/app.md
-index ec74e51034a14022cbcefdcf7921022df1e9cc84..9aa3f38dd0da8b350ad4358bc7e62bc5936f7a37 100644
+index ec74e5103..9aa3f38dd 100644
 --- a/docs/development/app.md
 +++ b/docs/development/app.md
 @@ -263,6 +263,21 @@ The optional `platforms` array accepts `linux`, `mac`, and `win`. An entry witho
@@ -7609,7 +7609,7 @@ index ec74e51034a14022cbcefdcf7921022df1e9cc84..9aa3f38dd0da8b350ad4358bc7e62bc5
  
  The typical development workflow for the desktop app:
 diff --git a/docs/development/plugins/functionality/index.md b/docs/development/plugins/functionality/index.md
-index a9f9ce75021825b683f7a7e7dc9751b7af322c2e..33f73657373aeab8e6165868ac76a497394187ba 100644
+index a9f9ce750..33f736573 100644
 --- a/docs/development/plugins/functionality/index.md
 +++ b/docs/development/plugins/functionality/index.md
 @@ -186,6 +186,22 @@ be shared with workloads or other cluster users.
@@ -7635,10 +7635,11 @@ index a9f9ce75021825b683f7a7e7dc9751b7af322c2e..33f73657373aeab8e6165868ac76a497
  ### Route
  
  Show a component in the main area at a given URL with
-From 5b7f66b1b3b4a62545d226ad0e8387ac92806459 Mon Sep 17 00:00:00 2001
+
+From 0df913771474f27a00552cc55951612d70ac072f Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
 Date: Wed, 18 Nov 2026 17:34:21 -0500
-Subject: [PATCH] app: quitCleanup: Defer resumed quit to a new turn
+Subject: [PATCH 11/11] app: quitCleanup: Defer resumed quit to a new turn
 
 A settled cleanup can resume quit from a promise microtask before Electron has unwound its prevented before-quit dispatch. Queue the resumed request on the next event-loop turn so native quit state has been released before normal shutdown resumes.
 
