@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { isValidGuid } from './az-cli-core';
+import { debugLog, isValidGuid } from './az-cli-core';
 import { getAzureCloudEndpoints } from './az-cloud';
 import {
   azListAll,
@@ -25,15 +25,7 @@ export type AzureRoleRequestOptions = Pick<
 };
 const API_VERSION = '2022-04-01';
 
-/**
- * Resolves the shared role/managed-namespace cloud defaults without changing CLI state.
- * @param options - Explicit transport overrides, credential and cancellation/timeout controls.
- * @returns Caller overrides or configured endpoint/scope. Injected credentials do not
- * trigger metadata discovery. A cold discovery has its own request timeout (default 60s),
- * preserving the existing per-HTTP-request budget for later paged lookups and writes.
- * @throws For configuration errors, cancellation or metadata timeout; never falls back
- * to public ARM. The existing HTTP signal helper disposes the metadata timer/listener.
- */
+/** Fills in missing ARM endpoint and token scope from the configured cloud unless a credential is supplied. */
 export async function getAzureRoleTransport(
   options: AzureRoleRequestOptions
 ): Promise<Pick<AzRequestOptions, 'endpoint' | 'scope'>> {
@@ -69,20 +61,12 @@ export interface AzureRoleAssignment {
   };
 }
 
-/**
- * @param value - ARM identifier or deterministic assignment-name component.
- * @returns URI-decoded, lowercase text without trailing slashes.
- * @throws URIError for malformed escapes, rather than comparing ambiguous IDs.
- */
+/** Normalizes ARM IDs for comparison. */
 function canonical(value: string) {
   return decodeURI(value).replace(/\/+$/, '').toLowerCase();
 }
 
-/**
- * @param role - Definition GUID, provider-relative ID, full ID, or unresolved role name.
- * @param subscriptionId - Target scope subscription used to expand a GUID/relative ID.
- * @returns A definition ARM ID, or undefined when role-name lookup is required.
- */
+/** Expands role IDs to full ARM IDs and leaves role names unresolved. */
 function definitionId(role: string, subscriptionId: string): string | undefined {
   const prefix = `/subscriptions/${subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/`;
   if (isValidGuid(role)) return prefix + role;
@@ -100,10 +84,121 @@ function definitionId(role: string, subscriptionId: string): string | undefined 
   return undefined;
 }
 
+/** Validates the ARM scope and extracts its subscription ID. */
+function validateRoleScope(value: string) {
+  const scope = value.trim().replace(/\/+$/, '');
+  const subscriptionId = scope.match(/^\/subscriptions\/([^/]+)(?:\/|$)/i)?.[1];
+  if (
+    /[?#\\]/.test(scope) ||
+    scope
+      .split('/')
+      .slice(1)
+      .some(segment => {
+        const decoded = decodeURIComponent(segment);
+        return !decoded || ['.', '..'].includes(decoded) || /[/\\]/.test(decoded);
+      }) ||
+    !subscriptionId ||
+    !isValidGuid(subscriptionId)
+  ) {
+    throw new AzureRequestError('Role scope must be a subscription resource ID');
+  }
+  return { scope, subscriptionId };
+}
+
+/** Builds role request options for the target subscription. */
+async function roleRequest(options: AzureRoleRequestOptions, subscriptionId: string) {
+  return {
+    ...options,
+    ...(await getAzureRoleTransport(options)),
+    credential: options.credential ?? getSubscriptionCredential(subscriptionId),
+    apiVersion: API_VERSION,
+  };
+}
+
+/** Lists direct grants on the requested scope. */
+async function listExactRoleAssignments(
+  request: Omit<AzRequestOptions, 'url'>,
+  scope: string
+): Promise<AzureRoleAssignment[]> {
+  const filter = new URLSearchParams({ $filter: 'atScope()' });
+  const items = await azListAll<AzureRoleAssignment>({
+    ...request,
+    url: `${scope}/providers/Microsoft.Authorization/roleAssignments?${filter}`,
+  });
+  // ARM can include assignments at parent scopes even with atScope().
+  const target = canonical(scope);
+  return items.filter(item => {
+    const assignedScope = item?.properties?.scope;
+    return typeof assignedScope === 'string' && canonical(assignedScope) === target;
+  });
+}
+
+type RoleDefinition = { id?: string; properties?: { roleName?: string } };
+
+function listRoleDefinitions(
+  request: Omit<AzRequestOptions, 'url'>,
+  scope: string,
+  filter?: URLSearchParams
+) {
+  return azListAll<RoleDefinition>({
+    ...request,
+    url: `${scope}/providers/Microsoft.Authorization/roleDefinitions${filter ? `?${filter}` : ''}`,
+  });
+}
+
+/** Extracts the lowercase GUID from a role definition ID. */
+function roleDefinitionKey(id: string | undefined, subscriptionId: string): string | undefined {
+  return definitionId(id ?? '', subscriptionId)
+    ?.split('/')
+    .pop()
+    ?.toLowerCase();
+}
+
 /**
- * @param values - Ordered scope, definition ID, principal ID and principal type.
- * @returns A deterministic SHA-256 UUIDv8, stable across equivalent ID casing/encoding.
+ * Lists role assignments at the given ARM scope, optionally filtering by principal ID.
+ * Returns a role definition ID when its name cannot be resolved.
  */
+export async function listAzureRoleAssignmentsAtScope(
+  options: AzureRoleRequestOptions & { scope: string; principalId?: string }
+): Promise<Array<{ assignment: AzureRoleAssignment; roleDefinitionName: string }>> {
+  const { scope, subscriptionId } = validateRoleScope(options.scope);
+  const { principalId } = options;
+  if (principalId !== undefined && !isValidGuid(principalId)) {
+    throw new AzureRequestError('Invalid principal ID format');
+  }
+  const request = await roleRequest(options, subscriptionId);
+  const principal = principalId?.toLowerCase();
+  const assignments = (await listExactRoleAssignments(request, scope)).filter(({ properties }) => {
+    const id = properties?.principalId;
+    return principal === undefined || (typeof id === 'string' && id.toLowerCase() === principal);
+  });
+  const names = new Map<string, string>();
+  if (
+    assignments.some(({ properties }) =>
+      roleDefinitionKey(properties?.roleDefinitionId, subscriptionId)
+    )
+  ) {
+    try {
+      for (const definition of await listRoleDefinitions(request, scope)) {
+        const key = roleDefinitionKey(definition?.id, subscriptionId);
+        const name = definition?.properties?.roleName;
+        if (key && typeof name === 'string' && name) names.set(key, name);
+      }
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      debugLog('Failed to resolve Azure role names:', error);
+    }
+  }
+  return assignments.map(assignment => {
+    const key = roleDefinitionKey(assignment.properties?.roleDefinitionId, subscriptionId);
+    return {
+      assignment,
+      roleDefinitionName: (key && names.get(key)) || key || '',
+    };
+  });
+}
+
+/** Generates a stable assignment ID for retries. */
 async function assignmentName(values: string[]): Promise<string> {
   const bytes = new Uint8Array(
     await crypto.subtle.digest(
@@ -120,18 +215,7 @@ async function assignmentName(values: string[]): Promise<string> {
   )}-${hex.slice(20)}`;
 }
 
-/**
- * Creates one assignment using stable retry identity and exact-match idempotency.
- * @param options - Assignment identity plus REST authentication/cancellation overrides.
- * Without an injected credential, missing endpoint/audience values follow the
- * configured CLI cloud; explicit overrides win and discovery respects signal.
- * @returns The created body, undefined for an empty successful response, or a
- * verified existing assignment after RoleAssignmentExists. Stale conflict reads
- * are polled under one verification deadline. Matching includes
- * scope, principal, principal type and definition; role-name lookup follows all pages.
- * @throws For invalid input, missing/ambiguous definitions, HTTP/auth failures,
- * cancellation, or conflicts that cannot be verified as the same assignment.
- */
+/** Creates a role assignment or returns an existing grant after verifying it matches. */
 export async function createAzureRoleAssignment(
   options: AzureRoleRequestOptions & {
     /** Caller subscription GUID; the ARM scope may target another accessible subscription. */
@@ -153,35 +237,14 @@ export async function createAzureRoleAssignment(
   if (!['ServicePrincipal', 'User', 'Group'].includes(principalType)) {
     throw new AzureRequestError('Invalid principal type');
   }
-  const scope = options.scope.trim().replace(/\/+$/, '');
-  const scopeSubscriptionId = scope.match(/^\/subscriptions\/([^/]+)(?:\/|$)/i)?.[1];
-  if (
-    /[?#\\]/.test(scope) ||
-    scope.split('/').some(segment => {
-      const decoded = decodeURIComponent(segment);
-      return ['.', '..'].includes(decoded) || /[/\\]/.test(decoded);
-    }) ||
-    !scopeSubscriptionId ||
-    !isValidGuid(scopeSubscriptionId)
-  ) {
-    throw new AzureRequestError('Role scope must be a subscription resource ID');
-  }
+  const { scope, subscriptionId: scopeSubscriptionId } = validateRoleScope(options.scope);
   const role = options.role.trim().replace(/^(["'])(.*)\1$/, '$2');
   if (!role) throw new AzureRequestError('A role name or definition ID is required');
-  const transport = await getAzureRoleTransport(options);
-  const request = {
-    ...options,
-    ...transport,
-    credential: options.credential ?? getSubscriptionCredential(scopeSubscriptionId),
-    apiVersion: API_VERSION,
-  };
+  const request = await roleRequest(options, scopeSubscriptionId);
   let roleDefinitionId = definitionId(role, scopeSubscriptionId);
   if (!roleDefinitionId) {
     const filter = new URLSearchParams({ $filter: `roleName eq '${role.replace(/'/g, "''")}'` });
-    const definitions = await azListAll<{ id?: string; properties?: { roleName?: string } }>({
-      ...request,
-      url: `${scope}/providers/Microsoft.Authorization/roleDefinitions?${filter}`,
-    });
+    const definitions = await listRoleDefinitions(request, scope, filter);
     const matching = definitions.filter(
       item => item.properties?.roleName?.toLowerCase() === role.toLowerCase()
     );
@@ -215,20 +278,17 @@ export async function createAzureRoleAssignment(
     ) {
       throw error;
     }
-    const filter = new URLSearchParams({ $filter: 'atScope()' });
     const linked = createAzureRequestSignal(options.signal, options.timeoutMs);
     try {
       for (;;) {
-        const assignments = await azListAll<AzureRoleAssignment>({
-          ...request,
-          signal: linked.signal,
-          url: `${scope}/providers/Microsoft.Authorization/roleAssignments?${filter}`,
-        });
+        const assignments = await listExactRoleAssignments(
+          { ...request, signal: linked.signal },
+          scope
+        );
         const existing = assignments.find(
           ({ properties }) =>
             properties?.principalId?.toLowerCase() === principalId.toLowerCase() &&
             properties.principalType === principalType &&
-            canonical(properties.scope ?? '') === canonical(scope) &&
             canonical(
               definitionId(properties.roleDefinitionId ?? '', scopeSubscriptionId) ?? ''
             ) === canonical(resolvedRoleId)

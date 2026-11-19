@@ -88,9 +88,12 @@ export default function AccessTab({
               <TableBody>
                 {assignments.map(a => (
                   <TableRow
-                    key={`${a.principalName || 'unknown'}-${a.principalType}-${
-                      a.roleDefinitionName
-                    }-${a.scope}`}
+                    key={
+                      a.id ??
+                      `${a.principalName || 'unknown'}-${a.principalType}-${a.roleDefinitionName}-${
+                        a.scope
+                      }`
+                    }
                   >
                     <TableCell>
                       {a.principalName || (

@@ -126,6 +126,8 @@ scope and single-assignment result after repeated creation. It also seeds a
 Reader assignment with a different name at the owned identity's resource scope,
 then verifies reuse of that exact assignment through the real conflict path.
 An inherited resource-group assignment is not accepted as that resource assignment.
+The same fixture verifies that the shared REST reader returns only the direct
+assignment and resolves its Reader role name.
 ARM assignment lists can lag creation, so the fixture observes both the first
 group grant and the seeded assignment in REST reads (each with a five-minute
 setup deadline). Production conflict handling polls stale lists once per second
