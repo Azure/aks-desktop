@@ -71,7 +71,7 @@ function checkOperation(status: OperationStatus | undefined) {
  * @param error - Failure from the namespace resource request, not an operation URL.
  * @returns True only for HTTP 404 with a recognized namespace/parent absence code.
  */
-function isAbsent(error: unknown): boolean {
+export function isAbsent(error: unknown): boolean {
   return (
     error instanceof AzureRequestError &&
     error.status === 404 &&

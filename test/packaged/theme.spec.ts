@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { _electron, type ElectronApplication, expect, type Page, test } from '@playwright/test';
+import type { ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -11,7 +12,7 @@ const { resolveInstalledHeadlampPaths } = require(path.join(
   ROOT_DIR,
   'packages/headlamp-source/src/lib/paths.ts'
 ));
-const { reserveReadinessPort, resolvePackagedExecutable } = require(path.join(
+const { reserveReadinessPort, resolvePackagedExecutable, terminateProcessTree } = require(path.join(
   ROOT_DIR,
   'packages/headlamp-source/src/lib/smoke-app.ts'
 ));
@@ -24,9 +25,30 @@ const executable =
   );
 
 let app: ElectronApplication;
+let applicationProcess: ChildProcess | undefined;
 let page: Page;
 let profile: string;
 let pageErrors: string[];
+
+async function closeApplication(timeout = 30_000) {
+  const application = app;
+  const child = applicationProcess;
+  applicationProcess = undefined;
+  if (!child) return;
+  try {
+    if (child.exitCode === null && child.signalCode === null) {
+      await Promise.all([application.waitForEvent('close', { timeout }), application.close()]);
+    }
+    if (child.exitCode !== 0) {
+      throw new Error(`Packaged application exited with ${child.exitCode ?? child.signalCode}`);
+    }
+  } catch (error) {
+    if (child.exitCode === null && child.signalCode === null) {
+      await terminateProcessTree(child);
+    }
+    throw error;
+  }
+}
 
 async function launch() {
   const { port, release } = await reserveReadinessPort();
@@ -57,16 +79,26 @@ async function launch() {
     args: [
       `--user-data-dir=${path.join(profile, 'electron')}`,
       `--port=${port}`,
+      ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
       ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
     ],
     env,
   });
   const appProcess = app.process();
+  applicationProcess = appProcess;
   appProcess.once('exit', (code, signal) => {
-    console.info('Packaged theme process exited:', { pid: appProcess.pid, code, signal });
+    console.info('Packaged theme process exited:', {
+      pid: appProcess.pid,
+      code,
+      signal,
+    });
   });
   appProcess.once('close', (code, signal) => {
-    console.info('Packaged theme process stdio closed:', { pid: appProcess.pid, code, signal });
+    console.info('Packaged theme process stdio closed:', {
+      pid: appProcess.pid,
+      code,
+      signal,
+    });
   });
   expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true);
   page = await app.firstWindow();
@@ -96,7 +128,9 @@ async function expectBranding(enabled: boolean) {
   await navigate('/');
   const logos = page.getByLabel('AKS desktop logo', { exact: true });
   await expect(logos).toHaveCount(enabled ? 1 : 0);
-  await expect(page.locator('#main').getByLabel('AKS desktop logo', { exact: true })).toHaveCount(0);
+  await expect(page.locator('#main').getByLabel('AKS desktop logo', { exact: true })).toHaveCount(
+    0
+  );
   await expect(page.getByText('No clusters found', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Contact us', exact: true })).toHaveCount(
     enabled ? 1 : 0
@@ -177,7 +211,7 @@ test.afterEach(async ({}, testInfo) => {
   } finally {
     try {
       await test.step('Close packaged theme application', async () => {
-        await app?.close();
+        await closeApplication();
       });
     } finally {
       await test.step('Remove packaged theme profile', async () => {
@@ -222,9 +256,18 @@ test('preserves an explicit user theme across disable, re-enable and app restart
   await expectTheme('Dark', 'rgb(37, 36, 35)');
 
   await test.step('Close packaged theme application before restart', async () => {
-    await app.close();
+    await closeApplication();
   });
   await launch();
   await expectBranding(true);
   await expectTheme('Dark', 'rgb(37, 36, 35)');
+});
+
+test('reports a blocked normal quit and cleans up its owned process tree', async () => {
+  const child = app.process();
+  await app.evaluate(({ app }) => {
+    app.on('before-quit', (event: { preventDefault(): void }) => event.preventDefault());
+  });
+  await expect(closeApplication(5_000)).rejects.toThrow('Timeout 5000ms exceeded');
+  await expect.poll(() => child.exitCode !== null || child.signalCode !== null).toBe(true);
 });

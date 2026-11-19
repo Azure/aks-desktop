@@ -53,6 +53,18 @@ survive disabling, re-enabling and restarting the application.
 Azure CLI telemetry is disabled for these tests. Profile cleanup uses bounded
 filesystem retries while Windows subprocesses release log handles; persistent
 cleanup failures still fail the test.
+On macOS, the test launcher uses Chromium's mock Keychain so fresh unsigned app
+instances do not depend on the CI runner's interactive login Keychain. Production
+launches retain the real Keychain. Failed runs retain Playwright traces in the
+existing packaged-theme diagnostics artifact; retries remain disabled.
+Shutdown uses Playwright's application-close API and verifies the captured
+process exits successfully within a bounded wait.
+A blocked quit fails after that wait; only then does cleanup
+terminate the owned process tree, and the original failure is still reported.
+The carried native quit-cleanup handler resumes quit on a new event-loop turn
+after cleanup, so immediate cleanup cannot re-enter Electron's original
+prevented quit dispatch. Its ordering and cleanup-deadline behavior have focused
+native-helper regressions.
 
 Headlamp [#8095](https://github.com/kubernetes-sigs/headlamp/pull/8095) resets native
 menus when each renderer document loads, so disabling the branding plugin cannot

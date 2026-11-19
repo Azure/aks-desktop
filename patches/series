@@ -1,8 +1,9 @@
-0071 source 0071-headlamp-upstream-cluster-pre-open-proxies.patch
 0080 source 0080-headlamp-aks-desktop-host-marker.patch
+7505 source 7505-headlamp-upstream-cluster-pre-open-proxies.patch
 7683 source 7683-headlamp-upstream-legacy-github-storage.patch
 8025 source 8025-headlamp-upstream-error-reporting-config.patch
 8095 source 8095-headlamp-upstream-plugin-menu-reload.patch
 8147 source 8147-headlamp-upstream-github-oauth.patch
 8265 source 8265-headlamp-upstream-backend-app-name.patch
+8329 source 8329-headlamp-upstream-activity-test-timers.patch
 8354 source 8354-headlamp-upstream-kubeconfig-null-collections.patch

@@ -1,12 +1,24 @@
+From 3467de8240142e4180e99e07fe9d62bbbe67c4ba Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Thu, 19 Nov 2026 07:55:41 -0500
+Subject: [PATCH] app: Preserve the downstream AKS compatibility marker
+
+Apply this existing product-only marker before upstream PR-numbered patches without changing the resulting preload API.
+---
+ app/electron/preload.ts | 3 +++
+ 1 file changed, 3 insertions(+)
+
 diff --git a/app/electron/preload.ts b/app/electron/preload.ts
+index 420e5c109..d8f56be75 100644
 --- a/app/electron/preload.ts
 +++ b/app/electron/preload.ts
-@@ -35,5 +35,8 @@ contextBridge.exposeInMainWorld('desktopApi', {
+@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('desktopApi', {
+   oidcLogout: (cluster: string) => ipcRenderer.invoke('oidc-logout', cluster),
    isDevelopment: Boolean(process.env.ELECTRON_DEV),
    getDevelopmentPluginsEnabled: () => ipcRenderer.invoke('get-development-plugins'),
 +  // Compatibility marker used by AI Assistant to identify AKS Desktop.
 +  registerAKSCluster: () => undefined,
 +
-   /** Starts a proxy only when the caller supplies its scoped plugin capability. */
-   startClusterProxy: (
-     target: ClusterProxyTarget,
+   send: (channel: string, data: unknown) => {
+     // allowed channels
+     const validChannels = [

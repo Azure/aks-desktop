@@ -1,0 +1,69 @@
+From 6f0a49b49cd701b10408e19c8c5d820636e6e8f5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ren=C3=A9=20Dudfield?= <renedudfield@microsoft.com>
+Date: Mon, 9 Nov 2026 07:06:51 -0500
+Subject: [PATCH] frontend: Isolate activity renderer test timers
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Activity launches and route changes schedule delayed resize events.
+Real timers could outlive JSDOM teardown and fail an otherwise passing
+frontend suite with an unhandled window-is-not-defined exception.
+
+Use controlled timers, advance user-event's timer scheduling, and clear
+pending callbacks before restoring real timers. Keep browser activity
+behavior unchanged.
+
+Signed-off-by: René Dudfield <renedudfield@microsoft.com>
+---
+ .../src/components/activity/ActivitiesRenderer.test.tsx  | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/frontend/src/components/activity/ActivitiesRenderer.test.tsx b/frontend/src/components/activity/ActivitiesRenderer.test.tsx
+index f68ab856c..7df8a80e2 100644
+--- a/frontend/src/components/activity/ActivitiesRenderer.test.tsx
++++ b/frontend/src/components/activity/ActivitiesRenderer.test.tsx
+@@ -48,6 +48,7 @@ vi.mock('./ActivityPanel', () => ({ default: () => null }));
+ const theme = createMuiTheme({ name: 'light', base: 'light' });
+ 
+ beforeEach(() => {
++  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+   // launchActivity forces location:'full' on narrow windows; use a wide viewport
+   // so split-right activities keep their location in the test store.
+   Object.defineProperty(window, 'innerWidth', { value: 1280, configurable: true });
+@@ -56,6 +57,8 @@ beforeEach(() => {
+ afterEach(() => {
+   cleanup();
+   store.dispatch(activitySlice.actions.reset());
++  vi.clearAllTimers();
++  vi.useRealTimers();
+ });
+ 
+ function setup(initialPath = '/pods') {
+@@ -83,7 +86,7 @@ function setup(initialPath = '/pods') {
+ 
+ describe('ActivitiesRenderer — route-change activity policy', () => {
+   it('minimizes a non-split-right activity when the route changes', async () => {
+-    const user = userEvent.setup();
++    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+     store.dispatch(
+       activitySlice.actions.launchActivity({
+         id: 'log-1',
+@@ -99,7 +102,7 @@ describe('ActivitiesRenderer — route-change activity policy', () => {
+   });
+ 
+   it('preserves an ordinary split-right activity when the route changes', async () => {
+-    const user = userEvent.setup();
++    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+     // This is the policy that minimizeAll() violated: ordinary split-right
+     // activities stay open so users can see them alongside the new route.
+     store.dispatch(
+@@ -118,7 +121,7 @@ describe('ActivitiesRenderer — route-change activity policy', () => {
+   });
+ 
+   it('minimizes a temporary resource-details drawer without removing it', async () => {
+-    const user = userEvent.setup();
++    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+     store.dispatch(
+       activitySlice.actions.launchActivity({
+         id: 'resource-details-1',

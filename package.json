@@ -371,7 +371,9 @@
           {
             "tool": "az",
             "args": [
-              "role"
+              "role",
+              "assignment",
+              "list"
             ],
             "allowTrailingArgs": true
           },
@@ -489,7 +491,9 @@
           {
             "tool": "az",
             "args": [
-              "role"
+              "role",
+              "assignment",
+              "list"
             ],
             "allowTrailingArgs": true
           },
@@ -601,7 +605,9 @@
           {
             "tool": "az",
             "args": [
-              "role"
+              "role",
+              "assignment",
+              "list"
             ],
             "allowTrailingArgs": true
           },
@@ -719,7 +725,9 @@
           {
             "tool": "az",
             "args": [
-              "role"
+              "role",
+              "assignment",
+              "list"
             ],
             "allowTrailingArgs": true
           },
@@ -839,7 +847,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
-    "integrity": "sha512-Sn8p31d8BC+Rd5hsfF4uxobPwHwAuBR/KSAlm9HR6NrQxJuLP1L+boT+rrS59YBAAWfuLSLJuz0dDwlrOTmEuw=="
+    "integrity": "sha512-x0OG3S6qDaLjSEYxcvpIeBF/snuKoU1qMYY2skjnKnl+9mGqvcNJgrsDx8eW/Bo2jhIbo/SKHki1CMcoZ0Jtwg=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
