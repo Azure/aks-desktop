@@ -75,6 +75,7 @@ beforeEach(() => {
     stdout: JSON.stringify(
       args[0] === 'cloud'
         ? {
+            name: 'AzureCloud',
             endpoints: {
               resourceManager: 'https://management.azure.com/',
               activeDirectoryResourceId: 'https://management.azure.com',
@@ -697,4 +698,18 @@ describe('managed namespace REST update', () => {
       expect((request(1).headers as Record<string, string>)['If-Match']).toBe(etag);
     }
   );
+
+  test.each([
+    { namespaceName: '..' },
+    { namespaceName: '.' },
+    { clusterName: '..' },
+    { resourceGroup: '..' },
+    { subscriptionId: '..' },
+  ])('rejects dot-segment scope %o before any CLI or HTTP call', async override => {
+    await expect(updateManagedNamespace({ ...scope, ...override })).rejects.toThrow(
+      'Managed namespace requires subscription, resource group, cluster and namespace'
+    );
+    expect(mocks.command).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
 });

@@ -119,17 +119,25 @@ function validateResource(value: unknown): ManagedNamespaceResource {
 
 async function resourceContext(options: ManagedNamespaceScope) {
   const names = [options.resourceGroup, options.clusterName, options.namespaceName];
+  const isDotSegment = (value: string) => value.trim() === '.' || value.trim() === '..';
   if (
     (options.subscriptionId !== undefined &&
-      (typeof options.subscriptionId !== 'string' || !options.subscriptionId.trim())) ||
-    names.some(value => typeof value !== 'string' || !value.trim())
+      (typeof options.subscriptionId !== 'string' ||
+        !options.subscriptionId.trim() ||
+        isDotSegment(options.subscriptionId))) ||
+    names.some(value => typeof value !== 'string' || !value.trim() || isDotSegment(value))
   ) {
     throw new AzureRequestError(
       'Managed namespace requires subscription, resource group, cluster and namespace'
     );
   }
   const account = await withAbort(() => getLoginStatus(options.subscriptionId), options.signal);
-  if (!account.isLoggedIn || !account.subscriptionId || !account.tenantId) {
+  if (
+    !account.isLoggedIn ||
+    !account.subscriptionId ||
+    isDotSegment(account.subscriptionId) ||
+    !account.tenantId
+  ) {
     throw new AzureRequestError(
       account.error ?? 'No Azure subscription or tenant; sign in to the target subscription'
     );
