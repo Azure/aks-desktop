@@ -1,7 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { debugLog, getErrorMessage, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
+import { getLoginStatus } from './az-auth';
+import { debugLog, getErrorMessage, isValidGuid, needsRelogin } from './az-cli-core';
+import { getAzureGraphEndpoints } from './az-cloud';
+import { azRequest, AzureRequestError, createAzureRequestSignal } from './az-http';
 import {
   buildArcNamespaceScope,
   buildConnectedClusterScope,
@@ -9,7 +12,19 @@ import {
   type PrincipalType,
 } from './az-identity';
 import { checkNamespaceStatus } from './az-namespaces';
-import { type AzureRoleRequestOptions, createAzureRoleAssignment } from './az-role-assignments';
+import {
+  type AzureRoleRequestOptions,
+  createAzureRoleAssignment,
+  listAzureRoleAssignmentsAtScope,
+} from './az-role-assignments';
+import { getSubscriptionCredential } from './az-token';
+
+type NamespaceOptions = AzureRoleRequestOptions & {
+  clusterName: string;
+  resourceGroup: string;
+  namespaceName: string;
+  subscriptionId?: string;
+};
 
 export async function checkNamespaceExists(
   clusterName: string,
@@ -29,40 +44,15 @@ export async function checkNamespaceExists(
   return { exists: result.status !== 'notfound', stdout: result.stdout, stderr: result.stderr };
 }
 
-/**
- * Resolves a managed AKS namespace through REST, then grants a known Entra object access.
- * @param options - Namespace coordinates, role, principal and optional REST overrides.
- * @returns A resolved success/failure result. stdout contains assignment JSON when
- * available, stderr is empty, and error carries validation, lookup or write failures.
- * Known namespace absence does not create an assignment. Expected failures do not reject.
- */
+/** Grants a role on a managed AKS namespace. */
 export async function createNamespaceRoleAssignment(
-  options: AzureRoleRequestOptions & {
-    /** Managed AKS resource name, never an Arc cluster. */
-    clusterName: string;
-    /** Resource group containing that AKS cluster. */
-    resourceGroup: string;
-    /** Managed namespace resource name used to resolve the exact assignment scope. */
-    namespaceName: string;
-    /** Known Entra object GUID; no directory lookup is performed. */
+  options: NamespaceOptions & {
     assigneeObjectId: string;
     /** Role name, definition GUID or definition ARM ID. */
     role: string;
-    /** Required at runtime; omission produces a failure instead of using CLI defaults. */
-    subscriptionId?: string;
-    /** Defaults to User; callers can explicitly grant Group or ServicePrincipal access. */
     principalType?: PrincipalType;
   }
-): Promise<{
-  /** Whether namespace resolution and role creation/verified reuse succeeded. */
-  success: boolean;
-  /** Assignment JSON when returned, otherwise an empty string. */
-  stdout: string;
-  /** Always empty for this REST-backed operation; inspect error for failures. */
-  stderr: string;
-  /** Diagnostic when success is false. */
-  error?: string;
-}> {
+): Promise<{ success: boolean; stdout: string; stderr: string; error?: string }> {
   try {
     if (!options.subscriptionId) throw new Error('Subscription ID is required');
     const namespace = await getManagedNamespaceResourceId({
@@ -85,312 +75,169 @@ export async function createNamespaceRoleAssignment(
   }
 }
 
-export async function verifyNamespaceAccess(options: {
-  clusterName: string;
-  resourceGroup: string;
-  namespaceName: string;
-  assigneeObjectId: string;
-  subscriptionId?: string;
-}): Promise<{
+/** Returns the ARM scope for a managed AKS or Arc namespace. */
+async function resolveNamespaceScope(options: NamespaceOptions, isArcCluster = false) {
+  let { subscriptionId, tenantId } = options;
+  if (isArcCluster && !subscriptionId) throw new Error('Missing subscription for Arc cluster');
+  // Use the signed-in subscription for older managed projects without a subscription label.
+  if (!subscriptionId && !options.credential) {
+    const account = await getLoginStatus();
+    if (!account.isLoggedIn) throw new Error(account.error || 'Please run az login');
+    subscriptionId = account.subscriptionId;
+    tenantId ??= account.tenantId;
+  }
+  if (!subscriptionId || !isValidGuid(subscriptionId)) {
+    throw new Error('A valid subscription ID is required');
+  }
+  const auth = { ...options, subscriptionId, tenantId };
+  if (isArcCluster) {
+    const scope = buildArcNamespaceScope(
+      buildConnectedClusterScope(
+        subscriptionId,
+        encodeURIComponent(options.resourceGroup),
+        encodeURIComponent(options.clusterName)
+      ),
+      encodeURIComponent(options.namespaceName)
+    );
+    return { ...auth, scope };
+  }
+  const namespace = await getManagedNamespaceResourceId(auth);
+  if (!namespace.success || !namespace.resourceId) {
+    throw new Error(namespace.error || 'Managed namespace not found');
+  }
+  return { ...auth, scope: namespace.resourceId };
+}
+
+function failureMessage(label: string, error: unknown): string {
+  debugLog(label, error);
+  const message = getErrorMessage(error);
+  if (needsRelogin(message) || (error instanceof AzureRequestError && error.status === 401)) {
+    return 'Azure login required';
+  }
+  return `${label}: ${message}`;
+}
+
+/** Checks whether the Entra object has a direct role assignment on the managed namespace. */
+export async function verifyNamespaceAccess(
+  options: NamespaceOptions & { assigneeObjectId: string }
+): Promise<{
   success: boolean;
   hasAccess: boolean;
   stdout: string;
   stderr: string;
   error?: string;
 }> {
-  const { clusterName, resourceGroup, namespaceName, assigneeObjectId, subscriptionId } = options;
-
+  let phase = 'Failed to resolve namespace';
   try {
-    // First, get the resource ID of the managed namespace
-    const namespaceArgs = [
-      'aks',
-      'namespace',
-      'show',
-      '--cluster-name',
-      clusterName,
-      '--resource-group',
-      resourceGroup,
-      '--name',
-      namespaceName,
-      '--query',
-      'id',
-      '--output',
-      'tsv',
-    ];
-
-    if (subscriptionId) {
-      namespaceArgs.push('--subscription', subscriptionId);
-    }
-
-    debugLog(
-      'Getting namespace resource ID for access verification:',
-      'az',
-      namespaceArgs.join(' ')
-    );
-
-    const { stdout: namespaceStdout, stderr: namespaceStderr } = await runCommandAsync(
-      'az',
-      namespaceArgs
-    );
-
-    if (namespaceStderr && needsRelogin(namespaceStderr)) {
-      return {
-        success: false,
-        hasAccess: false,
-        stdout: namespaceStdout,
-        stderr: namespaceStderr,
-        error: 'Azure login required',
-      };
-    }
-
-    if (namespaceStderr && isAzError(namespaceStderr)) {
-      debugLog('Failed to get namespace resource ID:', namespaceStderr);
-      return {
-        success: false,
-        hasAccess: false,
-        stdout: namespaceStdout,
-        stderr: namespaceStderr,
-        error: 'Failed to resolve namespace',
-      };
-    }
-
-    const namespaceResourceId = namespaceStdout.trim();
-    if (!namespaceResourceId) {
-      debugLog('Namespace resource ID is empty:', namespaceStderr);
-      return {
-        success: false,
-        hasAccess: false,
-        stdout: namespaceStdout,
-        stderr: namespaceStderr,
-        error: 'Failed to resolve namespace',
-      };
-    }
-
-    // Now check for existing role assignments
-    const roleArgs = [
-      'role',
-      'assignment',
-      'list',
-      '--assignee',
-      assigneeObjectId,
-      '--scope',
-      namespaceResourceId,
-      '--query',
-      '[].{roleDefinitionName:roleDefinitionName,scope:scope}',
-      '--output',
-      'json',
-    ];
-
-    if (subscriptionId) {
-      roleArgs.push('--subscription', subscriptionId);
-    }
-
-    debugLog('Checking role assignments:', 'az', roleArgs.join(' '));
-
-    const { stdout: roleStdout, stderr: roleStderr } = await runCommandAsync('az', roleArgs);
-
-    if (roleStderr && needsRelogin(roleStderr)) {
-      return {
-        success: false,
-        hasAccess: false,
-        stdout: roleStdout,
-        stderr: roleStderr,
-        error: 'Azure login required',
-      };
-    }
-
-    if (roleStderr && isAzError(roleStderr)) {
-      debugLog('Failed to check role assignments:', roleStderr);
-      return {
-        success: false,
-        hasAccess: false,
-        stdout: roleStdout,
-        stderr: roleStderr,
-        error: 'Failed to verify namespace access',
-      };
-    }
-
-    try {
-      const roleAssignments = JSON.parse(roleStdout || '[]');
-      const hasAccess = roleAssignments.length > 0;
-
-      return {
-        success: true,
-        hasAccess,
-        stdout: roleStdout,
-        stderr: roleStderr,
-      };
-    } catch (parseError) {
-      debugLog('Failed to parse role assignments response:', parseError);
-      return {
-        success: false,
-        hasAccess: false,
-        stdout: roleStdout,
-        stderr: roleStderr,
-        error: 'Failed to verify namespace access',
-      };
-    }
+    const resolved = await resolveNamespaceScope(options);
+    phase = 'Failed to verify namespace access';
+    const roles = await listAzureRoleAssignmentsAtScope({
+      ...resolved,
+      principalId: options.assigneeObjectId,
+    });
+    const assignments = roles.map(({ assignment, roleDefinitionName }) => ({
+      roleDefinitionName,
+      scope: assignment.properties?.scope,
+    }));
+    return {
+      success: true,
+      hasAccess: assignments.length > 0,
+      stdout: JSON.stringify(assignments),
+      stderr: '',
+    };
   } catch (error) {
-    debugLog('Failed to verify namespace access:', error);
     return {
       success: false,
       hasAccess: false,
       stdout: '',
       stderr: '',
-      error: 'Failed to verify namespace access',
+      error: failureMessage(phase, error),
     };
   }
 }
 
-/** Interface for a single Azure role assignment on a managed namespace. */
 export interface NamespaceRoleAssignment {
+  id?: string;
   principalName: string | null;
   principalType: string | null;
   roleDefinitionName: string;
   scope: string;
 }
 
-/**
- * Lists Azure role assignments scoped to a project's namespace.
- *
- * Works for both cluster kinds, which differ only in how the namespace scope is
- * obtained:
- *
- * - **Managed AKS** — the managed namespace is a real ARM resource, so its ID is
- *   read with `az aks namespace show`.
- * - **Arc** — there is no namespace resource to look up; the scope is a path under
- *   the connected cluster and is constructed directly, saving a round trip.
- */
-export async function listNamespaceRoleAssignments(options: {
-  clusterName: string;
-  resourceGroup: string;
-  namespaceName: string;
-  subscriptionId?: string;
-  /** Set for Arc (AKS Hybrid & Edge) clusters. Requires `subscriptionId`. */
-  isArcCluster?: boolean;
-}): Promise<{ success: boolean; assignments: NamespaceRoleAssignment[]; error?: string }> {
-  const { clusterName, resourceGroup, namespaceName, subscriptionId, isArcCluster } = options;
+type GraphTransport = { endpoint: string; scope: string };
+type GraphPrincipal = { id?: string; userPrincipalName?: string; displayName?: string };
 
+/** Looks up principal names in Microsoft Graph when available. */
+async function getPrincipalNames(
+  options: NamespaceOptions & { subscriptionId: string; graph?: GraphTransport },
+  ids: string[]
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (!ids.length || (!options.graph && (options.credential || options.endpoint))) return names;
+  const linked = createAzureRequestSignal(options.signal, options.timeoutMs ?? 10_000);
   try {
-    if (isArcCluster) {
-      if (!subscriptionId) {
-        return { success: false, assignments: [], error: 'Missing subscription for Arc cluster' };
+    const graph = options.graph ?? (await getAzureGraphEndpoints(undefined, linked.signal));
+    for (let start = 0; start < ids.length; start += 1000) {
+      const data = await azRequest<{ value?: GraphPrincipal[] }>({
+        ...options,
+        ...graph,
+        url: '/v1.0/directoryObjects/getByIds',
+        method: 'POST',
+        body: { ids: ids.slice(start, start + 1000) },
+        credential: options.credential ?? getSubscriptionCredential(options.subscriptionId),
+        signal: linked.signal,
+      });
+      if (!Array.isArray(data?.value)) throw new AzureRequestError('Malformed Graph object list');
+      for (const principal of data.value) {
+        const name = principal?.userPrincipalName || principal?.displayName;
+        if (typeof principal?.id === 'string' && typeof name === 'string' && name) {
+          names.set(principal.id.toLowerCase(), name);
+        }
       }
-      const arcScope = buildArcNamespaceScope(
-        buildConnectedClusterScope(subscriptionId, resourceGroup, clusterName),
-        namespaceName
-      );
-      return listRoleAssignmentsAtScope(arcScope, subscriptionId);
     }
-
-    /** Fetch ARM ID of managed namespace */
-    const nsArgs = [
-      'aks',
-      'namespace',
-      'show',
-      '--cluster-name',
-      clusterName,
-      '--resource-group',
-      resourceGroup,
-      '--name',
-      namespaceName,
-      '--query',
-      'id',
-      '--output',
-      'tsv',
-    ];
-    if (subscriptionId) {
-      nsArgs.push('--subscription', subscriptionId);
-    }
-
-    debugLog('Getting namespace resource ID for role list:', 'az', nsArgs.join(' '));
-    const { stdout: nsStdout, stderr: nsStderr } = await runCommandAsync('az', nsArgs);
-
-    if (nsStderr && needsRelogin(nsStderr)) {
-      debugLog('Namespace lookup requires re-login:', nsStderr);
-      return {
-        success: false,
-        assignments: [],
-        error: 'Azure login required',
-      };
-    }
-
-    if (nsStderr && isAzError(nsStderr)) {
-      debugLog('Namespace lookup failed:', nsStderr);
-      return {
-        success: false,
-        assignments: [],
-        error: 'Failed to resolve namespace',
-      };
-    }
-
-    const namespaceResourceId = nsStdout.trim();
-    if (!namespaceResourceId) {
-      debugLog('Namespace lookup returned empty resource ID:', nsStderr);
-      return {
-        success: false,
-        assignments: [],
-        error: 'Failed to resolve namespace',
-      };
-    }
-
-    return listRoleAssignmentsAtScope(namespaceResourceId, subscriptionId);
   } catch (error) {
-    debugLog('Role assignment list threw:', error);
-    return { success: false, assignments: [], error: 'Failed to load role assignments' };
+    if (options.signal?.aborted) throw error;
+    debugLog('Failed to resolve Entra principal names:', error);
+  } finally {
+    linked.dispose();
   }
+  return names;
 }
 
-/** Runs `az role assignment list` against an already-resolved ARM scope. */
-async function listRoleAssignmentsAtScope(
-  scope: string,
-  subscriptionId?: string
+/** Lists direct role assignments on a managed AKS or Arc namespace. */
+export async function listNamespaceRoleAssignments(
+  options: NamespaceOptions & {
+    isArcCluster?: boolean;
+    /** Overrides the Graph endpoint and token scope. */
+    graph?: GraphTransport;
+  }
 ): Promise<{ success: boolean; assignments: NamespaceRoleAssignment[]; error?: string }> {
-  const roleArgs = [
-    'role',
-    'assignment',
-    'list',
-    '--scope',
-    scope,
-    '--query',
-    '[].{principalName:principalName,principalType:principalType,roleDefinitionName:roleDefinitionName,scope:scope}',
-    '--output',
-    'json',
-  ];
-  if (subscriptionId) {
-    roleArgs.push('--subscription', subscriptionId);
-  }
-
-  debugLog('Listing role assignments:', 'az', roleArgs.join(' '));
-  let stdout: string;
-  let stderr: string;
+  let phase = 'Failed to resolve namespace';
   try {
-    ({ stdout, stderr } = await runCommandAsync('az', roleArgs));
+    const resolved = await resolveNamespaceScope(options, options.isArcCluster);
+    phase = 'Failed to load role assignments';
+    const roles = await listAzureRoleAssignmentsAtScope(resolved);
+    const principalIds = new Set<string>();
+    for (const { assignment } of roles) {
+      const id = assignment.properties?.principalId;
+      if (typeof id === 'string' && isValidGuid(id)) principalIds.add(id.toLowerCase());
+    }
+    const names = await getPrincipalNames({ ...resolved, graph: options.graph }, [...principalIds]);
+    return {
+      success: true,
+      assignments: roles.map(({ assignment, roleDefinitionName }) => {
+        const { principalId, principalType, scope } = assignment.properties ?? {};
+        return {
+          ...(assignment.id ? { id: assignment.id } : {}),
+          principalName:
+            typeof principalId === 'string' ? names.get(principalId.toLowerCase()) ?? null : null,
+          principalType: typeof principalType === 'string' ? principalType : null,
+          roleDefinitionName,
+          scope: scope ?? resolved.scope,
+        };
+      }),
+    };
   } catch (error) {
-    // The command itself failed to run — a missing executable or a spawn error.
-    // Callers `return` this helper's promise from inside their own try, which does
-    // not catch a rejection, so the failure has to become a result here.
-    debugLog('Role assignment list could not run:', error);
-    return { success: false, assignments: [], error: 'Failed to load role assignments' };
-  }
-
-  if (stderr && needsRelogin(stderr)) {
-    debugLog('Role assignment list requires re-login:', stderr);
-    return { success: false, assignments: [], error: 'Azure login required' };
-  }
-
-  if (stderr && isAzError(stderr)) {
-    debugLog('Role assignment list failed:', stderr);
-    return { success: false, assignments: [], error: 'Failed to load role assignments' };
-  }
-
-  try {
-    const assignments: NamespaceRoleAssignment[] = stdout ? JSON.parse(stdout) : [];
-    return { success: true, assignments };
-  } catch (error) {
-    // `az` returned a zero exit code but unparseable output — treat as a failure
-    // rather than letting the SyntaxError escape to the caller.
-    debugLog('Role assignment list returned invalid JSON:', error);
-    return { success: false, assignments: [], error: 'Failed to load role assignments' };
+    return { success: false, assignments: [], error: failureMessage(phase, error) };
   }
 }

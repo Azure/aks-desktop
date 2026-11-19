@@ -14,7 +14,11 @@ import {
 import { getAzureCloudEndpoints } from './az-cloud';
 import { azListAll, azRequest } from './az-http';
 import { assignAzureRoles } from './az-identity';
-import { type AzureRoleAssignment, createAzureRoleAssignment } from './az-role-assignments';
+import {
+  type AzureRoleAssignment,
+  createAzureRoleAssignment,
+  listAzureRoleAssignmentsAtScope,
+} from './az-role-assignments';
 import { getSubscriptionCredential } from './az-token';
 
 describe.runIf(azureLiveEnabled)(
@@ -145,6 +149,14 @@ describe.runIf(azureLiveEnabled)(
         });
         expect(existing?.properties?.scope?.toLowerCase()).toBe(identityId.toLowerCase());
         expect(await observedAssignments(identityId, seededId)).toHaveLength(1);
+        const direct = await listAzureRoleAssignmentsAtScope({
+          ...authentication,
+          scope: identityId,
+          principalId,
+        });
+        expect(direct).toHaveLength(1);
+        expect(direct[0].assignment.id?.toLowerCase()).toBe(seededId.toLowerCase());
+        expect(direct[0].roleDefinitionName).toBe('Reader');
         expect(bridge.tokenRequests).toBe(1);
         expect(bridge.cloudReads).toBe(1);
       });

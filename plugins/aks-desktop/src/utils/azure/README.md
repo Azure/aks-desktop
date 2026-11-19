@@ -248,8 +248,8 @@ Conflict verification polls stale assignment lists once per second under one
 request-timeout budget (60 seconds by default). It never replays the PUT for
 visibility, accepts an inherited/nonmatching assignment, or retries denied reads.
 Namespace role creation resolves the managed namespace through ARM; native
-namespace absence remains distinct from denied/error responses. Existing CLI
-role-list operations remain temporarily allowed, but CLI creation is no longer granted.
+namespace absence remains distinct from denied/error responses. CLI role-assignment
+creation and listing are no longer granted to the plugin.
 Lookup and deletion share the same recognized HTTP 404 absence codes, including
 flat ContainerService `NotFound` responses. Denied and unrecognized failures
 remain errors rather than being classified as native namespaces.
@@ -269,6 +269,25 @@ role-assignment write permission. The test creates a fresh tagged group and
 identity, assigns only a Reader role inside that group, verifies idempotency
 through REST, and observes cleanup in `finally`, including failures.
 See [live test setup and inventory](../../../../../test/live/README.md).
+
+### Namespace role-assignment reads
+
+The Access tab lists direct assignments through ARM, following all pages and
+excluding both inherited and descendant scopes. Managed AKS resolves the actual
+managed namespace ID over REST. Arc constructs its namespace scope under
+`Microsoft.Kubernetes/connectedClusters` without a namespace lookup. Managed
+projects without a subscription label still use the signed-in subscription.
+
+Verification after a grant checks whether the specified Entra object has any
+direct assignment at that scope; it does not calculate effective permissions or
+group membership. Role names come from ARM role definitions; if a name cannot
+be resolved, the role ID is shown instead. The Access tab also tries to enrich
+principal names through the configured cloud's Microsoft Graph endpoint. Missing,
+deleted, or inaccessible directory objects keep their assignment rows with a null
+name. Verification does not call Graph.
+
+The resource operations are HTTP-only. Production still uses the shared,
+CLI-backed account, cloud, and token helpers during the authentication migration.
 
 ## Adding a New Function
 

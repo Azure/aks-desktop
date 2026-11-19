@@ -140,7 +140,6 @@ test('AKS command policies retain only current CLI consumers', () => {
       'aks',
       'account',
       'cloud',
-      'role',
       'acr',
       'alerts-management',
       'monitor',
@@ -148,7 +147,7 @@ test('AKS command policies retain only current CLI consumers', () => {
     assert.deepEqual(policy.approvedCommands, [
       ...prefixes.map(prefix => ({
         tool: 'az',
-        args: prefix === 'cloud' ? ['cloud', 'show'] : prefix === 'role' ? ['role', 'assignment', 'list'] : [prefix],
+        args: prefix === 'cloud' ? ['cloud', 'show'] : [prefix],
         allowTrailingArgs: true,
       })),
       { tool: 'kubectl', args: ['config'], allowTrailingArgs: true },
@@ -159,7 +158,6 @@ test('AKS command policies retain only current CLI consumers', () => {
       ['account', 'show', '-o', 'json'],
       ['aks', 'namespace', 'show'],
       ['acr', 'list'],
-      ['role', 'assignment', 'list'],
     ]) {
       assert.equal(isRunCommandAllowed(policy.grants, 'az', args), true);
       assert.equal(isRunCommandAllowed(policy.approvedCommands, 'az', args), true);
@@ -185,6 +183,7 @@ test('AKS command policies retain only current CLI consumers', () => {
         ['graph', 'query'],
         ['rest'],
         ['role', 'assignment', 'create'],
+        ['role', 'assignment', 'list'],
         ['ad', 'user', 'list'],
         ['feature', 'show'],
         ['group', 'list'],

@@ -371,15 +371,6 @@
           {
             "tool": "az",
             "args": [
-              "role",
-              "assignment",
-              "list"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "acr"
             ],
             "allowTrailingArgs": true
@@ -485,15 +476,6 @@
             "tool": "az",
             "args": [
               "monitor"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "role",
-              "assignment",
-              "list"
             ],
             "allowTrailingArgs": true
           },
@@ -605,15 +587,6 @@
           {
             "tool": "az",
             "args": [
-              "role",
-              "assignment",
-              "list"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
               "acr"
             ],
             "allowTrailingArgs": true
@@ -719,15 +692,6 @@
             "tool": "az",
             "args": [
               "monitor"
-            ],
-            "allowTrailingArgs": true
-          },
-          {
-            "tool": "az",
-            "args": [
-              "role",
-              "assignment",
-              "list"
             ],
             "allowTrailingArgs": true
           },
