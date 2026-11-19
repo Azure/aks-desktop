@@ -124,9 +124,11 @@ test('the install workflow owns and verifies the Headlamp patch', () => {
   assert.equal(lockEntry.version, VERSION);
   assert.equal(lockEntry.resolved, 'file:packages/headlamp-source');
   const patch = fs.readFileSync(path.join(ROOT_DIR, patchPath));
+  const composedPatch = composePatchSeries(ROOT_DIR);
   assert.equal(
-    patch.equals(composePatchSeries(ROOT_DIR)),
-    true
+    patch.equals(composedPatch),
+    true,
+    `stored patch length ${patch.length}, composed patch length ${composedPatch.length}`
   );
   assert.doesNotMatch(
     patch.toString('utf8'),
@@ -788,7 +790,8 @@ test('AKS product policy owns development and production command grants', () => 
   );
   assert.equal(aksDesktop.capabilities, undefined);
   assert.equal(aksDesktopManifest.headlamp.runCommands, undefined);
-  const policies: any[] = rootManifest.headlamp.runCommands;
+  assert.equal(rootManifest.headlamp.runCommands.length, 6);
+  const policies: any[] = rootManifest.headlamp.runCommands.slice(0, 4);
   assert.deepEqual(
     policies.map(policy => ({
       environment: policy.environment,
@@ -866,6 +869,57 @@ test('AKS product policy owns development and production command grants', () => 
       ],
     },
   ]);
+});
+
+test('standalone local plugin owns its CLI without adding a shipped plugin or public catalog grant', () => {
+  const policies: any[] = rootManifest.headlamp.runCommands.slice(4);
+  assert.deepEqual(policies.map(policy => policy.environment), ['development', 'production']);
+  assert.deepEqual(policies[0].commands, policies[1].commands);
+  for (const policy of policies) {
+    assert.deepEqual(policy.targets, ['win32-x64']);
+    assert.equal(policy.pluginLocation, 'development');
+    assert.deepEqual(policy.plugins, [
+      { bundleName: 'developer-cluster', packageName: '@headlamp-k8s/developer-cluster' },
+    ]);
+    assert.deepEqual(policy.approvedCommands, policy.commands);
+    assert.equal(policy.artifactHub, undefined);
+    assert.deepEqual(policy.pluginExecutables, [{ tool: 'aks-devctl' }]);
+    // The plugin checks the platform itself; AKS Desktop registers no local provider.
+    assert.equal(policy.clusterRegistrationProviders, undefined);
+    assert.deepEqual(
+      policy.commands.map((grant: any) => [
+        grant.tool,
+        grant.args.slice(0, 2).join(' '),
+        !!grant.allowTrailingArgs,
+      ]),
+      [
+        ['aks-devctl', 'cluster get-versions', false],
+        ['aks-devctl', 'cluster show', false],
+        ['aks-devctl', 'cluster create', true],
+        ['aks-devctl', 'cluster delete', true],
+        ['wsl', '--status', false],
+        ['reg', 'query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss', false],
+      ]
+    );
+  }
+  assert.doesNotMatch(JSON.stringify(rootManifest.headlamp.plugins), /developer-cluster/);
+  assert.doesNotMatch(JSON.stringify(rootManifest.headlamp.build.externalTools), /developer-cluster/);
+  assert.doesNotMatch(JSON.stringify(rootManifest.config.externalTools), /developer-cluster/);
+  assert.doesNotMatch(
+    JSON.stringify(rootManifest.headlamp.runCommands.slice(0, 4)),
+    /developer-cluster/
+  );
+  // The local CLI `aks-devctl` is granted only to the Developer Cluster plugin.
+  assert.ok(
+    !rootManifest.headlamp.build.externalTools.some((tool: any) => tool.id === 'aks-devctl')
+  );
+  assert.equal(rootManifest.config.externalTools['aks-devctl'], undefined);
+  assert.ok(
+    !rootManifest.headlamp.runCommands
+      .slice(0, 4)
+      .flatMap((policy: any) => [...(policy.commands ?? []), ...(policy.approvedCommands ?? [])])
+      .some((grant: any) => grant.tool === 'aks-devctl')
+  );
 });
 
 test('container builds do not require repository metadata', () => {

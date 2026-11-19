@@ -197,8 +197,9 @@ export function packageTarget(
     runTimedStep('stage external tools', () =>
       runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir)
     );
+    // The manifest's run-command policies depend on the target architecture.
     runTimedStep('generate product manifest', () =>
-      runStep(['run', 'headlamp:manifest'], rootDir)
+      runStep(['run', 'headlamp:manifest'], rootDir, buildEnv)
     );
     if (!options.reusePreparedAssets) {
       runTimedStep('install release plugins', () =>
