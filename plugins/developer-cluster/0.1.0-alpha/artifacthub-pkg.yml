@@ -1,0 +1,47 @@
+# Not publishable yet. Artifact Hub package metadata for the Developer Cluster plugin. Every
+# UNRESOLVED value must be resolved before a release (../README.md, "Artifact Hub metadata").
+version: 0.1.0-alpha
+# The Headlamp catalog installer names the plugin folder after this value, and AKS Desktop's
+# policy grants commands only to the plugin folder developer-cluster.
+name: "UNRESOLVED: Artifact Hub package name, which must match the plugin folder that AKS Desktop's policy grants"
+displayName: Developer Cluster
+createdAt: "UNRESOLVED: release time in RFC 3339 form, set when the release is cut"
+description: >-
+  Create, open and delete one local AKS cluster on Windows with WSL2 from AKS Desktop. Preview.
+logoURL: "UNRESOLVED: logo URL approved for the Artifact Hub listing"
+license: Apache-2.0
+homeURL: "UNRESOLVED: home page of the plugin in the publishing repository"
+keywords:
+  - headlamp
+  - headlamp-plugin
+  - kubernetes
+  - aks
+  - developer-cluster
+  - wsl
+# Screenshots are added only after PM approves the UI.
+maintainers:
+  - name: "UNRESOLVED: maintainer name"
+    email: "UNRESOLVED: maintainer contact address"
+changes:
+  - kind: added
+    description: "Guided setup of one local AKS cluster on Windows with WSL2 and Ubuntu 24.04"
+  - kind: added
+    description: "Read-only environment checks and explicit consent before Ubuntu 24.04 is installed as the cluster's WSL instance"
+  - kind: added
+    description: "The CLI merges the cluster's context into the default kubeconfig and removes it on delete"
+  - kind: added
+    description: "Overview page that opens the cluster and deletes only the local cluster; AKS Desktop's cluster menu Delete opens the same dialog"
+  - kind: added
+    description: "Optional NVIDIA GPU support for the cluster"
+  - kind: added
+    description: "A Windows x64 check during setup"
+annotations:
+  # The catalog installer accepts only GitHub, GitLab and Bitbucket release URLs and checks the
+  # archive against the lowercase hex checksum below.
+  headlamp/plugin/archive-url: "UNRESOLVED: release download URL that ends in /headlamp-k8s-developer-cluster-0.1.0-alpha.tar.gz"
+  headlamp/plugin/archive-checksum: "UNRESOLVED: SHA256:<hex> of the released archive, set when the release is cut"
+  headlamp/plugin/version-compat: "UNRESOLVED: Headlamp version range of the first AKS Desktop build that grants this plugin the aks-devctl commands"
+  # Developer Cluster runs only in the desktop app, where AKS Desktop grants the CLI commands.
+  headlamp/plugin/distro-compat: "desktop"
+  # No extra-files entries: the plugin never downloads the AKS Devctl CLI (aks-devctl); release
+  # packaging provides a signed CLI in the plugin's bin/.

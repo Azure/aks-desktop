@@ -1,0 +1,64 @@
+{
+  "name": "@headlamp-k8s/developer-cluster",
+  "version": "0.1.0-alpha",
+  "private": true,
+  "description": "Developer Cluster for AKS Desktop: create, open and delete one local AKS cluster on Windows with WSL2. Preview.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "headlamp-plugin start",
+    "build": "headlamp-plugin build",
+    "format": "headlamp-plugin format",
+    "lint": "headlamp-plugin lint",
+    "i18n": "headlamp-plugin i18n",
+    "package": "npm run build && headlamp-plugin package",
+    "tsc": "headlamp-plugin tsc",
+    "test": "headlamp-plugin test"
+  },
+  "keywords": [
+    "headlamp",
+    "headlamp-plugin",
+    "kubernetes",
+    "aks",
+    "developer-cluster",
+    "wsl"
+  ],
+  "headlamp": {
+    "i18n": [
+      "en"
+    ],
+    "extraDist": {
+      "LICENSE": "LICENSE"
+    }
+  },
+  "prettier": "@headlamp-k8s/eslint-config/prettier-config",
+  "eslintConfig": {
+    "extends": [
+      "@headlamp-k8s",
+      "prettier",
+      "plugin:jsx-a11y/recommended"
+    ],
+    "rules": {
+      "no-restricted-globals": [
+        "error",
+        "Buffer",
+        "__dirname",
+        "__filename",
+        "clearImmediate",
+        "exports",
+        "global",
+        "module",
+        "process",
+        "require",
+        "setImmediate"
+      ]
+    }
+  },
+  "overrides": {
+    "typescript": "5.6.2",
+    "ws": "8.21.0",
+    "vitest": "^3.2.6"
+  },
+  "devDependencies": {
+    "@kinvolk/headlamp-plugin": "^0.14.0"
+  }
+}
