@@ -142,6 +142,28 @@ test('rejects malformed product resource groups', () => {
   );
 });
 
+test('generates target-constrained policies only for their build target', context => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'target-manifest-'));
+  context.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const packageDir = path.join(rootDir, 'headlamp-source');
+  const policy = { commands: [{ tool: 'example', args: ['versions'] }] };
+  fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({
+    version: '1.0.0',
+    headlamp: {
+      product: { name: 'example', productName: 'Example' },
+      plugins: [],
+      runCommands: [{ targets: ['win32-x64'], ...policy }],
+      build: { resources: [], externalTools: [] },
+    },
+  }));
+  for (const [platform, arch] of [['linux', 'x64'], ['darwin', 'arm64'], ['win32', 'arm64']]) {
+    const { manifest } = createManifest({ rootDir, packageDir, platform, arch });
+    assert.deepEqual(manifest.runCommands, []);
+  }
+  const { manifest } = createManifest({ rootDir, packageDir, platform: 'win32', arch: 'x64' });
+  assert.deepEqual(manifest.runCommands, [policy]);
+});
+
 for (const [platform, platformKey, extension] of [
   ['darwin', 'mac', 'icns'],
   ['win32', 'win', 'ico'],
