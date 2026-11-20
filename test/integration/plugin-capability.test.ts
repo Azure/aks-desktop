@@ -16,6 +16,9 @@ const { productPluginCommandPolicies } = require(
 const { isRunCommandAllowed } = require(
   path.join(HEADLAMP_SOURCE_DIR, 'app', 'electron', 'runCommandPolicy.ts')
 );
+const { createProductTemplate } = require(
+  path.join(ROOT_DIR, 'packages', 'headlamp-source', 'src', 'lib', 'product-manifest.ts')
+);
 const { getStartClusterProxyCapability } = require(
   path.join(
     ROOT_DIR,
@@ -27,6 +30,15 @@ const { getStartClusterProxyCapability } = require(
     'clusterProxyCapability.ts'
   )
 );
+
+/**
+ * The product manifest a Windows x64 build generates, which includes the target-limited policies.
+ * The generator removes the build-only `targets` field that Headlamp's manifest validation rejects.
+ */
+function productManifest() {
+  const project = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8'));
+  return createProductTemplate(project, 'win32', 'x64');
+}
 
 const integrationGlobal = globalThis as typeof globalThis & {
   __aksProxyCapability?: (target: unknown) => Promise<unknown>;
@@ -91,9 +103,7 @@ test('the Headlamp loader does not expose a capability it did not inject', () =>
 });
 
 test('the product grants AI assistant auto-detect commands in every app environment', () => {
-  const manifest = JSON.parse(
-    fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')
-  ).headlamp;
+  const manifest = productManifest();
 
   for (const environment of ['development', 'production'] as const) {
     const policy = productPluginCommandPolicies(manifest, environment).find(
@@ -127,7 +137,7 @@ test('the product grants AI assistant auto-detect commands in every app environm
 });
 
 test('AKS command policies retain only current CLI consumers', () => {
-  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')).headlamp;
+  const manifest = productManifest();
   for (const environment of ['development', 'production'] as const) {
     const policy = productPluginCommandPolicies(manifest, environment).find(
       (candidate: { packageName: string }) => candidate.packageName === 'aks-desktop'
@@ -204,7 +214,7 @@ test('AKS command policies retain only current CLI consumers', () => {
 });
 
 test('AKS project directory commands remain denied after the REST migration', () => {
-  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')).headlamp;
+  const manifest = productManifest();
   for (const environment of ['development', 'production'] as const) {
     const policies = productPluginCommandPolicies(manifest, environment);
     const policy = policies.find((candidate: { packageName: string }) => candidate.packageName === 'aks-desktop');

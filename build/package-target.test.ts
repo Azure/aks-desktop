@@ -230,6 +230,7 @@ test('generates the product manifest for the package target architecture', t => 
       if (args[1] === 'headlamp:manifest') manifestEnv = env;
       if (cwd === appDir && args[1] === 'package:prepared') {
         fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
+        writeWindowsInstallerFixture(path.join(appDir, 'dist'));
       }
     },
     { reusePreparedAssets: true }
