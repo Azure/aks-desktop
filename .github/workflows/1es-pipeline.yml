@@ -172,6 +172,9 @@ extends:
                   git log --oneline -1 || echo "Git not available"
                   echo "=== END CHECKOUT DEBUG ==="
                 displayName: "Debug: Checkout"
+              - bash: |
+                  node --test build/windows-ci.test.cjs
+                displayName: "Test Windows release wrapper"
               # Build the Windows application
               - bash: |
                   set -e  # fail the step when the build fails
@@ -190,7 +193,6 @@ extends:
                   export GOSUMDB="sum.golang.org"
                   export GONOPROXY=""
                   export GOPRIVATE=""
-                  # Clear any proxy environment variables that might interfere
                   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
 
                   echo "=== GO ENVIRONMENT ==="
@@ -199,9 +201,7 @@ extends:
                   go env | grep -E "GOPROXY|GOSUMDB|PROXY"
                   echo "=== END GO ENVIRONMENT ==="
 
-                  # Keep native npm paths out of Bash PATH and MSYS argument conversion.
-                  node --test build/windows-ci.test.cjs
-                  SYSTEM_ACCESSTOKEN="$(System.AccessToken)" npm run ci:windows
+                  npm run ci:windows
                   echo "✅ Build complete"
 
                   echo "=== POST-BUILD DEBUG ==="
@@ -212,6 +212,7 @@ extends:
                   echo "=== END POST-BUILD DEBUG ==="
                 displayName: "Build AKS desktop (Windows)"
                 env:
+                  SYSTEM_ACCESSTOKEN: $(System.AccessToken)
                   AKSD_ESRP_REQUIRED: "true"
                   AKSD_ESRP_CLI_DLL_PATH: $(EsrpCliDllPath)
                   AKSD_ESRP_DOTNET_VERSION: $(EsrpDotNetVersion)

@@ -103,7 +103,7 @@ for (const failPackaging of [false, true]) {
     });
     const runStep = (args: string[], cwd: string, env?: NodeJS.ProcessEnv) => {
       assert.equal(messages.length, 0);
-      if (args[1] === 'package') {
+      if (args[1] === 'package:prepared') {
         assert.equal(env?.APP_VERSION, '9.8.7');
         assert.equal(cwd, path.join(sourceDir, 'app'));
         if (failPackaging) throw new Error('packaging failed');
@@ -157,7 +157,7 @@ test('packages installed dependencies once and reports timestamped phase timings
   packageTarget({ platform: process.platform, arch: process.arch }, rootDir, (args, cwd) => {
     if (args[1] === 'nsis:toolset') return; // Windows routing has its own focused matrix.
     commands.push(`${cwd === rootDir ? 'root' : cwd === sourceDir ? 'source' : 'app'}:${args.join(' ')}`);
-    if (cwd === appDir && args[1] === 'package') {
+    if (cwd === appDir && args[1] === 'package:prepared') {
       fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
       writeWindowsInstallerFixture(path.join(appDir, 'dist'));
     }
@@ -172,7 +172,10 @@ test('packages installed dependencies once and reports timestamped phase timings
     'root:run plugin:setup',
     'root:run headlamp:frontend-env',
     'source:run frontend:build',
-    `app:run package -- ${packageArguments(process.platform, process.arch).join(' ')}`,
+    'app:run copy-icons',
+    'app:run copy-plugins',
+    'app:run compile-electron',
+    `app:run package:prepared -- ${packageArguments(process.platform, process.arch).join(' ')}`,
   ]);
   assert.match(messages.join('\n'), /\[build-timing\].+started at \d{4}-\d{2}-\d{2}T/);
   assert.match(messages.join('\n'), /\[build-timing\].+completed in \d+\.\d{3}s/);
@@ -238,7 +241,7 @@ test('assembles an unpacked app without running distributable packaging', t => {
     rootDir,
     (args, cwd, env) => {
       commands.push(`${cwd === appDir ? 'app' : 'other'}:${args.join(' ')}`);
-      if (cwd === appDir && args[1] === 'build') {
+      if (cwd === appDir && args[1] === 'package:prepared') {
         assert.equal(env?.APP_VERSION, '9.8.7');
         fs.mkdirSync(path.join(appDir, 'dist'), { recursive: true });
       }
@@ -247,9 +250,9 @@ test('assembles an unpacked app without running distributable packaging', t => {
   );
 
   assert.ok(commands.includes(
-    `app:run build -- ${unpackedArguments(process.platform, process.arch).join(' ')}`
+    `app:run package:prepared -- --dir ${unpackedArguments(process.platform, process.arch).join(' ')}`
   ));
-  assert.equal(commands.some(command => command.startsWith('app:run package')), false);
+  assert.equal(commands.some(command => command.startsWith('app:run build --')), false);
 });
 
 test('maps each supported target to one Electron Builder architecture', () => {

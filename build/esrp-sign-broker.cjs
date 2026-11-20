@@ -6,7 +6,7 @@
 const { timingSafeEqual } = require('node:crypto');
 const http = require('node:http');
 const { parentPort, workerData } = require('node:worker_threads');
-const { isFirstPartyExecutable, sign } = require('./esrp-sign.cjs');
+const { allowedSigningTarget, sign } = require('./esrp-sign.cjs');
 
 function authorized(header) {
   if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false;
@@ -35,10 +35,13 @@ const server = http.createServer(async (request, response) => {
       throw Object.assign(new Error('Unauthorized'), { status: 401 });
     }
     const { file } = JSON.parse(await readBody(request));
-    if (typeof file !== 'string' || !isFirstPartyExecutable(file)) {
+    const target = typeof file === 'string'
+      ? allowedSigningTarget(file, workerData.outputRoot)
+      : false;
+    if (!target) {
       throw Object.assign(new Error('Signing target is not allowed'), { status: 400 });
     }
-    await sign(file);
+    await sign(target);
     response.writeHead(204).end();
   } catch (error) {
     const status = error.status ?? 500;

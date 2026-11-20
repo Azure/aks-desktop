@@ -34,7 +34,13 @@ async function signingBroker(env) {
   }
   const secret = randomBytes(32).toString('base64url');
   const worker = new Worker(path.join(__dirname, 'esrp-sign-broker.cjs'), {
-    workerData: { secret },
+    workerData: {
+      secret,
+      outputRoot: path.resolve(
+        __dirname,
+        '../node_modules/@headlamp-k8s/headlamp-source/source/app/dist'
+      ),
+    },
   });
   const url = await new Promise((resolve, reject) => {
     worker.once('message', resolve);

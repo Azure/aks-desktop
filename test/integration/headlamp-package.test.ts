@@ -578,12 +578,15 @@ test('Windows 1ES signs first-party binaries before NSIS packaging', () => {
   const tooling = workflow.indexOf("displayName: 'Install ESRP tooling'");
   const cli = workflow.indexOf("displayName: 'Locate ESRP CLI'");
   const build = workflow.indexOf('displayName: "Build AKS desktop (Windows)"');
+  const preflight = workflow.indexOf(
+    'displayName: "Test Windows release wrapper"'
+  );
   const verification = workflow.indexOf(
     'displayName: "Verify final installer signature"'
   );
 
   assert.ok(tooling >= 0);
-  assert.ok(tooling < cli && cli < build && build < verification);
+  assert.ok(tooling < cli && cli < preflight && preflight < build && build < verification);
   assert.equal(workflow.match(/task: EsrpCodeSigning@6/g)?.length, 2);
   assert.match(
     workflow.slice(build, verification),
@@ -591,11 +594,16 @@ test('Windows 1ES signs first-party binaries before NSIS packaging', () => {
   );
   assert.match(
     workflow,
-    /SYSTEM_ACCESSTOKEN="\$\(System\.AccessToken\)" npm run ci:windows/
+    /node --test build\/windows-ci\.test\.cjs[\s\S]*?displayName: "Test Windows release wrapper"/
+  );
+  const buildStep = workflow.slice(build, verification);
+  assert.match(
+    buildStep,
+    /env:\s*\n\s+SYSTEM_ACCESSTOKEN: \$\(System\.AccessToken\)/
   );
   assert.doesNotMatch(
-    workflow.match(/\n\s+env:\s*\n[\s\S]*?displayName: 'Verify embedded executables/)?.[0] ?? '',
-    /SYSTEM_ACCESSTOKEN:/
+    workflow.slice(cli, build),
+    /AKSD_ESRP_REQUIRED|SYSTEM_ACCESSTOKEN/
   );
   assert.match(
     workflow.slice(build, verification),

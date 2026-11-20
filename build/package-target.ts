@@ -219,27 +219,32 @@ export function packageTarget(
     }
     runTimedStep('stage backend executable', () => stageBackendExecutable(sourceDir, target.platform));
     runTimedStep('stage external tools', () =>
-      runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir)
+      runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir, buildEnv)
     );
     runTimedStep('generate product manifest', () =>
-      runStep(['run', 'headlamp:manifest'], rootDir)
+      runStep(['run', 'headlamp:manifest'], rootDir, buildEnv)
     );
     if (!options.reusePreparedAssets) {
       runTimedStep('install release plugins', () =>
         runStep(['run', 'plugin:install-releases'], rootDir, buildEnv)
       );
       runTimedStep('distribute translations', () =>
-        runStep(['run', 'headlamp:translations'], rootDir)
+        runStep(['run', 'headlamp:translations'], rootDir, buildEnv)
       );
       runTimedStep('bundle plugins', () =>
         runStep(['run', 'plugin:setup'], rootDir, buildEnv)
       );
       runTimedStep('generate frontend environment', () =>
-        runStep(['run', 'headlamp:frontend-env'], rootDir)
+        runStep(['run', 'headlamp:frontend-env'], rootDir, buildEnv)
       );
       runTimedStep('build frontend', () =>
         runStep(['run', 'frontend:build'], sourceDir, buildEnv)
       );
+      runTimedStep('prepare desktop package', () => {
+        runStep(['run', 'copy-icons'], appDir, buildEnv);
+        runStep(['run', 'copy-plugins'], appDir, buildEnv);
+        runStep(['run', 'compile-electron'], appDir, buildEnv);
+      });
     }
     let ownedToolset: string | undefined;
     try {
@@ -255,10 +260,10 @@ export function packageTarget(
         runStep(
           [
             'run',
-            options.unpacked ? 'build' : options.reusePreparedAssets ? 'package:prepared' : 'package',
+            'package:prepared',
             '--',
             ...(options.unpacked
-              ? unpackedArguments(target.platform, target.arch)
+              ? ['--dir', ...unpackedArguments(target.platform, target.arch)]
               : packageArguments(target.platform, target.arch)),
           ],
           appDir,

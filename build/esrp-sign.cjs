@@ -6,6 +6,7 @@
 const assert = require('node:assert/strict');
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
+const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -29,6 +30,27 @@ function requireEnvironment(name) {
 function isFirstPartyExecutable(filePath) {
   const basename = filePath.split(/[\\/]/).at(-1);
   return FIRST_PARTY_PATTERNS.some(pattern => pattern.test(basename));
+}
+
+function allowedSigningTarget(file, outputRoot) {
+  const realRoot = fs.realpathSync(outputRoot);
+  const originalStat = fs.lstatSync(file);
+  if (!originalStat.isFile()) return false;
+  const realFile = fs.realpathSync(file);
+  const relative = path.relative(realRoot, realFile);
+  if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`)) return false;
+  const normalized = relative.split(path.sep).join('/');
+  if (
+    !isFirstPartyExecutable(normalized) ||
+    !(
+      /^(?:win-[^/]+\/)?AKS desktop\.exe$/i.test(normalized) ||
+      /^(?:win-[^/]+\/)?resources\/headlamp-server\.exe$/i.test(normalized) ||
+      /^(?:win-[^/]+\/)?resources\/elevate\.exe$/i.test(normalized) ||
+      /^aks-desktop-.+__uninstaller(?:-nsis-[^.]+)?\.exe$/i.test(normalized) ||
+      /^aks-desktop-.+-win-(?:x64|arm64)\.exe$/i.test(normalized)
+    )
+  ) return false;
+  return realFile;
 }
 
 async function resolveServiceConnectionId(
@@ -254,19 +276,31 @@ async function sign(filePath) {
     return;
   }
   if (process.env.AKSD_ESRP_BROKER_URL) {
-    const response = await fetch(`${process.env.AKSD_ESRP_BROKER_URL}/sign`, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${requireEnvironment('AKSD_ESRP_BROKER_TOKEN')}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ file: path.resolve(filePath) }),
+    const body = JSON.stringify({ file: path.resolve(filePath) });
+    await new Promise((resolve, reject) => {
+      const request = http.request(`${process.env.AKSD_ESRP_BROKER_URL}/sign`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${requireEnvironment('AKSD_ESRP_BROKER_TOKEN')}`,
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body),
+        },
+      }, response => {
+        const chunks = [];
+        response.on('data', chunk => chunks.push(chunk));
+        response.once('end', () => {
+          if (response.statusCode >= 200 && response.statusCode < 300) {
+            resolve();
+          } else {
+            reject(new Error(
+              `Signing broker rejected ${filePath}: ${response.statusCode} ${Buffer.concat(chunks).toString('utf8')}`
+            ));
+          }
+        });
+      });
+      request.once('error', reject);
+      request.end(body);
     });
-    if (!response.ok) {
-      throw new Error(
-        `Signing broker rejected ${filePath}: ${response.status} ${await response.text()}`
-      );
-    }
     return;
   }
   if (!process.env.AKSD_ESRP_CLI_DLL_PATH) {
@@ -283,6 +317,7 @@ async function sign(filePath) {
 }
 
 module.exports = {
+  allowedSigningTarget,
   esrpArguments,
   isFirstPartyExecutable,
   resolveServiceConnectionId,

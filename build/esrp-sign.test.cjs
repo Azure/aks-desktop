@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const {
+  allowedSigningTarget,
   esrpArguments,
   isFirstPartyExecutable,
   resolveServiceConnectionId,
@@ -59,6 +60,48 @@ test('recognizes AKS Desktop-owned Windows signing targets', () => {
   ]) {
     assert.equal(isFirstPartyExecutable(path.join('C:\\build', file)), false, file);
   }
+});
+
+test('allows only canonical files in known Windows output locations', t => {
+  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'sign target-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const allowed = [
+    'win-unpacked/AKS desktop.exe',
+    'win-unpacked/resources/headlamp-server.exe',
+    'win-unpacked/resources/elevate.exe',
+    'aks-desktop-1.2.3-win-x64.__uninstaller.exe',
+    'aks-desktop-1.2.3-win-arm64.exe',
+  ];
+  for (const relative of allowed) {
+    const file = path.join(root, relative);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'fixture');
+    assert.equal(
+      allowedSigningTarget(file, root),
+      fs.realpathSync(file),
+      relative
+    );
+  }
+  const outside = path.join(path.dirname(root), 'AKS desktop.exe');
+  fs.writeFileSync(outside, 'fixture');
+  t.after(() => fs.rmSync(outside, { force: true }));
+  assert.equal(allowedSigningTarget(outside, root), false);
+  const wrongDirectory = path.join(root, 'temp', 'AKS desktop.exe');
+  fs.mkdirSync(path.dirname(wrongDirectory));
+  fs.writeFileSync(wrongDirectory, 'fixture');
+  assert.equal(allowedSigningTarget(wrongDirectory, root), false);
+});
+
+test('rejects linked signing targets', { skip: process.platform === 'win32' }, t => {
+  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'sign link-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const directory = path.join(root, 'win-unpacked');
+  fs.mkdirSync(directory);
+  const source = path.join(root, 'source.exe');
+  const linked = path.join(directory, 'AKS desktop.exe');
+  fs.writeFileSync(source, 'fixture');
+  fs.symlinkSync(source, linked);
+  assert.equal(allowedSigningTarget(linked, root), false);
 });
 
 test('resolves the named ESRP service connection with the job token', async () => {
