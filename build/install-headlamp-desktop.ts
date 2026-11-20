@@ -197,6 +197,28 @@ export function verifyHeadlampDependencyCache(
       throw new Error(`Headlamp ${step.relativeDirectory} dependency cache is missing or stale.`);
     }
   }
+  const result = spawnSync(process.execPath, [
+    '--input-type=module', '--eval', `
+      import { createRequire } from 'node:module';
+      import { pathToFileURL } from 'node:url';
+      const frontend = createRequire(process.argv[1]);
+      const rsbuild = createRequire(frontend.resolve('@rsbuild/core'));
+      const rspack = rsbuild.resolve('@rspack/core');
+      await import(pathToFileURL(rspack).href);
+      await import(pathToFileURL(createRequire(rspack).resolve('@rspack/binding')).href);
+      createRequire(process.argv[2])('esbuild').transformSync('const verified = true;', { loader: 'js' });
+    `,
+    path.join(source, 'frontend/package.json'),
+    path.join(source, 'app/package.json'),
+  ], {
+    cwd: source, env, encoding: 'utf8', windowsHide: true,
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      `Headlamp native build dependencies failed to load (exit ${result.status}): ${result.stderr}`
+    );
+  }
 }
 
 /** Runs npm in one Headlamp source directory and propagates failures. */

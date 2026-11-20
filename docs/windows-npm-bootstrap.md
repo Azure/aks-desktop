@@ -135,9 +135,11 @@ than touching dependencies outside the consumer project. Backend compilation
 still runs with the existing Go cache.
 
 New caches are verified and saved immediately after successful installation,
-before packaging can mutate native dependencies. Neither incomplete installs nor
-build-mutated trees are saved as clean snapshots. The same event-ref checkout
-boundary applies, and Dependabot covers both cache actions.
+before packaging can mutate native dependencies. Verification loads Rsbuild's
+Rspack platform binding and runs an esbuild transform in a fresh Node process;
+missing native build payloads fail before the immutable snapshot is saved.
+Neither incomplete installs nor build-mutated trees are saved as clean snapshots.
+The same event-ref checkout boundary applies, and Dependabot covers both cache actions.
 
 Real frontend/app installs were restored across a root-clean-install round trip
 locally; both subsequent `npm ci` calls were skipped. Backend compilation was

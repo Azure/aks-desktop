@@ -51,6 +51,25 @@ function desktopCacheFixture(t: TestContext) {
       mode: args.includes('--omit=dev') ? 'production' : 'all',
     }));
     fs.writeFileSync(path.join(installed, 'runtime/index.js'), 'fixture dependency');
+    const binding = '@rsbuild/core/node_modules/@rspack/core/node_modules/@rspack/binding';
+    const modules: Record<string, string> = path.basename(cwd) === 'frontend'
+      ? {
+        '@rsbuild/core/index.js': 'module.exports = {};',
+        '@rsbuild/core/node_modules/@rspack/core/index.js':
+          'module.exports = require("@rspack/binding");',
+        [`${binding}/index.js`]: 'module.exports = require("./platform-binding.js");',
+        [`${binding}/platform-binding.js`]: 'module.exports = {};',
+      }
+      : {
+        'esbuild/index.js':
+          'exports.transformSync = () => require("node:fs").readFileSync(__dirname + "/platform-binary");',
+        'esbuild/platform-binary': 'fixture executable',
+      };
+    for (const [file, contents] of Object.entries(modules)) {
+      const output = path.join(installed, file);
+      fs.mkdirSync(path.dirname(output), { recursive: true });
+      fs.writeFileSync(output, contents);
+    }
   };
   return {
     rootDir, sourceDir, npmRoot, env, commands, runStep,
@@ -213,6 +232,23 @@ test('unconfirmed Headlamp restores discard partial trees even with valid marker
   installHeadlampDesktopDependencies(fixture.sourceDir, fixture.runStep, fixture.options);
   assert.equal(fixture.commands.length, 3);
 });
+
+for (const missing of [
+  'frontend/node_modules/@rsbuild/core/node_modules/@rspack/core/node_modules/@rspack/binding/platform-binding.js',
+  'app/node_modules/esbuild/platform-binary',
+]) {
+  test(`Headlamp snapshot verification rejects missing build dependency ${missing}`, t => {
+    const fixture = desktopCacheFixture(t);
+    installHeadlampDesktopDependencies(fixture.sourceDir, fixture.runStep, fixture.options);
+    verifyHeadlampDependencyCache(fixture.sourceDir, fixture.rootDir, fixture.env);
+    fs.rmSync(path.join(fixture.sourceDir, missing));
+
+    assert.throws(
+      () => verifyHeadlampDependencyCache(fixture.sourceDir, fixture.rootDir, fixture.env),
+      /Headlamp native build dependencies failed to load/
+    );
+  });
+}
 
 test('failed cache replacement invalidates the previously completed install target', t => {
   const fixture = desktopCacheFixture(t);
