@@ -63,6 +63,11 @@ helper, the generated uninstaller, and both final installers. The build fails
 if signing is unavailable and verifies the unpacked executables and installers
 with `Get-AuthenticodeSignature`.
 
+The release wrapper keeps the Azure job token in a trusted parent process and
+exposes an authenticated loopback signing broker only to Electron Builder.
+Dependency installation, plugin preparation and post-build checks receive
+neither the job token nor broker credentials.
+
 Bundled third-party Windows executables, including the Azure CLI runtime and
 Electron tooling, are intentionally not downstream-signed by AKS Desktop.
 They retain their upstream signatures where provided; package updates must

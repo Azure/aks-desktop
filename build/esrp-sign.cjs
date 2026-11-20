@@ -218,9 +218,17 @@ function runEsrp(
     env
   );
   const childEnv = { ...env };
-  delete childEnv.SYSTEM_ACCESSTOKEN;
-  delete childEnv.ENDPOINT_AUTH_SYSTEMVSSCONNECTION;
-  delete childEnv.ENDPOINT_AUTH_PARAMETER_SYSTEMVSSCONNECTION_ACCESSTOKEN;
+  for (const name of Object.keys(childEnv)) {
+    if (
+      [
+        'SYSTEM_ACCESSTOKEN',
+        'ENDPOINT_AUTH_SYSTEMVSSCONNECTION',
+        'ENDPOINT_AUTH_PARAMETER_SYSTEMVSSCONNECTION_ACCESSTOKEN',
+      ].includes(name.toUpperCase())
+    ) {
+      delete childEnv[name];
+    }
+  }
   const child = spawn('dotnet', args, {
     env: childEnv,
     stdio: ['pipe', 'inherit', 'inherit'],
@@ -243,6 +251,22 @@ function runEsrp(
 async function sign(filePath) {
   if (!isFirstPartyExecutable(filePath)) {
     console.log(`Leaving third-party executable unsigned: ${filePath}`);
+    return;
+  }
+  if (process.env.AKSD_ESRP_BROKER_URL) {
+    const response = await fetch(`${process.env.AKSD_ESRP_BROKER_URL}/sign`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${requireEnvironment('AKSD_ESRP_BROKER_TOKEN')}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ file: path.resolve(filePath) }),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Signing broker rejected ${filePath}: ${response.status} ${await response.text()}`
+      );
+    }
     return;
   }
   if (!process.env.AKSD_ESRP_CLI_DLL_PATH) {

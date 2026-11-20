@@ -101,7 +101,7 @@ export function packageEnvironment(
   env: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const project = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
-  return {
+  const buildEnv = {
     ...env,
     APP_VERSION: project.version,
     GOARCH: target.arch === 'x64' ? 'amd64' : target.arch,
@@ -111,11 +111,33 @@ export function packageEnvironment(
     npm_config_platform: target.platform,
     npm_config_target_arch: target.arch,
     ...(env.AKSD_ESRP_REQUIRED === 'true'
-      ? { AKSD_ESRP_SIGNER: path.join(rootDir, 'build', 'esrp-sign.cjs') }
+      ? { HEADLAMP_WINDOWS_SIGNER: path.join(rootDir, 'build', 'esrp-sign.cjs') }
       : {}),
     ...(target.platform === 'darwin' && !env.CUSTOM_DMGBUILD_PATH
       ? { CUSTOM_DMGBUILD_PATH: path.join(rootDir, 'build', 'dmgbuild-managed-mac.cjs') }
       : {}),
+  };
+  delete buildEnv.AKSD_ESRP_BROKER_URL;
+  delete buildEnv.AKSD_ESRP_BROKER_TOKEN;
+  return buildEnv;
+}
+
+/** Adds broker credentials only to the final Electron Builder process. */
+export function packageSigningEnvironment(
+  buildEnv: NodeJS.ProcessEnv,
+  sourceEnv: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  if (
+    buildEnv.AKSD_ESRP_REQUIRED !== 'true' ||
+    !sourceEnv.AKSD_ESRP_BROKER_URL ||
+    !sourceEnv.AKSD_ESRP_BROKER_TOKEN
+  ) {
+    return buildEnv;
+  }
+  return {
+    ...buildEnv,
+    AKSD_ESRP_BROKER_URL: sourceEnv.AKSD_ESRP_BROKER_URL,
+    AKSD_ESRP_BROKER_TOKEN: sourceEnv.AKSD_ESRP_BROKER_TOKEN,
   };
 }
 
@@ -240,7 +262,7 @@ export function packageTarget(
               : packageArguments(target.platform, target.arch)),
           ],
           appDir,
-          packageEnv
+          packageSigningEnvironment(packageEnv)
         )
       );
       if (target.platform === 'win32' && !options.unpacked) {

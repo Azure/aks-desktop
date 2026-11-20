@@ -62,6 +62,7 @@ import {
   packageTarget,
   stageBackendExecutable,
   targetDependencyEnvironment,
+  packageSigningEnvironment,
   unpackedArguments,
   validatePackageHost,
 } from './package-target';
@@ -346,16 +347,38 @@ test('wires the consumer ESRP signer only for required Windows signing', t => {
   t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
   fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
   const unsigned = packageEnvironment({ platform: 'win32', arch: 'x64' }, rootDir, {});
-  assert.equal(unsigned.AKSD_ESRP_SIGNER, undefined);
+  assert.equal(unsigned.HEADLAMP_WINDOWS_SIGNER, undefined);
   const signed = packageEnvironment(
     { platform: 'win32', arch: 'x64' },
     rootDir,
     { AKSD_ESRP_REQUIRED: 'true' }
   );
   assert.equal(
-    signed.AKSD_ESRP_SIGNER,
+    signed.HEADLAMP_WINDOWS_SIGNER,
     path.join(rootDir, 'build', 'esrp-sign.cjs')
   );
+});
+
+test('limits broker credentials to the Electron Builder packaging step', () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'broker scope-'));
+  fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
+  const source = {
+    AKSD_ESRP_REQUIRED: 'true',
+    AKSD_ESRP_BROKER_URL: 'http://127.0.0.1:1234',
+    AKSD_ESRP_BROKER_TOKEN: 'broker-secret',
+  };
+  const build = packageEnvironment(
+    { platform: 'win32', arch: 'x64' },
+    rootDir,
+    source
+  );
+  assert.equal(build.AKSD_ESRP_BROKER_URL, undefined);
+  assert.equal(build.AKSD_ESRP_BROKER_TOKEN, undefined);
+  assert.deepEqual(packageSigningEnvironment(build, source), {
+    ...build,
+    AKSD_ESRP_BROKER_URL: source.AKSD_ESRP_BROKER_URL,
+    AKSD_ESRP_BROKER_TOKEN: source.AKSD_ESRP_BROKER_TOKEN,
+  });
 });
 
 test('uses the managed Mac dmgbuild launcher unless the caller overrides it', t => {

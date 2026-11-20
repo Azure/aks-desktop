@@ -34,7 +34,7 @@ index 000000000..000000000 100644
  const { sign, SIGN_OPS } = require('../scripts/esrp');
  
  exports.default = async function (configuration) {
-+  const consumerSigner = process.env.AKSD_ESRP_SIGNER;
++  const consumerSigner = process.env.HEADLAMP_WINDOWS_SIGNER;
 +  if (consumerSigner) {
 +    await require(consumerSigner).sign(configuration.path);
 +    return;

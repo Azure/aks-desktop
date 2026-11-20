@@ -590,8 +590,12 @@ test('Windows 1ES signs first-party binaries before NSIS packaging', () => {
     /AKSD_ESRP_REQUIRED: "true"/
   );
   assert.match(
-    workflow.slice(build, verification),
-    /SYSTEM_ACCESSTOKEN: \$\(System.AccessToken\)/
+    workflow,
+    /SYSTEM_ACCESSTOKEN="\$\(System\.AccessToken\)" npm run ci:windows/
+  );
+  assert.doesNotMatch(
+    workflow.match(/\n\s+env:\s*\n[\s\S]*?displayName: 'Verify embedded executables/)?.[0] ?? '',
+    /SYSTEM_ACCESSTOKEN:/
   );
   assert.match(
     workflow.slice(build, verification),
@@ -1014,7 +1018,7 @@ test('patched Headlamp exposes the AKS Windows signing hook', () => {
       path.join(HEADLAMP_SOURCE_DIR, 'app/windows/sign.js'),
       'utf8'
     ),
-    /AKSD_ESRP_SIGNER/
+    /HEADLAMP_WINDOWS_SIGNER/
   );
 });
 

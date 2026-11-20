@@ -35,7 +35,7 @@ const signingEnvironment = {
 
 function fakeChild() {
   const child = new EventEmitter();
-  child.stdin = { end: () => undefined };
+  child.stdin = { end: value => { child.stdinValue = value; } };
   return child;
 }
 
@@ -178,4 +178,45 @@ test('rejects nonzero ESRP process exits', async () => {
     runEsrp('/work/AKS desktop.exe', 'service-connection-id', signingEnvironment, spawn),
     /ESRP signing failed.*\(23\)/
   );
+});
+
+test('delivers the job token only through stdin and cleans up after success', async () => {
+  const child = fakeChild();
+  let invocation;
+  const spawn = (command, args, options) => {
+    invocation = { command, args, options };
+    queueMicrotask(() => child.emit('close', 0));
+    return child;
+  };
+
+  await runEsrp(
+    '/work/AKS desktop.exe',
+    'service-connection-id',
+    signingEnvironment,
+    spawn
+  );
+
+  assert.equal(invocation.command, 'dotnet');
+  assert.equal(child.stdinValue, 'job-token\n');
+  assert.equal(invocation.options.env.SYSTEM_ACCESSTOKEN, undefined);
+  assert.equal(
+    Object.values(invocation.options.env).some(value => value === 'job-token'),
+    false
+  );
+  assert.equal(
+    invocation.args.some(value => value.includes('job-token')),
+    false
+  );
+  assert.equal(
+    invocation.args.indexOf('-federatedTokenData') >= 0,
+    true
+  );
+  assert.equal(
+    JSON.parse(
+      invocation.args[invocation.args.indexOf('-federatedTokenData') + 1]
+    ).systemAccessTokenSource,
+    'stdin'
+  );
+  const temporary = path.dirname(invocation.args[invocation.args.indexOf('-p') + 1]);
+  assert.equal(fs.existsSync(temporary), false);
 });

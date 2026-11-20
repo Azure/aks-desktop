@@ -6698,14 +6698,14 @@ index 7823255a10bbddc926f215dce27a80731937be5d..3b6e5175a432e1180c4e1c616c75a401
      metadata.protocols !== undefined &&
      (!metadata.protocols ||
 diff --git a/source/app/windows/sign.js b/source/app/windows/sign.js
-index 989b570d98e20bcddc6dcc1472c4d4476a15b038..7d336042a825cf8da81fa4a6f8dfbd70b22b0e03 100644
+index 989b570d98e20bcddc6dcc1472c4d4476a15b038..e4cbf20c04f0122bd157b5fbc3a31aa751e2984e 100644
 --- a/source/app/windows/sign.js
 +++ b/source/app/windows/sign.js
 @@ -1,6 +1,12 @@
  const { sign, SIGN_OPS } = require('../scripts/esrp');
  
  exports.default = async function (configuration) {
-+  const consumerSigner = process.env.AKSD_ESRP_SIGNER;
++  const consumerSigner = process.env.HEADLAMP_WINDOWS_SIGNER;
 +  if (consumerSigner) {
 +    await require(consumerSigner).sign(configuration.path);
 +    return;

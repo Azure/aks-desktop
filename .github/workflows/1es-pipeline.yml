@@ -201,7 +201,7 @@ extends:
 
                   # Keep native npm paths out of Bash PATH and MSYS argument conversion.
                   node --test build/windows-ci.test.cjs
-                  npm run ci:windows
+                  SYSTEM_ACCESSTOKEN="$(System.AccessToken)" npm run ci:windows
                   echo "✅ Build complete"
 
                   echo "=== POST-BUILD DEBUG ==="
@@ -212,7 +212,6 @@ extends:
                   echo "=== END POST-BUILD DEBUG ==="
                 displayName: "Build AKS desktop (Windows)"
                 env:
-                  SYSTEM_ACCESSTOKEN: $(System.AccessToken)
                   AKSD_ESRP_REQUIRED: "true"
                   AKSD_ESRP_CLI_DLL_PATH: $(EsrpCliDllPath)
                   AKSD_ESRP_DOTNET_VERSION: $(EsrpDotNetVersion)
