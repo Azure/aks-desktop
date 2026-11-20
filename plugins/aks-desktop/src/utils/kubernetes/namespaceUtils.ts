@@ -5,7 +5,7 @@ import { K8s } from '@kinvolk/headlamp-plugin/lib';
 import { apply } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
 import type { ApiClient } from '@kinvolk/headlamp-plugin/lib/lib/k8s/api/v1/factories';
 import type { KubeNamespace } from '@kinvolk/headlamp-plugin/lib/lib/k8s/namespace';
-import { runCommandAsync } from '../azure/az-cli-core';
+import { updateManagedNamespace } from '../azure/az-namespaces';
 import {
   PROJECT_ID_LABEL,
   PROJECT_MANAGED_BY_LABEL,
@@ -136,10 +136,15 @@ export async function applyNamespaceManifest(
  * Applies AKS Desktop project labels to an existing namespace.
  *
  * For managed namespaces (those with subscriptionId/resourceGroup), labels are applied
- * via `az aks namespace update` because AKS admission webhooks block direct K8s API
+ * via the shared ARM update helper because AKS admission webhooks block direct K8s API
  * label updates on managed namespaces.
  *
- * For regular namespaces, labels are applied via the K8s API.
+ * The helper merges the four project labels into existing labels and preserves other
+ * namespace settings. For regular namespaces, labels are merged via the K8s API.
+ *
+ * @param options - Namespace and cluster names, with subscription/resource group identifying
+ * a managed namespace when both are nonempty.
+ * @returns Resolves after the update completes; rejects if reading or updating fails.
  */
 export async function applyProjectLabels(options: {
   namespaceName: string;
@@ -152,32 +157,18 @@ export async function applyProjectLabels(options: {
   const isManagedNamespace = !!subscriptionId && !!resourceGroup;
 
   if (isManagedNamespace) {
-    const labelPairs = [
-      `${PROJECT_ID_LABEL}=${namespaceName}`,
-      `${PROJECT_MANAGED_BY_LABEL}=${PROJECT_MANAGED_BY_VALUE}`,
-      `${SUBSCRIPTION_LABEL}=${subscriptionId}`,
-      `${RESOURCE_GROUP_LABEL}=${resourceGroup}`,
-    ];
-
-    const { stderr } = await runCommandAsync('az', [
-      'aks',
-      'namespace',
-      'update',
-      '--resource-group',
-      resourceGroup,
-      '--cluster-name',
-      clusterName,
-      '--name',
+    await updateManagedNamespace({
       namespaceName,
-      '--subscription',
+      clusterName,
       subscriptionId,
-      '--labels',
-      ...labelPairs,
-    ]);
-
-    if (stderr && stderr.includes('ERROR')) {
-      throw new Error(stderr);
-    }
+      resourceGroup,
+      labels: {
+        [PROJECT_ID_LABEL]: namespaceName,
+        [PROJECT_MANAGED_BY_LABEL]: PROJECT_MANAGED_BY_VALUE,
+        [SUBSCRIPTION_LABEL]: subscriptionId,
+        [RESOURCE_GROUP_LABEL]: resourceGroup,
+      },
+    });
   } else {
     const nsData = await fetchNamespaceData(namespaceName, clusterName);
 

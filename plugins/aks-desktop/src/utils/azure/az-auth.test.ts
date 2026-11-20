@@ -56,6 +56,72 @@ describe('getLoginStatus', () => {
       tenantId: 'tenant-id',
       username: 'user@example.com',
     });
+    expect(mocks.runCommandAsync).toHaveBeenCalledWith('az', ['account', 'show', '-o', 'json']);
+  });
+
+  test.each(['cloudName', 'environmentName'])(
+    'retains the selected account cloud from %s',
+    async field => {
+      mocks.runCommandAsync.mockResolvedValue({
+        stdout: JSON.stringify({
+          id: 'other-subscription',
+          tenantId: 'other-tenant',
+          [field]: 'AzureUSGovernment',
+        }),
+        stderr: '',
+      });
+      await expect(getLoginStatus('other-subscription')).resolves.toMatchObject({
+        environmentName: 'AzureUSGovernment',
+      });
+    }
+  );
+
+  test('reads the selected subscription account without changing the default account', async () => {
+    mocks.runCommandAsync.mockResolvedValue({
+      stdout: JSON.stringify({ id: 'other-subscription', tenantId: 'other-tenant' }),
+      stderr: '',
+    });
+
+    await expect(getLoginStatus('other-subscription')).resolves.toMatchObject({
+      isLoggedIn: true,
+      subscriptionId: 'other-subscription',
+      tenantId: 'other-tenant',
+    });
+    expect(mocks.runCommandAsync).toHaveBeenCalledExactlyOnceWith('az', [
+      'account',
+      'show',
+      '-o',
+      'json',
+      '--subscription',
+      'other-subscription',
+    ]);
+  });
+
+  test('selected subscription reads do not replace the observed default account', async () => {
+    const changed = vi.fn();
+    window.addEventListener('azure-account-change', changed);
+    const current = {
+      stdout: JSON.stringify({
+        id: 'default-subscription',
+        tenantId: 'default-tenant',
+        user: { name: 'default@example.com' },
+      }),
+      stderr: '',
+    };
+    try {
+      mocks.runCommandAsync.mockResolvedValue(current);
+      await getLoginStatus();
+      changed.mockClear();
+      mocks.runCommandAsync.mockResolvedValueOnce({
+        stdout: JSON.stringify({ id: 'other-subscription', tenantId: 'other-tenant' }),
+        stderr: '',
+      });
+      await getLoginStatus('other-subscription');
+      await getLoginStatus();
+      expect(changed).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('azure-account-change', changed);
+    }
   });
 
   test('does not trust account output when the command reports a fatal error', async () => {

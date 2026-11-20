@@ -60,7 +60,7 @@ function createNamespaceInstance(subscription = 'sub-123', resourceGroup = 'rg-p
   };
 }
 
-/** A namespace details object returned by the Azure CLI. */
+/** A full ARM namespace resource returned by the managed namespace helper. */
 function createNamespaceDetails(
   overrides: Partial<{
     ingress: string;
@@ -81,7 +81,12 @@ function createNamespaceDetails(
   } = overrides;
 
   return {
+    id: '/subscriptions/sub-123/resourceGroups/rg-prod/providers/Microsoft.ContainerService/managedClusters/my-cluster/managedNamespaces/my-project',
+    name: 'my-project',
+    type: 'Microsoft.ContainerService/managedClusters/managedNamespaces',
+    location: 'eastus',
     properties: {
+      labels: { 'existing-label': 'keep', 'headlamp.dev/project-id': 'my-project' },
       defaultNetworkPolicy: { ingress, egress },
       defaultResourceQuota: { cpuRequest, cpuLimit, memoryRequest, memoryLimit },
     },
@@ -333,15 +338,19 @@ describe('useInfoTab', () => {
       await result.current.handleSave();
     });
 
-    expect(mockUpdateManagedNamespace).toHaveBeenCalledWith(
-      expect.objectContaining({
-        clusterName: 'my-cluster',
-        resourceGroup: 'rg-prod',
-        namespaceName: 'my-project',
-        ingressPolicy: 'DenyAll',
-        subscriptionId: 'sub-123',
-      })
-    );
+    expect(mockUpdateManagedNamespace).toHaveBeenCalledTimes(1);
+    expect(mockUpdateManagedNamespace).toHaveBeenCalledWith({
+      clusterName: 'my-cluster',
+      resourceGroup: 'rg-prod',
+      namespaceName: 'my-project',
+      ingressPolicy: 'DenyAll',
+      egressPolicy: 'AllowAll',
+      cpuRequest: 500,
+      cpuLimit: 1000,
+      memoryRequest: 256,
+      memoryLimit: 512,
+      subscriptionId: 'sub-123',
+    });
     // Baseline advances so hasChanges resets
     expect(result.current.hasChanges).toBe(false);
   });
@@ -363,6 +372,7 @@ describe('useInfoTab', () => {
 
     await waitFor(() => expect(result.current.updating).toBe(false));
     expect(result.current.error).toBe('update failed');
+    expect(result.current.hasChanges).toBe(true);
   });
 
   test('handleSave is a no-op when resourceGroup label is absent', async () => {
