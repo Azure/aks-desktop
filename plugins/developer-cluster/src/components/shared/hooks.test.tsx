@@ -2,10 +2,13 @@
 // Licensed under the Apache 2.0.
 
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiServerReady } from '../../native/apiServerProbe';
 import { finishedOverviewRefreshes, refreshOverview } from '../../workflow/setup';
 import { update } from '../../workflow/store';
-import { useOverviewRefresh, useWorkflow } from './hooks';
+import { STATUS_RETRY_MS, useApiServerStatus, useOverviewRefresh, useWorkflow } from './hooks';
+
+vi.mock('../../native/apiServerProbe', () => ({ apiServerReady: vi.fn() }));
 
 vi.mock('../../workflow/setup', () => ({
   finishedOverviewRefreshes: vi.fn(),
@@ -54,5 +57,52 @@ describe('useOverviewRefresh', () => {
     act(() => update({ busy: false }));
 
     expect(refreshOverview).not.toHaveBeenCalled();
+  });
+});
+
+describe('useApiServerStatus', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Lets pending probes settle, then advances the clock by `ms`. */
+  async function wait(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  it('probes again until the API server answers, then stops', async () => {
+    vi.mocked(apiServerReady)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+    const { result } = renderHook(() => useApiServerStatus('dev-cluster'));
+    await wait(0);
+    expect(result.current).toBe('unreachable');
+
+    await wait(STATUS_RETRY_MS);
+    expect(result.current).toBe('unreachable');
+    await wait(STATUS_RETRY_MS);
+    expect(result.current).toBe('active');
+
+    await wait(STATUS_RETRY_MS * 3);
+    expect(apiServerReady).toHaveBeenCalledTimes(3);
+    expect(apiServerReady).toHaveBeenCalledWith('dev-cluster');
+  });
+
+  it('stops probing when Overview closes', async () => {
+    vi.mocked(apiServerReady).mockResolvedValue(false);
+    const { unmount } = renderHook(() => useApiServerStatus('dev-cluster'));
+    await wait(0);
+    unmount();
+
+    await wait(STATUS_RETRY_MS * 3);
+    expect(apiServerReady).toHaveBeenCalledOnce();
   });
 });

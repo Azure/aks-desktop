@@ -16,7 +16,7 @@ import { Icon } from '@iconify/react';
 import { useTranslation } from '@kinvolk/headlamp-plugin/lib';
 import { Loader, SectionBox } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import { Alert, Box, Breadcrumbs, Button, Chip, Divider, Stack, Typography } from '@mui/material';
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode } from 'react';
 import { Link, useHistory } from 'react-router-dom';
 import landingIllustration from '../../assets/landing-illustration.png';
 import { canOpenCluster, canRefresh } from '../../common/gates';
@@ -24,7 +24,6 @@ import { overviewPanel } from '../../common/panel';
 import { LocalTarget } from '../../contract/capability';
 import { LOCAL_DISTRO, LOCAL_NODE_COUNT } from '../../contract/devctl';
 import { clusterRoute, PLUGIN_ROUTES, PRODUCT_DISPLAY_NAME } from '../../contract/routes';
-import { apiServerReady } from '../../native/apiServerProbe';
 import { beginSetup, refreshOverview } from '../../workflow/setup';
 import { WorkflowState } from '../../workflow/store';
 import {
@@ -37,7 +36,12 @@ import { TextRow } from '../shared/clusterText';
 import { CreateProgress } from '../shared/CreateProgress';
 import { Card, DetailRows } from '../shared/DetailCard';
 import { failureText } from '../shared/failureText';
-import { useOverviewRefresh, useWorkflow } from '../shared/hooks';
+import {
+  ApiServerStatus,
+  useApiServerStatus,
+  useOverviewRefresh,
+  useWorkflow,
+} from '../shared/hooks';
 import { NotConfirmedNotice, RefreshFailureNotice } from '../shared/WorkflowNotices';
 
 interface StateProps {
@@ -299,24 +303,6 @@ function Landing({ state }: StateProps) {
       </Stack>
     </Stack>
   );
-}
-
-type ApiServerStatus = 'checking' | 'active' | 'unreachable';
-
-/** Probes `/readyz` when the cluster layout opens and whenever the listed cluster changes. */
-function useApiServerStatus(listName: string): ApiServerStatus {
-  const [status, setStatus] = useState<ApiServerStatus>('checking');
-  useEffect(() => {
-    let current = true;
-    setStatus('checking');
-    void apiServerReady(listName).then(ready => {
-      if (current) setStatus(ready ? 'active' : 'unreachable');
-    });
-    return () => {
-      current = false;
-    };
-  }, [listName]);
-  return status;
 }
 
 function StatusValue({ status }: { readonly status: ApiServerStatus }) {
