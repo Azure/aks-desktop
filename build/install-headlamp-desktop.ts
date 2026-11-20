@@ -81,6 +81,22 @@ function activeNpmVersion(env: NodeJS.ProcessEnv): string {
   return npm.version;
 }
 
+function dependencyPaths(
+  sourceDir: string,
+  rootDir: string,
+  relativeDirectory: string
+): { directory: string; modules: string } {
+  const directory: string = resolveWithin(
+    rootDir, path.relative(rootDir, path.resolve(sourceDir, relativeDirectory)),
+    `Headlamp ${relativeDirectory}`
+  );
+  const modules: string = resolveWithin(
+    rootDir, path.relative(rootDir, path.join(directory, 'node_modules')),
+    `Headlamp ${relativeDirectory} dependencies`
+  );
+  return { directory, modules };
+}
+
 function dependencyInputIdentity(
   sourceDir: string,
   rootDir: string,
@@ -94,7 +110,7 @@ function dependencyInputIdentity(
   ) {
     throw new Error('Headlamp caching requires a source pin and verified patch integrity.');
   }
-  const directory = path.join(sourceDir, step.relativeDirectory);
+  const { directory } = dependencyPaths(sourceDir, rootDir, step.relativeDirectory);
   const settings = [
     'NODE_ENV', 'npm_config_omit', 'npm_config_include', 'npm_config_production',
     'npm_config_ignore_scripts', 'npm_config_legacy_peer_deps', 'npm_config_install_strategy',
@@ -146,7 +162,7 @@ export function headlampDependencyCacheInputs(
       steps.map(step => dependencyInputIdentity(source, rootDir, step, env)).join('\n')
     ).digest('hex'),
     paths: steps.map(step =>
-      path.relative(rootDir, path.join(source, step.relativeDirectory, 'node_modules'))
+      path.relative(rootDir, dependencyPaths(source, rootDir, step.relativeDirectory).modules)
         .split(path.sep).join('/')
     ),
   };
@@ -156,9 +172,11 @@ export function headlampDependencyCacheInputs(
 export function discardHeadlampDependencyCache(sourceDir: string, rootDir: string): void {
   const source: string = resolveWithin(rootDir, path.relative(rootDir, sourceDir), 'Headlamp source');
   clearDependencyTarget(rootDir);
-  for (const step of HEADLAMP_DESKTOP_INSTALL_STEPS) {
-    if (step.relativeDirectory === '.') continue;
-    fs.rmSync(path.join(source, step.relativeDirectory, 'node_modules'), {
+  const directories = HEADLAMP_DESKTOP_INSTALL_STEPS
+    .filter(step => step.relativeDirectory !== '.')
+    .map(step => dependencyPaths(source, rootDir, step.relativeDirectory).modules);
+  for (const directory of directories) {
+    fs.rmSync(directory, {
       recursive: true, force: true, maxRetries: 3,
     });
   }
@@ -170,11 +188,12 @@ export function verifyHeadlampDependencyCache(
   rootDir: string,
   env: NodeJS.ProcessEnv = process.env
 ): void {
-  resolveWithin(rootDir, path.relative(rootDir, sourceDir), 'Headlamp source');
+  const source: string = resolveWithin(rootDir, path.relative(rootDir, sourceDir), 'Headlamp source');
   for (const step of HEADLAMP_DESKTOP_INSTALL_STEPS) {
     if (step.relativeDirectory === '.') continue;
-    const identity = dependencyInputIdentity(sourceDir, rootDir, step, env);
-    if (!dependenciesMatch(path.join(sourceDir, step.relativeDirectory), step.relativeDirectory, identity)) {
+    const { directory } = dependencyPaths(source, rootDir, step.relativeDirectory);
+    const identity = dependencyInputIdentity(source, rootDir, step, env);
+    if (!dependenciesMatch(directory, step.relativeDirectory, identity)) {
       throw new Error(`Headlamp ${step.relativeDirectory} dependency cache is missing or stale.`);
     }
   }
@@ -208,23 +227,20 @@ export function installHeadlampDesktopDependencies(
   const skipFrontendInstall = options.skipFrontendInstall ??
     env.HEADLAMP_SKIP_INSTALL_FRONTEND === 'true';
   const rootDir = options.rootDir ?? ROOT_DIR;
-  if (options.reuseDependencies) {
-    resolveWithin(rootDir, path.relative(rootDir, sourceDir), 'Headlamp source');
-  }
+  const source: string = resolveWithin(rootDir, path.relative(rootDir, sourceDir), 'Headlamp source');
   if (options.rootDir) clearDependencyTarget(options.rootDir);
+  const steps = HEADLAMP_DESKTOP_INSTALL_STEPS.filter(step =>
+    !(skipBackendBuild && step.name === 'build Headlamp backend') &&
+    !(skipFrontendInstall && step.name === 'install Headlamp frontend dependencies')
+  );
+  for (const step of steps) dependencyPaths(source, rootDir, step.relativeDirectory);
   runTimedStep('install Headlamp desktop dependencies', () => {
-    for (const step of HEADLAMP_DESKTOP_INSTALL_STEPS) {
-      if (skipBackendBuild && step.name === 'build Headlamp backend') {
-        continue;
-      }
-      if (skipFrontendInstall && step.name === 'install Headlamp frontend dependencies') {
-        continue;
-      }
+    for (const step of steps) {
       runTimedStep(step.name, () => {
-        const directory = path.resolve(sourceDir, step.relativeDirectory);
+        const directory = path.resolve(source, step.relativeDirectory);
         const cached = options.reuseDependencies && step.relativeDirectory !== '.';
         if (cached) {
-          const identity = dependencyInputIdentity(sourceDir, rootDir, step, env);
+          const identity = dependencyInputIdentity(source, rootDir, step, env);
           if (dependenciesMatch(directory, step.relativeDirectory, identity)) {
             console.log(`Reusing verified Headlamp dependencies: ${step.relativeDirectory}`);
             return;
@@ -236,7 +252,7 @@ export function installHeadlampDesktopDependencies(
           writePluginDependencyMarker(directory);
           fs.writeFileSync(
             path.join(directory, 'node_modules', DEPENDENCY_CONTEXT),
-            `${dependencyInputIdentity(sourceDir, rootDir, step, env)}\n`
+            `${dependencyInputIdentity(source, rootDir, step, env)}\n`
           );
         }
       });

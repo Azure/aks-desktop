@@ -129,7 +129,10 @@ script, or configuration changes do invalidate it.
 Unless restoration confirms an exact hit, both trees are discarded. Even on a
 hit, both clean-install markers and their installation context must match before
 either `npm ci` is skipped. A failed replacement invalidates the completed-target
-record. Backend compilation still runs with the existing Go cache.
+record. Each project and dependency path is checked through symlinks/junctions
+before cleanup, installation, or cache-path output; an escaping path fails rather
+than touching dependencies outside the consumer project. Backend compilation
+still runs with the existing Go cache.
 
 New caches are verified and saved immediately after successful installation,
 before packaging can mutate native dependencies. Neither incomplete installs nor

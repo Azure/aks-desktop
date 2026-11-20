@@ -257,47 +257,79 @@ test('Headlamp cache requires an npm lifecycle and refuses paths outside the con
   );
 });
 
-test('installs only the Headlamp dependencies required by desktop packaging', () => {
-  const commands: string[] = [];
-  installHeadlampDesktopDependencies('/workspace/headlamp', (args, cwd) => {
-    commands.push(`${path.relative('/workspace/headlamp', cwd) || '.'}:${args.join(' ')}`);
+for (const relative of ['frontend', 'app', 'frontend/node_modules']) {
+  test(`Headlamp cache rejects an escaping ${relative} link before modifying dependencies`, t => {
+    const fixture = desktopCacheFixture(t);
+    installHeadlampDesktopDependencies(fixture.sourceDir, fixture.runStep, fixture.options);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-headlamp-dependencies-'));
+    t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+    const linked = path.join(fixture.sourceDir, relative);
+    const destination = path.join(outside, 'dependencies');
+    fs.renameSync(linked, destination);
+    fs.symlinkSync(destination, linked, 'junction');
+    const sentinel = path.join(
+      destination, ...(relative.endsWith('node_modules') ? [] : ['node_modules']),
+      'runtime/index.js'
+    );
+    fixture.commands.length = 0;
+
+    for (const operation of [
+      () => discardHeadlampDependencyCache(fixture.sourceDir, fixture.rootDir),
+      () => headlampDependencyCacheInputs(fixture.sourceDir, fixture.rootDir, fixture.env),
+      () => verifyHeadlampDependencyCache(fixture.sourceDir, fixture.rootDir, fixture.env),
+      ...[true, false].map(reuseDependencies => () =>
+        installHeadlampDesktopDependencies(fixture.sourceDir, fixture.runStep, {
+          ...fixture.options, reuseDependencies,
+        })
+      ),
+    ]) {
+      assert.throws(operation, /must stay within/);
+      assert.equal(fs.readFileSync(sentinel, 'utf8'), 'fixture dependency');
+    }
+    assert.deepEqual(fixture.commands, []);
+  });
+}
+
+test('installs only the Headlamp dependencies required by desktop packaging', t => {
+  const fixture = desktopCacheFixture(t);
+  installHeadlampDesktopDependencies(fixture.sourceDir, fixture.runStep, {
+    ...fixture.options, reuseDependencies: false,
   });
 
-  assert.deepEqual(commands, [
+  assert.deepEqual(fixture.commands, [
     'frontend:ci --prefer-offline --no-audit --no-fund --omit=dev',
     '.:run backend:build',
     'app:ci --prefer-offline --no-audit --no-fund',
   ]);
-  assert.equal(commands.length, HEADLAMP_DESKTOP_INSTALL_STEPS.length);
+  assert.equal(fixture.commands.length, HEADLAMP_DESKTOP_INSTALL_STEPS.length);
 });
 
-test('can defer backend compilation to the architecture-aware package hook', () => {
-  const commands: string[] = [];
+test('can defer backend compilation to the architecture-aware package hook', t => {
+  const fixture = desktopCacheFixture(t);
   installHeadlampDesktopDependencies(
-    '/workspace/headlamp',
-    (args, cwd) => {
-      commands.push(`${path.relative('/workspace/headlamp', cwd) || '.'}:${args.join(' ')}`);
-    },
-    { skipBackendBuild: true }
+    fixture.sourceDir,
+    fixture.runStep,
+    { ...fixture.options, reuseDependencies: false, skipBackendBuild: true }
   );
 
-  assert.deepEqual(commands, [
+  assert.deepEqual(fixture.commands, [
     'frontend:ci --prefer-offline --no-audit --no-fund --omit=dev',
     'app:ci --prefer-offline --no-audit --no-fund',
   ]);
 });
 
-test('installs only app dependencies when reusing prepared frontend assets', () => {
-  const commands: string[] = [];
+test('installs only app dependencies when reusing prepared frontend assets', t => {
+  const fixture = desktopCacheFixture(t);
   installHeadlampDesktopDependencies(
-    '/workspace/headlamp',
-    (args, cwd) => {
-      commands.push(`${path.relative('/workspace/headlamp', cwd) || '.'}:${args.join(' ')}`);
-    },
-    { skipBackendBuild: true, skipFrontendInstall: true }
+    fixture.sourceDir,
+    fixture.runStep,
+    {
+      ...fixture.options, reuseDependencies: false,
+      skipBackendBuild: true, skipFrontendInstall: true,
+    }
   );
 
-  assert.deepEqual(commands, ['app:ci --prefer-offline --no-audit --no-fund']);
+  assert.deepEqual(fixture.commands, ['app:ci --prefer-offline --no-audit --no-fund']);
 });
 
 test('stops the Headlamp desktop install at the first failed step', t => {
@@ -308,7 +340,7 @@ test('stops the Headlamp desktop install at the first failed step', t => {
   assert.throws(
     () =>
       installHeadlampDesktopDependencies(
-        '/workspace/headlamp',
+        path.join(rootDir, 'source'),
         (args, cwd) => {
           commands.push(`${path.basename(cwd)}:${args.join(' ')}`);
           if (cwd.endsWith('frontend')) {
@@ -330,7 +362,7 @@ test('records the target only after a successful desktop install', t => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop install target-'));
   t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
 
-  installHeadlampDesktopDependencies('/workspace/headlamp', () => undefined, { rootDir });
+  installHeadlampDesktopDependencies(path.join(rootDir, 'source'), () => undefined, { rootDir });
 
   assert.equal(
     dependencyTargetMatches(rootDir, { platform: process.platform, arch: process.arch }),
