@@ -341,6 +341,23 @@ test('sets the consumer version for every target instead of an ambient version',
   assert.deepEqual(ambient, { APP_VERSION: 'ambient', PATH: '/tools' });
 });
 
+test('wires the consumer ESRP signer only for required Windows signing', t => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consumer signer-'));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(rootDir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
+  const unsigned = packageEnvironment({ platform: 'win32', arch: 'x64' }, rootDir, {});
+  assert.equal(unsigned.AKSD_ESRP_SIGNER, undefined);
+  const signed = packageEnvironment(
+    { platform: 'win32', arch: 'x64' },
+    rootDir,
+    { AKSD_ESRP_REQUIRED: 'true' }
+  );
+  assert.equal(
+    signed.AKSD_ESRP_SIGNER,
+    path.join(rootDir, 'build', 'esrp-sign.cjs')
+  );
+});
+
 test('uses the managed Mac dmgbuild launcher unless the caller overrides it', t => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dmg launcher-'));
   t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));

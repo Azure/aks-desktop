@@ -110,6 +110,9 @@ export function packageEnvironment(
     npm_config_arch: target.arch,
     npm_config_platform: target.platform,
     npm_config_target_arch: target.arch,
+    ...(env.AKSD_ESRP_REQUIRED === 'true'
+      ? { AKSD_ESRP_SIGNER: path.join(rootDir, 'build', 'esrp-sign.cjs') }
+      : {}),
     ...(target.platform === 'darwin' && !env.CUSTOM_DMGBUILD_PATH
       ? { CUSTOM_DMGBUILD_PATH: path.join(rootDir, 'build', 'dmgbuild-managed-mac.cjs') }
       : {}),

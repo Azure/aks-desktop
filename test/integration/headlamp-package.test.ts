@@ -569,6 +569,40 @@ test('Linux 1ES collects two native unsigned producers before its single DEB sig
   assert.equal(workflow.match(/BUILD_BUILDNUMBER: \$\(Build.BuildNumber\)/g)?.length, 4);
   assert.match(workflow, /artifactName: aks-desktop-signed/);
 });
+
+test('Windows 1ES signs first-party binaries before NSIS packaging', () => {
+  const workflow = fs.readFileSync(
+    path.join(ROOT_DIR, '.github/workflows/1es-pipeline.yml'),
+    'utf8'
+  );
+  const tooling = workflow.indexOf("displayName: 'Install ESRP tooling'");
+  const cli = workflow.indexOf("displayName: 'Locate ESRP CLI'");
+  const build = workflow.indexOf('displayName: "Build AKS desktop (Windows)"');
+  const verification = workflow.indexOf(
+    'displayName: "Verify final installer signature"'
+  );
+
+  assert.ok(tooling >= 0);
+  assert.ok(tooling < cli && cli < build && build < verification);
+  assert.equal(workflow.match(/task: EsrpCodeSigning@6/g)?.length, 2);
+  assert.match(
+    workflow.slice(build, verification),
+    /AKSD_ESRP_REQUIRED: "true"/
+  );
+  assert.match(
+    workflow.slice(build, verification),
+    /SYSTEM_ACCESSTOKEN: \$\(System.AccessToken\)/
+  );
+  assert.match(
+    workflow.slice(verification),
+    /"OperationCode" : "SigntoolVerify"/
+  );
+  assert.doesNotMatch(
+    workflow.slice(verification),
+    /"OperationCode" : "SigntoolSign"/
+  );
+});
+
 test('GitHub Linux captures native proof even on failure and uploads only validated DEB/tar packages', () => {
   const workflow = fs.readFileSync(path.join(ROOT_DIR, '.github/workflows/build-app-linux.yml'), 'utf8').replace(/\r\n/g, '\n');
   assert.match(workflow, /arch: x64\n\s+runner: ubuntu-24\.04\n/);
@@ -956,6 +990,24 @@ test('AKS desktop crash reports target the AKS Desktop issue form', () => {
     githubIssueUrl: 'https://github.com/Azure/aks-desktop/issues/new?labels=bug',
     buttonLabel: 'Contact us',
   });
+});
+
+test('patched Headlamp exposes the AKS Windows signing hook', () => {
+  const appPackage = JSON.parse(
+    fs.readFileSync(path.join(HEADLAMP_SOURCE_DIR, 'app/package.json'), 'utf8')
+  );
+  assert.equal(appPackage.build.win.signtoolOptions.sign, 'windows/sign.js');
+  assert.deepEqual(
+    appPackage.build.win.signtoolOptions.signingHashAlgorithms,
+    ['sha256']
+  );
+  assert.match(
+    fs.readFileSync(
+      path.join(HEADLAMP_SOURCE_DIR, 'app/windows/sign.js'),
+      'utf8'
+    ),
+    /AKSD_ESRP_SIGNER/
+  );
 });
 
 for (const [platform, platformKey] of [

@@ -35,7 +35,7 @@
     "build:unpacked:win:x64": "tsx ./build/package-target.ts --platform=win32 --arch=x64 --unpacked",
     "build:unpacked:win:arm64": "tsx ./build/package-target.ts --platform=win32 --arch=arm64 --unpacked",
     "build:container": "npm run headlamp:assemble && cross-env HEADLAMP_BUILD_MANIFEST=.aks-desktop/product-manifest.json npm --prefix node_modules/@headlamp-k8s/headlamp-source run build:container",
-    "test:build": "node --test build/windows-ci.test.cjs && npm --prefix packages/headlamp-source run test:helpers && tsx --test build/build-target.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/generate-frontend-environment.test.ts build/go-version.test.ts build/install-dependencies.test.ts build/install-headlamp-desktop.test.ts build/install-release-plugins.test.ts build/package-target.test.ts build/nsis-aslr/nsis-packaging.test.ts build/nsis-aslr/nsis-toolset.test.ts build/nsis-aslr/pe-relocations.test.ts build/linux-package-verification.test.ts build/product-manifest-verification.test.ts build/start-development.test.ts build/wait-for-backend.test.ts build/windows-batch.test.ts build/windows-zip-extraction.test.ts test/integration/*.test.ts test/e2e/acr.test.ts test/e2e/acr-recovery.test.ts test/e2e/acr-publication.test.ts test/e2e/acr-permissions.test.ts test/e2e/acr-cleanup.test.ts test/e2e/acr-interruption.test.ts test/e2e/run-azure.test.ts test/e2e/acr-command.test.ts",
+    "test:build": "node --test build/esrp-sign.test.cjs build/windows-ci.test.cjs && npm --prefix packages/headlamp-source run test:helpers && tsx --test build/build-target.test.ts build/az-cli-config.test.ts build/azure-cli-config.test.ts build/azure-cli-verification.test.ts build/generate-frontend-environment.test.ts build/go-version.test.ts build/install-dependencies.test.ts build/install-headlamp-desktop.test.ts build/install-release-plugins.test.ts build/package-target.test.ts build/nsis-aslr/nsis-packaging.test.ts build/nsis-aslr/nsis-toolset.test.ts build/nsis-aslr/pe-relocations.test.ts build/linux-package-verification.test.ts build/product-manifest-verification.test.ts build/start-development.test.ts build/wait-for-backend.test.ts build/windows-batch.test.ts build/windows-zip-extraction.test.ts test/integration/*.test.ts test/e2e/acr.test.ts test/e2e/acr-recovery.test.ts test/e2e/acr-publication.test.ts test/e2e/acr-permissions.test.ts test/e2e/acr-cleanup.test.ts test/e2e/acr-interruption.test.ts test/e2e/run-azure.test.ts test/e2e/acr-command.test.ts",
     "test:e2e:acr:helpers": "tsx --test test/e2e/acr.test.ts test/e2e/acr-recovery.test.ts test/e2e/acr-publication.test.ts test/e2e/acr-permissions.test.ts test/e2e/acr-cleanup.test.ts test/e2e/acr-interruption.test.ts test/e2e/run-azure.test.ts test/e2e/acr-command.test.ts",
     "test:e2e:azure": "tsx test/e2e/run-azure.ts",
     "test:e2e:acr": "npm run test:e2e:azure -- --suite acr",
@@ -814,7 +814,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
-    "integrity": "sha512-x0OG3S6qDaLjSEYxcvpIeBF/snuKoU1qMYY2skjnKnl+9mGqvcNJgrsDx8eW/Bo2jhIbo/SKHki1CMcoZ0Jtwg=="
+    "integrity": "sha512-e78ttKTf5y0brrvF5jvqC2UBEXWBD4els6WRjRV2CD4BLYje/evJ3GpWe0AACQkm0ZqV4l9VNSiER4yVTra+Og=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
