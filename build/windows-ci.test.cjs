@@ -28,7 +28,16 @@ function fixture(t) {
   const pinned = `
     const fs = require('node:fs');
     const args = process.argv.slice(2);
-    fs.appendFileSync(process.env.TRACE, JSON.stringify({ phase: 'pinned', args, cli: process.argv[1], lifecycleCli: process.env.npm_execpath }) + '\\n');
+    fs.appendFileSync(process.env.TRACE, JSON.stringify({
+      phase: 'pinned',
+      args,
+      cli: process.argv[1],
+      lifecycleCli: process.env.npm_execpath,
+      jobToken: process.env.SYSTEM_ACCESSTOKEN,
+      broker: process.env.AKSD_ESRP_BROKER_URL,
+      brokerToken: process.env.AKSD_ESRP_BROKER_TOKEN,
+      signingCli: process.env.AKSD_ESRP_CLI_DLL_PATH,
+    }) + '\\n');
     if (process.env.FAIL_AT === (args[1] || args[0])) process.exit(23);
     if (args[0] === '--version') console.log(process.env.FAKE_VERSION || '12.0.1');
     if (process.env.NESTED_NPM && args[0] === 'run') {
@@ -43,7 +52,14 @@ function fixture(t) {
     const root = args[args.indexOf('--prefix') + 1];
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
     const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
-    fs.appendFileSync(process.env.TRACE, JSON.stringify({ phase: 'bootstrap', args, manifest, lock }) + '\\n');
+    fs.appendFileSync(process.env.TRACE, JSON.stringify({
+      phase: 'bootstrap',
+      args,
+      manifest,
+      lock,
+      jobToken: process.env.SYSTEM_ACCESSTOKEN,
+      signingCli: process.env.AKSD_ESRP_CLI_DLL_PATH,
+    }) + '\\n');
     if (process.env.FAIL_AT === 'bootstrap') process.exit(23);
     const target = path.join(args[args.indexOf('--prefix') + 1], 'node_modules', 'npm', 'bin', 'npm-cli.js');
     if (!process.env.MISSING_CLI) {
@@ -128,6 +144,35 @@ test('nested bare npm commands resolve the pinned CLI rather than the original P
   const result = run({ NESTED_NPM: '1' });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.calls.filter(c => c.args[0] === '--version').length, 5);
+});
+
+test('keeps the Azure job token out of bootstrap and build child environments', t => {
+  const { run } = fixture(t);
+  const result = run({
+    AKSD_ESRP_REQUIRED: 'true',
+    AKSD_ESRP_CLI_DLL_PATH: 'C:\\agent\\esrpcli.dll',
+    SYSTEM_ACCESSTOKEN: 'job-secret',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.calls.some(call => call.jobToken !== undefined), false);
+  assert.equal(result.calls.some(call => call.signingCli !== undefined), false);
+  const commands = result.calls.filter(call => call.phase === 'pinned');
+  assert.ok(commands.length > 0);
+  const packageCommands = commands.filter(
+    call => call.args[0] === 'run' && call.args[1]?.startsWith('build:win')
+  );
+  assert.equal(packageCommands.length, 2);
+  assert.equal(packageCommands.every(call => Boolean(call.brokerToken)), true);
+  assert.equal(
+    packageCommands.every(call => /^http:\/\/127\.0\.0\.1:\d+$/.test(call.broker)),
+    true
+  );
+  assert.equal(
+    commands
+      .filter(call => !packageCommands.includes(call))
+      .every(call => call.brokerToken === undefined),
+    true
+  );
 });
 
 for (const [failAt, expected] of [['ci', 23], ['', 0]]) {

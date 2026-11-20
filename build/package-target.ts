@@ -101,7 +101,7 @@ export function packageEnvironment(
   env: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const project = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
-  return {
+  const buildEnv = {
     ...env,
     APP_VERSION: project.version,
     GOARCH: target.arch === 'x64' ? 'amd64' : target.arch,
@@ -110,9 +110,34 @@ export function packageEnvironment(
     npm_config_arch: target.arch,
     npm_config_platform: target.platform,
     npm_config_target_arch: target.arch,
+    ...(env.AKSD_ESRP_REQUIRED === 'true'
+      ? { HEADLAMP_WINDOWS_SIGNER: path.join(rootDir, 'build', 'esrp-sign.cjs') }
+      : {}),
     ...(target.platform === 'darwin' && !env.CUSTOM_DMGBUILD_PATH
       ? { CUSTOM_DMGBUILD_PATH: path.join(rootDir, 'build', 'dmgbuild-managed-mac.cjs') }
       : {}),
+  };
+  delete buildEnv.AKSD_ESRP_BROKER_URL;
+  delete buildEnv.AKSD_ESRP_BROKER_TOKEN;
+  return buildEnv;
+}
+
+/** Adds broker credentials only to the final Electron Builder process. */
+export function packageSigningEnvironment(
+  buildEnv: NodeJS.ProcessEnv,
+  sourceEnv: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  if (
+    buildEnv.AKSD_ESRP_REQUIRED !== 'true' ||
+    !sourceEnv.AKSD_ESRP_BROKER_URL ||
+    !sourceEnv.AKSD_ESRP_BROKER_TOKEN
+  ) {
+    return buildEnv;
+  }
+  return {
+    ...buildEnv,
+    AKSD_ESRP_BROKER_URL: sourceEnv.AKSD_ESRP_BROKER_URL,
+    AKSD_ESRP_BROKER_TOKEN: sourceEnv.AKSD_ESRP_BROKER_TOKEN,
   };
 }
 
@@ -194,27 +219,32 @@ export function packageTarget(
     }
     runTimedStep('stage backend executable', () => stageBackendExecutable(sourceDir, target.platform));
     runTimedStep('stage external tools', () =>
-      runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir)
+      runStep(['run', 'headlamp:tools', '--', ...targetArgs], rootDir, buildEnv)
     );
     runTimedStep('generate product manifest', () =>
-      runStep(['run', 'headlamp:manifest'], rootDir)
+      runStep(['run', 'headlamp:manifest'], rootDir, buildEnv)
     );
     if (!options.reusePreparedAssets) {
       runTimedStep('install release plugins', () =>
         runStep(['run', 'plugin:install-releases'], rootDir, buildEnv)
       );
       runTimedStep('distribute translations', () =>
-        runStep(['run', 'headlamp:translations'], rootDir)
+        runStep(['run', 'headlamp:translations'], rootDir, buildEnv)
       );
       runTimedStep('bundle plugins', () =>
         runStep(['run', 'plugin:setup'], rootDir, buildEnv)
       );
       runTimedStep('generate frontend environment', () =>
-        runStep(['run', 'headlamp:frontend-env'], rootDir)
+        runStep(['run', 'headlamp:frontend-env'], rootDir, buildEnv)
       );
       runTimedStep('build frontend', () =>
         runStep(['run', 'frontend:build'], sourceDir, buildEnv)
       );
+      runTimedStep('prepare desktop package', () => {
+        runStep(['run', 'copy-icons'], appDir, buildEnv);
+        runStep(['run', 'copy-plugins'], appDir, buildEnv);
+        runStep(['run', 'compile-electron'], appDir, buildEnv);
+      });
     }
     let ownedToolset: string | undefined;
     try {
@@ -230,14 +260,14 @@ export function packageTarget(
         runStep(
           [
             'run',
-            options.unpacked ? 'build' : options.reusePreparedAssets ? 'package:prepared' : 'package',
+            'package:prepared',
             '--',
             ...(options.unpacked
-              ? unpackedArguments(target.platform, target.arch)
+              ? ['--dir', ...unpackedArguments(target.platform, target.arch)]
               : packageArguments(target.platform, target.arch)),
           ],
           appDir,
-          packageEnv
+          packageSigningEnvironment(packageEnv)
         )
       );
       if (target.platform === 'win32' && !options.unpacked) {

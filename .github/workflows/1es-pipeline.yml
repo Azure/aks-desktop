@@ -123,6 +123,39 @@ extends:
                   path: '$(GOCACHE)'
                   cacheHitVar: GO_BUILD_CACHE_HIT
 
+              - task: UseDotNet@2
+                displayName: 'Install .NET for ESRP'
+                inputs:
+                  version: 6.x
+
+              - task: EsrpCodeSigning@6
+                displayName: 'Install ESRP tooling'
+                inputs:
+                  ConnectedServiceName: "ESRP-AME-AZCU"
+                  UseMSIAuthentication: true
+                  AppRegistrationClientId: "70ebf75b-d46f-46da-90e6-1fa654251514"
+                  AppRegistrationTenantId: "33e01921-4d64-4f8c-a055-5bdaffd5e33d"
+                  EsrpClientId: "150f8d2b-ad88-4a27-b782-c9bc3b028430"
+                  ServiceEndpointUrl: 'https://api.esrp.microsoft.com/api/v2'
+                  AuthAKVName: "upstreamci-ado"
+                  AuthSignCertName: 'azcu-ersp-corp'
+                  FolderPath: "."
+                  Pattern: "noop"
+
+              - powershell: |
+                  $taskRoot = Get-ChildItem -Directory -Filter "EsrpCodeSigning_*" "$(Agent.RootDirectory)\_tasks" |
+                    Sort-Object Name |
+                    Select-Object -Last 1
+                  $cli = Get-ChildItem -File -Filter "esrpcli.dll" -Recurse $taskRoot.FullName |
+                    Select-Object -Last 1
+                  if (-not $cli) {
+                    throw "Unable to locate esrpcli.dll under $($taskRoot.FullName)"
+                  }
+                  Write-Host "ESRP CLI: $($cli.FullName)"
+                  Write-Host "##vso[task.setvariable variable=EsrpCliDllPath]$($cli.FullName)"
+                  Write-Host "##vso[task.setvariable variable=EsrpDotNetVersion]$(dotnet --version)"
+                displayName: 'Locate ESRP CLI'
+
               - powershell: |
                   Write-Host "[build-timing] Go module cache result: $(GO_MODULE_CACHE_HIT)"
                   Write-Host "[build-timing] Go build cache result: $(GO_BUILD_CACHE_HIT)"
@@ -139,6 +172,9 @@ extends:
                   git log --oneline -1 || echo "Git not available"
                   echo "=== END CHECKOUT DEBUG ==="
                 displayName: "Debug: Checkout"
+              - bash: |
+                  node --test build/windows-ci.test.cjs
+                displayName: "Test Windows release wrapper"
               # Build the Windows application
               - bash: |
                   set -e  # fail the step when the build fails
@@ -157,7 +193,6 @@ extends:
                   export GOSUMDB="sum.golang.org"
                   export GONOPROXY=""
                   export GOPRIVATE=""
-                  # Clear any proxy environment variables that might interfere
                   unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
 
                   echo "=== GO ENVIRONMENT ==="
@@ -166,8 +201,6 @@ extends:
                   go env | grep -E "GOPROXY|GOSUMDB|PROXY"
                   echo "=== END GO ENVIRONMENT ==="
 
-                  # Keep native npm paths out of Bash PATH and MSYS argument conversion.
-                  node --test build/windows-ci.test.cjs
                   npm run ci:windows
                   echo "✅ Build complete"
 
@@ -178,6 +211,44 @@ extends:
                   ls -la node_modules/@headlamp-k8s/headlamp-source/source/app/dist/ 2>/dev/null || echo "Headlamp app dist not found"
                   echo "=== END POST-BUILD DEBUG ==="
                 displayName: "Build AKS desktop (Windows)"
+                env:
+                  SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+                  AKSD_ESRP_REQUIRED: "true"
+                  AKSD_ESRP_CLI_DLL_PATH: $(EsrpCliDllPath)
+                  AKSD_ESRP_DOTNET_VERSION: $(EsrpDotNetVersion)
+                  AKSD_ESRP_SERVICE_CONNECTION: "ESRP-AME-AZCU"
+                  AKSD_ESRP_APP_REGISTRATION_CLIENT_ID: "70ebf75b-d46f-46da-90e6-1fa654251514"
+                  AKSD_ESRP_TENANT_ID: "33e01921-4d64-4f8c-a055-5bdaffd5e33d"
+                  AKSD_ESRP_CLIENT_ID: "150f8d2b-ad88-4a27-b782-c9bc3b028430"
+                  AKSD_ESRP_AKV_NAME: "upstreamci-ado"
+                  AKSD_ESRP_CERT_NAME: "azcu-ersp-corp"
+
+              - powershell: |
+                  $expected = @(
+                    "AKS desktop.exe",
+                    "headlamp-server.exe",
+                    "elevate.exe"
+                  )
+                  $dist = Join-Path $env:BUILD_SOURCESDIRECTORY "node_modules/@headlamp-k8s/headlamp-source/source/app/dist"
+                  $targets = Get-ChildItem -Path $dist -File -Recurse |
+                    Where-Object { $expected -contains $_.Name }
+                  foreach ($name in $expected) {
+                    if (($targets | Where-Object Name -eq $name).Count -lt 2) {
+                      throw "Expected signed $name in both Windows architecture outputs"
+                    }
+                  }
+                  $installers = Get-ChildItem -Path $dist -File -Filter "aks-desktop-*-win-*.exe"
+                  if ($installers.Count -ne 2) {
+                    throw "Expected exactly two signed Windows installers, found $($installers.Count)"
+                  }
+                  foreach ($file in @($targets) + @($installers)) {
+                    $signature = Get-AuthenticodeSignature -FilePath $file.FullName
+                    if ($signature.Status -ne "Valid") {
+                      throw "Invalid Authenticode signature on $($file.FullName): $($signature.Status)"
+                    }
+                    Write-Host "Valid signature: $($file.FullName)"
+                  }
+                displayName: 'Verify embedded executables and installers are signed'
 
               # Find and copy the built executable to workspace dir
               - bash: |
@@ -253,7 +324,7 @@ extends:
                   echo "=== SIGNING DEBUG END ==="
                 displayName: "Debug: Pre-Signing"
               - task: EsrpCodeSigning@6
-                displayName: "ESRP CodeSigning"
+                displayName: "Verify final installer signature"
                 condition: succeeded()
                 inputs:
                   ConnectedServiceName: "ESRP-AME-AZCU"
@@ -271,21 +342,10 @@ extends:
                     [
                       {
                           "KeyCode" : "CP-231522",
-                          "OperationCode" : "SigntoolSign",
-                          "Parameters" : {
-                              "OpusName" : "Microsoft",
-                              "OpusInfo" : "http://www.microsoft.com",
-                              "FileDigest" : "/fd \"SHA256\"",
-                              "PageHash" : "/NPH",
-                              "TimeStamp" : "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
-                          },
-                          "ToolName" : "sign",
-                          "ToolVersion" : "1.0"
-                      },
-                      {
-                          "KeyCode" : "CP-231522",
                           "OperationCode" : "SigntoolVerify",
-                          "Parameters" : {},
+                          "Parameters" : {
+                              "VerifyAll" : "/all"
+                          },
                           "ToolName" : "sign",
                           "ToolVersion" : "1.0"
                       }

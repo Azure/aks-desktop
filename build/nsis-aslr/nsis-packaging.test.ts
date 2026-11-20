@@ -101,16 +101,9 @@ for (const mode of [
           assert.deepEqual(fs.readdirSync(owned), []);
           assert.equal(cwd, root);
           if (mode === 'prepare-error') throw new Error('prepare failed');
-        } else if (['package', 'package:prepared', 'build'].includes(args[1])) {
+        } else if (args[1] === 'package:prepared') {
           assert.equal(cwd, app);
-          assert.equal(
-            args[1],
-            mode === 'unpacked'
-              ? 'build'
-              : mode === 'prepared'
-              ? 'package:prepared'
-              : 'package'
-          );
+          assert.equal(args.includes('--dir'), mode === 'unpacked');
           assert.equal(
             env?.ELECTRON_BUILDER_NSIS_DIR,
             mode === 'override'

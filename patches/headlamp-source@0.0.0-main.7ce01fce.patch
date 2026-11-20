@@ -6537,6 +6537,22 @@ index 7a6ce832755838335ed56c52dcad7909cfae047b..52a524da572e1c340768114adc3b850f
        writeSecureStorageFile(this.storagePath, data);
        return { success: true };
      } catch {
+diff --git a/source/app/package.json b/source/app/package.json
+index 59a05f49c2d7b60d827f261854e611d928bd9d97..1ad0b22c2d4f6e8e23eb6bac02c3546b74ed5b32 100644
+--- a/source/app/package.json
++++ b/source/app/package.json
+@@ -135,7 +135,10 @@
+         "nsis"
+       ],
+       "signtoolOptions": {
+-        "sign": "windows/sign.js"
++        "sign": "windows/sign.js",
++        "signingHashAlgorithms": [
++          "sha256"
++        ]
+       },
+       "extraResources": [
+         {
 diff --git a/source/app/scripts/build-manifest.ts b/source/app/scripts/build-manifest.ts
 index bd9265880250829f5fd7d556b33fa16b9827c4a2..a8c3ac66d4574dd51237b9b80c2f9634c34bfb59 100644
 --- a/source/app/scripts/build-manifest.ts
@@ -6681,6 +6697,23 @@ index 7823255a10bbddc926f215dce27a80731937be5d..3b6e5175a432e1180c4e1c616c75a401
    if (
      metadata.protocols !== undefined &&
      (!metadata.protocols ||
+diff --git a/source/app/windows/sign.js b/source/app/windows/sign.js
+index 989b570d98e20bcddc6dcc1472c4d4476a15b038..e4cbf20c04f0122bd157b5fbc3a31aa751e2984e 100644
+--- a/source/app/windows/sign.js
++++ b/source/app/windows/sign.js
+@@ -1,6 +1,12 @@
+ const { sign, SIGN_OPS } = require('../scripts/esrp');
+ 
+ exports.default = async function (configuration) {
++  const consumerSigner = process.env.HEADLAMP_WINDOWS_SIGNER;
++  if (consumerSigner) {
++    await require(consumerSigner).sign(configuration.path);
++    return;
++  }
++
+   const esrpTool = process.env.ESRP_PATH;
+   if (!esrpTool) {
+     // Ignore if the signing tool is not available.
 diff --git a/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md b/source/docs/development/api/interfaces/plugin_registry.ClusterPreOpenContext.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..7860e0a2846b6e3f4eeedc8330f780b065f6620f
