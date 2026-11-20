@@ -229,7 +229,7 @@ extends:
                     "headlamp-server.exe",
                     "elevate.exe"
                   )
-                  $dist = Join-Path $env:GITHUB_WORKSPACE "node_modules/@headlamp-k8s/headlamp-source/source/app/dist"
+                  $dist = Join-Path $env:BUILD_SOURCESDIRECTORY "node_modules/@headlamp-k8s/headlamp-source/source/app/dist"
                   $targets = Get-ChildItem -Path $dist -File -Recurse |
                     Where-Object { $expected -contains $_.Name }
                   foreach ($name in $expected) {

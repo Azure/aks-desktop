@@ -594,6 +594,14 @@ test('Windows 1ES signs first-party binaries before NSIS packaging', () => {
     /SYSTEM_ACCESSTOKEN: \$\(System.AccessToken\)/
   );
   assert.match(
+    workflow.slice(build, verification),
+    /\$env:BUILD_SOURCESDIRECTORY/
+  );
+  assert.doesNotMatch(
+    workflow.slice(build, verification),
+    /GITHUB_WORKSPACE/
+  );
+  assert.match(
     workflow.slice(verification),
     /"OperationCode" : "SigntoolVerify"/
   );
