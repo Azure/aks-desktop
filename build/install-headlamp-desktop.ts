@@ -168,6 +168,27 @@ export function headlampDependencyCacheInputs(
   };
 }
 
+/** Publishes the exact cache key and dependency paths consumed by GitHub Actions. */
+export function writeHeadlampDependencyCacheInputs(
+  sourceDir: string,
+  rootDir: string,
+  env: NodeJS.ProcessEnv = process.env
+): void {
+  const output = env.GITHUB_OUTPUT;
+  if (!output) throw new Error('Cache inputs require GITHUB_OUTPUT.');
+  const policy = env.HEADLAMP_CACHE_POLICY;
+  if (!policy || !/^[a-f0-9]{64}$/i.test(policy)) {
+    throw new Error('Cache inputs require a HEADLAMP_CACHE_POLICY fingerprint.');
+  }
+  const { key, paths } = headlampDependencyCacheInputs(sourceDir, rootDir, env);
+  const primaryKey =
+    `headlamp-desktop-deps-v1-${process.platform}-${process.arch}-${process.version}-npm-${activeNpmVersion(env)}-${policy}-${key}`;
+  fs.appendFileSync(
+    output,
+    `key=${primaryKey}\npaths<<HEADLAMP_DEPENDENCIES\n${paths.join('\n')}\nHEADLAMP_DEPENDENCIES\n`
+  );
+}
+
 /** Discards both restored trees without touching source files or other dependency groups. */
 export function discardHeadlampDependencyCache(sourceDir: string, rootDir: string): void {
   const source: string = resolveWithin(rootDir, path.relative(rootDir, sourceDir), 'Headlamp source');
@@ -288,18 +309,7 @@ export function installHeadlampDesktopDependencies(
 if (require.main === module) {
   const { sourceDir } = resolveInstalledHeadlampPaths(ROOT_DIR);
   if (process.argv.includes('--cache-inputs')) {
-    if (!process.env.GITHUB_OUTPUT) throw new Error('Cache inputs require GITHUB_OUTPUT.');
-    const policy = process.env.HEADLAMP_CACHE_POLICY;
-    if (!policy || !/^[a-f0-9]{64}$/i.test(policy)) {
-      throw new Error('Cache inputs require a HEADLAMP_CACHE_POLICY fingerprint.');
-    }
-    const { key, paths } = headlampDependencyCacheInputs(sourceDir, ROOT_DIR);
-    const primaryKey =
-      `headlamp-desktop-deps-v1-${process.platform}-${process.arch}-${process.version}-npm-${activeNpmVersion(process.env)}-${policy}-${key}`;
-    fs.appendFileSync(
-      process.env.GITHUB_OUTPUT,
-      `key=${primaryKey}\npaths<<HEADLAMP_DEPENDENCIES\n${paths.join('\n')}\nHEADLAMP_DEPENDENCIES\n`
-    );
+    writeHeadlampDependencyCacheInputs(sourceDir, ROOT_DIR);
   } else if (process.argv.includes('--discard-cache')) {
     discardHeadlampDependencyCache(sourceDir, ROOT_DIR);
   } else if (process.argv.includes('--verify-cache')) {

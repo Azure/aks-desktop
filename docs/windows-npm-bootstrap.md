@@ -125,6 +125,9 @@ installation mode, and cache-policy helpers. Root npm script definitions and the
 install/timing helpers are execution-policy inputs; unrelated AKS product
 metadata does not invalidate this cache. Source, patch, dependency, runtime,
 script, or configuration changes do invalidate it.
+The cache-input command requires `GITHUB_OUTPUT` and a 64-character hexadecimal
+policy fingerprint, then appends the complete key and multiline paths used
+unchanged by restore and save.
 
 Unless restoration confirms an exact hit, both trees are discarded. Even on a
 hit, both clean-install markers and their installation context must match before

@@ -13,6 +13,7 @@ import {
   HEADLAMP_DESKTOP_INSTALL_STEPS,
   installHeadlampDesktopDependencies,
   verifyHeadlampDependencyCache,
+  writeHeadlampDependencyCacheInputs,
 } from './install-headlamp-desktop';
 
 function desktopCacheFixture(t: TestContext) {
@@ -188,6 +189,56 @@ test('Headlamp cache keys ignore unrelated consumer product metadata', t => {
     'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules',
     'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules',
   ]);
+});
+
+test('Headlamp cache output requires a GitHub output path', t => {
+  const fixture = desktopCacheFixture(t);
+  for (const output of [undefined, '']) {
+    assert.throws(
+      () => writeHeadlampDependencyCacheInputs(fixture.sourceDir, fixture.rootDir, {
+        ...fixture.env, GITHUB_OUTPUT: output, HEADLAMP_CACHE_POLICY: 'a'.repeat(64),
+      }),
+      /require GITHUB_OUTPUT/
+    );
+  }
+});
+
+test('Headlamp cache output rejects invalid policies without writing output', t => {
+  const fixture = desktopCacheFixture(t);
+  const output = path.join(fixture.rootDir, 'github-output');
+  fs.writeFileSync(output, 'existing=value\n');
+  for (const policy of [
+    undefined, '', 'a'.repeat(63), 'a'.repeat(65), 'z'.repeat(64),
+    `${'a'.repeat(64)}\n`, `${'a'.repeat(64)}\nkey=injected`,
+  ]) {
+    assert.throws(
+      () => writeHeadlampDependencyCacheInputs(fixture.sourceDir, fixture.rootDir, {
+        ...fixture.env, GITHUB_OUTPUT: output, HEADLAMP_CACHE_POLICY: policy,
+      }),
+      /HEADLAMP_CACHE_POLICY/
+    );
+    assert.equal(fs.readFileSync(output, 'utf8'), 'existing=value\n');
+  }
+});
+
+test('Headlamp cache output appends the complete key and multiline paths', t => {
+  const fixture = desktopCacheFixture(t);
+  const output = path.join(fixture.rootDir, 'github-output');
+  const policy = 'ab'.repeat(32);
+  const { key } = headlampDependencyCacheInputs(fixture.sourceDir, fixture.rootDir, fixture.env);
+  fs.writeFileSync(output, 'existing=value\n');
+
+  writeHeadlampDependencyCacheInputs(fixture.sourceDir, fixture.rootDir, {
+    ...fixture.env, GITHUB_OUTPUT: output, HEADLAMP_CACHE_POLICY: policy,
+  });
+
+  assert.equal(fs.readFileSync(output, 'utf8'),
+    `existing=value\nkey=headlamp-desktop-deps-v1-${process.platform}-${process.arch}-${process.version}-npm-12.0.1-${policy}-${key}\n` +
+    'paths<<HEADLAMP_DEPENDENCIES\n' +
+    'node_modules/@headlamp-k8s/headlamp-source/source/frontend/node_modules\n' +
+    'node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules\n' +
+    'HEADLAMP_DEPENDENCIES\n'
+  );
 });
 
 test('Headlamp cache reuse remains opt-in even when both trees are valid', t => {
