@@ -206,7 +206,12 @@ function esrpArguments(filePath, serviceConnectionId, env = process.env) {
   };
 }
 
-function runEsrp(filePath, serviceConnectionId, env = process.env) {
+function runEsrp(
+  filePath,
+  serviceConnectionId,
+  env = process.env,
+  spawn = childProcess.spawn
+) {
   const { args, temporary } = esrpArguments(
     filePath,
     serviceConnectionId,
@@ -216,7 +221,7 @@ function runEsrp(filePath, serviceConnectionId, env = process.env) {
   delete childEnv.SYSTEM_ACCESSTOKEN;
   delete childEnv.ENDPOINT_AUTH_SYSTEMVSSCONNECTION;
   delete childEnv.ENDPOINT_AUTH_PARAMETER_SYSTEMVSSCONNECTION_ACCESSTOKEN;
-  const child = childProcess.spawn('dotnet', args, {
+  const child = spawn('dotnet', args, {
     env: childEnv,
     stdio: ['pipe', 'inherit', 'inherit'],
   });
