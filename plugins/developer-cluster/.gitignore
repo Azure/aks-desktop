@@ -1,0 +1,24 @@
+# Build and package output
+node_modules/
+dist/
+coverage/
+.eslintcache
+*.tar.gz
+
+# The CLI is never part of this repository or the plugin archive
+bin/
+*.exe
+*.dll
+*.zip
+
+# Kubeconfigs, credentials and raw command output must never be committed
+*.kubeconfig
+kubeconfig
+kubeconfig.*
+*.pem
+*.key
+*.pfx
+*.p12
+.env
+.env.*
+*.log

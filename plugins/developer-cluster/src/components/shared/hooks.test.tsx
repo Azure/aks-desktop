@@ -1,0 +1,108 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the Apache 2.0.
+
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiServerReady } from '../../native/apiServerProbe';
+import { finishedOverviewRefreshes, refreshOverview } from '../../workflow/setup';
+import { update } from '../../workflow/store';
+import { STATUS_RETRY_MS, useApiServerStatus, useOverviewRefresh, useWorkflow } from './hooks';
+
+vi.mock('../../native/apiServerProbe', () => ({ apiServerReady: vi.fn() }));
+
+vi.mock('../../workflow/setup', () => ({
+  finishedOverviewRefreshes: vi.fn(),
+  refreshOverview: vi.fn(),
+}));
+
+/** Opens Overview: the hook with the rendered workflow state. */
+function openOverview() {
+  return renderHook(() => useOverviewRefresh(useWorkflow().busy));
+}
+
+describe('useOverviewRefresh', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(finishedOverviewRefreshes).mockReturnValue(3);
+    update({ busy: false });
+  });
+
+  it('refreshes once when Overview opens with no operation running', () => {
+    const { rerender } = openOverview();
+    act(() => update({ busy: true }));
+    act(() => update({ busy: false }));
+    rerender();
+
+    expect(refreshOverview).toHaveBeenCalledOnce();
+  });
+
+  it('refreshes once the operation running when Overview opened ends', () => {
+    update({ busy: true });
+    openOverview();
+    expect(refreshOverview).not.toHaveBeenCalled();
+
+    act(() => update({ busy: false }));
+    act(() => update({ busy: true }));
+    act(() => update({ busy: false }));
+
+    expect(refreshOverview).toHaveBeenCalledOnce();
+  });
+
+  it('skips its refresh when an Overview refresh finished while it waited', () => {
+    update({ busy: true });
+    openOverview();
+
+    // A failed Delete refreshes Overview itself before the workflow is idle again.
+    vi.mocked(finishedOverviewRefreshes).mockReturnValue(4);
+    act(() => update({ busy: false }));
+
+    expect(refreshOverview).not.toHaveBeenCalled();
+  });
+});
+
+describe('useApiServerStatus', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Lets pending probes settle, then advances the clock by `ms`. */
+  async function wait(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  it('probes again until the API server answers, then stops', async () => {
+    vi.mocked(apiServerReady)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+    const { result } = renderHook(() => useApiServerStatus('dev-cluster'));
+    await wait(0);
+    expect(result.current).toBe('unreachable');
+
+    await wait(STATUS_RETRY_MS);
+    expect(result.current).toBe('unreachable');
+    await wait(STATUS_RETRY_MS);
+    expect(result.current).toBe('active');
+
+    await wait(STATUS_RETRY_MS * 3);
+    expect(apiServerReady).toHaveBeenCalledTimes(3);
+    expect(apiServerReady).toHaveBeenCalledWith('dev-cluster');
+  });
+
+  it('stops probing when Overview closes', async () => {
+    vi.mocked(apiServerReady).mockResolvedValue(false);
+    const { unmount } = renderHook(() => useApiServerStatus('dev-cluster'));
+    await wait(0);
+    unmount();
+
+    await wait(STATUS_RETRY_MS * 3);
+    expect(apiServerReady).toHaveBeenCalledOnce();
+  });
+});
