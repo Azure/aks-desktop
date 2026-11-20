@@ -62,7 +62,7 @@ test('Windows builds cache installed plugin trees separately by architecture and
   const sharedCache = workflowStep(action, 'Cache Windows plugin dependencies');
   assert.match(sharedCache, /uses: actions\/cache@[a-f0-9]{40}/);
   assert.match(sharedCache, /key: windows-plugin-deps-v3-\$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-node-\$\{\{ inputs\.node-version \}\}-/);
-  assert.match(sharedCache, /hashFiles\('package\.json', '\.npmrc', 'build\/install-dependencies\.ts'/);
+  assert.match(sharedCache, /hashFiles\('package\.json', '\.npmrc', '\.config\/npm\/package\*\.json', 'build\/install-dependencies\.ts'/);
   assert.ok(sharedCache.includes(`'${CACHE_ACTION}/action.yml'`));
   assert.ok(sharedCache.includes("'packages/headlamp-source/src/lib/bundle-plugins.ts'"));
   for (const plugin of ['aks-desktop', 'aks-desktop-theme', 'plugin-catalog']) {

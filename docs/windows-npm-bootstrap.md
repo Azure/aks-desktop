@@ -73,6 +73,9 @@ lockfiles, npm configuration, and installation helper. There are no fallback
 restore keys. The npm download-cache key also includes the pinned bootstrap npm
 lockfile, so npm upgrades can populate a new cache rather than repeatedly missing
 from an already immutable cache entry.
+The installed-tree key also hashes both `.config/npm/package.json` and
+`.config/npm/package-lock.json`, so changing the pinned npm toolchain requires a
+fresh installed-plugin cache rather than trusting older dependency markers.
 Unless restoration reports an exact cache hit, all three installed plugin trees
 are discarded before installation or bundling can reuse them. This also handles
 partial extraction that restored valid markers and lockfiles but missed packages.
