@@ -5,6 +5,7 @@
 
 const assert = require('node:assert/strict');
 const childProcess = require('node:child_process');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
@@ -17,6 +18,8 @@ const FIRST_PARTY_PATTERNS = [
   /__uninstaller(?:-nsis-[^.]+)?\.exe$/i,
   /^aks-desktop-.+-win-(?:x64|arm64)\.exe$/i,
 ];
+const ELEVATE_SHA256 =
+  '9b1fbf0c11c520ae714af8aa9af12cfd48503eedecd7398d8992ee94d1b4dc37';
 let serviceConnectionIdPromise;
 
 function requireEnvironment(name) {
@@ -32,25 +35,43 @@ function isFirstPartyExecutable(filePath) {
   return FIRST_PARTY_PATTERNS.some(pattern => pattern.test(basename));
 }
 
-function allowedSigningTarget(file, outputRoot) {
+function allowedSigningTarget(
+  file,
+  outputRoot,
+  elevateSha256 = ELEVATE_SHA256
+) {
   const realRoot = fs.realpathSync(outputRoot);
   const originalStat = fs.lstatSync(file);
-  if (!originalStat.isFile()) return false;
+  if (!originalStat.isFile() || originalStat.nlink !== 1) return false;
   const realFile = fs.realpathSync(file);
   const relative = path.relative(realRoot, realFile);
-  if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`)) return false;
-  const normalized = relative.split(path.sep).join('/');
+  const insideOutput =
+    relative !== '' &&
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`);
+  const normalized = insideOutput
+    ? relative.split(path.sep).join('/')
+    : undefined;
   if (
-    !isFirstPartyExecutable(normalized) ||
-    !(
+    normalized &&
+    isFirstPartyExecutable(normalized) &&
+    (
       /^(?:win-[^/]+\/)?AKS desktop\.exe$/i.test(normalized) ||
       /^(?:win-[^/]+\/)?resources\/headlamp-server\.exe$/i.test(normalized) ||
       /^(?:win-[^/]+\/)?resources\/elevate\.exe$/i.test(normalized) ||
-      /^aks-desktop-.+__uninstaller(?:-nsis-[^.]+)?\.exe$/i.test(normalized) ||
-      /^aks-desktop-.+-win-(?:x64|arm64)\.exe$/i.test(normalized)
+      /^aks-desktop-[^/]+__uninstaller(?:-nsis-[^/.]+)?\.exe$/i.test(normalized) ||
+      /^aks-desktop-[^/]+-win-(?:x64|arm64)\.exe$/i.test(normalized)
     )
-  ) return false;
-  return realFile;
+  ) return realFile;
+  const parent = path.basename(path.dirname(realFile));
+  const staging = path.basename(path.dirname(path.dirname(realFile)));
+  if (
+    path.basename(realFile).toLowerCase() === 'elevate.exe' &&
+    parent === 'resources' &&
+    /^elevate-staging-/.test(staging) &&
+    createHash('sha256').update(fs.readFileSync(realFile)).digest('hex') === elevateSha256
+  ) return realFile;
+  return false;
 }
 
 async function resolveServiceConnectionId(

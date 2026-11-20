@@ -6,8 +6,10 @@
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
 const test = require('node:test');
+const { createSigningBroker } = require('./esrp-sign-broker.cjs');
 const {
   allowedSigningTarget,
   esrpArguments,
@@ -90,6 +92,32 @@ test('allows only canonical files in known Windows output locations', t => {
   fs.mkdirSync(path.dirname(wrongDirectory));
   fs.writeFileSync(wrongDirectory, 'fixture');
   assert.equal(allowedSigningTarget(wrongDirectory, root), false);
+  const nestedInstaller = path.join(
+    root,
+    'nested',
+    'aks-desktop-1.2.3-win-x64.exe'
+  );
+  fs.mkdirSync(path.dirname(nestedInstaller));
+  fs.writeFileSync(nestedInstaller, 'fixture');
+  assert.equal(allowedSigningTarget(nestedInstaller, root), false);
+});
+
+test('allows only the checksum-pinned staged elevation helper', t => {
+  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'sign elevate-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const helper = path.join(root, 'elevate-staging-123', 'resources', 'elevate.exe');
+  fs.mkdirSync(path.dirname(helper), { recursive: true });
+  fs.writeFileSync(helper, 'fixture');
+  fs.mkdirSync(path.join(root, 'dist'));
+  const digest = require('node:crypto')
+    .createHash('sha256')
+    .update('fixture')
+    .digest('hex');
+  assert.equal(
+    allowedSigningTarget(helper, path.join(root, 'dist'), digest),
+    fs.realpathSync(helper)
+  );
+  assert.equal(allowedSigningTarget(helper, path.join(root, 'dist')), false);
 });
 
 test('rejects linked signing targets', { skip: process.platform === 'win32' }, t => {
@@ -101,6 +129,18 @@ test('rejects linked signing targets', { skip: process.platform === 'win32' }, t
   const linked = path.join(directory, 'AKS desktop.exe');
   fs.writeFileSync(source, 'fixture');
   fs.symlinkSync(source, linked);
+  assert.equal(allowedSigningTarget(linked, root), false);
+});
+
+test('rejects hard-linked signing targets', { skip: process.platform === 'win32' }, t => {
+  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'sign link-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const directory = path.join(root, 'win-unpacked');
+  fs.mkdirSync(directory);
+  const source = path.join(root, 'source.exe');
+  const linked = path.join(directory, 'AKS desktop.exe');
+  fs.writeFileSync(source, 'fixture');
+  fs.linkSync(source, linked);
   assert.equal(allowedSigningTarget(linked, root), false);
 });
 
@@ -221,6 +261,105 @@ test('rejects nonzero ESRP process exits', async () => {
     runEsrp('/work/AKS desktop.exe', 'service-connection-id', signingEnvironment, spawn),
     /ESRP signing failed.*\(23\)/
   );
+});
+
+function request(port, options, body) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, ...options }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => resolve({
+        status: response.statusCode,
+        body: Buffer.concat(chunks).toString('utf8'),
+      }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+test('broker authenticates routes and validates targets before signing', async t => {
+  const signed = [];
+  const server = createSigningBroker({
+    secret: 'secret',
+    outputRoot: '/output',
+    validateTarget: file => file === '/output/AKS desktop.exe' && file,
+    signer: async file => signed.push(file),
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const port = server.address().port;
+  const validBody = JSON.stringify({ file: '/output/AKS desktop.exe' });
+  assert.equal((await request(port, {
+    method: 'GET',
+    path: '/sign',
+    headers: { authorization: 'Bearer secret' },
+  })).status, 404);
+  assert.equal((await request(port, {
+    method: 'POST',
+    path: '/other',
+    headers: { authorization: 'Bearer secret' },
+  }, validBody)).status, 404);
+  assert.equal((await request(port, {
+    method: 'POST',
+    path: '/sign',
+  }, validBody)).status, 401);
+  assert.equal((await request(port, {
+    method: 'POST',
+    path: '/sign',
+    headers: { authorization: 'Bearer secret' },
+  }, JSON.stringify({ file: '/tmp/AKS desktop.exe' }))).status, 400);
+  assert.equal((await request(port, {
+    method: 'POST',
+    path: '/sign',
+    headers: { authorization: 'Bearer secret' },
+  }, '{')).status, 400);
+  assert.deepEqual(signed, []);
+  assert.equal((await request(port, {
+    method: 'POST',
+    path: '/sign',
+    headers: { authorization: 'Bearer secret' },
+  }, validBody)).status, 204);
+  assert.deepEqual(signed, ['/output/AKS desktop.exe']);
+});
+
+test('signing client sends broker headers and body and surfaces errors', async t => {
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    const chunks = [];
+    request.on('data', chunk => chunks.push(chunk));
+    request.on('end', () => {
+      requests.push({
+        authorization: request.headers.authorization,
+        method: request.method,
+        body: JSON.parse(Buffer.concat(chunks)),
+      });
+      if (requests.length === 1) {
+        response.writeHead(503, { 'content-type': 'text/plain' });
+        response.end('unavailable');
+      } else {
+        response.writeHead(204);
+        response.end();
+      }
+    });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const prior = { ...process.env };
+  process.env.AKSD_ESRP_BROKER_URL = `http://127.0.0.1:${server.address().port}`;
+  process.env.AKSD_ESRP_BROKER_TOKEN = 'broker-secret';
+  t.after(() => Object.assign(process.env, prior));
+
+  await assert.rejects(
+    sign('/work/AKS desktop.exe'),
+    /Signing broker rejected.*503 unavailable/
+  );
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].authorization, 'Bearer broker-secret');
+  assert.equal(requests[0].method, 'POST');
+  assert.equal(requests[0].body.file, path.resolve('/work/AKS desktop.exe'));
+  await sign('/work/AKS desktop.exe');
+  assert.equal(requests.length, 2);
 });
 
 test('delivers the job token only through stdin and cleans up after success', async () => {
