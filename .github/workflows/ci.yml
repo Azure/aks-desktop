@@ -145,6 +145,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
+          cache-dependency-path: |
+            .config/npm/package-lock.json
+            package-lock.json
+            plugins/*/package-lock.json
 
       - name: Resolve Headlamp Go version
         id: go-version
@@ -172,8 +176,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Join-Path $env:GITHUB_WORKSPACE '.config/npm/node_modules/.bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      - name: Cache Windows plugin dependencies
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/cache-windows-plugin-dependencies
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       - name: Install dependencies
-        run: npm ci
+        env:
+          HEADLAMP_DEFER_DESKTOP_INSTALL: ${{ runner.os == 'Windows' && 'true' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Restore and install Headlamp dependencies
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/cache-headlamp-dependencies
 
       - name: Test platform build helpers
         run: >-
@@ -191,6 +207,9 @@ jobs:
           test/e2e/acr-cleanup.test.ts
           test/e2e/run-azure.test.ts
           test/e2e/acr-interruption.test.ts
+
+      - name: Verify Headlamp patch contracts
+        run: npm run test:headlamp-patches
 
       - name: Build application for host platform
         run: npm run build
@@ -223,11 +242,6 @@ jobs:
           path: node_modules/@headlamp-k8s/headlamp-source/source/app/dist/aks-desktop-*-win-arm64.exe
           if-no-files-found: error
           retention-days: 7
-
-      - name: Reinstall after application assembly
-        run: |
-          npm ci --no-audit --no-fund
-          npm run test:headlamp-patches
 
   find_changed_plugins:
     name: Find changed plugins

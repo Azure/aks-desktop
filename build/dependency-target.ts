@@ -70,6 +70,11 @@ export function writeDependencyTarget(
   );
 }
 
+/** Invalidates the completed-install record before dependencies are discarded or replaced. */
+export function clearDependencyTarget(rootDir: string): void {
+  fs.rmSync(path.join(rootDir, DEPENDENCY_TARGET_RECORD), { force: true });
+}
+
 /** Checks whether installed Headlamp dependencies match a package target. */
 export function dependencyTargetMatches(rootDir: string, target: DependencyTarget): boolean {
   try {

@@ -65,6 +65,40 @@ test('the installed package is a complete pinned source distribution', () => {
   }
 });
 
+test('installed activity resize callbacks tolerate a torn-down window', () => {
+  const activityModule = path.join(
+    HEADLAMP_SOURCE_DIR, 'frontend/src/components/activity/activitySlice.tsx'
+  );
+  const result = spawnSync(process.execPath, ['--import', 'tsx', '--eval', `
+    const assert = require('node:assert/strict');
+    const { mock } = require('node:test');
+    const { activitySlice } = require(${JSON.stringify(activityModule)});
+    const callbacks = [];
+    mock.method(globalThis, 'setTimeout', callback => callbacks.push(callback));
+    const flush = () => callbacks.splice(0).forEach(callback => callback());
+    const browserWindow = new EventTarget();
+    Object.defineProperty(browserWindow, 'innerWidth', { value: 1920 });
+    globalThis.window = browserWindow;
+    let resized = 0;
+    browserWindow.addEventListener('resize', () => resized++);
+    const activity = { id: 'resize', content: null, location: 'split-right' };
+    const { actions, reducer } = activitySlice;
+    let state = reducer(undefined, actions.launchActivity(activity));
+    flush();
+    assert.equal(resized, 1);
+    state = reducer(state, actions.update({ id: activity.id, title: 'Updated' }));
+    flush();
+    assert.equal(resized, 2);
+    state = reducer(state, actions.launchActivity(activity));
+    reducer(state, actions.update({ id: activity.id, minimized: true }));
+    delete globalThis.window;
+    assert.doesNotThrow(flush);
+    assert.equal(resized, 2);
+  `], { cwd: ROOT_DIR, encoding: 'utf8' });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test('upstream Headlamp source is materialized instead of tracked', () => {
   const result = spawnSync(
     'git',

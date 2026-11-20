@@ -10,6 +10,9 @@ updates:
     schedule:
       interval: 'weekly'
   - package-ecosystem: 'github-actions'
-    directory: '/'
+    directories:
+      - '/'
+      - '/.github/actions/cache-windows-plugin-dependencies'
+      - '/.github/actions/cache-headlamp-dependencies'
     schedule:
       interval: 'weekly'
