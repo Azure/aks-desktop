@@ -12,6 +12,7 @@ const test = require('node:test');
 const { createSigningBroker } = require('./esrp-sign-broker.cjs');
 const {
   allowedSigningTarget,
+  elevateSha256,
   esrpArguments,
   isFirstPartyExecutable,
   resolveServiceConnectionId,
@@ -118,6 +119,16 @@ test('allows only the checksum-pinned staged elevation helper', t => {
     fs.realpathSync(helper)
   );
   assert.equal(allowedSigningTarget(helper, path.join(root, 'dist')), false);
+});
+
+test('reads the elevation helper digest from the NSIS inventory', () => {
+  assert.equal(
+    elevateSha256(),
+    fs.readFileSync(
+      path.join(__dirname, 'nsis-aslr', 'stock-bundle.sha256'),
+      'utf8'
+    ).match(/^([a-f0-9]{64}) {2}elevate\.exe$/m)[1]
+  );
 });
 
 test('rejects linked signing targets', { skip: process.platform === 'win32' }, t => {
@@ -279,17 +290,24 @@ function request(port, options, body) {
 }
 
 test('broker authenticates routes and validates targets before signing', async t => {
+  const outputRoot = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'broker output-'));
+  t.after(() => fs.rmSync(outputRoot, { recursive: true, force: true }));
+  const target = path.join(outputRoot, 'AKS desktop.exe');
+  fs.writeFileSync(target, 'unsigned');
   const signed = [];
   const server = createSigningBroker({
     secret: 'secret',
-    outputRoot: '/output',
-    validateTarget: file => file === '/output/AKS desktop.exe' && file,
-    signer: async file => signed.push(file),
+    outputRoot,
+    validateTarget: file => file === target && file,
+    signer: async file => {
+      signed.push(file);
+      fs.appendFileSync(file, ':signed');
+    },
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => server.close());
   const port = server.address().port;
-  const validBody = JSON.stringify({ file: '/output/AKS desktop.exe' });
+  const validBody = JSON.stringify({ file: target });
   assert.equal((await request(port, {
     method: 'GET',
     path: '/sign',
@@ -320,7 +338,34 @@ test('broker authenticates routes and validates targets before signing', async t
     path: '/sign',
     headers: { authorization: 'Bearer secret' },
   }, validBody)).status, 204);
-  assert.deepEqual(signed, ['/output/AKS desktop.exe']);
+  assert.equal(signed.length, 1);
+  assert.notEqual(signed[0], target);
+  assert.equal(fs.readFileSync(target, 'utf8'), 'unsigned:signed');
+});
+
+test('broker never signs replacement bytes after target validation', async t => {
+  const outputRoot = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'broker race-'));
+  t.after(() => fs.rmSync(outputRoot, { recursive: true, force: true }));
+  const target = path.join(outputRoot, 'AKS desktop.exe');
+  fs.writeFileSync(target, 'validated');
+  const server = createSigningBroker({
+    secret: 'secret',
+    outputRoot,
+    validateTarget: file => file === target && file,
+    signer: async file => {
+      assert.equal(fs.readFileSync(file, 'utf8'), 'validated');
+      fs.writeFileSync(target, 'replacement');
+      fs.appendFileSync(file, ':signed');
+    },
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  assert.equal((await request(server.address().port, {
+    method: 'POST',
+    path: '/sign',
+    headers: { authorization: 'Bearer secret' },
+  }, JSON.stringify({ file: target }))).status, 204);
+  assert.equal(fs.readFileSync(target, 'utf8'), 'validated:signed');
 });
 
 test('signing client sends broker headers and body and surfaces errors', async t => {

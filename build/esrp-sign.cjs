@@ -18,9 +18,20 @@ const FIRST_PARTY_PATTERNS = [
   /__uninstaller(?:-nsis-[^.]+)?\.exe$/i,
   /^aks-desktop-.+-win-(?:x64|arm64)\.exe$/i,
 ];
-const ELEVATE_SHA256 =
-  '9b1fbf0c11c520ae714af8aa9af12cfd48503eedecd7398d8992ee94d1b4dc37';
 let serviceConnectionIdPromise;
+
+function elevateSha256(manifestPath = path.join(
+  __dirname,
+  'nsis-aslr',
+  'stock-bundle.sha256'
+)) {
+  const line = fs.readFileSync(manifestPath, 'utf8')
+    .split(/\r?\n/)
+    .find(value => / {2}elevate\.exe$/.test(value));
+  const match = /^([a-f0-9]{64}) {2}elevate\.exe$/.exec(line ?? '');
+  if (!match) throw new Error(`Missing elevate.exe checksum in ${manifestPath}`);
+  return match[1];
+}
 
 function requireEnvironment(name) {
   const value = process.env[name];
@@ -38,7 +49,7 @@ function isFirstPartyExecutable(filePath) {
 function allowedSigningTarget(
   file,
   outputRoot,
-  elevateSha256 = ELEVATE_SHA256
+  expectedElevateSha256 = elevateSha256()
 ) {
   const realRoot = fs.realpathSync(outputRoot);
   const originalStat = fs.lstatSync(file);
@@ -69,7 +80,7 @@ function allowedSigningTarget(
     path.basename(realFile).toLowerCase() === 'elevate.exe' &&
     parent === 'resources' &&
     /^elevate-staging-/.test(staging) &&
-    createHash('sha256').update(fs.readFileSync(realFile)).digest('hex') === elevateSha256
+    createHash('sha256').update(fs.readFileSync(realFile)).digest('hex') === expectedElevateSha256
   ) return realFile;
   return false;
 }
@@ -339,6 +350,7 @@ async function sign(filePath) {
 
 module.exports = {
   allowedSigningTarget,
+  elevateSha256,
   esrpArguments,
   isFirstPartyExecutable,
   resolveServiceConnectionId,
