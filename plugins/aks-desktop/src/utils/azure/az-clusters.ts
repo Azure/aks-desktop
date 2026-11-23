@@ -484,16 +484,29 @@ export async function getClusterInfo(clusterName?: string): Promise<{
 
 /**
  * Finds the first exact-name managed AKS match across all ARM list pages.
+ * Reads the Azure CLI account first, so a signed-out CLI rejects instead of reusing a cached token.
  * @param clusterName - Cluster name to find; an empty name returns null without a request.
- * @param subscription - Azure subscription GUID to query and authenticate against.
- * @returns Resource ID and group, or null if no match with an ID exists; request failures reject.
+ * @param subscription - Azure subscription GUID to query and authenticate against; it need
+ * not be the account's default subscription.
+ * @returns Resource ID and group, or null if no match with an ID exists; an invalid
+ * subscription, an unavailable account and request failures reject.
  */
 export async function getClusterResourceIdAndGroup(
   clusterName: string,
   subscription: string
 ): Promise<{ resourceId: string; resourceGroup: string } | null> {
   if (!clusterName) return null;
+  // Reject an invalid subscription before any account, token or network work.
+  getSubscriptionCredential(subscription);
   try {
+    // Account status is checked once, at entry.
+    const account = await getLoginStatus();
+    if (!account.isLoggedIn) {
+      if (account.needsRelogin) {
+        throw new Error('Authentication required. Please log in to Azure CLI: az login');
+      }
+      throw new Error(account.error || 'Azure account observation is unavailable');
+    }
     const clusters = await listManagedClusters(subscription);
     const cluster = clusters.find(cluster => cluster.name === clusterName);
     if (!cluster?.id) return null;
