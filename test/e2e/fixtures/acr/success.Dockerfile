@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/azurelinux/base/core:3.0 AS verified
+FROM mcr.microsoft.com/azurelinux/base/core:3.0@sha256:a333b3233076d8b47d63237760e7b36576c0fe47fbf670d5d3517d2fd6fe5030 AS verified
 ARG E2E_MARKER
 COPY . /context/
 RUN set -eux; \
