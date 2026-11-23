@@ -802,7 +802,7 @@
   "devDependencies": {
     "@headlamp-k8s/headlamp-source": "file:packages/headlamp-source",
     "@playwright/test": "1.65.0",
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.6.6",
     "concurrently": "^10.0.7",
     "cross-env": "10.1.0",
     "husky": "^9.0.0",
