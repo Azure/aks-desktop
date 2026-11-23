@@ -808,7 +808,7 @@
     "husky": "^9.0.0",
     "insights-plugin": "file:plugins/insights-plugin",
     "knip": "^6.46.1",
-    "lint-staged": "^17.6.0",
+    "lint-staged": "^17.6.1",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3"
   },
