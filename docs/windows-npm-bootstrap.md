@@ -137,8 +137,11 @@ hit, both clean-install markers and their installation context must match before
 either `npm ci` is skipped. A failed replacement invalidates the completed-target
 record. Each project and dependency path is checked through symlinks/junctions
 before cleanup, installation, or cache-path output; an escaping path fails rather
-than touching dependencies outside the consumer project. Backend compilation
-still runs with the existing Go cache.
+than touching dependencies outside the consumer project. Installation repeats
+this validation immediately before each step, after earlier lifecycle callbacks
+have returned, including when reuse is disabled. This protects the installer's
+own operations; it does not sandbox lifecycle scripts or eliminate concurrent
+filesystem races. Backend compilation still runs with the existing Go cache.
 
 New caches are verified and saved immediately after successful installation,
 before packaging can mutate native dependencies. Verification loads Rsbuild's

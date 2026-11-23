@@ -280,7 +280,7 @@ export function installHeadlampDesktopDependencies(
   runTimedStep('install Headlamp desktop dependencies', () => {
     for (const step of steps) {
       runTimedStep(step.name, () => {
-        const directory = path.resolve(source, step.relativeDirectory);
+        const { directory } = dependencyPaths(source, rootDir, step.relativeDirectory);
         const cached = options.reuseDependencies && step.relativeDirectory !== '.';
         if (cached) {
           const identity = dependencyInputIdentity(source, rootDir, step, env);

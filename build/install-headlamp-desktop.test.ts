@@ -377,6 +377,49 @@ for (const relative of ['frontend', 'app', 'frontend/node_modules']) {
   });
 }
 
+for (const after of ['frontend', '.']) {
+  for (const relative of ['app', 'app/node_modules']) {
+    test(`revalidates ${relative} after the ${after} lifecycle callback`, t => {
+      const fixture = desktopCacheFixture(t);
+      installHeadlampDesktopDependencies(fixture.sourceDir, fixture.runStep, fixture.options);
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'redirected-headlamp-install-'));
+      t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+      const externalProject = path.join(outside, 'app');
+      fs.cpSync(path.join(fixture.sourceDir, 'app'), externalProject, { recursive: true });
+      const sentinel = path.join(externalProject, 'node_modules', 'outside-sentinel');
+      fs.writeFileSync(sentinel, 'external dependencies');
+      fixture.commands.length = 0;
+      let redirected = false;
+
+      assert.throws(
+        () => installHeadlampDesktopDependencies(fixture.sourceDir, (args, cwd, env) => {
+          fixture.runStep(args, cwd, env);
+          if ((path.relative(fixture.sourceDir, cwd) || '.') !== after) return;
+          const linked = path.join(fixture.sourceDir, relative);
+          fs.renameSync(linked, `${linked}-original`);
+          fs.symlinkSync(
+            relative === 'app' ? externalProject : path.join(externalProject, 'node_modules'),
+            linked, 'junction'
+          );
+          redirected = true;
+        }, { ...fixture.options, reuseDependencies: false }),
+        /must stay within/
+      );
+
+      assert.equal(redirected, true);
+      assert.equal(fs.readFileSync(sentinel, 'utf8'), 'external dependencies');
+      assert.deepEqual(fixture.commands, [
+        'frontend:ci --prefer-offline --no-audit --no-fund --omit=dev',
+        '.:run backend:build',
+      ]);
+      assert.equal(
+        dependencyTargetMatches(fixture.rootDir, { platform: process.platform, arch: process.arch }),
+        false
+      );
+    });
+  }
+}
+
 test('installs only the Headlamp dependencies required by desktop packaging', t => {
   const fixture = desktopCacheFixture(t);
   installHeadlampDesktopDependencies(fixture.sourceDir, fixture.runStep, {
