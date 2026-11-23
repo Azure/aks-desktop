@@ -300,6 +300,7 @@ test('broker authenticates routes and validates targets before signing', async t
     outputRoot,
     validateTarget: file => file === target && file,
     signer: async file => {
+      assert.equal(isFirstPartyExecutable(file), true);
       signed.push(file);
       fs.appendFileSync(file, ':signed');
     },
@@ -340,6 +341,7 @@ test('broker authenticates routes and validates targets before signing', async t
   }, validBody)).status, 204);
   assert.equal(signed.length, 1);
   assert.notEqual(signed[0], target);
+  assert.equal(path.basename(signed[0]), path.basename(target));
   assert.equal(fs.readFileSync(target, 'utf8'), 'unsigned:signed');
 });
 

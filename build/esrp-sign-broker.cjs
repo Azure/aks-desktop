@@ -41,10 +41,12 @@ function createSigningBroker({
   let active = 0;
   async function signValidatedFile(target) {
     active += 1;
-    const staged = path.join(
+    const stagedDirectory = path.join(
       stagingRoot,
-      `${active}-${process.hrtime.bigint()}-${path.basename(target)}`
+      `${active}-${process.hrtime.bigint()}`
     );
+    fs.mkdirSync(stagedDirectory, { mode: 0o700 });
+    const staged = path.join(stagedDirectory, path.basename(target));
     const opened = fs.openSync(
       target,
       fs.constants.O_RDWR | (fs.constants.O_NOFOLLOW ?? 0)
@@ -75,7 +77,7 @@ function createSigningBroker({
       }
     } finally {
       fs.closeSync(opened);
-      fs.rmSync(staged, { force: true });
+      fs.rmSync(stagedDirectory, { recursive: true, force: true });
     }
   }
   const server = http.createServer(async (request, response) => {
