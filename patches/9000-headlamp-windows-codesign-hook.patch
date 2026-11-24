@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKS Desktop Maintainers <opencode@microsoft.com>
+Date: Fri, 20 Nov 2026 07:30:00 -0500
+Subject: [PATCH] app: Allow consumer Windows signing
+
+Let consumers provide the signing implementation used by Electron Builder
+while retaining Headlamp's existing ESRP fallback.
+---
+ app/package.json    | 5 ++++-
+ app/windows/sign.js | 6 ++++++
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/app/package.json b/app/package.json
+index 000000000..000000000 100644
+--- a/app/package.json
++++ b/app/package.json
+@@ -132,7 +132,10 @@
+       "target": [
+         "nsis"
+       ],
+       "signtoolOptions": {
+-        "sign": "windows/sign.js"
++        "sign": "windows/sign.js",
++        "signingHashAlgorithms": [
++          "sha256"
++        ]
+       },
+       "extraResources": [
+diff --git a/app/windows/sign.js b/app/windows/sign.js
+index 000000000..000000000 100644
+--- a/app/windows/sign.js
++++ b/app/windows/sign.js
+@@ -1,5 +1,11 @@
+ const { sign, SIGN_OPS } = require('../scripts/esrp');
+ 
+ exports.default = async function (configuration) {
++  const consumerSigner = process.env.HEADLAMP_WINDOWS_SIGNER;
++  if (consumerSigner) {
++    await require(consumerSigner).sign(configuration.path);
++    return;
++  }
++
+   const esrpTool = process.env.ESRP_PATH;
+   if (!esrpTool) {

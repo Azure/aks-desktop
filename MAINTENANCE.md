@@ -54,6 +54,25 @@ ESRP verification and zero active/baselined BA2009 before removing the temporary
 Guardian baselines in a separate change. NSIS notices follow the existing generated
 NOTICE process; its source license is retained beside the recipe.
 
+## Windows code signing
+
+The 1ES Windows build exposes the ESRP task client to Electron Builder so
+first-party executables are signed before NSIS reads them. This includes the
+main `AKS desktop.exe`, `headlamp-server.exe`, the Electron Builder elevation
+helper, the generated uninstaller, and both final installers. The build fails
+if signing is unavailable and verifies the unpacked executables and installers
+with `Get-AuthenticodeSignature`.
+
+The release wrapper keeps the Azure job token in a trusted parent process and
+exposes an authenticated loopback signing broker only to Electron Builder.
+Dependency installation, plugin preparation and post-build checks receive
+neither the job token nor broker credentials.
+
+Bundled third-party Windows executables, including the Azure CLI runtime and
+Electron tooling, are intentionally not downstream-signed by AKS Desktop.
+They retain their upstream signatures where provided; package updates must
+review changes to that PE inventory.
+
 ## Headlamp source
 
 AKS Desktop builds a pinned Headlamp commit from `packages/headlamp-source/`.
@@ -76,6 +95,7 @@ The current stack is rebased onto Headlamp main at
 | `7683` | [Legacy GitHub token migration, PR #7683](https://github.com/kubernetes-sigs/headlamp/pull/7683) | `1a60fa08ae7651b898a243280f3742d769255134` |
 | `8147` | [Private GitHub browser OAuth, PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147) | `1146185af190ec0d0426f81f06f5d664bc8d1c3d` |
 | `8329` | [Activity renderer test timer isolation, kubernetes-sigs/headlamp#8329](https://github.com/kubernetes-sigs/headlamp/pull/8329) | `6f0a49b49cd701b10408e19c8c5d820636e6e8f5` |
+| `9000` | Consumer-provided Electron Windows signer | Downstream-only; followed by the AKS ESRP implementation |
 
 Patches `0072` (PR #7958), `7685`, `7712`, `7726`, `7727`, `7731`, `7744`, and
 `7746` are included in this pin and no longer carried. Keep each numbered
