@@ -41,6 +41,8 @@
     "test:e2e:acr": "npm run test:e2e:azure -- --suite acr",
     "test:headlamp-package": "npm --prefix packages/headlamp-source run test:package && tsx --test test/integration/headlamp-package.test.ts",
     "test:headlamp-patches": "npm run headlamp:patches -- --check && npm run test:headlamp-package",
+    "test:local-plugin": "node node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules/vitest/vitest.mjs run --config test/integration/local-plugin.vitest.config.mts",
+    "test:local-discovery": "node node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules/vitest/vitest.mjs run --config test/integration/local-discovery.vitest.config.mts",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
     "test:azure:list": "tsx test/live/list-azure-resources.ts",
     "test:release-signing": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test build/sign-release.test.ts",
@@ -716,6 +718,262 @@
             ]
           }
         ]
+      },
+      {
+        "targets": [
+          "win32-x64"
+        ],
+        "environment": "development",
+        "pluginLocation": "development",
+        "approvedCommands": [
+          {
+            "tool": "aks-devctl",
+            "args": [
+              "cluster",
+              "get-versions",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "args": [
+              "cluster",
+              "show",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "allowTrailingArgs": true,
+            "args": [
+              "cluster",
+              "create",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "allowTrailingArgs": true,
+            "args": [
+              "cluster",
+              "delete",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "wsl",
+            "args": [
+              "--status"
+            ]
+          },
+          {
+            "tool": "reg",
+            "args": [
+              "query",
+              "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss",
+              "/v",
+              "DefaultVersion"
+            ]
+          }
+        ],
+        "plugins": [
+          {
+            "bundleName": "developer-cluster",
+            "packageName": "@headlamp-k8s/developer-cluster"
+          }
+        ],
+        "pluginExecutables": [
+          {
+            "tool": "aks-devctl"
+          }
+        ],
+        "commands": [
+          {
+            "tool": "aks-devctl",
+            "args": [
+              "cluster",
+              "get-versions",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "args": [
+              "cluster",
+              "show",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "allowTrailingArgs": true,
+            "args": [
+              "cluster",
+              "create",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "allowTrailingArgs": true,
+            "args": [
+              "cluster",
+              "delete",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "wsl",
+            "args": [
+              "--status"
+            ]
+          },
+          {
+            "tool": "reg",
+            "args": [
+              "query",
+              "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss",
+              "/v",
+              "DefaultVersion"
+            ]
+          }
+        ]
+      },
+      {
+        "targets": [
+          "win32-x64"
+        ],
+        "environment": "production",
+        "pluginLocation": "development",
+        "approvedCommands": [
+          {
+            "tool": "aks-devctl",
+            "args": [
+              "cluster",
+              "get-versions",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "args": [
+              "cluster",
+              "show",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "allowTrailingArgs": true,
+            "args": [
+              "cluster",
+              "create",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "allowTrailingArgs": true,
+            "args": [
+              "cluster",
+              "delete",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "wsl",
+            "args": [
+              "--status"
+            ]
+          },
+          {
+            "tool": "reg",
+            "args": [
+              "query",
+              "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss",
+              "/v",
+              "DefaultVersion"
+            ]
+          }
+        ],
+        "plugins": [
+          {
+            "bundleName": "developer-cluster",
+            "packageName": "@headlamp-k8s/developer-cluster"
+          }
+        ],
+        "pluginExecutables": [
+          {
+            "tool": "aks-devctl"
+          }
+        ],
+        "commands": [
+          {
+            "tool": "aks-devctl",
+            "args": [
+              "cluster",
+              "get-versions",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "args": [
+              "cluster",
+              "show",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "allowTrailingArgs": true,
+            "args": [
+              "cluster",
+              "create",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "aks-devctl",
+            "allowTrailingArgs": true,
+            "args": [
+              "cluster",
+              "delete",
+              "--output",
+              "json"
+            ]
+          },
+          {
+            "tool": "wsl",
+            "args": [
+              "--status"
+            ]
+          },
+          {
+            "tool": "reg",
+            "args": [
+              "query",
+              "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss",
+              "/v",
+              "DefaultVersion"
+            ]
+          }
+        ]
       }
     ],
     "plugins": [
@@ -769,7 +1027,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
-    "integrity": "sha512-BL3DeSSRrAQI+Mxe2gg97/voL7obJZOsjjV0CH3gUJ32bKjctfUocQ8FixNmIxy4sq8mED4DbRRMf5mY3wQpOg=="
+    "integrity": "sha512-+c2wP7XPlBCTehAaEybr6MKyrYUzJ1jdUkk1KhYS6EhrbaJR5IeoEQzOY/zZ4J1g6AGHVozpt8XU4O3mT2r0IQ=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [

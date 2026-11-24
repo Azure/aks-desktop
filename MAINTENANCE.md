@@ -81,6 +81,8 @@ The current stack is rebased onto Headlamp main at
 | `7683` | [Legacy GitHub token migration, PR #7683](https://github.com/kubernetes-sigs/headlamp/pull/7683) | `1a60fa08ae7651b898a243280f3742d769255134` |
 | `8147` | [Private GitHub browser OAuth, PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147) | `1146185af190ec0d0426f81f06f5d664bc8d1c3d` |
 | `8329` | [Activity renderer test timer isolation, kubernetes-sigs/headlamp#8329](https://github.com/kubernetes-sigs/headlamp/pull/8329) | `6f0a49b49cd701b10408e19c8c5d820636e6e8f5` |
+| `8518` | [Kubeconfig null contexts, PR #8518](https://github.com/kubernetes-sigs/headlamp/pull/8518) | `946c24c7b0541c1ddabb1691e58a9c07ee87d99d` (merged upstream in `1cd5ad766eae562129942927e9e252aea3ae2a9c`, after the pin) |
+| `8519` | [Plugin cluster delete handler, PR #8519](https://github.com/kubernetes-sigs/headlamp/pull/8519) | `ad4ef506e0762f892153f53fedb01cd5922fbbc5` (rebased onto `7505`, which keeps the built-in Delete beside plugin menu items) |
 
 Patches `0072` (PR #7958), `7685`, `7712`, `7726`, `7727`, `7731`, `7744`, and
 `7746` are included in this pin and no longer carried. Keep each numbered
