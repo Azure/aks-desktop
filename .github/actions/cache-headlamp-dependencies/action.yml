@@ -1,0 +1,41 @@
+name: Cache and install Headlamp dependencies
+description: Restore verified frontend/app installs and save clean snapshots before packaging.
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve Headlamp cache inputs
+      id: cache-inputs
+      shell: bash
+      env:
+        HEADLAMP_CACHE_POLICY: ${{ hashFiles('.github/actions/cache-headlamp-dependencies/action.yml', 'build/install-headlamp-desktop.ts', 'build/install-dependencies.ts', 'build/build-timing.ts', 'build/dependency-target.ts', '.config/npm/package*.json', 'packages/headlamp-source/src/lib/bundle-plugins.ts', 'packages/headlamp-source/src/lib/npm-command.ts', 'packages/headlamp-source/src/lib/paths.ts') }}
+      run: npm run headlamp:install -- --cache-inputs
+
+    - name: Restore Headlamp dependencies
+      id: headlamp-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        key: ${{ steps.cache-inputs.outputs.key }}
+        path: ${{ steps.cache-inputs.outputs.paths }}
+
+    - name: Discard unconfirmed Headlamp dependencies
+      if: steps.headlamp-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: npm run headlamp:install -- --discard-cache
+
+    - name: Install Headlamp dependencies
+      shell: bash
+      env:
+        HEADLAMP_REUSE_DESKTOP_DEPENDENCIES: 'true'
+      run: npm run headlamp:install
+
+    - name: Verify Headlamp dependency snapshot
+      shell: bash
+      run: npm run headlamp:install -- --verify-cache
+
+    - name: Save Headlamp dependencies
+      if: steps.headlamp-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        key: ${{ steps.cache-inputs.outputs.key }}
+        path: ${{ steps.cache-inputs.outputs.paths }}

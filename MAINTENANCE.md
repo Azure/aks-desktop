@@ -73,6 +73,7 @@ The current stack is rebased onto Headlamp main at
 | --- | --- | --- |
 | `0080` | AKS Desktop compatibility marker | Downstream-only; context rebased for series order |
 | `7505` | [Cluster pre-open hooks and proxy lifecycle, PR #7505](https://github.com/kubernetes-sigs/headlamp/pull/7505) | `0df913771474f27a00552cc55951612d70ac072f` (rebased carried range, including upstream quit fix `d28a80377719e35b232eee7ba91aebbe08b21f49`) |
+| `7605` | [Activity resize guard from Headlamp PR #7605](https://github.com/kubernetes-sigs/headlamp/pull/7605) | `02b96b773e3b8453ea4961f286acb269751f82a9` only |
 | `7683` | [Legacy GitHub token migration, PR #7683](https://github.com/kubernetes-sigs/headlamp/pull/7683) | `1a60fa08ae7651b898a243280f3742d769255134` |
 | `8147` | [Private GitHub browser OAuth, PR #8147](https://github.com/kubernetes-sigs/headlamp/pull/8147) | `1146185af190ec0d0426f81f06f5d664bc8d1c3d` |
 | `8329` | [Activity renderer test timer isolation, kubernetes-sigs/headlamp#8329](https://github.com/kubernetes-sigs/headlamp/pull/8329) | `6f0a49b49cd701b10408e19c8c5d820636e6e8f5` |
@@ -89,6 +90,10 @@ later changes from that PR. Its context is rebased after the downstream-only
 The follow-up resumes quit on a new event-loop turn after cleanup.
 Keep this ordering when refreshing the patch: an immediately resolved cleanup
 must not re-enter Electron's original prevented `before-quit` dispatch.
+
+Patch `7605` carries only the missing-window guard for delayed activity resize
+callbacks, not the resource-map feature from that PR. It prevents callbacks that
+outlive a frontend test window from throwing during teardown.
 
 ### Update the Headlamp commit
 

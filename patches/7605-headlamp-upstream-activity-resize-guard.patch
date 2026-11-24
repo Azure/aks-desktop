@@ -1,0 +1,33 @@
+From 02b96b773e3b8453ea4961f286acb269751f82a9 Mon Sep 17 00:00:00 2001
+From: Anjali-Chauhan1 <anjalichauhan1036@gmail.com>
+Date: Mon, 16 Nov 2026 00:42:57 +0530
+Subject: [PATCH] frontend: activity: Guard resize dispatch against missing
+ window
+
+Signed-off-by: Anjali-Chauhan1 <anjalichauhan1036@gmail.com>
+---
+ frontend/src/components/activity/activitySlice.tsx | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/frontend/src/components/activity/activitySlice.tsx b/frontend/src/components/activity/activitySlice.tsx
+index 5cb6b8f1c..e71f1c163 100644
+--- a/frontend/src/components/activity/activitySlice.tsx
++++ b/frontend/src/components/activity/activitySlice.tsx
+@@ -78,7 +78,7 @@ export const activitySlice = createSlice({
+       // Dispatch resize event so the content adjusts
+       // 200ms delay for animations
+       setTimeout(() => {
+-        window?.dispatchEvent?.(new Event('resize'));
++        globalThis.window?.dispatchEvent?.(new Event('resize'));
+       }, 200);
+     },
+     close(state, action: PayloadAction<string>) {
+@@ -116,7 +116,7 @@ export const activitySlice = createSlice({
+       // Dispatch resize event so the content adjusts
+       // 200ms delay for animations
+       setTimeout(() => {
+-        window?.dispatchEvent?.(new Event('resize'));
++        globalThis.window?.dispatchEvent?.(new Event('resize'));
+       }, 200);
+     },
+     reset() {

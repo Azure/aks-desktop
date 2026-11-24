@@ -8646,6 +8646,28 @@ index f68ab856c26732c79eba105d5cd45574150886d3..7df8a80e2c15aad2219aa933c48523a5
      store.dispatch(
        activitySlice.actions.launchActivity({
          id: 'resource-details-1',
+diff --git a/source/frontend/src/components/activity/activitySlice.tsx b/source/frontend/src/components/activity/activitySlice.tsx
+index 5cb6b8f1cf6b5ff3f85829c853dfa7636b2c577f..e71f1c163cddc901e328953a203b2357dd6b9e46 100644
+--- a/source/frontend/src/components/activity/activitySlice.tsx
++++ b/source/frontend/src/components/activity/activitySlice.tsx
+@@ -78,7 +78,7 @@ export const activitySlice = createSlice({
+       // Dispatch resize event so the content adjusts
+       // 200ms delay for animations
+       setTimeout(() => {
+-        window?.dispatchEvent?.(new Event('resize'));
++        globalThis.window?.dispatchEvent?.(new Event('resize'));
+       }, 200);
+     },
+     close(state, action: PayloadAction<string>) {
+@@ -116,7 +116,7 @@ export const activitySlice = createSlice({
+       // Dispatch resize event so the content adjusts
+       // 200ms delay for animations
+       setTimeout(() => {
+-        window?.dispatchEvent?.(new Event('resize'));
++        globalThis.window?.dispatchEvent?.(new Event('resize'));
+       }, 200);
+     },
+     reset() {
 diff --git a/source/frontend/src/components/common/AlertNotification.test.tsx b/source/frontend/src/components/common/AlertNotification.test.tsx
 index 5656b83d48fff73cba3ca9fdba2121ac56f7d2a4..df2bb401714e51b394dea86596d4e960678fbe72 100644
 --- a/source/frontend/src/components/common/AlertNotification.test.tsx
