@@ -4,7 +4,21 @@
 /** Azure CLI-backed access tokens for Azure REST calls. */
 
 import type { AccessToken, GetTokenOptions, TokenCredential } from '@azure/identity';
-import { debugLog, isValidGuid, needsRelogin, runCommandAsync } from './az-cli-core';
+import {
+  debugLog,
+  isValidGuid,
+  needsRelogin,
+  registerNativeSubscriptionTenantLookup,
+  runCommandAsync,
+} from './az-cli-core';
+import {
+  getNativeAccount,
+  getNativeAuthGeneration,
+  hasNativeSession,
+  isAzureExplicitlySignedOut,
+  nativeCredential,
+  updateNativeAccountTenant,
+} from './native-auth';
 
 /** Default public-cloud ARM scope; configured clouds can supply another audience. */
 export const ARM_SCOPE = 'https://management.azure.com/.default';
@@ -14,6 +28,149 @@ const REFRESH_MARGIN_MS = 5 * 60 * 1000; // 5 minutes
 // Tenant ID or domain name, with no leading `-`.
 const TENANT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
 const SCOPE_PATTERN = /^[a-z][a-z0-9+.-]*:\/\/[^\s]+$/i;
+
+let accountGeneration = 0;
+interface NativeSubscriptionTenantBinding {
+  tenant: string;
+  tenants: Set<string>;
+}
+let nativeSubscriptionTenants = new Map<string, NativeSubscriptionTenantBinding>();
+let observedNativeGeneration: number | undefined;
+
+function synchronizeNativeGeneration(): void {
+  const generation = getNativeAuthGeneration();
+  if (observedNativeGeneration !== undefined && generation !== observedNativeGeneration) {
+    accountGeneration++;
+    nativeSubscriptionTenants.clear();
+  }
+  observedNativeGeneration = generation;
+}
+
+export const AZURE_SUBSCRIPTION_TENANT_CHANGE_EVENT = 'azure-subscription-tenant-change';
+
+function dispatchNativeSubscriptionTenantChange(subscriptionIds: string[]): void {
+  if (subscriptionIds.length > 0 && typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(AZURE_SUBSCRIPTION_TENANT_CHANGE_EVENT, {
+        detail: { subscriptionIds },
+      })
+    );
+  }
+}
+
+/** Snapshot used to discard subscription discovery completed after an account change. */
+export function getAzureAccountGeneration(): number {
+  synchronizeNativeGeneration();
+  return accountGeneration;
+}
+
+/**
+ * Publishes native subscription bindings only if discovery belongs to the current account.
+ * Bindings from tenants whose queries failed are preserved until a later successful query.
+ */
+export function setNativeSubscriptionTenants(
+  subscriptions: Array<{ id: string; tenant: string; tenants?: string[] }>,
+  generation: number,
+  preserveTenantIds: string[] = []
+): boolean {
+  synchronizeNativeGeneration();
+  if (generation !== accountGeneration || !hasNativeSession()) return false;
+  registerNativeSubscriptionTenantLookup(
+    subscriptionId => {
+      synchronizeNativeGeneration();
+      return nativeSubscriptionTenants.get(subscriptionId.toLowerCase())?.tenant;
+    },
+    canReconcileNativeSubscriptionTenant,
+    reconcileNativeSubscriptionTenant
+  );
+  const preserved = new Set(
+    preserveTenantIds.filter(isValidGuid).map(tenantId => tenantId.toLowerCase())
+  );
+  const next = new Map<string, NativeSubscriptionTenantBinding>();
+  for (const [id, binding] of nativeSubscriptionTenants) {
+    const tenants = new Set([...binding.tenants].filter(tenant => preserved.has(tenant)));
+    if (tenants.size > 0) {
+      next.set(id, {
+        tenant: tenants.has(binding.tenant) ? binding.tenant : [...tenants][0],
+        tenants,
+      });
+    }
+  }
+  for (const { id, tenant, tenants = [] } of subscriptions) {
+    if (!isValidGuid(id) || !isValidGuid(tenant)) continue;
+    const key = id.toLowerCase();
+    const existing = next.get(key);
+    const previousTenant = nativeSubscriptionTenants.get(key)?.tenant;
+    const alternatives = new Set(
+      [tenant, ...tenants].filter(isValidGuid).map(value => value.toLowerCase())
+    );
+    for (const alternative of existing?.tenants ?? []) alternatives.add(alternative);
+    const selected =
+      previousTenant && alternatives.has(previousTenant)
+        ? previousTenant
+        : existing && alternatives.has(existing.tenant)
+        ? existing.tenant
+        : tenant.toLowerCase();
+    next.set(key, { tenant: selected, tenants: alternatives });
+  }
+  if (
+    next.size !== nativeSubscriptionTenants.size ||
+    [...next].some(([id, binding]) => {
+      const current = nativeSubscriptionTenants.get(id);
+      return (
+        current?.tenant !== binding.tenant ||
+        current.tenants.size !== binding.tenants.size ||
+        [...binding.tenants].some(tenant => !current.tenants.has(tenant))
+      );
+    })
+  ) {
+    const changed = [...new Set([...nativeSubscriptionTenants.keys(), ...next.keys()])].filter(
+      id => nativeSubscriptionTenants.get(id)?.tenant !== next.get(id)?.tenant
+    );
+    nativeSubscriptionTenants = next;
+    dispatchNativeSubscriptionTenantChange(changed);
+  }
+  const account = getNativeAccount();
+  const accountTenant = account
+    ? nativeSubscriptionTenants.get(account.subscriptionId.toLowerCase())?.tenant
+    : undefined;
+  if (account && accountTenant) {
+    updateNativeAccountTenant(account.subscriptionId, accountTenant);
+  }
+  return true;
+}
+
+/** Returns the tenant discovered for a native subscription in the current account generation. */
+export function getNativeSubscriptionTenant(subscriptionId: string): string | undefined {
+  synchronizeNativeGeneration();
+  return nativeSubscriptionTenants.get(subscriptionId.toLowerCase())?.tenant;
+}
+
+function canReconcileNativeSubscriptionTenant(subscriptionId: string, tenantId: string): boolean {
+  synchronizeNativeGeneration();
+  const binding = nativeSubscriptionTenants.get(subscriptionId.toLowerCase());
+  const tenant = tenantId.toLowerCase();
+  return binding?.tenants.has(tenant) === true;
+}
+
+function reconcileNativeSubscriptionTenant(subscriptionId: string, tenantId: string): boolean {
+  if (!canReconcileNativeSubscriptionTenant(subscriptionId, tenantId)) return false;
+  const binding = nativeSubscriptionTenants.get(subscriptionId.toLowerCase())!;
+  const tenant = tenantId.toLowerCase();
+  const account = getNativeAccount();
+  if (!account) return false;
+  if (
+    account.subscriptionId.toLowerCase() === subscriptionId.toLowerCase() &&
+    !updateNativeAccountTenant(subscriptionId, tenant)
+  ) {
+    return false;
+  }
+  if (binding.tenant !== tenant) {
+    binding.tenant = tenant;
+    dispatchNativeSubscriptionTenantChange([subscriptionId.toLowerCase()]);
+  }
+  return true;
+}
 
 /** Token acquisition or validation failure without exposing the token response. */
 export class AzTokenError extends Error {
@@ -60,8 +217,12 @@ export interface AzCliCredential extends TokenCredential {
 async function requestCliToken(
   scope: string,
   tenantId?: string,
-  subscriptionId?: string
+  subscriptionId?: string,
+  nativeSession = false
 ): Promise<AccessToken> {
+  if (nativeSession) {
+    return nativeCredential.getToken(scope, { tenantId });
+  }
   const args = ['account', 'get-access-token', '--scope', scope, '-o', 'json'];
   // Keep the selected account: Azure CLI rejects combining these selectors.
   if (subscriptionId) args.push('--subscription', subscriptionId);
@@ -133,6 +294,8 @@ export function withAbort<T>(
  */
 export function createAzCliCredential(subscriptionId?: string): AzCliCredential {
   const cache = new Map<string, Promise<AccessToken>>();
+  let cacheGeneration = 0;
+  const scopeGenerations = new Map<string, number>();
 
   /**
    * @param key - Tenant/scope cache key for this credential instance.
@@ -140,8 +303,8 @@ export function createAzCliCredential(subscriptionId?: string): AzCliCredential 
    * @param tenantId - Optional tenant selector or expected bound-account tenant.
    * @returns The cached acquisition promise, removed from the cache if rejected.
    */
-  const load = (key: string, scope: string, tenantId?: string) => {
-    const promise = requestCliToken(scope, tenantId, subscriptionId);
+  const load = (key: string, scope: string, tenantId: string | undefined, native: boolean) => {
+    const promise = requestCliToken(scope, tenantId, subscriptionId, native);
     cache.set(key, promise);
     promise.catch(() => {
       if (cache.get(key) === promise) cache.delete(key);
@@ -155,14 +318,65 @@ export function createAzCliCredential(subscriptionId?: string): AzCliCredential 
    * @returns The existing token, shared acquisition, or a token refreshed near expiry.
    */
   const resolveToken = async (scope: string, tenantId?: string): Promise<AccessToken> => {
-    const key = `${tenantId ?? ''}|${scope}`;
+    synchronizeNativeGeneration();
+    const native = hasNativeSession();
+    let resolvedTenantId = tenantId;
+    if (!native && isAzureExplicitlySignedOut()) {
+      throw new AzTokenError('Azure login is required', true);
+    }
+    const accountVersion = accountGeneration;
+    const cacheVersion = cacheGeneration;
+    const scopeVersion = scopeGenerations.get(scope) ?? 0;
+    if (native && subscriptionId) {
+      const mappedTenant = nativeSubscriptionTenants.get(subscriptionId.toLowerCase())?.tenant;
+      if (!mappedTenant) {
+        throw new AzTokenError(
+          'No tenant is known for the selected subscription; refresh subscriptions'
+        );
+      }
+      if (tenantId && tenantId.toLowerCase() !== mappedTenant) {
+        throw new AzTokenError(
+          'The selected subscription account does not belong to the requested tenant'
+        );
+      }
+      resolvedTenantId = mappedTenant;
+    } else if (native && !tenantId) {
+      resolvedTenantId = getNativeAccount()?.tenantId;
+    }
+    const key = `${native ? `native:${accountVersion}` : `cli:${accountVersion}`}|${
+      resolvedTenantId ?? ''
+    }|${scope}`;
     const cached = cache.get(key);
-    if (!cached) return load(key, scope, tenantId);
-
-    const token = await cached;
-    if (token.expiresOnTimestamp - REFRESH_MARGIN_MS > Date.now()) return token;
-    const current = cache.get(key);
-    return current && current !== cached ? current : load(key, scope, tenantId);
+    const ensureCurrent = () => {
+      synchronizeNativeGeneration();
+      if (
+        accountVersion !== accountGeneration ||
+        cacheVersion !== cacheGeneration ||
+        scopeVersion !== (scopeGenerations.get(scope) ?? 0) ||
+        native !== hasNativeSession() ||
+        (!native && isAzureExplicitlySignedOut()) ||
+        (native &&
+          subscriptionId !== undefined &&
+          nativeSubscriptionTenants.get(subscriptionId.toLowerCase())?.tenant !==
+            resolvedTenantId) ||
+        (native &&
+          subscriptionId === undefined &&
+          tenantId === undefined &&
+          getNativeAccount()?.tenantId.toLowerCase() !== resolvedTenantId?.toLowerCase())
+      ) {
+        throw new AzTokenError('Azure account changed during token acquisition');
+      }
+    };
+    let token = await (cached ?? load(key, scope, resolvedTenantId, native));
+    ensureCurrent();
+    if (cached && token.expiresOnTimestamp - REFRESH_MARGIN_MS <= Date.now()) {
+      const current = cache.get(key);
+      token = await (current && current !== cached
+        ? current
+        : load(key, scope, resolvedTenantId, native));
+    }
+    ensureCurrent();
+    return token;
   };
 
   return {
@@ -184,9 +398,12 @@ export function createAzCliCredential(subscriptionId?: string): AzCliCredential 
     },
     clearCache(scope?: string) {
       if (scope === undefined) {
+        cacheGeneration++;
+        scopeGenerations.clear();
         cache.clear();
         return;
       }
+      scopeGenerations.set(scope, (scopeGenerations.get(scope) ?? 0) + 1);
       const suffix = `|${scope}`;
       for (const key of cache.keys()) {
         if (key.endsWith(suffix)) {
@@ -224,9 +441,40 @@ export function clearAzureTokenCaches(): void {
 }
 
 // Clears cache when user logs in or logs out inside the app.
+function handleAzureAccountChange(event: Event): void {
+  if (event instanceof CustomEvent && Array.isArray(event.detail?.subscriptionIds)) {
+    const changed = new Set<string>(
+      event.detail.subscriptionIds
+        .filter((id: unknown): id is string => typeof id === 'string')
+        .map((id: string) => id.toLowerCase())
+    );
+    for (const [id, credential] of subscriptionCredentials) {
+      if (changed.has(id.toLowerCase())) credential.clearCache();
+    }
+    return;
+  }
+  const nativeGeneration = getNativeAuthGeneration();
+  const account = getNativeAccount();
+  // Discovery during native login precedes the account publication event.
+  const preserveNativeBindings =
+    !!account && observedNativeGeneration === nativeGeneration && hasNativeSession();
+  observedNativeGeneration = nativeGeneration;
+  accountGeneration++;
+  clearAzureTokenCaches();
+  if (!preserveNativeBindings) {
+    nativeSubscriptionTenants.clear();
+  }
+  if (account && nativeSubscriptionTenants.size === 0) {
+    setNativeSubscriptionTenants(
+      [{ id: account.subscriptionId, tenant: account.tenantId }],
+      accountGeneration
+    );
+  }
+}
+
 if (typeof window !== 'undefined') {
-  window.addEventListener('azure-auth-update', clearAzureTokenCaches);
-  window.addEventListener('azure-account-change', clearAzureTokenCaches);
+  window.addEventListener('azure-auth-update', handleAzureAccountChange);
+  window.addEventListener('azure-account-change', handleAzureAccountChange);
 }
 
 /**

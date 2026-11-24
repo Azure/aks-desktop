@@ -10,7 +10,12 @@ const mocks = vi.hoisted(() => ({
   clearAzureCloudCache: vi.fn(),
   clearAzureTokenCaches: vi.fn(),
   getAzureCloudEndpoints: vi.fn(),
+  getAzureAccountGeneration: vi.fn(),
+  getNativeSubscriptionTenant: vi.fn(),
   getSubscriptionCredential: vi.fn(),
+  setNativeSubscriptionTenants: vi.fn(),
+  hasNativeSession: vi.fn(),
+  isAzureExplicitlySignedOut: vi.fn(),
   runCommandAsync: vi.fn(),
 }));
 vi.mock('./az-cli-core', () => ({
@@ -32,8 +37,15 @@ vi.mock('./az-http', async importOriginal => ({
 }));
 vi.mock('./az-token', () => ({
   clearAzureTokenCaches: mocks.clearAzureTokenCaches,
+  getAzureAccountGeneration: mocks.getAzureAccountGeneration,
+  getNativeSubscriptionTenant: mocks.getNativeSubscriptionTenant,
   getSubscriptionCredential: mocks.getSubscriptionCredential,
+  setNativeSubscriptionTenants: mocks.setNativeSubscriptionTenants,
   withAbort: vi.fn(),
+}));
+vi.mock('./native-auth', () => ({
+  hasNativeSession: mocks.hasNativeSession,
+  isAzureExplicitlySignedOut: mocks.isAzureExplicitlySignedOut,
 }));
 
 import { AzureRequestError } from './az-http';
@@ -92,11 +104,23 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.getAzureCloudEndpoints.mockResolvedValue(CLOUD);
   mocks.getSubscriptionCredential.mockReturnValue(SUB_CREDENTIAL);
+  mocks.hasNativeSession.mockReturnValue(false);
+  mocks.isAzureExplicitlySignedOut.mockReturnValue(false);
+  mocks.getAzureAccountGeneration.mockReturnValue(7);
+  mocks.getNativeSubscriptionTenant.mockReturnValue(undefined);
+  mocks.setNativeSubscriptionTenants.mockReturnValue(true);
   mocks.runCommandAsync.mockResolvedValue({ stdout: '[]', stderr: '' });
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 describe('getSubscriptions', () => {
+  it('does not refresh the CLI profile after explicit sign-out', async () => {
+    mocks.isAzureExplicitlySignedOut.mockReturnValue(true);
+    await expect(getSubscriptions(true)).rejects.toThrow('Azure login is required');
+    expect(mocks.runCommandAsync).not.toHaveBeenCalled();
+    expect(mocks.azListAll).not.toHaveBeenCalled();
+  });
+
   it("lists subscriptions per tenant in the active cloud with that tenant's token", async () => {
     mockArm(
       [
@@ -114,6 +138,7 @@ describe('getSubscriptions', () => {
         id: 'sub-a',
         name: 'Sub sub-a',
         tenant: TENANT_A,
+        tenants: [TENANT_A],
         tenantName: 'Contoso',
         status: 'Enabled',
         environmentName: CLOUD.name,
@@ -122,6 +147,7 @@ describe('getSubscriptions', () => {
         id: 'sub-b',
         name: 'Sub sub-b',
         tenant: TENANT_B,
+        tenants: [TENANT_B],
         tenantName: 'Fabrikam',
         status: 'Disabled',
         environmentName: CLOUD.name,
@@ -153,7 +179,9 @@ describe('getSubscriptions', () => {
       [TENANT_B]: [armSub('shared', TENANT_A)],
     });
 
-    expect(await getSubscriptions()).toHaveLength(1);
+    expect(await getSubscriptions()).toEqual([
+      expect.objectContaining({ id: 'shared', tenant: TENANT_A, tenants: [TENANT_A, TENANT_B] }),
+    ]);
   });
 
   it('reports the tenant a subscription was listed through, not its home tenant', async () => {
@@ -205,6 +233,29 @@ describe('getSubscriptions', () => {
       `Skipping subscriptions for tenant ${TENANT_B}:`,
       'AADSTS50076: MFA required'
     );
+  });
+
+  it('rejects partial discovery in strict mode when no enabled subscription was found', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mockArm([{ tenantId: TENANT_A }, { tenantId: TENANT_B }], {
+      [TENANT_A]: [armSub(SUB_ID, TENANT_A, 'Disabled')],
+      [TENANT_B]: new Error('MFA required'),
+    });
+    await expect(getSubscriptions(false, { strict: true })).rejects.toThrow('MFA required');
+    expect(mocks.setNativeSubscriptionTenants).not.toHaveBeenCalled();
+  });
+
+  it('allows strict discovery when an enabled subscription was found despite a tenant failure', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mocks.getNativeSubscriptionTenant.mockReturnValue(TENANT_A);
+    mockArm([{ tenantId: TENANT_A }, { tenantId: TENANT_B }], {
+      [TENANT_A]: [armSub(SUB_ID, TENANT_A)],
+      [TENANT_B]: new Error('MFA required'),
+    });
+    await expect(getSubscriptions(false, { strict: true })).resolves.toEqual([
+      expect.objectContaining({ id: SUB_ID, status: 'Enabled' }),
+    ]);
+    expect(mocks.setNativeSubscriptionTenants).toHaveBeenCalledOnce();
   });
 
   it('throws when every tenant fails', async () => {
@@ -272,6 +323,182 @@ describe('getSubscriptions', () => {
       '--output',
       'json',
     ]);
+  });
+
+  it('never reads or refreshes the CLI profile for a native session', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mocks.getNativeSubscriptionTenant.mockReturnValue(TENANT_A);
+    mockArm([{ tenantId: TENANT_A }], {
+      [TENANT_A]: [armSub('native-sub', TENANT_A)],
+    });
+
+    await expect(getSubscriptions(true)).resolves.toEqual([
+      expect.objectContaining({ id: 'native-sub', tenant: TENANT_A }),
+    ]);
+    expect(mocks.clearAzureTokenCaches).toHaveBeenCalledOnce();
+    expect(mocks.clearAzureCloudCache).toHaveBeenCalledOnce();
+    expect(mocks.runCommandAsync).not.toHaveBeenCalled();
+    expect(mocks.setNativeSubscriptionTenants).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'native-sub', tenant: TENANT_A })],
+      7,
+      []
+    );
+  });
+
+  it('updates native bindings with the queried tenants for successful discoveries only', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mockArm([{ tenantId: TENANT_A }, { tenantId: TENANT_B }], {
+      [TENANT_A]: [armSub(SUB_ID, TENANT_B)],
+      [TENANT_B]: new Error('MFA required'),
+    });
+
+    await getSubscriptions();
+    expect(mocks.setNativeSubscriptionTenants).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: SUB_ID, tenant: TENANT_A })],
+      7,
+      [TENANT_B]
+    );
+  });
+
+  it('returns the effective preserved tenant after partial native discovery', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mocks.getNativeSubscriptionTenant.mockReturnValue(TENANT_B);
+    mockArm(
+      [
+        { tenantId: TENANT_A, displayName: 'Contoso' },
+        { tenantId: TENANT_B, displayName: 'Fabrikam' },
+      ],
+      {
+        [TENANT_A]: [armSub(SUB_ID, TENANT_A)],
+        [TENANT_B]: new Error('MFA required'),
+      }
+    );
+
+    await expect(getSubscriptions()).resolves.toEqual([
+      expect.objectContaining({
+        id: SUB_ID,
+        tenant: TENANT_B,
+        tenantName: undefined,
+      }),
+    ]);
+    expect(mocks.setNativeSubscriptionTenants).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: SUB_ID, tenant: TENANT_A })],
+      7,
+      [TENANT_B]
+    );
+  });
+
+  it('does not publish bindings when discovery fails or its account changes', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mockArm([{ tenantId: TENANT_A }], { [TENANT_A]: new Error('failed') });
+    await expect(getSubscriptions()).rejects.toThrow('failed');
+    expect(mocks.setNativeSubscriptionTenants).not.toHaveBeenCalled();
+    mockArm([{ tenantId: TENANT_A }], { [TENANT_A]: [armSub(SUB_ID, TENANT_A)] });
+    mocks.setNativeSubscriptionTenants.mockReturnValue(false);
+    await expect(getSubscriptions()).rejects.toThrow('account changed');
+  });
+
+  it('returns the newer published snapshot to an older overlapping discovery', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    let release!: (value: any[]) => void;
+    mocks.azListAll
+      .mockReturnValueOnce(new Promise(resolve => (release = resolve)))
+      .mockResolvedValueOnce([]);
+    const older = getSubscriptions();
+    await vi.waitFor(() => expect(mocks.azListAll).toHaveBeenCalledTimes(1));
+    await expect(getSubscriptions()).resolves.toEqual([]);
+    release([]);
+    await expect(older).resolves.toEqual([]);
+    expect(mocks.setNativeSubscriptionTenants).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not return stale entries from an older overlapping discovery', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mocks.getNativeSubscriptionTenant.mockReturnValue(TENANT_B);
+    let releaseOlder!: (value: any[]) => void;
+    mocks.azListAll
+      .mockReturnValueOnce(new Promise(resolve => (releaseOlder = resolve)))
+      .mockResolvedValueOnce([{ tenantId: TENANT_B }])
+      .mockResolvedValueOnce([armSub(SUB_ID, TENANT_B)])
+      .mockResolvedValueOnce([armSub('stale-sub', TENANT_A)]);
+    const older = getSubscriptions();
+    await vi.waitFor(() => expect(mocks.azListAll).toHaveBeenCalledTimes(1));
+
+    const newer = await getSubscriptions();
+    releaseOlder([{ tenantId: TENANT_A }]);
+
+    const olderResult = await older;
+    expect(olderResult).toEqual(newer);
+    expect(olderResult.map(subscription => subscription.id)).not.toContain('stale-sub');
+  });
+
+  it('resolves a superseded snapshot against tenants reconciled after publication', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mocks.getNativeSubscriptionTenant.mockReturnValue(TENANT_A);
+    let releaseOlder!: (value: any[]) => void;
+    mocks.azListAll
+      .mockReturnValueOnce(new Promise(resolve => (releaseOlder = resolve)))
+      .mockResolvedValueOnce([
+        { tenantId: TENANT_A, displayName: 'Contoso' },
+        { tenantId: TENANT_B, displayName: 'Fabrikam' },
+      ])
+      .mockResolvedValueOnce([armSub(SUB_ID, TENANT_A)])
+      .mockResolvedValueOnce([armSub(SUB_ID, TENANT_B)])
+      .mockResolvedValueOnce([]);
+    const older = getSubscriptions();
+    await vi.waitFor(() => expect(mocks.azListAll).toHaveBeenCalledTimes(1));
+    await expect(getSubscriptions()).resolves.toEqual([
+      expect.objectContaining({ id: SUB_ID, tenant: TENANT_A, tenantName: 'Contoso' }),
+    ]);
+
+    mocks.getNativeSubscriptionTenant.mockReturnValue(TENANT_B);
+    releaseOlder([{ tenantId: TENANT_A }]);
+
+    await expect(older).resolves.toEqual([
+      expect.objectContaining({ id: SUB_ID, tenant: TENANT_B, tenantName: 'Fabrikam' }),
+    ]);
+  });
+
+  it('publishes an older successful discovery while a newer one is still pending', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mocks.getNativeSubscriptionTenant.mockReturnValue(TENANT_A);
+    let releaseOlder!: (value: any[]) => void;
+    let failNewer!: (error: Error) => void;
+    mocks.azListAll
+      .mockReturnValueOnce(new Promise(resolve => (releaseOlder = resolve)))
+      .mockReturnValueOnce(new Promise((_resolve, reject) => (failNewer = reject)))
+      .mockResolvedValue([armSub(SUB_ID, TENANT_A)]);
+    const older = getSubscriptions();
+    await vi.waitFor(() => expect(mocks.azListAll).toHaveBeenCalledTimes(1));
+    const newer = getSubscriptions();
+    await vi.waitFor(() => expect(mocks.azListAll).toHaveBeenCalledTimes(2));
+    releaseOlder([{ tenantId: TENANT_A }]);
+    await expect(older).resolves.toEqual([
+      expect.objectContaining({ id: SUB_ID, tenant: TENANT_A }),
+    ]);
+    expect(mocks.setNativeSubscriptionTenants).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: SUB_ID, tenant: TENANT_A })],
+      7,
+      []
+    );
+    failNewer(new Error('discovery failed'));
+    await expect(newer).rejects.toThrow('discovery failed');
+    expect(mocks.setNativeSubscriptionTenants).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a superseded discovery if the native account changes', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    let release!: (value: any[]) => void;
+    mocks.azListAll
+      .mockReturnValueOnce(new Promise(resolve => (release = resolve)))
+      .mockResolvedValueOnce([]);
+    const older = getSubscriptions();
+    await vi.waitFor(() => expect(mocks.azListAll).toHaveBeenCalledTimes(1));
+    await getSubscriptions();
+    mocks.getAzureAccountGeneration.mockReturnValue(8);
+    release([]);
+    await expect(older).rejects.toThrow('account changed');
+    expect(mocks.setNativeSubscriptionTenants).toHaveBeenCalledTimes(1);
   });
 });
 

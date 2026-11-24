@@ -2,15 +2,22 @@
 // Licensed under the Apache 2.0.
 import { LOGIN_POLL_INTERVAL_MS, LOGIN_TIMEOUT_MS } from '../constants/timing';
 import {
-  debugLog,
   getErrorMessage,
-  isAzCliLoggedIn,
   isAzError,
   isCliNotFoundError,
   needsRelogin,
   runCommandAsync,
 } from './az-cli-core';
-import { getAzCommand, getInstallationInstructions } from './az-cli-path';
+import { getInstallationInstructions } from './az-cli-path';
+import { AZURE_SUBSCRIPTION_TENANT_CHANGE_EVENT } from './az-token';
+import {
+  getNativeAccount,
+  getNativeLoginError,
+  hasNativeSession,
+  initiateNativeLogin,
+  isAzureExplicitlySignedOut,
+  synchronizeNativeLogin,
+} from './native-auth';
 
 /** Azure CLI account state used by authentication flows. */
 export interface AzureLoginStatus {
@@ -30,12 +37,14 @@ export interface AzureLoginStatus {
   error?: string;
 }
 
-/** Result returned after invoking the Azure CLI login command. */
+/** Result returned after initiating authentication. */
 export interface AzureLoginResult {
   /** Whether the login command completed without a terminal command error. */
   success: boolean;
   /** User-facing description of the result. */
   message: string;
+  /** Device code to display while native authentication is pending. */
+  userCode?: string;
 }
 
 /** Account-status update emitted by {@link monitorLoginStatus}. */
@@ -93,9 +102,15 @@ function isCommandFailure(stderr: string): boolean {
  *
  * @returns Validated login status. Command and parsing failures are returned in `error`.
  */
-async function readLoginStatus(): Promise<AzureLoginStatus> {
+async function readLoginStatus(subscriptionId?: string): Promise<AzureLoginStatus> {
   try {
-    const { stdout, stderr } = await runCommandAsync('az', ['account', 'show', '-o', 'json']);
+    const { stdout, stderr } = await runCommandAsync('az', [
+      'account',
+      'show',
+      ...(subscriptionId ? ['--subscription', subscriptionId] : []),
+      '-o',
+      'json',
+    ]);
     const accountOutput = stdout.trim();
     const errorOutput = stderr.trim();
 
@@ -162,14 +177,44 @@ async function readLoginStatus(): Promise<AzureLoginStatus> {
 
 let observedAccount: string | undefined;
 let latestAccountObservation: Promise<AzureLoginStatus> | undefined;
+const observedSubscriptionAccounts = new Map<string, { identity: string; tenantId?: string }>();
+const latestSubscriptionObservations = new Map<string, Promise<AzureLoginStatus>>();
 
 /**
  * Reads the current account and invalidates cached authentication on external changes.
  * Overlapping reads follow the newest observation instead of publishing stale results.
  * @returns Validated account status; lookup failures invalidate the previous context.
  */
-export function getLoginStatus(): Promise<AzureLoginStatus> {
-  const observation: Promise<AzureLoginStatus> = readLoginStatus().then(status => {
+export async function getLoginStatus(): Promise<AzureLoginStatus> {
+  if (hasNativeSession() && !getNativeAccount()) await synchronizeNativeLogin();
+  const nativeAccount = getNativeAccount();
+  const nativeLoginError = getNativeLoginError();
+  const readStatus = nativeAccount
+    ? Promise.resolve({ isLoggedIn: true, ...nativeAccount })
+    : isAzureExplicitlySignedOut()
+    ? Promise.resolve({ isLoggedIn: false, error: 'Not logged in' })
+    : hasNativeSession()
+    ? Promise.resolve({
+        isLoggedIn: false,
+        needsRelogin: !nativeLoginError,
+        error: nativeLoginError ?? 'Not logged in',
+      })
+    : readLoginStatus().then(status => {
+        const account = getNativeAccount();
+        if (account) return { isLoggedIn: true, ...account };
+        if (isAzureExplicitlySignedOut()) return { isLoggedIn: false, error: 'Not logged in' };
+        if (hasNativeSession()) {
+          const error = getNativeLoginError();
+          return {
+            isLoggedIn: false,
+            needsRelogin: !error,
+            error: error ?? 'Not logged in',
+          };
+        }
+
+        return status;
+      });
+  const observation: Promise<AzureLoginStatus> = readStatus.then(status => {
     if (latestAccountObservation && latestAccountObservation !== observation) {
       return latestAccountObservation;
     }
@@ -193,65 +238,226 @@ export function getLoginStatus(): Promise<AzureLoginStatus> {
 }
 
 /**
- * Runs Azure CLI login and classifies command-level failures.
+ * Reads the CLI account selected by a subscription without changing the active account.
+ * This path is used only when no native session exists and remains subject to explicit sign-out.
+ * Observations invalidate only that subscription's credentials and follow the newest read.
+ */
+export async function getSubscriptionLoginStatus(
+  subscriptionId: string
+): Promise<AzureLoginStatus> {
+  if (hasNativeSession()) {
+    return { isLoggedIn: false, error: 'Native Azure authentication is active' };
+  }
+  if (isAzureExplicitlySignedOut()) {
+    return { isLoggedIn: false, error: 'Not logged in' };
+  }
+  const key = subscriptionId.toLowerCase();
+  const observation: Promise<AzureLoginStatus> = readLoginStatus(subscriptionId).then(status => {
+    const latest = latestSubscriptionObservations.get(key);
+    if (latest && latest !== observation) return latest;
+    if (hasNativeSession()) {
+      return { isLoggedIn: false, error: 'Native Azure authentication is active' };
+    }
+    if (isAzureExplicitlySignedOut()) {
+      return { isLoggedIn: false, error: 'Not logged in' };
+    }
+    const identity = JSON.stringify([
+      status.isLoggedIn,
+      status.username,
+      status.tenantId,
+      status.subscriptionId,
+      status.environmentName,
+    ]);
+    const previous = observedSubscriptionAccounts.get(key);
+    if (previous?.identity !== identity) {
+      observedSubscriptionAccounts.set(key, { identity, tenantId: status.tenantId });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('azure-account-change', { detail: { subscriptionIds: [key] } })
+        );
+        if (
+          previous?.tenantId &&
+          status.tenantId &&
+          previous.tenantId.toLowerCase() !== status.tenantId.toLowerCase()
+        ) {
+          window.dispatchEvent(
+            new CustomEvent(AZURE_SUBSCRIPTION_TENANT_CHANGE_EVENT, {
+              detail: { subscriptionIds: [key] },
+            })
+          );
+        }
+      }
+    }
+    return status;
+  });
+  latestSubscriptionObservations.set(key, observation);
+  return observation;
+}
+
+/**
+ * Starts native Azure login.
  *
+ * @param signal - Cancels an in-progress native login.
+ * @param selectedCloud - Explicit native cloud selection; otherwise use the CLI's active cloud.
  * @returns Login initiation result with a user-facing message.
  */
-export async function initiateLogin(): Promise<AzureLoginResult> {
+export async function initiateLogin(
+  signal?: AbortSignal,
+  selectedCloud?: string
+): Promise<AzureLoginResult> {
   try {
-    debugLog('[AZ-CLI] ===== INITIATING LOGIN =====');
-    debugLog('[AZ-CLI] Resolved command:', getAzCommand());
-    debugLog(
-      '[AZ-CLI] Is Electron?:',
-      typeof window !== 'undefined' && (window as any).desktopApi !== undefined
-    );
-    debugLog('[AZ-CLI] Platform:', typeof process !== 'undefined' ? process.platform : 'unknown');
-
-    const { stdout, stderr } = await runCommandAsync('az', ['login']);
-
-    debugLog('[AZ-CLI] Login stdout:', stdout);
-    debugLog('[AZ-CLI] Login stderr:', stderr);
-
-    if (stderr && (isCliNotFoundError(stderr) || stderr.includes('ENOENT'))) {
-      console.error('[AZ-CLI] Azure CLI not found error detected in stderr');
-      const instructions = getInstallationInstructions();
-      return {
-        success: false,
-        message: `Azure CLI could not be started.\n\n${instructions}`,
-      };
-    }
-
-    if (!stdout.trim() && stderr && isCommandFailure(stderr)) {
-      return {
-        success: false,
-        message: `Failed to initiate login: ${stderr.trim()}`,
-      };
-    }
-
-    // If we get here, login was initiated successfully
-    debugLog('[AZ-CLI] Login initiated successfully');
+    const cloudName = selectedCloud ?? (await getActiveLoginCloud(signal));
+    if (signal?.aborted) throw new Error('Azure login was cancelled');
+    const prompt = await initiateNativeLogin(signal, cloudName);
     return {
       success: true,
-      message: 'Login process initiated. Please complete authentication in your browser.',
+      message: prompt.message,
+      userCode: prompt.userCode,
     };
   } catch (error) {
-    console.error('[AZ-CLI] Error initiating Azure login:', error);
+    console.error('Error initiating Azure login:', error);
     const errorMessage = getErrorMessage(error);
-
-    // Check if it's an ENOENT error
-    if (errorMessage.includes('ENOENT') || errorMessage.includes('spawn az ENOENT')) {
-      console.error('[AZ-CLI] ENOENT error - Azure CLI command not found');
-      const instructions = getInstallationInstructions();
-      return {
-        success: false,
-        message: `Azure CLI could not be started.\n\n${instructions}`,
-      };
-    }
-
     return {
       success: false,
       message: `Failed to initiate login: ${errorMessage}`,
     };
+  }
+}
+
+async function getActiveLoginCloud(signal?: AbortSignal): Promise<string> {
+  if (signal?.aborted) throw new Error('Azure login was cancelled');
+  let onAbort: (() => void) | undefined;
+  const cancelled = new Promise<never>((_, reject) => {
+    onAbort = () => reject(new Error('Azure login was cancelled'));
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    const { stdout, stderr } = await Promise.race([
+      runCommandAsync('az', ['cloud', 'show', '--output', 'json']),
+      cancelled,
+    ]);
+    if (isCliNotFoundError(stderr) || stderr.trim() === 'pluginRunCommand is not available.') {
+      return 'AzureCloud';
+    }
+    if (isCommandFailure(stderr)) {
+      throw new Error(`Could not determine the selected Azure CLI cloud: ${stderr.trim()}`);
+    }
+    let cloud: unknown;
+    try {
+      cloud = JSON.parse(stdout);
+    } catch {
+      throw new Error('Could not determine the selected Azure CLI cloud.');
+    }
+    if (
+      !cloud ||
+      typeof cloud !== 'object' ||
+      typeof (cloud as { name?: unknown }).name !== 'string' ||
+      !(cloud as { name: string }).name.trim()
+    ) {
+      throw new Error('Could not determine the selected Azure CLI cloud.');
+    }
+    return (cloud as { name: string }).name;
+  } finally {
+    if (signal && onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
+
+/** Reads native authentication status without falling back to an existing CLI account. */
+export async function getNativeLoginStatus(): Promise<AzureLoginStatus> {
+  await synchronizeNativeLogin();
+  const account = getNativeAccount();
+  const error = getNativeLoginError();
+  return Promise.resolve(
+    account
+      ? { isLoggedIn: true, ...account }
+      : { isLoggedIn: false, needsRelogin: !error, error: error ?? 'Not logged in' }
+  );
+}
+
+/** Reads the CLI account independently of native authentication. */
+export function getCliLoginStatus(subscriptionId?: string): Promise<AzureLoginStatus> {
+  return readLoginStatus(subscriptionId);
+}
+
+let pendingCliLogin: Promise<AzureLoginResult> | undefined;
+
+/**
+ * Signs into Azure CLI with its browser-based flow and current selected cloud.
+ * The bridge returns only when the command exits, so callers must show pending UI.
+ */
+export function initiateCliLogin(): Promise<AzureLoginResult> {
+  if (!pendingCliLogin) {
+    pendingCliLogin = runCliLogin().finally(() => {
+      pendingCliLogin = undefined;
+    });
+  }
+  return pendingCliLogin;
+}
+
+async function runCliLogin(): Promise<AzureLoginResult> {
+  try {
+    const { stdout, stderr } = await runCommandAsync('az', ['login', '--output', 'json']);
+    if (isCliNotFoundError(stderr)) {
+      return {
+        success: false,
+        message: `Azure CLI could not be started.\n\n${getInstallationInstructions()}`,
+      };
+    }
+    if (isCommandFailure(stderr)) {
+      return { success: false, message: stderr.trim() };
+    }
+    let accounts: unknown;
+    try {
+      accounts = JSON.parse(stdout);
+    } catch {
+      return { success: false, message: stderr.trim() || 'Azure CLI login did not complete.' };
+    }
+    if (!Array.isArray(accounts) || accounts.length === 0) {
+      return {
+        success: false,
+        message: stderr.trim() || 'Azure CLI login did not return an account.',
+      };
+    }
+    const native = getNativeAccount();
+    const status = await getCliLoginStatus(native?.subscriptionId);
+    if (!status.isLoggedIn) {
+      return { success: false, message: status.error || 'Azure CLI login did not complete.' };
+    }
+    if (native) {
+      if (native !== getNativeAccount()) {
+        return {
+          success: false,
+          message: 'Azure account changed during CLI sign-in. Please retry.',
+        };
+      }
+      if (
+        !native.username ||
+        !status.username ||
+        !native.environmentName ||
+        !status.environmentName
+      ) {
+        return {
+          success: false,
+          message:
+            'Unable to verify that Azure CLI and native sign-in use the same account and cloud.',
+        };
+      }
+      if (
+        native.username.toLowerCase() !== status.username.toLowerCase() ||
+        native.tenantId.toLowerCase() !== status.tenantId?.toLowerCase() ||
+        native.subscriptionId.toLowerCase() !== status.subscriptionId?.toLowerCase() ||
+        native.environmentName.toLowerCase() !== status.environmentName.toLowerCase()
+      ) {
+        return {
+          success: false,
+          message:
+            'Azure CLI signed in with a different account, tenant, or cloud. Sign in again with the same account and cloud.',
+        };
+      }
+    }
+    return { success: true, message: 'Azure CLI sign-in successful.' };
+  } catch (error) {
+    return { success: false, message: `Azure CLI sign-in failed: ${getErrorMessage(error)}` };
   }
 }
 
@@ -317,29 +523,39 @@ export function monitorLoginStatus(
 }
 
 /**
- * Completes Azure CLI login within one shared deadline.
+ * Completes Azure login within one shared deadline.
  *
  * @param timeoutMs - Maximum duration for status checks, login initiation, and polling.
- * @returns Whether a usable Azure CLI session was established before the deadline.
+ * @returns Whether a usable Azure session was established before the deadline.
  */
 export async function login(timeoutMs = LOGIN_TIMEOUT_MS): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
-  const initialStatus = await waitUntilDeadline(isAzCliLoggedIn(), deadline);
+  const initialStatus = await waitUntilDeadline(getNativeLoginStatus(), deadline);
   if (initialStatus === OPERATION_TIMED_OUT) return false;
-  if (initialStatus) return true;
+  if (initialStatus.isLoggedIn) return true;
 
-  const init = await waitUntilDeadline(initiateLogin(), deadline);
-  if (init === OPERATION_TIMED_OUT || !init.success) return false;
+  const controller = new AbortController();
+  const init = await waitUntilDeadline(initiateLogin(controller.signal), deadline);
+  if (init === OPERATION_TIMED_OUT || !init.success) {
+    controller.abort();
+    return false;
+  }
 
   return new Promise(resolve => {
     /** Checks login status once and schedules another bounded check when needed. */
     const poll = async () => {
-      const status = await waitUntilDeadline(isAzCliLoggedIn(), deadline);
-      if (status === OPERATION_TIMED_OUT) return resolve(false);
-      if (status) return resolve(true);
+      const status = await waitUntilDeadline(getNativeLoginStatus(), deadline);
+      if (status === OPERATION_TIMED_OUT) {
+        controller.abort();
+        return resolve(false);
+      }
+      if (status.isLoggedIn) return resolve(true);
 
       const remaining = deadline - Date.now();
-      if (remaining <= 0) return resolve(false);
+      if (remaining <= 0) {
+        controller.abort();
+        return resolve(false);
+      }
       setTimeout(poll, Math.min(LOGIN_POLL_INTERVAL_MS, remaining));
     };
     poll();

@@ -208,5 +208,7 @@ test('shares the original deadline between cloud discovery and the later HTTP re
 test('disposes metadata and HTTP deadline timers after a successful read', async () => {
   vi.useFakeTimers();
   await getManagedClusterDetails(coordinates);
+  // Flush storage events from the authentication-policy probe, not request deadlines.
+  await vi.advanceTimersByTimeAsync(0);
   expect(vi.getTimerCount()).toBe(0);
 });

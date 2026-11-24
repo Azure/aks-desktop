@@ -258,6 +258,7 @@ export async function azRequestRaw<T>(options: AzRequestOptions): Promise<AzResp
 
       debugLog('[AZ-HTTP]', method, url.origin + url.pathname, `attempt ${attempt + 1}`);
       const headers: Record<string, string> = { Authorization: `Bearer ${accessToken.token}` };
+      headers['x-ms-useragent'] = 'AZURECLI/2.0.0';
       if (options.body !== undefined) headers['Content-Type'] = 'application/json';
 
       let response: Response | undefined;

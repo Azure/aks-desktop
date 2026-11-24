@@ -152,10 +152,12 @@ account and resolves its named cloud's `microsoftGraphResourceId` from local
 configuration, not the ARM or legacy Azure AD Graph endpoint. Missing or invalid
 configuration fails explicitly without falling back to public Graph.
 
-Authentication remains CLI-backed through the shared token provider. Graph
-credentials are scoped to the observed user, tenant, subscription, and cloud;
-switching accounts externally cannot reuse the previous context's cached token
-on the next lookup. Unchanged contexts retain shared token caching and refresh.
+Native sessions use the shared token provider with the discovered subscription
+tenant. CLI-only lookups observe the requested subscription's user, tenant, and
+cloud before consulting cached credentials. An identity change invalidates that
+subscription's shared tokens, including ARM tokens, without invalidating another
+subscription merely because it was selected. Unchanged contexts retain shared
+token caching and refresh.
 The existing focus/periodic account checks also invalidate token and cloud
 metadata caches when the observed account changes or becomes unavailable, using
 a separate notification that does not trigger another login-status check.
