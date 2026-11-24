@@ -2,6 +2,6 @@
   "name": "aks-desktop-ci-npm",
   "private": true,
   "dependencies": {
-    "npm": "12.0.1"
+    "npm": "12.2.3"
   }
 }
