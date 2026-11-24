@@ -53,12 +53,14 @@ export default function AzureProfilePage() {
     tenantId,
     subscriptionId,
     loggingOut,
+    logoutError,
+    logoutNotice,
     handleBack,
     handleAddCluster,
     handleLogout,
   } = useAzureProfilePage();
 
-  if (isChecking) {
+  if (isChecking && !loggingOut) {
     return (
       <Box sx={pageSx}>
         <Container maxWidth="sm">
@@ -82,8 +84,37 @@ export default function AzureProfilePage() {
   }
 
   // Don't render anything if not logged in (will redirect)
-  if (!isLoggedIn) {
+  if (!isLoggedIn && !loggingOut && !logoutError && !logoutNotice) {
     return null;
+  }
+
+  if (!isLoggedIn) {
+    return (
+      <Box sx={pageSx}>
+        <Container maxWidth="sm">
+          <Card sx={{ p: 4, textAlign: 'center' }}>
+            {loggingOut && !logoutNotice ? (
+              <Box role="status">
+                <CircularProgress size={24} aria-hidden="true" />
+                <Typography sx={{ mt: 2 }}>{t('Logging out')}...</Typography>
+                <Button onClick={handleBack} sx={{ mt: 2 }}>
+                  {t('Back')}
+                </Button>
+              </Box>
+            ) : (
+              <Typography role={logoutError ? 'alert' : 'status'}>
+                {t(logoutError || logoutNotice)}
+              </Typography>
+            )}
+            {logoutError && (
+              <Button onClick={handleLogout} disabled={loggingOut} sx={{ mt: 2 }}>
+                {t('Retry sign-out')}
+              </Button>
+            )}
+          </Card>
+        </Container>
+      </Box>
+    );
   }
 
   return (
@@ -130,11 +161,18 @@ export default function AzureProfilePage() {
 
           {subscriptionId && <InfoRow label="Default Subscription ID" value={subscriptionId} />}
 
+          {(logoutError || logoutNotice) && (
+            <Typography role={logoutError ? 'alert' : 'status'}>
+              {t(logoutError || logoutNotice)}
+            </Typography>
+          )}
+
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 3 }}>
             <Button
               variant="contained"
               color="primary"
               onClick={handleAddCluster}
+              disabled={loggingOut || !!logoutError}
               startIcon={<Icon icon="mdi:cloud-plus" aria-hidden="true" />}
               sx={{ p: 1.5, textTransform: 'none', fontSize: 16 }}
             >

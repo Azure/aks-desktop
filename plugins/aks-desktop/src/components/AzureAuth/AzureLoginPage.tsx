@@ -10,6 +10,7 @@ import {
   CardContent,
   CircularProgress,
   Container,
+  TextField,
   Typography,
 } from '@mui/material';
 import React, { useEffect, useRef, useState } from 'react';
@@ -17,12 +18,14 @@ import { useHistory, useLocation } from 'react-router-dom';
 import { useTelemetryFeatureOpened } from '../../hooks/useTelemetryFeatureOpened';
 import { trackError } from '../../telemetry';
 import { trackAksFeature } from '../../telemetry/aksFeature';
-import { getLoginStatus, initiateLogin } from '../../utils/azure/az-auth';
+import { getLoginStatus, getNativeLoginStatus, initiateLogin } from '../../utils/azure/az-auth';
+import type { NativeCloudName } from '../../utils/azure/azure-cloud-config';
 import {
   LOGIN_POLL_INTERVAL_MS,
   LOGIN_RETRY_DELAY_MS,
   LOGIN_TIMEOUT_MS,
 } from '../../utils/constants/timing';
+import CliLoginStep from './CliLoginStep';
 
 interface AzureLoginPageProps {
   /** Route to open after authentication when no redirect query parameter is set. */
@@ -45,7 +48,7 @@ function trackLoginFailure(errorClass: 'TimeoutError' | 'UnknownError') {
 }
 
 /**
- * Starts Azure CLI authentication and redirects as soon as the account is available.
+ * Starts native Azure authentication and offers Azure CLI sign-in.
  *
  * @param props - Login page configuration.
  * @param props.redirectTo - Fallback route to open after authentication.
@@ -59,15 +62,17 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
   const [statusMessage, setStatusMessage] = useState('');
+  const [loginPrompt, setLoginPrompt] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showRetry, setShowRetry] = useState(false);
-  const [loginCommandPending, setLoginCommandPending] = useState(false);
+  const [cliLoginMode, setCliLoginMode] = useState<'native' | 'cli-only' | null>(null);
+  const [selectedCloud, setSelectedCloud] = useState<NativeCloudName | ''>('');
   const pollingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loginRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loginTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loginAttemptOutcomeRef = useRef<LoginAttemptOutcome>('idle');
   const loginAttemptGenerationRef = useRef(0);
-  const loginCommandPendingRef = useRef(false);
+  const loginAbortControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
 
   /**
@@ -138,8 +143,11 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
     clearLoginRetryTimeout();
     clearLoginTimeout();
     loginAttemptOutcomeRef.current = 'failed';
+    loginAbortControllerRef.current?.abort();
+    loginAbortControllerRef.current = null;
     trackLoginFailure('TimeoutError');
     setStatusMessage('');
+    setLoginPrompt('');
     setErrorMessage(t('Login timeout. Please try again.'));
     setLoading(false);
     setShowRetry(false);
@@ -193,6 +201,11 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
     return () => {
       mountedRef.current = false;
       loginAttemptGenerationRef.current++;
+      if (loginAttemptOutcomeRef.current === 'active') {
+        loginAttemptOutcomeRef.current = 'cancelled';
+        loginAbortControllerRef.current?.abort();
+        loginAbortControllerRef.current = null;
+      }
       clearPollingTimeout();
       clearLoginRetryTimeout();
       clearLoginTimeout();
@@ -200,15 +213,18 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   }, []);
 
   /**
-   * Checks the existing Azure session and redirects authenticated users.
+   * Checks the existing Azure session before offering CLI sign-in or redirecting.
    *
    * @returns Promise that resolves after the initial status check completes.
    */
   const checkLoginStatus = async () => {
     let statusCheckTimeout: ReturnType<typeof setTimeout> | null = null;
     try {
-      const status = await Promise.race([
-        getLoginStatus(),
+      const result = await Promise.race([
+        getLoginStatus().then(async status => ({
+          status,
+          nativeStatus: status.isLoggedIn ? await getNativeLoginStatus() : null,
+        })),
         new Promise<null>(resolve => {
           statusCheckTimeout = setTimeout(() => resolve(null), LOGIN_TIMEOUT_MS);
         }),
@@ -216,12 +232,14 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
       if (!mountedRef.current) {
         return;
       }
-      if (status?.isLoggedIn) {
+      if (result?.status.isLoggedIn) {
         // Trigger update event for sidebar label
         window.dispatchEvent(new CustomEvent('azure-auth-update'));
-        // Already logged in, redirect to original target
-        const target = getRedirectTarget();
-        history.push(target);
+        if (result.nativeStatus?.isLoggedIn) {
+          setCliLoginMode('native');
+        } else {
+          history.push(getRedirectTarget());
+        }
       }
     } catch (error) {
       if (mountedRef.current) {
@@ -236,33 +254,28 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
   };
 
   /**
-   * Starts Azure CLI login, verifies status immediately, and polls if needed.
+   * Starts native Azure login, verifies status immediately, and polls if needed.
    *
    * @returns Promise that resolves after login initiation and its immediate check.
    */
   const handleLogin = async () => {
-    if (loginAttemptOutcomeRef.current === 'active' || loginCommandPendingRef.current) {
+    if (loginAttemptOutcomeRef.current === 'active') {
       return;
     }
     const attemptGeneration = ++loginAttemptGenerationRef.current;
+    const abortController = new AbortController();
+    loginAbortControllerRef.current = abortController;
     loginAttemptOutcomeRef.current = 'active';
     trackAksFeature('aksd.auth-login', 'started');
     setLoading(true);
     setShowRetry(false);
     setErrorMessage('');
+    setLoginPrompt('');
     setStatusMessage(`${t('Initiating Azure login')}...`);
     startLoginTimeout(attemptGeneration);
 
     try {
-      loginCommandPendingRef.current = true;
-      setLoginCommandPending(true);
-      let result: Awaited<ReturnType<typeof initiateLogin>>;
-      try {
-        result = await initiateLogin();
-      } finally {
-        loginCommandPendingRef.current = false;
-        if (mountedRef.current) setLoginCommandPending(false);
-      }
+      const result = await initiateLogin(abortController.signal, selectedCloud || undefined);
 
       if (!isActiveAttempt(attemptGeneration)) {
         return;
@@ -272,6 +285,8 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
         clearLoginRetryTimeout();
         clearLoginTimeout();
         loginAttemptOutcomeRef.current = 'failed';
+        abortController.abort();
+        loginAbortControllerRef.current = null;
         trackLoginFailure('UnknownError');
         setStatusMessage('');
         setErrorMessage(result.message);
@@ -281,6 +296,7 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
       }
 
       startLoginRetryTimeout(attemptGeneration);
+      setLoginPrompt(result.message);
       setStatusMessage(t('Checking authentication status'));
 
       // Check immediately, then poll for login completion
@@ -302,7 +318,7 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
         }
 
         try {
-          const status = await getLoginStatus();
+          const status = await getNativeLoginStatus();
 
           if (!isActiveAttempt(attemptGeneration)) {
             return;
@@ -313,21 +329,26 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
             clearLoginRetryTimeout();
             clearLoginTimeout();
             loginAttemptOutcomeRef.current = 'succeeded';
+            loginAbortControllerRef.current = null;
             trackAksFeature('aksd.auth-login', 'succeeded');
-            setStatusMessage(`${t('Login successful! Redirecting')}...`);
+            setLoading(false);
+            setStatusMessage('');
+            setLoginPrompt('');
 
             // Trigger update event for sidebar label
             window.dispatchEvent(new CustomEvent('azure-auth-update'));
 
-            const target = getRedirectTarget();
-            history.push(target);
+            setCliLoginMode('native');
           } else if (status.error && !status.needsRelogin && status.error !== 'Not logged in') {
             clearPollingTimeout();
             clearLoginRetryTimeout();
             clearLoginTimeout();
             loginAttemptOutcomeRef.current = 'failed';
+            abortController.abort();
+            loginAbortControllerRef.current = null;
             trackLoginFailure('UnknownError');
             setStatusMessage('');
+            setLoginPrompt('');
             setErrorMessage(status.error);
             setLoading(false);
             setShowRetry(false);
@@ -376,6 +397,8 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
       clearLoginRetryTimeout();
       clearLoginTimeout();
       loginAttemptOutcomeRef.current = 'failed';
+      abortController.abort();
+      loginAbortControllerRef.current = null;
       trackLoginFailure('UnknownError');
       setStatusMessage('');
       setErrorMessage(
@@ -399,6 +422,8 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
     }
     loginAttemptGenerationRef.current++;
     loginAttemptOutcomeRef.current = 'cancelled';
+    loginAbortControllerRef.current?.abort();
+    loginAbortControllerRef.current = null;
     trackAksFeature('aksd.auth-login', 'cancelled');
     clearPollingTimeout();
     clearLoginRetryTimeout();
@@ -406,6 +431,7 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
     setLoading(false);
     setShowRetry(false);
     setStatusMessage('');
+    setLoginPrompt('');
     setErrorMessage('');
   };
 
@@ -448,6 +474,29 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
     );
   }
 
+  if (cliLoginMode) {
+    return (
+      <Box sx={rootSx}>
+        <Container sx={containerSx} maxWidth="sm">
+          <Card sx={{ maxWidth: 500, width: '100%', textAlign: 'center', p: 4 }}>
+            <CardContent>
+              <CliLoginStep
+                nativeAuthenticated={cliLoginMode === 'native'}
+                onBack={() => setCliLoginMode(null)}
+                onContinue={() => {
+                  if (cliLoginMode === 'cli-only') {
+                    window.dispatchEvent(new CustomEvent('azure-auth-update'));
+                  }
+                  history.push(getRedirectTarget());
+                }}
+              />
+            </CardContent>
+          </Card>
+        </Container>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={rootSx}>
       <Container sx={containerSx} maxWidth="sm">
@@ -480,22 +529,39 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
             </Typography>
 
             {!loading ? (
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleLogin}
-                disabled={loginCommandPending}
-                startIcon={<Icon icon="mdi:login" />}
-                sx={{
-                  minWidth: 200,
-                  py: 1.5,
-                  px: 4,
-                  textTransform: 'none',
-                  fontSize: 16,
-                }}
-              >
-                {t('Sign in with Azure')}
-              </Button>
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <TextField
+                  select
+                  label={t('Azure cloud')}
+                  value={selectedCloud}
+                  onChange={event => setSelectedCloud(event.target.value as NativeCloudName | '')}
+                  SelectProps={{ native: true }}
+                  sx={{ minWidth: 200 }}
+                >
+                  <option value="">{t('Automatic (Azure CLI or public cloud)')}</option>
+                  <option value="AzureCloud">{t('Azure public cloud')}</option>
+                  <option value="AzureUSGovernment">{t('Azure US Government')}</option>
+                  <option value="AzureChinaCloud">{t('Azure China')}</option>
+                </TextField>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleLogin}
+                  startIcon={<Icon icon="mdi:login" />}
+                  sx={{
+                    minWidth: 200,
+                    py: 1.5,
+                    px: 4,
+                    textTransform: 'none',
+                    fontSize: 16,
+                  }}
+                >
+                  {t('Sign in with Azure')}
+                </Button>
+                <Button onClick={() => setCliLoginMode('cli-only')}>
+                  {t('Sign in with Azure CLI instead')}
+                </Button>
+              </Box>
             ) : (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 2 }}>
                 <Button
@@ -534,6 +600,12 @@ export default function AzureLoginPage({ redirectTo }: AzureLoginPageProps) {
             {statusMessage && (
               <Typography variant="body2" sx={{ mt: 2, color: 'info.main' }}>
                 {statusMessage}
+              </Typography>
+            )}
+
+            {loginPrompt && (
+              <Typography variant="body2" sx={{ mt: 2, whiteSpace: 'pre-wrap' }}>
+                {loginPrompt}
               </Typography>
             )}
 

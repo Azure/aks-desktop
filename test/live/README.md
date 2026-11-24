@@ -12,6 +12,26 @@ do not point the live run at another subscription or switch to another cloud.
 
 ## Read-only managed cluster discovery
 
+### Unattended authentication checks
+
+```sh
+npm run test:live:azure-auth
+```
+
+This separate, read-only command uses an existing public-cloud Azure CLI session
+in the current subscription. It never prompts, launches a browser, logs in/out,
+switches accounts/clouds, or provisions resources. Missing or expired credentials
+fail explicitly; renew them outside the runner when tenant policy requires it.
+There is no need to approve a new device code for each run.
+
+Coverage includes a real native OAuth device challenge/pending/cancellation,
+CLI-authenticated ARM/token-cache checks, cluster discovery/identity lookup, and
+the profile-page hook using the cached account. It does not complete native login
+or validate native refresh, MFA/consent, Graph access, or a packaged desktop UI.
+See [authentication coverage and limitations](../../docs/azure-authentication.md#unattended-live-checks).
+
+### Existing cluster-discovery suite
+
 ```sh
 AZ_LIVE_TESTS=1 npm --prefix plugins/aks-desktop run test:unit -- az-clusters.live.test.ts
 ```

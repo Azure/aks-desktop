@@ -44,6 +44,7 @@
     "test:local-plugin": "node node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules/vitest/vitest.mjs run --config test/integration/local-plugin.vitest.config.mts",
     "test:local-discovery": "node node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules/vitest/vitest.mjs run --config test/integration/local-discovery.vitest.config.mts",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
+    "test:live:azure-auth": "cross-env AZ_LIVE_TESTS=1 npm --prefix node_modules/@headlamp-k8s/headlamp-source/source/app test -- --maxWorkers=2 electron/azureOAuth.live.test.ts && cross-env AZ_LIVE_TESTS=1 npm --prefix plugins/aks-desktop run test:unit -- --maxWorkers=2 src/utils/azure/az-auth.live.test.ts src/utils/azure/azure-auth-consumers.live.test.ts src/components/AzureAuth/AzureProfilePage.live.test.tsx",
     "test:azure:list": "tsx test/live/list-azure-resources.ts",
     "test:release-signing": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test build/sign-release.test.ts",
     "test:post-build": "tsx ./build/verify-bundled-tools.ts",

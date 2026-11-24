@@ -16,6 +16,19 @@ confirm generation of a new stored insight. It never initiates an upgrade.
 See the [feature guide](src/components/UpgradeInsights/README.md) for permissions,
 the preview API contract, account isolation, and provenance.
 
+## Azure sign-in and reloads
+
+Native Azure credentials remain in memory and require sign-in again after an app
+reload. The plugin stores only a non-secret policy to prevent silently switching
+to an unrelated Azure CLI account after native sign-in or sign-out. A fresh
+installation still supports the existing CLI account, and the CLI sign-in option
+can explicitly restore CLI fallback.
+
+If application storage is unavailable, implicit CLI fallback is blocked and
+native sign-in cannot start safely. If storage fails during sign-out, the
+in-memory session is cleared but the policy may not survive a reload; sign out
+of Azure CLI manually and restore application storage.
+
 ## Command policy
 
 The plugin requests commands through `pluginRunCommand`, but it does not define

@@ -106,6 +106,7 @@ for the verification commands.
 ## Documentation
 
 - [Cluster Requirements](docs/cluster-requirements.md) — What your AKS cluster needs for the best AKS desktop experience
+- [Azure authentication](docs/azure-authentication.md) — Native device sign-in and the Azure CLI identity boundary
 - [Headlamp source configuration](packages/headlamp-source/README.md) — `headlampSource` and `headlamp` fields
 - [Headlamp source maintenance](MAINTENANCE.md#headlamp-distribution) — Source updates and patch rebases
 - [AKS Desktop Documentation](https://aka.ms/aks/aks-desktop)
