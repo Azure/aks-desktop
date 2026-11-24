@@ -1,0 +1,2064 @@
+diff --git a/app/app-build-manifest.schema.json b/app/app-build-manifest.schema.json
+index 3bdf23df999324142be120dc9d71c606db7a2c1e..5813102ad1a5dc4bd142fda52699646f2787a8d2 100644
+--- a/app/app-build-manifest.schema.json
++++ b/app/app-build-manifest.schema.json
+@@ -41,6 +41,36 @@
+         "clientSecret": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,256}$" }
+       }
+     },
++    "azureOAuth": {
++      "type": "object",
++      "description": "Optional Azure public client used for device-code sign-in by trusted product plugins.",
++      "required": ["clientId", "clouds"],
++      "additionalProperties": false,
++      "properties": {
++        "clientId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,256}$" },
++        "clouds": {
++          "type": "array",
++          "minItems": 1,
++          "maxItems": 16,
++          "items": {
++            "type": "object",
++            "required": ["name", "authority", "scopes"],
++            "additionalProperties": false,
++            "properties": {
++              "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
++              "authority": { "type": "string", "pattern": "^https://[^/?#\\s]+$" },
++              "scopes": {
++                "type": "array",
++                "minItems": 1,
++                "maxItems": 16,
++                "uniqueItems": true,
++                "items": { "type": "string", "pattern": "^https://\\S+/\\.default$" }
++              }
++            }
++          }
++        }
++      }
++    },
+     "commandSets": {
+       "type": "object",
+       "description": "Reusable named command grant arrays. A runCommands policy composes one or more with commandSets instead of repeating commands.",
+@@ -286,6 +316,10 @@
+         "githubOAuth": {
+           "type": "boolean",
+           "description": "Grants these exact plugin identities the product's top-level githubOAuth client through their private command capability. Not allowed for user-installed plugins."
++        },
++        "azureOAuth": {
++          "type": "boolean",
++          "description": "Grants these exact plugin identities the product's top-level azureOAuth client through their private command capability. Not allowed for user-installed plugins."
+         }
+       },
+       "required": ["environment", "pluginLocation", "plugins"],
+@@ -327,7 +361,8 @@
+           "then": {
+             "properties": {
+               "clusterRegistrationProviders": { "maxItems": 0 },
+-              "githubOAuth": { "const": false }
++              "githubOAuth": { "const": false },
++              "azureOAuth": { "const": false }
+             }
+           }
+         }
+diff --git a/app/electron/azureOAuth.live.test.ts b/app/electron/azureOAuth.live.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..205fb1814c1ce91556d0b70bd5f98d3dff0cd5bd
+--- /dev/null
++++ b/app/electron/azureOAuth.live.test.ts
+@@ -0,0 +1,101 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
++import { randomUUID } from 'node:crypto';
++import { EventEmitter } from 'node:events';
++import { afterEach, describe, expect, it, vi } from 'vitest';
++import type { AzureOAuthResult } from './azureOAuth';
++
++type Handler = (
++  event: IpcMainInvokeEvent,
++  payload: unknown
++) => AzureOAuthResult | Promise<AzureOAuthResult>;
++
++const handlers = vi.hoisted(() => new Map<string, Handler>());
++
++vi.mock('electron', () => ({
++  ipcMain: {
++    handle: (channel: string, handler: Handler) => handlers.set(channel, handler),
++    removeHandler: (channel: string) => handlers.delete(channel),
++  },
++}));
++
++import {
++  AZURE_OAUTH_CANCEL,
++  AZURE_OAUTH_START,
++  AZURE_OAUTH_STATUS,
++  setupAzureOAuth,
++} from './azureOAuth';
++
++let dispose: (() => void) | undefined;
++
++afterEach(() => {
++  dispose?.();
++  dispose = undefined;
++  handlers.clear();
++  vi.restoreAllMocks();
++});
++
++describe.runIf(process.env.AZ_LIVE_TESTS === '1')('Azure OAuth service (live, no sign-in)', () => {
++  it('receives a real device challenge, polls pending authorization, and cancels', async () => {
++    const startUrl = 'http://localhost:4466/';
++    const webContents = Object.assign(new EventEmitter(), { mainFrame: { url: startUrl } });
++    const mainWindow = { webContents, isDestroyed: () => false } as BrowserWindow;
++    const event = { sender: webContents, senderFrame: webContents.mainFrame } as IpcMainInvokeEvent;
++    const capability = randomUUID();
++    const sessionId = randomUUID();
++    const scope = 'https://management.core.windows.net//.default';
++    const realFetch = globalThis.fetch;
++    let pendingResponses = 0;
++    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
++      const response = await realFetch(input, init);
++      if (String(input).endsWith('/oauth2/v2.0/token')) {
++        const body: { error?: unknown } = await response.clone().json();
++        if (body.error === 'authorization_pending') pendingResponses++;
++      }
++      return response;
++    });
++    dispose = setupAzureOAuth({
++      mainWindow,
++      trustedStartUrl: startUrl,
++      config: {
++        clientId: '04b07795-8ddb-461a-bbee-02f9e1bf7b46',
++        clouds: [
++          { name: 'AzureCloud', authority: 'https://login.microsoftonline.com', scopes: [scope] },
++        ],
++      },
++      authorizeAzureOAuth: (_event, value) => value === capability,
++      isAzureOAuthCapabilityLive: value => value === capability,
++    });
++    const invoke = async (channel: string, payload: Record<string, unknown> = {}) => {
++      const handler = handlers.get(channel);
++      if (!handler) throw new Error('Azure OAuth live-test handler is missing');
++      return handler(event, { capability, sessionId, ...payload });
++    };
++
++    // Never print or approve the challenge: this test must not establish a user session.
++    const started = await invoke(AZURE_OAUTH_START, { cloud: 'AzureCloud', scope });
++    expect(started.success).toBe(true);
++    expect(started.pending).toBe(true);
++    expect(Boolean(started.prompt?.userCode)).toBe(true);
++    expect(started.prompt?.verificationUri.startsWith('https://')).toBe(true);
++    await vi.waitFor(() => expect(pendingResponses > 0).toBe(true), { timeout: 45_000 });
++    expect((await invoke(AZURE_OAUTH_STATUS)).pending).toBe(true);
++    expect((await invoke(AZURE_OAUTH_CANCEL)).success).toBe(true);
++    expect((await invoke(AZURE_OAUTH_STATUS)).success).toBe(false);
++  }, 60_000);
++});
+diff --git a/app/electron/azureOAuth.test.ts b/app/electron/azureOAuth.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e2ca06790bfa85252f4b6721931ad0b4a978df3
+--- /dev/null
++++ b/app/electron/azureOAuth.test.ts
+@@ -0,0 +1,473 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { EventEmitter } from 'node:events';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++
++const { handlers } = vi.hoisted(() => ({
++  handlers: new Map<string, (...args: unknown[]) => unknown>(),
++}));
++
++vi.mock('electron', () => ({
++  ipcMain: {
++    handle: (channel: string, handler: (...args: unknown[]) => unknown) => {
++      handlers.set(channel, handler);
++    },
++    removeHandler: (channel: string) => handlers.delete(channel),
++  },
++}));
++
++import {
++  AZURE_OAUTH_CANCEL,
++  AZURE_OAUTH_LOGOUT,
++  AZURE_OAUTH_START,
++  AZURE_OAUTH_STATUS,
++  AZURE_OAUTH_TOKEN,
++  setupAzureOAuth,
++} from './azureOAuth';
++
++const START_URL = 'http://localhost:4466/';
++const CAPABILITY = 'a'.repeat(64);
++const OTHER_CAPABILITY = 'b'.repeat(64);
++const SESSION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
++const ARM_SCOPE = 'https://management.core.windows.net//.default';
++const GRAPH_SCOPE = 'https://graph.microsoft.com/.default';
++const CHINA_ARM_SCOPE = 'https://management.core.chinacloudapi.cn//.default';
++const CONFIG = {
++  clientId: 'public-client',
++  clouds: [
++    {
++      name: 'AzureCloud',
++      authority: 'https://login.microsoftonline.com',
++      scopes: [ARM_SCOPE, GRAPH_SCOPE],
++    },
++    {
++      name: 'AzureChinaCloud',
++      authority: 'https://login.chinacloudapi.cn',
++      scopes: [CHINA_ARM_SCOPE],
++    },
++  ],
++};
++
++class FakeWebContents extends EventEmitter {
++  mainFrame = { url: START_URL };
++}
++
++function fakeWindow() {
++  const webContents = new FakeWebContents();
++  return {
++    webContents,
++    isDestroyed: () => false,
++  };
++}
++
++type FakeWindow = ReturnType<typeof fakeWindow>;
++
++function event(window: FakeWindow) {
++  return { sender: window.webContents, senderFrame: window.webContents.mainFrame };
++}
++
++function invoke(channel: string, sender: unknown, payload?: unknown) {
++  const handler = handlers.get(channel);
++  if (!handler) throw new Error(`No handler for ${channel}`);
++  return handler(sender, payload) as Promise<any>;
++}
++
++function response(body: unknown, status = 200) {
++  return new Response(JSON.stringify(body), {
++    status,
++    headers: { 'Content-Type': 'application/json' },
++  });
++}
++
++function jwt(claims: Record<string, unknown>) {
++  return `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
++}
++
++const fetchMock = vi.fn();
++let cleanup: (() => void) | undefined;
++
++function setup(window: FakeWindow) {
++  cleanup = setupAzureOAuth({
++    mainWindow: window as any,
++    trustedStartUrl: START_URL,
++    config: CONFIG,
++    authorizeAzureOAuth: (_event, capability) => capability === CAPABILITY,
++    isAzureOAuthCapabilityLive: capability => capability === CAPABILITY,
++  });
++}
++
++describe('Azure OAuth main-process capability', () => {
++  beforeEach(() => {
++    handlers.clear();
++    vi.stubGlobal('fetch', fetchMock);
++    fetchMock.mockReset();
++    vi.useFakeTimers();
++  });
++
++  afterEach(() => {
++    cleanup?.();
++    cleanup = undefined;
++    vi.useRealTimers();
++    vi.unstubAllGlobals();
++  });
++
++  it('rejects an ungranted capability before making a request', async () => {
++    const window = fakeWindow();
++    setup(window);
++
++    await expect(
++      invoke(AZURE_OAUTH_START, event(window), {
++        capability: OTHER_CAPABILITY,
++        sessionId: SESSION_ID,
++        cloud: 'AzureCloud',
++        scope: ARM_SCOPE,
++      })
++    ).resolves.toEqual({ success: false, error: 'Unauthorized request' });
++    expect(fetchMock).not.toHaveBeenCalled();
++  });
++
++  it('polls in the main process and decodes UTF-8 account claims', async () => {
++    const window = fakeWindow();
++    setup(window);
++    fetchMock
++      .mockResolvedValueOnce(
++        response({
++          device_code: 'device-code',
++          user_code: 'CODE',
++          verification_uri: 'https://microsoft.com/devicelogin',
++          message: 'Enter CODE',
++          expires_in: 900,
++          interval: 1,
++        })
++      )
++      .mockResolvedValueOnce(
++        response({
++          access_token: 'arm-token',
++          refresh_token: 'refresh-token',
++          id_token: jwt({ tid: 'home-tenant', name: 'José Müller' }),
++          expires_in: 3600,
++        })
++      );
++
++    await expect(
++      invoke(AZURE_OAUTH_START, event(window), {
++        capability: CAPABILITY,
++        sessionId: SESSION_ID,
++        cloud: 'AzureCloud',
++        scope: ARM_SCOPE,
++      })
++    ).resolves.toMatchObject({
++      success: true,
++      pending: true,
++      prompt: { userCode: 'CODE' },
++    });
++
++    await vi.advanceTimersByTimeAsync(1_000);
++
++    expect(
++      invoke(AZURE_OAUTH_STATUS, event(window), {
++        capability: CAPABILITY,
++        sessionId: SESSION_ID,
++      })
++    ).toEqual({
++      success: true,
++      pending: false,
++      account: { username: 'José Müller', tenantId: 'home-tenant' },
++    });
++  });
++
++  it('uses the selected sovereign authority and scope', async () => {
++    const window = fakeWindow();
++    setup(window);
++    fetchMock.mockResolvedValueOnce(
++      response({
++        device_code: 'device-code',
++        user_code: 'CODE',
++        verification_uri: 'https://microsoft.com/devicelogin',
++        expires_in: 900,
++        interval: 1,
++      })
++    );
++
++    await invoke(AZURE_OAUTH_START, event(window), {
++      capability: CAPABILITY,
++      sessionId: SESSION_ID,
++      cloud: 'AzureChinaCloud',
++      scope: CHINA_ARM_SCOPE,
++    });
++
++    expect(fetchMock.mock.calls[0][0]).toBe(
++      'https://login.chinacloudapi.cn/common/oauth2/v2.0/devicecode'
++    );
++    expect(String(fetchMock.mock.calls[0][1].body)).toContain(
++      `scope=${encodeURIComponent(CHINA_ARM_SCOPE)}`
++    );
++  });
++
++  it('shares a refresh and rotates the main-process refresh credential', async () => {
++    const window = fakeWindow();
++    setup(window);
++    fetchMock
++      .mockResolvedValueOnce(
++        response({
++          device_code: 'device-code',
++          user_code: 'CODE',
++          verification_uri: 'https://microsoft.com/devicelogin',
++          expires_in: 900,
++          interval: 1,
++        })
++      )
++      .mockResolvedValueOnce(
++        response({
++          access_token: 'arm-token',
++          refresh_token: 'refresh-token',
++          id_token: jwt({ tid: 'home-tenant' }),
++          expires_in: 3600,
++        })
++      )
++      .mockResolvedValueOnce(
++        response({
++          access_token: 'graph-token',
++          refresh_token: 'rotated-refresh-token',
++          expires_in: 3600,
++        })
++      );
++    await invoke(AZURE_OAUTH_START, event(window), {
++      capability: CAPABILITY,
++      sessionId: SESSION_ID,
++      cloud: 'AzureCloud',
++      scope: ARM_SCOPE,
++    });
++    await vi.advanceTimersByTimeAsync(1_000);
++
++    const request = {
++      capability: CAPABILITY,
++      sessionId: SESSION_ID,
++      scope: GRAPH_SCOPE,
++      tenantId: 'guest-tenant',
++    };
++    const [first, second] = await Promise.all([
++      invoke(AZURE_OAUTH_TOKEN, event(window), request),
++      invoke(AZURE_OAUTH_TOKEN, event(window), request),
++    ]);
++
++    expect(first).toMatchObject({ success: true, accessToken: 'graph-token' });
++    expect(second).toEqual(first);
++    expect(fetchMock).toHaveBeenCalledTimes(3);
++    expect(fetchMock.mock.calls[2][0]).toBe(
++      'https://login.microsoftonline.com/guest-tenant/oauth2/v2.0/token'
++    );
++    expect(String(fetchMock.mock.calls[2][1].body)).toContain('refresh_token=refresh-token');
++  });
++
++  it.each([['guest-tenant'], [undefined]])(
++    'keeps a resource interaction error scoped to the %s request',
++    async tenantId => {
++      const window = fakeWindow();
++      setup(window);
++      fetchMock
++        .mockResolvedValueOnce(
++          response({
++            device_code: 'device-code',
++            user_code: 'CODE',
++            verification_uri: 'https://microsoft.com/devicelogin',
++            expires_in: 900,
++            interval: 1,
++          })
++        )
++        .mockResolvedValueOnce(
++          response({
++            access_token: 'arm-token',
++            refresh_token: 'refresh-token',
++            id_token: jwt({ tid: 'home-tenant' }),
++            expires_in: 3600,
++          })
++        )
++        .mockResolvedValueOnce(
++          response(
++            {
++              error: 'interaction_required',
++              error_description: 'Resource requires interaction',
++            },
++            400
++          )
++        );
++      await invoke(AZURE_OAUTH_START, event(window), {
++        capability: CAPABILITY,
++        sessionId: SESSION_ID,
++        cloud: 'AzureCloud',
++        scope: ARM_SCOPE,
++      });
++      await vi.advanceTimersByTimeAsync(1_000);
++
++      const failed = await invoke(AZURE_OAUTH_TOKEN, event(window), {
++        capability: CAPABILITY,
++        sessionId: SESSION_ID,
++        scope: GRAPH_SCOPE,
++        tenantId,
++      });
++      expect(failed).toMatchObject({ success: false });
++      expect(failed).not.toHaveProperty('sessionExpired');
++      expect(
++        invoke(AZURE_OAUTH_STATUS, event(window), {
++          capability: CAPABILITY,
++          sessionId: SESSION_ID,
++        })
++      ).toMatchObject({
++        success: true,
++        pending: false,
++      });
++    }
++  );
++
++  it('invalidates every tenant after token-wide refresh expiry', async () => {
++    const window = fakeWindow();
++    setup(window);
++    fetchMock
++      .mockResolvedValueOnce(
++        response({
++          device_code: 'device-code',
++          user_code: 'CODE',
++          verification_uri: 'https://microsoft.com/devicelogin',
++          expires_in: 900,
++          interval: 1,
++        })
++      )
++      .mockResolvedValueOnce(
++        response({
++          access_token: 'arm-token',
++          refresh_token: 'refresh-token',
++          id_token: jwt({ tid: 'home-tenant' }),
++          expires_in: 3600,
++        })
++      )
++      .mockResolvedValueOnce(
++        response(
++          {
++            error: 'invalid_grant',
++            error_description: 'AADSTS700082: The refresh token has expired.',
++          },
++          400
++        )
++      );
++    await invoke(AZURE_OAUTH_START, event(window), {
++      capability: CAPABILITY,
++      sessionId: SESSION_ID,
++      cloud: 'AzureCloud',
++      scope: ARM_SCOPE,
++    });
++    await vi.advanceTimersByTimeAsync(1_000);
++
++    await expect(
++      invoke(AZURE_OAUTH_TOKEN, event(window), {
++        capability: CAPABILITY,
++        sessionId: SESSION_ID,
++        scope: GRAPH_SCOPE,
++        tenantId: 'guest-tenant',
++      })
++    ).resolves.toMatchObject({ success: false, sessionExpired: true });
++  });
++
++  it.each([AZURE_OAUTH_CANCEL, AZURE_OAUTH_LOGOUT])(
++    '%s clears the capability session',
++    async channel => {
++      const window = fakeWindow();
++      setup(window);
++      fetchMock.mockResolvedValueOnce(
++        response({
++          device_code: 'device-code',
++          user_code: 'CODE',
++          verification_uri: 'https://microsoft.com/devicelogin',
++          expires_in: 900,
++          interval: 1,
++        })
++      );
++      await invoke(AZURE_OAUTH_START, event(window), {
++        capability: CAPABILITY,
++        sessionId: SESSION_ID,
++        cloud: 'AzureCloud',
++        scope: ARM_SCOPE,
++      });
++
++      expect(
++        invoke(channel, event(window), {
++          capability: CAPABILITY,
++          sessionId: SESSION_ID,
++        })
++      ).toEqual({ success: true });
++      expect(
++        invoke(AZURE_OAUTH_STATUS, event(window), {
++          capability: CAPABILITY,
++          sessionId: SESSION_ID,
++        })
++      ).toEqual({
++        success: false,
++        error: 'Azure login is required',
++      });
++    }
++  );
++
++  it('does not let stale cleanup clear a newer session', async () => {
++    const window = fakeWindow();
++    setup(window);
++    fetchMock
++      .mockResolvedValueOnce(
++        response({
++          device_code: 'old-device-code',
++          user_code: 'OLD',
++          verification_uri: 'https://microsoft.com/devicelogin',
++          expires_in: 900,
++          interval: 1,
++        })
++      )
++      .mockResolvedValueOnce(
++        response({
++          device_code: 'new-device-code',
++          user_code: 'NEW',
++          verification_uri: 'https://microsoft.com/devicelogin',
++          expires_in: 900,
++          interval: 1,
++        })
++      );
++    const newerSessionId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
++    await invoke(AZURE_OAUTH_START, event(window), {
++      capability: CAPABILITY,
++      sessionId: SESSION_ID,
++      cloud: 'AzureCloud',
++      scope: ARM_SCOPE,
++    });
++    await invoke(AZURE_OAUTH_START, event(window), {
++      capability: CAPABILITY,
++      sessionId: newerSessionId,
++      cloud: 'AzureCloud',
++      scope: ARM_SCOPE,
++    });
++
++    expect(
++      invoke(AZURE_OAUTH_CANCEL, event(window), {
++        capability: CAPABILITY,
++        sessionId: SESSION_ID,
++      })
++    ).toEqual({ success: false, error: 'Azure login is required' });
++    expect(
++      invoke(AZURE_OAUTH_STATUS, event(window), {
++        capability: CAPABILITY,
++        sessionId: newerSessionId,
++      })
++    ).toEqual({ success: true, pending: true });
++  });
++});
+diff --git a/app/electron/azureOAuth.ts b/app/electron/azureOAuth.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2cde792fabfe5521f797bdbf01907e5e5e5e1972
+--- /dev/null
++++ b/app/electron/azureOAuth.ts
+@@ -0,0 +1,592 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
++import { ipcMain } from 'electron';
++import type { BuildManifest } from '../scripts/build-manifest';
++import { isTrustedDocumentUrl } from './secureStorage';
++
++export const AZURE_OAUTH_START = 'azure-oauth-start';
++export const AZURE_OAUTH_STATUS = 'azure-oauth-status';
++export const AZURE_OAUTH_TOKEN = 'azure-oauth-token';
++export const AZURE_OAUTH_CANCEL = 'azure-oauth-cancel';
++export const AZURE_OAUTH_LOGOUT = 'azure-oauth-logout';
++
++const REQUEST_TIMEOUT_MS = 30_000;
++const REFRESH_MARGIN_MS = 5 * 60 * 1000;
++const TENANT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]{0,255}$/;
++const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
++const UNAUTHORIZED = 'Unauthorized request';
++const NOT_AVAILABLE = 'Azure authentication is not available in this build.';
++const CANCELLED = 'Azure sign-in was cancelled';
++
++type AzureOAuthConfig = NonNullable<BuildManifest['azureOAuth']>;
++type AzureCloud = AzureOAuthConfig['clouds'][number];
++
++export interface AzureOAuthResult {
++  success: boolean;
++  error?: string;
++  code?: string;
++  sessionExpired?: boolean;
++  pending?: boolean;
++  account?: { username?: string; tenantId?: string };
++  prompt?: { userCode: string; verificationUri: string; message: string };
++  accessToken?: string;
++  expiresOnTimestamp?: number;
++}
++
++export interface AzureOAuthOptions {
++  mainWindow: BrowserWindow;
++  trustedStartUrl: string;
++  config?: AzureOAuthConfig;
++  authorizeAzureOAuth?: (event: IpcMainInvokeEvent, capability: string) => boolean;
++  isAzureOAuthCapabilityLive?: (capability: string) => boolean;
++}
++
++interface OAuthToken {
++  token: string;
++  expiresOnTimestamp: number;
++}
++
++interface Session {
++  id: string;
++  generation: number;
++  cloud: AzureCloud;
++  pending: boolean;
++  error?: OAuthFailure;
++  refreshToken?: string;
++  homeTenantId?: string;
++  username?: string;
++  controller: AbortController;
++  tokens: Map<string, Promise<OAuthToken>>;
++  refreshTail: Promise<void>;
++}
++
++interface TokenResponse {
++  access_token?: unknown;
++  expires_in?: unknown;
++  refresh_token?: unknown;
++  id_token?: unknown;
++}
++
++let activeCleanup: (() => void) | null = null;
++
++class OAuthFailure extends Error {
++  constructor(message: string, readonly code?: string, readonly sessionExpired = false) {
++    super(message);
++  }
++}
++
++function failureResult(error: unknown): AzureOAuthResult {
++  const failure =
++    error instanceof OAuthFailure
++      ? error
++      : new OAuthFailure(error instanceof Error ? error.message : 'Azure authentication failed');
++  return {
++    success: false,
++    error: failure.message,
++    ...(failure.code && { code: failure.code }),
++    ...(failure.sessionExpired && { sessionExpired: true }),
++  };
++}
++
++function parseOAuthFailure(body: unknown): OAuthFailure {
++  const details =
++    body && typeof body === 'object'
++      ? (body as { error?: unknown; error_description?: unknown })
++      : undefined;
++  return new OAuthFailure(
++    typeof details?.error_description === 'string'
++      ? details.error_description
++      : 'Azure authentication failed',
++    typeof details?.error === 'string' ? details.error : undefined
++  );
++}
++
++async function readJson(response: Response): Promise<unknown> {
++  const text = await response.text();
++  if (!text) return undefined;
++  try {
++    return JSON.parse(text);
++  } catch {
++    return undefined;
++  }
++}
++
++async function postForm(
++  url: string,
++  values: Record<string, string>,
++  signal: AbortSignal,
++  timeout = REQUEST_TIMEOUT_MS
++): Promise<{ response: Response; body: unknown }> {
++  const controller = new AbortController();
++  const abort = () => controller.abort(signal.reason);
++  signal.addEventListener('abort', abort, { once: true });
++  const timer = setTimeout(
++    () => controller.abort(new OAuthFailure('Azure request timed out')),
++    timeout
++  );
++  try {
++    const response = await fetch(url, {
++      method: 'POST',
++      headers: {
++        'Content-Type': 'application/x-www-form-urlencoded',
++        'x-ms-useragent': 'HEADLAMP-DESKTOP',
++      },
++      body: new URLSearchParams(values),
++      signal: controller.signal,
++    });
++    return { response, body: await readJson(response) };
++  } catch (error) {
++    if (signal.aborted) throw new OAuthFailure(CANCELLED);
++    if (controller.signal.aborted) throw new OAuthFailure('Azure request timed out');
++    throw error;
++  } finally {
++    clearTimeout(timer);
++    signal.removeEventListener('abort', abort);
++  }
++}
++
++function decodeClaims(token: unknown): Record<string, unknown> {
++  if (typeof token !== 'string') return {};
++  try {
++    const payload = token.split('.')[1];
++    if (!payload) return {};
++    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
++  } catch {
++    return {};
++  }
++}
++
++function validateToken(body: unknown): { token: OAuthToken; response: TokenResponse } {
++  const response = (body ?? {}) as TokenResponse;
++  const expiresIn = Number(response.expires_in);
++  if (
++    typeof response.access_token !== 'string' ||
++    !response.access_token ||
++    !Number.isFinite(expiresIn) ||
++    expiresIn <= 0
++  ) {
++    throw new OAuthFailure('Invalid Azure authentication response');
++  }
++  return {
++    token: {
++      token: response.access_token,
++      expiresOnTimestamp: Date.now() + expiresIn * 1000,
++    },
++    response,
++  };
++}
++
++function isTokenWideFailure(error: OAuthFailure): boolean {
++  return (
++    error.code === 'invalid_client' || /\bAADSTS(?:50173|70000|70008|700082)\b/i.test(error.message)
++  );
++}
++
++function tokenEndpoint(cloud: AzureCloud, tenant = 'common'): string {
++  return `${cloud.authority}/${encodeURIComponent(tenant)}/oauth2/v2.0/token`;
++}
++
++export function setupAzureOAuth(options: AzureOAuthOptions): () => void {
++  activeCleanup?.();
++  const { mainWindow, trustedStartUrl, config, authorizeAzureOAuth, isAzureOAuthCapabilityLive } =
++    options;
++  const sessions = new Map<string, Session>();
++  const generations = new Map<string, number>();
++  let disposed = false;
++
++  const isTrustedRenderer = () =>
++    !disposed &&
++    !mainWindow.isDestroyed() &&
++    isTrustedDocumentUrl(mainWindow.webContents.mainFrame.url, trustedStartUrl);
++  const isAuthorized = (event: IpcMainInvokeEvent, capability: unknown): capability is string =>
++    typeof capability === 'string' &&
++    event.sender === mainWindow.webContents &&
++    event.senderFrame === mainWindow.webContents.mainFrame &&
++    isTrustedRenderer() &&
++    authorizeAzureOAuth?.(event, capability) === true;
++  const isLive = (capability: string) =>
++    isTrustedRenderer() && isAzureOAuthCapabilityLive?.(capability) === true;
++  const cloudFor = (name: unknown): AzureCloud | undefined =>
++    typeof name === 'string' ? config?.clouds.find(cloud => cloud.name === name) : undefined;
++  const scopeAllowed = (cloud: AzureCloud, scope: unknown): scope is string =>
++    typeof scope === 'string' && cloud.scopes.includes(scope);
++  const validSessionId = (sessionId: unknown): sessionId is string =>
++    typeof sessionId === 'string' && SESSION_ID_PATTERN.test(sessionId);
++
++  const clearSession = (capability: string) => {
++    generations.set(capability, (generations.get(capability) ?? 0) + 1);
++    sessions.get(capability)?.controller.abort();
++    sessions.delete(capability);
++  };
++
++  const current = (capability: string, generation: number) =>
++    isLive(capability) &&
++    generations.get(capability) === generation &&
++    sessions.get(capability)?.generation === generation;
++
++  const poll = async (
++    capability: string,
++    session: Session,
++    deviceCode: string,
++    intervalSeconds: number,
++    expiresInSeconds: number,
++    scope: string
++  ) => {
++    const deadline = Date.now() + expiresInSeconds * 1000;
++    let interval = intervalSeconds;
++    while (current(capability, session.generation)) {
++      const remaining = deadline - Date.now();
++      if (remaining <= 0) throw new OAuthFailure('Azure device login expired', 'expired_token');
++      await new Promise(resolve => setTimeout(resolve, Math.min(interval * 1000, remaining)));
++      if (!current(capability, session.generation)) return;
++      let response: Response;
++      let body: unknown;
++      try {
++        ({ response, body } = await postForm(
++          tokenEndpoint(session.cloud),
++          {
++            client_id: config!.clientId,
++            grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
++            device_code: deviceCode,
++          },
++          session.controller.signal,
++          Math.min(REQUEST_TIMEOUT_MS, Math.max(1, deadline - Date.now()))
++        ));
++      } catch (error) {
++        if (!current(capability, session.generation)) return;
++        if (Date.now() >= deadline) throw new OAuthFailure('Azure device login expired');
++        if (error instanceof OAuthFailure && error.message === CANCELLED) return;
++        continue;
++      }
++      if (!response.ok) {
++        const error = parseOAuthFailure(body);
++        if (error.code === 'authorization_pending') continue;
++        if (error.code === 'slow_down') {
++          interval += 5;
++          continue;
++        }
++        if (response.status === 429 || response.status >= 500) continue;
++        throw error;
++      }
++      const { token, response: tokens } = validateToken(body);
++      if (!current(capability, session.generation)) return;
++      if (typeof tokens.refresh_token !== 'string' || !tokens.refresh_token) {
++        throw new OAuthFailure('Azure authentication response did not include a refresh token');
++      }
++      const claims = decodeClaims(tokens.id_token ?? tokens.access_token);
++      session.refreshToken = tokens.refresh_token;
++      session.homeTenantId = typeof claims.tid === 'string' ? claims.tid : undefined;
++      session.username =
++        typeof claims.preferred_username === 'string'
++          ? claims.preferred_username
++          : typeof claims.name === 'string'
++          ? claims.name
++          : undefined;
++      session.tokens.set(`|${scope}`, Promise.resolve(token));
++      session.pending = false;
++      return;
++    }
++  };
++
++  for (const channel of [
++    AZURE_OAUTH_START,
++    AZURE_OAUTH_STATUS,
++    AZURE_OAUTH_TOKEN,
++    AZURE_OAUTH_CANCEL,
++    AZURE_OAUTH_LOGOUT,
++  ]) {
++    ipcMain.removeHandler(channel);
++  }
++
++  ipcMain.handle(AZURE_OAUTH_START, async (event, payload: unknown): Promise<AzureOAuthResult> => {
++    const request = (typeof payload === 'object' && payload !== null ? payload : {}) as {
++      capability?: unknown;
++      sessionId?: unknown;
++      cloud?: unknown;
++      scope?: unknown;
++    };
++    if (!isAuthorized(event, request.capability))
++      return failureResult(new OAuthFailure(UNAUTHORIZED));
++    if (!validSessionId(request.sessionId)) {
++      return failureResult(new OAuthFailure('Invalid Azure authentication session'));
++    }
++    if (!config) return failureResult(new OAuthFailure(NOT_AVAILABLE));
++    const cloud = cloudFor(request.cloud);
++    if (!cloud || !scopeAllowed(cloud, request.scope)) {
++      return failureResult(new OAuthFailure('Unsupported Azure cloud or token scope'));
++    }
++    clearSession(request.capability);
++    const generation = generations.get(request.capability)!;
++    const session: Session = {
++      id: request.sessionId,
++      generation,
++      cloud,
++      pending: true,
++      controller: new AbortController(),
++      tokens: new Map(),
++      refreshTail: Promise.resolve(),
++    };
++    sessions.set(request.capability, session);
++    try {
++      const { response, body } = await postForm(
++        `${cloud.authority}/common/oauth2/v2.0/devicecode`,
++        {
++          client_id: config.clientId,
++          scope: `${request.scope} openid profile offline_access`,
++        },
++        session.controller.signal
++      );
++      if (!response.ok) throw parseOAuthFailure(body);
++      const device = (body ?? {}) as {
++        device_code?: unknown;
++        user_code?: unknown;
++        verification_uri?: unknown;
++        message?: unknown;
++        expires_in?: unknown;
++        interval?: unknown;
++      };
++      const expiresIn = Number(device.expires_in);
++      const interval = device.interval === undefined ? 5 : Number(device.interval);
++      if (
++        typeof device.device_code !== 'string' ||
++        !device.device_code ||
++        typeof device.user_code !== 'string' ||
++        !device.user_code ||
++        typeof device.verification_uri !== 'string' ||
++        !/^https:\/\//i.test(device.verification_uri) ||
++        !Number.isFinite(expiresIn) ||
++        expiresIn <= 0 ||
++        !Number.isFinite(interval) ||
++        interval <= 0
++      ) {
++        throw new OAuthFailure('Invalid Azure authentication response');
++      }
++      if (!current(request.capability, generation)) throw new OAuthFailure(CANCELLED);
++      void poll(
++        request.capability,
++        session,
++        device.device_code,
++        interval,
++        expiresIn,
++        request.scope
++      ).catch(error => {
++        if (!current(request.capability as string, generation)) return;
++        session.pending = false;
++        session.error =
++          error instanceof OAuthFailure
++            ? error
++            : new OAuthFailure(
++                error instanceof Error ? error.message : 'Azure authentication failed'
++              );
++      });
++      return {
++        success: true,
++        pending: true,
++        prompt: {
++          userCode: device.user_code,
++          verificationUri: device.verification_uri,
++          message:
++            typeof device.message === 'string'
++              ? device.message
++              : `Open ${device.verification_uri} and enter code ${device.user_code}.`,
++        },
++      };
++    } catch (error) {
++      if (current(request.capability, generation)) clearSession(request.capability);
++      return failureResult(error);
++    }
++  });
++
++  ipcMain.handle(AZURE_OAUTH_STATUS, (event, payload: unknown): AzureOAuthResult => {
++    const request = (typeof payload === 'object' && payload !== null ? payload : {}) as {
++      capability?: unknown;
++      sessionId?: unknown;
++    };
++    if (!isAuthorized(event, request.capability))
++      return failureResult(new OAuthFailure(UNAUTHORIZED));
++    const session = sessions.get(request.capability);
++    if (!validSessionId(request.sessionId) || session?.id !== request.sessionId) {
++      return failureResult(new OAuthFailure('Azure login is required'));
++    }
++    if (session.error) return failureResult(session.error);
++    if (session.pending) return { success: true, pending: true };
++    return {
++      success: true,
++      pending: false,
++      account: { username: session.username, tenantId: session.homeTenantId },
++    };
++  });
++
++  ipcMain.handle(AZURE_OAUTH_TOKEN, async (event, payload: unknown): Promise<AzureOAuthResult> => {
++    const request = (typeof payload === 'object' && payload !== null ? payload : {}) as {
++      capability?: unknown;
++      sessionId?: unknown;
++      scope?: unknown;
++      tenantId?: unknown;
++    };
++    if (!isAuthorized(event, request.capability))
++      return failureResult(new OAuthFailure(UNAUTHORIZED));
++    const session = sessions.get(request.capability);
++    if (
++      !validSessionId(request.sessionId) ||
++      session?.id !== request.sessionId ||
++      session.pending ||
++      !session.refreshToken
++    ) {
++      return failureResult(new OAuthFailure('Azure login is required'));
++    }
++    if (
++      !scopeAllowed(session.cloud, request.scope) ||
++      (request.tenantId !== undefined &&
++        (typeof request.tenantId !== 'string' || !TENANT_PATTERN.test(request.tenantId)))
++    ) {
++      return failureResult(new OAuthFailure('Invalid Azure token request'));
++    }
++    const tenantId = request.tenantId as string | undefined;
++    const key = `${tenantId ?? ''}|${request.scope}`;
++    const load = async (): Promise<OAuthToken> => {
++      const cached = session.tokens.get(key);
++      if (cached) {
++        const token = await cached;
++        if (token.expiresOnTimestamp - REFRESH_MARGIN_MS > Date.now()) return token;
++        if (session.tokens.get(key) !== cached) return load();
++      }
++      const pending = (async () => {
++        const previous = session.refreshTail;
++        let releaseRefresh!: () => void;
++        session.refreshTail = new Promise(resolve => {
++          releaseRefresh = resolve;
++        });
++        await previous;
++        try {
++          const credential = session.refreshToken;
++          if (!credential) throw session.error ?? new OAuthFailure('Azure login is required');
++          const { response, body } = await postForm(
++            tokenEndpoint(session.cloud, tenantId ?? session.homeTenantId),
++            {
++              client_id: config!.clientId,
++              grant_type: 'refresh_token',
++              refresh_token: credential,
++              scope: request.scope as string,
++            },
++            session.controller.signal
++          );
++          if (!response.ok) {
++            const error = parseOAuthFailure(body);
++            const homeRequest =
++              !tenantId ||
++              !session.homeTenantId ||
++              tenantId.toLowerCase() === session.homeTenantId.toLowerCase();
++            if (
++              ['invalid_grant', 'invalid_client'].includes(error.code ?? '') &&
++              (homeRequest || isTokenWideFailure(error))
++            ) {
++              session.refreshToken = undefined;
++              session.tokens.clear();
++              session.error = new OAuthFailure(error.message, error.code, true);
++            }
++            throw session.error ?? error;
++          }
++          const validated = validateToken(body);
++          if (
++            credential === session.refreshToken &&
++            typeof validated.response.refresh_token === 'string' &&
++            validated.response.refresh_token
++          ) {
++            session.refreshToken = validated.response.refresh_token;
++          }
++          return validated.token;
++        } finally {
++          releaseRefresh();
++        }
++      })();
++      session.tokens.set(key, pending);
++      pending.catch(() => {
++        if (session.tokens.get(key) === pending) session.tokens.delete(key);
++      });
++      return pending;
++    };
++    try {
++      const token = await load();
++      if (!isLive(request.capability) || sessions.get(request.capability) !== session) {
++        return failureResult(new OAuthFailure(CANCELLED));
++      }
++      return {
++        success: true,
++        accessToken: token.token,
++        expiresOnTimestamp: token.expiresOnTimestamp,
++      };
++    } catch (error) {
++      return failureResult(error);
++    }
++  });
++
++  const clear = (event: IpcMainInvokeEvent, payload: unknown): AzureOAuthResult => {
++    const request = (typeof payload === 'object' && payload !== null ? payload : {}) as {
++      capability?: unknown;
++      sessionId?: unknown;
++    };
++    if (!isAuthorized(event, request.capability))
++      return failureResult(new OAuthFailure(UNAUTHORIZED));
++    const session = sessions.get(request.capability);
++    if (!validSessionId(request.sessionId) || session?.id !== request.sessionId) {
++      return failureResult(new OAuthFailure('Azure login is required'));
++    }
++    clearSession(request.capability);
++    return { success: true };
++  };
++  ipcMain.handle(AZURE_OAUTH_CANCEL, clear);
++  ipcMain.handle(AZURE_OAUTH_LOGOUT, clear);
++
++  const onNavigation = (
++    _event: unknown,
++    _url: string,
++    isInPlace: boolean,
++    isMainFrame: boolean
++  ) => {
++    if (isMainFrame && !isInPlace) {
++      for (const capability of sessions.keys()) clearSession(capability);
++    }
++  };
++  mainWindow.webContents.on('did-start-navigation', onNavigation);
++
++  const cleanup = () => {
++    if (disposed) return;
++    disposed = true;
++    for (const capability of sessions.keys()) clearSession(capability);
++    mainWindow.webContents.removeListener('did-start-navigation', onNavigation);
++    if (activeCleanup === cleanup) {
++      for (const channel of [
++        AZURE_OAUTH_START,
++        AZURE_OAUTH_STATUS,
++        AZURE_OAUTH_TOKEN,
++        AZURE_OAUTH_CANCEL,
++        AZURE_OAUTH_LOGOUT,
++      ]) {
++        ipcMain.removeHandler(channel);
++      }
++      activeCleanup = null;
++    }
++  };
++  activeCleanup = cleanup;
++  return cleanup;
++}
++
++export function cleanupAzureOAuth(): void {
++  activeCleanup?.();
++}
+diff --git a/app/electron/build-manifest.test.ts b/app/electron/build-manifest.test.ts
+index 59529c6005ac23830d3fbcf721540c4333b31e7f..5b34132c9ff7a42aa2481a6f8c845cc4995b7eda 100644
+--- a/app/electron/build-manifest.test.ts
++++ b/app/electron/build-manifest.test.ts
+@@ -1041,6 +1041,38 @@ describe('build manifest selection', () => {
+     }
+   });
+ 
++  it('validates the optional Azure OAuth client configuration', () => {
++    const schema = JSON.parse(
++      fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
++    );
++    const validate = addFormats(new Ajv()).compile(schema);
++    const valid = {
++      clientId: 'azure-public-client',
++      clouds: [
++        {
++          name: 'AzureCloud',
++          authority: 'https://login.microsoftonline.com',
++          scopes: ['https://management.azure.com/.default'],
++        },
++      ],
++    };
++    for (const [azureOAuth, isValid] of [
++      [undefined, true],
++      [valid, true],
++      [null, false],
++      [{ ...valid, clientId: '' }, false],
++      [{ ...valid, clouds: [] }, false],
++      [{ ...valid, clouds: [{ ...valid.clouds[0], authority: 'http://login.example' }] }, false],
++      [{ ...valid, clouds: [{ ...valid.clouds[0], scopes: ['offline_access'] }] }, false],
++      [{ ...valid, extra: true }, false],
++    ] as const) {
++      const manifest = azureOAuth === undefined ? {} : { azureOAuth };
++      expect(validate(manifest)).toBe(isValid);
++      if (isValid) expect(() => validateBuildManifest(manifest)).not.toThrow();
++      else expect(() => validateBuildManifest(manifest)).toThrow('azureOAuth');
++    }
++  });
++
+   it('loads an optional GitHub OAuth grant for exact plugin identities', () => {
+     const schema = JSON.parse(
+       fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
+@@ -1089,6 +1121,40 @@ describe('build manifest selection', () => {
+     );
+   });
+ 
++  it('loads an optional Azure OAuth grant for exact plugin identities', () => {
++    const schema = JSON.parse(
++      fs.readFileSync(path.join(appPath, 'app-build-manifest.schema.json'), 'utf8')
++    );
++    const validate = addFormats(new Ajv()).compile(schema);
++    const policy = (pluginLocation: string, azureOAuth?: unknown) => ({
++      runCommands: [
++        {
++          environment: 'production',
++          pluginLocation,
++          plugins: [{ bundleName: 'example-plugin', packageName: '@example/plugin' }],
++          commands: [{ tool: 'examplectl', args: ['list'] }],
++          ...(azureOAuth !== undefined && { azureOAuth }),
++        },
++      ],
++    });
++
++    expect(validate(policy('shipped', true))).toBe(true);
++    expect(
++      productPluginCommandPolicies(validateBuildManifest(policy('shipped', true)), 'production')
++    ).toEqual([expect.objectContaining({ azureOAuth: true })]);
++    expect(validate(policy('shipped', 'yes'))).toBe(false);
++    expect(() => validateBuildManifest(policy('shipped', 'yes'))).toThrow(
++      'runCommands[0].azureOAuth'
++    );
++    const userPolicy = {
++      runCommands: [{ ...policy('user', true).runCommands[0], environment: 'development' }],
++    };
++    expect(validate(userPolicy)).toBe(false);
++    expect(() => validateBuildManifest(userPolicy)).toThrow(
++      'cannot grant Azure OAuth to user plugins'
++    );
++  });
++
+   it('loads with the native TypeScript type-stripping runtime', () => {
+     const moduleUrl = pathToFileURL(path.join(appPath, 'scripts/build-manifest.ts')).href;
+ 
+diff --git a/app/electron/main.ts b/app/electron/main.ts
+index a3330b6041c71574afd5e44710f026335dabb2b2..f16c6918f3893753d92c8db8dac3826e01df7795 100644
+--- a/app/electron/main.ts
++++ b/app/electron/main.ts
+@@ -41,6 +41,7 @@ import {
+   readProductMetadata,
+   resolveBuildManifestPath,
+ } from '../scripts/build-manifest';
++import { cleanupAzureOAuth, setupAzureOAuth } from './azureOAuth';
+ import { withBackendMemoryDefaults } from './backendMemory';
+ import {
+   observeInternalBackendReady,
+@@ -1750,6 +1751,13 @@ function startElectron() {
+       authorizeGitHubOAuth: privatePluginCapabilities?.authorizeGitHubOAuth,
+       isGitHubOAuthCapabilityLive: privatePluginCapabilities?.isGitHubOAuthCapabilityLive,
+     });
++    setupAzureOAuth({
++      mainWindow,
++      trustedStartUrl: startUrl,
++      config: appBuildManifest.azureOAuth,
++      authorizeAzureOAuth: privatePluginCapabilities?.authorizeAzureOAuth,
++      isAzureOAuthCapabilityLive: privatePluginCapabilities?.isAzureOAuthCapabilityLive,
++    });
+     protocolHandler.attachToWebContents(mainWindow.webContents);
+ 
+     applyZoom();
+@@ -1829,6 +1837,7 @@ function startElectron() {
+ 
+     mainWindow.on('closed', () => {
+       cleanupGitHubOAuth();
++      cleanupAzureOAuth();
+       mainWindow = null;
+     });
+ 
+@@ -2095,6 +2104,7 @@ function startElectron() {
+       // Persist any zoom change still waiting on the debounced save.
+       flushZoomFactorSave();
+       cleanupGitHubOAuth();
++      cleanupAzureOAuth();
+       cleanupHeadlampTray();
+       hasTray = false;
+       i18n.off('languageChanged');
+diff --git a/app/electron/preload.test.ts b/app/electron/preload.test.ts
+index 4d9acd668ee484eb54c8462dc10965fbfe64a161..c3de3eee1eee1e75560d0b8469985e9a684baf53 100644
+--- a/app/electron/preload.test.ts
++++ b/app/electron/preload.test.ts
+@@ -156,6 +156,32 @@ describe('desktop preload API', () => {
+     expect(electronMocks.on).not.toHaveBeenCalled();
+   });
+ 
++  it('exposes only capability-bound Azure OAuth requests', async () => {
++    electronMocks.invoke.mockResolvedValue({ success: true });
++    const capability = 'a'.repeat(64);
++    const sessionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
++
++    await desktopApi.azureOAuth.start(capability, sessionId, 'AzureCloud', 'https://arm/.default');
++    await desktopApi.azureOAuth.status(capability, sessionId);
++    await desktopApi.azureOAuth.getToken(capability, sessionId, 'https://graph/.default', 'tenant');
++    await desktopApi.azureOAuth.cancel(capability, sessionId);
++    await desktopApi.azureOAuth.logout(capability, sessionId);
++
++    expect(electronMocks.invoke.mock.calls).toEqual([
++      [
++        'azure-oauth-start',
++        { capability, sessionId, cloud: 'AzureCloud', scope: 'https://arm/.default' },
++      ],
++      ['azure-oauth-status', { capability, sessionId }],
++      [
++        'azure-oauth-token',
++        { capability, sessionId, scope: 'https://graph/.default', tenantId: 'tenant' },
++      ],
++      ['azure-oauth-cancel', { capability, sessionId }],
++      ['azure-oauth-logout', { capability, sessionId }],
++    ]);
++  });
++
+   it('falls back to removing the provided listener', () => {
+     const listener = vi.fn();
+     desktopApi.receive('locale', listener);
+diff --git a/app/electron/preload.ts b/app/electron/preload.ts
+index ed89dbe224084397f7efdb0dbf1c47c93bac399d..8e04ccf6bc74bfb3092c2b9366ee7f3a65e89a21 100644
+--- a/app/electron/preload.ts
++++ b/app/electron/preload.ts
+@@ -22,6 +22,11 @@ import type { ClusterProxyTarget, StartProxyResult } from './proxies';
+ // not import that main-process module.
+ const GITHUB_OAUTH_START = 'github-oauth-start';
+ const GITHUB_OAUTH_REFRESH = 'github-oauth-refresh';
++const AZURE_OAUTH_START = 'azure-oauth-start';
++const AZURE_OAUTH_STATUS = 'azure-oauth-status';
++const AZURE_OAUTH_TOKEN = 'azure-oauth-token';
++const AZURE_OAUTH_CANCEL = 'azure-oauth-cancel';
++const AZURE_OAUTH_LOGOUT = 'azure-oauth-logout';
+ 
+ /** GitHub OAuth result delivered by the main process. */
+ interface GitHubOAuthResult {
+@@ -32,6 +37,19 @@ interface GitHubOAuthResult {
+   error?: string;
+ }
+ 
++/** Azure OAuth result delivered only to an authorized plugin capability. */
++interface AzureOAuthResult {
++  success: boolean;
++  error?: string;
++  code?: string;
++  sessionExpired?: boolean;
++  pending?: boolean;
++  account?: { username?: string; tenantId?: string };
++  prompt?: { userCode: string; verificationUri: string; message: string };
++  accessToken?: string;
++  expiresOnTimestamp?: number;
++}
++
+ // Keeps the mapping between a caller-provided listener and the wrapped one we
+ // actually register with ipcRenderer, so removeListener can still unsubscribe
+ // the listener when callers pass the original function reference.
+@@ -234,6 +252,30 @@ contextBridge.exposeInMainWorld('desktopApi', {
+       ipcRenderer.invoke(GITHUB_OAUTH_REFRESH, { capability, refreshToken }),
+   },
+ 
++  /** Capability-bound Azure device-code authentication in Electron's main process. */
++  azureOAuth: {
++    start: (
++      capability: string,
++      sessionId: string,
++      cloud: string,
++      scope: string
++    ): Promise<AzureOAuthResult> =>
++      ipcRenderer.invoke(AZURE_OAUTH_START, { capability, sessionId, cloud, scope }),
++    status: (capability: string, sessionId: string): Promise<AzureOAuthResult> =>
++      ipcRenderer.invoke(AZURE_OAUTH_STATUS, { capability, sessionId }),
++    getToken: (
++      capability: string,
++      sessionId: string,
++      scope: string,
++      tenantId?: string
++    ): Promise<AzureOAuthResult> =>
++      ipcRenderer.invoke(AZURE_OAUTH_TOKEN, { capability, sessionId, scope, tenantId }),
++    cancel: (capability: string, sessionId: string): Promise<AzureOAuthResult> =>
++      ipcRenderer.invoke(AZURE_OAUTH_CANCEL, { capability, sessionId }),
++    logout: (capability: string, sessionId: string): Promise<AzureOAuthResult> =>
++      ipcRenderer.invoke(AZURE_OAUTH_LOGOUT, { capability, sessionId }),
++  },
++
+   /** @returns Legal documents declared by the packaged application manifest. */
+   getLegalDocuments: (): Promise<LegalDocumentSummary[]> =>
+     ipcRenderer.invoke('get-legal-documents'),
+diff --git a/app/electron/runCmd.test.ts b/app/electron/runCmd.test.ts
+index 4d0206ba244c791014f4697199c47763a63b1915..a32d499cd492b3c7677d57d1c0cf0e967cd0e10a 100644
+--- a/app/electron/runCmd.test.ts
++++ b/app/electron/runCmd.test.ts
+@@ -2847,6 +2847,7 @@ describe('GitHub OAuth command-capability grant', () => {
+           source: 'shipped',
+           grants,
+           githubOAuth: true,
++          azureOAuth: true,
+         },
+         {
+           bundleName: 'other-plugin',
+@@ -2879,8 +2880,13 @@ describe('GitHub OAuth command-capability grant', () => {
+     const { capabilities } = await registerGrantedPlugins();
+ 
+     expect(capabilities).toHaveLength(2);
+-    expect(capabilities[0]).toMatchObject({ bundleName: 'oauth-plugin', githubOAuth: true });
++    expect(capabilities[0]).toMatchObject({
++      bundleName: 'oauth-plugin',
++      githubOAuth: true,
++      azureOAuth: true,
++    });
+     expect(capabilities[1]).not.toHaveProperty('githubOAuth');
++    expect(capabilities[1]).not.toHaveProperty('azureOAuth');
+   });
+ 
+   it('authorizes only the granted capability from the trusted main frame', async () => {
+@@ -2890,8 +2896,12 @@ describe('GitHub OAuth command-capability grant', () => {
+ 
+     expect(privateCapabilities.authorizeGitHubOAuth(event, oauth)).toBe(true);
+     expect(privateCapabilities.isGitHubOAuthCapabilityLive(oauth)).toBe(true);
++    expect(privateCapabilities.authorizeAzureOAuth(event, oauth)).toBe(true);
++    expect(privateCapabilities.isAzureOAuthCapabilityLive(oauth)).toBe(true);
+     expect(privateCapabilities.authorizeGitHubOAuth(event, other)).toBe(false);
+     expect(privateCapabilities.isGitHubOAuthCapabilityLive(other)).toBe(false);
++    expect(privateCapabilities.authorizeAzureOAuth(event, other)).toBe(false);
++    expect(privateCapabilities.isAzureOAuthCapabilityLive(other)).toBe(false);
+     expect(privateCapabilities.authorizeGitHubOAuth(event, 'f'.repeat(64))).toBe(false);
+     expect(privateCapabilities.authorizeGitHubOAuth(event, undefined as never)).toBe(false);
+     expect(
+@@ -2909,6 +2919,8 @@ describe('GitHub OAuth command-capability grant', () => {
+     webContents.mainFrame.url = 'https://attacker.example/';
+     expect(privateCapabilities.authorizeGitHubOAuth(event, oauth)).toBe(false);
+     expect(privateCapabilities.isGitHubOAuthCapabilityLive(oauth)).toBe(false);
++    expect(privateCapabilities.authorizeAzureOAuth(event, oauth)).toBe(false);
++    expect(privateCapabilities.isAzureOAuthCapabilityLive(oauth)).toBe(false);
+   });
+ 
+   it.each(['main-frame navigation', 'window destruction'])(
+@@ -2929,11 +2941,14 @@ describe('GitHub OAuth command-capability grant', () => {
+         webContentsHandlers.get('did-start-navigation')!({}, 'https://headlamp.test/', false, true);
+ 
+       expect(privateCapabilities.isGitHubOAuthCapabilityLive(oauth)).toBe(false);
++      expect(privateCapabilities.isAzureOAuthCapabilityLive(oauth)).toBe(false);
+       if (lifecycle !== 'window destruction') {
+         webContents.mainFrame.url = 'https://attacker.example/';
+         webContents.mainFrame.url = 'https://headlamp.test/';
+         expect(privateCapabilities.authorizeGitHubOAuth(event, oauth)).toBe(false);
+         expect(privateCapabilities.isGitHubOAuthCapabilityLive(oauth)).toBe(false);
++        expect(privateCapabilities.authorizeAzureOAuth(event, oauth)).toBe(false);
++        expect(privateCapabilities.isAzureOAuthCapabilityLive(oauth)).toBe(false);
+       }
+     }
+   );
+diff --git a/app/electron/runCmd.ts b/app/electron/runCmd.ts
+index c2a5cea60ee419e5291e5b01857819abf3db3ab1..fcdd92a3424d86729fa17db97099d5e47f33dc77 100644
+--- a/app/electron/runCmd.ts
++++ b/app/electron/runCmd.ts
+@@ -101,6 +101,8 @@ export interface ProductPluginCommandPolicy {
+   }>;
+   /** Whether this exact plugin identity may use the product's GitHub OAuth client. */
+   githubOAuth?: boolean;
++  /** Whether this exact plugin identity may use the product's Azure OAuth client. */
++  azureOAuth?: boolean;
+ }
+ 
+ // Keep these IPC contract interfaces in sync with frontend/src/plugin/commandCapabilities.ts.
+@@ -170,6 +172,8 @@ export interface PluginCommandCapability {
+   clusterRegistrationProviders: string[];
+   /** Present and true only when this plugin identity may use GitHub OAuth. */
+   githubOAuth?: boolean;
++  /** Present and true only when this plugin identity may use Azure OAuth. */
++  azureOAuth?: boolean;
+ }
+ 
+ /** Command capability state retained only by Electron's main process. */
+@@ -918,6 +922,7 @@ export function createProductCommandCapabilities(
+         provider => provider.id
+       ),
+       ...(policy.githubOAuth === true && { githubOAuth: true }),
++      ...(policy.azureOAuth === true && { azureOAuth: true }),
+     });
+     capabilityRegistry.set(capability, { ...policy, webContentsId });
+   }
+@@ -1348,6 +1353,10 @@ export interface PrivatePluginCapabilities {
+    * main-window document, for asynchronous completions without a live IPC sender.
+    */
+   isGitHubOAuthCapabilityLive(capability: string): boolean;
++  /** Authenticates a trusted main-frame request for a capability granted Azure OAuth. */
++  authorizeAzureOAuth(event: Electron.IpcMainInvokeEvent, capability: string): boolean;
++  /** Reports whether an Azure OAuth capability remains live for this document. */
++  isAzureOAuthCapabilityLive(capability: string): boolean;
+ }
+ 
+ /** Returns a 128-bit bearer capability encoded without shell-sensitive characters. */
+@@ -1531,6 +1540,29 @@ export function setupRunCmdHandlers(
+           isTrustedDocumentUrl(mainWindow.webContents.mainFrame.url, trustedStartUrl))
+       );
+     },
++    authorizeAzureOAuth(event, capability) {
++      const registered =
++        typeof capability === 'string' ? capabilityRegistry.get(capability) : undefined;
++      return (
++        registered?.azureOAuth === true &&
++        registered.webContentsId === event.sender.id &&
++        event.sender === mainWindow.webContents &&
++        event.senderFrame === mainWindow.webContents.mainFrame &&
++        (trustedStartUrl === undefined ||
++          isTrustedDocumentUrl(event.senderFrame.url, trustedStartUrl))
++      );
++    },
++    isAzureOAuthCapabilityLive(capability) {
++      const registered =
++        typeof capability === 'string' ? capabilityRegistry.get(capability) : undefined;
++      return (
++        registered?.azureOAuth === true &&
++        !mainWindow.isDestroyed() &&
++        registered.webContentsId === mainWindow.webContents.id &&
++        (trustedStartUrl === undefined ||
++          isTrustedDocumentUrl(mainWindow.webContents.mainFrame.url, trustedStartUrl))
++      );
++    },
+   };
+ }
+ 
+diff --git a/app/scripts/build-manifest.ts b/app/scripts/build-manifest.ts
+index a8c3ac66d4574dd51237b9b80c2f9634c34bfb59..866d70c60b87a0268866dde2e27345eb37e6eecf 100644
+--- a/app/scripts/build-manifest.ts
++++ b/app/scripts/build-manifest.ts
+@@ -37,6 +37,12 @@ export type BuildManifest = {
+   /** Optional GitHub App public-client identity for browser sign-in. */
+   githubOAuth?: { clientId: string; clientSecret: string };
+ 
++  /** Optional Azure public-client identity and allowed sovereign-cloud token endpoints. */
++  azureOAuth?: {
++    clientId: string;
++    clouds: Array<{ name: string; authority: string; scopes: string[] }>;
++  };
++
+   /** Reusable command grant arrays referenced by command policies. */
+   commandSets?: Record<string, RunCommandGrant[]>;
+ 
+@@ -135,6 +141,8 @@ export interface ProductPluginRunCommands {
+   clusterRegistrationProviders?: ProductClusterRegistrationProvider[];
+   /** Grants these exact plugin identities the product's GitHub OAuth client. */
+   githubOAuth?: boolean;
++  /** Grants these exact plugin identities the product's Azure OAuth client. */
++  azureOAuth?: boolean;
+ }
+ 
+ /** Validated command policy for one plugin identity and inventory. */
+@@ -164,12 +172,31 @@ export interface ProductPluginCommandPolicy {
+   clusterRegistrationProviders: ProductClusterRegistrationProvider[];
+   /** Present and true when this verified plugin identity may use GitHub OAuth. */
+   githubOAuth?: boolean;
++  /** Present and true when this verified plugin identity may use Azure OAuth. */
++  azureOAuth?: boolean;
+ }
+ 
+ const COMMAND_POLICY_DOCS_FILE = 'docs/development/plugins/command-capabilities.md';
+ const COMMAND_POLICY_DOCS_URL =
+   'https://headlamp.dev/docs/latest/development/plugins/command-capabilities/#product-manifest-policy';
+ 
++function isHttpsOrigin(value: string): boolean {
++  try {
++    const url = new URL(value);
++    return (
++      url.protocol === 'https:' &&
++      !url.username &&
++      !url.password &&
++      url.pathname === '/' &&
++      !url.search &&
++      !url.hash &&
++      value === url.origin
++    );
++  } catch {
++    return false;
++  }
++}
++
+ /** An Electron Builder target with an explicit architecture selection. */
+ type BuildTargetDescriptor = {
+   /** Electron Builder package target name. */
+@@ -387,6 +414,53 @@ export function validateBuildManifest(value: unknown): BuildManifest {
+   }
+ 
+   const manifest = value as BuildManifest;
++  const azureOAuth = manifest.azureOAuth as unknown;
++  if (azureOAuth !== undefined) {
++    const config = (
++      typeof azureOAuth === 'object' && azureOAuth !== null && !Array.isArray(azureOAuth)
++        ? azureOAuth
++        : {}
++    ) as {
++      clientId?: unknown;
++      clouds?: Array<{ name?: unknown; authority?: unknown; scopes?: unknown }>;
++    };
++    const names = Array.isArray(config.clouds) ? config.clouds.map(cloud => cloud?.name) : [];
++    if (
++      typeof azureOAuth !== 'object' ||
++      azureOAuth === null ||
++      Array.isArray(azureOAuth) ||
++      Object.keys(azureOAuth).some(key => !['clientId', 'clouds'].includes(key)) ||
++      typeof config.clientId !== 'string' ||
++      !/^[A-Za-z0-9._-]{1,256}$/.test(config.clientId) ||
++      !Array.isArray(config.clouds) ||
++      config.clouds.length < 1 ||
++      config.clouds.length > 16 ||
++      new Set(names).size !== names.length ||
++      config.clouds.some(
++        cloud =>
++          typeof cloud !== 'object' ||
++          cloud === null ||
++          Array.isArray(cloud) ||
++          Object.keys(cloud).some(key => !['name', 'authority', 'scopes'].includes(key)) ||
++          typeof cloud.name !== 'string' ||
++          !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(cloud.name) ||
++          typeof cloud.authority !== 'string' ||
++          !isHttpsOrigin(cloud.authority) ||
++          !Array.isArray(cloud.scopes) ||
++          cloud.scopes.length < 1 ||
++          cloud.scopes.length > 16 ||
++          new Set(cloud.scopes).size !== cloud.scopes.length ||
++          cloud.scopes.some(
++            scope =>
++              typeof scope !== 'string' ||
++              scope.length > 2048 ||
++              !/^https:\/\/[^\s]+\/\.default$/i.test(scope)
++          )
++      )
++    ) {
++      throw new Error('Build manifest azureOAuth configuration is invalid');
++    }
++  }
+   const githubOAuth = manifest.githubOAuth as unknown;
+   if (githubOAuth !== undefined) {
+     const credential = /^[A-Za-z0-9._-]{1,256}$/;
+@@ -592,6 +666,7 @@ export function productPluginCommandPolicies(
+             'commandSets',
+             'clusterRegistrationProviders',
+             'githubOAuth',
++            'azureOAuth',
+           ].includes(key)
+       )
+     ) {
+@@ -723,6 +798,14 @@ export function productPluginCommandPolicies(
+         `Build manifest runCommands[${index}] cannot grant GitHub OAuth to user plugins`
+       );
+     }
++    if (policy.azureOAuth !== undefined && typeof policy.azureOAuth !== 'boolean') {
++      throw new Error(`Invalid build manifest runCommands[${index}].azureOAuth`);
++    }
++    if (policy.pluginLocation === 'user' && policy.azureOAuth === true) {
++      throw new Error(
++        `Build manifest runCommands[${index}] cannot grant Azure OAuth to user plugins`
++      );
++    }
+     for (const tool of pluginExecutables) {
+       if (!parsedGrants.some(grant => grant.tool === tool)) {
+         throw new Error(`Unused build manifest runCommands[${index}] plugin executable ${tool}`);
+@@ -818,6 +901,7 @@ export function productPluginCommandPolicies(
+           grants,
+           clusterRegistrationProviders,
+           ...(policy.githubOAuth === true && { githubOAuth: true }),
++          ...(policy.azureOAuth === true && { azureOAuth: true }),
+         });
+       }
+     }
+diff --git a/frontend/src/plugin/azureOAuth.test.ts b/frontend/src/plugin/azureOAuth.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ca81bf3c3d2393425d475367aabca38a1eec55e3
+--- /dev/null
++++ b/frontend/src/plugin/azureOAuth.test.ts
+@@ -0,0 +1,100 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++import {
++  type AzureOAuthBridge,
++  captureAzureOAuthBridge,
++  getPluginAzureOAuthArgValues,
++} from './azureOAuth';
++import type { PluginCommandCapability } from './commandCapabilities';
++import type { PluginInfo } from './pluginsSlice';
++
++const CAPABILITY = 'a'.repeat(64);
++const SESSION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
++const plugin = {
++  name: '@example/plugin',
++  folderName: 'example-plugin',
++  source: 'shipped',
++  type: 'shipped',
++} as PluginInfo;
++const granted: PluginCommandCapability = {
++  bundleName: 'example-plugin',
++  packageName: '@example/plugin',
++  source: 'shipped',
++  capability: CAPABILITY,
++  clusterRegistrationProviders: [],
++  azureOAuth: true,
++};
++
++function bridge(): AzureOAuthBridge {
++  return {
++    start: vi.fn().mockResolvedValue({ success: true }),
++    status: vi.fn().mockResolvedValue({ success: true, pending: true }),
++    getToken: vi.fn().mockResolvedValue({
++      success: true,
++      accessToken: 'token',
++      expiresOnTimestamp: 123,
++    }),
++    cancel: vi.fn().mockResolvedValue({ success: true }),
++    logout: vi.fn().mockResolvedValue({ success: true }),
++  };
++}
++
++describe('private Azure OAuth facade', () => {
++  beforeEach(() => {
++    vi.spyOn(crypto, 'randomUUID').mockReturnValue(SESSION_ID);
++  });
++
++  it('injects a facade only for the exact granted plugin identity', async () => {
++    const raw = bridge();
++    const [names, values] = getPluginAzureOAuthArgValues([granted], plugin, raw);
++
++    expect(names).toEqual(['pluginAzureOAuth']);
++    const facade = values[0] as Record<string, (...args: any[]) => Promise<unknown>>;
++    await facade.startAzureLogin('AzureCloud', 'scope');
++    await facade.getAzureToken('scope', 'tenant');
++    expect(raw.start).toHaveBeenCalledWith(CAPABILITY, SESSION_ID, 'AzureCloud', 'scope');
++    expect(raw.getToken).toHaveBeenCalledWith(CAPABILITY, SESSION_ID, 'scope', 'tenant');
++  });
++
++  it.each([
++    ['another package', [granted], { ...plugin, name: '@other/plugin' }],
++    ['another bundle', [granted], { ...plugin, folderName: 'other' }],
++    ['an ungranted capability', [{ ...granted, azureOAuth: undefined }], plugin],
++    ['a malformed capability', [{ ...granted, capability: 'invalid' }], plugin],
++  ])('withholds the facade from %s', (_name, capabilities, candidate) => {
++    expect(
++      getPluginAzureOAuthArgValues(
++        capabilities as PluginCommandCapability[],
++        candidate as PluginInfo,
++        bridge()
++      )
++    ).toEqual([[], []]);
++  });
++
++  it('captures bridge functions before plugins can mutate the global object', async () => {
++    const raw = bridge();
++    const original = raw.start;
++    const captured = captureAzureOAuthBridge(raw)!;
++    raw.start = vi.fn();
++
++    await captured.start(CAPABILITY, SESSION_ID, 'AzureCloud', 'scope');
++
++    expect(original).toHaveBeenCalledWith(CAPABILITY, SESSION_ID, 'AzureCloud', 'scope');
++    expect(raw.start).not.toHaveBeenCalled();
++  });
++});
+diff --git a/frontend/src/plugin/azureOAuth.ts b/frontend/src/plugin/azureOAuth.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..de9446a35303820097cea8b879531d11ba1b8abc
+--- /dev/null
++++ b/frontend/src/plugin/azureOAuth.ts
+@@ -0,0 +1,150 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { findPluginCapability, type PluginCommandCapability } from './commandCapabilities';
++import type { PluginInfo } from './pluginsSlice';
++
++export interface AzureOAuthResult {
++  success: boolean;
++  error?: string;
++  code?: string;
++  sessionExpired?: boolean;
++  pending?: boolean;
++  account?: { username?: string; tenantId?: string };
++  prompt?: { userCode: string; verificationUri: string; message: string };
++  accessToken?: string;
++  expiresOnTimestamp?: number;
++}
++
++export interface AzureOAuthBridge {
++  start(
++    capability: string,
++    sessionId: string,
++    cloud: string,
++    scope: string
++  ): Promise<AzureOAuthResult>;
++  status(capability: string, sessionId: string): Promise<AzureOAuthResult>;
++  getToken(
++    capability: string,
++    sessionId: string,
++    scope: string,
++    tenantId?: string
++  ): Promise<AzureOAuthResult>;
++  cancel(capability: string, sessionId: string): Promise<AzureOAuthResult>;
++  logout(capability: string, sessionId: string): Promise<AzureOAuthResult>;
++}
++
++export interface PluginAzureOAuth {
++  startAzureLogin(cloud: string, scope: string): Promise<AzureOAuthResult>;
++  getAzureLoginStatus(): Promise<AzureOAuthResult>;
++  getAzureToken(scope: string, tenantId?: string): Promise<AzureOAuthResult>;
++  cancelAzureLogin(): Promise<AzureOAuthResult>;
++  logoutAzure(): Promise<AzureOAuthResult>;
++}
++
++export function captureAzureOAuthBridge(
++  bridge: Partial<AzureOAuthBridge> | undefined
++): AzureOAuthBridge | undefined {
++  const start = bridge?.start;
++  const status = bridge?.status;
++  const getToken = bridge?.getToken;
++  const cancel = bridge?.cancel;
++  const logout = bridge?.logout;
++  if (
++    typeof start !== 'function' ||
++    typeof status !== 'function' ||
++    typeof getToken !== 'function' ||
++    typeof cancel !== 'function' ||
++    typeof logout !== 'function'
++  ) {
++    return undefined;
++  }
++  return Object.freeze({ start, status, getToken, cancel, logout });
++}
++
++function createPluginAzureOAuth(capability: string, bridge: AzureOAuthBridge): PluginAzureOAuth {
++  const failed = (): AzureOAuthResult => ({
++    success: false,
++    error: 'Azure authentication failed',
++  });
++  let sessionId: string | undefined;
++  return Object.freeze({
++    async startAzureLogin(cloud: string, scope: string) {
++      const requestedSessionId = crypto.randomUUID();
++      sessionId = requestedSessionId;
++      try {
++        const result = await bridge.start(capability, requestedSessionId, cloud, scope);
++        if (!result.success && sessionId === requestedSessionId) sessionId = undefined;
++        return result;
++      } catch {
++        if (sessionId === requestedSessionId) sessionId = undefined;
++        return failed();
++      }
++    },
++    async getAzureLoginStatus() {
++      const requestedSessionId = sessionId;
++      if (!requestedSessionId) return failed();
++      try {
++        return await bridge.status(capability, requestedSessionId);
++      } catch {
++        return failed();
++      }
++    },
++    async getAzureToken(scope: string, tenantId?: string) {
++      const requestedSessionId = sessionId;
++      if (!requestedSessionId) return failed();
++      try {
++        return await bridge.getToken(capability, requestedSessionId, scope, tenantId);
++      } catch {
++        return failed();
++      }
++    },
++    async cancelAzureLogin() {
++      const requestedSessionId = sessionId;
++      if (!requestedSessionId) return { success: true };
++      try {
++        const result = await bridge.cancel(capability, requestedSessionId);
++        if (result.success && sessionId === requestedSessionId) sessionId = undefined;
++        return result;
++      } catch {
++        return failed();
++      }
++    },
++    async logoutAzure() {
++      const requestedSessionId = sessionId;
++      if (!requestedSessionId) return { success: true };
++      try {
++        const result = await bridge.logout(capability, requestedSessionId);
++        if (result.success && sessionId === requestedSessionId) sessionId = undefined;
++        return result;
++      } catch {
++        return failed();
++      }
++    },
++  });
++}
++
++export function getPluginAzureOAuthArgValues(
++  capabilities: PluginCommandCapability[],
++  plugin: PluginInfo,
++  bridge: AzureOAuthBridge | undefined
++): [string[], unknown[]] {
++  const capability = findPluginCapability(capabilities, plugin);
++  if (!bridge || capability?.azureOAuth !== true || !/^[0-9a-f]{64}$/.test(capability.capability)) {
++    return [[], []];
++  }
++  return [['pluginAzureOAuth'], [createPluginAzureOAuth(capability.capability, bridge)]];
++}
+diff --git a/frontend/src/plugin/commandCapabilities.ts b/frontend/src/plugin/commandCapabilities.ts
+index b5eeb5b3618a837a4dc95ee0b4888434481c52e2..3187ee9e457f3cbaf8451dbd4febfac753e82a0e 100644
+--- a/frontend/src/plugin/commandCapabilities.ts
++++ b/frontend/src/plugin/commandCapabilities.ts
+@@ -85,6 +85,8 @@ export interface PluginCommandCapability {
+   clusterRegistrationProviders: string[];
+   /** Present and true only when this plugin identity may use GitHub OAuth. */
+   githubOAuth?: boolean;
++  /** Present and true only when this plugin identity may use Azure OAuth. */
++  azureOAuth?: boolean;
+ }
+ 
+ interface PluginCommandCapabilitiesBridge {
+diff --git a/frontend/src/plugin/index.ts b/frontend/src/plugin/index.ts
+index 68348959a273a37181cda113be9f085ffe9baba0..3074ec58b7f729859f2f2c34a82bacb6f2b9894b 100644
+--- a/frontend/src/plugin/index.ts
++++ b/frontend/src/plugin/index.ts
+@@ -53,6 +53,7 @@ import * as Utils from '../lib/util';
+ import { eventAction, HeadlampEventType } from '../redux/headlampEventSlice';
+ import store from '../redux/stores/store';
+ import * as stateless from '../stateless/index';
++import { captureAzureOAuthBridge, getPluginAzureOAuthArgValues } from './azureOAuth';
+ import { getClusterProxyArgValues, isTrustedClusterProxyPlugin } from './clusterProxy';
+ import {
+   createPluginRunCommand,
+@@ -670,6 +671,7 @@ export async function fetchAndExecutePlugins(
+   const pluginRegisterCluster = window?.desktopApi?.registerCluster;
+   const pluginStartClusterProxy = window?.desktopApi?.startClusterProxy;
+   const pluginGitHubOAuthBridge = captureGitHubOAuthBridge(window?.desktopApi?.githubOAuth);
++  const pluginAzureOAuthBridge = captureAzureOAuthBridge(window?.desktopApi?.azureOAuth);
+   const internalRunCommand = runCommand;
+   const PrivateFunction = Function;
+   const internalRunPlugin = runPlugin;
+@@ -745,6 +747,14 @@ export async function fetchAndExecutePlugins(
+             argumentValues.push(productRunCommand, pluginPath);
+           }
+ 
++          const [azureOAuthArgs, azureOAuthValues] = getPluginAzureOAuthArgValues(
++            commandCapabilities,
++            packageInfosToExecute[index],
++            pluginAzureOAuthBridge
++          );
++          argumentNames.push(...azureOAuthArgs);
++          argumentValues.push(...azureOAuthValues);
++
+           if (isPackage['aks-desktop']) {
+             const [proxyArgs, proxyValues] = getClusterProxyArgValues(
+               isTrustedAksDesktop,

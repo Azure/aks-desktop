@@ -168,6 +168,37 @@
   },
   "headlamp": {
     "commandEnvironment": "external-tools/aks-tool-environment.cjs",
+    "azureOAuth": {
+      "clientId": "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
+      "clouds": [
+        {
+          "name": "AzureCloud",
+          "authority": "https://login.microsoftonline.com",
+          "scopes": [
+            "https://management.core.windows.net//.default",
+            "https://graph.microsoft.com/.default",
+            "https://prometheus.monitor.azure.com/.default"
+          ]
+        },
+        {
+          "name": "AzureUSGovernment",
+          "authority": "https://login.microsoftonline.us",
+          "scopes": [
+            "https://management.core.usgovcloudapi.net//.default",
+            "https://graph.microsoft.us/.default"
+          ]
+        },
+        {
+          "name": "AzureChinaCloud",
+          "authority": "https://login.chinacloudapi.cn",
+          "scopes": [
+            "https://management.core.chinacloudapi.cn//.default",
+            "https://microsoftgraph.chinacloudapi.cn/.default",
+            "https://prometheus.monitor.azure.cn/.default"
+          ]
+        }
+      ]
+    },
     "githubOAuth": {
       "clientId": "Iv23liWWbvrfIrA6WWj5",
       "clientSecret": "5a066cc6ca8d2c6f201c45f24f2f4e62905b5d95"
@@ -346,8 +377,16 @@
       {
         "environment": "development",
         "pluginLocation": "development",
+        "azureOAuth": true,
         "githubOAuth": true,
         "approvedCommands": [
+          {
+            "tool": "az",
+            "args": [
+              "version"
+            ],
+            "allowTrailingArgs": true
+          },
           {
             "tool": "az",
             "args": [
@@ -417,6 +456,13 @@
           }
         ],
         "commands": [
+          {
+            "tool": "az",
+            "args": [
+              "version"
+            ],
+            "allowTrailingArgs": true
+          },
           {
             "tool": "az",
             "args": [
@@ -534,8 +580,16 @@
       {
         "environment": "production",
         "pluginLocation": "shipped",
+        "azureOAuth": true,
         "githubOAuth": true,
         "approvedCommands": [
+          {
+            "tool": "az",
+            "args": [
+              "version"
+            ],
+            "allowTrailingArgs": true
+          },
           {
             "tool": "az",
             "args": [
@@ -605,6 +659,13 @@
           }
         ],
         "commands": [
+          {
+            "tool": "az",
+            "args": [
+              "version"
+            ],
+            "allowTrailingArgs": true
+          },
           {
             "tool": "az",
             "args": [
@@ -1027,7 +1088,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
-    "integrity": "sha512-+c2wP7XPlBCTehAaEybr6MKyrYUzJ1jdUkk1KhYS6EhrbaJR5IeoEQzOY/zZ4J1g6AGHVozpt8XU4O3mT2r0IQ=="
+    "integrity": "sha512-GQVNrxEmvBKlIMXx4mGcKjd+Htnu7R2GjQiOwA1oi5Ls8DpAIxpLmYpWr15pMkibtDn3mGyzXvcHmhqHEIuG+A=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [
