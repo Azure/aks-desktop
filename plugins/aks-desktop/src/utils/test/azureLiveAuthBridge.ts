@@ -36,6 +36,7 @@ export function createAzureLiveAuthBridge(
     ARM_SCOPE,
     'https://management.core.windows.net/.default',
     'https://management.core.windows.net//.default',
+    'https://prometheus.monitor.azure.com/.default',
   ]);
   return {
     runCommand(executable, args) {

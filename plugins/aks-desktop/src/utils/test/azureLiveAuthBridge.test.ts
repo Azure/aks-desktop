@@ -35,6 +35,7 @@ describe('restricted Azure live authentication bridge', () => {
     ARM_SCOPE,
     'https://management.core.windows.net/.default',
     'https://management.core.windows.net//.default',
+    'https://prometheus.monitor.azure.com/.default',
   ])('allows selected-account authentication for public ARM scope %s', scope => {
     const bridge = createAzureLiveAuthBridge(subscriptionId);
     const args = [...tokenArgs];

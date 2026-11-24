@@ -700,10 +700,9 @@ test('package targets have verified external tool runtimes', () => {
   const azureCli = rootManifest.config.externalTools.azureCli;
   assert.equal(azureCli.version, '2.90.0');
   assert.deepEqual(azureCli.extensionVersions, {
-    alertsmanagement: '1.0.0b2',
     connectedk8s: '1.11.3',
   });
-  assert.deepEqual(azureCli.extensions, ['alertsmanagement', 'connectedk8s']);
+  assert.deepEqual(azureCli.extensions, ['connectedk8s']);
   assert.equal(rootManifest.config.externalTools.python.version, '3.14');
   for (const [extension, version] of Object.entries(azureCli.extensionVersions) as [string, string][]) {
     const extensionPackage = azureCli.extensionPackages[extension];
@@ -834,7 +833,19 @@ test('AKS product policy owns development and production command grants', () => 
     ),
     'Missing az identity command grant'
   );
-  for (const group of ['ad', 'config', 'extension', 'feature', 'graph', 'group', 'rest', 'version', 'vm']) {
+  for (const group of [
+    'ad',
+    'alerts-management',
+    'config',
+    'extension',
+    'feature',
+    'graph',
+    'group',
+    'monitor',
+    'rest',
+    'version',
+    'vm',
+  ]) {
     assert.equal(
       productGrants.some(grant => grant.tool === 'az' && grant.args[0] === group),
       false,
