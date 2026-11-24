@@ -18,6 +18,10 @@ npm install --prefix .config/npm --package-lock-only --ignore-scripts --no-audit
 node --test build/windows-ci.test.cjs
 ```
 
+Knip is pinned to `6.45.1` because the 1ES npm mirror does not currently provide
+`6.46.x`. Before updating the pin, verify that the new version's tarball downloads
+from both npmjs and `https://packagefeedproxy.microsoft.io/npm/`.
+
 ## Windows installer ASLR
 
 Windows distributable builds use the ASLR-capable NSIS 3.04 Unicode/non-solid
