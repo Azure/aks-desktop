@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React, { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -52,11 +52,20 @@ describe('UserSearchField — clearing the field', () => {
     );
     const onChange = vi.fn();
 
-    render(<UserSearchField value="" onChange={onChange} label="Assignee" />);
+    render(
+      <UserSearchField
+        subscriptionId="subscription-id"
+        value=""
+        onChange={onChange}
+        label="Assignee"
+      />
+    );
     const input = screen.getByRole('combobox');
 
     fireEvent.change(input, { target: { value: 'someone@contoso.com' } });
-    await waitFor(() => expect(mockResolve).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mockResolve).toHaveBeenCalledWith('someone@contoso.com', 'subscription-id')
+    );
 
     fireEvent.change(input, { target: { value: '' } });
     onChange.mockClear();
@@ -72,6 +81,183 @@ describe('UserSearchField — clearing the field', () => {
     await new Promise(resolve => setTimeout(resolve, 10));
 
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('ignores a directory lookup from the previous subscription', async () => {
+    let settleLookup!: (v: unknown) => void;
+    mockResolve.mockReturnValue(
+      new Promise(resolve => {
+        settleLookup = resolve;
+      })
+    );
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <UserSearchField
+        subscriptionId="subscription-a"
+        value=""
+        onChange={onChange}
+        label="Assignee"
+      />
+    );
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'someone@contoso.com' },
+    });
+    await waitFor(() =>
+      expect(mockResolve).toHaveBeenCalledWith('someone@contoso.com', 'subscription-a')
+    );
+    rerender(
+      <UserSearchField
+        subscriptionId="subscription-b"
+        value=""
+        onChange={onChange}
+        label="Assignee"
+      />
+    );
+    onChange.mockClear();
+
+    settleLookup({
+      success: true,
+      user: {
+        id: '38927c93-a0fd-4b06-b21a-69b8ed1e208c',
+        userPrincipalName: 'someone@contoso.com',
+        displayName: 'Someone',
+      },
+    });
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('ignores a directory lookup that lands after unmount', async () => {
+    let settleLookup!: (v: unknown) => void;
+    mockResolve.mockReturnValue(
+      new Promise(resolve => {
+        settleLookup = resolve;
+      })
+    );
+    const onChange = vi.fn();
+    const { unmount } = render(
+      <UserSearchField
+        subscriptionId="subscription-id"
+        value=""
+        onChange={onChange}
+        label="Assignee"
+      />
+    );
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'someone@contoso.com' },
+    });
+    await waitFor(() => expect(mockResolve).toHaveBeenCalled());
+    unmount();
+    onChange.mockClear();
+
+    settleLookup({
+      success: true,
+      user: {
+        id: '38927c93-a0fd-4b06-b21a-69b8ed1e208c',
+        userPrincipalName: 'someone@contoso.com',
+        displayName: 'Someone',
+      },
+    });
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('cancels a queued search when the subscription changes', async () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <UserSearchField
+        subscriptionId="subscription-a"
+        value=""
+        onChange={onChange}
+        label="Assignee"
+      />
+    );
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'alice' } });
+    rerender(
+      <UserSearchField
+        subscriptionId="subscription-b"
+        value=""
+        onChange={onChange}
+        label="Assignee"
+      />
+    );
+    await new Promise(resolve => setTimeout(resolve, 400));
+
+    expect(mockSearch).not.toHaveBeenCalled();
+  });
+
+  it('invalidates pending directory resolution when the same subscription changes tenant', async () => {
+    let settle!: (value: unknown) => void;
+    mockResolve.mockReturnValue(new Promise(resolve => (settle = resolve)));
+    const onChange = vi.fn();
+    render(
+      <UserSearchField
+        subscriptionId="subscription-a"
+        value=""
+        onChange={onChange}
+        label="Assignee"
+      />
+    );
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'alice@contoso.com' } });
+    await waitFor(() => expect(mockResolve).toHaveBeenCalled());
+    onChange.mockClear();
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('azure-subscription-tenant-change', {
+          detail: { subscriptionIds: ['subscription-a'] },
+        })
+      )
+    );
+    await act(async () =>
+      settle({
+        success: true,
+        user: {
+          id: '38927c93-a0fd-4b06-b21a-69b8ed1e208c',
+          displayName: 'Alice',
+          userPrincipalName: 'alice@contoso.com',
+        },
+      })
+    );
+    expect(onChange).not.toHaveBeenCalled();
+    expect((screen.getByRole('combobox') as HTMLInputElement).value).toBe('');
+  });
+
+  it('clears old directory options on a selected subscription tenant change', async () => {
+    mockSearch.mockResolvedValue({
+      success: true,
+      users: [
+        {
+          id: '38927c93-a0fd-4b06-b21a-69b8ed1e208c',
+          displayName: 'Alice',
+          userPrincipalName: 'alice@contoso.com',
+          mail: null,
+        },
+      ],
+    });
+    render(
+      <UserSearchField
+        subscriptionId="subscription-a"
+        value=""
+        onChange={vi.fn()}
+        label="Assignee"
+      />
+    );
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'alice' } });
+    expect(await screen.findByRole('option')).toHaveTextContent('Alice');
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('azure-subscription-tenant-change', {
+          detail: { subscriptionIds: ['subscription-a'] },
+        })
+      )
+    );
+    expect(screen.queryByRole('option')).toBeNull();
+    expect((screen.getByRole('combobox') as HTMLInputElement).value).toBe('');
   });
 
   it('ignores a directory lookup after a complete identifier becomes partial', async () => {
@@ -147,7 +333,14 @@ describe('UserSearchField — clearing the field', () => {
   it('surfaces a directory lookup failure instead of presenting an empty result', async () => {
     mockSearch.mockResolvedValue({ success: false, users: [], error: 'ERROR: lookup failed' });
 
-    render(<UserSearchField value="" onChange={vi.fn()} label="Assignee" />);
+    render(
+      <UserSearchField
+        subscriptionId="subscription-id"
+        value=""
+        onChange={vi.fn()}
+        label="Assignee"
+      />
+    );
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'alice' } });
 
     expect(
@@ -155,6 +348,7 @@ describe('UserSearchField — clearing the field', () => {
         'Try searching again. If the problem continues, check your Azure sign-in.'
       )
     ).toBeVisible();
+    expect(mockSearch).toHaveBeenCalledWith('alice', 'subscription-id');
     expect(screen.queryByText('No users found')).not.toBeInTheDocument();
   });
 
@@ -224,7 +418,7 @@ describe('UserSearchField — clearing the field', () => {
     expect(screen.queryByText(/User search failed\. Check/)).not.toBeInTheDocument();
 
     fireEvent.change(input, { target: { value: 'alice@contoso.com' } });
-    await waitFor(() => expect(mockResolve).toHaveBeenCalledWith('alice@contoso.com'));
+    await waitFor(() => expect(mockResolve).toHaveBeenCalledWith('alice@contoso.com', undefined));
     expect(onChange).toHaveBeenLastCalledWith({
       objectId: '',
       upn: 'alice@contoso.com',
@@ -234,7 +428,7 @@ describe('UserSearchField — clearing the field', () => {
 
     const objectId = '00000000-1111-2222-3333-444444444444';
     fireEvent.change(input, { target: { value: objectId } });
-    await waitFor(() => expect(mockResolve).toHaveBeenLastCalledWith(objectId));
+    await waitFor(() => expect(mockResolve).toHaveBeenLastCalledWith(objectId, undefined));
     expect(onChange).toHaveBeenLastCalledWith({ objectId, preserveExistingUpn: true });
     expect(input).toHaveValue(objectId);
     expect(mockSearch).toHaveBeenCalledTimes(1);
@@ -284,7 +478,7 @@ describe('UserSearchField — clearing the field', () => {
         displayName: user.displayName,
       })
     );
-    expect(mockResolve).toHaveBeenCalledWith(identifier);
+    expect(mockResolve).toHaveBeenCalledWith(identifier, undefined);
     expect(mockSearch).not.toHaveBeenCalled();
   });
 

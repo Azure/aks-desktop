@@ -621,6 +621,31 @@ describe('useBasicsStep', () => {
     expect(onFormDataChange).toHaveBeenCalledWith({ projectName: 'new-name' });
   });
 
+  test('clears tenant-bound assignees when the subscription changes', () => {
+    const onFormDataChange = vi.fn();
+    const props = makeProps({
+      onFormDataChange,
+      formData: {
+        ...makeProps().formData,
+        subscription: 'old-subscription',
+        userAssignments: [
+          {
+            objectId: '38927c93-a0fd-4b06-b21a-69b8ed1e208c',
+            role: 'Reader',
+          },
+        ],
+      },
+    });
+    const { result } = renderHook(() => useBasicsStep(props));
+
+    act(() => result.current.handleInputChange('subscription', 'new-subscription'));
+
+    expect(onFormDataChange).toHaveBeenCalledWith({
+      subscription: 'new-subscription',
+      userAssignments: [],
+    });
+  });
+
   test('handleClusterChange updates both cluster and resourceGroup', () => {
     const onFormDataChange = vi.fn();
     const { result } = renderHook(() => useBasicsStep(makeProps({ onFormDataChange })));

@@ -13,6 +13,8 @@ export interface AssignRolesOptions {
   namespaceName: string;
   subscriptionId: string;
   assignments: UserAssignment[];
+  /** Cancels subsequent grants when the selected tenant or submission changes. */
+  signal?: AbortSignal;
   onProgress?: (message: string) => void;
   /** Translation function for user-facing messages. Falls back to identity if not provided. */
   t?: (key: string, options?: Record<string, any>) => string;
@@ -45,6 +47,7 @@ export async function assignRolesToNamespace(
     });
 
   const validAssignments = assignments.filter(a => a.objectId.trim() !== '');
+  options.signal?.throwIfAborted();
 
   if (validAssignments.length === 0) {
     onProgress?.(translate('No user assignments to process') + '...');
@@ -61,6 +64,7 @@ export async function assignRolesToNamespace(
   const assignmentErrors: string[] = [];
 
   for (const assignment of validAssignments) {
+    options.signal?.throwIfAborted();
     const assigneeObjectId = assignment.objectId.trim();
     try {
       onProgress?.(translate('Adding user {{objectId}}', { objectId: assigneeObjectId }) + '...');
@@ -76,6 +80,7 @@ export async function assignRolesToNamespace(
       }> = [];
 
       for (const role of rolesToAssign) {
+        options.signal?.throwIfAborted();
         onProgress?.(
           translate('Assigning {{role}} to {{objectId}}', { role, objectId: assigneeObjectId }) +
             '...'
@@ -88,6 +93,7 @@ export async function assignRolesToNamespace(
           assigneeObjectId,
           role,
           subscriptionId,
+          signal: options.signal,
         });
 
         if (!roleResult.success) {
@@ -123,6 +129,7 @@ export async function assignRolesToNamespace(
       onProgress?.(
         translate('Verifying access for user {{objectId}}', { objectId: assigneeObjectId }) + '...'
       );
+      options.signal?.throwIfAborted();
       const verifyResult = await verifyNamespaceAccess({
         clusterName,
         resourceGroup,
@@ -150,6 +157,7 @@ export async function assignRolesToNamespace(
         );
       }
     } catch (userError) {
+      options.signal?.throwIfAborted();
       assignmentErrors.push(
         translate('Error processing user {{objectId}}: {{message}}', {
           objectId: assigneeObjectId,

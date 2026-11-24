@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Mock az-cli functions
 const mockCreateNamespaceRoleAssignment = vi.fn();
@@ -25,6 +25,8 @@ vi.mock('../../components/CreateAKSProject/types', () => ({
 }));
 
 import { assignRolesToNamespace } from '../azure/roleAssignment';
+
+afterEach(() => vi.unstubAllGlobals());
 
 /** Simple interpolation that mimics i18next `t()` for test assertions. */
 const mockT = (key: string, opts?: Record<string, any>) => {
@@ -109,6 +111,65 @@ describe('assignRolesToNamespace', () => {
     expect(mockVerifyNamespaceAccess).toHaveBeenCalledWith(
       expect.objectContaining({ assigneeObjectId: testObjectId1 })
     );
+  });
+
+  test('cancels the real namespace lookup before it can start a stale role write', async () => {
+    const { createNamespaceRoleAssignment } = await vi.importActual<
+      typeof import('../azure/az-namespace-access')
+    >('../azure/az-namespace-access');
+    const subscription = '11111111-2222-3333-4444-555555555555';
+    const namespaceId = `/subscriptions/${subscription}/resourceGroups/test-rg/providers/Microsoft.ContainerService/managedClusters/test-cluster/managedNamespaces/test-ns`;
+    const controller = new AbortController();
+    let completeLookup!: (response: Response) => void;
+    const fetch = vi
+      .fn()
+      .mockReturnValueOnce(new Promise<Response>(resolve => (completeLookup = resolve)));
+    fetch.mockImplementation(
+      async (_url: string, request: RequestInit) =>
+        new Response(
+          JSON.stringify(
+            request.method === 'PUT'
+              ? { properties: JSON.parse(String(request.body)).properties }
+              : {
+                  value: [
+                    {
+                      id: `/subscriptions/${subscription}/providers/Microsoft.Authorization/roleDefinitions/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`,
+                      properties: { roleName: 'Azure Kubernetes Service RBAC Reader' },
+                    },
+                  ],
+                }
+          )
+        )
+    );
+    vi.stubGlobal('fetch', fetch);
+    mockCreateNamespaceRoleAssignment.mockImplementation(
+      (options: Parameters<typeof createNamespaceRoleAssignment>[0]) =>
+        createNamespaceRoleAssignment({
+          ...options,
+          endpoint: 'https://management.azure.com',
+          audience: 'https://management.azure.com/.default',
+          credential: {
+            getToken: async () => ({
+              token: 'offline-test-token',
+              expiresOnTimestamp: Date.now() + 3600_000,
+            }),
+          },
+        })
+    );
+    const pending = assignRolesToNamespace({
+      ...baseOptions,
+      subscriptionId: subscription,
+      signal: controller.signal,
+      assignments: [{ objectId: testObjectId1, role: 'Reader' }],
+    });
+    const rejected = expect(pending).rejects.toThrow('Selected tenant changed');
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    controller.abort(new Error('Selected tenant changed'));
+    completeLookup(new Response(JSON.stringify({ id: namespaceId })));
+    await rejected;
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0][1].method).toBe('GET');
+    expect(mockVerifyNamespaceAccess).not.toHaveBeenCalled();
   });
 
   test('handles multiple users', async () => {

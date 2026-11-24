@@ -11,6 +11,7 @@ import { assignAzureRoles } from '../../../utils/azure/az-identity';
 import { checkNamespaceExists } from '../../../utils/azure/az-namespace-access';
 import { createManagedNamespace } from '../../../utils/azure/az-namespaces';
 import { registerContainerServiceProvider } from '../../../utils/azure/az-resource-providers';
+import { AZURE_SUBSCRIPTION_TENANT_CHANGE_EVENT } from '../../../utils/azure/az-token';
 import { computeArcProjectRoles } from '../../../utils/azure/identityRoles';
 import { assignRolesToNamespace } from '../../../utils/azure/roleAssignment';
 import {
@@ -158,6 +159,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
 
   const [activeStep, setActiveStep] = useState(0);
   const [isCreating, setIsCreating] = useState(false);
+  const creatingRef = useRef(false);
   const [creationProgress, setCreationProgress] = useState('');
   const [creationError, setCreationError] = useState<string | null>(null);
   const [scopeAdoptionError, setScopeAdoptionError] = useState<string | null>(null);
@@ -171,6 +173,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   const isMountedRef = useRef(false);
   /** Monotonic owner token so cancelled attempts cannot clear a newer attempt's UI. */
   const submissionIdRef = useRef(0);
+  const tenantRevisionRef = useRef(0);
   // Live accessibility of the selected Arc (AKS Hybrid & Edge) cluster, determined
   // by a real Kubernetes API probe rather than a cached Arc heartbeat. `accessible`
   // is `null` when not applicable (managed cluster, none selected, or not connected).
@@ -195,6 +198,36 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
   }, []);
 
   const { formData, updateFormData } = useFormData();
+
+  useEffect(() => {
+    const handleTenantChange = (event: Event) => {
+      if (
+        !(event instanceof CustomEvent) ||
+        !Array.isArray(event.detail?.subscriptionIds) ||
+        !event.detail.subscriptionIds.some(
+          (id: unknown) =>
+            typeof id === 'string' && id.toLowerCase() === formData.subscription.toLowerCase()
+        )
+      ) {
+        return;
+      }
+      tenantRevisionRef.current++;
+      registrationAbortRef.current?.abort();
+      clearTimeout(successTimeoutRef.current);
+      if (creatingRef.current) {
+        creatingRef.current = false;
+        setIsCreating(false);
+        setCreationProgress('');
+        setCreationError(
+          t('Azure tenant changed. Review user assignments and retry project creation.')
+        );
+      }
+    };
+    window.addEventListener(AZURE_SUBSCRIPTION_TENANT_CHANGE_EVENT, handleTenantChange);
+    return () =>
+      window.removeEventListener(AZURE_SUBSCRIPTION_TENANT_CHANGE_EVENT, handleTenantChange);
+  }, [formData.subscription, t]);
+
   const azureResources = useAzureResources();
   const registrationSubscription = azureResources.subscriptions.find(
     subscription => subscription.id === formData.subscription
@@ -471,12 +504,15 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
     }
     clearTimeout(successTimeoutRef.current);
     const submissionId = ++submissionIdRef.current;
+    const tenantRevision = tenantRevisionRef.current;
+    const isCurrentTenant = () => tenantRevisionRef.current === tenantRevision;
     /** @returns Whether this attempt may safely update the mounted wizard's state. */
     const isCurrentSubmission = () =>
       isMountedRef.current && submissionIdRef.current === submissionId;
     /** @returns Nothing; releases only the still-current, mounted attempt's UI. */
     const resetCancelledState = () => {
       if (isCurrentSubmission()) {
+        creatingRef.current = false;
         setIsCreating(false);
         setCreationProgress('');
       }
@@ -500,6 +536,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
           projectName: formData.projectName,
         });
 
+      creatingRef.current = true;
       setIsCreating(true);
       setCreationError(null);
       setCreationWarnings([]);
@@ -548,7 +585,9 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
           // Kubernetes RBAC puts it in a RoleBinding in the manifest, Azure RBAC
           // puts it in an Azure role assignment and the manifest carries no
           // bindings at all.
+          if (aborted || !isCurrentTenant()) return;
           const manifestOptions = {
+            signal: registrationSignal,
             namespaceName: formData.projectName,
             cpuRequest: formData.cpuRequest,
             cpuLimit: formData.cpuLimit,
@@ -601,7 +640,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
             setCreationProgress(`${t('Granting cluster access')}...`);
           }
           for (const assignment of formData.userAssignments) {
-            if (aborted) return;
+            if (aborted || !isCurrentTenant()) return;
             const who = assignment.upn || assignment.displayName || assignment.objectId;
             if (!isEntraObjectId(assignment.objectId)) {
               arcWarnings.push(
@@ -615,6 +654,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
               principalId: assignment.objectId.trim(),
               subscriptionId: formData.subscription,
               principalType: 'User',
+              signal: registrationSignal,
               roles: computeArcProjectRoles({
                 subscriptionId: formData.subscription,
                 resourceGroup: formData.resourceGroup,
@@ -822,12 +862,14 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
           `${t('Namespace creation completed successfully! Adding user access')}...`
         );
 
+        if (aborted || !isCurrentTenant()) return;
         const roleResult = await assignRolesToNamespace({
           clusterName: formData.cluster,
           resourceGroup: formData.resourceGroup,
           namespaceName: formData.projectName,
           subscriptionId: formData.subscription,
           assignments: formData.userAssignments,
+          signal: registrationSignal,
           onProgress: msg => {
             if (!aborted) setCreationProgress(msg);
           },
@@ -922,6 +964,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
           return;
         }
         if (!isCurrentSubmission()) return;
+        creatingRef.current = false;
         setIsCreating(false);
         setShowSuccessDialog(true);
       }, 2000);
@@ -969,6 +1012,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
       // actionable details (e.g., the assignee that failed) are visible.
       // Sanitization is only applied to console logging above.
       setCreationError(rawErrorMessage || t('Failed to create project'));
+      creatingRef.current = false;
       setIsCreating(false);
       setCreationProgress('');
     } finally {

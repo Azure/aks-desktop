@@ -88,7 +88,16 @@ export function useAzureAuth(redirectToLogin = false): AzureAuthStatus {
   useEffect(() => {
     checkAuth();
 
-    const handleAuthUpdate = () => checkAuth();
+    const handleAuthUpdate = (event: Event) => {
+      if (
+        event.type === 'azure-account-change' &&
+        event instanceof CustomEvent &&
+        Array.isArray(event.detail?.subscriptionIds)
+      ) {
+        return;
+      }
+      checkAuth();
+    };
     window.addEventListener('azure-auth-update', handleAuthUpdate);
     window.addEventListener('azure-account-change', handleAuthUpdate);
     return () => {

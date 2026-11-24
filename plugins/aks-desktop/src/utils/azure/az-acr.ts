@@ -7,7 +7,7 @@ import {
   getErrorMessage,
   isValidGuid,
   needsRelogin,
-  runCommandAsync,
+  withVerifiedCliBatch,
 } from './az-cli-core';
 import { getAzureCloudEndpoints } from './az-cloud';
 import {
@@ -352,8 +352,18 @@ export async function getContainerImages(
 }
 
 async function getImagesFromRegistry(subscriptionId: string, registryName: string): Promise<any[]> {
+  return withVerifiedCliBatch(subscriptionId, run =>
+    getImagesFromVerifiedRegistry(subscriptionId, registryName, run)
+  );
+}
+
+async function getImagesFromVerifiedRegistry(
+  subscriptionId: string,
+  registryName: string,
+  run: (args: string[]) => Promise<{ stdout: string; stderr: string }>
+): Promise<any[]> {
   // First get list of repositories
-  const { stdout: repoStdout, stderr: repoStderr } = await runCommandAsync('az', [
+  const { stdout: repoStdout, stderr: repoStderr } = await run([
     'acr',
     'repository',
     'list',
@@ -398,7 +408,7 @@ async function getImagesFromRegistry(subscriptionId: string, registryName: strin
         break;
       }
 
-      const { stdout: tagStdout, stderr: tagStderr } = await runCommandAsync('az', [
+      const { stdout: tagStdout, stderr: tagStderr } = await run([
         'acr',
         'repository',
         'show-tags',

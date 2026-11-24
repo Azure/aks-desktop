@@ -166,6 +166,7 @@ export const AccessStep: React.FC<AccessStepProps> = ({
             <Grid item xs={12} md={requiresUpn ? 4 : 6}>
               <FormControl fullWidth>
                 <UserSearchField
+                  subscriptionId={formData.subscription}
                   label={`${t('Assignee')} ${idx + 1}`}
                   value={assignment.objectId}
                   displayName={assignment.displayName}

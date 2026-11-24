@@ -2,8 +2,10 @@
 // Licensed under the Apache 2.0.
 
 import { ApiProxy } from '@kinvolk/headlamp-plugin/lib';
-import { getErrorMessage } from './az-cli-core';
+import { getErrorMessage, withVerifiedCliCapabilityAccess } from './az-cli-core';
+import { getAzureCloudEndpoints } from './az-cloud';
 import { azRequest, AzureRequestError } from './az-http';
+import { getSubscriptionCredential } from './az-token';
 import { getStartClusterProxyCapability } from './clusterProxyCapability';
 
 // Proxy lifecycle is owned by the app (main) layer. There is no stop intent:
@@ -65,11 +67,21 @@ export async function startProxy(target: ProxyTarget): Promise<StartProxyResult>
     return { success: false, error: 'Desktop proxy capability is not available.' };
   }
   try {
-    return await startProxyCapability({
-      cluster: target.clusterName,
-      subscriptionId: target.subscriptionId,
-      resourceGroup: target.resourceGroup,
-    });
+    const start = await withVerifiedCliCapabilityAccess(target.subscriptionId, () =>
+      startProxyCapability({
+        cluster: target.clusterName,
+        subscriptionId: target.subscriptionId,
+        resourceGroup: target.resourceGroup,
+      })
+    );
+    if (!start.verified) {
+      return {
+        success: false,
+        error:
+          'Azure CLI must be signed in with the same account, tenant, cloud, and subscription before starting the proxy.',
+      };
+    }
+    return start.value;
   } catch (error) {
     return { success: false, error: getErrorMessage(error) };
   }
@@ -254,9 +266,13 @@ export async function getClusterCurrentState(
     '/providers/Microsoft.HybridContainerService/provisionedClusterInstances/default';
 
   try {
+    const { endpoint, scope } = await getAzureCloudEndpoints();
     const response = await azRequest<ProvisionedClusterInstance>({
       url,
       apiVersion: PROVISIONED_CLUSTER_API_VERSION,
+      endpoint,
+      scope,
+      credential: getSubscriptionCredential(target.subscriptionId),
     });
     const status = response?.properties?.status;
     for (const value of [response, response?.properties, status]) {

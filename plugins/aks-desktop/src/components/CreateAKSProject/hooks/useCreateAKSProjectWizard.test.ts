@@ -214,6 +214,41 @@ describe('useCreateAKSProjectWizard', () => {
     });
   });
 
+  it('clears tenant-bound assignees in wizard state after leaving the Basics step', async () => {
+    const { useFormData: realUseFormData } = await vi.importActual<typeof import('./useFormData')>(
+      './useFormData'
+    );
+    vi.mocked(useFormData).mockImplementation(() =>
+      realUseFormData({
+        subscription: 'sub-123',
+        userAssignments: [{ objectId: '00000000-1111-2222-3333-444444444444', role: 'Reader' }],
+      })
+    );
+    const { result, unmount } = renderHook(() => useCreateAKSProjectWizard());
+    const accessStep = result.current.steps.indexOf('Access');
+    act(() => result.current.handleStepClick(accessStep));
+    expect(result.current.activeStep).toBe(accessStep);
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('azure-subscription-tenant-change', {
+          detail: { subscriptionIds: ['another-subscription'] },
+        })
+      )
+    );
+    expect(result.current.formData.userAssignments).toHaveLength(1);
+
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('azure-subscription-tenant-change', {
+          detail: { subscriptionIds: ['SUB-123'] },
+        })
+      )
+    );
+    expect(result.current.formData.userAssignments).toEqual([]);
+    expect(result.current.activeStep).toBe(accessStep);
+    unmount();
+  });
+
   it('checks an Arc namespace only after the cluster context is connected', async () => {
     vi.useFakeTimers();
     const arcFormData = {
@@ -231,23 +266,132 @@ describe('useCreateAKSProjectWizard', () => {
       subscriptionId: 'sub-a',
       resourceGroup: 'rg-a',
     });
+
     vi.mocked(useFormData).mockReturnValue({
       formData: arcFormData,
       updateFormData: vi.fn(),
       resetFormData: vi.fn(),
       setFormDataField: vi.fn(),
     } as any);
-
     const { rerender } = renderHook(() => useCreateAKSProjectWizard());
     await act(() => vi.advanceTimersByTimeAsync(500));
     expect(mockCheckNamespaceViaK8s).not.toHaveBeenCalled();
-
     mockClustersConf.current = { 'arc-a': { name: 'arc-a' } };
     rerender();
     await act(() => vi.advanceTimersByTimeAsync(500));
-
     expect(mockCheckNamespaceViaK8s).toHaveBeenCalledWith('arc-a', 'test-project');
   });
+
+  it.each(['managed-creation', 'managed-grant', 'arc-manifest', 'arc-grant'])(
+    'stops subsequent tenant-bound grants when the selected tenant changes during %s',
+    async phase => {
+      vi.useFakeTimers();
+      const arc = phase.startsWith('arc');
+      const { useFormData: realUseFormData } = await vi.importActual<
+        typeof import('./useFormData')
+      >('./useFormData');
+      vi.mocked(useFormData).mockImplementation(() =>
+        realUseFormData({
+          ...defaultFormData,
+          subscription: 'sub-123',
+          cluster: 'cluster-a',
+          resourceGroup: 'rg-a',
+          ingress: 'AllowSameNamespace',
+          egress: 'AllowAll',
+          userAssignments: [
+            { objectId: '00000000-1111-2222-3333-444444444444', role: 'Reader' },
+            { objectId: '00000000-1111-2222-3333-555555555555', role: 'Reader' },
+          ],
+        })
+      );
+      mockAzureResourcesState.clusters = [
+        { name: 'cluster-a', resourceGroup: 'rg-a', clusterType: arc ? 'aksarc' : 'aks' },
+      ];
+      mockClustersConf.current = { 'cluster-a': { name: 'cluster-a' } };
+      mockGetClusterSettings.mockReturnValue({
+        clusterType: arc ? 'aksarc' : 'aks',
+        subscriptionId: 'sub-123',
+        resourceGroup: 'rg-a',
+        azureRegistration: { subscriptionId: 'sub-123', resourceGroup: 'rg-a' },
+      });
+      vi.mocked(createManagedNamespace).mockResolvedValue({
+        success: true,
+        stdout: '',
+        stderr: '',
+      });
+      vi.mocked(checkNamespaceExists).mockResolvedValue({
+        exists: true,
+        stdout: '',
+        stderr: '',
+      });
+      vi.mocked(createNamespaceRoleAssignment).mockResolvedValue({
+        success: true,
+        stdout: '',
+        stderr: '',
+      });
+      vi.mocked(verifyNamespaceAccess).mockResolvedValue({
+        success: true,
+        hasAccess: true,
+        stdout: '',
+        stderr: '',
+      });
+      const { result, unmount } = renderHook(() => useCreateAKSProjectWizard());
+      await act(async () => {});
+      let release!: () => void;
+      const pending = new Promise<{ success: true; accessible: true; results: [] }>(resolve => {
+        release = () => resolve({ success: true, accessible: true, results: [] });
+      });
+      const paused =
+        phase === 'managed-creation'
+          ? vi.mocked(createManagedNamespace)
+          : phase === 'managed-grant'
+          ? vi.mocked(createNamespaceRoleAssignment)
+          : phase === 'arc-manifest'
+          ? mockCheckClusterAccessible
+          : mockAssignAzureRoles;
+      paused.mockImplementationOnce(() => {
+        if (phase === 'managed-creation') {
+          window.dispatchEvent(
+            new CustomEvent('azure-subscription-tenant-change', {
+              detail: { subscriptionIds: ['sub-123'] },
+            })
+          );
+        }
+        return pending;
+      });
+      let submission!: Promise<void>;
+      await act(async () => {
+        submission = result.current.handleSubmit();
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(paused).toHaveBeenCalled();
+      act(() =>
+        window.dispatchEvent(
+          new CustomEvent('azure-subscription-tenant-change', {
+            detail: { subscriptionIds: ['SUB-123'] },
+          })
+        )
+      );
+      await act(async () => {
+        release();
+        await vi.advanceTimersByTimeAsync(7000);
+        await submission;
+      });
+      expect(result.current.formData.userAssignments).toEqual([]);
+      expect(result.current.showSuccessDialog).toBe(false);
+      expect(result.current.creationError).toContain('tenant changed');
+      expect(result.current.isCreating).toBe(false);
+      if (phase === 'managed-grant') {
+        expect(createNamespaceRoleAssignment).toHaveBeenCalledOnce();
+        expect(verifyNamespaceAccess).not.toHaveBeenCalled();
+      } else {
+        expect(createNamespaceRoleAssignment).not.toHaveBeenCalled();
+      }
+      if (phase === 'arc-manifest') expect(mockApplyNamespaceManifest).not.toHaveBeenCalled();
+      if (phase === 'arc-grant') expect(mockAssignAzureRoles).toHaveBeenCalledOnce();
+      unmount();
+    }
+  );
 
   it('invalidates namespace status immediately when lookup inputs change', () => {
     vi.useFakeTimers();

@@ -101,12 +101,13 @@ export async function createNamespaceAsProject(
  */
 export async function applyNamespaceManifest(
   clusterName: string,
-  options: GenerateNamespaceManifestOptions
+  options: GenerateNamespaceManifestOptions & { signal?: AbortSignal }
 ): Promise<{ success: boolean; error?: string }> {
   const objects = generateNamespaceManifestObjects(options);
 
   for (const obj of objects) {
     try {
+      options.signal?.throwIfAborted();
       if (obj.kind === 'Namespace') {
         // Create-only for the Namespace itself. `apply` is create-or-update, which
         // would silently adopt a namespace someone else owns — stamping it with

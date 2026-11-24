@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 import type { ClusterCapabilities } from '../../types/ClusterCapabilities';
-import { getLoginStatus } from './az-auth';
+import { getClusterSettings } from '../shared/clusterSettings';
+import { getLoginStatus, getSubscriptionLoginStatus } from './az-auth';
 import { debugLog, getErrorMessage, runCommandAsync } from './az-cli-core';
 import { getAzureCloudEndpoints } from './az-cloud';
 import { azListAll } from './az-http';
@@ -12,7 +13,8 @@ import {
 } from './az-prometheus-provisioning';
 import { getClusterResourceGroupViaGraph, getClustersViaGraph } from './az-resource-graph';
 import { getSubscriptions } from './az-subscriptions';
-import { AzTokenError, getSubscriptionCredential } from './az-token';
+import { AzTokenError, getNativeSubscriptionTenant, getSubscriptionCredential } from './az-token';
+import { hasNativeSession } from './native-auth';
 
 /** Fields consumed from ARM managedClusters lists; CLI responses flatten properties. */
 interface ManagedClusterResource {
@@ -313,14 +315,68 @@ export async function getClusterInfo(clusterName?: string): Promise<{
   clusterName?: string;
   resourceGroup?: string;
   subscriptionId?: string;
+  tenantId?: string;
 }> {
   const result: {
     clusterName?: string;
     resourceGroup?: string;
     subscriptionId?: string;
+    tenantId?: string;
   } = {};
 
   try {
+    if (clusterName) {
+      const settings = getClusterSettings(clusterName);
+      const arcRegistration =
+        typeof settings.subscriptionId === 'string' && typeof settings.resourceGroup === 'string'
+          ? {
+              subscriptionId: settings.subscriptionId,
+              resourceGroup: settings.resourceGroup,
+            }
+          : undefined;
+      const registration =
+        settings.clusterType === 'aksarc'
+          ? arcRegistration
+          : settings.azureRegistration ?? arcRegistration;
+      if (
+        typeof registration?.subscriptionId === 'string' &&
+        registration.subscriptionId &&
+        typeof registration.resourceGroup === 'string' &&
+        registration.resourceGroup
+      ) {
+        let tenantId = getNativeSubscriptionTenant(registration.subscriptionId);
+        if (!tenantId) {
+          if (hasNativeSession()) {
+            const subscriptions = await getSubscriptions();
+            const subscription = subscriptions.find(
+              value =>
+                typeof value.id === 'string' &&
+                value.id.toLowerCase() === registration.subscriptionId.toLowerCase()
+            );
+            tenantId = typeof subscription?.tenant === 'string' ? subscription.tenant : undefined;
+          } else {
+            const status = await getSubscriptionLoginStatus(registration.subscriptionId);
+            tenantId =
+              status.isLoggedIn &&
+              status.subscriptionId?.toLowerCase() === registration.subscriptionId.toLowerCase()
+                ? status.tenantId
+                : undefined;
+          }
+        }
+        if (!tenantId) {
+          throw new Error(
+            `No tenant is known for the registered Azure subscription ${registration.subscriptionId}. Refresh Azure sign-in and try again.`
+          );
+        }
+        return {
+          clusterName,
+          subscriptionId: registration.subscriptionId,
+          resourceGroup: registration.resourceGroup,
+          tenantId,
+        };
+      }
+    }
+
     const account = await getLoginStatus();
     const accountError = account.error ?? '';
     if (!account.isLoggedIn) {
@@ -342,6 +398,7 @@ export async function getClusterInfo(clusterName?: string): Promise<{
       return result;
     }
     result.subscriptionId = account.subscriptionId;
+    result.tenantId = account.tenantId;
 
     if (!result.subscriptionId) {
       console.warn('No subscription ID found, cannot query cluster info');
@@ -429,7 +486,8 @@ export async function getClusterInfo(clusterName?: string): Promise<{
     if (
       error instanceof Error &&
       (error.message.includes('re-authentication') ||
-        error.message.includes('No Azure subscriptions'))
+        error.message.includes('No Azure subscriptions') ||
+        error.message.includes('No tenant is known'))
     ) {
       throw error;
     }
