@@ -1,10 +1,18 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
-// Federated credential CLI functions (GitHub Actions OIDC and K8s service account federation).
+// Federated credential REST functions (GitHub Actions OIDC and K8s service account federation).
 
 import { K8S_DNS_LABEL_PATTERN } from '../kubernetes/k8sNames';
-import { debugLog, getErrorMessage, isValidGuid, runAzCommand } from './az-cli-core';
+import { getErrorMessage, isValidGuid } from './az-cli-core';
+import { getAzureCloudEndpoints } from './az-cloud';
+import {
+  azRequest,
+  type AzRequestOptions,
+  AzureRequestError,
+  createAzureRequestSignal,
+} from './az-http';
 import { type AksClusterReadOptions, getManagedClusterDetails } from './az-managed-clusters';
+import { getSubscriptionCredential, withAbort } from './az-token';
 import {
   isValidAzResourceGroupName,
   isValidAzResourceName,
@@ -12,70 +20,217 @@ import {
   isValidGitHubName,
 } from './az-validation';
 
-/** Shared helper: runs `az identity federated-credential create` with dedup handling. */
-async function runFederatedCredentialCreate(options: {
-  identityName: string;
-  resourceGroup: string;
-  subscriptionId: string;
-  credentialName: string;
-  issuer: string;
-  subject: string;
-  logPrefix: string;
-}): Promise<{ success: boolean; error?: string }> {
-  const {
-    identityName,
-    resourceGroup,
-    subscriptionId,
-    credentialName,
-    issuer,
-    subject,
-    logPrefix,
-  } = options;
+const FEDERATED_CREDENTIALS_API_VERSION = '2023-01-31';
+const FEDERATED_CREDENTIAL_AUDIENCE = 'api://AzureADTokenExchange';
+// ARM Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials (2023-01-31):
+// 3-120 chars, starting with an alphanumeric character, followed by alphanumeric, '-' or '_'.
+const FEDERATED_CREDENTIAL_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{2,119}$/;
+const FEDERATED_CREDENTIAL_NAME_MAX_LENGTH = 120;
+const inFlightCredentials = new Map<string, Promise<void>>();
 
-  const result = await runAzCommand(
-    [
-      'identity',
-      'federated-credential',
-      'create',
-      '--identity-name',
-      identityName,
-      `--resource-group=${resourceGroup}`,
-      '--subscription',
-      subscriptionId,
-      '--name',
-      credentialName,
-      '--issuer',
-      issuer,
-      '--subject',
-      subject,
-      '--audiences',
-      'api://AzureADTokenExchange',
-      '--output',
-      'json',
-    ],
-    logPrefix,
-    `create federated credential (${credentialName})`,
-    undefined,
-    stderr => {
-      if (stderr.includes('FederatedIdentityCredentialAlreadyExists')) {
-        debugLog('Federated credential already exists, continuing.');
-        return { success: true };
-      }
-      return null;
-    }
+/**
+ * Serializes async operations that target the same federated credential key so concurrent
+ * calls for one resource execute sequentially without leaking settled promises in the map.
+ * @param key - Lowercased ARM resource path used to group operations for the same credential.
+ * @param task - Async operation to run once any prior operation for `key` has settled.
+ * @returns The result of `task`.
+ */
+function serializeByCredential<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const previous = inFlightCredentials.get(key) ?? Promise.resolve();
+  const current = previous.catch(() => {}).then(task);
+  const tail = current.then(
+    () => undefined,
+    () => undefined
   );
-
-  return { success: result.success, error: result.error };
+  inFlightCredentials.set(key, tail);
+  void tail.finally(() => {
+    if (inFlightCredentials.get(key) === tail) {
+      inFlightCredentials.delete(key);
+    }
+  });
+  return current;
 }
 
-export async function createFederatedCredential(options: {
-  identityName: string;
-  resourceGroup: string;
-  subscriptionId: string;
-  repoOwner: string;
-  repoName: string;
-  branch: string;
-}): Promise<{ success: boolean; error?: string }> {
+/** Shared optional Azure REST and authentication overrides for federated credential requests. */
+type FederatedCredentialRequestOptions = Pick<
+  AzRequestOptions,
+  'credential' | 'endpoint' | 'scope' | 'tenantId' | 'signal' | 'timeoutMs'
+>;
+
+/** Minimal ARM federated identity credential resource shape returned by GET/PUT. */
+interface FederatedIdentityCredentialResource {
+  /** ARM resource properties container holding the OIDC trust configuration. */
+  properties?: {
+    /** Token issuer URL expected in incoming OIDC tokens. */
+    issuer?: unknown;
+    /** Token subject identifier expected in incoming OIDC tokens. */
+    subject?: unknown;
+    /** Expected token audience values. */
+    audiences?: unknown;
+  };
+}
+
+/**
+ * Checks whether an error represents a missing ARM federated credential resource (HTTP 404 or `ResourceNotFound`).
+ * @param error - Caught error from an ARM REST request.
+ * @returns `true` if the error indicates the resource does not exist; otherwise `false`.
+ */
+function isResourceNotFound(error: unknown): boolean {
+  return (
+    error instanceof AzureRequestError &&
+    (error.status === 404 || error.code === 'ResourceNotFound')
+  );
+}
+
+/**
+ * Verifies that an existing federated identity credential matches the requested issuer, subject,
+ * and standard Azure AD token exchange audience.
+ * @param existing - Existing ARM federated identity credential resource, if any.
+ * @param issuer - Expected OIDC issuer URL.
+ * @param subject - Expected OIDC subject claim.
+ * @returns `true` when `existing` has identical `issuer`, `subject`, and `audiences`; otherwise `false`.
+ */
+function hasMatchingTrustSettings(
+  existing: FederatedIdentityCredentialResource | undefined,
+  issuer: string,
+  subject: string
+): boolean {
+  const props = existing?.properties;
+  if (!props || typeof props !== 'object') return false;
+  if (props.issuer !== issuer || props.subject !== subject) return false;
+  return (
+    Array.isArray(props.audiences) &&
+    props.audiences.length === 1 &&
+    props.audiences[0] === FEDERATED_CREDENTIAL_AUDIENCE
+  );
+}
+
+/**
+ * Ensures a federated identity credential via ARM REST (`2023-01-31`).
+ * Reads any existing credential first so identical retries succeed without write
+ * calls, while conflicting trust settings fail instead of silently overwriting.
+ * @param options - Identity coordinates, credential name, OIDC trust settings, and optional REST overrides.
+ * @returns A resolved result indicating whether the credential exists with matching settings, or an error diagnostic.
+ */
+async function ensureFederatedCredential(
+  options: FederatedCredentialRequestOptions & {
+    /** User-assigned managed identity resource name. */
+    identityName: string;
+    /** Resource group containing the managed identity. */
+    resourceGroup: string;
+    /** Azure subscription GUID. */
+    subscriptionId: string;
+    /** Federated identity credential resource name. */
+    credentialName: string;
+    /** OIDC token issuer URL. */
+    issuer: string;
+    /** OIDC token subject claim. */
+    subject: string;
+  }
+): Promise<{
+  /** Whether the federated credential was verified or created successfully. */
+  success: boolean;
+  /** Conflict, validation, authentication, or ARM error diagnostic when `success` is `false`. */
+  error?: string;
+}> {
+  const { identityName, resourceGroup, subscriptionId, credentialName, issuer, subject } = options;
+  const url =
+    `/subscriptions/${encodeURIComponent(subscriptionId)}` +
+    `/resourceGroups/${encodeURIComponent(resourceGroup)}` +
+    `/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${encodeURIComponent(
+      identityName
+    )}` +
+    `/federatedIdentityCredentials/${encodeURIComponent(credentialName)}`;
+
+  const linked = createAzureRequestSignal(options.signal, options.timeoutMs);
+  try {
+    return await withAbort(
+      () =>
+        serializeByCredential(url.toLowerCase(), async () => {
+          if (linked.signal.aborted) {
+            throw linked.signal.reason ?? new AzureRequestError('Request aborted');
+          }
+          const credential = options.credential ?? getSubscriptionCredential(subscriptionId);
+          const cloud =
+            !options.credential && (!options.endpoint || !options.scope)
+              ? await getAzureCloudEndpoints(undefined, linked.signal)
+              : undefined;
+          const requestBase = {
+            ...options,
+            endpoint: options.endpoint ?? cloud?.endpoint,
+            scope: options.scope ?? cloud?.scope,
+            signal: linked.signal,
+            credential,
+            url,
+            apiVersion: FEDERATED_CREDENTIALS_API_VERSION,
+          };
+
+          try {
+            const existing = await azRequest<FederatedIdentityCredentialResource>({
+              ...requestBase,
+              method: 'GET',
+            });
+            if (hasMatchingTrustSettings(existing, issuer, subject)) {
+              return { success: true };
+            }
+            return {
+              success: false,
+              error: `Federated credential "${credentialName}" already exists with conflicting trust settings`,
+            };
+          } catch (error) {
+            if (!isResourceNotFound(error)) {
+              return { success: false, error: getErrorMessage(error) };
+            }
+          }
+
+          await azRequest<FederatedIdentityCredentialResource>({
+            ...requestBase,
+            method: 'PUT',
+            body: {
+              properties: {
+                issuer,
+                subject,
+                audiences: [FEDERATED_CREDENTIAL_AUDIENCE],
+              },
+            },
+          });
+          return { success: true };
+        }),
+      linked.signal
+    );
+  } catch (error) {
+    return { success: false, error: getErrorMessage(error) };
+  } finally {
+    linked.dispose();
+  }
+}
+
+/**
+ * Ensures a GitHub Actions OIDC federated identity credential on a user-assigned managed identity.
+ * @param options - Identity coordinates, GitHub repository/branch, and optional REST overrides.
+ * @returns Success or an actionable validation, conflict, or ARM error.
+ */
+export async function createFederatedCredential(
+  options: FederatedCredentialRequestOptions & {
+    /** User-assigned managed identity resource name. */
+    identityName: string;
+    /** Resource group containing the managed identity. */
+    resourceGroup: string;
+    /** Azure subscription GUID. */
+    subscriptionId: string;
+    /** GitHub repository owner (user or organization). */
+    repoOwner: string;
+    /** GitHub repository name. */
+    repoName: string;
+    /** Git branch name authorized to request tokens. */
+    branch: string;
+  }
+): Promise<{
+  /** Whether the federated credential was verified or created successfully. */
+  success: boolean;
+  /** Validation, conflict, authentication, or ARM error diagnostic when `success` is `false`. */
+  error?: string;
+}> {
   const { identityName, resourceGroup, subscriptionId, repoOwner, repoName, branch } = options;
 
   if (!isValidGuid(subscriptionId)) {
@@ -95,18 +250,18 @@ export async function createFederatedCredential(options: {
   const subject = `repo:${repoOwner}/${repoName}:ref:refs/heads/${branch}`;
   const sanitizedRepoName = repoName.replace(/\./g, '-');
   const credentialName = `GitHubActions-${sanitizedRepoName}`;
-  if (!isValidAzResourceName(credentialName)) {
+  if (!FEDERATED_CREDENTIAL_NAME_PATTERN.test(credentialName)) {
     return { success: false, error: 'Invalid federated credential name format' };
   }
 
-  return runFederatedCredentialCreate({
+  return ensureFederatedCredential({
+    ...options,
     identityName,
     resourceGroup,
     subscriptionId,
     credentialName,
     issuer: 'https://token.actions.githubusercontent.com',
     subject,
-    logPrefix: 'Creating federated credential:',
   });
 }
 
@@ -163,7 +318,11 @@ export async function getAksOidcIssuerUrl(options: AksClusterReadOptions): Promi
   }
 }
 
-/** Simple 32-bit hash for generating short deterministic suffixes. */
+/**
+ * Computes a simple unsigned 32-bit hash for generating short deterministic suffixes.
+ * @param input - String to hash.
+ * @returns Unsigned 32-bit integer hash value.
+ */
 function hashCode(input: string): number {
   let h = 0;
   for (let i = 0; i < input.length; i++) {
@@ -172,14 +331,33 @@ function hashCode(input: string): number {
   return h >>> 0;
 }
 
-export async function createK8sFederatedCredential(options: {
-  identityName: string;
-  resourceGroup: string;
-  subscriptionId: string;
-  issuerUrl: string;
-  namespace: string;
-  serviceAccountName: string;
-}): Promise<{ success: boolean; error?: string }> {
+/**
+ * Ensures a Kubernetes service-account OIDC federated identity credential on a user-assigned managed identity.
+ * Truncates long deterministic credential names to ARM's 120-character limit with a hash suffix.
+ * @param options - Identity coordinates, AKS OIDC issuer URL, K8s subject, and optional REST overrides.
+ * @returns Success or an actionable validation, conflict, or ARM error.
+ */
+export async function createK8sFederatedCredential(
+  options: FederatedCredentialRequestOptions & {
+    /** User-assigned managed identity resource name. */
+    identityName: string;
+    /** Resource group containing the managed identity. */
+    resourceGroup: string;
+    /** Azure subscription GUID. */
+    subscriptionId: string;
+    /** HTTPS OIDC issuer URL of the AKS cluster. */
+    issuerUrl: string;
+    /** Kubernetes namespace containing the service account. */
+    namespace: string;
+    /** Kubernetes service account name authorized to request tokens. */
+    serviceAccountName: string;
+  }
+): Promise<{
+  /** Whether the federated credential was verified or created successfully. */
+  success: boolean;
+  /** Validation, conflict, authentication, or ARM error diagnostic when `success` is `false`. */
+  error?: string;
+}> {
   const { identityName, resourceGroup, subscriptionId, issuerUrl, namespace, serviceAccountName } =
     options;
 
@@ -211,21 +389,24 @@ export async function createK8sFederatedCredential(options: {
   const subject = `system:serviceaccount:${namespace}:${serviceAccountName}`;
   const rawCredentialName = `K8sSA-${namespace}-${serviceAccountName}`;
   let credentialName = rawCredentialName;
-  if (credentialName.length > 128) {
+  if (credentialName.length > FEDERATED_CREDENTIAL_NAME_MAX_LENGTH) {
     const suffix = `-${hashCode(rawCredentialName).toString(36)}`;
-    credentialName = rawCredentialName.slice(0, 128 - suffix.length).replace(/-$/, '') + suffix;
+    credentialName =
+      rawCredentialName
+        .slice(0, FEDERATED_CREDENTIAL_NAME_MAX_LENGTH - suffix.length)
+        .replace(/-$/, '') + suffix;
   }
-  if (!isValidAzResourceName(credentialName)) {
+  if (!FEDERATED_CREDENTIAL_NAME_PATTERN.test(credentialName)) {
     return { success: false, error: 'Invalid federated credential name format' };
   }
 
-  return runFederatedCredentialCreate({
+  return ensureFederatedCredential({
+    ...options,
     identityName,
     resourceGroup,
     subscriptionId,
     credentialName,
     issuer: issuerUrl,
     subject,
-    logPrefix: 'Creating K8s federated credential:',
   });
 }
