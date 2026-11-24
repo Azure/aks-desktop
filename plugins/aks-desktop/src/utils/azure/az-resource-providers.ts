@@ -82,11 +82,31 @@ export async function registerManagedIdentityProvider(
   });
 }
 
+export type AzureProviderNamespace =
+  | 'Microsoft.ContainerService'
+  | 'Microsoft.ContainerRegistry'
+  | 'Microsoft.ManagedIdentity'
+  | 'Microsoft.Insights'
+  | 'Microsoft.AlertsManagement'
+  | 'Microsoft.Monitor';
+
+/**
+ * Registers an arbitrary supported Azure resource provider namespace.
+ * @param namespace - Provider namespace to register.
+ * @param subscriptionId - Explicit subscription ID.
+ * @param options - Authentication, cloud and deadline options.
+ * @returns Registration result, including any failure diagnostic.
+ */
+export async function registerResourceProvider(
+  namespace: AzureProviderNamespace,
+  subscriptionId: string,
+  options: RegistrationOptions = {}
+): Promise<RegistrationResult> {
+  return registerProvider(namespace, subscriptionId, options);
+}
+
 async function registerProvider(
-  namespace:
-    | 'Microsoft.ContainerService'
-    | 'Microsoft.ContainerRegistry'
-    | 'Microsoft.ManagedIdentity',
+  namespace: AzureProviderNamespace,
   subscriptionId: string,
   options: RegistrationOptions
 ): Promise<RegistrationResult> {
