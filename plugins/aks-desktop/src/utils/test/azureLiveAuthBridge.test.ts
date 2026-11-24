@@ -58,6 +58,20 @@ describe('restricted Azure live authentication bridge', () => {
     bridge.runCommand('az', args);
     expect(bridge.cloudReads).toBe(1);
     expect(bridge.tokenRequests).toBe(0);
+    expect(bridge.accountReads).toBe(0);
+  });
+
+  test.each([
+    ['account', 'show', '-o', 'json', '--subscription', subscriptionId],
+    ['account', 'show', '--subscription', subscriptionId.toUpperCase(), '-o', 'json'],
+    ['account', 'show', '--output', 'json', '--subscription', subscriptionId],
+    ['account', 'show', '--subscription', subscriptionId, '--output', 'json'],
+  ])('allows subscription-scoped account read %j', (...args) => {
+    const bridge = createAzureLiveAuthBridge(subscriptionId);
+    bridge.runCommand('az', args);
+    expect(bridge.accountReads).toBe(1);
+    expect(bridge.cloudReads).toBe(0);
+    expect(bridge.tokenRequests).toBe(0);
   });
 
   test.each([
@@ -68,6 +82,9 @@ describe('restricted Azure live authentication bridge', () => {
     ['cloud', 'show', '--name', 'AzureUSGovernment', '--output', 'json'],
     ['cloud', 'register', '--name', 'Other'],
     ['account', 'show'],
+    ['account', 'show', '-o', 'json'],
+    ['account', 'show', '-o', 'json', '--subscription', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'],
+    ['account', 'show', '-o', 'tsv', '--subscription', subscriptionId],
     ['cloud\0show', '--output', 'json'],
     tokenArgs.slice(0, 6),
     [...tokenArgs, '--tenant', subscriptionId],

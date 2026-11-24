@@ -14,6 +14,18 @@ export interface AzureLiveAuthBridge {
   readonly tokenRequests: number;
   /** Number of allowed local cloud-configuration reads. */
   readonly cloudReads: number;
+  /** Number of allowed subscription-scoped account metadata reads. */
+  readonly accountReads: number;
+}
+
+function isAllowedAccountShow(args: string[], subscriptionId: string): boolean {
+  if (args.length !== 6 || args[0] !== 'account' || args[1] !== 'show') return false;
+  const target = subscriptionId.toLowerCase();
+  const hasJsonAt = (i: number) =>
+    (args[i] === '-o' || args[i] === '--output') && args[i + 1] === 'json';
+  const hasSubAt = (i: number) =>
+    args[i] === '--subscription' && args[i + 1].toLowerCase() === target;
+  return (hasJsonAt(2) && hasSubAt(4)) || (hasSubAt(2) && hasJsonAt(4));
 }
 
 /**
@@ -32,6 +44,7 @@ export function createAzureLiveAuthBridge(
   if (!isValidGuid(subscriptionId)) throw new Error('Invalid live-test subscription GUID');
   let tokenRequests = 0;
   let cloudReads = 0;
+  let accountReads = 0;
   const scopes = new Set([
     ARM_SCOPE,
     'https://management.core.windows.net/.default',
@@ -66,6 +79,8 @@ export function createAzureLiveAuthBridge(
             args[5] === 'json'))
       ) {
         cloudReads++;
+      } else if (isAllowedAccountShow(args, subscriptionId)) {
+        accountReads++;
       } else {
         throw new Error(
           'Only selected-account public ARM tokens and read-only cloud metadata are permitted'
@@ -81,6 +96,9 @@ export function createAzureLiveAuthBridge(
     },
     get cloudReads() {
       return cloudReads;
+    },
+    get accountReads() {
+      return accountReads;
     },
   };
 }
