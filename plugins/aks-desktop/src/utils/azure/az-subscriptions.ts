@@ -41,7 +41,10 @@ interface ResourceGroupOptions {
  * Tenants that fail (e.g. MFA required) are skipped. Disabled entries remain included.
  *
  * @param refresh - Clears cached tokens and cloud metadata, and refreshes the CLI profile.
- * @returns `{ id, name, tenant, tenantName, status, environmentName }` for each subscription.
+ * @returns `{ id, name, tenant, tenantName, status, environmentName, accountTenantId? }` for each
+ * subscription. `tenant` is a tenant that listed it, for display and tenant selection;
+ * `accountTenantId` is its CLI profile tenant when known, which all-subscription cluster
+ * discovery expects its subscription-bound tokens to come from.
  * @throws When cloud configuration or tenants cannot be read, or every tenant fails.
  */
 export async function getSubscriptions(refresh = false): Promise<any[]> {
@@ -116,6 +119,7 @@ export async function getSubscriptions(refresh = false): Promise<any[]> {
   // Prefer the CLI profile's tenant, which subscription-bound tokens are validated against.
   for (const [id, sub] of subscriptions) {
     const profileTenant = profile?.get(id.toLowerCase());
+    if (profileTenant) sub.accountTenantId = profileTenant;
     const match = listedTenants.get(id)!.find(t => t.tenant.toLowerCase() === profileTenant);
     if (match) Object.assign(sub, match);
   }

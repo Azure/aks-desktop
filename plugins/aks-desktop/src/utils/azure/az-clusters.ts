@@ -107,7 +107,8 @@ export async function getClusters(subscriptionId?: string, query?: string): Prom
   const clusters: any[] = [];
   for (const sub of await getSubscriptions()) {
     try {
-      const resources = await listManagedClusters(sub.id, sub.tenant);
+      // Subscription-bound tokens come from the CLI account; validate against its tenant when known.
+      const resources = await listManagedClusters(sub.id, sub.accountTenantId ?? sub.tenant);
       clusters.push(...resources.map(cluster => managedClusterSummary(cluster, sub.id, true)));
     } catch (error) {
       // Keep reachable inventory, but do not present a failed subscription as successfully empty.
