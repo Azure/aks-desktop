@@ -2,6 +2,7 @@
 // Licensed under the Apache 2.0.
 
 const POLICY_KEY = 'aks-desktop:azure-auth-policy';
+const POLICY_REVISION_KEY = 'aks-desktop:azure-auth-policy-revision';
 const PROBE_KEY = 'aks-desktop:azure-auth-policy-probe';
 const CLI_ALLOWED = 'cli-allowed';
 const CLI_BLOCKED = 'cli-blocked';
@@ -9,6 +10,7 @@ const CLI_BLOCKED = 'cli-blocked';
 let blockedInMemory = false;
 let explicitlyAllowedInMemory = false;
 let explicitWriteFailed = false;
+let allowedRevision: string | null | undefined;
 
 /**
  * Persist only the authentication policy, never credentials. Fresh installations
@@ -18,7 +20,11 @@ export function isImplicitAzureCliBlocked(): boolean {
   if (blockedInMemory) return true;
   try {
     let policy = localStorage.getItem(POLICY_KEY);
-    if (explicitWriteFailed && explicitlyAllowedInMemory) return false;
+    if (explicitWriteFailed && explicitlyAllowedInMemory) {
+      if (localStorage.getItem(POLICY_REVISION_KEY) === allowedRevision) return false;
+      explicitlyAllowedInMemory = false;
+      explicitWriteFailed = false;
+    }
     if (policy !== null && policy !== CLI_ALLOWED && policy !== CLI_BLOCKED) return true;
     // Never rewrite the policy while probing: another renderer may have blocked it.
     if (policy !== CLI_BLOCKED) {
@@ -41,6 +47,7 @@ export function blockImplicitAzureCli(): boolean {
   explicitWriteFailed = false;
   try {
     localStorage.setItem(POLICY_KEY, CLI_BLOCKED);
+    localStorage.setItem(POLICY_REVISION_KEY, crypto.randomUUID());
     if (localStorage.getItem(POLICY_KEY) === CLI_BLOCKED) return true;
   } catch {
     // Keep the in-memory block when storage is unavailable.
@@ -54,6 +61,7 @@ export function allowImplicitAzureCli(): void {
   blockedInMemory = false;
   explicitlyAllowedInMemory = true;
   try {
+    allowedRevision = localStorage.getItem(POLICY_REVISION_KEY);
     localStorage.setItem(POLICY_KEY, CLI_ALLOWED);
     explicitWriteFailed = false;
   } catch {

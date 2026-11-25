@@ -221,6 +221,27 @@ describe('Azure authentication policy across renderer reloads', () => {
     expect(await app.auth.getLoginStatus()).toMatchObject({ isLoggedIn: false });
   });
 
+  test.each([false, true])(
+    'another renderer invalidates a failed explicit CLI override (already blocked=%s)',
+    async alreadyBlocked => {
+      if (alreadyBlocked) localStorage.setItem(KEY, 'cli-blocked');
+      const first = await import('./azure-auth-policy');
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('temporarily unavailable');
+      });
+      first.allowImplicitAzureCli();
+      expect(first.isImplicitAzureCliBlocked()).toBe(false);
+      write.mockRestore();
+      vi.resetModules();
+      const second = await import('./azure-auth-policy');
+      expect(second.blockImplicitAzureCli()).toBe(true);
+      expect(first.isImplicitAzureCliBlocked()).toBe(true);
+      expect(second.isImplicitAzureCliBlocked()).toBe(true);
+      warn.mockRestore();
+    }
+  );
+
   test('explicit CLI fallback is usable in memory if the persisted block cannot be cleared', async () => {
     let app = await reload();
     await app.native.logoutNative();
