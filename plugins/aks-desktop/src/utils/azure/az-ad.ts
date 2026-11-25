@@ -19,7 +19,7 @@ const USER_FIELDS = 'id,displayName,mail,userPrincipalName';
 const SEARCH_LIMIT = 15;
 
 let generation = 0;
-let current: { identity: string; subscriptionId: string; credential: AzCliCredential } | undefined;
+const contexts = new Map<string, { identity: string; credential: AzCliCredential }>();
 const subscriptionGenerations = new Map<string, number>();
 
 function clearContext(event?: Event) {
@@ -28,17 +28,15 @@ function clearContext(event?: Event) {
       if (typeof id !== 'string') continue;
       const key = id.toLowerCase();
       subscriptionGenerations.set(key, (subscriptionGenerations.get(key) ?? 0) + 1);
-      if (current?.subscriptionId === key) {
-        current.credential.clearCache();
-        current = undefined;
-      }
+      contexts.get(key)?.credential.clearCache();
+      contexts.delete(key);
     }
     return;
   }
   generation++;
   subscriptionGenerations.clear();
-  current?.credential.clearCache();
-  current = undefined;
+  for (const context of contexts.values()) context.credential.clearCache();
+  contexts.clear();
 }
 
 if (typeof window !== 'undefined') {
@@ -97,13 +95,14 @@ async function getAzureGraphContext(subscriptionId?: string) {
     endpoint,
     scope,
   ]);
+  let current = contexts.get(subscriptionKey);
   if (current?.identity !== identity) {
     current?.credential.clearCache();
     current = {
       identity,
-      subscriptionId: subscriptionKey,
       credential: createAzCliCredential(account.subscriptionId),
     };
+    contexts.set(subscriptionKey, current);
   }
   return { endpoint, scope, tenantId: account.tenantId, credential: current.credential };
 }

@@ -9,7 +9,6 @@ vi.mock('./az-cli-path', () => ({ getAzCommand: () => 'az' }));
 
 import { queryPrometheus } from '../prometheus/queryPrometheus';
 import { resolveAzureADUser, searchAzureADUsers } from './az-ad';
-import { getSubscriptionLoginStatus } from './az-auth';
 import { ARM_SCOPE, getSubscriptionCredential } from './az-token';
 
 const subscriptionId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -148,14 +147,17 @@ describe('Graph account and cloud context', () => {
       const command = mocks.command.getMockImplementation()!;
       let release!: (value: ReturnType<typeof output>) => void;
       mocks.command.mockImplementation((executable: string, args: string[]) => {
-        if (args[1] === 'get-access-token') {
+        if (
+          args[1] === 'get-access-token' &&
+          args[args.indexOf('--subscription') + 1] === subscriptionId
+        ) {
           return new Promise(resolve => (release = resolve));
         }
         return command(executable, args);
       });
       const pending = searchAzureADUsers('Alice', subscriptionId);
       await vi.waitFor(() => expect(release).toBeTypeOf('function'));
-      await getSubscriptionLoginStatus(otherSubscription);
+      expect((await searchAzureADUsers('Alice', otherSubscription)).success).toBe(true);
       if (global) window.dispatchEvent(new CustomEvent('azure-account-change'));
       release(
         output({
