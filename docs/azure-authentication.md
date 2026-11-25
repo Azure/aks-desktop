@@ -70,9 +70,12 @@ and invalidate queued/in-flight lookups so older results cannot restore an
 identity from the previous tenant.
 An active submission is invalidated too: no subsequent managed-namespace grants,
 Arc RoleBindings, or Arc access grants are issued from its old assignee snapshot.
-The wizard reports the tenant change and asks the user to review assignments and
-retry. Already-issued writes are not rolled back; check whether the namespace was
-created before retrying.
+The wizard reports the tenant change and asks the user to inspect and recover any
+partially created project and review existing grants before retrying. Already-issued
+writes are not rolled back: an Arc namespace is create-only, so retrying against an
+existing namespace fails rather than adopting it. Managed namespaces can also retain
+partially completed access grants. Completed attempts keep their success result if
+the tenant changes during the delayed success dialog.
 Cancellation also reaches the namespace lookup and ensuing role-assignment
 request, so a lookup completed after the tenant changes cannot start a new grant.
 
@@ -95,7 +98,10 @@ commands are serialized, and capability operations retain a reader lease from
 verification through completion so a queued login, logout, account switch, or
 cloud switch cannot create a check/use race. Capability operations recheck the
 native session generation, CLI epoch, and blocking state immediately before
-launching the operation.
+launching the operation. Capability calls validate the final account response as
+well as the preliminary verification, including user, tenant, cloud, and subscription.
+Managed namespace creation carries the active submission's cancellation signal
+through verification and checks it immediately before spawning the CLI write.
 
 CLI-only subscription observations invalidate only the affected subscription's
 credentials when its user, tenant, or cloud changes. Native subscription
@@ -107,6 +113,8 @@ or discard unrelated subscriptions' pending Graph lookups.
 Resolved cluster context refreshes only for its subscription's tenant changes,
 preserving open pipeline-wizard state on unrelated events. Unresolved context
 still refreshes because its owning subscription is not yet known.
+Graph credentials are retained per subscription, so looking up another subscription
+does not invalidate an unchanged subscription's in-flight token.
 
 Prometheus polling checks the selected CLI subscription identity before reusing
 cached credentials. Native metrics sessions do not consult the CLI. Metrics
@@ -115,6 +123,9 @@ other clouds report an explicit unsupported-cloud error rather than requesting
 a public-cloud audience.
 Concurrent metrics queries share one pending identity check per subscription;
 later refreshes read the account again instead of caching that observation.
+Each shared identity observation has its own 30-second deadline, independent of
+individual query cancellation or timeouts. A hung observation is discarded so a
+later poll can retry.
 The merged REST migrations remain in place: Prometheus endpoint discovery,
 managed addon provisioning, and federated credentials use ARM requests, not the retired CLI helper,
 monitor commands, or alerts-management extension. Range queries retain HTTPS
@@ -122,6 +133,9 @@ validation, credential overrides, cancellation/deadlines, and a single 401 retry
 Token refresh evicts only the selected cloud's Prometheus scope, without
 invalidating cached or pending ARM tokens. Failures retain main's logged-error
 and empty-result contract. Injected credentials do not require CLI discovery.
+In native sessions a rejected bearer is forwarded through the private capability;
+the main process refreshes only that tenant/scope if it still holds the rejected
+token. Concurrent or delayed rejection reports reuse a replacement already acquired.
 
 Signing out clears the in-memory native session, cancels pending device
 authorization, blocks implicit CLI reuse, and separately attempts `az logout`.
@@ -138,6 +152,21 @@ cleanup has succeeded and the remaining failure belongs to the CLI.
 A missing command bridge is a CLI cleanup failure, not evidence that CLI
 credentials are absent. When the CLI executable is unavailable, the native-only
 completion notice replaces progress while the scheduled redirect is pending.
+Every nonzero command exit retains a failure marker, even with warning-only stderr;
+failed CLI cleanup remains retryable except for the known no-active-account case.
+
+An explicit CLI choice can remain usable in memory if writing the policy fails.
+Every persisted native-login/sign-out block also advances a non-sensitive revision,
+so another renderer's recovered write invalidates that exception even when the
+stored policy was already blocked.
+
+## Offline native-cache regression
+
+Run `npm run test:azure-auth` after installing the patched source dependencies.
+It drives the real device-session handler, renderer credential, and Prometheus
+query against simulated HTTP/IPC, verifies a 401 uses a new bearer, and checks
+that unrelated tenant metrics and ARM tokens remain cached. This test also runs
+from the existing `npm run test:headlamp-patches` CI entry point.
 
 ## Unattended live checks
 
