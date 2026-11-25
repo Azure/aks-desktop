@@ -26,22 +26,29 @@ type NamespaceOptions = AzureRoleRequestOptions & {
   subscriptionId?: string;
 };
 
+/** Returns `exists: false` without an error only when the namespace is confirmed absent. */
 export async function checkNamespaceExists(
   clusterName: string,
   resourceGroup: string,
   namespaceName: string,
-  subscriptionId?: string
+  subscriptionId: string,
+  requestOptions?: Pick<
+    Parameters<typeof checkNamespaceStatus>[0],
+    'cloudName' | 'tenantId' | 'signal'
+  >
 ): Promise<{ exists: boolean; stdout: string; stderr: string; error?: string }> {
-  const result = await checkNamespaceStatus(
-    clusterName,
-    resourceGroup,
-    namespaceName,
-    subscriptionId
-  );
-  if (!result.success) {
-    return { exists: false, stdout: result.stdout, stderr: result.stderr, error: result.error };
+  try {
+    const status = await checkNamespaceStatus({
+      clusterName,
+      resourceGroup,
+      namespaceName,
+      subscriptionId,
+      ...requestOptions,
+    });
+    return { exists: status !== 'notfound', stdout: '', stderr: '' };
+  } catch (error) {
+    return { exists: false, stdout: '', stderr: '', error: getErrorMessage(error) };
   }
-  return { exists: result.status !== 'notfound', stdout: result.stdout, stderr: result.stderr };
 }
 
 /** Grants a role on a managed AKS namespace. */

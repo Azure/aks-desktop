@@ -611,7 +611,19 @@ describe('useCreateAKSProjectWizard', () => {
       await submitPromise;
     });
 
-    expect(createManagedNamespace).toHaveBeenCalled();
+    expect(createManagedNamespace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        signal: vi.mocked(registerContainerServiceProvider).mock.calls[0][1]?.signal,
+        cloudName: 'AzureCloud',
+        tenantId: 'test-tenant',
+        labels: {
+          'headlamp.dev/project-id': defaultFormData.projectName,
+          'headlamp.dev/project-managed-by': 'aks-desktop',
+          'aks-desktop/project-subscription': 'sub-123',
+          'aks-desktop/project-resource-group': defaultFormData.resourceGroup,
+        },
+      })
+    );
   }, 10000);
 
   it('does not create a namespace or report success after unmount while registration is pending', async () => {

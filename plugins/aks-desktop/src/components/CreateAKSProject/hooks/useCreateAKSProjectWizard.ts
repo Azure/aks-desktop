@@ -711,7 +711,13 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
         if (aborted) return;
 
         setCreationProgress(`${t('Initiating managed namespace creation')}...`);
+        const requestOptions = {
+          signal: registrationSignal,
+          tenantId: registrationTenant,
+          cloudName: registrationCloud,
+        };
         const namespaceResult = await createManagedNamespace({
+          ...requestOptions,
           clusterName: formData.cluster,
           resourceGroup: formData.resourceGroup,
           namespaceName: formData.projectName,
@@ -764,7 +770,8 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
               formData.cluster,
               formData.resourceGroup,
               formData.projectName,
-              formData.subscription
+              formData.subscription,
+              requestOptions
             );
             if (aborted) return;
 
@@ -857,7 +864,8 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
               formData.cluster,
               formData.resourceGroup,
               formData.projectName,
-              formData.subscription
+              formData.subscription,
+              requestOptions
             );
 
             if (aborted) return;

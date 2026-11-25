@@ -33,7 +33,7 @@ export interface AzureCluster {
   /**
    * `'aks'` for managed clusters, `'aksarc'` for Arc-connected (AKS Hybrid & Edge)
    * clusters. Absence implies a managed AKS cluster. Drives whether the wizard
-   * creates a managed namespace (`az aks namespace add`) or applies a native
+   * creates a managed namespace through ARM or applies a native
    * Kubernetes namespace manifest via the Headlamp K8s API.
    */
   clusterType?: 'aks' | 'aksarc';

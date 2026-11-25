@@ -23,7 +23,7 @@ This directory contains the Azure integration layer for AKS Desktop. Azure resou
 | `az-subscriptions.ts`      | Subscriptions and resource groups                                            |
 | `az-clusters.ts`           | AKS cluster listing (Resource Graph optimized), status, capabilities, addons |
 | `az-resource-graph.ts`     | ARM Resource Graph queries for clusters, counts, and managed namespaces      |
-| `az-namespaces.ts`         | Managed namespace CRUD with polling for async operations                     |
+| `az-namespaces.ts`         | ARM create, status, and delete; CLI list, show, and update                   |
 | `az-namespace-access.ts`   | Namespace role assignments and access verification                           |
 | `az-identity.ts`           | Role assignments, scope building, and kubelet identity lookup                |
 | `az-managed-identities.ts` | Managed identity CRUD                                                        |
@@ -54,7 +54,7 @@ az-cli-core.ts  (foundation — runCommandAsync, runAzCommand, error helpers)
     ├── az-resource-providers.ts
     ├── az-subscriptions.ts ─────────> az-cloud.ts, az-http.ts, az-token.ts, az-validation.ts
     ├── az-resource-graph.ts ────────> az-http.ts
-    ├── az-namespaces.ts
+    ├── az-namespaces.ts ────────────> az-managed-clusters.ts, az-http.ts, az-managed-namespace-delete.ts
     ├── az-namespace-access.ts ──────> az-namespaces.ts
     ├── az-clusters.ts ──────────────> az-resource-graph.ts, az-subscriptions.ts
     ├── az-identity.ts ──────────────> az-managed-clusters.ts, az-validation.ts
@@ -203,6 +203,25 @@ for registration to complete, then retries once. This requires provider
 registration permission on that subscription.
 See the [opt-in live test](../../../../../test/live/README.md#resource-creating-suites).
 
+### Managed namespace creation
+
+`createManagedNamespace` uses ARM 2026-01-01 PUT with the parent cluster's location
+from `getManagedClusterDetails`. It preserves labels, annotations, network policies,
+CPU millicores (`m`), and memory MiB (`Mi`). Creation requires cluster read and managed
+namespace read/write permissions; network policy enforcement requires a network policy engine.
+
+Defaults match the bundled Azure CLI command:
+`AllowSameNamespace` ingress, `AllowAll` egress, `Never` adoption, and `Keep` deletion.
+Existing unmanaged Kubernetes namespaces are not adopted. Deleting the ARM resource
+leaves the Kubernetes namespace and workloads in place; cleanup does not unregister
+`Microsoft.ContainerService`.
+
+Creation polls the named namespace with GET and tolerates transient namespace-not-found
+responses. Missing resource groups and denied access remain errors. Reads can retry;
+the PUT is never retried automatically. One five-minute timeout covers creation and polling.
+Cancellation or timeout does not undo an accepted PUT. Arc creation remains on Kubernetes APIs.
+See the [opt-in live test](../../../../../test/live/README.md#resource-creating-suites).
+
 ### Managed namespace deletion
 
 Managed namespace deletion uses ARM 2026-01-01 DELETE, follows trusted operation
@@ -349,7 +368,8 @@ Returned by `runCommandAsync`. Callers check `stderr` for errors.
 { success: boolean; stdout: string; stderr: string; error?: string }
 ```
 
-Used by domain functions such as `az-namespaces.ts` that need to expose both the success flag and raw CLI output.
+`createManagedNamespace` and `deleteManagedNamespace` keep this return shape for existing
+callers. Because they use REST, `stdout` and `stderr` are empty; failures are reported in `error`.
 
 **`runAzCommand<T>`** — runs an `az` CLI command and returns `{ success: boolean; data?: T; error?: string }`. Does **not** throw on CLI errors — returns `success: false` with an `error` message instead. JSON parsing is not automatic; callers pass an optional `parseOutput` function (commonly `JSON.parse`) to convert stdout into `T`. Handles `needsRelogin` detection internally.
 
