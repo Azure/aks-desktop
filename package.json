@@ -40,7 +40,8 @@
     "test:e2e:azure": "tsx test/e2e/run-azure.ts",
     "test:e2e:acr": "npm run test:e2e:azure -- --suite acr",
     "test:headlamp-package": "npm --prefix packages/headlamp-source run test:package && tsx --test test/integration/headlamp-package.test.ts",
-    "test:headlamp-patches": "npm run headlamp:patches -- --check && npm run test:headlamp-package",
+    "test:headlamp-patches": "npm run headlamp:patches -- --check && npm run test:headlamp-package && npm run test:azure-auth",
+    "test:azure-auth": "node node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules/vitest/vitest.mjs run --config test/integration/azure-auth.vitest.config.mts",
     "test:local-plugin": "node node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules/vitest/vitest.mjs run --config test/integration/local-plugin.vitest.config.mts",
     "test:local-discovery": "node node_modules/@headlamp-k8s/headlamp-source/source/app/node_modules/vitest/vitest.mjs run --config test/integration/local-discovery.vitest.config.mts",
     "test:i18n": "node --test Localize/translation-manager.test.mjs",
@@ -1089,7 +1090,7 @@
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
-    "integrity": "sha512-GQVNrxEmvBKlIMXx4mGcKjd+Htnu7R2GjQiOwA1oi5Ls8DpAIxpLmYpWr15pMkibtDn3mGyzXvcHmhqHEIuG+A=="
+    "integrity": "sha512-EmPyaVRkw0UG7yIJzVWKS56x5p5rnPPmLmevfuFhsgjRr1mlRl90t3oA9X6wQNm+aWMbbKB6jLRx/+StuyXkXw=="
   },
   "lint-staged": {
     "plugins/aks-desktop/**/*.{js,jsx,ts,tsx}": [

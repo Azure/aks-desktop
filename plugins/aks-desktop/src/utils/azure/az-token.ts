@@ -17,6 +17,7 @@ import {
   hasNativeSession,
   isAzureExplicitlySignedOut,
   nativeCredential,
+  type NativeTokenOptions,
   updateNativeAccountTenant,
 } from './native-auth';
 
@@ -197,7 +198,7 @@ export interface AzCliCredential extends TokenCredential {
    * @returns A cached or refreshed access token, with expiry in Unix milliseconds.
    * @throws {AzTokenError} For invalid selectors, failed acquisition or tenant mismatch.
    */
-  getToken(scopes: string | string[], options?: GetTokenOptions): Promise<AccessToken>;
+  getToken(scopes: string | string[], options?: NativeTokenOptions): Promise<AccessToken>;
   /**
    * Forgets cached/in-flight token promises without cancelling their CLI processes.
    *
@@ -218,10 +219,14 @@ async function requestCliToken(
   scope: string,
   tenantId?: string,
   subscriptionId?: string,
-  nativeSession = false
+  nativeSession = false,
+  rejectedToken?: string
 ): Promise<AccessToken> {
   if (nativeSession) {
-    return nativeCredential.getToken(scope, { tenantId });
+    return nativeCredential.getToken(scope, {
+      tenantId,
+      ...(rejectedToken !== undefined && { rejectedToken }),
+    });
   }
   const args = ['account', 'get-access-token', '--scope', scope, '-o', 'json'];
   // Keep the selected account: Azure CLI rejects combining these selectors.
@@ -303,8 +308,14 @@ export function createAzCliCredential(subscriptionId?: string): AzCliCredential 
    * @param tenantId - Optional tenant selector or expected bound-account tenant.
    * @returns The cached acquisition promise, removed from the cache if rejected.
    */
-  const load = (key: string, scope: string, tenantId: string | undefined, native: boolean) => {
-    const promise = requestCliToken(scope, tenantId, subscriptionId, native);
+  const load = (
+    key: string,
+    scope: string,
+    tenantId: string | undefined,
+    native: boolean,
+    rejectedToken?: string
+  ) => {
+    const promise = requestCliToken(scope, tenantId, subscriptionId, native, rejectedToken);
     cache.set(key, promise);
     promise.catch(() => {
       if (cache.get(key) === promise) cache.delete(key);
@@ -317,7 +328,11 @@ export function createAzCliCredential(subscriptionId?: string): AzCliCredential 
    * @param tenantId - Optional tenant included in the cache identity.
    * @returns The existing token, shared acquisition, or a token refreshed near expiry.
    */
-  const resolveToken = async (scope: string, tenantId?: string): Promise<AccessToken> => {
+  const resolveToken = async (
+    scope: string,
+    tenantId?: string,
+    rejectedToken?: string
+  ): Promise<AccessToken> => {
     synchronizeNativeGeneration();
     const native = hasNativeSession();
     let resolvedTenantId = tenantId;
@@ -367,20 +382,23 @@ export function createAzCliCredential(subscriptionId?: string): AzCliCredential 
         throw new AzTokenError('Azure account changed during token acquisition');
       }
     };
-    let token = await (cached ?? load(key, scope, resolvedTenantId, native));
+    let token = await (cached ?? load(key, scope, resolvedTenantId, native, rejectedToken));
     ensureCurrent();
-    if (cached && token.expiresOnTimestamp - REFRESH_MARGIN_MS <= Date.now()) {
+    if (
+      cached &&
+      (token.expiresOnTimestamp - REFRESH_MARGIN_MS <= Date.now() || token.token === rejectedToken)
+    ) {
       const current = cache.get(key);
       token = await (current && current !== cached
         ? current
-        : load(key, scope, resolvedTenantId, native));
+        : load(key, scope, resolvedTenantId, native, rejectedToken));
     }
     ensureCurrent();
     return token;
   };
 
   return {
-    async getToken(scopes: string | string[], options?: GetTokenOptions): Promise<AccessToken> {
+    async getToken(scopes: string | string[], options?: NativeTokenOptions): Promise<AccessToken> {
       const scopeList = Array.isArray(scopes) ? scopes : [scopes];
       if (scopeList.length !== 1 || !SCOPE_PATTERN.test(scopeList[0])) {
         throw new AzTokenError('Exactly one valid token scope is required');
@@ -394,7 +412,10 @@ export function createAzCliCredential(subscriptionId?: string): AzCliCredential 
           'A subscription-bound credential requires a tenant GUID for validation'
         );
       }
-      return withAbort(() => resolveToken(scopeList[0], tenantId), options?.abortSignal);
+      return withAbort(
+        () => resolveToken(scopeList[0], tenantId, options?.rejectedToken),
+        options?.abortSignal
+      );
     },
     clearCache(scope?: string) {
       if (scope === undefined) {

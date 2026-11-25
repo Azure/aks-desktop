@@ -253,6 +253,19 @@ describe('native authentication facade', () => {
     );
   });
 
+  test('forwards a rejected bearer only to the selected native scope and tenant', async () => {
+    const { api, auth } = await establishSession();
+    await auth.nativeCredential.getToken('https://prometheus.monitor.azure.com/.default', {
+      tenantId: 'guest-tenant',
+      rejectedToken: 'rejected-bearer',
+    });
+    expect(api.getAzureToken).toHaveBeenLastCalledWith(
+      'https://prometheus.monitor.azure.com/.default',
+      'guest-tenant',
+      'rejected-bearer'
+    );
+  });
+
   test('maps the default ARM endpoint scope to the configured native resource scope', async () => {
     const { api, auth } = await establishSession();
 

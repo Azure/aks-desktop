@@ -49,6 +49,7 @@ describe('queryPrometheus', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -303,6 +304,30 @@ describe('queryPrometheus', () => {
     expect(mocks.fetch).not.toHaveBeenCalled();
     complete({ isLoggedIn: true, environmentName: 'AzureCloud' });
     await Promise.resolve();
+  });
+
+  it('bounds a stuck shared identity read independently of caller timeouts and retries later', async () => {
+    vi.useFakeTimers();
+    mocks.getSubscriptionLoginStatus.mockReturnValueOnce(new Promise(() => {}));
+    const query = () =>
+      queryPrometheus('https://prom.example.com', 'up', 1, 2, 60, 'stuck-sub', { timeoutMs: 5 });
+    const first = query();
+    await vi.advanceTimersByTimeAsync(5);
+    await expect(first).resolves.toEqual([]);
+    const second = query();
+    await vi.advanceTimersByTimeAsync(5);
+    await expect(second).resolves.toEqual([]);
+    expect(mocks.getSubscriptionLoginStatus).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30_000);
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: 'success', data: { result: [] } }))
+    );
+    const retry = query();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(retry).resolves.toEqual([]);
+    expect(mocks.getSubscriptionLoginStatus).toHaveBeenCalledTimes(2);
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('aborts promptly even when an injected credential ignores abortSignal', async () => {

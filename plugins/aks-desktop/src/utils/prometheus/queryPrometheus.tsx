@@ -6,7 +6,7 @@ import { type AzureLoginStatus, getSubscriptionLoginStatus } from '../azure/az-a
 import { getAzureCloudEndpoints } from '../azure/az-cloud';
 import { createAzureRequestSignal } from '../azure/az-http';
 import { getSubscriptionCredential, withAbort } from '../azure/az-token';
-import { hasNativeSession } from '../azure/native-auth';
+import { hasNativeSession, type NativeTokenOptions } from '../azure/native-auth';
 
 const PROMETHEUS_SCOPES: Record<string, string> = {
   AzureCloud: 'https://prometheus.monitor.azure.com/.default',
@@ -20,9 +20,13 @@ function getMetricsLoginStatus(subscription: string): Promise<AzureLoginStatus> 
   const key = subscription.toLowerCase();
   let pending = pendingIdentityChecks.get(key);
   if (!pending) {
-    pending = getSubscriptionLoginStatus(subscription).finally(() => {
-      pendingIdentityChecks.delete(key);
-    });
+    const deadline = createAzureRequestSignal(undefined, 30_000);
+    pending = withAbort(() => getSubscriptionLoginStatus(subscription), deadline.signal).finally(
+      () => {
+        deadline.dispose();
+        if (pendingIdentityChecks.get(key) === pending) pendingIdentityChecks.delete(key);
+      }
+    );
     pendingIdentityChecks.set(key, pending);
   }
   return pending;
@@ -57,7 +61,8 @@ function refreshPrometheusToken(
     if ('clearCache' in credential && typeof credential.clearCache === 'function') {
       (credential.clearCache as (scope?: string) => void)(scope);
     }
-    const next = await credential.getToken(scope);
+    const options: NativeTokenOptions = { rejectedToken };
+    const next = await credential.getToken(scope, options);
     if (!next?.token) {
       throw new Error('Failed to acquire Prometheus access token');
     }

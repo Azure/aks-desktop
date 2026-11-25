@@ -25,7 +25,11 @@ interface AzureOAuthResult {
 interface PluginAzureOAuth {
   startAzureLogin(cloud: string, scope: string): Promise<AzureOAuthResult>;
   getAzureLoginStatus(): Promise<AzureOAuthResult>;
-  getAzureToken(scope: string, tenantId?: string): Promise<AzureOAuthResult>;
+  getAzureToken(
+    scope: string,
+    tenantId?: string,
+    rejectedToken?: string
+  ): Promise<AzureOAuthResult>;
   cancelAzureLogin(): Promise<AzureOAuthResult>;
   logoutAzure(): Promise<AzureOAuthResult>;
 }
@@ -275,8 +279,15 @@ export async function logoutNative(): Promise<boolean> {
 }
 
 /** In-memory credential backed by the main-process public-client session. */
-export const nativeCredential: TokenCredential = {
-  async getToken(scopes: string | string[], options?: GetTokenOptions): Promise<AccessToken> {
+export type NativeTokenOptions = GetTokenOptions & {
+  /** Refresh only this tenant/scope if the main cache still contains the rejected bearer. */
+  rejectedToken?: string;
+};
+
+export const nativeCredential: TokenCredential & {
+  getToken(scopes: string | string[], options?: NativeTokenOptions): Promise<AccessToken>;
+} = {
+  async getToken(scopes: string | string[], options?: NativeTokenOptions): Promise<AccessToken> {
     if (!hasNativeSession()) throw new Error('Azure login is required');
     const scope = Array.isArray(scopes) ? scopes[0] : scopes;
     if (!scope || (Array.isArray(scopes) && scopes.length !== 1)) {
@@ -290,7 +301,11 @@ export const nativeCredential: TokenCredential = {
     const load = async () => {
       const generation = loginGeneration;
       const tenantId = options?.tenantId ?? account?.tenantId;
-      const result = await bridge().getAzureToken(normalizeNativeScope(scope), tenantId);
+      const result = await bridge().getAzureToken(
+        normalizeNativeScope(scope),
+        tenantId,
+        ...(options?.rejectedToken !== undefined ? [options.rejectedToken] : [])
+      );
       if (generation !== loginGeneration) throw new Error('Azure login was cancelled');
       if (result.sessionExpired) {
         await failSession(result.error ?? 'Azure login expired', true);
