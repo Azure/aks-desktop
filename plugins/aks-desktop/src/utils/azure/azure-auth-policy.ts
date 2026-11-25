@@ -28,9 +28,10 @@ export function isImplicitAzureCliBlocked(): boolean {
     if (policy !== null && policy !== CLI_ALLOWED && policy !== CLI_BLOCKED) return true;
     // Never rewrite the policy while probing: another renderer may have blocked it.
     if (policy !== CLI_BLOCKED) {
-      localStorage.setItem(PROBE_KEY, '1');
-      if (localStorage.getItem(PROBE_KEY) !== '1') return true;
-      localStorage.removeItem(PROBE_KEY);
+      const probeKey = `${PROBE_KEY}:${crypto.randomUUID()}`;
+      localStorage.setItem(probeKey, '1');
+      if (localStorage.getItem(probeKey) !== '1') return true;
+      localStorage.removeItem(probeKey);
       policy = localStorage.getItem(POLICY_KEY);
       if (policy !== null && policy !== CLI_ALLOWED && policy !== CLI_BLOCKED) return true;
     }

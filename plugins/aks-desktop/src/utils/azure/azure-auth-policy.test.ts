@@ -185,7 +185,7 @@ describe('Azure authentication policy across renderer reloads', () => {
     const app = await reload();
     const setItem = Storage.prototype.setItem;
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
-      if (key === 'aks-desktop:azure-auth-policy-probe') {
+      if (key.startsWith('aks-desktop:azure-auth-policy-probe:')) {
         setItem.call(localStorage, KEY, 'cli-blocked');
       }
       setItem.call(localStorage, key, value);
@@ -193,6 +193,26 @@ describe('Azure authentication policy across renderer reloads', () => {
     expect(await app.auth.getLoginStatus()).toMatchObject({ isLoggedIn: false });
     expect(localStorage.getItem(KEY)).toBe('cli-blocked');
     expect(mocks.command).not.toHaveBeenCalled();
+  });
+
+  test("overlapping renderer policy probes do not remove each other's storage keys", async () => {
+    const first = await import('./azure-auth-policy');
+    vi.resetModules();
+    const second = await import('./azure-auth-policy');
+    const getItem = Storage.prototype.getItem;
+    const probeReads: string[] = [];
+    let otherBlocked: boolean | undefined;
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (key) {
+      if (key.startsWith('aks-desktop:azure-auth-policy-probe')) {
+        probeReads.push(key);
+        if (probeReads.length === 1) otherBlocked = second.isImplicitAzureCliBlocked();
+      }
+      return getItem.call(this, key);
+    });
+    expect(first.isImplicitAzureCliBlocked()).toBe(false);
+    expect(otherBlocked).toBe(false);
+    expect(new Set(probeReads).size).toBe(2);
+    expect(localStorage.length).toBe(0);
   });
 
   test('does not start native sign-in when its policy cannot be persisted', async () => {
