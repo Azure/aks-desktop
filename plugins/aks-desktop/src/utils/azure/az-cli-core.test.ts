@@ -319,6 +319,68 @@ describe('runAzCommand', () => {
       await expect(logout).resolves.toEqual(commandResult);
     });
 
+    test.each([
+      { user: { name: 'other@example.test' } },
+      { tenantId: 'other-tenant' },
+      { cloudName: 'AzureChinaCloud' },
+      { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
+      null,
+    ])('rejects changed final capability account data: %j', async changed => {
+      const subscriptionId = '11111111-2222-3333-4444-555555555555';
+      mocks.native.mockReturnValue({ ...native, subscriptionId });
+      registerNativeSubscriptionTenantLookup(() => 'tenant');
+      allowCliOperations();
+      mockCli({ ...account, id: subscriptionId });
+      const original = mocks.execCommand.getMockImplementation()!;
+      mocks.execCommand.mockImplementation((command: string, args: string[]) =>
+        args.includes('--output')
+          ? Promise.resolve({
+              stdout: JSON.stringify(
+                changed ? { ...account, id: subscriptionId, ...changed } : null
+              ),
+              stderr: '',
+            })
+          : original(command, args)
+      );
+      const operation = vi.fn(async () => 'must not run');
+      await expect(withVerifiedCliCapabilityAccess(subscriptionId, operation)).resolves.toEqual({
+        verified: false,
+      });
+      expect(operation).not.toHaveBeenCalled();
+    });
+
+    test('does not spawn a namespace write when tenant reconciliation cancels its signal', async () => {
+      acceptNative();
+      const controller = new AbortController();
+      registerNativeSubscriptionTenantLookup(
+        () => 'tenant-a',
+        () => true,
+        () => {
+          controller.abort(new Error('Selected tenant changed'));
+          return true;
+        }
+      );
+      mockCli({ ...account, tenantId: 'tenant-b' });
+      const { createManagedNamespace } = await import('./az-namespaces');
+      await expect(
+        createManagedNamespace({
+          clusterName: 'aks',
+          resourceGroup: 'rg',
+          namespaceName: 'ns',
+          subscriptionId: 'sub',
+          signal: controller.signal,
+        })
+      ).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('Selected tenant changed'),
+      });
+      expect(
+        mocks.execCommand.mock.calls.some(
+          ([, args]) => args[0] === 'aks' && args[1] === 'namespace'
+        )
+      ).toBe(false);
+    });
+
     test.each(['sign-out', 'replacement login', 'CLI block'])(
       'does not launch a capability after %s during the final account read',
       async change => {

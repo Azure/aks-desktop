@@ -931,5 +931,6 @@
   "Native Azure sign-out completed, but Azure CLI sign-out failed. Retry or run az logout manually.": "",
   "Sign in to Azure CLI": "",
   "Native Azure sign-out could not be completed. Retry sign-out.": "",
-  "Azure tenant changed. Review user assignments and retry project creation.": ""
+  "Azure tenant changed. Review user assignments and retry project creation.": "",
+  "Azure tenant changed. Project creation stopped; resources and access grants may already exist. Inspect and recover the partially created project and review existing grants before retrying.": ""
 }

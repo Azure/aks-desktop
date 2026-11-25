@@ -212,6 +212,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
         return;
       }
       tenantRevisionRef.current++;
+      if (!creatingRef.current) return;
       registrationAbortRef.current?.abort();
       clearTimeout(successTimeoutRef.current);
       if (creatingRef.current) {
@@ -219,7 +220,9 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
         setIsCreating(false);
         setCreationProgress('');
         setCreationError(
-          t('Azure tenant changed. Review user assignments and retry project creation.')
+          t(
+            'Azure tenant changed. Project creation stopped; resources and access grants may already exist. Inspect and recover the partially created project and review existing grants before retrying.'
+          )
         );
       }
     };
@@ -752,6 +755,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
 
         setCreationProgress(`${t('Initiating managed namespace creation')}...`);
         const namespaceResult = await createManagedNamespace({
+          signal: registrationSignal,
           clusterName: formData.cluster,
           resourceGroup: formData.resourceGroup,
           namespaceName: formData.projectName,
@@ -953,6 +957,7 @@ export function useCreateAKSProjectWizard(): UseCreateAKSProjectWizardResult {
       await Promise.race([creationPromise, timeoutPromise]);
       if (aborted || !isCurrentSubmission()) return;
 
+      creatingRef.current = false;
       terminalTrackedRef.current = true;
       safelyTrackFeature({ feature: 'aksd.project-create', status: 'succeeded' });
 

@@ -153,6 +153,27 @@ function sameValue(a: unknown, b: unknown): boolean {
   );
 }
 
+function matchesCliAccount(
+  account: {
+    id?: unknown;
+    tenantId?: unknown;
+    user?: { name?: unknown };
+    cloudName?: unknown;
+    environmentName?: unknown;
+  },
+  native: NonNullable<ReturnType<typeof getNativeAccount>>,
+  subscriptionId?: string
+): boolean {
+  return (
+    typeof account?.id === 'string' &&
+    !!account.id.trim() &&
+    (!subscriptionId || !isValidGuid(subscriptionId) || sameValue(subscriptionId, account.id)) &&
+    sameValue(native.username, account.user?.name) &&
+    sameValue(native.environmentName, account.cloudName ?? account.environmentName) &&
+    sameValue(nativeSubscriptionTenantLookup(account.id), account.tenantId)
+  );
+}
+
 async function verifyCliIdentity(
   az: string,
   native: NonNullable<ReturnType<typeof getNativeAccount>>,
@@ -232,7 +253,8 @@ async function verifyCliIdentity(
         return false;
       }
       const tenant = nativeSubscriptionTenantLookup(cliAccount.id);
-      if (sameValue(tenant, cliAccount?.tenantId)) return true;
+      if (sameValue(tenant, cliAccount?.tenantId))
+        return matchesCliAccount(cliAccount, native, selector);
       if (
         reconcileTenant &&
         typeof cliAccount?.tenantId === 'string' &&
@@ -329,8 +351,10 @@ async function runCliLogin(
 async function runVerifiedCliCommand(
   az: string,
   args: string[],
-  writer: boolean
+  writer: boolean,
+  signal?: AbortSignal
 ): Promise<{ stdout: string; stderr: string }> {
+  signal?.throwIfAborted();
   if (
     !cliOperationsAllowed ||
     cliLoginsPending ||
@@ -365,13 +389,16 @@ async function runVerifiedCliCommand(
       return { stdout: '', stderr: CLI_IDENTITY_ERROR };
     }
   }
+  signal?.throwIfAborted();
   return execCommand(az, args);
 }
 
 export async function runCommandAsync(
   command: string,
-  args: string[]
+  args: string[],
+  signal?: AbortSignal
 ): Promise<{ stdout: string; stderr: string }> {
+  signal?.throwIfAborted();
   let actualCommand = command;
   if (command === 'az') {
     actualCommand = getAzCommand();
@@ -392,13 +419,13 @@ export async function runCommandAsync(
       });
     }
     if (changesCliIdentity(args)) {
-      return withCliWriter(() => runVerifiedCliCommand(actualCommand, args, true));
+      return withCliWriter(() => runVerifiedCliCommand(actualCommand, args, true, signal));
     }
     if (!isIdentityIndependent(args)) {
       if (cliIdentityChangesPending) return { stdout: '', stderr: CLI_IDENTITY_ERROR };
       cliReaders++;
       try {
-        return await runVerifiedCliCommand(actualCommand, args, false);
+        return await runVerifiedCliCommand(actualCommand, args, false, signal);
       } finally {
         releaseCliReader();
       }
@@ -438,6 +465,22 @@ export async function withVerifiedCliCapabilityAccess<T>(
       cliLoginFailed ||
       isAzureExplicitlySignedOut() ||
       (!getNativeAccount() && hasNativeSession())
+    ) {
+      return { verified: false };
+    }
+    let account: Parameters<typeof matchesCliAccount>[0];
+    try {
+      account = JSON.parse(stdout);
+    } catch {
+      return { verified: false };
+    }
+    const native = getNativeAccount();
+    if (
+      !account ||
+      !sameValue(account.id, subscriptionId) ||
+      typeof account.tenantId !== 'string' ||
+      !account.tenantId.trim() ||
+      (native && !matchesCliAccount(account, native, subscriptionId))
     ) {
       return { verified: false };
     }

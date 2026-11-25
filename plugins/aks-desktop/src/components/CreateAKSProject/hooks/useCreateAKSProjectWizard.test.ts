@@ -380,6 +380,10 @@ describe('useCreateAKSProjectWizard', () => {
       expect(result.current.formData.userAssignments).toEqual([]);
       expect(result.current.showSuccessDialog).toBe(false);
       expect(result.current.creationError).toContain('tenant changed');
+      expect(result.current.creationError).toContain(
+        'Inspect and recover the partially created project'
+      );
+      expect(result.current.creationError).toContain('review existing grants before retrying');
       expect(result.current.isCreating).toBe(false);
       if (phase === 'managed-grant') {
         expect(createNamespaceRoleAssignment).toHaveBeenCalledOnce();
@@ -1249,6 +1253,46 @@ describe('useCreateAKSProjectWizard', () => {
       status: 'succeeded',
     });
   }, 10000);
+
+  it('retains completed success when the tenant changes during the success-dialog delay', async () => {
+    vi.useFakeTimers();
+    const { useFormData: realUseFormData } = await vi.importActual<typeof import('./useFormData')>(
+      './useFormData'
+    );
+    vi.mocked(useFormData).mockImplementation(() =>
+      realUseFormData({
+        subscription: 'sub-123',
+        cluster: 'aks-a',
+        resourceGroup: 'rg-a',
+        projectName: 'created-project',
+      })
+    );
+    vi.mocked(createManagedNamespace).mockResolvedValue({ success: true, stdout: '', stderr: '' });
+    vi.mocked(checkNamespaceExists).mockResolvedValue({ exists: true, stdout: '', stderr: '' });
+    const { result, unmount } = renderHook(() => useCreateAKSProjectWizard());
+    await act(async () => {
+      const submit = result.current.handleSubmit();
+      await vi.advanceTimersByTimeAsync(5000);
+      await submit;
+    });
+    expect(result.current.showSuccessDialog).toBe(false);
+    const signal = vi.mocked(createManagedNamespace).mock.calls.at(-1)![0].signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('azure-subscription-tenant-change', {
+          detail: { subscriptionIds: ['sub-123'] },
+        })
+      )
+    );
+    expect(signal?.aborted).toBe(false);
+    expect(result.current.creationError).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(result.current.showSuccessDialog).toBe(true);
+    expect(result.current.isCreating).toBe(false);
+    expect(createManagedNamespace).toHaveBeenCalledOnce();
+    unmount();
+  });
 
   it('handleSubmit error path: sets creationError when createManagedNamespace fails', async () => {
     vi.mocked(createManagedNamespace).mockResolvedValue({

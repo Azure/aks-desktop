@@ -135,6 +135,8 @@
   "_Azure sign-out could not be saved. Azure CLI accounts may be reused after the app reloads. Retry sign-out..comment": "{Locked=\"Azure\"}",
   "Azure subscription list updated.": "Azure subscription list updated.",
   "_Azure subscription list updated..comment": "{Locked=\"Azure\"}",
+  "Azure tenant changed. Project creation stopped; resources and access grants may already exist. Inspect and recover the partially created project and review existing grants before retrying.": "Azure tenant changed. Project creation stopped; resources and access grants may already exist. Inspect and recover the partially created project and review existing grants before retrying.",
+  "_Azure tenant changed. Project creation stopped; resources and access grants may already exist. Inspect and recover the partially created project and review existing grants before retrying..comment": "{Locked=\"Azure\"}",
   "Azure tenant changed. Review user assignments and retry project creation.": "Azure tenant changed. Review user assignments and retry project creation.",
   "_Azure tenant changed. Review user assignments and retry project creation..comment": "{Locked=\"Azure\"}",
   "Azure US Government": "Azure US Government",
