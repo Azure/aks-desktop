@@ -102,6 +102,8 @@ launching the operation. Capability calls validate the final account response as
 well as the preliminary verification, including user, tenant, cloud, and subscription.
 Managed namespace creation carries the active submission's cancellation signal
 through verification and checks it immediately before spawning the CLI write.
+Final namespace access verification receives the same cancellation signal; a
+result completed after cancellation cannot report a successful grant batch.
 
 CLI-only subscription observations invalidate only the affected subscription's
 credentials when its user, tenant, or cloud changes. Native subscription
@@ -115,6 +117,8 @@ preserving open pipeline-wizard state on unrelated events. Unresolved context
 still refreshes because its owning subscription is not yet known.
 Graph credentials are retained per subscription, so looking up another subscription
 does not invalidate an unchanged subscription's in-flight token.
+Unavailable or incomplete subscription accounts clear only their own Graph
+context; failed unscoped lookups still invalidate all directory contexts.
 
 Prometheus polling checks the selected CLI subscription identity before reusing
 cached credentials. Native metrics sessions do not consult the CLI. Metrics
@@ -159,6 +163,8 @@ An explicit CLI choice can remain usable in memory if writing the policy fails.
 Every persisted native-login/sign-out block also advances a non-sensitive revision,
 so another renderer's recovered write invalidates that exception even when the
 stored policy was already blocked.
+Storage availability checks use a unique key per probe, preventing overlapping
+renderers from deleting one another's probes and falsely blocking valid CLI reuse.
 
 ## Offline native-cache regression
 
