@@ -22,14 +22,18 @@ let generation = 0;
 const contexts = new Map<string, { identity: string; credential: AzCliCredential }>();
 const subscriptionGenerations = new Map<string, number>();
 
+function clearSubscriptionContext(subscriptionId: string) {
+  const key = subscriptionId.toLowerCase();
+  subscriptionGenerations.set(key, (subscriptionGenerations.get(key) ?? 0) + 1);
+  contexts.get(key)?.credential.clearCache();
+  contexts.delete(key);
+}
+
 function clearContext(event?: Event) {
   if (event instanceof CustomEvent && Array.isArray(event.detail?.subscriptionIds)) {
     for (const id of event.detail.subscriptionIds) {
       if (typeof id !== 'string') continue;
-      const key = id.toLowerCase();
-      subscriptionGenerations.set(key, (subscriptionGenerations.get(key) ?? 0) + 1);
-      contexts.get(key)?.credential.clearCache();
-      contexts.delete(key);
+      clearSubscriptionContext(id);
     }
     return;
   }
@@ -63,7 +67,8 @@ async function getAzureGraphContext(subscriptionId?: string) {
       ? await getSubscriptionLoginStatus(subscriptionId)
       : await getLoginStatus();
   if (!account.isLoggedIn) {
-    clearContext();
+    if (subscriptionId) clearSubscriptionContext(subscriptionId);
+    else clearContext();
     throw new Error(account.error ?? 'Not logged in to Azure CLI');
   }
   if (
@@ -73,7 +78,8 @@ async function getAzureGraphContext(subscriptionId?: string) {
     !account.tenantId ||
     !account.environmentName
   ) {
-    clearContext();
+    if (subscriptionId) clearSubscriptionContext(subscriptionId);
+    else clearContext();
     throw new Error('Current Azure CLI account is missing user, subscription, tenant or cloud');
   }
 

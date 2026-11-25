@@ -170,6 +170,58 @@ describe('Graph account and cloud context', () => {
     }
   );
 
+  test.each([
+    { scoped: true, failure: 'unavailable' },
+    { scoped: true, failure: 'incomplete' },
+    { scoped: false, failure: 'unavailable' },
+    { scoped: false, failure: 'incomplete' },
+  ])(
+    'isolates failed Graph account cleanup: $failure (scoped=$scoped)',
+    async ({ scoped, failure }) => {
+      const otherSubscription = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+      const command = mocks.command.getMockImplementation()!;
+      let release!: (value: ReturnType<typeof output>) => void;
+      mocks.command.mockImplementation((executable: string, args: string[]) => {
+        if (
+          args[1] === 'get-access-token' &&
+          args[args.indexOf('--subscription') + 1] === subscriptionId
+        ) {
+          return new Promise(resolve => (release = resolve));
+        }
+        if (args[0] === 'account' && args[1] === 'show') {
+          const selected = args[2] === '--subscription' ? args[3] : undefined;
+          if (selected === (scoped ? otherSubscription.toUpperCase() : undefined)) {
+            return Promise.resolve(
+              failure === 'unavailable'
+                ? { stdout: '', stderr: 'ERROR: Please run az login' }
+                : output({ ...account, id: selected ?? account.id, user: {} })
+            );
+          }
+        }
+        return command(executable, args);
+      });
+      const pending = searchAzureADUsers('Alice', subscriptionId);
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+      expect(
+        await searchAzureADUsers('Alice', scoped ? otherSubscription.toUpperCase() : undefined)
+      ).toMatchObject({
+        success: false,
+        error: expect.stringMatching(
+          failure === 'unavailable' ? /Please run az login/ : /missing user/
+        ),
+      });
+      release(
+        output({
+          accessToken: 'unchanged-subscription-token',
+          expires_on: Math.floor(Date.now() / 1000) + 3600,
+          tenant: tenantId,
+        })
+      );
+      expect(await pending).toMatchObject({ success: scoped });
+      expect(requests).toHaveLength(scoped ? 1 : 0);
+    }
+  );
+
   test('observes CLI account changes before reusing Prometheus credentials', async () => {
     const query = () =>
       queryPrometheus('https://prometheus.example', 'up', 1, 2, 60, subscriptionId);
