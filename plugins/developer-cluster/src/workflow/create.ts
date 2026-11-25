@@ -9,6 +9,7 @@
 import { createCluster } from '../cli/commands';
 import { configurationValid } from '../common/gates';
 import { LocalTarget } from '../contract/capability';
+import { KubernetesDistribution } from '../contract/devctl';
 import { readLocalTarget } from '../native/localContext';
 import { classifyFailure, hostError, nativeError, WorkflowFailure } from './failure';
 import { exclusive } from './guard';
@@ -23,6 +24,7 @@ export const READINESS_LIMIT_MS = 30000;
 export interface CreateInput {
   /** The cluster name. */
   readonly name: string;
+  readonly distribution: KubernetesDistribution;
   /** The selected catalog entry's `version`. */
   readonly kubernetesVersion: string;
   /** NVIDIA GPU support; absent or false creates a standard cluster. */
@@ -33,7 +35,7 @@ export interface CreateInput {
  * The name and version of the last Create that ran, which Check again confirms. Kept in memory,
  * like the workflow state.
  */
-let lastCreate: Pick<CreateInput, 'name' | 'kubernetesVersion'> | null = null;
+let lastCreate: Pick<CreateInput, 'name' | 'distribution' | 'kubernetesVersion'> | null = null;
 
 /**
  * Fails when the kubeconfig already has a local cluster's context. Records the fresh read as the
@@ -51,7 +53,11 @@ async function checkNoTarget(): Promise<void> {
  * @returns True when the target has the same name and Kubernetes version.
  */
 function sameCluster(target: LocalTarget, input: CreateInput): boolean {
-  return target.name === input.name && target.kubernetesVersion === input.kubernetesVersion;
+  return (
+    target.name === input.name &&
+    target.kubernetesVersion === input.kubernetesVersion &&
+    (target.distribution === null || target.distribution === input.distribution)
+  );
 }
 
 /**
@@ -115,10 +121,10 @@ export function createLocalCluster(input: CreateInput): Promise<boolean> {
       deleteFailure: null,
       environment: null,
     });
-    const { name, kubernetesVersion } = input;
-    lastCreate = Object.freeze({ name, kubernetesVersion });
+    const { name, distribution, kubernetesVersion } = input;
+    lastCreate = Object.freeze({ name, distribution, kubernetesVersion });
     await checkNoTarget();
-    await createCluster({ name, kubernetesVersion, gpu: input.gpu === true });
+    await createCluster({ name, distribution, kubernetesVersion, gpu: input.gpu === true });
     update(await awaitReadiness(input));
   }, createFailed);
 }

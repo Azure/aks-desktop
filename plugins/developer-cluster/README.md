@@ -14,8 +14,8 @@ writes and removes the cluster's kubeconfig entries; the plugin provides the gui
 1. **Introduction.** What Developer Cluster is and what the PC needs, with a **Set up Developer Cluster** action.
 2. **Environment checks.** Read-only checks of Windows and WSL2. Ubuntu 24.04 is downloaded and
    installed as a new WSL instance named after the cluster only after the user explicitly agrees.
-3. **Configuration.** A validated cluster name and a Kubernetes release chosen from the releases
-   the CLI reports. The fixed settings are shown read-only.
+3. **Configuration.** Choose a cluster name, a Kubernetes distribution (K8s or K3s), and a
+   Kubernetes version from the CLI's catalog. The networking default follows the distribution.
 4. **Review.** **Create Cluster** is the first action that changes the PC.
 5. **Creating your Developer Cluster.** One progress message until AKS Desktop confirms the
    cluster is usable, with a note that the first create downloads components for 10-15 minutes.
@@ -34,12 +34,12 @@ AKS Desktop runs three `aks-devctl` commands for the plugin, in the exact shapes
 passes `--output json`, and the plugin reads the final `result` event:
 
 * `cluster get-versions`: the Kubernetes versions offered in Configure.
-* `cluster create --kubernetes-distribution K8s --name <name> --kubernetes-version <version>`,
+* `cluster create --kubernetes-distribution <K8s|K3s> --name <name> --kubernetes-version <version>`,
   plus `--enable-gpu` for a GPU cluster.
 * `cluster delete --name <name> --yes`, only after the plugin's confirmation dialog.
 
 The CLI marks the context it writes with `context_info.managedBy: aks-devctl`; the plugin finds
-its cluster that way and reads its name, Kubernetes version and image from the same
+its cluster that way and reads its name, Kubernetes distribution, version and image from the same
 `context_info`. The source of truth is the code: [src/cli/commands.ts](src/cli/commands.ts)
 (argv and result checks), [src/cli/runner.ts](src/cli/runner.ts) (output and failure codes) and
 [src/contract/devctl.ts](src/contract/devctl.ts) (the context metadata).
@@ -50,10 +50,11 @@ its cluster that way and reads its name, Kubernetes version and image from the s
   Ubuntu 24.04.
 * One Developer Cluster per PC: Setup is blocked while one is registered. Each cluster has its
   own WSL instance, named after the cluster.
-* Fixed topology: driver `wsl`, distribution `K8s`, CNI `cilium`, one node, reach `shared`,
-  control-plane IP `off`. The CLI takes the provider, distro, reach and control-plane IP from
-  its settings, whose defaults are these values; the plugin passes only
-  `--kubernetes-distribution K8s`.
+* K8s is selected by default and normally uses Cilium. K3s bundles Flannel.
+  The plugin passes the selected distribution on Create, not a CNI override. Overview reads
+  the recorded distribution; missing or unrecognized values are shown as Unknown.
+  Both choices use one node and the same CLI environment defaults (WSL, shared reach,
+  control-plane IP off).
 * Runs only inside an AKS Desktop build that grants the plugin the `aks-devctl` commands. When
   the browser reports a platform other than Windows x64, the environment step blocks Setup;
   without the grants, a command fails with a fixed `unavailable` or `denied` sentence.

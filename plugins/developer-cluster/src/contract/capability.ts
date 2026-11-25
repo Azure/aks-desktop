@@ -6,7 +6,11 @@
 // the plugin's own queries. A malformed local context throws LocalContextError.
 
 import { isClusterName } from './clusterName';
-import { LOCAL_CONTEXT_MANAGED_BY } from './devctl';
+import {
+  isKubernetesDistribution,
+  KubernetesDistribution,
+  LOCAL_CONTEXT_MANAGED_BY,
+} from './devctl';
 
 /**
  * The WSL check's result: `ready` when `wsl --status` succeeds and WSL's default version is 2
@@ -25,6 +29,8 @@ export type ConsentKind = 'install';
 export interface LocalTarget {
   /** The cluster name the CLI recorded in `context_info.name`. */
   name: string;
+  /** Null when the CLI did not record a recognized Kubernetes distribution. */
+  distribution: KubernetesDistribution | null;
   /**
    * `context_info.kubernetesVersion`, supplied through `--kubernetes-version`.
    * Null when no version metadata is present; a credentials refresh may preserve earlier metadata.
@@ -138,6 +144,7 @@ export function decodeLocalContext(cluster: unknown): LocalTarget | null {
   if (typeof kubernetesVersion !== 'string' || typeof image !== 'string') fail();
   return {
     name: info.name,
+    distribution: isKubernetesDistribution(info.distribution) ? info.distribution : null,
     kubernetesVersion: kubernetesVersion || null,
     image: image || null,
     contextName,

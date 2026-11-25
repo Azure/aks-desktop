@@ -12,7 +12,7 @@
 // values: a valid cluster name and a catalog version.
 
 import { isRecord } from '../contract/capability';
-import { K8S_VERSION_ARGUMENT, LOCAL_DISTRIBUTION } from '../contract/devctl';
+import { K8S_VERSION_ARGUMENT, KubernetesDistribution } from '../contract/devctl';
 import { CliCommandError, runCli } from './runner';
 
 /** JSON Lines events on stdout. */
@@ -89,6 +89,7 @@ export async function listKubernetesVersions(): Promise<readonly KubernetesVersi
 export interface CreateClusterInput {
   /** The cluster name, passed to `--name`; the CLI names the context after it. */
   readonly name: string;
+  readonly distribution: KubernetesDistribution;
   /** The selected catalog entry's `version`. */
   readonly kubernetesVersion: string;
   /** NVIDIA GPU support. */
@@ -121,7 +122,7 @@ export async function createCluster(input: CreateClusterInput): Promise<void> {
     'create',
     ...OUTPUT,
     '--kubernetes-distribution',
-    LOCAL_DISTRIBUTION,
+    input.distribution,
     '--name',
     name,
     '--kubernetes-version',

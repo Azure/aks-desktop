@@ -23,6 +23,7 @@ vi.mock('../../workflow/delete', () => ({
 
 /** The cluster Overview shows. */
 const TARGET: LocalTarget = {
+  distribution: 'K8s',
   name: 'dev-cluster',
   kubernetesVersion: 'v1.36.5',
   image: 'Ubuntu-24.04',

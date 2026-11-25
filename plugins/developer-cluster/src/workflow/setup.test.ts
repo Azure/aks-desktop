@@ -40,6 +40,7 @@ vi.mock('./platform', () => ({
 const VERSION = 'v1.36.5';
 
 const TARGET: LocalTarget = {
+  distribution: 'K8s',
   name: 'dev-cluster',
   contextName: 'dev-cluster',
   listName: 'dev-cluster',
@@ -118,7 +119,11 @@ describe('Setup attempt', () => {
   it('ends the result when Create or Delete starts', async () => {
     await refreshSetup();
     vi.mocked(readLocalTarget).mockResolvedValueOnce(null).mockResolvedValueOnce(TARGET);
-    await createLocalCluster({ name: TARGET.name, kubernetesVersion: VERSION });
+    await createLocalCluster({
+      name: TARGET.name,
+      distribution: 'K8s',
+      kubernetesVersion: VERSION,
+    });
     expect(getWorkflowState().environment).toBeNull();
 
     await refreshSetup();
@@ -309,26 +314,38 @@ describe('createLocalCluster', () => {
     ['a deprecated version', 'dev-cluster', 'v1.35.9'],
     ['a version outside the catalog', 'dev-cluster', 'v1.36.5 --purge'],
   ])('refuses %s before any command runs', async (_case, name, kubernetesVersion) => {
-    await expect(createLocalCluster({ name, kubernetesVersion })).resolves.toBe(false);
+    await expect(
+      createLocalCluster({ name, distribution: 'K8s', kubernetesVersion })
+    ).resolves.toBe(false);
     expect(readLocalTarget).not.toHaveBeenCalled();
     expect(createCluster).not.toHaveBeenCalled();
   });
 
-  it('creates without repeating the environment checks', async () => {
-    vi.mocked(readLocalTarget).mockResolvedValueOnce(null).mockResolvedValueOnce(TARGET);
+  it.each(['K8s', 'K3s'] as const)(
+    'creates %s without repeating the environment checks',
+    async distribution => {
+      vi.mocked(readLocalTarget)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ ...TARGET, distribution });
 
-    await expect(
-      createLocalCluster({ name: TARGET.name, kubernetesVersion: VERSION })
-    ).resolves.toBe(true);
+      await expect(
+        createLocalCluster({ name: TARGET.name, distribution, kubernetesVersion: VERSION })
+      ).resolves.toBe(true);
 
-    expect(createCluster).toHaveBeenCalledOnce();
-    expect(getWorkflowState().createPhase).toBe('usable');
-    expectNoEnvironmentChecks();
-  });
+      expect(createCluster).toHaveBeenCalledExactlyOnceWith({
+        name: TARGET.name,
+        distribution,
+        kubernetesVersion: VERSION,
+        gpu: false,
+      });
+      expect(getWorkflowState().createPhase).toBe('usable');
+      expectNoEnvironmentChecks();
+    }
+  );
 });
 
 describe('readiness after Create', () => {
-  const CREATE = { name: TARGET.name, kubernetesVersion: VERSION };
+  const CREATE = { name: TARGET.name, distribution: 'K8s', kubernetesVersion: VERSION } as const;
 
   beforeEach(() => {
     vi.resetAllMocks();

@@ -34,6 +34,7 @@ describe('overviewPanel', () => {
         state({
           overviewInitialized: true,
           target: {
+            distribution: 'K8s',
             name: 'developer-cluster',
             contextName: 'developer-cluster',
             listName: 'developer-cluster',

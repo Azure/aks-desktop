@@ -33,7 +33,7 @@ import {
   DeleteProgress,
   DeleteResultNotice,
 } from '../Cluster/DeleteSection';
-import { TextRow } from '../shared/clusterText';
+import { networkingText, TextRow } from '../shared/clusterText';
 import { CreateProgress } from '../shared/CreateProgress';
 import { Card, DetailRows } from '../shared/DetailCard';
 import { failureText } from '../shared/failureText';
@@ -424,9 +424,10 @@ function ClusterOverview({ state, target }: ClusterProps) {
   const unknown = String(t('Unknown'));
   const version = target.kubernetesVersion ?? unknown;
   const details: TextRow[] = [
+    { name: String(t('Kubernetes distribution')), value: target.distribution ?? unknown },
     { name: String(t('Kubernetes version')), value: version },
     { name: String(t('Environment')), value: target.image ?? unknown },
-    { name: String(t('Networking')), value: String(t('Cilium')) },
+    { name: String(t('Networking')), value: networkingText(t, target.distribution) },
     { name: String(t('Azure registration')), value: String(t('Not connected to Azure')) },
   ];
   return (

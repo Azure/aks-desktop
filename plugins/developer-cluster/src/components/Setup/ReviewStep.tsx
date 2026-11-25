@@ -16,7 +16,7 @@ import { getSetupDraft, SetupDraft } from '../../common/setupDraft';
 import { PLUGIN_ROUTES } from '../../contract/routes';
 import { createLocalCluster } from '../../workflow/create';
 import { getWorkflowState, WorkflowState } from '../../workflow/store';
-import { TextRow } from '../shared/clusterText';
+import { networkingText, TextRow } from '../shared/clusterText';
 import { Card, DetailRows } from '../shared/DetailCard';
 import { Translate } from '../shared/failureText';
 import { useSetupDraft, useWorkflow } from '../shared/hooks';
@@ -41,6 +41,7 @@ function reviewRows(t: Translate, draft: SetupDraft, state: WorkflowState): Text
   const option = state.versions?.find(entry => entry.version === draft.kubernetesVersion);
   return [
     { name: String(t('Cluster name')), value: draft.name },
+    { name: String(t('Kubernetes distribution')), value: draft.distribution },
     {
       name: String(t('Kubernetes version')),
       value: option === undefined ? '' : option.version,
@@ -50,7 +51,7 @@ function reviewRows(t: Translate, draft: SetupDraft, state: WorkflowState): Text
       value: draft.gpu ? String(t('Enabled')) : String(t('Not enabled')),
     },
     { name: String(t('Cluster size')), value: String(t('Single node')) },
-    { name: String(t('Networking')), value: String(t('Cilium')) },
+    { name: String(t('Networking')), value: networkingText(t, draft.distribution) },
     { name: String(t('Runs on')), value: String(t('On-device')) },
     { name: String(t('Setup scope')), value: String(t('Your Windows account')) },
   ];
@@ -194,7 +195,12 @@ export function ReviewStep() {
     const current = getSetupDraft();
     const { kubernetesVersion } = current;
     if (kubernetesVersion === null || !canCreate(current, getWorkflowState())) return;
-    createLocalCluster({ name: current.name, kubernetesVersion, gpu: current.gpu });
+    createLocalCluster({
+      name: current.name,
+      distribution: current.distribution,
+      kubernetesVersion,
+      gpu: current.gpu,
+    });
     // An accepted Create sets `createPhase` to running before its first await (create.ts).
     if (getWorkflowState().createPhase === 'running') history.push(PLUGIN_ROUTES.create);
   }

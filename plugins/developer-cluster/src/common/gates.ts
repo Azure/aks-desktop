@@ -8,6 +8,7 @@
 import { KubernetesVersionOption } from '../cli/commands';
 import { ConsentKind } from '../contract/capability';
 import { isClusterName } from '../contract/clusterName';
+import { isKubernetesDistribution } from '../contract/devctl';
 import { consentKind, environmentBlockers } from '../workflow/environment';
 import { WorkflowState } from '../workflow/store';
 import { SetupDraft } from './setupDraft';
@@ -47,12 +48,13 @@ export function versionAvailable(
  * @returns True for a valid name and an available version; false before the catalog is read.
  */
 export function configurationValid(
-  draft: Pick<SetupDraft, 'name' | 'kubernetesVersion'>,
+  draft: Pick<SetupDraft, 'name' | 'distribution' | 'kubernetesVersion'>,
   state: WorkflowState
 ): boolean {
   const { kubernetesVersion } = draft;
   return (
     isClusterName(draft.name) &&
+    isKubernetesDistribution(draft.distribution) &&
     kubernetesVersion !== null &&
     state.versions !== null &&
     versionAvailable(state.versions, kubernetesVersion)
