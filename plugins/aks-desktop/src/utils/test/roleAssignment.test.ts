@@ -172,6 +172,78 @@ describe('assignRolesToNamespace', () => {
     expect(mockVerifyNamespaceAccess).not.toHaveBeenCalled();
   });
 
+  test.each([true, false])(
+    'cancellation during the final verification cannot resolve a batch (verification success=%s)',
+    async success => {
+      const controller = new AbortController();
+      let complete!: (result: { success: boolean; hasAccess: boolean }) => void;
+      mockCreateNamespaceRoleAssignment.mockResolvedValue({ success: true });
+      mockVerifyNamespaceAccess.mockReturnValue(new Promise(resolve => (complete = resolve)));
+      const pending = assignRolesToNamespace({
+        ...baseOptions,
+        signal: controller.signal,
+        assignments: [{ objectId: testObjectId1, role: 'Reader' }],
+      });
+      const rejected = expect(pending).rejects.toThrow('Selected tenant changed');
+      await vi.waitFor(() => expect(mockVerifyNamespaceAccess).toHaveBeenCalledOnce());
+      controller.abort(new Error('Selected tenant changed'));
+      complete({ success, hasAccess: success });
+      await rejected;
+      expect(mockVerifyNamespaceAccess).toHaveBeenCalledWith(
+        expect.objectContaining({ signal: controller.signal })
+      );
+      expect(mockCreateNamespaceRoleAssignment).toHaveBeenCalledTimes(3);
+    }
+  );
+
+  test('cancels the real final namespace lookup before it can read role assignments', async () => {
+    const { verifyNamespaceAccess } = await vi.importActual<
+      typeof import('../azure/az-namespace-access')
+    >('../azure/az-namespace-access');
+    const subscriptionId = '11111111-2222-3333-4444-555555555555';
+    const controller = new AbortController();
+    let complete!: (response: Response) => void;
+    const fetch = vi
+      .fn()
+      .mockReturnValueOnce(new Promise<Response>(resolve => (complete = resolve)))
+      .mockResolvedValue(new Response(JSON.stringify({ value: [] })));
+    vi.stubGlobal('fetch', fetch);
+    mockCreateNamespaceRoleAssignment.mockResolvedValue({ success: true });
+    mockVerifyNamespaceAccess.mockImplementation(
+      (options: Parameters<typeof verifyNamespaceAccess>[0]) =>
+        verifyNamespaceAccess({
+          ...options,
+          endpoint: 'https://management.azure.com',
+          audience: 'https://management.azure.com/.default',
+          credential: {
+            getToken: async () => ({
+              token: 'offline-token',
+              expiresOnTimestamp: Date.now() + 3600_000,
+            }),
+          },
+        })
+    );
+    const pending = assignRolesToNamespace({
+      ...baseOptions,
+      subscriptionId,
+      signal: controller.signal,
+      assignments: [{ objectId: testObjectId1, role: 'Reader' }],
+    });
+    const rejected = expect(pending).rejects.toThrow('Selected tenant changed');
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    controller.abort(new Error('Selected tenant changed'));
+    complete(
+      new Response(
+        JSON.stringify({
+          id: `/subscriptions/${subscriptionId}/resourceGroups/test-rg/providers/Microsoft.ContainerService/managedClusters/test-cluster/managedNamespaces/test-ns`,
+        })
+      )
+    );
+    await rejected;
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0][1].method).toBe('GET');
+  });
+
   test('handles multiple users', async () => {
     mockCreateNamespaceRoleAssignment.mockResolvedValue({ success: true });
     mockVerifyNamespaceAccess.mockResolvedValue({ success: true, hasAccess: true });

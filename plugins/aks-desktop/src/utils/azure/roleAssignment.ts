@@ -136,7 +136,9 @@ export async function assignRolesToNamespace(
         namespaceName,
         assigneeObjectId,
         subscriptionId,
+        signal: options.signal,
       });
+      options.signal?.throwIfAborted();
 
       if (!verifyResult.success) {
         assignmentErrors.push(
