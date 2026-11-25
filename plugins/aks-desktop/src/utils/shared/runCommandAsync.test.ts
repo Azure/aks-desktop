@@ -100,7 +100,20 @@ describe('runCommandAsync', () => {
     handlers['exit'](2);
 
     const result = await promise;
-    expect(result.stderr).toBe('ERROR: bad-command is not a valid command');
+    expect(result.stderr).toBe(
+      'Command exited with code 2\nERROR: bad-command is not a valid command'
+    );
+  });
+
+  test('retains the failure marker for a warning-only failed logout', async () => {
+    const { cmd, handlers } = createMockCmd();
+    mockPluginRunCommand.mockReturnValue(cmd);
+    const promise = runCommandAsync('az', ['logout']);
+    handlers['stderr:data']('WARNING: cached session could not be removed');
+    handlers['exit'](1);
+    expect((await promise).stderr).toBe(
+      'Command exited with code 1\nWARNING: cached session could not be removed'
+    );
   });
 
   test('resolves with error message when error event fires', async () => {
