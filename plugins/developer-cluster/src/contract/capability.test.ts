@@ -26,11 +26,27 @@ describe('Developer Cluster context identity', () => {
       decodeLocalContext(cluster({ ...INFO, provider: 'another-provider', distro: 'Ubuntu-24.04' }))
     ).toStrictEqual({
       name: 'dev-cluster',
+      distribution: null,
       kubernetesVersion: 'v1.36.5',
       image: 'Ubuntu-24.04',
       contextName: 'dev-cluster',
       listName: 'display-name',
     });
+  });
+
+  it.each(['K8s', 'K3s'])(
+    'reads the recorded %s distribution independently of the OS',
+    distribution => {
+      expect(decodeLocalContext(cluster({ ...INFO, distribution }))?.distribution).toBe(
+        distribution
+      );
+    }
+  );
+
+  it('does not mislabel an unrecognized distribution as K8s', () => {
+    expect(
+      decodeLocalContext(cluster({ ...INFO, distribution: 'Other' }))?.distribution
+    ).toBeNull();
   });
 
   it('reads a missing or empty image as unknown', () => {

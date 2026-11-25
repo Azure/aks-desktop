@@ -33,18 +33,19 @@ describe('aks-devctl argv', () => {
   });
 
   it.each([
-    [false, []],
-    [true, ['--enable-gpu']],
-  ])('creates a K8s cluster (gpu %s)', async (gpu, extra) => {
+    ['K8s', false, []],
+    ['K8s', true, ['--enable-gpu']],
+    ['K3s', false, []],
+  ] as const)('creates a %s cluster (gpu %s)', async (distribution, gpu, extra) => {
     respond({ context: NAME, path: '/home/user/.kube/config' });
-    await createCluster({ name: NAME, kubernetesVersion: 'v1.36.5', gpu });
+    await createCluster({ name: NAME, distribution, kubernetesVersion: 'v1.36.5', gpu });
     expect(sentArgv()).toStrictEqual([
       'cluster',
       'create',
       '--output',
       'json',
       '--kubernetes-distribution',
-      'K8s',
+      distribution,
       '--name',
       NAME,
       '--kubernetes-version',
@@ -54,7 +55,16 @@ describe('aks-devctl argv', () => {
   });
 
   it.each([
-    ['Create', () => createCluster({ name: NAME, kubernetesVersion: 'v1.36.5', gpu: false })],
+    [
+      'Create',
+      () =>
+        createCluster({
+          name: NAME,
+          distribution: 'K8s',
+          kubernetesVersion: 'v1.36.5',
+          gpu: false,
+        }),
+    ],
     ['Delete', () => deleteCluster(NAME)],
   ])('rejects a warn result from %s', async (_command, run) => {
     vi.mocked(runCli).mockResolvedValueOnce({ level: 'warn', data: { context: NAME, path: '/k' } });

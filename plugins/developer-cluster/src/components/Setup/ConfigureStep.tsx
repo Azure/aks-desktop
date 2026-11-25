@@ -3,7 +3,7 @@
 
 // The Configure step of Setup: the cluster name, pre-filled with a default, a Kubernetes version
 // taken only from `cluster get-versions`, and an optional NVIDIA GPU checkbox with its
-// requirements. The platform, network plug-in and node count are fixed and read-only. Preview
+// requirements. The distribution determines the networking default. Preview
 // supports one cluster: while one is registered, Next stays disabled, and the Setup frame shows
 // Overview instead. Inputs live in memory; a reload or a direct link returns to the environment
 // step. Nothing changes the computer here.
@@ -17,6 +17,8 @@ import {
   Checkbox,
   FormControlLabel,
   MenuItem,
+  Radio,
+  RadioGroup,
   Stack,
   TextField,
   Typography,
@@ -31,10 +33,11 @@ import {
   ClusterNameProblem,
   clusterNameProblem,
 } from '../../contract/clusterName';
+import { isKubernetesDistribution, KubernetesDistribution } from '../../contract/devctl';
 import { PLUGIN_ROUTES } from '../../contract/routes';
 import { defaultKubernetesVersion } from '../../workflow/setup';
 import { getWorkflowState } from '../../workflow/store';
-import { TextRow } from '../shared/clusterText';
+import { networkingText, TextRow } from '../shared/clusterText';
 import { Card, DetailRows } from '../shared/DetailCard';
 import { Translate } from '../shared/failureText';
 import { useSetupDraft, useWorkflow } from '../shared/hooks';
@@ -43,6 +46,7 @@ import { SetupFrame } from '../shared/SetupStepper';
 
 const NAME_ID = 'developer-cluster-cluster-name';
 const VERSION_LABEL_ID = 'developer-cluster-kubernetes-version-label';
+const DISTRIBUTION_LABEL_ID = 'developer-cluster-distribution-label';
 const GPU_LABEL_ID = 'developer-cluster-gpu-label';
 const GPU_REQUIREMENTS_ID = 'developer-cluster-gpu-requirements';
 
@@ -86,12 +90,12 @@ function versionText(t: Translate, option: KubernetesVersionOption, recommended:
  * @param t - The plugin's translate function.
  * @returns The rows of the Runtime environment card.
  */
-function environmentRows(t: Translate): TextRow[] {
+function environmentRows(t: Translate, distribution: KubernetesDistribution): TextRow[] {
   return [
     { name: String(t('Runs on')), value: String(t('On-device')) },
     { name: String(t('Environment')), value: String(t('WSL 2 / Ubuntu 24.04')) },
     { name: String(t('Cluster size')), value: String(t('Single node')) },
-    { name: String(t('Networking')), value: String(t('Cilium')) },
+    { name: String(t('Networking')), value: networkingText(t, distribution) },
   ];
 }
 
@@ -184,6 +188,7 @@ export function ConfigureStep() {
   const history = useHistory();
   const versions = state.versions ?? [];
   const [name, setName] = useState(draft.name);
+  const [distribution, setDistribution] = useState(draft.distribution);
   const [version, setVersion] = useState(() => initialVersion(draft.kubernetesVersion, versions));
   const [gpu, setGpu] = useState(draft.gpu);
 
@@ -195,7 +200,7 @@ export function ConfigureStep() {
   const recommended = defaultKubernetesVersion(versions);
   const valid =
     state.target === null &&
-    configurationValid({ ...draft, name, kubernetesVersion: version }, state);
+    configurationValid({ name, distribution, kubernetesVersion: version }, state);
 
   /**
    * Records the inputs and opens the Review step. Re-checks the latest state: the click can follow
@@ -206,8 +211,9 @@ export function ConfigureStep() {
     const current = getSetupDraft();
     if (version === null || latest.target !== null) return;
     if (!setupStepAllowed('configure', current, latest)) return;
-    if (!configurationValid({ ...current, name, kubernetesVersion: version }, latest)) return;
-    configureCluster(name, version, gpu);
+    const settings = { name, distribution, kubernetesVersion: version, gpu };
+    if (!configurationValid(settings, latest)) return;
+    configureCluster(settings);
     history.push(PLUGIN_ROUTES.review);
   }
 
@@ -240,6 +246,24 @@ export function ConfigureStep() {
                   onChange={event => setName(event.target.value)}
                   sx={HELPER_SX}
                 />
+              </Box>
+              <Box>
+                <FieldLabel id={DISTRIBUTION_LABEL_ID}>{t('Kubernetes distribution')}</FieldLabel>
+                <RadioGroup
+                  aria-labelledby={DISTRIBUTION_LABEL_ID}
+                  name="kubernetes-distribution"
+                  value={distribution}
+                  onChange={(_, value) => {
+                    if (isKubernetesDistribution(value)) setDistribution(value);
+                  }}
+                >
+                  <FormControlLabel
+                    value="K8s"
+                    control={<Radio size="small" />}
+                    label={t('K8s (default)')}
+                  />
+                  <FormControlLabel value="K3s" control={<Radio size="small" />} label={t('K3s')} />
+                </RadioGroup>
               </Box>
               <Box>
                 <FieldLabel id={VERSION_LABEL_ID}>{t('Kubernetes version')}</FieldLabel>
@@ -331,7 +355,7 @@ export function ConfigureStep() {
         </Box>
         <Box sx={{ flex: '2 1 260px', minWidth: 0 }}>
           <Card title={String(t('Runtime environment'))} headingLevel="h3" headerFill>
-            <DetailRows rows={environmentRows(t)} />
+            <DetailRows rows={environmentRows(t, distribution)} />
           </Card>
         </Box>
       </Box>

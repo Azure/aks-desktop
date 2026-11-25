@@ -7,6 +7,7 @@
 
 import { ConsentKind } from '../contract/capability';
 import { DEFAULT_CLUSTER_NAME } from '../contract/clusterName';
+import { KubernetesDistribution } from '../contract/devctl';
 
 /** The Setup inputs, kept in memory. */
 export interface SetupDraft {
@@ -14,6 +15,7 @@ export interface SetupDraft {
   readonly consent: ConsentKind | null;
   /** The cluster name; DEFAULT_CLUSTER_NAME until the configure step records another. */
   readonly name: string;
+  readonly distribution: KubernetesDistribution;
   /** The selected catalog entry's `version`; null until the configure step. */
   readonly kubernetesVersion: string | null;
   /** The compute type: true for NVIDIA GPU support, false for a standard cluster. */
@@ -25,6 +27,7 @@ export interface SetupDraft {
 const INITIAL: SetupDraft = Object.freeze({
   consent: null,
   name: DEFAULT_CLUSTER_NAME,
+  distribution: 'K8s',
   kubernetesVersion: null,
   gpu: false,
   configured: false,
@@ -94,10 +97,10 @@ export function withdrawConsent(): void {
 /**
  * Records the configure step's inputs; the caller has validated them.
  *
- * @param name - The cluster name.
- * @param kubernetesVersion - The selected catalog entry's `version`.
- * @param gpu - True for NVIDIA GPU support.
+ * @param settings - The choices confirmed on Configure.
  */
-export function configureCluster(name: string, kubernetesVersion: string, gpu: boolean): void {
-  change({ name, kubernetesVersion, gpu, configured: true });
+export function configureCluster(
+  settings: Pick<SetupDraft, 'name' | 'distribution' | 'gpu'> & { kubernetesVersion: string }
+): void {
+  change({ ...settings, configured: true });
 }

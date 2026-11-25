@@ -11,8 +11,13 @@ export const CLI_COMMAND = 'aks-devctl';
 
 /** The fixed local topology: the CLI's Windows settings defaults, read-only in the UI. */
 export const LOCAL_DISTRO = 'Ubuntu-24.04';
-export const LOCAL_DISTRIBUTION = 'K8s';
 export const LOCAL_NODE_COUNT = 1;
+
+export type KubernetesDistribution = 'K8s' | 'K3s';
+
+export function isKubernetesDistribution(value: unknown): value is KubernetesDistribution {
+  return value === 'K8s' || value === 'K3s';
+}
 
 /**
  * The `context_info.managedBy` the CLI records on every context it writes

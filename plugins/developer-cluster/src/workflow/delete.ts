@@ -26,6 +26,7 @@ import { getWorkflowState, update } from './store';
 function sameTarget(left: LocalTarget, right: LocalTarget): boolean {
   return (
     left.name === right.name &&
+    left.distribution === right.distribution &&
     left.kubernetesVersion === right.kubernetesVersion &&
     left.contextName === right.contextName
   );
