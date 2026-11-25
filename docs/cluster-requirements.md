@@ -66,6 +66,12 @@ Replace `<resource-group>`, `<cluster-name>`, and `<location>` with your own val
 
 ## Enabling features on an existing cluster
 
+AKS desktop enables selected KEDA, VPA, and Managed Prometheus addons through
+ARM REST, combining selections into one conditional cluster update. It skips
+already-enabled selections and preserves writable configuration. An accepted
+update means provisioning has started, not that the addon is ready. The Azure
+CLI commands below are alternatives for enabling these features outside the app.
+
 Some features can be added to an existing cluster after creation. However, the **network policy engine cannot be changed after cluster creation**. If your cluster was created without a network policy engine, you must create a new cluster with the `--network-policy cilium` flag for full network policy support.
 
 ### Enable Azure Monitor Metrics (Managed Prometheus)

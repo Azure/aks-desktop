@@ -16,6 +16,23 @@ confirm generation of a new stored insight. It never initiates an upgrade.
 See the [feature guide](src/components/UpgradeInsights/README.md) for permissions,
 the preview API contract, account isolation, and provenance.
 
+## Cluster addon enablement
+
+`enableClusterAddon` delegates KEDA, VPA, and Managed Prometheus selections to
+`enableClusterAddonsViaRest`. Standalone and combined selections use a single
+conditional AKS cluster PUT (`2026-01-01`), preserving writable cluster
+configuration and omitting read-only fields. Already-enabled selections do not
+issue a PUT.
+
+Updates send the latest cluster ETag in `If-Match`. A `412` response triggers one
+fresh read and merge; a second conflict is reported. Missing ETags stop the
+update rather than allowing an unconditional write. Mixed Prometheus selections
+reuse the same path and re-read the cluster after monitor artifact provisioning.
+
+Cluster updates remain non-blocking: a successful or accepted PUT reports
+submission, not completed provisioning. HTTP errors and terminal failures in
+the PUT response are reported; later asynchronous failures are not polled here.
+
 ## Command policy
 
 The plugin requests commands through `pluginRunCommand`, but it does not define

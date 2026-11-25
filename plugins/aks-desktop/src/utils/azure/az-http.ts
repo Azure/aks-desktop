@@ -30,6 +30,8 @@ export interface AzRequestOptions {
   apiVersion?: string;
   /** JSON request body. */
   body?: unknown;
+  /** Entity tag required for a conditional write. */
+  ifMatch?: string;
   /** Base URL for relative paths. Defaults to `ARM_ENDPOINT`. */
   endpoint?: string;
   /** Token scope. Defaults to `<request URL origin>/.default`. */
@@ -258,6 +260,7 @@ export async function azRequestRaw<T>(options: AzRequestOptions): Promise<AzResp
 
       debugLog('[AZ-HTTP]', method, url.origin + url.pathname, `attempt ${attempt + 1}`);
       const headers: Record<string, string> = { Authorization: `Bearer ${accessToken.token}` };
+      if (options.ifMatch) headers['If-Match'] = options.ifMatch;
       if (options.body !== undefined) headers['Content-Type'] = 'application/json';
 
       let response: Response | undefined;
