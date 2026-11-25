@@ -27,7 +27,7 @@ describe.runIf(process.env.AZ_LIVE_TESTS === '1')(
       vi.restoreAllMocks();
     });
 
-    test('lists clusters and resolves an existing identity or confirms absence', async () => {
+    test('lists clusters and resolves an existing identity or confirms absence', async context => {
       const account = await readLiveAzure(getLoginStatus);
       if (!account.isLoggedIn || !account.subscriptionId || !account.tenantId) {
         throw new Error('A cached Azure login is required; the live runner never starts az login.');
@@ -42,8 +42,15 @@ describe.runIf(process.env.AZ_LIVE_TESTS === '1')(
       expect(Array.isArray(clusters)).toBe(true);
       expect(clusters.every(cluster => typeof cluster.name === 'string')).toBe(true);
       const cluster = clusters.find(
-        value => typeof value.name === 'string' && typeof value.resourceGroup === 'string'
+        value =>
+          typeof value.name === 'string' &&
+          typeof value.resourceGroup === 'string' &&
+          clusters.filter(other => other.name === value.name).length === 1
       );
+      if (!cluster && clusters.length > 0) {
+        context.skip('No uniquely named managed AKS cluster in the current subscription.');
+        return;
+      }
       const name = cluster?.name ?? `aksd-auth-live-missing-${randomUUID()}`;
       const identity = await readLiveAzure(() =>
         getClusterResourceIdAndGroup(name, subscriptionId)
