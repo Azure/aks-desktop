@@ -369,6 +369,7 @@ export async function createManagedNamespace(options: {
   egressPolicy?: string;
   labels?: Record<string, string>;
   annotations?: Record<string, string>;
+  signal?: AbortSignal;
 }): Promise<{ success: boolean; stdout: string; stderr: string; error?: string }> {
   const {
     clusterName,
@@ -385,6 +386,7 @@ export async function createManagedNamespace(options: {
   } = options;
 
   try {
+    options.signal?.throwIfAborted();
     // Step 1: Fire the namespace creation command (don't wait for completion)
     const args = [
       'aks',
@@ -441,7 +443,12 @@ export async function createManagedNamespace(options: {
     debugLog('   Parameters:', { clusterName, resourceGroup, namespaceName, subscriptionId });
 
     // Fire the command and don't wait for it to complete
-    const { stdout: initStdout, stderr: initStderr } = await runCommandAsync('az', args);
+    const { stdout: initStdout, stderr: initStderr } = await runCommandAsync(
+      'az',
+      args,
+      options.signal
+    );
+    options.signal?.throwIfAborted();
 
     debugLog('[AZ-CLI] Initial command output:');
     debugLog('      stdout:', initStdout);
@@ -476,6 +483,7 @@ export async function createManagedNamespace(options: {
     const pollInterval = 5000; // 5 seconds
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      options.signal?.throwIfAborted();
       debugLog(`[AZ-CLI] Polling attempt ${attempt}/${maxAttempts} for namespace status...`);
       debugLog(`   Target namespace: ${namespaceName}`);
       debugLog(`   Cluster: ${clusterName} (RG: ${resourceGroup})`);

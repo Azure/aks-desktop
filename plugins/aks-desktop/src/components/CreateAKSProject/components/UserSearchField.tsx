@@ -9,6 +9,7 @@ import {
   resolveAzureADUser,
   searchAzureADUsers,
 } from '../../../utils/azure/az-ad';
+import { AZURE_SUBSCRIPTION_TENANT_CHANGE_EVENT } from '../../../utils/azure/az-token';
 import { isEntraObjectId, isUserPrincipalName } from '../../../utils/shared/entraIdentifiers';
 
 /** What the field resolves a user to. See {@link UserAssignment} for why both. */
@@ -27,6 +28,8 @@ export interface UserSelection {
 
 /** Props for {@link UserSearchField}. */
 interface UserSearchFieldProps {
+  /** Subscription whose tenant owns the directory being searched. */
+  subscriptionId?: string;
   /** Selected Entra object ID or unresolved typed identifier. */
   value: string;
   /** Display name shown for an already resolved selection. */
@@ -63,6 +66,7 @@ interface UserOption {
  * directory search is blocked by conditional access policies.
  */
 export const UserSearchField: React.FC<UserSearchFieldProps> = ({
+  subscriptionId,
   value,
   displayName,
   onChange,
@@ -91,58 +95,61 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
     }
   }, [value, displayName]);
 
-  const performSearch = useCallback(async (query: string) => {
-    // A complete identifier is taken at face value rather than searched for.
-    if (query.length < 2 || isEntraObjectId(query) || isUserPrincipalName(query)) {
-      setOptions([]);
-      setNoUsersFound(false);
-      return;
-    }
-
-    const thisRequestId = ++requestIdRef.current;
-    setLoading(true);
-    try {
-      const result = await searchAzureADUsers(query);
-      // Ignore stale responses from earlier queries
-      if (thisRequestId !== requestIdRef.current) {
+  const performSearch = useCallback(
+    async (query: string) => {
+      // A complete identifier is taken at face value rather than searched for.
+      if (query.length < 2 || isEntraObjectId(query) || isUserPrincipalName(query)) {
+        setOptions([]);
+        setNoUsersFound(false);
         return;
       }
-      if (!result.success) {
-        // Only permanently disable search for known CA/permission errors
-        const isPermissionError = isAzureADLookupUnavailable(result.error);
-        if (isPermissionError) {
-          setSearchAvailable(false);
+
+      const thisRequestId = ++requestIdRef.current;
+      setLoading(true);
+      try {
+        const result = await searchAzureADUsers(query, subscriptionId);
+        // Ignore stale responses from earlier queries
+        if (thisRequestId !== requestIdRef.current) {
+          return;
         }
-        setSearchFailed(!isPermissionError);
+        if (!result.success) {
+          // Only permanently disable search for known CA/permission errors
+          const isPermissionError = isAzureADLookupUnavailable(result.error);
+          if (isPermissionError) {
+            setSearchAvailable(false);
+          }
+          setSearchFailed(!isPermissionError);
+          setNoUsersFound(false);
+          setOptions([]);
+        } else {
+          setSearchAvailable(true);
+          setSearchFailed(false);
+          setNoUsersFound(result.users.length === 0);
+          setOptions(
+            result.users.map(user => ({
+              id: user.id,
+              displayName: user.displayName,
+              email: user.mail || user.userPrincipalName,
+              userPrincipalName: user.userPrincipalName,
+              label: user.displayName,
+            }))
+          );
+        }
+      } catch {
+        if (thisRequestId !== requestIdRef.current) {
+          return;
+        }
+        setSearchFailed(true);
         setNoUsersFound(false);
         setOptions([]);
-      } else {
-        setSearchAvailable(true);
-        setSearchFailed(false);
-        setNoUsersFound(result.users.length === 0);
-        setOptions(
-          result.users.map(user => ({
-            id: user.id,
-            displayName: user.displayName,
-            email: user.mail || user.userPrincipalName,
-            userPrincipalName: user.userPrincipalName,
-            label: user.displayName,
-          }))
-        );
+      } finally {
+        if (thisRequestId === requestIdRef.current) {
+          setLoading(false);
+        }
       }
-    } catch {
-      if (thisRequestId !== requestIdRef.current) {
-        return;
-      }
-      setSearchFailed(true);
-      setNoUsersFound(false);
-      setOptions([]);
-    } finally {
-      if (thisRequestId === requestIdRef.current) {
-        setLoading(false);
-      }
-    }
-  }, []);
+    },
+    [subscriptionId]
+  );
 
   /**
    * Accepts a hand-typed identifier and fills in whichever one is missing.
@@ -163,7 +170,7 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
       );
 
       const thisRequestId = ++requestIdRef.current;
-      resolveAzureADUser(typed)
+      resolveAzureADUser(typed, subscriptionId)
         .then(res => {
           if (thisRequestId !== requestIdRef.current) {
             return;
@@ -189,7 +196,7 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
           }
         });
     },
-    [onChange]
+    [onChange, subscriptionId]
   );
 
   const handleInputChange = useCallback(
@@ -292,14 +299,44 @@ export const UserSearchField: React.FC<UserSearchFieldProps> = ({
     [applyTypedValue, onChange]
   );
 
-  // Clean up debounce timer
+  // Directory state and pending work belong to the selected subscription and tenant.
   useEffect(() => {
-    return () => {
+    const resetDirectory = () => {
+      requestIdRef.current += 1;
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
+        debounceTimer.current = null;
+      }
+      setLoading(false);
+      setOptions([]);
+      setSearchAvailable(null);
+      setSearchFailed(false);
+      setNoUsersFound(false);
+    };
+    const handleTenantChange = (event: Event) => {
+      if (
+        event instanceof CustomEvent &&
+        Array.isArray(event.detail?.subscriptionIds) &&
+        event.detail.subscriptionIds.some(
+          (id: unknown) =>
+            typeof id === 'string' && id.toLowerCase() === subscriptionId?.toLowerCase()
+        )
+      ) {
+        resetDirectory();
+        setInputValue('');
       }
     };
-  }, []);
+    resetDirectory();
+    window.addEventListener(AZURE_SUBSCRIPTION_TENANT_CHANGE_EVENT, handleTenantChange);
+    return () => {
+      window.removeEventListener(AZURE_SUBSCRIPTION_TENANT_CHANGE_EVENT, handleTenantChange);
+      requestIdRef.current += 1;
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+        debounceTimer.current = null;
+      }
+    };
+  }, [subscriptionId]);
 
   const showFallbackMessage = searchAvailable === false;
   const hasSearchQuery =

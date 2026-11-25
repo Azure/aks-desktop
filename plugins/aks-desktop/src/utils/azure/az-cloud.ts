@@ -3,8 +3,10 @@
 
 import { runAzCommand } from './az-cli-core';
 import { withAbort } from './az-token';
+import { getNativeCloudConfiguration } from './azure-cloud-config';
+import { getNativeCloudName, hasNativeSession } from './native-auth';
 
-/** Name, request destination and token scope from one CLI cloud configuration. */
+/** Name, request destination and token scope from a cloud configuration. */
 interface AzureCloudEndpoints {
   /** Registered CLI cloud name, such as AzureCloud or AzureUSGovernment. */
   name: string;
@@ -33,9 +35,9 @@ function configuredHttpsUrl(value: unknown): string {
 }
 
 /**
- * Reads local CLI cloud configuration without switching the active cloud.
+ * Reads the native session's cloud, or local CLI configuration without switching clouds.
  * @param cloudName - Registered cloud name from the selected account's environmentName.
- *   Omit to use the CLI's active cloud.
+ *   Omit to use the native session's cloud or the CLI's active cloud.
  * @param signal - Optional cancellation of this caller's wait, not the shared CLI process.
  * @returns Cached cloud name, ARM endpoint and exact token scope; account changes
  * invalidate the cache.
@@ -50,8 +52,8 @@ export function getAzureCloudEndpoints(
 }
 
 /**
- * Resolves Microsoft Graph, not legacy Azure AD Graph, from the named CLI cloud.
- * @param cloudName - Selected account's cloud; omission reads the active CLI cloud.
+ * Resolves Microsoft Graph, not legacy Azure AD Graph, for the current cloud.
+ * @param cloudName - Selected account's cloud; omission uses the native or active CLI cloud.
  * @param signal - Optional cancellation of this caller's metadata wait.
  * @returns Validated Graph endpoint and matching Graph token scope.
  * @throws For missing/invalid configuration; never defaults to public Graph.
@@ -68,6 +70,17 @@ function getCloudEndpoints(
   cloudName?: string,
   signal?: AbortSignal
 ): Promise<AzureCloudEndpoints> {
+  if (hasNativeSession()) {
+    return withAbort(async () => {
+      const selectedCloud = getNativeCloudName();
+      if (!selectedCloud) throw new Error('Native Azure session cloud is missing');
+      if (cloudName !== undefined && cloudName !== selectedCloud) {
+        throw new Error('Azure cloud does not match the native session');
+      }
+      const config = getNativeCloudConfiguration(selectedCloud);
+      return { name: config.name, ...config[service] };
+    }, signal);
+  }
   if (cloudName !== undefined && !CLOUD_NAME_PATTERN.test(cloudName)) {
     return Promise.reject(new Error('Invalid Azure cloud name'));
   }
@@ -125,7 +138,7 @@ function getCloudEndpoints(
   }, signal);
 }
 
-/** Drops cached cloud metadata so the next lookup re-reads the CLI's active cloud. */
+/** Drops cached CLI metadata so the next lookup re-reads the cloud configuration. */
 export function clearAzureCloudCache(): void {
   clouds.clear();
   graphClouds.clear();

@@ -129,6 +129,7 @@ describe('azRequest', () => {
       'https://management.azure.com/subscriptions/sub-1/resourceGroups?%24top=5&api-version=2021-04-01'
     );
     expect(init.method).toBe('GET');
+    expect(init.headers['x-ms-useragent']).toBe('AZURECLI/2.0.0');
     expect(init.headers.Authorization).toBe('Bearer fake-token');
     expect(credential.getToken).toHaveBeenCalledWith(
       'https://management.azure.com/.default',

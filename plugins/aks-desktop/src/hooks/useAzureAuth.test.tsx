@@ -30,6 +30,20 @@ afterEach(() => {
 });
 
 describe('Azure authentication refresh', () => {
+  it('keeps the authenticated state during scoped credential notifications', async () => {
+    const { result } = renderHook(() => useAzureAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isChecking).toBe(false));
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent('azure-account-change', {
+          detail: { subscriptionIds: [signedIn.subscriptionId] },
+        })
+      )
+    );
+    expect(result.current).toMatchObject({ isLoggedIn: true, isChecking: false });
+    expect(readStatus).toHaveBeenCalledOnce();
+  });
+
   it.each(['azure-auth-update', 'azure-account-change'])(
     'blocks the previous account until a fresh %s check completes',
     async event => {

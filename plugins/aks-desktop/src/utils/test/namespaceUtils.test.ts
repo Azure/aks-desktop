@@ -163,6 +163,21 @@ describe('applyNamespaceManifest', () => {
     }
   });
 
+  test('does not apply stale RoleBindings after cancellation during namespace creation', async () => {
+    const controller = new AbortController();
+    mockPost.mockImplementationOnce(async () => {
+      controller.abort(new Error('Selected tenant changed'));
+      return {};
+    });
+    const result = await applyNamespaceManifest('arc-cluster', {
+      ...baseOptions,
+      signal: controller.signal,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Selected tenant changed');
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
   test('reports the collision when the namespace already exists', async () => {
     mockPost.mockRejectedValue(new Error('namespaces "my-project" already exists'));
 

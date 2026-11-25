@@ -7,7 +7,20 @@ const mocks = vi.hoisted(() => ({
   getToken: vi.fn(),
   clearCache: vi.fn(),
   getSubscriptionCredential: vi.fn(),
+  getSubscriptionLoginStatus: vi.fn(),
+  getAzureCloudEndpoints: vi.fn(),
+  hasNativeSession: vi.fn(),
   fetch: vi.fn(),
+}));
+
+vi.mock('../azure/az-auth', () => ({
+  getSubscriptionLoginStatus: mocks.getSubscriptionLoginStatus,
+}));
+vi.mock('../azure/az-cloud', () => ({
+  getAzureCloudEndpoints: mocks.getAzureCloudEndpoints,
+}));
+vi.mock('../azure/native-auth', () => ({
+  hasNativeSession: mocks.hasNativeSession,
 }));
 
 vi.mock('../azure/az-token', async importOriginal => ({
@@ -20,6 +33,12 @@ import { queryPrometheus } from './queryPrometheus';
 describe('queryPrometheus', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getSubscriptionLoginStatus.mockResolvedValue({
+      isLoggedIn: true,
+      environmentName: 'AzureCloud',
+    });
+    mocks.getAzureCloudEndpoints.mockResolvedValue({ name: 'AzureCloud' });
+    mocks.hasNativeSession.mockReturnValue(false);
     mocks.getToken.mockResolvedValue({ token: 'prom-token', expiresOnTimestamp: 9e12 });
     mocks.getSubscriptionCredential.mockReturnValue({
       getToken: mocks.getToken,
@@ -30,6 +49,7 @@ describe('queryPrometheus', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -155,6 +175,159 @@ describe('queryPrometheus', () => {
     expect(mocks.getToken).toHaveBeenCalledTimes(3);
     expect(mocks.clearCache).toHaveBeenCalledTimes(1);
     expect(mocks.clearCache).toHaveBeenCalledWith('https://prometheus.monitor.azure.com/.default');
+  });
+
+  it('uses an injected credential without consulting CLI identity or cloud state', async () => {
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: 'success', data: { result: [] } }))
+    );
+    await queryPrometheus('https://prom.example.com', 'up', 1, 2, 60, 'sub-123', {
+      credential: { getToken: mocks.getToken },
+    });
+    expect(mocks.getSubscriptionLoginStatus).not.toHaveBeenCalled();
+    expect(mocks.getAzureCloudEndpoints).not.toHaveBeenCalled();
+    expect(mocks.getSubscriptionCredential).not.toHaveBeenCalled();
+  });
+
+  it('does not consult CLI identity in a native session', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: 'success', data: { result: [] } }))
+    );
+    await queryPrometheus('https://prom.example.com', 'up', 1, 2, 60, 'sub-123');
+    expect(mocks.getSubscriptionLoginStatus).not.toHaveBeenCalled();
+    expect(mocks.getToken).toHaveBeenCalled();
+  });
+
+  it('refreshes a rejected Azure China token using only the selected cloud scope', async () => {
+    const scope = 'https://prometheus.monitor.azure.cn/.default';
+    mocks.hasNativeSession.mockReturnValue(true);
+    mocks.getAzureCloudEndpoints.mockResolvedValue({ name: 'AzureChinaCloud' });
+    mocks.getToken
+      .mockResolvedValueOnce({ token: 'china-stale', expiresOnTimestamp: 9e12 })
+      .mockResolvedValueOnce({ token: 'china-fresh', expiresOnTimestamp: 9e12 });
+    mocks.fetch
+      .mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', data: { result: [] } }))
+      );
+    await queryPrometheus('https://prom.example.cn', 'up', 1, 2, 60, 'sub-123');
+    expect(mocks.getToken.mock.calls.map(([requestedScope]) => requestedScope)).toEqual([
+      scope,
+      scope,
+    ]);
+    expect(mocks.clearCache).toHaveBeenCalledWith(scope);
+    expect(mocks.fetch.mock.calls[1][1].headers.Authorization).toBe('Bearer china-fresh');
+    expect(mocks.getSubscriptionLoginStatus).not.toHaveBeenCalled();
+  });
+
+  it.each(['AzureUSGovernment', 'UnmappedCloud'])(
+    'reports unsupported cloud %s without requesting a public-cloud token',
+    async cloud => {
+      mocks.getAzureCloudEndpoints.mockResolvedValue({ name: cloud });
+      await expect(
+        queryPrometheus('https://prom.example.com', 'up', 1, 2, 60, 'sub-123')
+      ).resolves.toEqual([]);
+      expect(console.error).toHaveBeenCalledWith(
+        'MetricsTab: Prometheus query failed:',
+        expect.objectContaining({
+          message: `Prometheus metrics are not supported for Azure cloud ${cloud}`,
+        })
+      );
+      expect(mocks.getToken).not.toHaveBeenCalled();
+      expect(mocks.fetch).not.toHaveBeenCalled();
+    }
+  );
+
+  it('rejects a signed-out CLI identity before reusing a cached token', async () => {
+    mocks.getSubscriptionLoginStatus.mockResolvedValue({
+      isLoggedIn: false,
+      error: 'Azure CLI is signed out',
+    });
+    await expect(
+      queryPrometheus('https://prom.example.com', 'up', 1, 2, 60, 'sub-123')
+    ).resolves.toEqual([]);
+    expect(mocks.getToken).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      'MetricsTab: Prometheus query failed:',
+      expect.objectContaining({ message: 'Azure CLI is signed out' })
+    );
+  });
+
+  it('shares nine concurrent CLI identity reads but refreshes the observation later', async () => {
+    let complete!: (status: { isLoggedIn: boolean; environmentName: string }) => void;
+    mocks.getSubscriptionLoginStatus.mockReturnValueOnce(
+      new Promise(resolve => (complete = resolve))
+    );
+    mocks.fetch.mockImplementation(
+      async () => new Response(JSON.stringify({ status: 'success', data: { result: [] } }))
+    );
+    const query = (subscription: string) =>
+      queryPrometheus('https://prom.example.com', 'up', 1, 2, 60, subscription);
+    const batch = Array.from({ length: 9 }, (_, index) => query(index % 2 ? 'SUB-A' : 'sub-a'));
+    const other = query('sub-b');
+    expect(mocks.getSubscriptionLoginStatus).toHaveBeenCalledTimes(2);
+    complete({ isLoggedIn: true, environmentName: 'AzureCloud' });
+    await Promise.all([...batch, other]);
+    expect(mocks.fetch).toHaveBeenCalledTimes(10);
+    await query('sub-a');
+    expect(mocks.getSubscriptionLoginStatus).toHaveBeenCalledTimes(3);
+  });
+
+  it('discards failed identity observations so a subsequent refresh can recover', async () => {
+    mocks.getSubscriptionLoginStatus.mockRejectedValueOnce(new Error('Identity read failed'));
+    const query = () => queryPrometheus('https://prom.example.com', 'up', 1, 2, 60, 'sub-123');
+    expect(await Promise.all([query(), query()])).toEqual([[], []]);
+    expect(mocks.getSubscriptionLoginStatus).toHaveBeenCalledOnce();
+    expect(mocks.getToken).not.toHaveBeenCalled();
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: 'success', data: { result: [] } }))
+    );
+    await query();
+    expect(mocks.getSubscriptionLoginStatus).toHaveBeenCalledTimes(2);
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+  });
+
+  it('aborts promptly even when a CLI identity observation is still pending', async () => {
+    const controller = new AbortController();
+    let complete!: (status: { isLoggedIn: boolean; environmentName: string }) => void;
+    mocks.getSubscriptionLoginStatus.mockReturnValueOnce(
+      new Promise(resolve => (complete = resolve))
+    );
+    const pending = queryPrometheus('https://prom.example.com', 'up', 1, 2, 60, 'sub-123', {
+      signal: controller.signal,
+    });
+    controller.abort(new Error('Cancelled'));
+    await expect(pending).resolves.toEqual([]);
+    expect(mocks.getToken).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    complete({ isLoggedIn: true, environmentName: 'AzureCloud' });
+    await Promise.resolve();
+  });
+
+  it('bounds a stuck shared identity read independently of caller timeouts and retries later', async () => {
+    vi.useFakeTimers();
+    mocks.getSubscriptionLoginStatus.mockReturnValueOnce(new Promise(() => {}));
+    const query = () =>
+      queryPrometheus('https://prom.example.com', 'up', 1, 2, 60, 'stuck-sub', { timeoutMs: 5 });
+    const first = query();
+    await vi.advanceTimersByTimeAsync(5);
+    await expect(first).resolves.toEqual([]);
+    const second = query();
+    await vi.advanceTimersByTimeAsync(5);
+    await expect(second).resolves.toEqual([]);
+    expect(mocks.getSubscriptionLoginStatus).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30_000);
+    mocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: 'success', data: { result: [] } }))
+    );
+    const retry = query();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(retry).resolves.toEqual([]);
+    expect(mocks.getSubscriptionLoginStatus).toHaveBeenCalledTimes(2);
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('aborts promptly even when an injected credential ignores abortSignal', async () => {

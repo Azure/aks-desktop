@@ -3,11 +3,22 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ command: vi.fn(), fetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  command: vi.fn(),
+  fetch: vi.fn(),
+  hasNativeSession: vi.fn(() => false),
+  getNativeCloudName: vi.fn<() => string | undefined>(() => undefined),
+}));
 vi.mock('../shared/runCommandAsync', () => ({ runCommandAsync: mocks.command }));
+vi.mock('./native-auth', async importOriginal => ({
+  ...(await importOriginal<typeof import('./native-auth')>()),
+  hasNativeSession: mocks.hasNativeSession,
+  getNativeCloudName: mocks.getNativeCloudName,
+}));
 
 import { getAzureCloudEndpoints, getAzureGraphEndpoints } from './az-cloud';
 import { registerContainerServiceProvider } from './az-resource-providers';
+import { getNativeCloudConfiguration } from './azure-cloud-config';
 
 const credential = {
   getToken: vi.fn(async () => ({ token: 'test-token', expiresOnTimestamp: Date.now() + 3600_000 })),
@@ -19,6 +30,8 @@ const metadata = (resourceManager: string, activeDirectoryResourceId: string, na
 beforeEach(() => {
   window.dispatchEvent(new CustomEvent('azure-auth-update'));
   mocks.command.mockReset();
+  mocks.hasNativeSession.mockReset().mockReturnValue(false);
+  mocks.getNativeCloudName.mockReset().mockReturnValue(undefined);
   mocks.fetch
     .mockReset()
     .mockImplementation(() =>
@@ -28,6 +41,95 @@ beforeEach(() => {
   vi.stubGlobal('fetch', mocks.fetch);
 });
 afterEach(() => vi.unstubAllGlobals());
+
+describe('native cloud configuration', () => {
+  test.each([
+    [
+      'AzureCloud',
+      'https://login.microsoftonline.com',
+      'https://management.azure.com',
+      'https://management.core.windows.net/',
+      'https://graph.microsoft.com',
+    ],
+    [
+      'AzureUSGovernment',
+      'https://login.microsoftonline.us',
+      'https://management.usgovcloudapi.net',
+      'https://management.core.usgovcloudapi.net/',
+      'https://graph.microsoft.us',
+    ],
+    [
+      'AzureChinaCloud',
+      'https://login.chinacloudapi.cn',
+      'https://management.chinacloudapi.cn',
+      'https://management.core.chinacloudapi.cn/',
+      'https://microsoftgraph.chinacloudapi.cn',
+    ],
+  ])('uses %s session endpoints without the CLI', async (name, authority, arm, audience, graph) => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mocks.getNativeCloudName.mockReturnValue(name);
+    expect(getNativeCloudConfiguration(name)).toMatchObject({
+      name,
+      authority,
+      arm: { endpoint: arm, scope: `${audience}/.default` },
+      graph: { endpoint: graph, scope: `${graph}/.default` },
+    });
+    expect(await getAzureCloudEndpoints()).toEqual({
+      name,
+      endpoint: arm,
+      scope: `${audience}/.default`,
+    });
+    expect(await getAzureGraphEndpoints(name)).toEqual({
+      name,
+      endpoint: graph,
+      scope: `${graph}/.default`,
+    });
+    expect(mocks.command).not.toHaveBeenCalled();
+  });
+
+  test('defaults to public cloud but rejects unsupported native clouds', () => {
+    expect(getNativeCloudConfiguration().name).toBe('AzureCloud');
+    expect(() => getNativeCloudConfiguration('CustomCloud')).toThrow('Unsupported Azure cloud');
+    expect(() => getNativeCloudConfiguration('toString')).toThrow('Unsupported Azure cloud');
+  });
+
+  test('rejects missing, unsupported or mismatched native session clouds', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    await expect(getAzureCloudEndpoints()).rejects.toThrow('session cloud is missing');
+    mocks.getNativeCloudName.mockReturnValue('CustomCloud');
+    await expect(getAzureCloudEndpoints()).rejects.toThrow('Unsupported Azure cloud');
+    mocks.getNativeCloudName.mockReturnValue('AzureUSGovernment');
+    await expect(getAzureGraphEndpoints('AzureCloud')).rejects.toThrow('does not match');
+    expect(mocks.command).not.toHaveBeenCalled();
+  });
+
+  test('reads the current native session rather than cached CLI or previous session metadata', async () => {
+    mocks.command.mockResolvedValue(
+      metadata(
+        'https://management.custom.example/',
+        'https://audience.custom.example/',
+        'CustomCloud'
+      )
+    );
+    expect((await getAzureCloudEndpoints()).name).toBe('CustomCloud');
+    mocks.hasNativeSession.mockReturnValue(true);
+    mocks.getNativeCloudName.mockReturnValue('AzureUSGovernment');
+    expect((await getAzureCloudEndpoints()).endpoint).toBe('https://management.usgovcloudapi.net');
+    mocks.getNativeCloudName.mockReturnValue('AzureChinaCloud');
+    expect((await getAzureCloudEndpoints()).endpoint).toBe('https://management.chinacloudapi.cn');
+    mocks.hasNativeSession.mockReturnValue(false);
+    expect((await getAzureCloudEndpoints()).name).toBe('CustomCloud');
+    expect(mocks.command).toHaveBeenCalledTimes(1);
+  });
+
+  test('honors an already aborted native metadata request', async () => {
+    mocks.hasNativeSession.mockReturnValue(true);
+    mocks.getNativeCloudName.mockReturnValue('AzureCloud');
+    const controller = new AbortController();
+    controller.abort(new Error('cancelled'));
+    await expect(getAzureCloudEndpoints(undefined, controller.signal)).rejects.toThrow('cancelled');
+  });
+});
 
 describe('configured Microsoft Graph endpoints', () => {
   test.each([

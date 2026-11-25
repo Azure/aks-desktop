@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getConnectedClusters: vi.fn(),
   getSubscriptions: vi.fn(),
   setClusterSettings: vi.fn(),
+  withVerifiedCliCapabilityAccess: vi.fn(),
 }));
 
 vi.mock('./az-clusters', () => ({
@@ -16,6 +17,9 @@ vi.mock('./az-clusters', () => ({
   getConnectedClusters: mocks.getConnectedClusters,
 }));
 vi.mock('./az-subscriptions', () => ({ getSubscriptions: mocks.getSubscriptions }));
+vi.mock('./az-cli-core', () => ({
+  withVerifiedCliCapabilityAccess: mocks.withVerifiedCliCapabilityAccess,
+}));
 vi.mock('../shared/clusterSettings', () => ({
   getClusterSettings: mocks.getClusterSettings,
   setClusterSettings: mocks.setClusterSettings,
@@ -61,6 +65,12 @@ describe('Azure AKS utilities', () => {
     vi.clearAllMocks();
     mocks.getClusterSettings.mockReturnValue({ allowedNamespaces: ['existing'] });
     mocks.getConnectedClusters.mockResolvedValue({ clusters: [] });
+    mocks.withVerifiedCliCapabilityAccess.mockImplementation(
+      async (_subscriptionId: string, operation: () => Promise<unknown>) => ({
+        verified: true,
+        value: await operation(),
+      })
+    );
     vi.stubGlobal('registerCluster', registerClusterCapability);
     vi.spyOn(console, 'debug').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -288,6 +298,7 @@ describe('Azure AKS utilities', () => {
       managedNamespace: 'namespace-1',
       clusterType: 'aks',
     });
+
     expect(mocks.setClusterSettings).toHaveBeenCalledWith('cluster-1', {
       allowedNamespaces: ['existing'],
       azureRegistration: {
@@ -295,6 +306,17 @@ describe('Azure AKS utilities', () => {
         resourceGroup: 'rg-1',
       },
     });
+  });
+
+  test('does not invoke native registration when the CLI identity cannot be verified', async () => {
+    mocks.withVerifiedCliCapabilityAccess.mockResolvedValue({ verified: false });
+
+    await expect(registerAKSCluster('sub-1', 'rg-1', 'cluster-1')).resolves.toEqual({
+      success: false,
+      message:
+        'Azure CLI must be signed in with the same account, tenant, cloud, and subscription before registering a cluster.',
+    });
+    expect(registerClusterCapability).not.toHaveBeenCalled();
   });
 
   test('drops stale Arc metadata when persisting a managed registration', async () => {

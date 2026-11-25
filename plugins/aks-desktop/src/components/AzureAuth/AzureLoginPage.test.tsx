@@ -14,11 +14,13 @@ import {
 
 const mocks = vi.hoisted(() => ({
   getLoginStatus: vi.fn(),
+  getNativeLoginStatus: vi.fn(),
   initiateLogin: vi.fn(),
   push: vi.fn(),
   trackAksFeature: vi.fn(),
   trackError: vi.fn(),
   useTelemetryFeatureOpened: vi.fn(),
+  autoContinueCli: true,
 }));
 
 vi.mock('@iconify/react', () => ({ Icon: () => null }));
@@ -42,6 +44,7 @@ vi.mock('react-router-dom', () => ({
 
 vi.mock('../../utils/azure/az-auth', () => ({
   getLoginStatus: mocks.getLoginStatus,
+  getNativeLoginStatus: mocks.getNativeLoginStatus,
   initiateLogin: mocks.initiateLogin,
 }));
 
@@ -56,6 +59,32 @@ vi.mock('../../telemetry', () => ({
 vi.mock('../../hooks/useTelemetryFeatureOpened', () => ({
   useTelemetryFeatureOpened: mocks.useTelemetryFeatureOpened,
 }));
+
+vi.mock('./CliLoginStep', async () => {
+  const ReactModule = await import('react');
+  return {
+    default: ({
+      nativeAuthenticated,
+      onContinue,
+      onBack,
+    }: {
+      nativeAuthenticated: boolean;
+      onContinue: () => void;
+      onBack: () => void;
+    }) => {
+      ReactModule.useEffect(() => {
+        if (mocks.autoContinueCli) onContinue();
+      }, []);
+      return (
+        <div>
+          <span>{nativeAuthenticated ? 'Native and CLI step' : 'CLI-only step'}</span>
+          <button onClick={onContinue}>Continue CLI step</button>
+          <button onClick={onBack}>Back to native sign-in</button>
+        </div>
+      );
+    },
+  };
+});
 
 import AzureLoginPage from './AzureLoginPage';
 
@@ -79,6 +108,8 @@ async function renderLoggedOutPage() {
 describe('AzureLoginPage telemetry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.autoContinueCli = true;
+    mocks.getNativeLoginStatus.mockImplementation(() => mocks.getLoginStatus());
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -115,6 +146,25 @@ describe('AzureLoginPage telemetry', () => {
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
+  test('bounds the initial native session check when a session is reported', async () => {
+    const nativeStatus = createDeferred<{ isLoggedIn: boolean }>();
+    mocks.getLoginStatus.mockResolvedValueOnce({ isLoggedIn: true });
+    mocks.getNativeLoginStatus.mockReturnValueOnce(nativeStatus.promise);
+    render(<AzureLoginPage />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LOGIN_TIMEOUT_MS);
+    });
+    expect(screen.getByRole('button', { name: 'Sign in with Azure' })).toBeTruthy();
+
+    await act(async () => {
+      nativeStatus.resolve({ isLoggedIn: true });
+      await nativeStatus.promise;
+    });
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(screen.queryByText('Native and CLI step')).toBeNull();
+  });
+
   test('emits started at the beginning of an explicit login attempt', async () => {
     mocks.initiateLogin.mockReturnValue(new Promise(() => {}));
     await renderLoggedOutPage();
@@ -126,6 +176,71 @@ describe('AzureLoginPage telemetry', () => {
     expect(mocks.trackAksFeature.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.initiateLogin.mock.invocationCallOrder[0]
     );
+    expect(mocks.initiateLogin).toHaveBeenCalledWith(expect.any(AbortSignal), undefined);
+  });
+
+  test.each([
+    ['Azure public cloud', 'AzureCloud'],
+    ['Azure US Government', 'AzureUSGovernment'],
+    ['Azure China', 'AzureChinaCloud'],
+  ])('passes an explicitly selected %s to native login', async (_label, cloud) => {
+    mocks.initiateLogin.mockReturnValue(new Promise(() => {}));
+    await renderLoggedOutPage();
+    fireEvent.change(screen.getByLabelText('Azure cloud'), { target: { value: cloud } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure' }));
+    expect(mocks.initiateLogin).toHaveBeenCalledWith(expect.any(AbortSignal), cloud);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect((screen.getByLabelText('Azure cloud') as HTMLSelectElement).value).toBe(cloud);
+  });
+
+  test('offers the CLI step after native login before redirecting', async () => {
+    mocks.autoContinueCli = false;
+    mocks.initiateLogin.mockResolvedValue({ success: true, message: 'device code' });
+    await renderLoggedOutPage();
+    mocks.getLoginStatus.mockResolvedValueOnce({ isLoggedIn: true });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure' }));
+    expect(await screen.findByText('Native and CLI step')).toBeTruthy();
+    expect(mocks.push).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue CLI step' }));
+    expect(mocks.push).toHaveBeenCalledWith('/azure/profile');
+  });
+
+  test('redirects an existing CLI-only session without restarting login', async () => {
+    mocks.autoContinueCli = false;
+    mocks.getLoginStatus.mockResolvedValueOnce({ isLoggedIn: true });
+    mocks.getNativeLoginStatus.mockResolvedValueOnce({ isLoggedIn: false });
+
+    render(<AzureLoginPage redirectTo="/clusters" />);
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/clusters'));
+    expect(screen.queryByText('CLI-only step')).toBeNull();
+    expect(mocks.initiateLogin).not.toHaveBeenCalled();
+  });
+
+  test('offers CLI sign-in for an existing native session', async () => {
+    mocks.autoContinueCli = false;
+    mocks.getLoginStatus.mockResolvedValueOnce({ isLoggedIn: true });
+    mocks.getNativeLoginStatus.mockResolvedValueOnce({ isLoggedIn: true });
+
+    render(<AzureLoginPage />);
+
+    expect(await screen.findByText('Native and CLI step')).toBeTruthy();
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  test('allows CLI-only sign-in and returning to native sign-in', async () => {
+    mocks.autoContinueCli = false;
+    await renderLoggedOutPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure CLI instead' }));
+    expect(screen.getByText('CLI-only step')).toBeTruthy();
+    expect(mocks.push).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to native sign-in' }));
+    expect(screen.getByRole('button', { name: 'Sign in with Azure' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure CLI instead' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue CLI step' }));
+    expect(mocks.push).toHaveBeenCalledWith('/azure/profile');
   });
 
   test('starts only one login attempt on repeated clicks', async () => {
@@ -148,7 +263,10 @@ describe('AzureLoginPage telemetry', () => {
     await renderLoggedOutPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure' }));
+    const signal = mocks.initiateLogin.mock.calls[0][0] as AbortSignal;
+    expect(signal.aborted).toBe(false);
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(signal.aborted).toBe(true);
     await act(async () => {
       deferred.resolve({ success: false, message: 'late failure' });
       await deferred.promise;
@@ -213,18 +331,20 @@ describe('AzureLoginPage telemetry', () => {
     await renderLoggedOutPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure' }));
+    const firstSignal = mocks.initiateLogin.mock.calls[0][0] as AbortSignal;
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
     const signInButton = screen.getByRole('button', { name: 'Sign in with Azure' });
-    expect((signInButton as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(signInButton);
-    expect(mocks.initiateLogin).toHaveBeenCalledTimes(1);
+    expect(mocks.initiateLogin).toHaveBeenCalledTimes(2);
+    const secondSignal = mocks.initiateLogin.mock.calls[1][0] as AbortSignal;
+    expect(firstSignal.aborted).toBe(true);
+    expect(secondSignal.aborted).toBe(false);
 
     await act(async () => {
       firstAttempt.resolve({ success: false, message: 'stale failure' });
       await firstAttempt.promise;
     });
-    await waitFor(() => expect((signInButton as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(signInButton);
+    expect(secondSignal.aborted).toBe(false);
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
 
     mocks.getLoginStatus.mockResolvedValueOnce({ isLoggedIn: true });
@@ -268,9 +388,12 @@ describe('AzureLoginPage telemetry', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(LOGIN_RETRY_DELAY_MS);
     });
+    const firstSignal = mocks.initiateLogin.mock.calls[0][0] as AbortSignal;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     expect(mocks.initiateLogin).toHaveBeenCalledTimes(2);
+    expect(firstSignal.aborted).toBe(true);
+    expect((mocks.initiateLogin.mock.calls[1][0] as AbortSignal).aborted).toBe(false);
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
     expect(mocks.trackAksFeature.mock.calls).toEqual([
       ['aksd.auth-login', 'started'],
@@ -328,6 +451,7 @@ describe('AzureLoginPage telemetry', () => {
     });
 
     expect(mocks.trackAksFeature).toHaveBeenCalledWith('aksd.auth-login', 'succeeded');
+    expect(mocks.getNativeLoginStatus).toHaveBeenCalledTimes(1);
     expect(mocks.getLoginStatus).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
     expect(mocks.push).toHaveBeenCalledWith('/azure/profile');
@@ -376,6 +500,7 @@ describe('AzureLoginPage telemetry', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure' }));
 
     expect(await screen.findByText('Command execution error: bridge disconnected')).toBeTruthy();
+    expect((mocks.initiateLogin.mock.calls[0][0] as AbortSignal).aborted).toBe(true);
     expect(screen.getByRole('button', { name: 'Sign in with Azure' })).toBeTruthy();
     expect(mocks.getLoginStatus).toHaveBeenCalledTimes(2);
     expect(mocks.trackAksFeature).toHaveBeenCalledWith('aksd.auth-login', 'failed');
@@ -456,7 +581,7 @@ describe('AzureLoginPage telemetry', () => {
 
     expect(mocks.trackAksFeature).toHaveBeenCalledWith('aksd.auth-login', 'succeeded');
     expect(mocks.push).toHaveBeenCalledWith('/azure/profile');
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
 
     expect(mocks.trackAksFeature).not.toHaveBeenCalledWith('aksd.auth-login', 'cancelled');
     expect(mocks.push).toHaveBeenCalledTimes(1);
@@ -471,12 +596,14 @@ describe('AzureLoginPage telemetry', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure' }));
     await act(async () => {});
+    const signal = mocks.initiateLogin.mock.calls[0][0] as AbortSignal;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(LOGIN_POLL_INTERVAL_MS);
     });
     expect(mocks.getLoginStatus).toHaveBeenCalledTimes(2);
 
     unmount();
+    expect(signal.aborted).toBe(true);
     await act(async () => {
       statusDeferred.resolve({ isLoggedIn: true });
       await statusDeferred.promise;
@@ -490,6 +617,24 @@ describe('AzureLoginPage telemetry', () => {
     expect(console.error).not.toHaveBeenCalled();
   });
 
+  test('unmount aborts device-code acquisition', async () => {
+    const deferred = createDeferred<{ success: boolean; message: string }>();
+    mocks.initiateLogin.mockReturnValueOnce(deferred.promise);
+    const { unmount } = await renderLoggedOutPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure' }));
+    const signal = mocks.initiateLogin.mock.calls[0][0] as AbortSignal;
+    unmount();
+    expect(signal.aborted).toBe(true);
+
+    await act(async () => {
+      deferred.resolve({ success: true, message: 'late device code' });
+      await deferred.promise;
+    });
+    expect(mocks.getLoginStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
   test('unmount after success has no later effects', async () => {
     mocks.initiateLogin.mockResolvedValue({ success: true, message: 'browser opened' });
     const { unmount } = await renderLoggedOutPage();
@@ -498,6 +643,7 @@ describe('AzureLoginPage telemetry', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure' }));
     await act(async () => {});
+    const signal = mocks.initiateLogin.mock.calls[0][0] as AbortSignal;
     expect(mocks.trackAksFeature.mock.calls).toEqual([
       ['aksd.auth-login', 'started'],
       ['aksd.auth-login', 'succeeded'],
@@ -506,6 +652,7 @@ describe('AzureLoginPage telemetry', () => {
     expect(mocks.push).toHaveBeenCalledWith('/azure/profile');
 
     unmount();
+    expect(signal.aborted).toBe(false);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(LOGIN_POLL_INTERVAL_MS);
     });
@@ -567,14 +714,15 @@ describe('AzureLoginPage telemetry', () => {
     mocks.getLoginStatus.mockClear();
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure' }));
+    const signal = mocks.initiateLogin.mock.calls[0][0] as AbortSignal;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(LOGIN_TIMEOUT_MS);
     });
 
     expect(await screen.findByText('Login timeout. Please try again.')).toBeTruthy();
     expect(screen.queryByText('Initiating Azure login...')).toBeNull();
-    const signInButton = screen.getByRole('button', { name: 'Sign in with Azure' });
-    expect((signInButton as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Sign in with Azure' })).toBeTruthy();
+    expect(signal.aborted).toBe(true);
     expect(mocks.trackAksFeature).toHaveBeenCalledWith('aksd.auth-login', 'failed');
     expect(mocks.trackError).toHaveBeenCalledWith({
       area: 'auth-login',
@@ -586,7 +734,6 @@ describe('AzureLoginPage telemetry', () => {
       deferred.resolve({ success: true, message: 'late success' });
       await deferred.promise;
     });
-    await waitFor(() => expect((signInButton as HTMLButtonElement).disabled).toBe(false));
     expect(mocks.getLoginStatus).not.toHaveBeenCalled();
     expect(mocks.push).not.toHaveBeenCalled();
   });
@@ -645,11 +792,15 @@ describe('AzureLoginPage telemetry', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with Azure' }));
     await act(async () => {});
+    const signal = mocks.initiateLogin.mock.calls[0][0] as AbortSignal;
+    expect(screen.getByText('browser opened')).toBeTruthy();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(LOGIN_TIMEOUT_MS);
     });
 
+    expect(signal.aborted).toBe(true);
     expect(await screen.findByText('Login timeout. Please try again.')).toBeTruthy();
+    expect(screen.queryByText('browser opened')).toBeNull();
     expect(screen.queryByText(/Waiting for login completion/)).toBeNull();
     expect(mocks.trackAksFeature).toHaveBeenCalledWith('aksd.auth-login', 'failed');
     expect(mocks.trackError).toHaveBeenCalledWith({
@@ -664,6 +815,7 @@ describe('AzureLoginPage telemetry', () => {
       isLoggedIn: true,
       username: 'sensitive-user@contoso.com',
     });
+    mocks.getNativeLoginStatus.mockResolvedValueOnce({ isLoggedIn: true });
 
     render(<AzureLoginPage redirectTo="/clusters" />);
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/clusters'));
@@ -705,5 +857,6 @@ describe('AzureLoginPage telemetry', () => {
 
     expect(mocks.trackAksFeature).toHaveBeenCalledWith('aksd.auth-login', 'cancelled');
     expect(screen.getByRole('button', { name: 'Sign in with Azure' })).toBeTruthy();
+    expect(screen.queryByText('browser opened')).toBeNull();
   });
 });

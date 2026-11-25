@@ -1,4 +1,5 @@
 import { getClusterSettings, setClusterSettings } from '../shared/clusterSettings';
+import { withVerifiedCliCapabilityAccess } from './az-cli-core';
 import { type ConnectedClusterSummary, getClusters, getConnectedClusters } from './az-clusters';
 import { getSubscriptions as getAzSubscriptions } from './az-subscriptions';
 import { getClusterRegistrationCapability } from './clusterRegistrationCapability';
@@ -345,15 +346,25 @@ export async function registerAKSCluster(
         message: 'Desktop API not available. This feature is only available in desktop mode.',
       };
     }
+    const registration = await withVerifiedCliCapabilityAccess(subscriptionId, () =>
+      registerCluster('azure', {
+        subscriptionId,
+        resourceGroup,
+        clusterName,
+        isAzureRBACEnabled: false,
+        managedNamespace,
+        clusterType: 'aks',
+      })
+    );
+    if (!registration.verified) {
+      return {
+        success: false,
+        message:
+          'Azure CLI must be signed in with the same account, tenant, cloud, and subscription before registering a cluster.',
+      };
+    }
 
-    const result: unknown = await registerCluster('azure', {
-      subscriptionId,
-      resourceGroup,
-      clusterName,
-      isAzureRBACEnabled: false,
-      managedNamespace,
-      clusterType: 'aks',
-    });
+    const result: unknown = registration.value;
 
     if (
       typeof result !== 'object' ||

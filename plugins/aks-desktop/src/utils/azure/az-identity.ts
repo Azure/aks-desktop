@@ -174,6 +174,7 @@ export async function assignAzureRoles(
   const results: AssignRolesResult['results'] = [];
 
   for (const { role, scope } of roles) {
+    options.signal?.throwIfAborted();
     try {
       await createAzureRoleAssignment({ ...options, role, scope, principalType });
       results.push({ role, scope, success: true });

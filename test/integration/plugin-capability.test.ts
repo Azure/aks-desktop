@@ -147,6 +147,7 @@ test('AKS command policies retain only current CLI consumers', () => {
     assert.ok(policy, `Missing ${environment} AKS command policy`);
     assert.equal(policy.bundleName, 'aks-desktop');
     const prefixes = [
+      'version',
       'login',
       'logout',
       'aks',
@@ -165,6 +166,7 @@ test('AKS command policies retain only current CLI consumers', () => {
     assert.equal(policy.consent, undefined);
     assert.equal(policy.source, environment === 'development' ? 'development' : 'shipped');
     for (const args of [
+      ['version'],
       ['account', 'show', '-o', 'json'],
       ['aks', 'namespace', 'show'],
       ['acr', 'list'],
@@ -187,7 +189,7 @@ test('AKS command policies retain only current CLI consumers', () => {
       assert.equal(isRunCommandAllowed(grants, 'az', ['cloud', 'register', '--name', 'Other']), false);
       for (const args of [
         [],
-        ['version'],
+        ['--version'],
         ['config', 'set'],
         ['extension', 'list'],
         ['graph', 'query'],

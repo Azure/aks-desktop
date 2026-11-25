@@ -6,11 +6,31 @@
 import { getErrorMessage, isValidGuid, runCommandAsync } from './az-cli-core';
 import { clearAzureCloudCache, getAzureCloudEndpoints } from './az-cloud';
 import { azListAll, azRequest, azRequestRaw, AzureRequestError } from './az-http';
-import { clearAzureTokenCaches, getSubscriptionCredential } from './az-token';
+import {
+  clearAzureTokenCaches,
+  getAzureAccountGeneration,
+  getNativeSubscriptionTenant,
+  getSubscriptionCredential,
+  setNativeSubscriptionTenants,
+} from './az-token';
 import { isValidAzResourceGroupName } from './az-validation';
+import { hasNativeSession, isAzureExplicitlySignedOut } from './native-auth';
 
 const SUBSCRIPTIONS_API_VERSION = '2022-12-01';
 const RESOURCE_GROUPS_API_VERSION = '2021-04-01';
+let nativeDiscoverySequence = 0;
+let nativePublishedDiscoverySequence = 0;
+interface SubscriptionTenantMetadata {
+  tenant: string;
+  tenantName?: string;
+}
+let nativePublishedDiscovery:
+  | {
+      accountGeneration: number;
+      subscriptions: Array<Record<string, any>>;
+      listedTenants: Map<string, SubscriptionTenantMetadata[]>;
+    }
+  | undefined;
 /** Used when `createResourceGroup` is called without `tags`. */
 const DEFAULT_RESOURCE_GROUP_TAGS = ['createdBy=AKS Desktop'];
 
@@ -36,20 +56,51 @@ interface ResourceGroupOptions {
   subscriptionId: string;
 }
 
+function resolveNativeSubscriptionTenants(
+  subscriptions: Array<Record<string, any>>,
+  listedTenants: Map<string, SubscriptionTenantMetadata[]>
+) {
+  return subscriptions.flatMap(subscription => {
+    const tenant = getNativeSubscriptionTenant(subscription.id);
+    if (!tenant) return [];
+    const metadata = listedTenants
+      .get(subscription.id)
+      ?.find(value => value.tenant.toLowerCase() === tenant.toLowerCase());
+    return [
+      {
+        ...subscription,
+        tenant,
+        tenantName: metadata?.tenantName,
+        tenants: [...subscription.tenants],
+      },
+    ];
+  });
+}
+
 /**
  * Lists subscriptions across all tenants in the active CLI cloud.
  * Tenants that fail (e.g. MFA required) are skipped. Disabled entries remain included.
  *
  * @param refresh - Clears cached tokens and cloud metadata, and refreshes the CLI profile.
+ * @param options.strict - Reject partial discovery if no enabled subscription was found.
  * @returns `{ id, name, tenant, tenantName, status, environmentName }` for each subscription.
  * @throws When cloud configuration or tenants cannot be read, or every tenant fails.
  */
-export async function getSubscriptions(refresh = false): Promise<any[]> {
+export async function getSubscriptions(
+  refresh = false,
+  options?: { strict?: boolean }
+): Promise<any[]> {
   let profile: Map<string, string> | undefined;
+  const nativeSession = hasNativeSession();
+  if (!nativeSession && isAzureExplicitlySignedOut()) {
+    throw new Error('Azure login is required');
+  }
+  const accountGeneration = getAzureAccountGeneration();
+  const discoverySequence = nativeSession ? ++nativeDiscoverySequence : 0;
   if (refresh) {
     clearAzureTokenCaches();
     clearAzureCloudCache();
-    profile = await listCliProfileSubscriptions(true);
+    if (!nativeSession) profile = await listCliProfileSubscriptions(true);
   }
   const cloud = await getAzureCloudEndpoints();
   const cloudOptions = { endpoint: cloud.endpoint, scope: cloud.scope };
@@ -72,12 +123,14 @@ export async function getSubscriptions(refresh = false): Promise<any[]> {
   );
 
   const subscriptions = new Map<string, any>();
-  const listedTenants = new Map<string, { tenant: string; tenantName?: string }[]>();
+  const listedTenants = new Map<string, SubscriptionTenantMetadata[]>();
   const errors: unknown[] = [];
+  const failedTenantIds: string[] = [];
 
   for (const [index, result] of results.entries()) {
     if (result.status === 'rejected') {
       errors.push(result.reason);
+      failedTenantIds.push(tenants[index].tenantId);
       console.warn(
         `Skipping subscriptions for tenant ${tenants[index].tenantId}:`,
         getErrorMessage(result.reason)
@@ -105,9 +158,15 @@ export async function getSubscriptions(refresh = false): Promise<any[]> {
     }
   }
 
-  if (errors.length > 0 && errors.length === tenants.length) throw errors[0];
+  if (
+    errors.length > 0 &&
+    (errors.length === tenants.length ||
+      (options?.strict && ![...subscriptions.values()].some(sub => sub.status === 'Enabled')))
+  ) {
+    throw errors[0];
+  }
   // TODO: Remove this block and the tenant preference below with listCliProfileSubscriptions.
-  if (!profile && subscriptions.size > 0) {
+  if (!nativeSession && !profile && subscriptions.size > 0) {
     profile = await listCliProfileSubscriptions(false);
     if ([...subscriptions.keys()].some(id => !profile!.has(id.toLowerCase()))) {
       profile = await listCliProfileSubscriptions(true);
@@ -118,8 +177,46 @@ export async function getSubscriptions(refresh = false): Promise<any[]> {
     const profileTenant = profile?.get(id.toLowerCase());
     const match = listedTenants.get(id)!.find(t => t.tenant.toLowerCase() === profileTenant);
     if (match) Object.assign(sub, match);
+    sub.tenants = listedTenants.get(id)!.map(value => value.tenant);
   }
-  return [...subscriptions.values()];
+  let discovered = [...subscriptions.values()];
+  if (!nativeSession && isAzureExplicitlySignedOut()) {
+    throw new Error('Azure login is required');
+  }
+  if (nativeSession) {
+    if (accountGeneration !== getAzureAccountGeneration() || !hasNativeSession()) {
+      throw new Error('Azure account changed during subscription discovery');
+    }
+    if (discoverySequence < nativePublishedDiscoverySequence) {
+      if (nativePublishedDiscovery?.accountGeneration !== accountGeneration) {
+        throw new Error('Azure subscription discovery was superseded by a newer result');
+      }
+      return resolveNativeSubscriptionTenants(
+        nativePublishedDiscovery.subscriptions,
+        nativePublishedDiscovery.listedTenants
+      );
+    }
+    if (
+      discoverySequence > nativePublishedDiscoverySequence &&
+      !setNativeSubscriptionTenants(discovered, accountGeneration, failedTenantIds)
+    ) {
+      throw new Error('Azure account changed during subscription discovery');
+    }
+    nativePublishedDiscoverySequence = Math.max(
+      nativePublishedDiscoverySequence,
+      discoverySequence
+    );
+    discovered = resolveNativeSubscriptionTenants(discovered, listedTenants);
+    nativePublishedDiscovery = {
+      accountGeneration,
+      subscriptions: discovered.map(subscription => ({
+        ...subscription,
+        tenants: [...subscription.tenants],
+      })),
+      listedTenants,
+    };
+  }
+  return discovered;
 }
 
 /**
@@ -129,6 +226,7 @@ export async function getSubscriptions(refresh = false): Promise<any[]> {
  * optionally refreshed first.
  */
 async function listCliProfileSubscriptions(refresh: boolean): Promise<Map<string, string>> {
+  if (isAzureExplicitlySignedOut()) throw new Error('Azure login is required');
   const { stdout, stderr } = await runCommandAsync('az', [
     'account',
     'list',

@@ -53,8 +53,8 @@ export function runCommandAsync(
       cmd.stderr.on('data', (data: string) => (stderr += data));
 
       cmd.on('exit', (code: number) => {
-        if (code !== 0 && !stderr) {
-          stderr = `Command exited with code ${code}`;
+        if (code !== 0) {
+          stderr = `Command exited with code ${code}${stderr ? `\n${stderr}` : ''}`;
         }
         done({ stdout, stderr });
       });

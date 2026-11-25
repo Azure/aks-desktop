@@ -2,11 +2,35 @@
 // Licensed under the Apache 2.0.
 
 import type { AccessToken, TokenCredential } from '@azure/identity';
+import { type AzureLoginStatus, getSubscriptionLoginStatus } from '../azure/az-auth';
+import { getAzureCloudEndpoints } from '../azure/az-cloud';
 import { createAzureRequestSignal } from '../azure/az-http';
 import { getSubscriptionCredential, withAbort } from '../azure/az-token';
+import { hasNativeSession, type NativeTokenOptions } from '../azure/native-auth';
 
-const PROMETHEUS_SCOPE = 'https://prometheus.monitor.azure.com/.default';
+const PROMETHEUS_SCOPES: Record<string, string> = {
+  AzureCloud: 'https://prometheus.monitor.azure.com/.default',
+  AzureChinaCloud: 'https://prometheus.monitor.azure.cn/.default',
+};
 const inFlightRefreshes = new Map<string, Promise<AccessToken>>();
+
+const pendingIdentityChecks = new Map<string, Promise<AzureLoginStatus>>();
+
+function getMetricsLoginStatus(subscription: string): Promise<AzureLoginStatus> {
+  const key = subscription.toLowerCase();
+  let pending = pendingIdentityChecks.get(key);
+  if (!pending) {
+    const deadline = createAzureRequestSignal(undefined, 30_000);
+    pending = withAbort(() => getSubscriptionLoginStatus(subscription), deadline.signal).finally(
+      () => {
+        deadline.dispose();
+        if (pendingIdentityChecks.get(key) === pending) pendingIdentityChecks.delete(key);
+      }
+    );
+    pendingIdentityChecks.set(key, pending);
+  }
+  return pending;
+}
 
 /**
  * Refreshes an expired or rejected Prometheus access token, deduplicating concurrent
@@ -16,6 +40,7 @@ const inFlightRefreshes = new Map<string, Promise<AccessToken>>();
  * @param subscription - Azure subscription ID used to key the in-flight refresh.
  * @param credential - Token credential used to clear the cached token (if supported) and acquire a new one.
  * @param rejectedToken - The bearer token string that received a 401 response.
+ * @param scope - The selected cloud's Prometheus token scope.
  * @param signal - Cancellation signal for the caller's wait; the underlying refresh still completes for other waiters.
  * @returns A fresh Prometheus {@link AccessToken}.
  * @throws {Error} When the credential fails to return a non-empty access token or the caller's signal aborts.
@@ -24,18 +49,20 @@ function refreshPrometheusToken(
   subscription: string,
   credential: TokenCredential,
   rejectedToken: string,
+  scope: string,
   signal: AbortSignal
 ): Promise<AccessToken> {
-  const key = `${subscription}|${rejectedToken}`;
+  const key = `${subscription.toLowerCase()}|${scope}|${rejectedToken}`;
   const pending = inFlightRefreshes.get(key);
   if (pending) {
     return withAbort(() => pending, signal);
   }
   const refresh = (async () => {
     if ('clearCache' in credential && typeof credential.clearCache === 'function') {
-      (credential.clearCache as (scope?: string) => void)(PROMETHEUS_SCOPE);
+      (credential.clearCache as (scope?: string) => void)(scope);
     }
-    const next = await credential.getToken(PROMETHEUS_SCOPE);
+    const options: NativeTokenOptions = { rejectedToken };
+    const next = await credential.getToken(scope, options);
     if (!next?.token) {
       throw new Error('Failed to acquire Prometheus access token');
     }
@@ -92,6 +119,22 @@ export async function queryPrometheus(
       throw new Error('Prometheus query endpoint must use HTTPS');
     }
 
+    let scope = PROMETHEUS_SCOPES.AzureCloud;
+    if (!options.credential) {
+      const cliAccount = hasNativeSession()
+        ? undefined
+        : await withAbort(() => getMetricsLoginStatus(subscription), linked.signal);
+      if (cliAccount && !cliAccount.isLoggedIn) {
+        throw new Error(
+          cliAccount.error ?? 'Azure login is required for the selected subscription'
+        );
+      }
+      const cloud = await getAzureCloudEndpoints(cliAccount?.environmentName, linked.signal);
+      scope = PROMETHEUS_SCOPES[cloud.name];
+      if (!scope) {
+        throw new Error(`Prometheus metrics are not supported for Azure cloud ${cloud.name}`);
+      }
+    }
     const credential = options.credential ?? getSubscriptionCredential(subscription);
     const rangeUrl = `${baseUrl}/api/v1/query_range`;
 
@@ -117,7 +160,7 @@ export async function queryPrometheus(
     };
 
     let accessToken = await withAbort(
-      () => credential.getToken(PROMETHEUS_SCOPE, { abortSignal: linked.signal }),
+      () => credential.getToken(scope, { abortSignal: linked.signal }),
       linked.signal
     );
     let response = await sendQuery(accessToken);
@@ -126,6 +169,7 @@ export async function queryPrometheus(
         subscription,
         credential,
         accessToken.token,
+        scope,
         linked.signal
       );
       response = await sendQuery(accessToken);

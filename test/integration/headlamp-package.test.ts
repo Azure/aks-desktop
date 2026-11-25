@@ -279,6 +279,26 @@ test('AKS supplies GitHub OAuth identity through its generated product manifest'
   }
 });
 
+test('AKS supplies its Azure OAuth scopes through the generated product manifest', () => {
+  const { createProductTemplate } = require(
+    path.join(PACKAGE_DIR, 'src', 'lib', 'product-manifest.ts')
+  );
+  const { validateBuildManifest } = require(
+    path.join(HEADLAMP_SOURCE_DIR, 'app', 'scripts', 'build-manifest.ts')
+  );
+  const configuration = rootManifest.headlamp.azureOAuth;
+  const publicCloud = configuration.clouds.find(cloud => cloud.name === 'AzureCloud');
+  const chinaCloud = configuration.clouds.find(cloud => cloud.name === 'AzureChinaCloud');
+  assert.ok(publicCloud);
+  assert.ok(chinaCloud);
+  assert.ok(publicCloud.scopes.includes('https://prometheus.monitor.azure.com/.default'));
+  assert.ok(chinaCloud.scopes.includes('https://prometheus.monitor.azure.cn/.default'));
+  for (const platform of ['linux', 'darwin', 'win32']) {
+    const manifest = validateBuildManifest(createProductTemplate(rootManifest, platform));
+    assert.deepEqual(manifest.azureOAuth, configuration);
+  }
+});
+
 test('the installed host provides the GitHub sign-in, callback and refresh bridge', () => {
   const electronFile = (name: string) => fs.readFileSync(
     path.join(HEADLAMP_SOURCE_DIR, 'app', 'electron', name), 'utf8'
@@ -846,7 +866,6 @@ test('AKS product policy owns development and production command grants', () => 
     'group',
     'monitor',
     'rest',
-    'version',
     'vm',
   ]) {
     assert.equal(

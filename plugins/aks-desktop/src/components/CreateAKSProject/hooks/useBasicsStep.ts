@@ -402,7 +402,11 @@ export function useBasicsStep(props: UseBasicsStepInput): UseBasicsStepResult {
   // ---------------------------------------------------------------------------
 
   const handleInputChange = <K extends keyof FormData>(field: K, value: FormData[K]) => {
-    onFormDataChange({ [field]: value } as Pick<FormData, K>);
+    const updates = { [field]: value } as Partial<FormData>;
+    if (field === 'subscription' && value !== formData.subscription) {
+      updates.userAssignments = [];
+    }
+    onFormDataChange(updates);
   };
 
   const handleClusterChange = (clusterValue: string) => {

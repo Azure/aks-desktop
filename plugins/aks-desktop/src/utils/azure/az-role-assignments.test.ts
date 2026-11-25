@@ -426,6 +426,25 @@ describe('REST role assignment creation', () => {
     });
   });
 
+  test('stops a role batch before subsequent grants after tenant cancellation', async () => {
+    const controller = new AbortController();
+    mocks.fetch.mockImplementationOnce(async () => {
+      controller.abort(new Error('Selected tenant changed'));
+      return json({ properties: properties() }, 201);
+    });
+    await expect(
+      assignAzureRoles({
+        ...options,
+        signal: controller.signal,
+        roles: [
+          { role, scope: clusterScope },
+          { role, scope: namespaceScope },
+        ],
+      })
+    ).rejects.toThrow('Selected tenant changed');
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+  });
+
   test.each([
     `${groupScope}/../other`,
     `${groupScope}/%2f..%2fother`,
