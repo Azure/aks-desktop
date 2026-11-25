@@ -1,12 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import {
-  parseCpu,
-  parseRam,
-  TO_ONE_M_CPU,
-  unparseRam,
-} from '@kinvolk/headlamp-plugin/lib/lib/units';
+import { unparseRam } from '@kinvolk/headlamp-plugin/lib/lib/units';
 
 /**
  * Parses a Kubernetes CPU quantity string to millicores.
@@ -21,22 +16,27 @@ export function parseCpuToMillicores(val: string): number {
   const s = String(val).trim();
   if (!s) return 0;
 
-  // µ suffix not handled by Headlamp's parseCpu
-  if (s.endsWith('µ')) {
-    const n = parseFloat(s.slice(0, -1));
-    return Number.isFinite(n) ? Math.round(n * 1e-3) : 0;
-  }
-
-  // For suffix-based values (m, n, u), delegate to Headlamp
-  if (s.endsWith('m') || s.endsWith('n') || s.endsWith('u')) {
-    const result = Math.round(parseCpu(s) / TO_ONE_M_CPU);
-    return Number.isFinite(result) ? result : 0;
-  }
-
-  // Plain numeric values — use parseFloat to support fractional cores (e.g. "0.5")
-  // since Headlamp's parseCpu uses parseInt which truncates these
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? Math.round(n * 1000) : 0;
+  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)([numkMGTPEµ]?)$/.exec(s);
+  if (!match) return 0;
+  if (match[2] && /e/i.test(match[1])) return 0;
+  const value = Number(match[1]);
+  const factors: Record<string, number> = {
+    '': 1000,
+    m: 1,
+    k: 1_000_000,
+    M: 1_000_000_000,
+    G: 1_000_000_000_000,
+    T: 1_000_000_000_000_000,
+    P: 1_000_000_000_000_000_000,
+    E: 1_000_000_000_000_000_000_000,
+  };
+  const result =
+    match[2] === 'n'
+      ? value / 1_000_000
+      : match[2] === 'u' || match[2] === 'µ'
+      ? value / 1000
+      : value * factors[match[2]];
+  return Number.isFinite(result) ? result : 0;
 }
 
 /**
@@ -52,14 +52,44 @@ export function parseMemoryToBytes(val: string): number {
   const s = String(val).trim();
   if (!s) return 0;
 
-  // Headlamp's parseRam doesn't support lowercase 'k'
-  if (s.endsWith('k')) {
-    const n = parseFloat(s.slice(0, -1));
-    return Number.isFinite(n) ? Math.round(n * 1000) : 0;
+  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)([EPTGMK]i?|[kmnu])?$/.exec(s);
+  if (match) {
+    if (match[2] && /e/i.test(match[1])) return 0;
+    const value = Number(match[1]);
+    const unit = match[2] ?? '';
+    const factors: Record<string, number> = {
+      '': 1,
+      m: 0.001,
+      u: 0.000001,
+      n: 0.000000001,
+      k: 1000,
+      K: 1000,
+      Ki: 1024,
+      M: 1000 ** 2,
+      Mi: 1024 ** 2,
+      G: 1000 ** 3,
+      Gi: 1024 ** 3,
+      T: 1000 ** 4,
+      Ti: 1024 ** 4,
+      P: 1000 ** 5,
+      Pi: 1024 ** 5,
+      E: 1000 ** 6,
+      Ei: 1024 ** 6,
+    };
+    const factor = factors[unit];
+    if (factor !== undefined && Number.isFinite(value)) {
+      const result =
+        unit === 'm'
+          ? value / 1000
+          : unit === 'u'
+          ? value / 1_000_000
+          : unit === 'n'
+          ? value / 1_000_000_000
+          : value * factor;
+      return Number.isFinite(result) ? result : 0;
+    }
   }
-
-  const result = parseRam(s);
-  return Number.isFinite(result) ? result : 0;
+  return 0;
 }
 
 /**

@@ -207,6 +207,55 @@ describe('useInfoTab', () => {
     expect(result.current.formData.memoryLimit).toBe(256);
   });
 
+  test('pre-populates standard ARM CPU and memory quantity units', async () => {
+    mockGetManagedNamespaceDetails.mockResolvedValue(
+      createNamespaceDetails({
+        cpuRequest: '2',
+        cpuLimit: '2500m',
+        memoryRequest: '2Gi',
+        memoryLimit: '4Gi',
+      })
+    );
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.formData).toMatchObject({
+      cpuRequest: 2000,
+      cpuLimit: 2500,
+      memoryRequest: 2048,
+      memoryLimit: 4096,
+    });
+  });
+
+  test('preserves fractional CPU quantities from decimal SI units', async () => {
+    mockGetManagedNamespaceDetails.mockResolvedValue(
+      createNamespaceDetails({
+        cpuRequest: '250u',
+        cpuLimit: '1k',
+      })
+    );
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.formData).toMatchObject({
+      cpuRequest: 0.25,
+      cpuLimit: 1_000_000,
+    });
+  });
+
+  test('preserves fractional MiB ARM quantities', async () => {
+    mockGetManagedNamespaceDetails.mockResolvedValue(
+      createNamespaceDetails({
+        memoryRequest: '262656Ki',
+        memoryLimit: '256.5Mi',
+      })
+    );
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.formData).toMatchObject({
+      memoryRequest: 256.5,
+      memoryLimit: 256.5,
+    });
+  });
+
   test('falls back to AllowSameNamespace for unrecognised ingress policy value', async () => {
     mockGetManagedNamespaceDetails.mockResolvedValue(
       createNamespaceDetails({ ingress: 'InvalidPolicy' })
@@ -345,6 +394,135 @@ describe('useInfoTab', () => {
     expect(result.current.hasChanges).toBe(false);
   });
 
+  test('handleSave reconciles untouched fields with the returned resource', async () => {
+    mockUpdateManagedNamespace.mockResolvedValue(
+      createNamespaceDetails({
+        ingress: 'DenyAll',
+        cpuRequest: '700m',
+      })
+    );
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+
+    await act(async () => {
+      await result.current.handleSave();
+      await waitFor(() => expect(result.current.updating).toBe(false));
+    });
+
+    expect(result.current.formData).toMatchObject({
+      ingress: 'DenyAll',
+      cpuRequest: 700,
+    });
+    expect(result.current.hasChanges).toBe(false);
+  });
+
+  test('handleSave preserves edits made while the update is in flight', async () => {
+    let finish!: (value: unknown) => void;
+    mockUpdateManagedNamespace.mockReturnValue(
+      new Promise(resolve => {
+        finish = resolve;
+      })
+    );
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    act(() => result.current.handleSave());
+    act(() => result.current.handleFormDataChange({ cpuRequest: 600 }));
+
+    act(() => {
+      finish(
+        createNamespaceDetails({
+          ingress: 'DenyAll',
+          cpuRequest: '700m',
+          memoryLimit: '768Mi',
+        })
+      );
+    });
+
+    await waitFor(() => expect(result.current.updating).toBe(false));
+
+    expect(result.current.formData).toMatchObject({
+      ingress: 'DenyAll',
+      cpuRequest: 600,
+      memoryLimit: 768,
+    });
+    expect(result.current.hasChanges).toBe(true);
+  });
+
+  test('handleSave revalidates reconciled fields from the final resource', async () => {
+    mockUpdateManagedNamespace.mockResolvedValue(
+      createNamespaceDetails({
+        ingress: 'DenyAll',
+        cpuRequest: '800m',
+        cpuLimit: '700m',
+      })
+    );
+    const { result } = renderHook(() => useInfoTab(defaultProject));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    await act(async () => {
+      await result.current.handleSave();
+      await waitFor(() => expect(result.current.updating).toBe(false));
+    });
+
+    expect(result.current.formData).toMatchObject({
+      ingress: 'DenyAll',
+      cpuRequest: 800,
+      cpuLimit: 700,
+    });
+    expect(result.current.validation.isValid).toBe(false);
+    expect(result.current.validation.errors).toContain(
+      'CPU requests cannot be greater than CPU limits'
+    );
+  });
+
+  test('handleSave ignores a late save response after the namespace scope changes', async () => {
+    let finish!: (value: unknown) => void;
+    mockUpdateManagedNamespace.mockReturnValue(
+      new Promise(resolve => {
+        finish = resolve;
+      })
+    );
+    const { result, rerender } = renderHook(({ project }) => useInfoTab(project), {
+      initialProps: { project: defaultProject },
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    act(() => result.current.handleSave());
+    mockGetManagedNamespaceDetails.mockResolvedValue(
+      createNamespaceDetails({ cpuRequest: '1500m' })
+    );
+    rerender({
+      project: { ...defaultProject, id: 'other-project', namespaces: ['other-namespace'] },
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => finish(createNamespaceDetails({ ingress: 'DenyAll', cpuRequest: '700m' })));
+    await waitFor(() => expect(result.current.formData.cpuRequest).toBe(1500));
+    expect(result.current.formData.ingress).toBe('AllowSameNamespace');
+    expect(result.current.updating).toBe(false);
+  });
+
+  test('handleSave ignores a late save error after the namespace scope changes', async () => {
+    let fail!: (error: Error) => void;
+    mockUpdateManagedNamespace.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      })
+    );
+    const { result, rerender } = renderHook(({ project }) => useInfoTab(project), {
+      initialProps: { project: defaultProject },
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleFormDataChange({ ingress: 'DenyAll' }));
+    act(() => result.current.handleSave());
+    rerender({
+      project: { ...defaultProject, id: 'other-project', namespaces: ['other-namespace'] },
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => fail(new Error('old save failed')));
+    await waitFor(() => expect(result.current.error).toBeNull());
+  });
   test('handleSave leaves updating as false when updateManagedNamespace throws', async () => {
     mockUpdateManagedNamespace.mockRejectedValue(new Error('update failed'));
 
