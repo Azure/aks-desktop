@@ -1,0 +1,609 @@
+From 7f5186346eccf63ea7b4ebcd3f623756bc3c0129 Mon Sep 17 00:00:00 2001
+From: jgsuess <782737+jgsuess@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 10:30:25 +1000
+Subject: [PATCH] frontend: ClusterTable: Fix registerClusterStatus
+ fall-through
+
+ClusterStatus rendered each registered status callback as a JSX element
+and treated a null result as "not handled". A JSX element is never null,
+so the first registered callback always won: when it rendered null (as
+the minikube plugin does for non-minikube clusters), the Status cell
+stayed empty and later callbacks and the default status never showed.
+
+Each callback now runs in its own small component, called as a
+function so that null or undefined falls through to the next callback
+and finally to the default status. Running each callback in its own
+component instance, keyed by the callback's identity rather than its
+position, keeps hooks inside callbacks valid across re-renders and
+when plugins register more callbacks, so existing plugins whose status
+component uses hooks keep working. Calling the callbacks directly from
+ClusterStatus would attach their hooks to ClusterStatus and crash it on
+the next render.
+
+A callback that throws is caught by the existing ErrorBoundary and the
+next callback is tried, so one broken plugin does not blank the cell.
+
+The rest of the chain is passed on as a single element and expanded
+only when a link falls through or throws, so a render builds one link
+per callback tried rather than the whole remaining chain at every link.
+
+The registerClusterStatus docs now describe the fall-through contract.
+The section in docs/development/api/modules/plugin_registry.md is
+written by hand: running TypeDoc rewrites the whole generated tree in a
+newer layout.
+---
+ .../api/modules/plugin_registry.md            |  42 +++
+ .../App/Home/ClusterStatus.test.tsx           | 310 ++++++++++++++++++
+ .../src/components/App/Home/ClusterTable.tsx  | 135 ++++++--
+ frontend/src/plugin/registry.tsx              |  10 +-
+ 4 files changed, 473 insertions(+), 24 deletions(-)
+ create mode 100644 frontend/src/components/App/Home/ClusterStatus.test.tsx
+
+diff --git a/docs/development/api/modules/plugin_registry.md b/docs/development/api/modules/plugin_registry.md
+index 6fec43fd4..7748d9110 100644
+--- a/docs/development/api/modules/plugin_registry.md
++++ b/docs/development/api/modules/plugin_registry.md
+@@ -430,6 +430,48 @@ registerClusterEmptyState(({ defaultContent }) => (
+ 
+ ___
+ 
++### registerClusterStatus
++
++▸ **registerClusterStatus**(`item`): `void`
++
++Register a new cluster status component.
++
++Registered callbacks are tried in registration order for each cluster row;
++the first one that returns a React element is shown. Return `null` to let
++the next registered callback (and finally Headlamp's default status) handle
++the cluster. Each callback is called as a plain function inside its own
++component, so it may use hooks. It must be a function: a class component,
++`React.memo` or `defaultProps` will not work.
++
++**`example`**
++
++```tsx
++import { registerClusterStatus } from '@kinvolk/headlamp-plugin/lib';
++import { ClusterStatus } from './ClusterStatus';
++registerClusterStatus(({ cluster, error }) => {
++  if (!isElectron() || !isMinikube(cluster)) {
++    return null;
++  }
++  return <ClusterStatus cluster={cluster} error={error} />;
++});
++```
++
++#### Parameters
++
++| Name | Type | Description |
++| :------ | :------ | :------ |
++| `item` | `ClusterStatusComponent` | The component to register. Receives `{ cluster, error }` props. |
++
++#### Returns
++
++`void`
++
++#### Defined in
++
++[plugin/registry.tsx:978](https://github.com/kubernetes-sigs/headlamp/blob/main/frontend/src/plugin/registry.tsx#L978)
++
++___
++
+ ### registerCustomCreateProject
+ 
+ ▸ **registerCustomCreateProject**(`customCreateProject`): `void`
+diff --git a/frontend/src/components/App/Home/ClusterStatus.test.tsx b/frontend/src/components/App/Home/ClusterStatus.test.tsx
+new file mode 100644
+index 000000000..090d670eb
+--- /dev/null
++++ b/frontend/src/components/App/Home/ClusterStatus.test.tsx
+@@ -0,0 +1,310 @@
++/*
++ * Copyright 2025 The Kubernetes Authors
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { configureStore } from '@reduxjs/toolkit';
++import { render, screen } from '@testing-library/react';
++import { act, useReducer, useState } from 'react';
++import { Provider } from 'react-redux';
++import { describe, expect, it, vi } from 'vitest';
++import clusterProviderReducer, {
++  addClusterStatus,
++  type ClusterStatusComponent,
++  initialState,
++} from '../../../redux/clusterProviderSlice';
++import { ClusterStatus } from './ClusterTable';
++
++vi.mock('react-i18next', async importOriginal => {
++  const actual: any = await importOriginal();
++  return {
++    ...actual,
++    useTranslation: () => ({
++      t: (key: string) => key,
++      i18n: { changeLanguage: vi.fn() },
++    }),
++  };
++});
++
++vi.mock('@mui/material/styles', async importOriginal => {
++  const actual: any = await importOriginal();
++  return {
++    ...actual,
++    useTheme: () => ({
++      palette: {
++        home: { status: { error: '#f00', success: '#0f0', unknown: '#999' } },
++        common: { primary: '#00f' },
++        text: { secondary: '#555' },
++      },
++      spacing: (n: number) => `${n * 8}px`,
++    }),
++  };
++});
++
++function makeStore(clusterStatuses: ClusterStatusComponent[]) {
++  return configureStore({
++    reducer: { clusterProvider: clusterProviderReducer },
++    preloadedState: {
++      clusterProvider: { ...initialState, clusterStatuses },
++    },
++    // clusterStatuses holds functions, which aren't serializable; matches the app's
++    // own store config (redux/stores/store.tsx), which disables this check too.
++    middleware: getDefaultMiddleware => getDefaultMiddleware({ serializableCheck: false }),
++  });
++}
++
++const mockCluster = { name: 'test-cluster', server: 'https://k8s.example.com' } as any;
++
++// isConnected=true and error=null bypass the "Not connected" / "Connecting…" states
++// so the callback loop and the default active-status fallback are exercised directly.
++const connectedProps = { isConnected: true, onConnect: vi.fn(), error: null };
++
++describe('ClusterStatus — registerClusterStatus callback loop', () => {
++  it('first callback returns null, second returns a chip — chip shown', () => {
++    const firstReturnsNull: ClusterStatusComponent = () => null;
++    const secondReturnsChip: ClusterStatusComponent = () => (
++      <span data-testid="custom-status">SSO Active</span>
++    );
++
++    render(
++      <Provider store={makeStore([firstReturnsNull, secondReturnsChip])}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++
++    expect(screen.getByTestId('custom-status')).toBeInTheDocument();
++  });
++
++  it('all callbacks return null — no chip, default "Active" text shown', () => {
++    const alwaysNull: ClusterStatusComponent = () => null;
++
++    render(
++      <Provider store={makeStore([alwaysNull])}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++
++    expect(screen.queryByTestId('custom-status')).not.toBeInTheDocument();
++    expect(screen.getByText('translation|Active')).toBeInTheDocument();
++  });
++
++  it('no callbacks registered — default "Active" shown', () => {
++    render(
++      <Provider store={makeStore([])}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++
++    expect(screen.getByText('translation|Active')).toBeInTheDocument();
++  });
++
++  it('first returns a chip, second is a spy — second never called', () => {
++    const secondSpy = vi.fn(() => <span data-testid="second">Second</span>);
++    const firstReturnsChip: ClusterStatusComponent = () => <span data-testid="first">First</span>;
++
++    render(
++      <Provider store={makeStore([firstReturnsChip, secondSpy])}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++
++    expect(screen.getByTestId('first')).toBeInTheDocument();
++    expect(screen.queryByTestId('second')).not.toBeInTheDocument();
++    expect(secondSpy).not.toHaveBeenCalled();
++  });
++
++  it('chain is built lazily: callbacks after the one that matches are never looked up', () => {
++    // Builds the remaining chain only when a link falls through or throws. An eager
++    // chain would read every later callback (to key its boundary) at every link,
++    // which is quadratic in the number of registered callbacks.
++    const callbacks: ClusterStatusComponent[] = [
++      () => null,
++      () => <span data-testid="second">Second</span>,
++      ...Array.from({ length: 8 }, () => () => null),
++    ];
++    const readIndexes = new Set<number>();
++    const tracked = new Proxy(callbacks, {
++      get(target, prop, receiver) {
++        if (typeof prop === 'string' && /^\d+$/.test(prop)) {
++          readIndexes.add(Number(prop));
++        }
++        return Reflect.get(target, prop, receiver);
++      },
++    });
++
++    const store = makeStore(tracked);
++    // Only count reads made while rendering, not by the store's own setup checks.
++    readIndexes.clear();
++    render(
++      <Provider store={store}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++
++    expect(screen.getByTestId('second')).toBeInTheDocument();
++    expect([...readIndexes].sort()).toEqual([0, 1]);
++  });
++
++  it('callback returns undefined — falls through to next callback chip', () => {
++    const returnsUndefined: ClusterStatusComponent = () => undefined as any;
++    const recoveryCallback: ClusterStatusComponent = () => (
++      <span data-testid="recovery-status">Recovery</span>
++    );
++
++    render(
++      <Provider store={makeStore([returnsUndefined, recoveryCallback])}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++
++    expect(screen.getByTestId('recovery-status')).toBeInTheDocument();
++  });
++
++  it('callback throws — next callback chip is shown', () => {
++    // ErrorBoundary and React both log the caught error; silence output so the
++    // expected failure mode does not spam the test runner.
++    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
++
++    const throwingCallback: ClusterStatusComponent = () => {
++      throw new Error('callback failed');
++    };
++    const recoveryCallback: ClusterStatusComponent = () => (
++      <span data-testid="recovery-status">Recovery</span>
++    );
++
++    render(
++      <Provider store={makeStore([throwingCallback, recoveryCallback])}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++
++    expect(screen.getByTestId('recovery-status')).toBeInTheDocument();
++
++    consoleErrorSpy.mockRestore();
++  });
++
++  it('hooks are legal: useState callback renders after rerender with same props and different cluster', () => {
++    let count = 0;
++    const HookCb: ClusterStatusComponent = () => {
++      const [value] = useState(() => `hooked-${count++}`);
++      return <span data-testid="hooked">{value}</span>;
++    };
++
++    const store = makeStore([HookCb]);
++    const { rerender } = render(
++      <Provider store={store}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++
++    expect(screen.getByTestId('hooked')).toHaveTextContent('hooked-0');
++
++    // Rerender with same props — hook state must be stable.
++    rerender(
++      <Provider store={store}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++    expect(screen.getByTestId('hooked')).toHaveTextContent('hooked-0');
++
++    // Rerender with a different cluster object — callback receives new props,
++    // but its hook instance must remain mounted without throwing.
++    const otherCluster = { name: 'other-cluster', server: 'https://other.example.com' } as any;
++    rerender(
++      <Provider store={store}>
++        <ClusterStatus cluster={otherCluster} {...connectedProps} />
++      </Provider>
++    );
++    // Same instance (no remount): the lazy initializer ran only once.
++    expect(screen.getByTestId('hooked')).toHaveTextContent('hooked-0');
++  });
++
++  it('hooks + fall-through: hook-using null callback before chip callback — chip shown after rerender', () => {
++    const HookNullCb: ClusterStatusComponent = () => {
++      const [on] = useState(false);
++      return on ? <i /> : null;
++    };
++    const ChipCb: ClusterStatusComponent = () => <span data-testid="hook-chain-chip">chip</span>;
++
++    const store = makeStore([HookNullCb, ChipCb]);
++    const { rerender } = render(
++      <Provider store={store}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++
++    expect(screen.getByTestId('hook-chain-chip')).toBeInTheDocument();
++
++    rerender(
++      <Provider store={store}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++    expect(screen.getByTestId('hook-chain-chip')).toBeInTheDocument();
++  });
++
++  it('registration change: a callback inserted ahead of hook-using callbacks does not inherit their hook state', () => {
++    // Callbacks with different hook counts. Keying links by index would hand
++    // HookNullCb's hook state to TwoHookCb and make React throw.
++    const HookNullCb: ClusterStatusComponent = () => {
++      const [on] = useState(false);
++      return on ? <i /> : null;
++    };
++    const HookChipCb: ClusterStatusComponent = () => {
++      const [label] = useState('chip-from-hook');
++      return <span data-testid="hook-chip">{label}</span>;
++    };
++    const TwoHookCb: ClusterStatusComponent = () => {
++      const [a] = useState(0);
++      const [b] = useReducer((x: number) => x, 0);
++      return a + b > 0 ? <i /> : null;
++    };
++
++    // Test-only reducer wrapper so the registered list can be reordered in
++    // place (the slice itself only appends), keeping the same mounted tree.
++    const store = configureStore({
++      reducer: {
++        clusterProvider: (state: any, action: any) =>
++          action.type === 'test/setStatuses'
++            ? { ...state, clusterStatuses: action.payload }
++            : clusterProviderReducer(state, action),
++      },
++      preloadedState: makeStore([HookNullCb, HookChipCb]).getState(),
++      middleware: getDefaultMiddleware => getDefaultMiddleware({ serializableCheck: false }),
++    });
++
++    render(
++      <Provider store={store}>
++        <ClusterStatus cluster={mockCluster} {...connectedProps} />
++      </Provider>
++    );
++    expect(screen.getByTestId('hook-chip')).toBeInTheDocument();
++
++    // The ErrorBoundary would hide a hook-order crash behind the fall-through,
++    // so assert that React reported no error at all.
++    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
++    act(() => {
++      store.dispatch({ type: 'test/setStatuses', payload: [TwoHookCb, HookNullCb, HookChipCb] });
++    });
++    expect(screen.getByTestId('hook-chip')).toBeInTheDocument();
++    expect(consoleErrorSpy).not.toHaveBeenCalled();
++    consoleErrorSpy.mockRestore();
++
++    // A runtime registration through the real slice action keeps working too.
++    act(() => {
++      store.dispatch(addClusterStatus(() => null));
++    });
++    expect(screen.getByTestId('hook-chip')).toBeInTheDocument();
++  });
++});
+diff --git a/frontend/src/components/App/Home/ClusterTable.tsx b/frontend/src/components/App/Home/ClusterTable.tsx
+index 5b7c613eb..9b0e30413 100644
+--- a/frontend/src/components/App/Home/ClusterTable.tsx
++++ b/frontend/src/components/App/Home/ClusterTable.tsx
+@@ -25,7 +25,7 @@ import {
+   MRT_SortingState,
+   MRT_VisibilityState,
+ } from 'material-react-table';
+-import { useCallback, useMemo, useState } from 'react';
++import { useCallback, useState } from 'react';
+ import { useTranslation } from 'react-i18next';
+ import { generatePath, useHistory } from 'react-router-dom';
+ import { getClusterAppearanceFromMeta } from '../../../helpers/clusterAppearance';
+@@ -38,8 +38,10 @@ import { ApiError } from '../../../lib/k8s/api/v2/ApiError';
+ import { Cluster } from '../../../lib/k8s/cluster';
+ import { createRouteURL } from '../../../lib/router/createRouteURL';
+ import { getClusterPrefixedPath } from '../../../lib/util';
++import { ClusterStatusComponent } from '../../../redux/clusterProviderSlice';
+ import { useTypedSelector } from '../../../redux/hooks';
+ import { Loader } from '../../common';
++import ErrorBoundary from '../../common/ErrorBoundary';
+ import Link from '../../common/Link';
+ import Table from '../../common/Table';
+ import { LightTooltip } from '../../common/Tooltip';
+@@ -58,15 +60,24 @@ import { CONNECT_ON_CLUSTER_LINK, MULTI_HOME_ENABLED } from './config';
+ import { getCustomClusterNames } from './customClusterNames';
+ import RegisteredClusterEmptyState from './RegisteredClusterEmptyState';
+ 
++// Module-level map so each registered callback gets a stable numeric key that
++// is derived from its identity, not from its position in the array.
++const statusKeyMap = new WeakMap<ClusterStatusComponent, number>();
++let statusKeyCounter = 0;
++
++function getStatusKey(fn: ClusterStatusComponent): string {
++  if (!statusKeyMap.has(fn)) {
++    statusKeyMap.set(fn, statusKeyCounter++);
++  }
++  return String(statusKeyMap.get(fn));
++}
++
+ /**
+- * ClusterStatus component displays the status of a cluster.
+- * It shows an icon and a message indicating whether the cluster is active, loading, unavailable,
+- * requires authentication, has insufficient permissions, or has an unhealthy control plane.
+- *
+- * @param {Object} props - The component props.
+- * @param {ApiError|null} [props.error] - The error object if there is an error with the cluster.
++ * Renders Headlamp's built-in cluster status (the "Active", "Connecting…",
++ * "Not connected", or error variant). Extracted so ClusterStatus can use it
++ * as the terminal fallback of the callback chain.
+  */
+-function ClusterStatus({
++function DefaultClusterStatus({
+   error,
+   cluster,
+   isConnected,
+@@ -81,20 +92,6 @@ function ClusterStatus({
+ }) {
+   const { t } = useTranslation(['translation']);
+   const theme = useTheme();
+-  const customStatuses = useTypedSelector(state => state.clusterProvider.clusterStatuses);
+-  const renderedCustomStatus = useMemo(() => {
+-    for (const Status of customStatuses) {
+-      const renderedStatus = <Status cluster={cluster} error={error} />;
+-      if (renderedStatus !== null) {
+-        return renderedStatus;
+-      }
+-    }
+-    return null;
+-  }, [customStatuses, cluster, error]);
+-
+-  if (renderedCustomStatus !== null) {
+-    return renderedCustomStatus;
+-  }
+ 
+   // Not in the auto-connect set and not yet contacted: show an explicit
+   // "not connected" state with a connect action instead of the ambiguous "⋯".
+@@ -156,6 +153,100 @@ function ClusterStatus({
+   );
+ }
+ 
++interface StatusLinkProps {
++  statuses: ClusterStatusComponent[];
++  index: number;
++  cluster: Cluster;
++  error?: ApiError | null;
++  fallback: React.ReactElement;
++}
++
++/**
++ * Renders link `index` of the status callback chain, or the fallback once every
++ * callback has been tried.
++ *
++ * Each link is keyed by the identity of the callback it runs (not its index),
++ * so when plugins register more callbacks a link never inherits another
++ * callback's hook state. A callback that throws is caught by the link's
++ * ErrorBoundary, which renders the next link instead.
++ *
++ * The rest of the chain is passed on as a single `StatusChain` element, so it
++ * is only expanded when React actually renders it: when this link's callback
++ * returns null, or when it throws. Each render therefore builds one link per
++ * callback tried, not the whole remaining chain at every link.
++ */
++function StatusChain(props: StatusLinkProps) {
++  const { statuses, index, fallback } = props;
++  if (index >= statuses.length) {
++    return fallback;
++  }
++  return (
++    <ErrorBoundary
++      key={getStatusKey(statuses[index])}
++      fallback={<StatusChain {...props} index={index + 1} />}
++    >
++      <ClusterStatusLink {...props} />
++    </ErrorBoundary>
++  );
++}
++
++/**
++ * Runs one registered status callback. The callback is called as a function so
++ * that a null (or undefined) result can fall through to the next link; a JSX
++ * element would never be null. Because each callback runs in its own component
++ * instance, callbacks may use hooks.
++ */
++function ClusterStatusLink(props: StatusLinkProps) {
++  const { statuses, index, cluster, error } = props;
++  const result = statuses[index]({ cluster, error });
++  if (result !== null && result !== undefined) {
++    return result;
++  }
++  return <StatusChain {...props} index={index + 1} />;
++}
++
++/**
++ * ClusterStatus component displays the status of a cluster.
++ * It shows an icon and a message indicating whether the cluster is active, loading, unavailable,
++ * requires authentication, has insufficient permissions, or has an unhealthy control plane.
++ *
++ * @param {Object} props - The component props.
++ * @param {ApiError|null} [props.error] - The error object if there is an error with the cluster.
++ */
++export function ClusterStatus({
++  error,
++  cluster,
++  isConnected,
++  onConnect,
++}: {
++  error?: ApiError | null;
++  cluster: Cluster;
++  /** Whether the cluster is in the auto-connect set (i.e. being polled). */
++  isConnected: boolean;
++  /** Connect to the cluster on demand so its status is loaded. */
++  onConnect: (clusterName: string) => void;
++}) {
++  const customStatuses = useTypedSelector(state => state.clusterProvider.clusterStatuses);
++  const defaultStatus = (
++    <DefaultClusterStatus
++      cluster={cluster}
++      error={error}
++      isConnected={isConnected}
++      onConnect={onConnect}
++    />
++  );
++
++  return (
++    <StatusChain
++      statuses={customStatuses}
++      index={0}
++      cluster={cluster}
++      error={error}
++      fallback={defaultStatus}
++    />
++  );
++}
++
+ export interface ClusterTableProps {
+   /** Some clusters have custom names. */
+   customNameClusters: ReturnType<typeof getCustomClusterNames>;
+diff --git a/frontend/src/plugin/registry.tsx b/frontend/src/plugin/registry.tsx
+index 87eda435e..ef9cc4296 100644
+--- a/frontend/src/plugin/registry.tsx
++++ b/frontend/src/plugin/registry.tsx
+@@ -950,8 +950,14 @@ export function registerClusterProviderMenuItem(item: MenuItemComponent) {
+ /**
+  * Register a new cluster status component.
+  *
+- * @param item - The component to add to the cluster status.
+- * Item is a function/component and its props are cluster and error.
++ * Registered callbacks are tried in registration order for each cluster row;
++ * the first one that returns a React element is shown. Return `null` to let
++ * the next registered callback (and finally Headlamp's default status) handle
++ * the cluster. Each callback is called as a plain function inside its own
++ * component, so it may use hooks. It must be a function: a class component,
++ * `React.memo` or `defaultProps` will not work.
++ *
++ * @param item - The component to register. Receives `{ cluster, error }` props.
+  *
+  * @example
+  * ```tsx

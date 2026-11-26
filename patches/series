@@ -1,4 +1,5 @@
 0080 source 0080-headlamp-aks-desktop-host-marker.patch
+5681 source 5681-headlamp-upstream-cluster-status-fallthrough.patch
 7505 source 7505-headlamp-upstream-cluster-pre-open-proxies.patch
 7605 source 7605-headlamp-upstream-activity-resize-guard.patch
 7683 source 7683-headlamp-upstream-legacy-github-storage.patch
