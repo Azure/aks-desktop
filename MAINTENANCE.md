@@ -76,6 +76,7 @@ The current stack is rebased onto Headlamp main at
 | Patch | Upstream source | Carried revision |
 | --- | --- | --- |
 | `0080` | AKS Desktop compatibility marker | Downstream-only; context rebased for series order |
+| `5681` | [Cluster status fall-through, PR #5681](https://github.com/kubernetes-sigs/headlamp/pull/5681) | `e989736c5ad1441592c9a74e1d55260eeafa13da` (merged upstream in `b49841fcbffec19e84ea4a6e782cccc0c96036f8`, after the pin; test store seeded from `initialState` and unused `useMemo` import dropped to fit the pin) |
 | `7505` | [Cluster pre-open hooks and proxy lifecycle, PR #7505](https://github.com/kubernetes-sigs/headlamp/pull/7505) | `0df913771474f27a00552cc55951612d70ac072f` (rebased carried range, including upstream quit fix `d28a80377719e35b232eee7ba91aebbe08b21f49`) |
 | `7605` | [Activity resize guard from Headlamp PR #7605](https://github.com/kubernetes-sigs/headlamp/pull/7605) | `02b96b773e3b8453ea4961f286acb269751f82a9` only |
 | `7683` | [Legacy GitHub token migration, PR #7683](https://github.com/kubernetes-sigs/headlamp/pull/7683) | `1a60fa08ae7651b898a243280f3742d769255134` |
