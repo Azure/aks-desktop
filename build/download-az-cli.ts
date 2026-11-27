@@ -485,7 +485,7 @@ function expectedExtensionWheels(): Map<string, LockedWheel> {
 function wheelMembers(wheelPath: string, pythonExecutable: string): string[] {
   return execFileSync(pythonExecutable, [
     '-c',
-    'import sys, zipfile; print("\\n".join(zipfile.ZipFile(sys.argv[1]).namelist()))',
+    'import sys\nimport zipfile\nprint("\\n".join(zipfile.ZipFile(sys.argv[1]).namelist()))',
     wheelPath,
   ], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean);
 }
@@ -497,7 +497,7 @@ function readWheelFile(
 ): string {
   return execFileSync(pythonExecutable, [
     '-c',
-    'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))',
+    'import sys\nimport zipfile\nsys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))',
     wheelPath,
     memberPath,
   ], { encoding: 'utf8' });

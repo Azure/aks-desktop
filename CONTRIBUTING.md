@@ -26,3 +26,53 @@ Use `-- --suite rest` or `-- --suite acr` to select one suite.
 
 See [the Azure live-test guide](test/e2e/README.md) for configuration, offline
 harness tests, and dedicated-resource ownership and cleanup requirements.
+
+## Script warning checks
+
+CI checks project Python with Ruff, Bash/POSIX shell with ShellCheck, and PowerShell with
+PSScriptAnalyzer. These complement the existing plugin and Headlamp lint and
+type checks. Any reported Python diagnostic, shell/analyzer warning, or
+PowerShell parse error fails CI. Husky hooks are checked as POSIX shell;
+standalone shell scripts use their declared interpreter.
+Fix findings or document a narrowly scoped false-positive suppression.
+
+Install the root npm dependencies and create `.venv/`, which Git ignores.
+For example, on Linux/macOS:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r .config/lint/requirements.txt
+```
+
+The full test suite also requires PowerShell. Install PSScriptAnalyzer 1.25.0
+using the checksum-verifying installer, then run:
+
+```sh
+pwsh -NoProfile -File .config/lint/install-powershell.ps1
+npm run test:script-lint
+npm run lint:scripts
+npm run lint:powershell
+```
+
+The checks include pipeline scripts, generated Unix Azure/Python wrappers, and
+static Python `-c` snippets in JavaScript/TypeScript build helpers. Python
+`String.raw` templates must have a `// language=Python` comment immediately
+before their variable statement; their raw text is checked without evaluating
+the module or applying chained replacements. Interpolated Python templates are rejected.
+Pipeline expressions are replaced with language-appropriate placeholders
+(runtime variables for shell conditions) for analysis; no pipeline or embedded
+script is executed. Diagnostics for embedded scripts identify the containing
+file and step or source line. New dynamic Python snippets must be moved to
+standalone Python files so they can be checked.
+Extracted PowerShell snippets receive a UTF-8 BOM in their temporary files;
+standalone PowerShell files retain their original bytes for encoding diagnostics.
+
+The Python requirements enforce wheel-only, SHA-256-verified installations;
+source distributions and unpinned transitive dependencies are not permitted.
+PSScriptAnalyzer is downloaded from its pinned upstream release and its SHA-256
+is checked before extraction. It is installed under `node_modules/.cache/`,
+not into the user's module directory, and the lint command imports that exact copy.
+Reinstall it after a root `npm ci`, which removes `node_modules`.
+For offline installation, pass `-ArchivePath /path/to/PSScriptAnalyzer.1.25.0.nupkg`
+to the installer; the same checksum is required.
