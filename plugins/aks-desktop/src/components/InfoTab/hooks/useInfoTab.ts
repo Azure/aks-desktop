@@ -2,13 +2,14 @@
 // Licensed under the Apache 2.0.
 
 import { clusterAction, K8s, useTranslation } from '@kinvolk/headlamp-plugin/lib';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getManagedNamespaceDetails,
   getManagedNamespaces,
   updateManagedNamespace,
 } from '../../../utils/azure/az-namespaces';
 import { RESOURCE_GROUP_LABEL, SUBSCRIPTION_LABEL } from '../../../utils/constants/projectLabels';
+import { parseCpuToMillicores, parseMemoryToBytes } from '../../../utils/shared/resourceUnits';
 import {
   DEFAULT_FORM_DATA,
   type FormData,
@@ -32,14 +33,42 @@ function normalizePolicy(value: string): FormData['ingress'] {
     : 'AllowSameNamespace';
 }
 
-function parseMillicores(val: string): number {
-  const n = parseInt(String(val).replace(/m$/i, ''), 10);
-  return Number.isFinite(n) ? n : 0;
+const BYTES_PER_MEBIBYTE = 1024 ** 2;
+
+function formDataFromNamespaceDetails(details: NamespaceDetails): FormData {
+  const quota = details.properties?.defaultResourceQuota;
+  const policy = details.properties?.defaultNetworkPolicy;
+  return {
+    ...DEFAULT_FORM_DATA,
+    ingress: normalizePolicy(policy?.ingress ?? 'AllowSameNamespace'),
+    egress: normalizePolicy(policy?.egress ?? 'AllowAll'),
+    cpuRequest: parseCpuToMillicores(quota?.cpuRequest ?? '0m'),
+    cpuLimit: parseCpuToMillicores(quota?.cpuLimit ?? '0m'),
+    memoryRequest: parseMemoryToBytes(quota?.memoryRequest ?? '0Mi') / BYTES_PER_MEBIBYTE,
+    memoryLimit: parseMemoryToBytes(quota?.memoryLimit ?? '0Mi') / BYTES_PER_MEBIBYTE,
+  };
 }
 
-function parseMiB(val: string): number {
-  const n = parseInt(String(val).replace(/Mi$/i, ''), 10);
-  return Number.isFinite(n) ? n : 0;
+function validationForFormData(data: FormData): ValidationState {
+  const compute = validateComputeQuota({
+    cpuRequest: data.cpuRequest,
+    cpuLimit: data.cpuLimit,
+    memoryRequest: data.memoryRequest,
+    memoryLimit: data.memoryLimit,
+  });
+  const networking = validateNetworkingPolicies({
+    ingress: data.ingress,
+    egress: data.egress,
+  });
+  const fieldErrors: Record<string, string[]> = {};
+  if (compute.fieldErrors) Object.assign(fieldErrors, compute.fieldErrors);
+  if (!networking.isValid) fieldErrors.networking = networking.errors;
+  return {
+    isValid: compute.isValid && networking.isValid,
+    errors: [...(compute.errors || []), ...(networking.errors || [])],
+    warnings: [],
+    fieldErrors,
+  };
 }
 
 /**
@@ -117,7 +146,16 @@ export const useInfoTab = (project: {
   const [error, setError] = useState<string | null>(null);
   const [namespaceDetails, setNamespaceDetails] = useState<NamespaceDetails | null>(null);
   const [formData, setFormData] = useState<FormData>(DEFAULT_FORM_DATA);
+  const formDataRef = useRef<FormData>(formData);
+  const editGenerationsRef = useRef<Partial<Record<keyof FormData, number>>>({});
+  const skipNextNamespacePopulationRef = useRef(false);
   const [baselineFormData, setBaselineFormData] = useState<FormData | null>(null);
+  const scopeKey = JSON.stringify([clusterName, projectId, subscription, resourceGroup]);
+  const scopeRef = useRef({ key: scopeKey, generation: 0 });
+  if (scopeRef.current.key !== scopeKey) {
+    scopeRef.current = { key: scopeKey, generation: scopeRef.current.generation + 1 };
+  }
+
   const [updating, setUpdating] = useState(false);
   const [validation, setValidation] = useState<ValidationState>({
     isValid: true,
@@ -125,6 +163,16 @@ export const useInfoTab = (project: {
     warnings: [],
     fieldErrors: {},
   });
+
+  useEffect(() => {
+    setUpdating(false);
+    setError(null);
+    setNamespaceDetails(null);
+    setBaselineFormData(null);
+    formDataRef.current = DEFAULT_FORM_DATA;
+    setFormData(DEFAULT_FORM_DATA);
+    setValidation(validationForFormData(DEFAULT_FORM_DATA));
+  }, [scopeKey]);
 
   // Fetch managed namespace details from Azure CLI
   useEffect(() => {
@@ -192,52 +240,27 @@ export const useInfoTab = (project: {
   // Pre-populate form when namespace details are fetched
   useEffect(() => {
     if (!namespaceDetails) return;
+    if (skipNextNamespacePopulationRef.current) {
+      skipNextNamespacePopulationRef.current = false;
+      return;
+    }
 
-    const quota = namespaceDetails.properties?.defaultResourceQuota;
-    const policy = namespaceDetails.properties?.defaultNetworkPolicy;
-
-    const populated: FormData = {
-      ...DEFAULT_FORM_DATA,
-      ingress: normalizePolicy(policy?.ingress ?? 'AllowSameNamespace'),
-      egress: normalizePolicy(policy?.egress ?? 'AllowAll'),
-      cpuRequest: parseMillicores(quota?.cpuRequest ?? '0m'),
-      cpuLimit: parseMillicores(quota?.cpuLimit ?? '0m'),
-      memoryRequest: parseMiB(quota?.memoryRequest ?? '0Mi'),
-      memoryLimit: parseMiB(quota?.memoryLimit ?? '0Mi'),
-    };
+    const populated = formDataFromNamespaceDetails(namespaceDetails);
 
     setFormData(populated);
+    formDataRef.current = populated;
     setBaselineFormData(populated);
   }, [namespaceDetails]);
 
   const handleFormDataChange = useCallback((updates: Partial<FormData>) => {
-    setFormData(prev => {
-      const next = { ...prev, ...updates };
+    for (const key of Object.keys(updates) as (keyof FormData)[]) {
+      editGenerationsRef.current[key] = (editGenerationsRef.current[key] ?? 0) + 1;
+    }
+    const next = { ...formDataRef.current, ...updates };
+    formDataRef.current = next;
+    setFormData(next);
 
-      const compute = validateComputeQuota({
-        cpuRequest: next.cpuRequest,
-        cpuLimit: next.cpuLimit,
-        memoryRequest: next.memoryRequest,
-        memoryLimit: next.memoryLimit,
-      });
-      const networking = validateNetworkingPolicies({
-        ingress: next.ingress,
-        egress: next.egress,
-      });
-
-      const fieldErrors: Record<string, string[]> = {};
-      if (compute.fieldErrors) Object.assign(fieldErrors, compute.fieldErrors);
-      if (!networking.isValid) fieldErrors.networking = networking.errors;
-
-      setValidation({
-        isValid: compute.isValid && networking.isValid,
-        errors: [...(compute.errors || []), ...(networking.errors || [])],
-        warnings: [],
-        fieldErrors,
-      });
-
-      return next;
-    });
+    setValidation(validationForFormData(next));
   }, []);
 
   const hasChanges = useMemo(() => {
@@ -256,29 +279,75 @@ export const useInfoTab = (project: {
   const handleSave = useCallback(() => {
     if (!resourceGroup || !clusterName || !projectId) return;
 
+    const submittedFormData = formData;
+    const submittedEditGenerations = { ...editGenerationsRef.current };
+    const submittedScopeGeneration = scopeRef.current.generation;
     setUpdating(true);
     clusterAction(
       async () => {
         try {
-          await updateManagedNamespace({
+          const savedResource = await updateManagedNamespace({
             clusterName,
             resourceGroup,
             namespaceName: projectId,
-            ingressPolicy: formData.ingress,
-            egressPolicy: formData.egress,
-            cpuRequest: formData.cpuRequest,
-            cpuLimit: formData.cpuLimit,
-            memoryRequest: formData.memoryRequest,
-            memoryLimit: formData.memoryLimit,
+            ...(baselineFormData === null || formData.ingress !== baselineFormData.ingress
+              ? { ingressPolicy: formData.ingress }
+              : {}),
+            ...(baselineFormData === null || formData.egress !== baselineFormData.egress
+              ? { egressPolicy: formData.egress }
+              : {}),
+            ...(baselineFormData === null || formData.cpuRequest !== baselineFormData.cpuRequest
+              ? { cpuRequest: formData.cpuRequest }
+              : {}),
+            ...(baselineFormData === null || formData.cpuLimit !== baselineFormData.cpuLimit
+              ? { cpuLimit: formData.cpuLimit }
+              : {}),
+            ...(baselineFormData === null ||
+            formData.memoryRequest !== baselineFormData.memoryRequest
+              ? { memoryRequest: formData.memoryRequest }
+              : {}),
+            ...(baselineFormData === null || formData.memoryLimit !== baselineFormData.memoryLimit
+              ? { memoryLimit: formData.memoryLimit }
+              : {}),
             subscriptionId: subscription,
           });
-          setBaselineFormData(formData);
+          if (scopeRef.current.generation !== submittedScopeGeneration) return;
+          const savedDetails = savedResource as NamespaceDetails;
+          if (savedDetails?.properties) {
+            const savedFormData = formDataFromNamespaceDetails(savedDetails);
+            skipNextNamespacePopulationRef.current = true;
+            setNamespaceDetails(savedDetails);
+            setBaselineFormData(savedFormData);
+            const reconciled = { ...formDataRef.current };
+            const keys: (keyof FormData)[] = [
+              'ingress',
+              'egress',
+              'cpuRequest',
+              'cpuLimit',
+              'memoryRequest',
+              'memoryLimit',
+            ];
+            for (const key of keys) {
+              if ((editGenerationsRef.current[key] ?? 0) === (submittedEditGenerations[key] ?? 0)) {
+                Object.assign(reconciled, { [key]: savedFormData[key] });
+              }
+            }
+            formDataRef.current = reconciled;
+            setFormData(reconciled);
+            setValidation(validationForFormData(reconciled));
+          } else {
+            setBaselineFormData(submittedFormData);
+          }
           setError(null);
         } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
+          if (scopeRef.current.generation === submittedScopeGeneration) {
+            setError(err instanceof Error ? err.message : String(err));
+          }
           throw err;
         } finally {
-          setUpdating(false);
+          if (scopeRef.current.generation === submittedScopeGeneration) {
+            setUpdating(false);
+          }
         }
       },
       {
@@ -289,7 +358,7 @@ export const useInfoTab = (project: {
         startOptions: { autoHideDuration: null },
       }
     );
-  }, [resourceGroup, clusterName, projectId, subscription, formData, t]);
+  }, [resourceGroup, clusterName, projectId, subscription, formData, baselineFormData, t]);
 
   return {
     loading,

@@ -24,19 +24,34 @@ describe('parseCpuToMillicores', () => {
 
   it('parses nanocores', () => {
     expect(parseCpuToMillicores('1000000n')).toBe(1);
-    expect(parseCpuToMillicores('100n')).toBe(0);
+    expect(parseCpuToMillicores('100n')).toBe(0.0001);
   });
 
   it('parses microcores', () => {
     expect(parseCpuToMillicores('1000u')).toBe(1);
-    expect(parseCpuToMillicores('250u')).toBe(0);
+    expect(parseCpuToMillicores('250u')).toBe(0.25);
     expect(parseCpuToMillicores('1000µ')).toBe(1);
+  });
+
+  it('parses decimal SI CPU suffixes without rounding', () => {
+    expect(parseCpuToMillicores('1k')).toBe(1_000_000);
+    expect(parseCpuToMillicores('1.5k')).toBe(1_500_000);
+  });
+
+  it('preserves equivalent decimal and binary quantities exactly', () => {
+    expect(parseCpuToMillicores('1.001')).toBe(parseCpuToMillicores('1001m'));
+    expect(parseCpuToMillicores('1.001')).toBe(1001);
+    expect(parseCpuToMillicores('0.5Ki')).toBe(512_000);
   });
 
   it('returns 0 for invalid input', () => {
     expect(parseCpuToMillicores('')).toBe(0);
     expect(parseCpuToMillicores('abc')).toBe(0);
     expect(parseCpuToMillicores('m')).toBe(0);
+    expect(parseCpuToMillicores('1K')).toBe(0);
+    expect(parseCpuToMillicores('1e3m')).toBe(0);
+    expect(parseCpuToMillicores('1junk')).toBe(0);
+    expect(parseCpuToMillicores('1e')).toBe(0);
   });
 });
 
@@ -49,6 +64,19 @@ describe('parseMemoryToBytes', () => {
   it('parses Gi suffix', () => {
     expect(parseMemoryToBytes('1Gi')).toBe(1024 ** 3);
     expect(parseMemoryToBytes('2Gi')).toBe(2 * 1024 ** 3);
+  });
+
+  it('preserves fractional binary quantities', () => {
+    expect(parseMemoryToBytes('256.5Mi')).toBe(256.5 * 1024 ** 2);
+    expect(parseMemoryToBytes('262656Ki')).toBe(256.5 * 1024 ** 2);
+    expect(parseMemoryToBytes('1000000000000000u')).toBe(1e9);
+    expect(parseMemoryToBytes('1000000000000000000n')).toBe(1e9);
+  });
+
+  it('parses signed decimals, leading decimals, and exponents', () => {
+    expect(parseMemoryToBytes('+512Mi')).toBe(512 * 1024 ** 2);
+    expect(parseMemoryToBytes('.5Gi')).toBe(0.5 * 1024 ** 3);
+    expect(parseMemoryToBytes('1e9')).toBe(1e9);
   });
 
   it('parses Ki suffix', () => {
@@ -75,9 +103,17 @@ describe('parseMemoryToBytes', () => {
     expect(parseMemoryToBytes('1E')).toBe(1000 ** 6);
   });
 
+  it('preserves equivalent decimal quantities exactly', () => {
+    expect(parseMemoryToBytes('1001M')).toBe(parseMemoryToBytes('1.001G'));
+    expect(parseMemoryToBytes('1001M')).toBe(1_001_000_000);
+  });
+
   it('returns 0 for invalid input', () => {
     expect(parseMemoryToBytes('')).toBe(0);
     expect(parseMemoryToBytes('abc')).toBe(0);
+    expect(parseMemoryToBytes('1K')).toBe(0);
+    expect(parseMemoryToBytes('1e3Mi')).toBe(0);
+    expect(parseMemoryToBytes('1e308Mi')).toBe(0);
   });
 });
 

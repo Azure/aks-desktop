@@ -73,6 +73,20 @@ describe('checkResourceQuota', () => {
     expect(warnings).toEqual([]);
   });
 
+  it('treats equivalent CPU and memory quantities as equal', async () => {
+    mockedClusterRequest.mockResolvedValue(
+      makeQuotaResponse(
+        { 'requests.cpu': '1001m', 'requests.memory': '1.001G', 'limits.cpu': '0.5Ki' },
+        { 'requests.cpu': '0', 'requests.memory': '0', 'limits.cpu': '0' }
+      )
+    );
+    const doc = makeDeployment('app', {
+      requests: { cpu: '1.001', memory: '1001M' },
+      limits: { cpu: '512' },
+    });
+    await expect(checkResourceQuota([doc], 'test-ns')).resolves.toEqual([]);
+  });
+
   it('returns warning when memory request exceeds remaining quota', async () => {
     mockedClusterRequest.mockResolvedValue(
       makeQuotaResponse(

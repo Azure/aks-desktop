@@ -1,0 +1,1077 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the Apache 2.0.
+
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+  command: vi.fn(),
+  token: vi.fn(),
+  subscriptionCredential: vi.fn(),
+  fetch: vi.fn(),
+}));
+vi.mock('../shared/runCommandAsync', () => ({ runCommandAsync: mocks.command }));
+vi.mock('./az-cli-path', () => ({ getAzCommand: () => 'az' }));
+vi.mock('./az-token', async importOriginal => ({
+  ...(await importOriginal<typeof import('./az-token')>()),
+  azCliCredential: { getToken: mocks.token },
+  getSubscriptionCredential: mocks.subscriptionCredential,
+}));
+
+import { getManagedNamespaceDetails, updateManagedNamespace } from './az-namespaces';
+
+const scope = {
+  subscriptionId: 'subscription',
+  resourceGroup: 'group',
+  clusterName: 'cluster',
+  namespaceName: 'namespace',
+};
+const resource = () => ({
+  id: '/subscriptions/subscription/resourceGroups/group/providers/Microsoft.ContainerService/managedClusters/cluster/managedNamespaces/namespace',
+  name: 'namespace',
+  type: 'Microsoft.ContainerService/managedClusters/managedNamespaces',
+  location: 'eastus',
+  eTag: '"version-1"',
+  identity: { type: 'SystemAssigned' },
+  systemData: { createdBy: 'owner' },
+  tags: { team: 'platform' },
+  properties: {
+    labels: { existing: 'keep', replace: 'old' },
+    annotations: { note: 'keep' },
+    defaultResourceQuota: {
+      cpuRequest: '100m',
+      cpuLimit: '2',
+      memoryRequest: '128Mi',
+      memoryLimit: '2Gi',
+    },
+    defaultNetworkPolicy: { ingress: 'DenyAll', egress: 'AllowAll' },
+    adoptionPolicy: 'Always',
+    deletePolicy: 'Keep',
+    provisioningState: 'Succeeded',
+    portalFqdn: 'readonly',
+  },
+});
+function json(status: number, body?: unknown, headers: Record<string, string> = {}) {
+  return new Response(body === undefined ? null : JSON.stringify(body), { status, headers });
+}
+function request(index: number) {
+  const [url, init] = mocks.fetch.mock.calls[index];
+  return { url: String(url), ...(init as RequestInit) };
+}
+function body() {
+  return JSON.parse(request(1).body as string);
+}
+function successfulPut(status = 200) {
+  mocks.fetch
+    .mockResolvedValueOnce(json(200, resource()))
+    .mockResolvedValueOnce(json(status, resource()))
+    .mockResolvedValueOnce(json(200, resource()));
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  window.dispatchEvent(new CustomEvent('azure-auth-update'));
+  mocks.subscriptionCredential.mockReset().mockReturnValue({ getToken: mocks.token });
+  mocks.command.mockReset().mockImplementation(async (_command, args) => ({
+    stdout: JSON.stringify(
+      args[0] === 'cloud'
+        ? {
+            name: 'AzureCloud',
+            endpoints: {
+              resourceManager: 'https://management.azure.com/',
+              activeDirectoryResourceId: 'https://management.azure.com',
+            },
+          }
+        : { id: scope.subscriptionId, tenantId: 'target-tenant' }
+    ),
+    stderr: '',
+  }));
+  mocks.fetch.mockReset();
+  mocks.token.mockReset().mockResolvedValue({ token: 'test-token', expiresOnTimestamp: 9e12 });
+  vi.stubGlobal('fetch', mocks.fetch);
+});
+afterEach(() => {
+  // Resource operations must be REST, never Azure CLI resource commands.
+  for (const [, args] of mocks.command.mock.calls) {
+    if (args[0] === 'cloud') {
+      expect(args).toEqual(['cloud', 'show', '--output', 'json']);
+      continue;
+    }
+    expect(args).toEqual([
+      'account',
+      'show',
+      '-o',
+      'json',
+      ...(args.length === 6 ? ['--subscription', expect.any(String)] : []),
+    ]);
+  }
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+describe('managed namespace REST update', () => {
+  test('returns full ARM details and encodes Unicode path segments', async () => {
+    mocks.fetch.mockResolvedValueOnce(json(200, resource()));
+    await expect(
+      getManagedNamespaceDetails({ ...scope, namespaceName: 'résumé /?#' })
+    ).resolves.toEqual(resource());
+    expect(request(0).url).toContain('/managedNamespaces/r%C3%A9sum%C3%A9%20%2F%3F%23?');
+    expect(request(0).url).toContain('api-version=2026-01-01');
+    expect(mocks.command).toHaveBeenCalledWith('az', [
+      'account',
+      'show',
+      '-o',
+      'json',
+      '--subscription',
+      scope.subscriptionId,
+    ]);
+    expect(mocks.token).toHaveBeenCalledWith(
+      ['https://management.azure.com/.default'],
+      expect.objectContaining({ tenantId: 'target-tenant' })
+    );
+  });
+
+  test.each(['azure-asyncoperation', 'location'])(
+    'uses the target subscription tenant for GET, PUT, %s polling and final GET',
+    async header => {
+      mocks.token.mockImplementation(async (_scope, options) => ({
+        token: options?.tenantId === 'target-tenant' ? 'target-token' : 'default-tenant-token',
+        expiresOnTimestamp: 9e12,
+      }));
+      mocks.fetch
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(json(202, undefined, { [header]: '/operations/op' }))
+        .mockResolvedValueOnce(json(200, { status: 'Succeeded' }))
+        .mockResolvedValueOnce(json(200, resource()));
+
+      const result = updateManagedNamespace(scope);
+      await vi.runAllTimersAsync();
+      await expect(result).resolves.toEqual(resource());
+      expect(mocks.command).toHaveBeenCalledTimes(4);
+      expect(mocks.subscriptionCredential).toHaveBeenCalledExactlyOnceWith(scope.subscriptionId);
+      expect(mocks.token).toHaveBeenCalledTimes(1);
+      for (let index = 0; index < 4; index++) {
+        expect(request(index).headers).toMatchObject({ Authorization: 'Bearer target-token' });
+      }
+      expect(mocks.token).toHaveBeenCalledWith(
+        ['https://management.azure.com/.default'],
+        expect.objectContaining({ tenantId: 'target-tenant' })
+      );
+    }
+  );
+
+  test.each(['', '{malformed', '{"id":"subscription"}'])(
+    'aborts before tokens or HTTP when target account resolution fails: %s',
+    async stdout => {
+      successfulPut();
+      mocks.command.mockResolvedValue({ stdout, stderr: '' });
+      await expect(updateManagedNamespace(scope)).rejects.toThrow(/Not logged in|parse account/);
+      expect(mocks.token).not.toHaveBeenCalled();
+      expect(mocks.fetch).not.toHaveBeenCalled();
+    }
+  );
+
+  test('propagates a target subscription lookup error without using the default tenant', async () => {
+    mocks.fetch.mockResolvedValueOnce(json(200, resource()));
+    mocks.command.mockResolvedValue({
+      stdout: '',
+      stderr: 'ERROR: The subscription does not exist in this account.',
+    });
+    await expect(getManagedNamespaceDetails(scope)).rejects.toThrow(/subscription does not exist/);
+    expect(mocks.token).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  test.each(['preparation', 'write'])(
+    'preserves an account lookup error during %s confirmation',
+    async phase => {
+      let accountReads = 0;
+      mocks.command.mockImplementation(async (_command, args) => {
+        if (args[0] === 'cloud') {
+          return {
+            stdout: JSON.stringify({
+              name: 'AzureCloud',
+              endpoints: {
+                resourceManager: 'https://management.azure.com/',
+                activeDirectoryResourceId: 'https://management.azure.com',
+              },
+            }),
+            stderr: '',
+          };
+        }
+        accountReads += 1;
+        const failedRead = phase === 'preparation' ? 2 : 3;
+        return accountReads === failedRead
+          ? { stdout: '', stderr: 'ERROR: account lookup temporarily unavailable' }
+          : {
+              stdout: JSON.stringify({
+                id: scope.subscriptionId,
+                tenantId: 'target-tenant',
+              }),
+              stderr: '',
+            };
+      });
+      mocks.fetch.mockResolvedValueOnce(json(200, resource()));
+      await expect(updateManagedNamespace(scope)).rejects.toThrow(
+        'account lookup temporarily unavailable'
+      );
+      expect(mocks.fetch).toHaveBeenCalledTimes(phase === 'preparation' ? 0 : 1);
+    }
+  );
+
+  test('cancels a pending subscription lookup before requesting a token', async () => {
+    const controller = new AbortController();
+    mocks.command.mockImplementation(() => new Promise(() => {}));
+    const result = updateManagedNamespace({ ...scope, signal: controller.signal }).catch(
+      error => error
+    );
+    expect(mocks.command).toHaveBeenCalledTimes(1);
+    controller.abort(new Error('account lookup canceled'));
+    expect(await result).toMatchObject({ message: 'account lookup canceled' });
+    expect(mocks.token).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  test.each([200, 201])(
+    'quota-only %i update preserves writable data and strips read-only data',
+    async status => {
+      successfulPut(status);
+      await updateManagedNamespace({ ...scope, cpuRequest: 250 });
+      const current = resource();
+      expect(body()).toEqual({
+        location: current.location,
+        tags: current.tags,
+        properties: {
+          labels: current.properties.labels,
+          annotations: current.properties.annotations,
+          defaultResourceQuota: { ...current.properties.defaultResourceQuota, cpuRequest: '250m' },
+          defaultNetworkPolicy: current.properties.defaultNetworkPolicy,
+          adoptionPolicy: 'Always',
+          deletePolicy: 'Keep',
+        },
+      });
+      expect(request(1).method).toBe('PUT');
+      expect(request(1).headers).toMatchObject({ 'If-Match': '"version-1"' });
+      expect(request(2).method).toBe('GET');
+      expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    }
+  );
+
+  test('merges labels without losing quotas, policy, tags or annotations', async () => {
+    successfulPut();
+    await updateManagedNamespace({ ...scope, labels: { replace: 'new', project: 'demo' } });
+    expect(body().properties).toMatchObject({
+      defaultResourceQuota: resource().properties.defaultResourceQuota,
+      defaultNetworkPolicy: resource().properties.defaultNetworkPolicy,
+      annotations: resource().properties.annotations,
+      labels: { existing: 'keep', replace: 'new', project: 'demo' },
+    });
+  });
+
+  test('converts numeric units including zero and leaves omitted fields unchanged', async () => {
+    successfulPut();
+    await updateManagedNamespace({
+      ...scope,
+      cpuRequest: 0,
+      cpuLimit: 700,
+      memoryRequest: 0,
+      memoryLimit: 512,
+      ingressPolicy: 'AllowSameNamespace',
+    });
+    expect(body().properties.defaultResourceQuota).toEqual({
+      cpuRequest: '0m',
+      cpuLimit: '700m',
+      memoryRequest: '0Mi',
+      memoryLimit: '512Mi',
+    });
+    expect(body().properties.defaultNetworkPolicy).toEqual({
+      ingress: 'AllowSameNamespace',
+      egress: 'AllowAll',
+    });
+  });
+
+  test('serializes small quota values without exponent notation', async () => {
+    successfulPut();
+    await updateManagedNamespace({
+      ...scope,
+      memoryRequest: 0.0000005,
+      cpuRequest: 0.00000025,
+    });
+    expect(body().properties.defaultResourceQuota).toMatchObject({
+      memoryRequest: '0.0000005Mi',
+      cpuRequest: '0.00000025m',
+    });
+  });
+
+  test.each([403, 404, 409, 412, 500])('aborts on initial GET %i without PUT', async status => {
+    mocks.fetch.mockImplementation(() =>
+      Promise.resolve(json(status, { error: { code: 'ReadFailed', message: 'read denied' } }))
+    );
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.runAllTimersAsync();
+    expect(await result).toMatchObject({ status, code: 'ReadFailed' });
+    expect(mocks.fetch.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true);
+  });
+
+  test.each([403, 404, 409, 412, 500])(
+    'does not replay PUT %i and retains Azure IDs',
+    async status => {
+      mocks.fetch.mockResolvedValueOnce(json(200, resource())).mockResolvedValueOnce(
+        json(
+          status,
+          { error: { code: 'UpdateFailed', message: 'conflict' } },
+          {
+            'x-ms-request-id': 'req',
+            'x-ms-correlation-request-id': 'corr',
+          }
+        )
+      );
+      await expect(updateManagedNamespace(scope)).rejects.toMatchObject({
+        status,
+        code: 'UpdateFailed',
+        requestId: 'req',
+        correlationId: 'corr',
+      });
+      expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  test('re-reads and retries a PUT rejected while the parent AKS cluster is updating', async () => {
+    const refreshed = resource();
+    refreshed.eTag = '"version-2"';
+    refreshed.tags = { team: 'updated-concurrently' };
+    refreshed.properties.labels = { existing: 'keep', replace: 'updated-concurrently' };
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(400, {
+          error: {
+            code: 'BadRequest',
+            message:
+              'The managed cluster cluster is in Updating state, please wait for it to succeed.',
+          },
+        })
+      )
+      .mockResolvedValueOnce(json(200, refreshed, { etag: '"version-2"' }))
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(200, resource()));
+
+    const result = updateManagedNamespace({ ...scope, cpuRequest: 250 });
+    await vi.runAllTimersAsync();
+    await result;
+
+    expect(mocks.fetch).toHaveBeenCalledTimes(5);
+    expect(request(1).headers).toMatchObject({ 'If-Match': '"version-1"' });
+    expect(request(3).headers).toMatchObject({ 'If-Match': '"version-2"' });
+    expect(JSON.parse(request(3).body as string)).toMatchObject({
+      tags: { team: 'updated-concurrently' },
+      properties: {
+        labels: { existing: 'keep', replace: 'updated-concurrently' },
+        defaultResourceQuota: { cpuRequest: '250m' },
+      },
+    });
+  });
+
+  test('does not retry a different PUT BadRequest', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(400, { error: { code: 'BadRequest', message: 'Invalid namespace quota' } })
+      );
+
+    await expect(updateManagedNamespace(scope)).rejects.toMatchObject({
+      status: 400,
+      code: 'BadRequest',
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([
+    undefined,
+    {},
+    { ...resource(), properties: undefined },
+    { ...resource(), location: undefined },
+    { ...resource(), properties: { labels: [] } },
+    { ...resource(), properties: { defaultResourceQuota: null } },
+    { ...resource(), properties: { defaultNetworkPolicy: { ingress: 7 } } },
+    { ...resource(), tags: { bad: 7 } },
+  ])('rejects malformed or partial initial resource %# without PUT', async value => {
+    mocks.fetch.mockResolvedValueOnce(json(200, value));
+    await expect(updateManagedNamespace(scope)).rejects.toThrow(/Malformed/);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('preserves legacy optional subscription via existing read-only account helper', async () => {
+    const account = { id: 'legacy', tenantId: 'tenant' };
+    mocks.command.mockImplementation(async (_command, args) => ({
+      stdout: JSON.stringify(
+        args[0] === 'cloud'
+          ? {
+              name: 'AzureCloud',
+              endpoints: {
+                resourceManager: 'https://management.azure.com/',
+                activeDirectoryResourceId: 'https://management.azure.com',
+              },
+            }
+          : account
+      ),
+      stderr: '',
+    }));
+    mocks.fetch.mockResolvedValueOnce(json(200, resource()));
+    await getManagedNamespaceDetails({ ...scope, subscriptionId: undefined });
+    expect(request(0).url).toContain('/subscriptions/legacy/');
+    expect(mocks.command).toHaveBeenCalledTimes(3);
+    expect(mocks.subscriptionCredential).toHaveBeenCalledWith('legacy');
+    expect(mocks.token).toHaveBeenCalledWith(
+      ['https://management.azure.com/.default'],
+      expect.objectContaining({ tenantId: 'tenant' })
+    );
+  });
+
+  test('aborts if the selected identity changes before the write begins', async () => {
+    mocks.command
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          id: scope.subscriptionId,
+          tenantId: 'target-tenant',
+          user: { name: 'first@example.com' },
+        }),
+        stderr: '',
+      })
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          name: 'AzureCloud',
+          endpoints: {
+            resourceManager: 'https://management.azure.com/',
+            activeDirectoryResourceId: 'https://management.azure.com',
+          },
+        }),
+        stderr: '',
+      })
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          id: scope.subscriptionId,
+          tenantId: 'target-tenant',
+          user: { name: 'first@example.com' },
+        }),
+        stderr: '',
+      })
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          id: scope.subscriptionId,
+          tenantId: 'target-tenant',
+          user: { name: 'second@example.com' },
+        }),
+        stderr: '',
+      });
+    mocks.fetch.mockResolvedValueOnce(json(200, resource()));
+
+    await expect(updateManagedNamespace(scope)).rejects.toThrow(
+      'Azure account changed while the managed namespace operation was running'
+    );
+    expect(mocks.token).toHaveBeenCalledTimes(1);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('rechecks the identity before the REST write', async () => {
+    let accountReads = 0;
+    mocks.command.mockImplementation(async (_command, args) => {
+      if (args[0] === 'cloud') {
+        return {
+          stdout: JSON.stringify({
+            name: 'AzureCloud',
+            endpoints: {
+              resourceManager: 'https://management.azure.com/',
+              activeDirectoryResourceId: 'https://management.azure.com',
+            },
+          }),
+          stderr: '',
+        };
+      }
+      accountReads += 1;
+      return {
+        stdout: JSON.stringify({
+          id: scope.subscriptionId,
+          tenantId: 'target-tenant',
+          user: { name: `${accountReads >= 3 ? 'second' : 'first'}@example.com` },
+        }),
+        stderr: '',
+      };
+    });
+    mocks.token.mockResolvedValue({
+      token: 'target-token',
+      expiresOnTimestamp: Date.now() + 3600_000,
+    });
+    mocks.fetch.mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope).catch(error => error);
+    expect(await result).toMatchObject({
+      message: expect.stringContaining('Azure account changed'),
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('bounds account and cloud context resolution for standalone details reads', async () => {
+    mocks.command.mockReturnValue(new Promise(() => {}));
+    const result = getManagedNamespaceDetails(scope).catch(error => error);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(result).resolves.toMatchObject({
+      message: 'Azure request timed out after 60000 ms',
+    });
+    expect(mocks.token).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  test('renews a token that cannot cover the update deadline', async () => {
+    mocks.token
+      .mockResolvedValueOnce({
+        token: 'short-token',
+        expiresOnTimestamp: Date.now() + 60_000,
+      })
+      .mockResolvedValueOnce({
+        token: 'long-token',
+        expiresOnTimestamp: Date.now() + 11 * 60_000,
+      });
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope);
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toEqual(resource());
+    expect(mocks.token).toHaveBeenCalledTimes(2);
+    expect(request(0).headers).toMatchObject({ Authorization: 'Bearer long-token' });
+  });
+
+  test('rejects an identity switch during token renewal', async () => {
+    mocks.token
+      .mockResolvedValueOnce({
+        token: 'short-token',
+        expiresOnTimestamp: Date.now() + 61_000,
+      })
+      .mockResolvedValueOnce({
+        token: 'replacement-token',
+        expiresOnTimestamp: Date.now() + 11 * 60_000,
+      });
+    let accountReads = 0;
+    mocks.command.mockImplementation(async (_command, args) => {
+      if (args[0] === 'cloud') {
+        return {
+          stdout: JSON.stringify({
+            name: 'AzureCloud',
+            endpoints: {
+              resourceManager: 'https://management.azure.com/',
+              activeDirectoryResourceId: 'https://management.azure.com',
+            },
+          }),
+          stderr: '',
+        };
+      }
+      accountReads += 1;
+      return {
+        stdout: JSON.stringify({
+          id: scope.subscriptionId,
+          tenantId: 'target-tenant',
+          user: { name: `${accountReads >= 6 ? 'second' : 'first'}@example.com` },
+        }),
+        stderr: '',
+      };
+    });
+    mocks.fetch.mockResolvedValueOnce(json(200, resource())).mockResolvedValueOnce(
+      json(202, undefined, {
+        'azure-asyncoperation': '/operations/op',
+        'retry-after': '70',
+      })
+    );
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.runAllTimersAsync();
+    expect(await result).toMatchObject({
+      message: 'Azure account changed while renewing the managed namespace token',
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([200, 201, 202])(
+    'noWait submits PUT %i and returns accepted response without final GET',
+    async status => {
+      const accepted = { accepted: true };
+      mocks.fetch
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(
+          json(status, accepted, { 'azure-asyncoperation': 'https://untrusted.example/op' })
+        );
+      await expect(updateManagedNamespace({ ...scope, noWait: true })).resolves.toEqual(accepted);
+      expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  test('accepts empty noWait response', async () => {
+    mocks.fetch.mockResolvedValueOnce(json(200, resource())).mockResolvedValueOnce(json(202));
+    await expect(updateManagedNamespace({ ...scope, noWait: true })).resolves.toEqual({});
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test.each(['Failed', 'Canceled'])('rejects noWait PUT state %s', async provisioningState => {
+    const failed = resource();
+    mocks.fetch.mockResolvedValueOnce(json(200, resource())).mockResolvedValueOnce(
+      json(202, {
+        ...failed,
+        properties: { ...failed.properties, provisioningState },
+      })
+    );
+    await expect(updateManagedNamespace({ ...scope, noWait: true })).rejects.toThrow(
+      `Managed namespace operation ${provisioningState}`
+    );
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([200, 201, 202])(
+    'waits on Azure-AsyncOperation for PUT %i then performs final GET',
+    async status => {
+      mocks.fetch
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(
+          json(status, undefined, {
+            'azure-asyncoperation': '/operations/op?api-version=custom',
+            'retry-after': '2',
+          })
+        )
+        .mockResolvedValueOnce(json(200, { status: 'Running' }, { 'retry-after': '3' }))
+        .mockResolvedValueOnce(json(200, { status: 'Succeeded' }))
+        .mockResolvedValueOnce(json(200, resource()));
+      const result = updateManagedNamespace(scope);
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(mocks.fetch).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(request(2).url).toBe('https://management.azure.com/operations/op?api-version=custom');
+      await vi.advanceTimersByTimeAsync(3000);
+      await expect(result).resolves.toEqual(resource());
+      expect(request(4).url).toBe(request(0).url);
+      expect(mocks.fetch).toHaveBeenCalledTimes(5);
+    }
+  );
+
+  test('honors HTTP-date Retry-After and polls Location resource', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(202, undefined, {
+          location: '/operations/location',
+          'retry-after': new Date(Date.now() + 5000).toUTCString(),
+        })
+      )
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(result).resolves.toEqual(resource());
+    expect(request(2).url).toContain('/operations/location');
+  });
+
+  test('polls a Location operation status response and follows same-origin continuation', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { location: '/operations/first' }))
+      .mockResolvedValueOnce(json(202, { status: 'Running' }, { location: '/operations/second' }))
+      .mockResolvedValueOnce(json(200, { status: 'Succeeded' }))
+      .mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope);
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toEqual(resource());
+    expect(request(3).url).toContain('/operations/second');
+  });
+
+  test('continues a Location poll with an empty HTTP 202 response', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { location: '/operations/op' }))
+      .mockResolvedValueOnce(json(202))
+      .mockResolvedValueOnce(json(200, { status: 'Succeeded' }))
+      .mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope);
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toEqual(resource());
+    expect(mocks.fetch).toHaveBeenCalledTimes(5);
+  });
+
+  test('continues a Location poll when HTTP 202 returns status Succeeded until HTTP 200', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { location: '/operations/op' }))
+      .mockResolvedValueOnce(json(202, { status: 'Succeeded' }))
+      .mockResolvedValueOnce(json(200, { status: 'Succeeded' }))
+      .mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope);
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toEqual(resource());
+    expect(mocks.fetch).toHaveBeenCalledTimes(5);
+  });
+
+  test.each([200, 204])(
+    'completes a bodyless Location HTTP %i with a final successful namespace GET',
+    async status => {
+      mocks.fetch
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(json(202, undefined, { location: '/operations/op' }))
+        .mockResolvedValueOnce(json(status))
+        .mockResolvedValueOnce(json(200, resource()));
+      const result = updateManagedNamespace(scope).catch(error => error);
+      await vi.runAllTimersAsync();
+      expect(await result).toEqual(resource());
+      expect(mocks.fetch).toHaveBeenCalledTimes(4);
+      expect(request(2).url).toContain('/operations/op');
+      expect(request(3).url).toBe(request(0).url);
+      expect(request(3).method).toBe('GET');
+    }
+  );
+
+  test.each([200, 204])(
+    'does not treat bodyless Location HTTP %i as success when the final namespace failed',
+    async status => {
+      const failed = resource();
+      failed.properties.provisioningState = 'Failed';
+      mocks.fetch
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(json(202, undefined, { location: '/operations/op' }))
+        .mockResolvedValueOnce(json(status))
+        .mockResolvedValueOnce(json(200, failed));
+      const result = updateManagedNamespace(scope).catch(error => error);
+      await vi.runAllTimersAsync();
+      expect(await result).toMatchObject({
+        message: expect.stringContaining('operation Failed'),
+      });
+      expect(mocks.fetch).toHaveBeenCalledTimes(4);
+      expect(request(3).url).toBe(request(0).url);
+    }
+  );
+
+  test('propagates a final GET failure after a bodyless Location completion', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { location: '/operations/op' }))
+      .mockResolvedValueOnce(json(204))
+      .mockResolvedValueOnce(json(404, { error: { code: 'Gone', message: 'gone' } }));
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.runAllTimersAsync();
+    expect(await result).toMatchObject({ status: 404, code: 'Gone' });
+    expect(mocks.fetch).toHaveBeenCalledTimes(4);
+  });
+
+  test.each([
+    ['azure-asyncoperation', 200],
+    ['azure-asyncoperation', 204],
+    ['resource', 200],
+    ['resource', 204],
+  ] as const)('rejects a bodyless %s HTTP %i poll as malformed', async (kind, status) => {
+    const updating = resource();
+    updating.properties.provisioningState = 'Updating';
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(201, updating, kind === 'resource' ? {} : { [kind]: '/operations/op' })
+      )
+      .mockResolvedValueOnce(json(status));
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.runAllTimersAsync();
+    expect(await result).toMatchObject({
+      message: expect.stringContaining('Malformed operation status'),
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  test('does not silently select a subscription if explicit scope is blank', async () => {
+    await expect(updateManagedNamespace({ ...scope, subscriptionId: '' })).rejects.toThrow(
+      /requires subscription/
+    );
+    expect(mocks.command).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  test('reports missing current subscription instead of sending a resource request', async () => {
+    mocks.command.mockResolvedValue({ stdout: '', stderr: '' });
+    await expect(updateManagedNamespace({ ...scope, subscriptionId: undefined })).rejects.toThrow(
+      /Not logged in/
+    );
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  test('a previously aborted signal prevents token and HTTP requests', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('already canceled'));
+    await expect(updateManagedNamespace({ ...scope, signal: controller.signal })).rejects.toThrow(
+      /already canceled/
+    );
+    expect(mocks.token).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  test('polls the single resource when 201 provisioning is still Updating', async () => {
+    const updating = resource();
+    updating.properties.provisioningState = 'Updating';
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(201, updating))
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope);
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toEqual(resource());
+    expect(request(2).url).toBe(request(0).url);
+  });
+
+  test.each(['Failed', 'Canceled', 'Cancelled', '', undefined, 7])(
+    'rejects terminal or malformed operation status %s with Azure IDs',
+    async status => {
+      mocks.fetch
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(json(202, undefined, { 'azure-asyncoperation': '/operations/op' }))
+        .mockResolvedValueOnce(
+          json(
+            200,
+            {
+              status,
+              error: { code: 'OperationFailure', message: 'service detail' },
+            },
+            { 'x-ms-request-id': 'op-req', 'x-ms-correlation-request-id': 'op-corr' }
+          )
+        );
+      const result = updateManagedNamespace(scope).catch(error => error);
+      await vi.runAllTimersAsync();
+      expect(await result).toMatchObject({
+        code: 'OperationFailure',
+        requestId: 'op-req',
+        correlationId: 'op-corr',
+      });
+      expect(await result).toMatchObject({ message: expect.stringContaining('service detail') });
+      expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    }
+  );
+
+  test('keeps provider-specific status, HTTP 202 Location JSON bodies, and nonterminal final GETs pending until Succeeded', async () => {
+    const updating = resource();
+    updating.properties.provisioningState = 'Updating';
+    const succeeded202 = resource();
+    succeeded202.properties.provisioningState = 'Succeeded';
+
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { 'azure-asyncoperation': '/operations/op' }))
+      .mockResolvedValueOnce(json(200, { status: 'Unknown' }))
+      .mockResolvedValueOnce(json(200, { status: 'Succeeded' }))
+      .mockResolvedValueOnce(json(200, updating))
+      .mockResolvedValueOnce(json(200, resource()));
+    const opResult = updateManagedNamespace(scope);
+    await vi.runAllTimersAsync();
+    await expect(opResult).resolves.toEqual(resource());
+    expect(mocks.fetch).toHaveBeenCalledTimes(6);
+
+    mocks.fetch.mockReset();
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { location: '/operations/loc' }))
+      .mockResolvedValueOnce(json(202, {}))
+      .mockResolvedValueOnce(json(202, succeeded202))
+      .mockResolvedValueOnce(json(200, { properties: { provisioningState: 'Succeeded' } }))
+      .mockResolvedValueOnce(json(200, resource()));
+    const locResult = updateManagedNamespace(scope);
+    await vi.runAllTimersAsync();
+    await expect(locResult).resolves.toEqual(resource());
+    expect(mocks.fetch).toHaveBeenCalledTimes(6);
+  });
+
+  test.each([
+    'https://untrusted.example/operations/op',
+    '//untrusted.example/op',
+    'http://management.azure.com/op',
+    'https://management.azure.com:8443/op',
+    'https://user:password@management.azure.com/op',
+    'https://[',
+  ])('rejects untrusted continuation %s before acquiring another token', async url => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { 'azure-asyncoperation': url }));
+    await expect(updateManagedNamespace(scope)).rejects.toThrow(/untrusted|Invalid operation URL/);
+    expect(mocks.token).toHaveBeenCalledTimes(1);
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test('rejects redirected poll host after first operation response', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { 'azure-asyncoperation': '/operations/op' }))
+      .mockResolvedValueOnce(
+        json(200, { status: 'Running' }, { location: 'https://untrusted.example/op' })
+      );
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.runAllTimersAsync();
+    expect(await result).toMatchObject({ message: expect.stringMatching(/untrusted/) });
+    expect(mocks.token).toHaveBeenCalledTimes(1);
+  });
+
+  test('cancels while waiting without further requests', async () => {
+    const controller = new AbortController();
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(202, undefined, { 'azure-asyncoperation': '/operations/op', 'retry-after': '30' })
+      );
+    const result = updateManagedNamespace({ ...scope, signal: controller.signal }).catch(
+      error => error
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    controller.abort(new Error('user canceled'));
+    expect(await result).toMatchObject({ message: 'user canceled' });
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test('honors a 90-second transport retry during polling within the update deadline', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { 'azure-asyncoperation': '/operations/op' }))
+      .mockResolvedValueOnce(json(429, { error: { code: 'Throttled' } }, { 'retry-after': '90' }))
+      .mockResolvedValueOnce(json(200, { status: 'Succeeded' }))
+      .mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(89_999);
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toEqual(resource());
+    expect(mocks.fetch).toHaveBeenCalledTimes(5);
+    expect(request(2).url).toBe(request(3).url);
+    expect(request(4).url).toBe(request(0).url);
+  });
+
+  test('revalidates account identity after the bounded verification freshness interval', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(202, undefined, { location: '/operations/op', 'retry-after': '31' })
+      )
+      .mockResolvedValueOnce(json(200, undefined))
+      .mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope);
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toEqual(resource());
+    expect(mocks.command).toHaveBeenCalledTimes(5);
+  });
+
+  test('bounds a transport retry by the outer deadline rather than a fresh per-poll budget', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(202, undefined, {
+          'azure-asyncoperation': '/operations/op',
+          'retry-after': '590',
+        })
+      )
+      .mockResolvedValueOnce(json(429, undefined, { 'retry-after': '90' }));
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.advanceTimersByTimeAsync(590_000);
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await result).toMatchObject({
+      message: 'Managed namespace update timed out after 10 minutes',
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('cancels a transport retry delay without another request', async () => {
+    const controller = new AbortController();
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(202, undefined, { 'azure-asyncoperation': '/operations/op' }))
+      .mockResolvedValueOnce(json(429, undefined, { 'retry-after': '90' }));
+    const result = updateManagedNamespace({ ...scope, signal: controller.signal }).catch(
+      error => error
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    controller.abort(new Error('retry canceled'));
+    expect(await result).toMatchObject({ message: 'retry canceled' });
+    expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('bounds the entire update including very long Retry-After', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(202, undefined, { 'azure-asyncoperation': '/operations/op', 'retry-after': '99999' })
+      );
+    const result = updateManagedNamespace(scope).catch(error => error);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(await result).toMatchObject({ message: expect.stringMatching(/timed out/) });
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test.each(['Failed', 'Canceled', undefined])(
+    'rejects terminal or malformed final single-resource GET state %s',
+    async finalState => {
+      const final = resource();
+      final.properties.provisioningState = finalState as string;
+      mocks.fetch
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(json(200, final));
+      await expect(updateManagedNamespace(scope)).rejects.toThrow(/operation|Final|Malformed/);
+      expect(mocks.fetch).toHaveBeenCalledTimes(3);
+    }
+  );
+
+  test.each(['Updating', 'Unknown'])(
+    'continues polling final single-resource GET when state is %s until Succeeded',
+    async pendingState => {
+      const pending = resource();
+      pending.properties.provisioningState = pendingState;
+      mocks.fetch
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(json(200, resource()))
+        .mockResolvedValueOnce(json(200, pending))
+        .mockResolvedValueOnce(json(200, resource()));
+      const result = updateManagedNamespace(scope);
+      await vi.runAllTimersAsync();
+      await expect(result).resolves.toEqual(resource());
+      expect(mocks.fetch).toHaveBeenCalledTimes(4);
+    }
+  );
+
+  test('propagates final GET failure instead of reporting successful update', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(404, { error: { code: 'Gone', message: 'gone' } }));
+    await expect(updateManagedNamespace(scope)).rejects.toMatchObject({
+      status: 404,
+      code: 'Gone',
+    });
+  });
+
+  test.each([undefined, '"header-version"'])(
+    'uses header ETag when present and omits If-Match without any ETag',
+    async etag => {
+      const current = resource();
+      delete (current as Partial<typeof current>).eTag;
+      mocks.fetch
+        .mockResolvedValueOnce(json(200, current, etag ? { etag } : {}))
+        .mockResolvedValueOnce(json(200, resource()));
+      await updateManagedNamespace({ ...scope, noWait: true });
+      expect((request(1).headers as Record<string, string>)['If-Match']).toBe(etag);
+    }
+  );
+
+  test.each([
+    { namespaceName: '..' },
+    { namespaceName: '.' },
+    { clusterName: '..' },
+    { resourceGroup: '..' },
+    { subscriptionId: '..' },
+  ])('rejects dot-segment scope %o before any CLI or HTTP call', async override => {
+    await expect(updateManagedNamespace({ ...scope, ...override })).rejects.toThrow(
+      'Managed namespace requires subscription, resource group, cluster and namespace'
+    );
+    expect(mocks.command).not.toHaveBeenCalled();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+});

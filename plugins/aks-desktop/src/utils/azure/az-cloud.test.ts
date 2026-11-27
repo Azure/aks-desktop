@@ -263,4 +263,51 @@ describe('selected account Azure cloud registration', () => {
     await getAzureCloudEndpoints('AzureCloud');
     expect(mocks.command).toHaveBeenCalledTimes(2);
   });
+
+  test('invalidates the active cloud cache after a scoped subscription observation', async () => {
+    mocks.command
+      .mockResolvedValueOnce(
+        metadata(
+          'https://management.azure.com/',
+          'https://management.core.windows.net/',
+          'AzureCloud'
+        )
+      )
+      .mockResolvedValueOnce(
+        metadata(
+          'https://management.usgovcloudapi.net/',
+          'https://management.core.usgovcloudapi.net/',
+          'AzureUSGovernment'
+        )
+      );
+    await expect(getAzureCloudEndpoints()).resolves.toMatchObject({
+      name: 'AzureCloud',
+    });
+    window.dispatchEvent(
+      new CustomEvent('azure-subscription-account-change', {
+        detail: { subscriptionId: 'scoped-sub' },
+      })
+    );
+    await expect(getAzureCloudEndpoints()).resolves.toMatchObject({
+      name: 'AzureUSGovernment',
+    });
+    expect(mocks.command).toHaveBeenCalledTimes(2);
+  });
+
+  test('preserves named cloud cache entries after a scoped subscription observation', async () => {
+    mocks.command.mockResolvedValue(
+      metadata(
+        'https://management.usgovcloudapi.net/',
+        'https://management.core.usgovcloudapi.net/'
+      )
+    );
+    await getAzureCloudEndpoints('AzureUSGovernment');
+    window.dispatchEvent(
+      new CustomEvent('azure-subscription-account-change', {
+        detail: { subscriptionId: 'scoped-sub' },
+      })
+    );
+    await getAzureCloudEndpoints('AzureUSGovernment');
+    expect(mocks.command).toHaveBeenCalledTimes(1);
+  });
 });

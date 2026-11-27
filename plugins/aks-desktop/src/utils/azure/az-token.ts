@@ -209,10 +209,11 @@ const subscriptionCredentials = new Map<string, AzCliCredential>();
  */
 export function getSubscriptionCredential(subscriptionId: string): AzCliCredential {
   if (!isValidGuid(subscriptionId)) throw new AzTokenError('Invalid subscription ID format');
-  let credential = subscriptionCredentials.get(subscriptionId);
+  const key = subscriptionId.toLowerCase();
+  let credential = subscriptionCredentials.get(key);
   if (!credential) {
-    credential = createAzCliCredential(subscriptionId);
-    subscriptionCredentials.set(subscriptionId, credential);
+    credential = createAzCliCredential(key);
+    subscriptionCredentials.set(key, credential);
   }
   return credential;
 }
@@ -227,6 +228,15 @@ export function clearAzureTokenCaches(): void {
 if (typeof window !== 'undefined') {
   window.addEventListener('azure-auth-update', clearAzureTokenCaches);
   window.addEventListener('azure-account-change', clearAzureTokenCaches);
+  window.addEventListener('azure-subscription-account-change', (event: Event) => {
+    const subscriptionId = (event as CustomEvent<{ subscriptionId?: string }>).detail
+      ?.subscriptionId;
+    if (subscriptionId) {
+      subscriptionCredentials.get(subscriptionId.toLowerCase())?.clearCache();
+    } else {
+      clearAzureTokenCaches();
+    }
+  });
 }
 
 /**
