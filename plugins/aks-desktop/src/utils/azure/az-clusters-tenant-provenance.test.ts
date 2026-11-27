@@ -164,8 +164,8 @@ test('uses the CLI account tenant from the refreshed profile', async () => {
   expect(events).toContain(PROFILE_REFRESH_COMMAND);
 });
 
-test("still rejects a subscription token from a tenant other than the CLI account's", async () => {
-  // The profile moves S to the discovery tenant after discovery recorded tenant B.
+test('rejects a subscription token from a tenant other than the recorded CLI account tenant', async () => {
+  // Discovery records tenant B; the profile then moves S to the discovery tenant.
   beforeSubscriptionToken = () => (cachedTenant = TENANT_A);
 
   await expectSkipped(TENANT_MISMATCH);

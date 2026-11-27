@@ -19,7 +19,15 @@ import { getClusters } from './az-clusters';
 import { getSubscriptions } from './az-subscriptions';
 
 const LIVE = process.env.AZ_LIVE_TESTS === '1' && !process.env.CI;
-const SKIP_WARNING = 'Could not list AKS clusters for subscription ';
+
+/** Azure errors may contain account or resource identifiers; never send them to the reporter. */
+async function readLive<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch {
+    throw new Error('Live Azure read failed; check the current az login and read permissions.');
+  }
+}
 
 /**
  * Runs a read-only `az` command.
@@ -48,12 +56,14 @@ describe.runIf(LIVE)('subscription tenant provenance (live, read-only)', () => {
   let subscriptions: any[];
   /** CLI profile tenant by lowercased subscription ID. */
   let profileTenants: Map<string, string | undefined>;
-  /** Lowercased cluster IDs from `az aks list`, for subscriptions it could read. */
+  /** Lowercased cluster IDs from `az aks list`, for enabled profile subscriptions it could read. */
   let azClusters: Map<string, Set<string>>;
   /** Lowercased cluster IDs from all-subscription `getClusters()`, by subscription. */
   let listedClusters: Map<string, Set<string>>;
-  /** Lowercased subscription IDs that all-subscription discovery warned about and skipped. */
-  let skipped: Set<string>;
+  /** Lowercased subscription IDs whose managed-cluster list `getClusters()` requested. */
+  let listRequested: Set<string>;
+  /** Lowercased subscription IDs named in a `getClusters()` warning, i.e. skipped. */
+  let warned: Set<string>;
 
   beforeAll(async () => {
     // Production warnings and debug output include Azure identifiers; keep them off the reporter.
@@ -77,7 +87,19 @@ describe.runIf(LIVE)('subscription tenant provenance (live, read-only)', () => {
       return child;
     });
 
-    subscriptions = await getSubscriptions();
+    // Pass-through fetch spy that records which subscriptions' cluster lists were requested.
+    listRequested = new Set();
+    const realFetch = globalThis.fetch;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const path = new URL(input instanceof Request ? input.url : input).pathname.toLowerCase();
+      const match = path.match(
+        /^\/subscriptions\/([^/]+)\/providers\/microsoft\.containerservice\/managedclusters$/
+      );
+      // Subscription IDs are GUIDs, so the path segment needs no decoding.
+      if (match) listRequested.add(match[1]);
+      return realFetch(input, init);
+    });
+    subscriptions = await readLive(() => getSubscriptions());
     // Read the profile after discovery, which may have refreshed it.
     const profile = await az(['account', 'list', '--all']);
     if (!Array.isArray(profile) || subscriptions.length === 0) {
@@ -85,24 +107,24 @@ describe.runIf(LIVE)('subscription tenant provenance (live, read-only)', () => {
     }
     profileTenants = new Map(profile.map((s: any) => [lower(s.id)!, lower(s.tenantId)]));
 
+    // The baseline comes from the CLI profile, so a subscription discovery drops still counts.
     azClusters = new Map();
-    for (const sub of subscriptions) {
+    for (const sub of profile.filter((s: any) => s.state === 'Enabled')) {
       const ids = await az(['aks', 'list', '--subscription', sub.id, '--query', '[].id']);
       if (Array.isArray(ids)) azClusters.set(lower(sub.id)!, new Set(ids.map(lower)));
     }
 
     warn.mockClear();
-    const clusters = await getClusters();
+    listRequested.clear();
+    const clusters = await readLive(() => getClusters());
     listedClusters = new Map();
     for (const cluster of clusters) {
       const key = lower(cluster.subscription)!;
       listedClusters.set(key, (listedClusters.get(key) ?? new Set()).add(lower(cluster.id)!));
     }
-    skipped = new Set(
-      warn.mock.calls
-        .map(([message]) => String(message))
-        .filter(message => message.startsWith(SKIP_WARNING))
-        .map(message => lower(message.slice(SKIP_WARNING.length).replace(/:$/, ''))!)
+    const warnings = warn.mock.calls.map(call => call.map(String).join(' ').toLowerCase());
+    warned = new Set(
+      [...azClusters.keys()].filter(id => warnings.some(warning => warning.includes(id)))
     );
   }, 600_000);
 
@@ -125,7 +147,8 @@ describe.runIf(LIVE)('subscription tenant provenance (live, read-only)', () => {
 
   test('all-subscription discovery keeps every subscription az aks list can read', () => {
     const readable = [...azClusters.keys()];
-    const dropped = readable.filter(id => skipped.has(id));
+    // Also catches a subscription with no clusters that discovery never queried.
+    const dropped = readable.filter(id => warned.has(id) || !listRequested.has(id));
     const different = readable.filter(id => {
       const expected = azClusters.get(id)!;
       const listed = listedClusters.get(id) ?? new Set<string>();
@@ -146,7 +169,9 @@ describe.runIf(LIVE)('subscription tenant provenance (live, read-only)', () => {
       return;
     }
     const readable = delegated.filter(sub => azClusters.has(lower(sub.id)!));
-    const dropped = readable.filter(sub => skipped.has(lower(sub.id)!));
+    const dropped = readable.filter(
+      sub => warned.has(lower(sub.id)!) || !listRequested.has(lower(sub.id)!)
+    );
 
     expect(readable.length).toBeGreaterThan(0);
     expect(dropped.length).toBe(0);
