@@ -1023,7 +1023,7 @@
     "knip": "6.45.1",
     "lint-staged": "^17.6.1",
     "tsx": "^4.23.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "headlampPatch": {
     "path": "patches/headlamp-source@0.0.0-main.7ce01fce.patch",
