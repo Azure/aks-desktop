@@ -147,6 +147,15 @@ function assertExpectedAccount(
   }
 }
 
+function parentClusterUpdating(error: unknown): boolean {
+  return (
+    error instanceof AzureRequestError &&
+    error.status === 400 &&
+    error.code === 'BadRequest' &&
+    /\bmanaged cluster\s+\S+\s+is in Updating state\b/i.test(error.message)
+  );
+}
+
 async function resourceContext(options: ManagedNamespaceScope) {
   const names = [options.resourceGroup, options.clusterName, options.namespaceName];
   const isDotSegment = (value: string) => value.trim() === '.' || value.trim() === '..';
@@ -438,20 +447,29 @@ export async function updateManagedNamespaceResource(
       timeoutMs: UPDATE_TIMEOUT_MS,
     };
     const { url, origin } = context;
-    const initial = await request(url, context, signal);
-    const current = validateResource(initial.data);
-    const etag = initial.headers.get('etag') ?? current.eTag;
-    let response = await request(
-      url,
-      context,
-      signal,
-      {
-        method: 'PUT',
-        body: updateBody(current, options),
-        ...(etag ? { headers: { 'If-Match': etag } } : {}),
-      },
-      true
-    );
+    let response: AzResponse<unknown>;
+    for (let attempt = 0; ; attempt++) {
+      const initial = await request(url, context, signal);
+      const current = validateResource(initial.data);
+      const etag = initial.headers.get('etag') ?? current.eTag;
+      try {
+        response = await request(
+          url,
+          context,
+          signal,
+          {
+            method: 'PUT',
+            body: updateBody(current, options),
+            ...(etag ? { headers: { 'If-Match': etag } } : {}),
+          },
+          true
+        );
+        break;
+      } catch (error) {
+        if (!parentClusterUpdating(error)) throw error;
+        await waitForAzureRetry(undefined, signal, attempt);
+      }
+    }
     if (![200, 201, 202].includes(response.status)) {
       throw operationError('Unexpected managed namespace PUT response', response);
     }

@@ -335,6 +335,56 @@ describe('managed namespace REST update', () => {
     }
   );
 
+  test('re-reads and retries a PUT rejected while the parent AKS cluster is updating', async () => {
+    const refreshed = resource();
+    refreshed.eTag = '"version-2"';
+    refreshed.tags = { team: 'updated-concurrently' };
+    refreshed.properties.labels = { existing: 'keep', replace: 'updated-concurrently' };
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(400, {
+          error: {
+            code: 'BadRequest',
+            message:
+              'The managed cluster cluster is in Updating state, please wait for it to succeed.',
+          },
+        })
+      )
+      .mockResolvedValueOnce(json(200, refreshed, { etag: '"version-2"' }))
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(json(200, resource()));
+
+    const result = updateManagedNamespace({ ...scope, cpuRequest: 250 });
+    await vi.runAllTimersAsync();
+    await result;
+
+    expect(mocks.fetch).toHaveBeenCalledTimes(5);
+    expect(request(1).headers).toMatchObject({ 'If-Match': '"version-1"' });
+    expect(request(3).headers).toMatchObject({ 'If-Match': '"version-2"' });
+    expect(JSON.parse(request(3).body as string)).toMatchObject({
+      tags: { team: 'updated-concurrently' },
+      properties: {
+        labels: { existing: 'keep', replace: 'updated-concurrently' },
+        defaultResourceQuota: { cpuRequest: '250m' },
+      },
+    });
+  });
+
+  test('does not retry a different PUT BadRequest', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(400, { error: { code: 'BadRequest', message: 'Invalid namespace quota' } })
+      );
+
+    await expect(updateManagedNamespace(scope)).rejects.toMatchObject({
+      status: 400,
+      code: 'BadRequest',
+    });
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
   test.each([
     undefined,
     {},
