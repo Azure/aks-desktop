@@ -105,6 +105,21 @@ describe('waitForAzureRetry', () => {
 });
 
 describe('azRequest', () => {
+  test('sends If-Match on conditional writes without replacing authentication', async () => {
+    mocks.fetch.mockResolvedValue(json(202));
+    await azRequestRaw({
+      url: '/cluster',
+      method: 'PUT',
+      body: {},
+      ifMatch: '"rev-1"',
+      credential,
+    });
+    expect(lastRequest().init.headers).toMatchObject({
+      'If-Match': '"rev-1"',
+      Authorization: 'Bearer fake-token',
+      'Content-Type': 'application/json',
+    });
+  });
   test('preserves flat ContainerService provider errors', async () => {
     mocks.fetch.mockResolvedValue(json(400, { code: 'InvalidParameter', message: 'invalid pool' }));
     await expect(azRequest({ url: '/cluster', credential })).rejects.toMatchObject({

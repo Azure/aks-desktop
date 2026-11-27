@@ -547,43 +547,61 @@ async function provisionPrometheusArtifacts(
   }
 }
 
-const READONLY_CLUSTER_PROPERTIES = [
-  'provisioningState',
-  'powerState',
-  'fqdn',
-  'privateFQDN',
-  'azurePortalFQDN',
-  'currentKubernetesVersion',
-  'maxAgentPools',
-  'resourceUID',
-];
-
-const READONLY_AGENT_POOL_PROPERTIES = [
-  'provisioningState',
-  'powerState',
-  'currentOrchestratorVersion',
-  'nodeImageVersion',
+const READONLY_CLUSTER_FIELDS = new Set([
+  'id',
+  'name',
+  'type',
+  'systemData',
   'eTag',
-];
+  'identity.principalId',
+  'identity.tenantId',
+  'identity.userAssignedIdentities.*.principalId',
+  'identity.userAssignedIdentities.*.clientId',
+  'properties.provisioningState',
+  'properties.powerState',
+  'properties.fqdn',
+  'properties.privateFQDN',
+  'properties.azurePortalFQDN',
+  'properties.currentKubernetesVersion',
+  'properties.maxAgentPools',
+  'properties.resourceUID',
+  'properties.agentPoolProfiles.provisioningState',
+  'properties.agentPoolProfiles.powerState',
+  'properties.agentPoolProfiles.currentOrchestratorVersion',
+  'properties.agentPoolProfiles.nodeImageVersion',
+  'properties.agentPoolProfiles.eTag',
+  'properties.agentPoolProfiles.localDNSProfile.state',
+  'properties.addonProfiles.*.identity',
+  'properties.podIdentityProfile.userAssignedIdentities.provisioningState',
+  'properties.podIdentityProfile.userAssignedIdentities.provisioningInfo',
+  'properties.oidcIssuerProfile.issuerURL',
+  'properties.networkProfile.loadBalancerProfile.effectiveOutboundIPs',
+  'properties.networkProfile.natGatewayProfile.effectiveOutboundIPs',
+  'properties.privateLinkResources.privateLinkServiceID',
+  'properties.ingressProfile.webAppRouting.identity',
+]);
+
+/** Removes read-only fields from the AKS PUT payload. */
+function writableClusterValue(value: unknown, path = ''): unknown {
+  if (Array.isArray(value)) return value.map(item => writableClusterValue(item, path));
+  if (!value || typeof value !== 'object') return value;
+  const isResourceMap =
+    path === 'identity.userAssignedIdentities' || path === 'properties.addonProfiles';
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, child]) => {
+      const childPath = path ? `${path}.${isResourceMap ? '*' : key}` : key;
+      return READONLY_CLUSTER_FIELDS.has(childPath)
+        ? []
+        : [[key, writableClusterValue(child, childPath)]];
+    })
+  );
+}
 
 function buildClusterPutBody(
   cluster: ManagedClusterResource,
   addons: AddonKey[]
 ): { body: Record<string, unknown>; alreadySatisfied: boolean } {
   const properties: Record<string, unknown> = { ...(cluster.properties ?? {}) };
-  for (const key of READONLY_CLUSTER_PROPERTIES) {
-    delete properties[key];
-  }
-  if (Array.isArray(properties.agentPoolProfiles)) {
-    properties.agentPoolProfiles = properties.agentPoolProfiles.map(pool => {
-      if (!pool || typeof pool !== 'object') return pool;
-      const cleanPool = { ...(pool as Record<string, unknown>) };
-      for (const key of READONLY_AGENT_POOL_PROPERTIES) {
-        delete cleanPool[key];
-      }
-      return cleanPool;
-    });
-  }
 
   const wantsPrometheus = addons.includes('azure-monitor-metrics');
   const existingMonitor = (properties.azureMonitorProfile ?? {}) as Record<string, unknown>;
@@ -606,11 +624,16 @@ function buildClusterPutBody(
 
   const wantsKeda = addons.includes('keda');
   const wantsVpa = addons.includes('vpa');
+  const existingAutoScaler = (properties.workloadAutoScalerProfile ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const alreadyKedaEnabled =
+    (existingAutoScaler.keda as Record<string, unknown> | undefined)?.enabled === true;
+  const alreadyVpaEnabled =
+    (existingAutoScaler.verticalPodAutoscaler as Record<string, unknown> | undefined)?.enabled ===
+    true;
   if (wantsKeda || wantsVpa) {
-    const existingAutoScaler = (properties.workloadAutoScalerProfile ?? {}) as Record<
-      string,
-      unknown
-    >;
     properties.workloadAutoScalerProfile = {
       ...existingAutoScaler,
       ...(wantsKeda && {
@@ -629,15 +652,14 @@ function buildClusterPutBody(
     };
   }
 
-  const body: Record<string, unknown> = { ...cluster, properties };
-  delete body.id;
-  delete body.name;
-  delete body.type;
-  delete body.systemData;
+  const body = writableClusterValue({ ...cluster, properties }) as Record<string, unknown>;
 
   return {
     body,
-    alreadySatisfied: wantsPrometheus && alreadyPrometheusEnabled && !wantsKeda && !wantsVpa,
+    alreadySatisfied:
+      (!wantsPrometheus || alreadyPrometheusEnabled) &&
+      (!wantsKeda || alreadyKedaEnabled) &&
+      (!wantsVpa || alreadyVpaEnabled),
   };
 }
 
@@ -694,17 +716,18 @@ export async function enableClusterAddonsViaRest(
       `/providers/Microsoft.ContainerService/managedClusters/${encodeURIComponent(clusterName)}`;
 
     const readCluster = async (): Promise<ManagedClusterResource> => {
-      const data = await azRequest<ManagedClusterResource>({
+      const response = await azRequestRaw<ManagedClusterResource>({
         ...baseRequest,
         url: clusterUrl,
         apiVersion: AKS_API_VERSION,
       });
+      const data = response.data;
       if (!data?.location || !data.properties || typeof data.properties !== 'object') {
         throw new AzureRequestError(
           'Managed AKS cluster response is missing location or properties'
         );
       }
-      return data;
+      return { ...data, eTag: response.headers.get('etag') ?? data.eTag };
     };
 
     let cluster = await readCluster();
@@ -731,16 +754,30 @@ export async function enableClusterAddonsViaRest(
       if (alreadySatisfied) {
         return { success: true };
       }
+      if (!cluster.eTag?.trim()) {
+        throw new AzureRequestError(
+          'Managed AKS cluster response is missing an ETag for safe update'
+        );
+      }
 
       try {
-        await azRequestRaw({
+        const response = await azRequestRaw<OperationStatus>({
           ...baseRequest,
           url: clusterUrl,
           apiVersion: AKS_API_VERSION,
           method: 'PUT',
           maxRetries: 0,
+          ifMatch: cluster.eTag,
           body,
         });
+        const state = response.data?.properties?.provisioningState?.toLowerCase();
+        if (state && TERMINAL_FAILURE_STATES.has(state)) {
+          throw new AzureRequestError(
+            response.data?.properties?.error?.message ??
+              `Cluster update ended in ${response.data?.properties?.provisioningState}`,
+            { code: response.data?.properties?.error?.code }
+          );
+        }
         return { success: true };
       } catch (putError) {
         if (attempt === 0 && putError instanceof AzureRequestError && putError.status === 412) {
