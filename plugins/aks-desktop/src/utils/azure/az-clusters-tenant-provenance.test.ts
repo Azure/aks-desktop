@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
 
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), runCommandAsync: vi.fn() }));
 
@@ -29,17 +29,20 @@ const TOKEN_COMMAND = `account get-access-token --scope ${SCOPE} -o json`;
 const PROFILE_COMMAND = 'account list --all --output json';
 const PROFILE_REFRESH_COMMAND = 'account list --all --refresh --output json';
 const TENANT_MISMATCH = 'The selected subscription account does not belong to the requested tenant';
+// Azure CLI's error when `--subscription` names an account missing from its cached profile.
+const NOT_IN_PROFILE = `ERROR: Subscription '${SUBSCRIPTION}' not found. Check the spelling and casing and try again.`;
 const CLUSTER_ID = `/subscriptions/${SUBSCRIPTION}/resourceGroups/sample-rg/providers/Microsoft.ContainerService/managedClusters/sample-cluster`;
 const CLUSTER_FETCH = `fetch /subscriptions/${SUBSCRIPTION}/providers/Microsoft.ContainerService/managedClusters Bearer token-subscription`;
 
 let events: string[];
-/** The CLI profile's tenant for the subscription, or undefined when the profile omits it. */
-let profileTenant: string | undefined;
-/** When set, only the refreshed CLI profile knows the subscription. */
-let staleProfile: boolean;
-let subscriptionTokenTenant: string;
+/** The tenant a profile refresh finds for the subscription, or undefined if it finds none. */
+let accountTenant: string | undefined;
+/** The CLI's cached profile tenant for the subscription; undefined is a cold cache. */
+let cachedTenant: string | undefined;
+/** Profile change made outside discovery, applied before the subscription token is requested. */
+let beforeSubscriptionToken: (() => void) | undefined;
 
-/** Synthetic token output; the subscription-bound token reports the CLI account's tenant. */
+/** Synthetic token output; a subscription-bound token reports its profile account's tenant. */
 const token = (accessToken: string, tenant?: string) => ({
   stdout: JSON.stringify({
     accessToken,
@@ -56,9 +59,9 @@ beforeEach(() => {
   clearAzureTokenCaches();
   clearAzureCloudCache();
   events = [];
-  profileTenant = TENANT_B;
-  staleProfile = false;
-  subscriptionTokenTenant = TENANT_B;
+  accountTenant = TENANT_B;
+  cachedTenant = TENANT_B;
+  beforeSubscriptionToken = undefined;
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   mocks.runCommandAsync.mockImplementation(async (_command: string, args: string[]) => {
     const command = args.join(' ');
@@ -71,15 +74,18 @@ beforeEach(() => {
       return { stdout: JSON.stringify({ name: 'AzureCloud', endpoints }), stderr: '' };
     }
     if (command === PROFILE_COMMAND || command === PROFILE_REFRESH_COMMAND) {
-      const known = profileTenant && (command === PROFILE_REFRESH_COMMAND || !staleProfile);
-      const profile = known ? [{ id: SUBSCRIPTION, tenantId: profileTenant }] : [];
+      if (command === PROFILE_REFRESH_COMMAND) cachedTenant = accountTenant;
+      const profile = cachedTenant ? [{ id: SUBSCRIPTION, tenantId: cachedTenant }] : [];
       return { stdout: JSON.stringify(profile), stderr: '' };
     }
     if (command === TOKEN_COMMAND) return token('token-default');
     if (command === `${TOKEN_COMMAND} --tenant ${TENANT_A}`) return token('token-tenant-a');
     if (command === `${TOKEN_COMMAND} --tenant ${TENANT_B}`) return token('token-tenant-b');
     if (command === `${TOKEN_COMMAND} --subscription ${SUBSCRIPTION}`) {
-      return token('token-subscription', subscriptionTokenTenant);
+      beforeSubscriptionToken?.();
+      // Like Azure CLI, a subscription token needs a cached profile account and has its tenant.
+      if (!cachedTenant) return { stdout: '', stderr: NOT_IN_PROFILE };
+      return token('token-subscription', cachedTenant);
     }
     throw new Error(`Unexpected CLI command: az ${command}`);
   });
@@ -131,14 +137,14 @@ async function expectClusterListed() {
   ]);
 }
 
-/** Asserts S's token was requested and refused for its tenant, and no cluster list was sent. */
-async function expectTenantRefusal() {
+/** Asserts S's token was requested and failed with `reason`, and no cluster list was sent. */
+async function expectSkipped(reason: string) {
   await expect(getClusters()).resolves.toEqual([]);
   expect(events).toContain(`${TOKEN_COMMAND} --subscription ${SUBSCRIPTION}`);
   expect(events.filter(event => event.includes('/managedClusters'))).toEqual([]);
   expect(console.warn).toHaveBeenCalledWith(
     `Could not list AKS clusters for subscription ${SUBSCRIPTION}:`,
-    TENANT_MISMATCH
+    reason
   );
 }
 
@@ -151,7 +157,7 @@ test("all-subscription discovery keeps S when its profile-tenant listing fails b
 });
 
 test('uses the CLI account tenant from the refreshed profile', async () => {
-  staleProfile = true;
+  cachedTenant = undefined;
 
   await expectClusterListed();
   expect(events).toContain(PROFILE_COMMAND);
@@ -159,25 +165,38 @@ test('uses the CLI account tenant from the refreshed profile', async () => {
 });
 
 test("still rejects a subscription token from a tenant other than the CLI account's", async () => {
-  // The discovery tenant is not accepted in place of the CLI account's tenant.
-  subscriptionTokenTenant = TENANT_A;
+  // The profile moves S to the discovery tenant after discovery recorded tenant B.
+  beforeSubscriptionToken = () => (cachedTenant = TENANT_A);
 
-  await expectTenantRefusal();
+  await expectSkipped(TENANT_MISMATCH);
 });
 
-test('keeps the discovery-tenant check when the CLI profile does not know the subscription', async () => {
-  profileTenant = undefined;
+test('skips the subscription with a warning when even the refreshed CLI profile does not know it', async () => {
+  accountTenant = undefined;
+  cachedTenant = undefined;
 
-  await expectTenantRefusal();
+  await expectSkipped(NOT_IN_PROFILE);
   expect(events).toContain(PROFILE_COMMAND);
   expect(events).toContain(PROFILE_REFRESH_COMMAND);
 });
 
-test('accepts a discovery-tenant token when the CLI profile does not know the subscription', async () => {
-  profileTenant = undefined;
-  subscriptionTokenTenant = TENANT_A;
+describe('when the CLI profile learns the subscription only after discovery', () => {
+  beforeEach(() => {
+    accountTenant = undefined;
+    cachedTenant = undefined;
+  });
 
-  await expectClusterListed();
+  test('accepts a token from the discovery tenant', async () => {
+    beforeSubscriptionToken = () => (cachedTenant = TENANT_A);
+
+    await expectClusterListed();
+  });
+
+  test('rejects a token from another tenant', async () => {
+    beforeSubscriptionToken = () => (cachedTenant = TENANT_B);
+
+    await expectSkipped(TENANT_MISMATCH);
+  });
 });
 
 test("keeps the discovery tenant and records the CLI account's tenant beside it", async () => {
