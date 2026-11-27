@@ -483,6 +483,117 @@ describe('getLoginStatus', () => {
     }
   });
 
+  test('retries a default read when a scoped observation publishes a newer identity', async () => {
+    let releaseDefault!: (value: { stdout: string; stderr: string }) => void;
+    const account = (user: string) =>
+      JSON.stringify({
+        id: 'race-subscription',
+        tenantId: 'tenant',
+        cloudName: 'AzureCloud',
+        user: { name: user },
+      });
+    mocks.runCommandAsync
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releaseDefault = resolve;
+          })
+      )
+      .mockResolvedValue({
+        stdout: account('new@example.com'),
+        stderr: '',
+      });
+    const defaultRead = getLoginStatus();
+    await getLoginStatus('race-subscription');
+    releaseDefault({ stdout: account('old@example.com'), stderr: '' });
+    await expect(defaultRead).resolves.toMatchObject({ username: 'new@example.com' });
+    expect(mocks.runCommandAsync).toHaveBeenCalledTimes(3);
+  });
+
+  test('retries a scoped read when a followed completed observation becomes stale', async () => {
+    let releaseOlder!: (value: { stdout: string; stderr: string }) => void;
+    const account = (subscriptionId: string, user: string) =>
+      JSON.stringify({
+        id: subscriptionId,
+        tenantId: 'tenant',
+        user: { name: user },
+      });
+    mocks.runCommandAsync
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releaseOlder = resolve;
+          })
+      )
+      .mockResolvedValueOnce({
+        stdout: account('race-subscription', 'newer@example.com'),
+        stderr: '',
+      })
+      .mockResolvedValueOnce({
+        stdout: account('default-subscription', 'default@example.com'),
+        stderr: '',
+      })
+      .mockResolvedValueOnce({
+        stdout: account('race-subscription', 'fresh@example.com'),
+        stderr: '',
+      });
+
+    const older = getLoginStatus('race-subscription');
+    await expect(getLoginStatus('race-subscription')).resolves.toMatchObject({
+      username: 'newer@example.com',
+    });
+    await getLoginStatus();
+    releaseOlder({
+      stdout: account('race-subscription', 'stale@example.com'),
+      stderr: '',
+    });
+
+    await expect(older).resolves.toMatchObject({ username: 'fresh@example.com' });
+    expect(mocks.runCommandAsync).toHaveBeenCalledTimes(4);
+  });
+
+  test('retries a default read when a followed completed observation becomes stale', async () => {
+    let releaseOlder!: (value: { stdout: string; stderr: string }) => void;
+    const account = (subscriptionId: string, user: string) =>
+      JSON.stringify({
+        id: subscriptionId,
+        tenantId: 'tenant',
+        user: { name: user },
+      });
+    mocks.runCommandAsync
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            releaseOlder = resolve;
+          })
+      )
+      .mockResolvedValueOnce({
+        stdout: account('race-subscription', 'newer@example.com'),
+        stderr: '',
+      })
+      .mockResolvedValueOnce({
+        stdout: account('race-subscription', 'scoped@example.com'),
+        stderr: '',
+      })
+      .mockResolvedValueOnce({
+        stdout: account('race-subscription', 'fresh@example.com'),
+        stderr: '',
+      });
+
+    const older = getLoginStatus();
+    await expect(getLoginStatus()).resolves.toMatchObject({
+      username: 'newer@example.com',
+    });
+    await getLoginStatus('race-subscription');
+    releaseOlder({
+      stdout: account('race-subscription', 'stale@example.com'),
+      stderr: '',
+    });
+
+    await expect(older).resolves.toMatchObject({ username: 'fresh@example.com' });
+    expect(mocks.runCommandAsync).toHaveBeenCalledTimes(4);
+  });
+
   test('retires a canceled newer scoped observation so an older lookup does not hang', async () => {
     let releaseOlder!: (value: { stdout: string; stderr: string }) => void;
     const hanging = new Promise<{ stdout: string; stderr: string }>(() => {});

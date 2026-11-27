@@ -167,6 +167,7 @@ let observedAccount: string | undefined;
 let defaultAccountGeneration = 0;
 let latestAccountObservation: Promise<AzureLoginStatus> | undefined;
 const observedSubscriptionAccounts = new Map<string, string>();
+const scopedSubscriptionGenerations = new Map<string, number>();
 const latestSubscriptionObservations = new Map<string, Promise<AzureLoginStatus>>();
 const retiredObservations = new WeakSet<Promise<AzureLoginStatus>>();
 
@@ -231,13 +232,22 @@ export function getLoginStatus(
           if (signal?.aborted) return;
           const current = latestSubscriptionObservations.get(selectorKey);
           if (current && current !== observation) {
-            current.then(resolve, err => {
-              if (retiredObservations.has(current) && !signal?.aborted) {
-                getLoginStatus(subscriptionId, signal).then(resolve, reject);
-                return;
+            current.then(
+              status => {
+                if (defaultAccountGeneration !== startGen) {
+                  getLoginStatus(subscriptionId, signal).then(resolve, reject);
+                  return;
+                }
+                resolve(status);
+              },
+              err => {
+                if (retiredObservations.has(current) && !signal?.aborted) {
+                  getLoginStatus(subscriptionId, signal).then(resolve, reject);
+                  return;
+                }
+                reject(err);
               }
-              reject(err);
-            });
+            );
             return;
           }
           if (defaultAccountGeneration !== startGen) {
@@ -261,6 +271,10 @@ export function getLoginStatus(
             }
             notifySubscriptionAccountChange(resolvedKey);
           }
+          scopedSubscriptionGenerations.set(
+            resolvedKey,
+            (scopedSubscriptionGenerations.get(resolvedKey) ?? 0) + 1
+          );
           resolve(status);
         }, reject);
       }
@@ -272,6 +286,8 @@ export function getLoginStatus(
   }
 
   let onAbort: (() => void) | undefined;
+  const subscriptionBaselineAtStart = new Map(observedSubscriptionAccounts);
+  const scopedGenerationsAtStart = new Map(scopedSubscriptionGenerations);
   const observation: Promise<AzureLoginStatus> = new Promise<AzureLoginStatus>(
     (resolve, reject) => {
       onAbort = () => {
@@ -283,17 +299,39 @@ export function getLoginStatus(
         if (signal?.aborted) return;
         const current = latestAccountObservation;
         if (current && current !== observation) {
-          current.then(resolve, err => {
-            if (retiredObservations.has(current) && !signal?.aborted) {
-              getLoginStatus(undefined, signal).then(resolve, reject);
-              return;
+          current.then(
+            status => {
+              const resolvedKey = status.subscriptionId?.toLowerCase();
+              if (
+                resolvedKey &&
+                scopedSubscriptionGenerations.get(resolvedKey) !==
+                  scopedGenerationsAtStart.get(resolvedKey)
+              ) {
+                getLoginStatus(undefined, signal).then(resolve, reject);
+                return;
+              }
+              resolve(status);
+            },
+            err => {
+              if (retiredObservations.has(current) && !signal?.aborted) {
+                getLoginStatus(undefined, signal).then(resolve, reject);
+                return;
+              }
+              reject(err);
             }
-            reject(err);
-          });
+          );
           return;
         }
         const identity = accountIdentityKey(status);
         const resolvedKey = status.subscriptionId?.toLowerCase();
+        if (
+          resolvedKey &&
+          observedSubscriptionAccounts.get(resolvedKey) !==
+            subscriptionBaselineAtStart.get(resolvedKey)
+        ) {
+          getLoginStatus(undefined, signal).then(resolve, reject);
+          return;
+        }
         defaultAccountGeneration += 1;
         if (identity !== observedAccount) {
           observedAccount = identity;
