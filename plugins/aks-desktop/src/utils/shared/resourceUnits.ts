@@ -5,43 +5,38 @@ import { unparseRam } from '@kinvolk/headlamp-plugin/lib/lib/units';
 
 /**
  * Parses a Kubernetes CPU quantity string to millicores.
- * Delegates to Headlamp's parseCpu (nanocores) for suffix-based values,
- * with local handling for fractional cores and µ suffix.
+ * Preserves DecimalSI, BinarySI, fractional, and sub-millicore precision.
  *
  * @example parseCpuToMillicores("100m")  // 100
  * @example parseCpuToMillicores("1")     // 1000
  * @example parseCpuToMillicores("0.5")   // 500
  */
 export function parseCpuToMillicores(val: string): number {
-  const s = String(val).trim();
-  if (!s) return 0;
-
-  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)([numkMGTPEµ]?)$/.exec(s);
-  if (!match) return 0;
-  if (match[2] && /e/i.test(match[1])) return 0;
-  const value = Number(match[1]);
-  const factors: Record<string, number> = {
-    '': 1000,
-    m: 1,
-    k: 1_000_000,
-    M: 1_000_000_000,
-    G: 1_000_000_000_000,
-    T: 1_000_000_000_000_000,
-    P: 1_000_000_000_000_000_000,
-    E: 1_000_000_000_000_000_000_000,
+  const factors: Record<string, [decimalShift: number, binaryPower: number]> = {
+    '': [3, 0],
+    n: [-6, 0],
+    u: [-3, 0],
+    µ: [-3, 0],
+    m: [0, 0],
+    k: [6, 0],
+    M: [9, 0],
+    G: [12, 0],
+    T: [15, 0],
+    P: [18, 0],
+    E: [21, 0],
+    Ki: [3, 10],
+    Mi: [3, 20],
+    Gi: [3, 30],
+    Ti: [3, 40],
+    Pi: [3, 50],
+    Ei: [3, 60],
   };
-  const result =
-    match[2] === 'n'
-      ? value / 1_000_000
-      : match[2] === 'u' || match[2] === 'µ'
-      ? value / 1000
-      : value * factors[match[2]];
-  return Number.isFinite(result) ? result : 0;
+  return parseQuantity(String(val), factors);
 }
 
 /**
  * Parses a Kubernetes memory quantity string to bytes.
- * Delegates to Headlamp's parseRam with fallback for lowercase 'k' suffix.
+ * Supports DecimalSI, BinarySI, fractional, exponent, and decimal-unit quantities.
  *
  * @example parseMemoryToBytes("128Mi")  // 134217728
  * @example parseMemoryToBytes("1Gi")    // 1073741824
@@ -49,47 +44,71 @@ export function parseCpuToMillicores(val: string): number {
  * @example parseMemoryToBytes("1000")   // 1000
  */
 export function parseMemoryToBytes(val: string): number {
-  const s = String(val).trim();
-  if (!s) return 0;
+  const factors: Record<string, [decimalShift: number, binaryPower: number]> = {
+    '': [0, 0],
+    m: [-3, 0],
+    u: [-6, 0],
+    n: [-9, 0],
+    k: [3, 0],
+    Ki: [0, 10],
+    M: [6, 0],
+    Mi: [0, 20],
+    G: [9, 0],
+    Gi: [0, 30],
+    T: [12, 0],
+    Ti: [0, 40],
+    P: [15, 0],
+    Pi: [0, 50],
+    E: [18, 0],
+    Ei: [0, 60],
+  };
+  return parseQuantity(String(val), factors);
+}
 
-  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)([EPTGMK]i?|[kmnu])?$/.exec(s);
-  if (match) {
-    if (match[2] && /e/i.test(match[1])) return 0;
-    const value = Number(match[1]);
-    const unit = match[2] ?? '';
-    const factors: Record<string, number> = {
-      '': 1,
-      m: 0.001,
-      u: 0.000001,
-      n: 0.000000001,
-      k: 1000,
-      K: 1000,
-      Ki: 1024,
-      M: 1000 ** 2,
-      Mi: 1024 ** 2,
-      G: 1000 ** 3,
-      Gi: 1024 ** 3,
-      T: 1000 ** 4,
-      Ti: 1024 ** 4,
-      P: 1000 ** 5,
-      Pi: 1024 ** 5,
-      E: 1000 ** 6,
-      Ei: 1024 ** 6,
-    };
-    const factor = factors[unit];
-    if (factor !== undefined && Number.isFinite(value)) {
-      const result =
-        unit === 'm'
-          ? value / 1000
-          : unit === 'u'
-          ? value / 1_000_000
-          : unit === 'n'
-          ? value / 1_000_000_000
-          : value * factor;
-      return Number.isFinite(result) ? result : 0;
-    }
+function parseQuantity(
+  input: string,
+  factors: Record<string, [decimalShift: number, binaryPower: number]>
+): number {
+  const value = input.trim();
+  if (!value || value.length > 1000) return 0;
+  const match =
+    /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))([eE][+-]?\d+)?(Ki|Mi|Gi|Ti|Pi|Ei|n|u|µ|m|k|M|G|T|P|E)?$/.exec(
+      value
+    );
+  if (!match) return 0;
+  const [, sign, whole = '0', fractionAfterWhole, fractionOnly, exponentText, unit = ''] = match;
+  if (exponentText && unit) return 0;
+  const fraction = fractionOnly ?? fractionAfterWhole ?? '';
+  const exponent = Number(exponentText?.slice(1) ?? 0);
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 400) return 0;
+  let digits = `${whole}${fraction}`.replace(/^0+(?=\d)/, '');
+  const [decimalShift, binaryPower] = factors[unit] ?? [0, 0];
+  if (!factors[unit]) return 0;
+  for (let power = 0; power < binaryPower; power += 1) digits = doubleInteger(digits);
+  const scale = exponent - fraction.length + decimalShift;
+  let decimal: string;
+  if (scale >= 0) {
+    decimal = `${digits}${'0'.repeat(scale)}`;
+  } else {
+    const point = digits.length + scale;
+    decimal =
+      point > 0
+        ? `${digits.slice(0, point)}.${digits.slice(point)}`
+        : `0.${'0'.repeat(-point)}${digits}`;
   }
-  return 0;
+  const result = Number(`${sign === '-' ? '-' : ''}${decimal}`);
+  return Number.isFinite(result) ? result : 0;
+}
+
+function doubleInteger(input: string): string {
+  let carry = 0;
+  let output = '';
+  for (let index = input.length - 1; index >= 0; index -= 1) {
+    const value = Number(input[index]) * 2 + carry;
+    output = `${value % 10}${output}`;
+    carry = Math.floor(value / 10);
+  }
+  return `${carry || ''}${output}`.replace(/^0+(?=\d)/, '');
 }
 
 /**
