@@ -60,6 +60,31 @@ If ARM returns `MissingSubscriptionRegistration`, the suite registers
 `Microsoft.ManagedIdentity` through ARM. This requires provider registration
 permission on the subscription. Resource group cleanup does not undo registration.
 
+Run the managed namespace creation suite with a fresh AKS cluster:
+
+```sh
+AZ_LIVE_TESTS=1 npm --prefix plugins/aks-desktop run test:unit -- az-managed-namespace-create.live.test.ts
+```
+
+The suite calls `createManagedNamespace` with production subscription authentication
+and configured-cloud lookup through `azureLiveAuthBridge`. The bridge permits only
+token acquisition and read-only cloud metadata, not resource CLI commands. Setup,
+independent ARM verification, and cleanup use the real fixture credential.
+Two namespaces verify defaults and explicit network policies, parent-cluster location,
+project labels, annotations, CPU millicores, and memory MiB. Direct Kubernetes reads
+verify namespace creation and labels using ephemeral admin certificates.
+
+It requires AKS creation/admin-credential and managed namespace read/write permissions,
+incurs temporary compute charges, and must only run on Cloud Native Tools. The fixture
+does not enable a network policy engine, so the suite verifies policy configuration,
+not traffic enforcement. Failure, cancellation, timeout, and retry behavior remain
+covered by offline tests. It does not test the project dialog or Arc creation.
+
+Both namespaces use `Keep`; deleting their ARM resources alone would retain their
+Kubernetes namespaces and workloads. The resource-group wrapper deletes the test
+cluster and both run-owned groups, even on test failure. Provider registration is not
+undone by cleanup. No existing clusters or namespaces are modified.
+
 Run the managed namespace deletion suite with a fresh AKS cluster:
 
 ```sh

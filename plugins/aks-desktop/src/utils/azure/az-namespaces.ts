@@ -1,10 +1,29 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0.
-import { debugLog, getErrorMessage, isAzError, needsRelogin, runCommandAsync } from './az-cli-core';
+import { K8S_DNS_LABEL_PATTERN } from '../kubernetes/k8sNames';
+import type { NamespaceTrafficPolicy } from '../kubernetes/namespaceManifest';
+import {
+  debugLog,
+  getErrorMessage,
+  isAzError,
+  isValidGuid,
+  needsRelogin,
+  runCommandAsync,
+} from './az-cli-core';
+import { getAzureCloudEndpoints } from './az-cloud';
+import {
+  type AzRequestOptions,
+  azRequestRaw,
+  AzureRequestError,
+  createAzureRequestSignal,
+  waitForAzureRetry,
+} from './az-http';
+import { type AksClusterReadOptions, getManagedClusterDetails } from './az-managed-clusters';
 import {
   deleteManagedNamespaceViaRest,
   type ManagedNamespaceDeleteOptions,
 } from './az-managed-namespace-delete';
+import { getSubscriptionCredential } from './az-token';
 
 export async function getManagedNamespaces(options: {
   clusterName: string;
@@ -218,364 +237,145 @@ export async function updateManagedNamespace(options: {
   }
 }
 
-export async function checkNamespaceStatus(
-  clusterName: string,
-  resourceGroup: string,
-  namespaceName: string,
-  subscriptionId?: string
-): Promise<{ success: boolean; status?: string; stdout: string; stderr: string; error?: string }> {
-  // Sanitize inputs to prevent JMESPath injection
-  if (!/^[a-zA-Z0-9_-]+$/.test(clusterName)) {
-    return { success: false, stdout: '', stderr: '', error: 'Invalid cluster name format' };
-  }
-  if (!/^[a-zA-Z0-9_-]+$/.test(namespaceName)) {
-    return { success: false, stdout: '', stderr: '', error: 'Invalid namespace name format' };
-  }
-
-  try {
-    const args = [
-      'aks',
-      'namespace',
-      'list',
-      '--cluster-name',
-      clusterName,
-      '--resource-group',
-      resourceGroup,
-      '--query',
-      `[?name=='${namespaceName}']`,
-      '--output',
-      'json',
-    ];
-
-    if (subscriptionId) {
-      args.push('--subscription', subscriptionId);
-    }
-
-    debugLog('[AZ-CLI] Checking namespace status via list command:');
-    debugLog('   Command:', 'az', args.join(' '));
-    debugLog('   Parameters:', { clusterName, resourceGroup, namespaceName, subscriptionId });
-
-    const { stdout, stderr } = await runCommandAsync('az', args);
-
-    debugLog('[AZ-CLI] Command output:');
-    debugLog('      stdout:', stdout);
-    debugLog('      stderr:', stderr);
-
-    if (stderr && needsRelogin(stderr)) {
-      debugLog('[AZ-CLI] Authentication error detected');
-      return {
-        success: false,
-        stdout,
-        stderr,
-        error: 'Authentication required. Please log in to Azure CLI: az login',
-      };
-    }
-
-    if (stderr && isAzError(stderr)) {
-      debugLog('[AZ-CLI] Command error detected');
-      return {
-        success: false,
-        stdout,
-        stderr,
-        error: `Failed to check namespace status: ${stderr}`,
-      };
-    }
-
-    debugLog('[AZ-CLI] Status analysis:');
-
-    // Parse the JSON response
-    try {
-      const result = JSON.parse(stdout || '[]');
-
-      if (!Array.isArray(result) || result.length === 0) {
-        debugLog('      Status: notfound (namespace not found in list)');
-        return {
-          success: true,
-          status: 'notfound',
-          stdout,
-          stderr,
-        };
-      }
-
-      // Get the first matching namespace
-      const namespace = result[0];
-      const status = namespace?.properties?.provisioningState;
-
-      if (!status) {
-        debugLog('      Status: unknown (no provisioningState found)');
-        return {
-          success: true,
-          status: 'unknown',
-          stdout,
-          stderr,
-        };
-      }
-
-      debugLog('      Status:', status);
-      debugLog('      Namespace details:', {
-        name: namespace.name,
-        provisioningState: status,
-        createdAt: namespace.systemData?.createdAt,
-      });
-
-      return {
-        success: true,
-        status,
-        stdout,
-        stderr,
-      };
-    } catch (parseError) {
-      debugLog('[AZ-CLI] Failed to parse JSON response');
-      return {
-        success: false,
-        stdout,
-        stderr,
-        error: `Failed to parse namespace status response: ${parseError}`,
-      };
-    }
-  } catch (error) {
-    const errorMessage = getErrorMessage(error);
-    return {
-      success: false,
-      stdout: '',
-      stderr: '',
-      error: `Failed to check namespace status: ${errorMessage}`,
-    };
-  }
-}
-
-/**
- * @param options - Managed namespace coordinates and optional shared deadline/auth overrides.
- * @returns The REST deletion result after observed completion/absence, preserving
- * Keep/Delete policy. Expected failures resolve with success=false and error;
- * stdout/stderr remain empty for compatibility with existing callers.
- */
+/** Deletes the ARM resource without changing its Keep or Delete policy. */
 export async function deleteManagedNamespace(
   options: ManagedNamespaceDeleteOptions
 ): Promise<{ success: boolean; stdout: string; stderr: string; error?: string }> {
   return deleteManagedNamespaceViaRest(options);
 }
 
-export async function createManagedNamespace(options: {
-  clusterName: string;
-  resourceGroup: string;
-  namespaceName: string;
-  subscriptionId?: string;
-  cpuRequest?: number;
-  cpuLimit?: number;
-  memoryRequest?: number;
-  memoryLimit?: number;
-  ingressPolicy?: string;
-  egressPolicy?: string;
-  labels?: Record<string, string>;
-  annotations?: Record<string, string>;
-}): Promise<{ success: boolean; stdout: string; stderr: string; error?: string }> {
-  const {
-    clusterName,
-    resourceGroup,
-    namespaceName,
-    subscriptionId,
-    cpuRequest,
-    cpuLimit,
-    memoryRequest,
-    memoryLimit,
-    ingressPolicy,
-    egressPolicy,
-    labels = {},
-  } = options;
+type NamespaceOptions = AksClusterReadOptions & { namespaceName: string; cloudName?: string };
+type NamespaceResource = { properties?: { provisioningState?: string } };
 
-  try {
-    // Step 1: Fire the namespace creation command (don't wait for completion)
-    const args = [
-      'aks',
-      'namespace',
-      'add',
-      '--cluster-name',
-      clusterName,
-      '--resource-group',
-      resourceGroup,
-      '--name',
-      namespaceName,
-    ];
-
-    // Add subscription if provided
-    if (subscriptionId) {
-      args.push('--subscription', subscriptionId);
-    }
-
-    // Add resource quotas if specified (convert to proper format)
-    if (cpuRequest !== undefined) {
-      args.push('--cpu-request', `${cpuRequest}m`);
-    }
-    if (cpuLimit !== undefined) {
-      args.push('--cpu-limit', `${cpuLimit}m`);
-    }
-    if (memoryRequest !== undefined) {
-      args.push('--memory-request', `${memoryRequest}Mi`);
-    }
-    if (memoryLimit !== undefined) {
-      args.push('--memory-limit', `${memoryLimit}Mi`);
-    }
-
-    // Add network policies if specified
-    if (ingressPolicy) {
-      args.push('--ingress-policy', ingressPolicy);
-    }
-    if (egressPolicy) {
-      args.push('--egress-policy', egressPolicy);
-    }
-
-    // Add labels if specified
-    if (labels && Object.keys(labels).length > 0) {
-      const labelPairs = Object.entries(labels).map(([key, value]) => `${key}=${value}`);
-      args.push('--labels', ...labelPairs);
-    }
-
-    // Add --no-wait flag to make the command non-blocking
-    args.push('--no-wait');
-
-    args.push('--output', 'json');
-
-    debugLog('[AZ-CLI] Initiating managed namespace creation (non-blocking):');
-    debugLog('   Command:', 'az', args.join(' '));
-    debugLog('   Parameters:', { clusterName, resourceGroup, namespaceName, subscriptionId });
-
-    // Fire the command and don't wait for it to complete
-    const { stdout: initStdout, stderr: initStderr } = await runCommandAsync('az', args);
-
-    debugLog('[AZ-CLI] Initial command output:');
-    debugLog('      stdout:', initStdout);
-    debugLog('      stderr:', initStderr);
-
-    if (initStderr && needsRelogin(initStderr)) {
-      return {
-        success: false,
-        stdout: initStdout,
-        stderr: initStderr,
-        error: 'Authentication required. Please log in to Azure CLI: az login',
-      };
-    }
-
-    if (initStderr && isAzError(initStderr)) {
-      return {
-        success: false,
-        stdout: initStdout,
-        stderr: initStderr,
-        error: `Failed to initiate managed namespace creation: ${initStderr}`,
-      };
-    }
-
-    debugLog('[AZ-CLI] Namespace creation initiated, starting status polling...');
-    debugLog('[AZ-CLI] Waiting 2 seconds for command to initialize...');
-
-    // Give the command a moment to initialize
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Step 2: Poll for completion status
-    const maxAttempts = 60; // 5 minutes with 5-second intervals
-    const pollInterval = 5000; // 5 seconds
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      debugLog(`[AZ-CLI] Polling attempt ${attempt}/${maxAttempts} for namespace status...`);
-      debugLog(`   Target namespace: ${namespaceName}`);
-      debugLog(`   Cluster: ${clusterName} (RG: ${resourceGroup})`);
-
-      const statusResult = await checkNamespaceStatus(
-        clusterName,
-        resourceGroup,
-        namespaceName,
-        subscriptionId
+/** Builds the namespace URL and selects the credential for the ARM request. */
+async function namespaceRequest(options: NamespaceOptions) {
+  const { subscriptionId, resourceGroup, clusterName, namespaceName } = options;
+  if (!isValidGuid(subscriptionId)) {
+    throw new Error('The subscription ID must be a GUID.');
+  }
+  for (const [field, value] of Object.entries({ resourceGroup, clusterName })) {
+    if (!value?.trim() || ['.', '..'].includes(value) || /[/\\]/.test(value)) {
+      throw new Error(
+        `Invalid ${field}: expected a nonempty name without slashes, other than "." or "..".`
       );
-
-      if (!statusResult.success) {
-        return {
-          success: false,
-          stdout: initStdout,
-          stderr: statusResult.stderr,
-          error: statusResult.error || 'Failed to check namespace status',
-        };
-      }
-
-      const status = statusResult.status?.toLowerCase();
-      debugLog(`[AZ-CLI] Namespace status: ${status}`);
-      debugLog(`[AZ-CLI] Status details:`, statusResult);
-
-      if (status === 'succeeded') {
-        debugLog('[AZ-CLI] Namespace created successfully!');
-        return {
-          success: true,
-          stdout: initStdout,
-          stderr: initStderr,
-        };
-      }
-
-      if (status === 'failed' || status === 'error') {
-        debugLog(`[AZ-CLI] Namespace creation failed with status: ${status}`);
-        return {
-          success: false,
-          stdout: initStdout,
-          stderr: initStderr,
-          error: `Namespace creation failed with status: ${status}`,
-        };
-      }
-
-      // If still in progress or not found yet, wait and try again
-      if (
-        status === 'creating' ||
-        status === 'inprogress' ||
-        status === 'updating' ||
-        status === 'notfound'
-      ) {
-        if (attempt < maxAttempts) {
-          debugLog(
-            `[AZ-CLI] Namespace still ${status}, waiting ${pollInterval}ms before next check...`
-          );
-          await new Promise(resolve => setTimeout(resolve, pollInterval));
-          continue;
-        } else {
-          debugLog(
-            `[AZ-CLI] Namespace creation timed out after ${maxAttempts} attempts. Status: ${status}`
-          );
-          return {
-            success: false,
-            stdout: initStdout,
-            stderr: initStderr,
-            error: `Namespace creation timed out after ${maxAttempts} attempts. Status: ${status}`,
-          };
-        }
-      }
-
-      // If we get here, the status is unexpected
-      debugLog(`[AZ-CLI] Unexpected namespace status: ${status}`);
-      if (attempt < maxAttempts) {
-        debugLog(`[AZ-CLI] Waiting ${pollInterval}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
-        continue;
-      } else {
-        debugLog(`[AZ-CLI] Namespace creation timed out with unexpected status: ${status}`);
-        return {
-          success: false,
-          stdout: initStdout,
-          stderr: initStderr,
-          error: `Namespace creation timed out with unexpected status: ${status}`,
-        };
-      }
     }
+  }
+  if (!K8S_DNS_LABEL_PATTERN.test(namespaceName)) {
+    throw new Error('The namespace name must be a Kubernetes DNS label.');
+  }
+  const cloud =
+    !options.credential && (!options.endpoint || !options.scope)
+      ? await getAzureCloudEndpoints(options.cloudName, options.signal)
+      : undefined;
+  return {
+    ...options,
+    endpoint: options.endpoint ?? cloud?.endpoint,
+    scope: options.scope ?? cloud?.scope,
+    credential: options.credential ?? getSubscriptionCredential(subscriptionId),
+    url: `/subscriptions/${subscriptionId}/resourceGroups/${encodeURIComponent(
+      resourceGroup
+    )}/providers/Microsoft.ContainerService/managedClusters/${encodeURIComponent(
+      clusterName
+    )}/managedNamespaces/${encodeURIComponent(namespaceName)}`,
+    apiVersion: '2026-01-01',
+  };
+}
 
-    // This should never be reached, but just in case
-    return {
-      success: false,
-      stdout: initStdout,
-      stderr: initStderr,
-      error: 'Namespace creation polling completed without resolution',
-    };
+/** Returns undefined if Azure cannot find the namespace. Other errors are thrown. */
+async function readNamespace(request: AzRequestOptions) {
+  try {
+    const response = await azRequestRaw<NamespaceResource>(request);
+    if (!response.data?.properties) throw new Error('Missing managed namespace properties');
+    return response;
   } catch (error) {
-    const errorMessage = getErrorMessage(error);
+    if (
+      error instanceof AzureRequestError &&
+      error.status === 404 &&
+      ['NotFound', 'ResourceNotFound', 'NamespaceNotFound'].includes(error.code ?? '')
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/** Returns 'unknown' if the namespace has no provisioning state, or 'notfound' if it does not exist. */
+export async function checkNamespaceStatus(options: NamespaceOptions) {
+  const linked = createAzureRequestSignal(options.signal, options.timeoutMs);
+  try {
+    const request = await namespaceRequest({ ...options, signal: linked.signal });
+    const resource = await readNamespace(request);
+    return resource ? resource.data?.properties?.provisioningState ?? 'unknown' : 'notfound';
+  } finally {
+    linked.dispose();
+  }
+}
+
+/** Sends one create request and waits for Azure to finish creating the namespace. */
+export async function createManagedNamespace(
+  options: NamespaceOptions & {
+    cpuRequest: number;
+    cpuLimit: number;
+    memoryRequest: number;
+    memoryLimit: number;
+    ingressPolicy?: NamespaceTrafficPolicy;
+    egressPolicy?: NamespaceTrafficPolicy;
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+  }
+): Promise<{ success: boolean; stdout: string; stderr: string; error?: string }> {
+  const linked = createAzureRequestSignal(options.signal, options.timeoutMs ?? 5 * 60_000);
+  try {
+    const { cpuRequest, cpuLimit, memoryRequest, memoryLimit } = options;
+    if (
+      ![cpuRequest, cpuLimit, memoryRequest, memoryLimit].every(n => Number.isFinite(n) && n >= 0)
+    ) {
+      throw new Error('CPU and memory requests and limits are required');
+    }
+    const request = await namespaceRequest({ ...options, signal: linked.signal });
+    const { location } = await getManagedClusterDetails(request);
+    if (!location?.trim()) throw new Error('Missing managed AKS cluster location');
+    const created = await azRequestRaw<NamespaceResource>({
+      ...request,
+      method: 'PUT',
+      body: {
+        location,
+        properties: {
+          adoptionPolicy: 'Never',
+          deletePolicy: 'Keep',
+          labels: options.labels ?? {},
+          annotations: options.annotations ?? {},
+          defaultResourceQuota: {
+            cpuRequest: `${cpuRequest}m`,
+            cpuLimit: `${cpuLimit}m`,
+            memoryRequest: `${memoryRequest}Mi`,
+            memoryLimit: `${memoryLimit}Mi`,
+          },
+          defaultNetworkPolicy: {
+            ingress: options.ingressPolicy ?? 'AllowSameNamespace',
+            egress: options.egressPolicy ?? 'AllowAll',
+          },
+        },
+      },
+    });
+    let response: typeof created | undefined = created;
+    for (;;) {
+      const state = response?.data?.properties?.provisioningState?.toLowerCase();
+      if (state === 'succeeded') return { success: true, stdout: '', stderr: '' };
+      if (state && ['failed', 'error', 'canceled', 'cancelled'].includes(state)) {
+        throw new Error(`Namespace provisioning ${state}`);
+      }
+      await waitForAzureRetry(response?.headers, linked.signal);
+      response = await readNamespace(request);
+    }
+  } catch (error) {
     return {
       success: false,
       stdout: '',
       stderr: '',
-      error: `Failed to create managed namespace: ${errorMessage}`,
+      error: `Failed to create managed namespace: ${getErrorMessage(error)}`,
     };
+  } finally {
+    linked.dispose();
   }
 }
