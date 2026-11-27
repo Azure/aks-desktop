@@ -146,7 +146,7 @@ describe('managed namespace REST update', () => {
       const result = updateManagedNamespace(scope);
       await vi.runAllTimersAsync();
       await expect(result).resolves.toEqual(resource());
-      expect(mocks.command).toHaveBeenCalledTimes(7);
+      expect(mocks.command).toHaveBeenCalledTimes(4);
       expect(mocks.subscriptionCredential).toHaveBeenCalledExactlyOnceWith(scope.subscriptionId);
       expect(mocks.token).toHaveBeenCalledTimes(1);
       for (let index = 0; index < 4; index++) {
@@ -180,6 +180,43 @@ describe('managed namespace REST update', () => {
     expect(mocks.token).not.toHaveBeenCalled();
     expect(mocks.fetch).not.toHaveBeenCalled();
   });
+
+  test.each(['preparation', 'write'])(
+    'preserves an account lookup error during %s confirmation',
+    async phase => {
+      let accountReads = 0;
+      mocks.command.mockImplementation(async (_command, args) => {
+        if (args[0] === 'cloud') {
+          return {
+            stdout: JSON.stringify({
+              name: 'AzureCloud',
+              endpoints: {
+                resourceManager: 'https://management.azure.com/',
+                activeDirectoryResourceId: 'https://management.azure.com',
+              },
+            }),
+            stderr: '',
+          };
+        }
+        accountReads += 1;
+        const failedRead = phase === 'preparation' ? 2 : 3;
+        return accountReads === failedRead
+          ? { stdout: '', stderr: 'ERROR: account lookup temporarily unavailable' }
+          : {
+              stdout: JSON.stringify({
+                id: scope.subscriptionId,
+                tenantId: 'target-tenant',
+              }),
+              stderr: '',
+            };
+      });
+      mocks.fetch.mockResolvedValueOnce(json(200, resource()));
+      await expect(updateManagedNamespace(scope)).rejects.toThrow(
+        'account lookup temporarily unavailable'
+      );
+      expect(mocks.fetch).toHaveBeenCalledTimes(phase === 'preparation' ? 0 : 1);
+    }
+  );
 
   test('cancels a pending subscription lookup before requesting a token', async () => {
     const controller = new AbortController();
@@ -332,7 +369,7 @@ describe('managed namespace REST update', () => {
     mocks.fetch.mockResolvedValueOnce(json(200, resource()));
     await getManagedNamespaceDetails({ ...scope, subscriptionId: undefined });
     expect(request(0).url).toContain('/subscriptions/legacy/');
-    expect(mocks.command).toHaveBeenCalledTimes(4);
+    expect(mocks.command).toHaveBeenCalledTimes(3);
     expect(mocks.subscriptionCredential).toHaveBeenCalledWith('legacy');
     expect(mocks.token).toHaveBeenCalledWith(
       ['https://management.azure.com/.default'],
@@ -340,7 +377,7 @@ describe('managed namespace REST update', () => {
     );
   });
 
-  test('aborts if the selected identity changes before HTTP begins', async () => {
+  test('aborts if the selected identity changes before the write begins', async () => {
     mocks.command
       .mockResolvedValueOnce({
         stdout: JSON.stringify({
@@ -376,15 +413,16 @@ describe('managed namespace REST update', () => {
         }),
         stderr: '',
       });
+    mocks.fetch.mockResolvedValueOnce(json(200, resource()));
 
     await expect(updateManagedNamespace(scope)).rejects.toThrow(
       'Azure account changed while the managed namespace operation was running'
     );
     expect(mocks.token).toHaveBeenCalledTimes(1);
-    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
 
-  test('rechecks the identity before each REST request', async () => {
+  test('rechecks the identity before the REST write', async () => {
     let accountReads = 0;
     mocks.command.mockImplementation(async (_command, args) => {
       if (args[0] === 'cloud') {
@@ -413,13 +451,12 @@ describe('managed namespace REST update', () => {
       token: 'target-token',
       expiresOnTimestamp: Date.now() + 3600_000,
     });
-    const result = getManagedNamespaceDetails({
-      ...scope,
-    }).catch(error => error);
+    mocks.fetch.mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope).catch(error => error);
     expect(await result).toMatchObject({
       message: expect.stringContaining('Azure account changed'),
     });
-    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
 
   test('bounds account and cloud context resolution for standalone details reads', async () => {
@@ -483,7 +520,7 @@ describe('managed namespace REST update', () => {
         stdout: JSON.stringify({
           id: scope.subscriptionId,
           tenantId: 'target-tenant',
-          user: { name: `${accountReads >= 7 ? 'second' : 'first'}@example.com` },
+          user: { name: `${accountReads >= 6 ? 'second' : 'first'}@example.com` },
         }),
         stderr: '',
       };
@@ -854,6 +891,20 @@ describe('managed namespace REST update', () => {
     expect(mocks.fetch).toHaveBeenCalledTimes(5);
     expect(request(2).url).toBe(request(3).url);
     expect(request(4).url).toBe(request(0).url);
+  });
+
+  test('revalidates account identity after the bounded verification freshness interval', async () => {
+    mocks.fetch
+      .mockResolvedValueOnce(json(200, resource()))
+      .mockResolvedValueOnce(
+        json(202, undefined, { location: '/operations/op', 'retry-after': '31' })
+      )
+      .mockResolvedValueOnce(json(200, undefined))
+      .mockResolvedValueOnce(json(200, resource()));
+    const result = updateManagedNamespace(scope);
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toEqual(resource());
+    expect(mocks.command).toHaveBeenCalledTimes(5);
   });
 
   test('bounds a transport retry by the outer deadline rather than a fresh per-poll budget', async () => {

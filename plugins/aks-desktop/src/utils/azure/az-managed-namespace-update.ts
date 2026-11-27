@@ -15,6 +15,7 @@ import { getSubscriptionCredential, withAbort } from './az-token';
 const API_VERSION = '2026-01-01';
 const UPDATE_TIMEOUT_MS = 10 * 60 * 1000;
 const MIN_TOKEN_LIFETIME_MS = 60_000;
+const ACCOUNT_VERIFICATION_FRESHNESS_MS = 30_000;
 const WRITABLE_PROPERTIES = [
   'labels',
   'annotations',
@@ -133,6 +134,19 @@ function accountIdentity(account: Awaited<ReturnType<typeof getLoginStatus>>): s
   ]);
 }
 
+function assertExpectedAccount(
+  account: Awaited<ReturnType<typeof getLoginStatus>>,
+  expectedIdentity: string,
+  changedMessage: string
+): void {
+  if (!account.isLoggedIn) {
+    throw new AzureRequestError(account.error ?? 'Unable to verify the selected Azure account');
+  }
+  if (accountIdentity(account) !== expectedIdentity) {
+    throw new AzureRequestError(changedMessage);
+  }
+}
+
 async function resourceContext(options: ManagedNamespaceScope) {
   const names = [options.resourceGroup, options.clusterName, options.namespaceName];
   const isDotSegment = (value: string) => value.trim() === '.' || value.trim() === '..';
@@ -189,11 +203,34 @@ async function resourceContext(options: ManagedNamespaceScope) {
     () => getLoginStatus(options.subscriptionId, options.signal),
     options.signal
   );
-  if (!confirmed.isLoggedIn || accountIdentity(confirmed) !== accountIdentity(account)) {
-    throw new AzureRequestError(
-      'Azure account changed while preparing the managed namespace request'
-    );
-  }
+  const expectedIdentity = accountIdentity(account);
+  assertExpectedAccount(
+    confirmed,
+    expectedIdentity,
+    'Azure account changed while preparing the managed namespace request'
+  );
+  let lastAccountVerification = Date.now();
+  let accountVerification: Promise<void> | undefined;
+  const verifyAccount = async (
+    force: boolean,
+    signal?: AbortSignal,
+    changedMessage = 'Azure account changed while the managed namespace operation was running'
+  ): Promise<void> => {
+    if (!force && Date.now() - lastAccountVerification < ACCOUNT_VERIFICATION_FRESHNESS_MS) return;
+    if (!accountVerification) {
+      const verification = withAbort(
+        () => getLoginStatus(options.subscriptionId, signal),
+        signal
+      ).then(status => {
+        assertExpectedAccount(status, expectedIdentity, changedMessage);
+        lastAccountVerification = Date.now();
+      });
+      accountVerification = verification.finally(() => {
+        accountVerification = undefined;
+      });
+    }
+    await withAbort(() => accountVerification!, signal);
+  };
   const credential = {
     async getToken(scopes: string | string[]) {
       const requested = Array.isArray(scopes) ? scopes : [scopes];
@@ -201,31 +238,13 @@ async function resourceContext(options: ManagedNamespaceScope) {
         throw new AzureRequestError('Managed namespace credential scope changed');
       }
       if (token.expiresOnTimestamp - Date.now() <= MIN_TOKEN_LIFETIME_MS) {
-        const refreshedAccount = await withAbort(
-          () => getLoginStatus(options.subscriptionId, options.signal),
-          options.signal
-        );
-        if (
-          !refreshedAccount.isLoggedIn ||
-          accountIdentity(refreshedAccount) !== accountIdentity(account)
-        ) {
-          throw new AzureRequestError(
-            'Azure account changed while the managed namespace operation was running'
-          );
-        }
+        await verifyAccount(true, options.signal);
         token = await acquireToken();
-        const confirmedRefresh = await withAbort(
-          () => getLoginStatus(options.subscriptionId, options.signal),
-          options.signal
+        await verifyAccount(
+          true,
+          options.signal,
+          'Azure account changed while renewing the managed namespace token'
         );
-        if (
-          !confirmedRefresh.isLoggedIn ||
-          accountIdentity(confirmedRefresh) !== accountIdentity(account)
-        ) {
-          throw new AzureRequestError(
-            'Azure account changed while renewing the managed namespace token'
-          );
-        }
         if (token.expiresOnTimestamp - Date.now() <= MIN_TOKEN_LIFETIME_MS) {
           throw new AzureRequestError(
             'Azure access token could not be renewed for the managed namespace operation'
@@ -242,7 +261,8 @@ async function resourceContext(options: ManagedNamespaceScope) {
     scope: cloud.scope,
     credential,
     subscriptionId: options.subscriptionId,
-    accountIdentity: accountIdentity(account),
+    accountIdentity: expectedIdentity,
+    verifyAccount,
   };
 }
 
@@ -251,14 +271,10 @@ async function request(
   context: Awaited<ReturnType<typeof resourceContext>> &
     Partial<Pick<AzRequestOptions, 'timeoutMs'>>,
   signal?: AbortSignal,
-  extra: Partial<AzRequestOptions> = {}
+  extra: Partial<AzRequestOptions> = {},
+  forceAccountVerification = false
 ) {
-  const account = await withAbort(() => getLoginStatus(context.subscriptionId, signal), signal);
-  if (!account.isLoggedIn || accountIdentity(account) !== context.accountIdentity) {
-    throw new AzureRequestError(
-      'Azure account changed while the managed namespace operation was running'
-    );
-  }
+  await context.verifyAccount(forceAccountVerification, signal);
   return azRequestRaw<unknown>({
     url,
     apiVersion: API_VERSION,
@@ -425,11 +441,17 @@ export async function updateManagedNamespaceResource(
     const initial = await request(url, context, signal);
     const current = validateResource(initial.data);
     const etag = initial.headers.get('etag') ?? current.eTag;
-    let response = await request(url, context, signal, {
-      method: 'PUT',
-      body: updateBody(current, options),
-      ...(etag ? { headers: { 'If-Match': etag } } : {}),
-    });
+    let response = await request(
+      url,
+      context,
+      signal,
+      {
+        method: 'PUT',
+        body: updateBody(current, options),
+        ...(etag ? { headers: { 'If-Match': etag } } : {}),
+      },
+      true
+    );
     if (![200, 201, 202].includes(response.status)) {
       throw operationError('Unexpected managed namespace PUT response', response);
     }
