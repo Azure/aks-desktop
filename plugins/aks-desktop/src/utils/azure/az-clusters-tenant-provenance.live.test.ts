@@ -7,10 +7,11 @@
  * all-subscription cluster discovery keeps every subscription `az aks list` can read.
  * Require a logged-in `az` and AZ_LIVE_TESTS=1. Nothing is created.
  *
- * A single-tenant account covers the account-tenant mapping and the no-skip check. The
- * delegated (Lighthouse) path, where the tenant that lists a subscription differs from its CLI
- * account tenant, is only exercised when the signed-in account has a delegated subscription;
- * otherwise that case reports as skipped.
+ * A single-tenant account covers the account-tenant mapping and the no-skip check. The last
+ * case runs only when a subscription's listing tenant differs from its CLI profile tenant, for
+ * example when the profile tenant's own listing failed. Ordinary accounts don't produce that,
+ * Lighthouse included (az records the listing tenant for delegated subscriptions), so it usually
+ * skips; the unit test covers that branch.
  */
 
 import { spawn } from 'node:child_process';
@@ -160,15 +161,15 @@ describe.runIf(LIVE)('subscription tenant provenance (live, read-only)', () => {
     expect(different.length).toBe(0);
   });
 
-  test('keeps delegated subscriptions listed through another tenant', context => {
-    const delegated = subscriptions.filter(
+  test('keeps subscriptions whose listing tenant differs from the CLI profile tenant', context => {
+    const otherTenant = subscriptions.filter(
       sub => sub.accountTenantId && lower(sub.tenant) !== lower(sub.accountTenantId)
     );
-    if (delegated.length === 0) {
-      context.skip('No delegated subscription in this account; the delegated path did not run.');
+    if (otherTenant.length === 0) {
+      context.skip('No subscription listed through a tenant other than its CLI profile tenant.');
       return;
     }
-    const readable = delegated.filter(sub => azClusters.has(lower(sub.id)!));
+    const readable = otherTenant.filter(sub => azClusters.has(lower(sub.id)!));
     const dropped = readable.filter(
       sub => warned.has(lower(sub.id)!) || !listRequested.has(lower(sub.id)!)
     );
